@@ -1,0 +1,26 @@
+[
+  {
+    "role": "system",
+    "content": "<s>[INST] <<SYS>>\nYou are Devstral, a helpful agentic model trained by Mistral AI.\n<</SYS>>\n"
+  },
+  {
+    "role": "user",
+    "content": "Hello"
+  },
+  {
+    "role": "assistant",
+    "content": "Hello! How can I assist you today?"
+  },
+  {
+    "role": "user",
+    "content": "make a datastructure code challenge"
+  },
+  {
+    "role": "assistant",
+    "content": "agentic model trained by Mistral AI."
+  },
+  {
+    "role": "user",
+    "content": "what?"
+  }
+]

@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo init:*)",
+      "Bash(cargo:*)",
+      "Bash(set CMAKE=\"C:\\Program Files\\CMake\\bin\\cmake.exe\")",
+      "Bash(dir:*)",
+      "Bash(set PATH=%PATH%)",
+      "Bash(\"C:\\Program Files\\CMake\\bin\")",
+      "Bash(PATH=\"$PATH:/c/Program Files/CMake/bin\" cargo build)",
+      "Bash(PATH=\"$PATH:/c/Program Files/CMake/bin\" cargo run)",
+      "WebFetch(domain:docs.rs)",
+      "Bash(./build.cmd)",
+      "Bash(cmd:*)",
+      "Bash(E:repollama_cpp_rs_testbuild.cmd)",
+      "Bash(set \"CMAKE_DIR=E:\\repo\\llama_cpp_rs_test\\src\\libs\\cmake_windows\")",
+      "Bash(set \"PATH=%CMAKE_DIR%;%PATH%\")",
+      "Bash(mkdir:*)",
+      "Bash(where cmake)",
+      "Bash(set CMAKE=\"E:\\repo\\llama_cpp_rs_test\\cmake\\windows\\bin\\cmake.exe\")",
+      "Bash(set CMAKE=E:repollama_cpp_rs_testcmakewindowsbincmake.exe)",
+      "Bash(set PATH=E:repollama_cpp_rs_testcmakewindowsbin)",
+      "Bash(%PATH%)",
+      "Bash(\"E:\\repo\\llama_cpp_rs_test\\cmake\\windows\\bin\\cmake.exe\" --version)",
+      "Bash(export CMAKE=\"E:/repo/llama_cpp_rs_test/cmake/windows/bin/cmake.exe\")",
+      "Bash(export:*)",
+      "Bash(chmod:*)",
+      "Bash(mv:*)",
+      "Bash(\"E:\\repo\\llama_cpp_rs_test\\target\\debug\\run.exe\")",
+      "Bash(rm:*)"
+    ],
+    "deny": []
+  }
+}

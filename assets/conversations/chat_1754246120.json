@@ -1,0 +1,22 @@
+[
+  {
+    "role": "system",
+    "content": "You are a helpful assistant that replies clearly and naturally to user input."
+  },
+  {
+    "role": "user",
+    "content": "hello"
+  },
+  {
+    "role": "assistant",
+    "content": "Hello! How can I assist you today?"
+  },
+  {
+    "role": "user",
+    "content": "what llm model are you?"
+  },
+  {
+    "role": "assistant",
+    "content": "to be honest, I don't know what I am."
+  }
+]
