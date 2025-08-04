@@ -235,12 +235,24 @@ fn main() -> Result<()> {
     // Initialize and run the selected backend
     match backend_type {
         BackendType::LlamaCpp => {
+            println!("🦙 Initializing LLaMA.cpp backend...");
             let backend = LlamaCppBackendImpl::initialize(model_config)?;
             run_chat_with_backend(backend)
         }
         BackendType::Candle => {
-            let backend = CandleBackendImpl::initialize(model_config)?;
-            run_chat_with_backend(backend)
+            println!("🕯️  Initializing Candle backend...");
+            match CandleBackendImpl::initialize(model_config) {
+                Ok(backend) => {
+                    println!("✅ Candle backend initialized successfully");
+                    run_chat_with_backend(backend)
+                }
+                Err(e) => {
+                    eprintln!("❌ Failed to initialize Candle backend: {}", e);
+                    eprintln!("💡 Candle may not support this model format yet.");
+                    eprintln!("   Try using the LLaMA.cpp backend instead (option 1).");
+                    Err(e)
+                }
+            }
         }
     }
 }

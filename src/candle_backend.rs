@@ -144,11 +144,33 @@ impl CandleBackendImpl {
         
         println!("📦 Loading GGUF model from: {:?}", model_path);
         
-        let mut file = std::fs::File::open(model_path)?;
+        println!("🔍 Opening GGUF file...");
+        let mut file = std::fs::File::open(model_path)
+            .with_context(|| format!("Failed to open GGUF file: {:?}", model_path))?;
+            
+        println!("🔍 Reading GGUF content...");
         let content = candle_core::quantized::gguf_file::Content::read(&mut file)
-            .with_context(|| "Failed to read GGUF file")?;
+            .with_context(|| "Failed to read GGUF file - file may be corrupted or incompatible")?;
+            
+        // Log some information about the model
+        if let Some(arch) = content.metadata.get("general.architecture") {
+            println!("📋 Model architecture: {:?}", arch);
+        }
+        if let Some(name) = content.metadata.get("general.name") {
+            println!("📋 Model name: {:?}", name);
+        }
+            
+        println!("🔍 Loading model weights...");
         let model = ModelWeights::from_gguf(content, &mut file, device)
-            .with_context(|| "Failed to load GGUF model")?;
+            .with_context(|| {
+                format!("Failed to load GGUF model - this model format may not be supported by Candle yet.\n\
+                        Common issues:\n\
+                        - Model uses unsupported quantization (try Q4_K_M or Q8_0)\n\
+                        - Model architecture not supported (try Llama/Mistral models)\n\
+                        - File may be corrupted\n\
+                        \n\
+                        💡 Recommendation: Use the LLaMA.cpp backend for better compatibility")
+            })?;
         
         let tokenizer_path = model_path.parent()
             .unwrap_or(model_path)

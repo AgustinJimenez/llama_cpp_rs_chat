@@ -38,6 +38,7 @@ pub struct LlamaCppBackendImpl {
 }
 
 impl LlamaCppBackendImpl {
+    #[allow(dead_code)]
     fn detect_prompt_format(model_path: &str) -> PromptFormat {
         let name = std::path::Path::new(model_path)
             .file_name()

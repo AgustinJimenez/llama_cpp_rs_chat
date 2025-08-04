@@ -25,12 +25,15 @@ pub struct GenerationConfig {
 }
 
 pub struct TokenInfo {
+    #[allow(dead_code)]
     pub token_id: u32,
     pub token_str: String,
 }
 
 pub struct ContextInfo {
+    #[allow(dead_code)]
     pub prompt_tokens: usize,
+    #[allow(dead_code)]
     pub response_tokens: usize,
     pub total_tokens: usize,
     pub context_size: usize,
@@ -57,5 +60,6 @@ pub trait LLMBackend {
     fn backend_name(&self) -> &'static str;
     
     /// Clear any cached state
+    #[allow(dead_code)]
     fn clear_cache(&mut self) -> Result<()>;
 }
