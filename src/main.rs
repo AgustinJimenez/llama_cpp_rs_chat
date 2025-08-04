@@ -430,11 +430,15 @@ fn main() -> Result<()> {
             // Prepare for next token generation
             batch.clear();
             if let Err(e) = batch.add(token, token_pos, &[0], true) {
-                eprintln!("\nError adding token to batch: {}", e);
+                debug_print!("[DEBUG] Error adding token to batch: {}", e);
+                println!("\n\x1B[31m❌ Error: Failed to add token to batch - {}\x1B[0m", e);
+                println!("\x1B[33m💡 This might indicate insufficient KV cache space. Try starting a new conversation.\x1B[0m");
                 break;
             }
             if let Err(e) = ctx.decode(&mut batch) {
-                eprintln!("\nError decoding batch: {}", e);
+                debug_print!("[DEBUG] Error decoding batch: {}", e);
+                println!("\n\x1B[31m❌ Error: Failed to decode batch - {}\x1B[0m", e);
+                println!("\x1B[33m💡 This might indicate insufficient KV cache space. Try starting a new conversation.\x1B[0m");
                 break;
             }
             token_pos += 1;
