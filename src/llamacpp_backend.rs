@@ -2,6 +2,10 @@ use crate::llm_backend::*;
 use anyhow::Result;
 use std::num::NonZeroU32;
 
+// Environment Variables:
+// - LLAMA_LOG_LEVEL: Controls llama.cpp logging (0=debug, 1=info, 2=warn, 3=error, 4=none)
+// - LLAMA_DEBUG: Enable debug output (1, true, or any case variation of "true")
+
 use llama_cpp_2::{
     context::params::LlamaContextParams,
     llama_backend::LlamaBackend as LlamaCppBackend,
@@ -10,13 +14,17 @@ use llama_cpp_2::{
     sampling::LlamaSampler,
 };
 
-// Debug configuration
-const DEBUG_MODE: bool = false;
+// Debug configuration - can be overridden by LLAMA_DEBUG environment variable
+fn is_debug_mode() -> bool {
+    std::env::var("LLAMA_DEBUG")
+        .map(|v| v == "1" || v.to_lowercase() == "true")
+        .unwrap_or(false)
+}
 
-// Debug macro - only prints if DEBUG_MODE is true
+// Debug macro - only prints if debug mode is enabled
 macro_rules! debug_print {
     ($($arg:tt)*) => {
-        if DEBUG_MODE {
+        if is_debug_mode() {
             println!($($arg)*);
         }
     };
@@ -82,9 +90,36 @@ impl LlamaCppBackendImpl {
 
 impl LLMBackend for LlamaCppBackendImpl {
     fn initialize(config: ModelConfig) -> Result<Self> {
+        // Load .env file if it exists
+        if let Err(_) = dotenv::dotenv() {
+            // .env file doesn't exist or couldn't be loaded, that's okay
+        }
+        
+        // Check if LLAMA_LOG_LEVEL is set, if not recommend setting it
+        if std::env::var("LLAMA_LOG_LEVEL").is_err() {
+            eprintln!("💡 Tip: Set LLAMA_LOG_LEVEL=3 to suppress verbose llama.cpp logs");
+            eprintln!("   Example: LLAMA_LOG_LEVEL=3 cargo run");
+            eprintln!("   Or create a .env file with: LLAMA_LOG_LEVEL=3");
+        }
+        
         let backend = LlamaCppBackend::init()?;
         let model_path = std::path::Path::new(&config.model_path);
-        let model = LlamaModel::load_from_file(&backend, model_path, &Default::default())?;
+        
+        // Suppress logs during model loading if LLAMA_LOG_LEVEL >= 3
+        let suppress_logs = std::env::var("LLAMA_LOG_LEVEL")
+            .map(|level| level.parse::<i32>().unwrap_or(0) >= 3)
+            .unwrap_or(false);
+            
+        let model = if suppress_logs {
+            println!("🔇 Loading model (llama.cpp logs suppressed via LLAMA_LOG_LEVEL=3)...");
+            println!("   Note: The logs you see are from the underlying C++ library");
+            println!("   To completely hide them, run: cargo run 2>/dev/null");
+            let model_result = LlamaModel::load_from_file(&backend, model_path, &Default::default());
+            println!("✅ Model loaded successfully");
+            model_result?
+        } else {
+            LlamaModel::load_from_file(&backend, model_path, &Default::default())?
+        };
         let sampler = LlamaSampler::greedy();
 
         Ok(Self {

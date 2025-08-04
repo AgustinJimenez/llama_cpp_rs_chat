@@ -2,7 +2,10 @@
 
 > **⚠️ Development Status**: This project is currently in active development. Features and APIs may change frequently.
 
-An interactive chat application built with Rust that uses the [`llama-cpp-2`](https://crates.io/crates/llama-cpp-2) library to run GGUF-based LLM models locally.
+A high-performance interactive chat application built with Rust that supports multiple LLM backends:
+- **LLaMA.cpp** via [`llama-cpp-2`](https://crates.io/crates/llama-cpp-2) for CPU/GPU inference  
+- **Candle** ML framework for native Rust inference
+- Unified interface supporting GGUF models locally
 
 ## ✨ Features
 
@@ -12,6 +15,9 @@ An interactive chat application built with Rust that uses the [`llama-cpp-2`](ht
 - 💾 **Conversation persistence** - all chats are automatically saved as JSON
 - 🧠 **Multi-format support** - Works with Mistral and Qwen model formats
 - 🖥️ **Clean terminal interface** with automatic screen clearing
+- 🔇 **Configurable logging** - Silent, normal, or debug modes via environment variables
+- ⚙️ **Multiple backends** - Choose between LLaMA.cpp and Candle ML frameworks
+- 🚀 **Easy execution** - Cross-platform run scripts with .env configuration
 
 ## 🛠️ Prerequisites
 
@@ -39,16 +45,34 @@ An interactive chat application built with Rust that uses the [`llama-cpp-2`](ht
 
 ## 🚀 Quick Start
 
+### Option 1: Easy Run Scripts (Recommended)
+
 ```bash
 # Clone the repository
 git clone <your-repo-url>
 cd llama_cpp_rs_chat
 
-# Build and run (debug mode for development)
+# Set up configuration
+cp .env.example .env
+# Edit .env to set RUN_MODE=silent for clean output
+
+# Run with scripts (handles all configuration automatically)
+./run.sh        # Unix/Linux/macOS
+run.bat         # Windows
+```
+
+### Option 2: Direct Cargo
+
+```bash
+# Build and run (with verbose logs)
 cargo run
 
 # Or build and run optimized version
 cargo run --release
+
+# Silent run (suppress llama.cpp logs)
+cargo run 2>/dev/null          # Unix/Linux/macOS
+cargo run 2>nul               # Windows
 ```
 
 ## 📁 Project Structure
@@ -56,11 +80,17 @@ cargo run --release
 ```
 llama_cpp_rs_chat/
 ├── src/
-│   └── main.rs                 # Main chat application
+│   ├── main.rs                # Main chat application
+│   ├── llm_backend.rs         # Backend trait definition
+│   ├── llamacpp_backend.rs    # LLaMA.cpp implementation  
+│   └── candle_backend.rs      # Candle ML implementation
 ├── assets/
 │   ├── model_path.txt         # Stored model path (auto-generated)
 │   └── conversations/         # Saved chat histories
-├── error_log                  # Debug output (when enabled)
+├── run.sh                     # Unix/Linux/macOS run script
+├── run.bat                    # Windows run script
+├── .env.example               # Environment configuration template
+├── SCRIPTS.md                 # Script documentation
 ├── Cargo.toml                 # Rust dependencies
 └── README.md
 ```
@@ -80,6 +110,30 @@ llama_cpp_rs_chat/
 
 ## 🔧 Configuration
 
+### Environment Configuration (.env)
+
+Copy `.env.example` to `.env` and customize:
+
+```env
+# Run mode: normal, silent, debug
+RUN_MODE=silent                # silent = no llama.cpp logs (cleanest)
+
+# Logging levels  
+LLAMA_LOG_LEVEL=3             # 0=debug, 1=info, 2=warn, 3=error, 4=none
+LLAMA_DEBUG=false             # Enable Rust app debug output
+
+# Script behavior
+PAUSE_ON_EXIT=false           # Pause before exit (Windows)
+```
+
+### Run Modes
+
+| Mode | Description | Best For |
+|------|-------------|----------|
+| `silent` | No stderr output | Clean demos, production |
+| `normal` | Balanced logging | Development |
+| `debug` | All logs visible | Troubleshooting |
+
 ### Supported Model Formats
 - **Mistral models**: Uses `<s>[INST]` prompt format
 - **Qwen models**: Uses `<|im_start|>` prompt format
@@ -89,6 +143,10 @@ llama_cpp_rs_chat/
 - Models must be in **GGUF format**
 - Recommended: 4-bit or 8-bit quantized models for better performance
 - Popular sources: [Hugging Face](https://huggingface.co/models?library=gguf)
+
+### Backend Selection
+- **LLaMA.cpp**: Production-ready, GPU accelerated
+- **Candle**: Pure Rust implementation (experimental)
 
 ## 🗂️ Conversation Management
 
@@ -131,14 +189,20 @@ All conversations are automatically saved to `assets/conversations/` as JSON fil
 - Try a more efficient model
 
 ### Debug Mode
-To enable detailed token generation logs, change `DEBUG_MODE` to `true` in `src/main.rs`:
-```rust
-const DEBUG_MODE: bool = true;  // Enable debug output
+
+**Option 1: Using .env (Recommended)**
+```env
+RUN_MODE=debug
 ```
-Then rebuild and run:
+Then run: `./run.sh` or `run.bat`
+
+**Option 2: Environment Variable**
 ```bash
-cargo run --release
+LLAMA_DEBUG=true LLAMA_LOG_LEVEL=0 cargo run
 ```
+
+**Option 3: Direct Code Change**
+Change `DEBUG_MODE` to `true` in `src/llamacpp_backend.rs` and rebuild.
 
 ## 🚀 Performance Tips
 
@@ -146,6 +210,38 @@ cargo run --release
 2. **Adjust context size** based on your needs (smaller = faster)
 3. **Enable GPU acceleration** if available (CUDA/Metal)
 4. **Use SSD storage** for faster model loading
+5. **Run in silent mode** (`RUN_MODE=silent`) for best performance
+6. **Choose optimal backend** - LLaMA.cpp for speed, Candle for pure Rust
+
+## 📚 Documentation
+
+- **[SCRIPTS.md](SCRIPTS.md)** - Detailed script usage and configuration
+- **[.env.example](.env.example)** - All available configuration options
+
+## 🔧 Advanced Usage
+
+### Multiple Configurations
+```bash
+# Development config
+cp .env.example .env.dev
+echo "RUN_MODE=debug" >> .env.dev
+
+# Production config  
+cp .env.example .env.prod
+echo "RUN_MODE=silent" >> .env.prod
+
+# Use specific config
+cp .env.dev .env && ./run.sh
+```
+
+### Override Settings
+```bash
+# Temporary override
+RUN_MODE=debug ./run.sh
+
+# Windows
+set RUN_MODE=debug && run.bat
+```
 
 ## 📝 License
 

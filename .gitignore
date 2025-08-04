@@ -4,3 +4,11 @@ assets/conversations/*
 # Bundled CMake binaries (optional - remove this line if you want to commit them)
 # cmake/
 .claude
+
+# Environment files
+.env
+.env.local
+
+# Log files
+error_log
+*.log
