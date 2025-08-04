@@ -8,17 +8,26 @@ name = "main" # or your main app
 path = "src/main.rs"
 
 [dependencies]
-llama-cpp-2 = "0.1.113"
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-candle-core = "0.8.0"
-candle-nn = "0.8.0"
-candle-transformers = "0.8.0"
-tokenizers = "0.20.0"
-hf-hub = "0.3"
 rand = "0.8"
 dotenv = "0.15"
+
+# LlamaCpp backend dependencies
+llama-cpp-2 = { version = "0.1.113", optional = true }
+
+# Candle backend dependencies  
+candle-core = { version = "0.8.0", optional = true }
+candle-nn = { version = "0.8.0", optional = true }
+candle-transformers = { version = "0.8.0", optional = true }
+tokenizers = { version = "0.20.0", optional = true }
+hf-hub = { version = "0.3", optional = true }
+
+[features]
+default = ["llamacpp"]
+llamacpp = ["llama-cpp-2"]
+candle = ["candle-core", "candle-nn", "candle-transformers", "tokenizers", "hf-hub"]
 
 [build-dependencies]
 cmake = "0.1"

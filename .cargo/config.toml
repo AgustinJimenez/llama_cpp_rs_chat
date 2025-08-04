@@ -1,0 +1,5 @@
+[build]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[env]
+LLAMA_STATIC_CRT = "ON"

@@ -27,7 +27,14 @@
       "Bash(chmod:*)",
       "Bash(mv:*)",
       "Bash(\"E:\\repo\\llama_cpp_rs_test\\target\\debug\\run.exe\")",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(set \"CMAKE=E:\\repo\\llama_cpp_rs_test\\cmake\\windows\\bin\\cmake.exe\")",
+      "Bash(set \"PATH=%PATH%;E:\\repo\\llama_cpp_rs_test\\cmake\\windows\\bin\")",
+      "Bash(set RUSTFLAGS=-Ctarget-feature=+crt-static)",
+      "Bash(set \"CMAKE_DIR=C:\\Program Files\\CMake\\bin\")",
+      "Bash(set RUN_MODE=build)",
+      "Bash(run.bat)",
+      "Bash(set LLAMA_STATIC_CRT=ON)"
     ],
     "deny": []
   }
