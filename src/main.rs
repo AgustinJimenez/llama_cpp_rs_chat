@@ -6,64 +6,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::Result;
 
 mod llm_backend;
-
-#[cfg(feature = "llamacpp")]
 mod llamacpp_backend;
 
-#[cfg(feature = "candle")]
-mod candle_backend;
-
 use llm_backend::*;
-
-#[cfg(feature = "llamacpp")]
 use llamacpp_backend::LlamaCppBackendImpl;
 
-#[cfg(feature = "candle")]
-use candle_backend::CandleBackendImpl;
-
-// Backend selection
-enum BackendType {
-    #[cfg(feature = "llamacpp")]
-    LlamaCpp,
-    #[cfg(feature = "candle")]
-    Candle,
-}
-
-fn select_backend() -> BackendType {
-    #[cfg(all(feature = "llamacpp", feature = "candle"))]
-    {
-        println!("\n🤖 Select LLM Backend:");
-        println!("1. llama-cpp-2 (current implementation)");
-        println!("2. candle (experimental, placeholder)");
-        print!("Choose backend (1-2, default 1): ");
-        io::stdout().flush().unwrap();
-
-        let mut input = String::new();
-        io::stdin().read_line(&mut input).unwrap_or_default();
-        
-        match input.trim() {
-            "2" => {
-                println!("🕯️  Selected: Candle backend");
-                BackendType::Candle
-            }
-            _ => {
-                println!("🦙 Selected: llama-cpp-2 backend");
-                BackendType::LlamaCpp
-            }
-        }
-    }
-
-    #[cfg(all(feature = "llamacpp", not(feature = "candle")))]
-    {
-        println!("🦙 Using llama-cpp-2 backend");
-        BackendType::LlamaCpp
-    }
-
-    #[cfg(all(feature = "candle", not(feature = "llamacpp")))]
-    {
-        println!("🕯️  Using Candle backend");
-        BackendType::Candle
-    }
+fn initialize_backend() -> Result<()> {
+    println!("🦙 Using LLaMA.cpp backend");
+    Ok(())
 }
 
 /// Clear the terminal screen thoroughly
@@ -212,8 +162,8 @@ fn run_chat_with_backend<T: LLMBackend>(mut backend: T) -> Result<()> {
 fn main() -> Result<()> {
     clear_terminal();
     
-    // Select backend
-    let backend_type = select_backend();
+    // Initialize backend
+    initialize_backend()?;
     
     let model_path_file = Path::new("assets/model_path.txt");
     let model_path: String = if model_path_file.exists() {
@@ -257,29 +207,8 @@ fn main() -> Result<()> {
         prompt_format,
     };
 
-    // Initialize and run the selected backend
-    match backend_type {
-        #[cfg(feature = "llamacpp")]
-        BackendType::LlamaCpp => {
-            println!("🦙 Initializing LLaMA.cpp backend...");
-            let backend = LlamaCppBackendImpl::initialize(model_config)?;
-            run_chat_with_backend(backend)
-        }
-        #[cfg(feature = "candle")]
-        BackendType::Candle => {
-            println!("🕯️  Initializing Candle backend...");
-            match CandleBackendImpl::initialize(model_config) {
-                Ok(backend) => {
-                    println!("✅ Candle backend initialized successfully");
-                    run_chat_with_backend(backend)
-                }
-                Err(e) => {
-                    eprintln!("❌ Failed to initialize Candle backend: {}", e);
-                    eprintln!("💡 Candle may not support this model format yet.");
-                    eprintln!("   Try using the LLaMA.cpp backend instead (option 1).");
-                    Err(e)
-                }
-            }
-        }
-    }
+    // Initialize and run LLaMA.cpp backend
+    println!("🦙 Initializing LLaMA.cpp backend...");
+    let backend = LlamaCppBackendImpl::initialize(model_config)?;
+    run_chat_with_backend(backend)
 }
