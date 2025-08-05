@@ -10,9 +10,16 @@ use anyhow::Result;
 
 mod llm_backend;
 mod llamacpp_backend;
+mod ai_operations;
+mod command_executor;
+mod file_manager;
+mod operation_logger;
+mod project_templates;
+mod ai_chat_integration;
 
 use llm_backend::*;
 use llamacpp_backend::LlamaCppBackendImpl;
+use ai_chat_integration::AIOperationsManager;
 
 use wmi::{COMLibrary, WMIConnection};
 
@@ -200,11 +207,47 @@ fn run_chat_with_backend<T: LLMBackend>(mut backend: T) -> Result<()> {
     let mut conversation: Vec<ChatMessage> = Vec::new();
     let convo_id = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
     let convo_path = format!("assets/conversations/chat_{}.json", convo_id);
+    
+    // Initialize AI operations manager
+    let mut ai_ops = match AIOperationsManager::new() {
+        Ok(ops) => Some(ops),
+        Err(e) => {
+            println!("⚠️  Warning: AI operations disabled due to initialization error: {}", e);
+            println!("   Chat will continue without AI command execution capabilities.");
+            None
+        }
+    };
 
     // Add system message based on backend
-    let system_prompt = match backend.backend_name() {
-        "candle" => "You are a helpful AI assistant powered by Candle.",
-        _ => "You are a helpful AI assistant.",
+    let system_prompt = if ai_ops.is_some() {
+        "You are an advanced AI assistant with powerful capabilities. You can:
+
+IMPORTANT: When users ask about files, always check if they exist first using /read-file <path>.
+
+File Operations:
+- /list-dir [path] - List directory contents (use /ls for short)
+- /read-file <path> - Read any file (use this to check file contents)
+- /create-file <path> <content> - Create new files
+- /modify-file <path> <line> <content> - Edit files
+- /delete-file <path> - Delete files
+- /create-dir <path> - Create directories
+
+System Commands:
+- /execute <command> - Run system commands safely
+- /list-templates - Show available project templates
+- /create-project <template> <name> - Generate complete projects
+
+When users ask about files (like TODO.md), ALWAYS:
+1. First use /list-dir to see what files are available
+2. Then use /read-file <filename> to read specific files
+Don't say files don't exist without checking first! Always explore the directory structure.
+
+Use /help to see all available commands."
+    } else {
+        match backend.backend_name() {
+            "candle" => "You are a helpful AI assistant powered by Candle.",
+            _ => "You are a helpful AI assistant.",
+        }
     };
 
     conversation.push(ChatMessage {
@@ -213,7 +256,11 @@ fn run_chat_with_backend<T: LLMBackend>(mut backend: T) -> Result<()> {
     });
     save_conversation(&conversation, &convo_path)?;
 
-    println!("\n\n\x1B[1;33m🚀 Interactive Chat Started\x1B[0m \x1B[90m(type 'exit' to quit)\x1B[0m\n");
+    println!("\n\n\x1B[1;33m🚀 Interactive Chat Started\x1B[0m \x1B[90m(type 'exit' to quit)\x1B[0m");
+    if ai_ops.is_some() {
+        println!("\x1B[1;32m🤖 AI Operations Enabled\x1B[0m \x1B[90m(type '/help' for AI commands)\x1B[0m");
+    }
+    println!();
 
     loop {
         print!("\n\n\x1B[36mYou: \x1B[0m");  // Cyan color for "You:"
@@ -236,7 +283,30 @@ fn run_chat_with_backend<T: LLMBackend>(mut backend: T) -> Result<()> {
                     continue;
                 }
                 
-                // Process the input...
+                // Check if this is an AI operation request
+                let mut ai_response = None;
+                if let Some(ref mut ai_ops_manager) = ai_ops {
+                    if user_input.starts_with('/') {
+                        match ai_ops_manager.process_ai_request(user_input) {
+                            Ok(response) => {
+                                if response != "No AI operation detected in the message." {
+                                    ai_response = Some(response);
+                                }
+                            }
+                            Err(e) => {
+                                ai_response = Some(format!("❌ AI operation error: {}", e));
+                            }
+                        }
+                    }
+                }
+                
+                // If it was an AI operation, display the result and continue
+                if let Some(response) = ai_response {
+                    println!("\n🤖 AI Operation Result: {}", response);
+                    continue;
+                }
+                
+                // Process the input as normal chat...
                 conversation.push(ChatMessage {
                     role: "user".to_string(),
                     content: user_input.to_string(),
