@@ -10,7 +10,7 @@ use llama_cpp_2::{
     context::params::LlamaContextParams,
     llama_backend::LlamaBackend as LlamaCppBackend,
     llama_batch::LlamaBatch,
-    model::{AddBos, LlamaModel, Special},
+    model::{params::LlamaModelParams, AddBos, LlamaModel, Special},
     sampling::LlamaSampler,
 };
 
@@ -111,13 +111,21 @@ impl LLMBackend for LlamaCppBackendImpl {
             .map(|level| level.parse::<i32>().unwrap_or(0) >= 3)
             .unwrap_or(false);
             
+        let model_params = LlamaModelParams::default().with_n_gpu_layers(config.n_gpu_layers);
+
         let model = if suppress_logs {
             println!("🔇 Loading model (llama.cpp logs suppressed via LLAMA_LOG_LEVEL=3)...");
-            let model_result = LlamaModel::load_from_file(&backend, model_path, &Default::default());
+            if config.n_gpu_layers > 0 {
+                println!("⚡ Attempting to offload {} layers to GPU...", config.n_gpu_layers);
+            }
+            let model_result = LlamaModel::load_from_file(&backend, model_path, &model_params);
             println!("✅ Model loaded successfully");
+            if config.n_gpu_layers > 0 {
+                println!("🎯 GPU offloading configured - monitor GPU usage during inference");
+            }
             model_result?
         } else {
-            LlamaModel::load_from_file(&backend, model_path, &Default::default())?
+            LlamaModel::load_from_file(&backend, model_path, &model_params)?
         };
         let sampler = LlamaSampler::greedy();
 

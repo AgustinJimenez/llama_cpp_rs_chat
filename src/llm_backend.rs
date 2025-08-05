@@ -17,6 +17,7 @@ pub struct ModelConfig {
     pub context_size: u32,
     pub model_path: String,
     pub prompt_format: PromptFormat,
+    pub n_gpu_layers: u32,
 }
 
 pub struct GenerationConfig {
