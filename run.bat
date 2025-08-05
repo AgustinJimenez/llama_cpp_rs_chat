@@ -6,8 +6,6 @@ set "PATH=%CMAKE_DIR%;%PATH%"
 echo 🚀 LLM Chat Runner
 
 REM Set defaults
-if not defined LLAMA_LOG_LEVEL set LLAMA_LOG_LEVEL=3
-if not defined LLAMA_DEBUG set LLAMA_DEBUG=false
 if not defined RUN_MODE set RUN_MODE=normal
 if not defined PAUSE_ON_EXIT set PAUSE_ON_EXIT=true
 
@@ -25,15 +23,18 @@ if exist .env (
 REM Display current configuration
 echo 🔧 Configuration:
 echo    RUN_MODE=%RUN_MODE%
-echo    LLAMA_LOG_LEVEL=%LLAMA_LOG_LEVEL%
-echo    LLAMA_DEBUG=%LLAMA_DEBUG%
 
 REM Handle different run modes
-if /i "%RUN_MODE%"=="silent" (
-    echo 🔇 Running in silent mode (stderr suppressed^)...
+if /i "%RUN_MODE%"=="normal" (
+    echo 🚀 Running in normal mode (clean output^)...
     cargo run 2>nul
-) else if /i "%RUN_MODE%"=="debug" (
-    echo 🐛 Running in debug mode (all logs visible^)...
+) else if /i "%RUN_MODE%"=="debug_low" (
+    echo 🐛 Running in debug_low mode (app debug messages^)...
+    set LLAMA_LOG_LEVEL=4
+    set LLAMA_DEBUG=true
+    cargo run
+) else if /i "%RUN_MODE%"=="debug_high" (
+    echo 🔬 Running in debug_high mode (all logs including LLaMA.cpp^)...
     set LLAMA_LOG_LEVEL=0
     set LLAMA_DEBUG=true
     cargo run
@@ -41,8 +42,8 @@ if /i "%RUN_MODE%"=="silent" (
     echo 🔨 Building LLaMA.cpp application...
     cargo build --release
 ) else (
-    echo 🚀 Running in normal mode...
-    cargo run
+    echo ⚠️  Unknown mode "%RUN_MODE%". Using normal mode...
+    cargo run 2>nul
 )
 
 echo ✅ Execution completed

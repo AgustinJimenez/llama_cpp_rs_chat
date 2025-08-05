@@ -113,8 +113,6 @@ impl LLMBackend for LlamaCppBackendImpl {
             
         let model = if suppress_logs {
             println!("🔇 Loading model (llama.cpp logs suppressed via LLAMA_LOG_LEVEL=3)...");
-            println!("   Note: The logs you see are from the underlying C++ library");
-            println!("   To completely hide them, run: cargo run 2>/dev/null");
             let model_result = LlamaModel::load_from_file(&backend, model_path, &Default::default());
             println!("✅ Model loaded successfully");
             model_result?

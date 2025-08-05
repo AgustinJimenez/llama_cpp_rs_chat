@@ -75,7 +75,6 @@ fn run_chat_with_backend<T: LLMBackend>(mut backend: T) -> Result<()> {
     save_conversation(&conversation, &convo_path)?;
 
     println!("\n\n\x1B[1;33m🚀 Interactive Chat Started\x1B[0m \x1B[90m(type 'exit' to quit)\x1B[0m\n");
-    println!("🔧 Backend: {}", backend.backend_name());
 
     loop {
         print!("\n\n\x1B[36mYou: \x1B[0m");  // Cyan color for "You:"
@@ -102,7 +101,7 @@ fn run_chat_with_backend<T: LLMBackend>(mut backend: T) -> Result<()> {
             content: user_input.to_string(),
         });
         save_conversation(&conversation, &convo_path)?;
-
+        
         print!("\n\x1B[32mAssistant: \x1B[0m");  // Green color for "Assistant:"
         io::stdout().flush().unwrap();
 

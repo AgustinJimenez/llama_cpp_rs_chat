@@ -54,7 +54,7 @@ cd llama_cpp_rs_chat
 
 # Set up configuration
 cp .env.example .env
-# Edit .env to set RUN_MODE=silent for clean output
+# Edit .env to set RUN_MODE=normal for clean output
 
 # Run with scripts (handles all configuration automatically)
 ./run.sh        # Unix/Linux/macOS
@@ -115,12 +115,8 @@ llama_cpp_rs_chat/
 Copy `.env.example` to `.env` and customize:
 
 ```env
-# Run mode: normal, silent, debug
-RUN_MODE=silent                # silent = no llama.cpp logs (cleanest)
-
-# Logging levels  
-LLAMA_LOG_LEVEL=3             # 0=debug, 1=info, 2=warn, 3=error, 4=none
-LLAMA_DEBUG=false             # Enable Rust app debug output
+# Run mode: normal, debug_low, debug_high, build
+RUN_MODE=normal               # normal = clean output (no logs)
 
 # Script behavior
 PAUSE_ON_EXIT=false           # Pause before exit (Windows)
@@ -130,9 +126,10 @@ PAUSE_ON_EXIT=false           # Pause before exit (Windows)
 
 | Mode | Description | Best For |
 |------|-------------|----------|
-| `silent` | No stderr output | Clean demos, production |
-| `normal` | Balanced logging | Development |
-| `debug` | All logs visible | Troubleshooting |
+| `normal` | Clean output (no logs) | Clean demos, production |
+| `debug_low` | App debug messages only | Development, app troubleshooting |
+| `debug_high` | All logs including LLaMA.cpp | Deep troubleshooting, debugging |
+| `build` | Build only (no execution) | CI/CD, compilation testing |
 
 ### Supported Model Formats
 - **Mistral models**: Uses `<s>[INST]` prompt format
@@ -192,17 +189,18 @@ All conversations are automatically saved to `assets/conversations/` as JSON fil
 
 **Option 1: Using .env (Recommended)**
 ```env
-RUN_MODE=debug
+RUN_MODE=debug_high
 ```
 Then run: `./run.sh` or `run.bat`
 
-**Option 2: Environment Variable**
+**Option 2: Temporary Override**
 ```bash
-LLAMA_DEBUG=true LLAMA_LOG_LEVEL=0 cargo run
-```
+# Unix/Linux/macOS
+RUN_MODE=debug_high ./run.sh
 
-**Option 3: Direct Code Change**
-Change `DEBUG_MODE` to `true` in `src/llamacpp_backend.rs` and rebuild.
+# Windows
+set RUN_MODE=debug_high && run.bat
+```
 
 ## 🚀 Performance Tips
 
@@ -210,7 +208,7 @@ Change `DEBUG_MODE` to `true` in `src/llamacpp_backend.rs` and rebuild.
 2. **Adjust context size** based on your needs (smaller = faster)
 3. **Enable GPU acceleration** if available (CUDA/Metal)
 4. **Use SSD storage** for faster model loading
-5. **Run in silent mode** (`RUN_MODE=silent`) for best performance
+5. **Run in normal mode** (`RUN_MODE=normal`) for best performance
 6. **Choose optimal backend** - LLaMA.cpp for speed, Candle for pure Rust
 
 ## 📚 Documentation
@@ -224,11 +222,11 @@ Change `DEBUG_MODE` to `true` in `src/llamacpp_backend.rs` and rebuild.
 ```bash
 # Development config
 cp .env.example .env.dev
-echo "RUN_MODE=debug" >> .env.dev
+echo "RUN_MODE=debug_low" >> .env.dev
 
 # Production config  
 cp .env.example .env.prod
-echo "RUN_MODE=silent" >> .env.prod
+echo "RUN_MODE=normal" >> .env.prod
 
 # Use specific config
 cp .env.dev .env && ./run.sh
@@ -237,10 +235,10 @@ cp .env.dev .env && ./run.sh
 ### Override Settings
 ```bash
 # Temporary override
-RUN_MODE=debug ./run.sh
+RUN_MODE=debug_high ./run.sh
 
 # Windows
-set RUN_MODE=debug && run.bat
+set RUN_MODE=debug_high && run.bat
 ```
 
 ## 📝 License
