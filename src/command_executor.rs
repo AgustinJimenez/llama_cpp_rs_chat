@@ -44,6 +44,10 @@ impl SystemCommandExecutor {
 
 impl CommandExecutor for SystemCommandExecutor {
     fn execute(&self, request: CommandRequest) -> Result<CommandResponse> {
+        println!("🔧 SystemCommandExecutor::execute called");
+        println!("🔧 Request command: '{}'", request.command);
+        println!("🔧 Request args: {:?}", request.args);
+        
         let mut cmd;
         let full_command = if request.args.is_empty() {
             request.command.clone()
@@ -51,25 +55,37 @@ impl CommandExecutor for SystemCommandExecutor {
             format!("{} {}", request.command, request.args.join(" "))
         };
 
+        println!("🔧 Full command after processing: '{}'", full_command);
+
         if cfg!(target_os = "windows") {
+            println!("🔧 Windows detected, using cmd /C");
             cmd = Command::new("cmd");
             cmd.args(&["/C", &full_command]);
+            println!("🔧 Command constructed: cmd /C \"{}\"", full_command);
         } else {
             // For Unix systems, use sh to handle command chaining
+            println!("🔧 Unix system detected, using sh -c");
             cmd = Command::new("sh");
             cmd.args(&["-c", &full_command]);
+            println!("🔧 Command constructed: sh -c \"{}\"", full_command);
         }
 
         if let Some(ref working_dir) = request.working_dir {
+            println!("🔧 Setting working directory: {:?}", working_dir);
             cmd.current_dir(working_dir);
         }
 
         for (key, value) in &request.environment {
+            println!("🔧 Setting environment variable: {}={}", key, value);
             cmd.env(key, value);
         }
 
         let timeout = Duration::from_millis(request.timeout_ms.unwrap_or(300_000));
+        println!("🔧 Using timeout: {:?}", timeout);
 
-        self.execute_with_timeout(cmd, timeout)
+        println!("🔧 About to call execute_with_timeout...");
+        let result = self.execute_with_timeout(cmd, timeout);
+        println!("🔧 execute_with_timeout returned: {:?}", result.is_ok());
+        result
     }
 }
