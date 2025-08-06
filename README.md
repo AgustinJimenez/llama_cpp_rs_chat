@@ -1,23 +1,43 @@
-# 🦙 Llama CPP Rust Chat
+# 🦙 AI Command-Line Assistant
 
-> **⚠️ Development Status**: This project is currently in active development. Features and APIs may change frequently.
+> **🚀 Core Vision**: An AI assistant with **FULL COMMAND-LINE ACCESS** that can manage your system, create projects dynamically, and browse the web.
 
-A high-performance interactive chat application built with Rust that supports multiple LLM backends:
-- **LLaMA.cpp** via [`llama-cpp-2`](https://crates.io/crates/llama-cpp-2) for CPU/GPU inference  
-- **Candle** ML framework for native Rust inference
-- Unified interface supporting GGUF models locally
+A powerful interactive AI chat application built with Rust that gives the LLM complete access to:
+- **🖥️ Command Line**: Execute any system command (mkdir, git, npm, curl, etc.)
+- **📁 File System**: Create, read, edit files and directories dynamically  
+- **🌐 Web Access**: Fetch information, APIs, documentation from the internet
+- **🛠️ Project Creation**: Build entire projects from scratch using command-line tools
 
-## ✨ Features
+## ✨ Key Capabilities
 
-- 🎨 **Colorized chat interface** with cyan user prompts and green assistant responses
-- 📊 **Real-time context tracking** with color-coded usage indicators
-- 🛡️ **Smart stop token filtering** prevents model artifacts from appearing in chat
-- 💾 **Conversation persistence** - all chats are automatically saved as JSON
-- 🧠 **Multi-format support** - Works with Mistral and Qwen model formats
-- 🖥️ **Clean terminal interface** with automatic screen clearing
-- 🔇 **Configurable logging** - Silent, normal, or debug modes via environment variables
-- ⚙️ **Multiple backends** - Choose between LLaMA.cpp and Candle ML frameworks
-- 🚀 **Easy execution** - Cross-platform run scripts with .env configuration
+### 🖥️ **Full Command-Line Access**
+- Execute any system command through `!CMD!` syntax
+- Chain commands with `&&`, `||`, `|` operators  
+- File operations: `mkdir`, `echo`, `cp`, `mv`, `rm`
+- Development tools: `git`, `npm`, `cargo`, `pip`, `docker`
+- System tools: `ps`, `netstat`, `curl`, `wget`
+
+### 🚀 **Dynamic Project Creation**
+Instead of static templates, the AI creates projects intelligently:
+```
+User: "Create a Python FastAPI project with Docker"
+AI: !CMD!mkdir my-api && cd my-api
+    !CMD!echo "from fastapi import FastAPI..." > main.py
+    !CMD!curl -s https://fastapi.tiangolo.com/tutorial/ | findstr requirements
+    !CMD!echo "FROM python:3.11..." > Dockerfile
+    !CMD!git init && git add .
+```
+
+### 🌐 **Web Information Access**  
+- Fetch latest documentation: `curl -s https://docs.python.org/...`
+- Check API endpoints: `curl -H "Accept: application/json" https://api.github.com/...`
+- Download resources: `wget https://example.com/file.zip`
+
+### 📁 **Intelligent File Management**
+- Read any file: `findstr . filename.txt` / `cat filename.txt`
+- Create complex directory structures dynamically
+- Generate configuration files based on current best practices
+- Backup and restore operations
 
 ## 🛠️ Prerequisites
 

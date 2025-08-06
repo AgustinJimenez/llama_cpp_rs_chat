@@ -11,8 +11,6 @@ mod llm_backend;
 mod llamacpp_backend;
 mod ai_operations;
 mod command_executor;
-mod ai_chat_integration;
-mod debug_logger;
 
 use llm_backend::*;
 use llamacpp_backend::LlamaCppBackendImpl;
@@ -196,14 +194,62 @@ fn run_chat_with_backend<T: LLMBackend>(mut backend: T) -> Result<()> {
     let convo_path = format!("assets/conversations/chat_{}.json", convo_id);
     let command_executor = SystemCommandExecutor::new();
 
-    let system_prompt = 
-        "You are a helpful AI assistant with the ability to execute shell commands. "
-        .to_string() +
-        "To execute a command, wrap it in `!CMD!` tags. For example: `!CMD!ls -l`. " +
-        "The command will be executed and the output will be provided to you. " +
-        &format!("You are running on a {} operating system. The current working directory is {}.",
-        std::env::consts::OS,
-        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")).display());
+    let current_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let os_name = std::env::consts::OS;
+    
+    let (command_examples, path_format) = match os_name {
+        "windows" => (
+            "Examples: `!CMD!dir` (list), `!CMD!mkdir myproject` (create dir), `!CMD!echo print('hello') > main.py` (create file), `!CMD!curl -s https://api.github.com/repos/microsoft/vscode` (web fetch), `!CMD!findstr . filename.txt` (read file), `!CMD!git init` (initialize repo). Use '&&' to chain commands: `!CMD!mkdir api && cd api && echo code > app.py`",
+            "Use Windows paths like C:\\path\\to\\file or relative paths like .\\src\\main.rs"
+        ),
+        "linux" | "macos" => (
+            "Examples: `!CMD!ls -la` (list files), `!CMD!cat filename.txt` (read file), `!CMD!cd subfolder` (change directory)", 
+            "Use Unix paths like /path/to/file or relative paths like ./src/main.rs"
+        ),
+        _ => (
+            "Examples: `!CMD!ls -la` or `!CMD!dir` (list files), depending on your system",
+            "Use appropriate path format for your operating system"
+        )
+    };
+
+    let system_prompt = format!(
+        "You are an advanced AI assistant with FULL COMMAND-LINE ACCESS to the local system. \
+         You can execute any command by wrapping it in `!CMD!` tags. {} \
+         \
+         🚀 CORE CAPABILITIES: \
+         • COMMAND LINE: Execute any system command to manage files, folders, processes \
+         • FILE OPERATIONS: Create, read, edit, delete files and directories \
+         • PROJECT CREATION: Build entire projects from scratch using command-line tools \
+         • SYSTEM NAVIGATION: Browse directories, search files, check system info \
+         • DEVELOPMENT TOOLS: Run git, npm, cargo, pip, compilers, and any installed tools \
+         • WEB ACCESS: Use curl, wget to fetch information from the internet \
+         \
+         💡 DYNAMIC PROJECT CREATION: \
+         Instead of using templates, create projects intelligently: \
+         - Ask user what they want to build \
+         - Use mkdir, echo, curl to create structure dynamically \
+         - Fetch latest docs/examples from web when needed \
+         - Initialize with proper tools (git init, npm init, etc.) \
+         - Set up configuration files based on current best practices \
+         \
+         SYSTEM INFO: \
+         - Operating System: {} \
+         - Current working directory: {} \
+         - {} \
+         \
+         Examples of dynamic project creation: \
+         • Python API: mkdir api && echo 'from flask import Flask...' > api/app.py \
+         • React App: curl -s https://create-react-app.dev/docs/getting-started/ | findstr commands \
+         • Rust CLI: mkdir my-tool && echo '[package]...' > my-tool/Cargo.toml \
+         \
+         Always use commands appropriate for the {} operating system. \
+         Be creative and use your knowledge to build exactly what the user needs!",
+        command_examples,
+        os_name,
+        current_dir.display(),
+        path_format,
+        os_name
+    );
 
     conversation.push(ChatMessage {
         role: "system".to_string(),
@@ -270,47 +316,109 @@ fn run_chat_with_backend<T: LLMBackend>(mut backend: T) -> Result<()> {
         });
 
         if response.contains("!CMD!") {
-            let command_to_execute = response.split("!CMD!").collect::<Vec<&str>>()[1];
-            let parts: Vec<&str> = command_to_execute.split_whitespace().collect();
-            let command = parts[0].to_string();
-            let args = parts[1..].iter().map(|s| s.to_string()).collect();
+            // Extract command between !CMD! tags more reliably
+            if let Some(start) = response.find("!CMD!") {
+                let after_start = &response[start + 5..]; // Skip "!CMD!"
+                let command_to_execute = if let Some(end) = after_start.find("!CMD!") {
+                    &after_start[..end]
+                } else {
+                    // Find end of line if no closing tag, also handle markdown artifacts
+                    let first_line = after_start.lines().next().unwrap_or(after_start);
+                    // Remove any trailing markdown like ``` or code block artifacts
+                    first_line.split("```").next().unwrap_or(first_line)
+                }.trim();
+                
+                println!("🤖 Executing command: '{}'", command_to_execute);
+                
+                // Handle full command line (including chained commands with &&, ||, |)
+                if !command_to_execute.is_empty() {
+                    let request = CommandRequest {
+                        command: command_to_execute.to_string(),
+                        args: vec![], // Full command is in the command field for better handling
+                        working_dir: Some(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))),
+                        timeout_ms: Some(60000), // Increased to 60 seconds for complex commands
+                        environment: std::collections::HashMap::new(),
+                    };
 
-            let request = CommandRequest {
-                command,
-                args,
-                working_dir: None,
-                timeout_ms: None,
-                environment: std::collections::HashMap::new(),
-            };
+                    match command_executor.execute(request) {
+                        Ok(result) => {
+                            println!("✅ Command executed, success: {}, exit_code: {}", result.success, result.exit_code);
+                            
+                            let output = if result.success {
+                                if result.output.is_empty() {
+                                    "[Command executed successfully but produced no output]".to_string()
+                                } else {
+                                    // Truncate very long output to prevent issues
+                                    if result.output.len() > 10000 {
+                                        format!("{}... [truncated - {} chars total]", &result.output[..10000], result.output.len())
+                                    } else {
+                                        result.output
+                                    }
+                                }
+                            } else {
+                                format!("Error (exit code {}): {}", result.exit_code, 
+                                       if result.error.is_empty() { "Command failed with no error message" } else { &result.error })
+                            };
 
-            let result = command_executor.execute(request)?;
-            let output = if result.success {
-                result.output
-            } else {
-                result.error
-            };
+                            conversation.push(ChatMessage {
+                                role: "system".to_string(),
+                                content: format!("Command output:\n```\n{}\n```", output),
+                            });
+                        }
+                        Err(e) => {
+                            println!("❌ Command execution error: {}", e);
+                            conversation.push(ChatMessage {
+                                role: "system".to_string(),
+                                content: format!("Command execution failed: {}", e),
+                            });
+                        }
+                    }
+                } else {
+                    conversation.push(ChatMessage {
+                        role: "system".to_string(),
+                        content: "Error: No command found after !CMD! tag".to_string(),
+                    });
+                }
+            }
 
+            // Save conversation after command execution but before continuation
+            save_conversation(&conversation, &convo_path)?;
+
+            // Instead of asking for continuation, ask for analysis explicitly
+            println!("🔄 Asking AI to analyze the command results...");
+            
             conversation.push(ChatMessage {
-                role: "system".to_string(),
-                content: format!("Command output:\n```\n{}\n```", output),
+                role: "user".to_string(),
+                content: "Based on the command output above, please analyze what this project is about and provide a comprehensive explanation.".to_string(),
             });
-
-            // Let the assistant continue after the command execution
+            
             print!("\n\x1B[32mAssistant: \x1B[0m");
             io::stdout().flush().unwrap();
-            let continuation_response = backend.generate_response(
+            
+            match backend.generate_response(
                 &conversation,
-                gen_config,
+                gen_config.clone(),
                 Box::new(move |token_info| {
                     print!("{}", token_info.token_str);
                     io::stdout().flush().unwrap();
                     true
                 }),
-            )?;
-            conversation.push(ChatMessage {
-                role: "assistant".to_string(),
-                content: continuation_response.trim().to_string(),
-            });
+            ) {
+                Ok(analysis_response) => {
+                    if !analysis_response.trim().is_empty() {
+                        conversation.push(ChatMessage {
+                            role: "assistant".to_string(),
+                            content: analysis_response.trim().to_string(),
+                        });
+                    } else {
+                        println!("\n[AI provided no analysis]");
+                    }
+                }
+                Err(e) => {
+                    println!("\n❌ Failed to generate analysis response: {}", e);
+                    // Don't add error message to conversation, just continue
+                }
+            }
         }
 
 

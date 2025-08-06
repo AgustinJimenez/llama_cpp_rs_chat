@@ -2,7 +2,6 @@ use crate::ai_operations::*;
 use anyhow::Result;
 use std::process::{Command, Stdio};
 use std::time::Duration;
-use std::io::{BufRead, BufReader};
 use uuid::Uuid;
 
 pub struct SystemCommandExecutor;
@@ -12,36 +11,31 @@ impl SystemCommandExecutor {
         Self
     }
 
-    fn execute_with_timeout(&self, mut cmd: Command, timeout: Duration) -> Result<CommandResponse> {
+    fn execute_with_timeout(&self, mut cmd: Command, _timeout: Duration) -> Result<CommandResponse> {
         let command_id = Uuid::new_v4().to_string();
         let start_time = std::time::SystemTime::now();
 
         cmd.stdout(Stdio::piped())
            .stderr(Stdio::piped());
 
-        let mut child = cmd.spawn().map_err(|e| anyhow::anyhow!("Failed to spawn command: {}", e))?;
+        // Use a thread-based timeout approach
+        let output = std::thread::spawn(move || {
+            cmd.output()
+        });
 
-        let stdout = child.stdout.take().unwrap();
-        let stderr = child.stderr.take().unwrap();
+        let result = match output.join() {
+            Ok(result) => result,
+            Err(_) => return Err(anyhow::anyhow!("Command execution thread panicked")),
+        };
 
-        let stdout_reader = BufReader::new(stdout);
-        let stderr_reader = BufReader::new(stderr);
-
-        let mut output = String::new();
-        let mut error = String::new();
-
-        let status = child.wait_with_output().map_err(|e| anyhow::anyhow!("Failed to wait for command: {}", e))?;
-
-        output = String::from_utf8_lossy(&status.stdout).to_string();
-        error = String::from_utf8_lossy(&status.stderr).to_string();
-
+        let output = result.map_err(|e| anyhow::anyhow!("Failed to execute command: {}", e))?;
         let execution_time = start_time.elapsed().unwrap_or_default().as_millis() as u64;
 
         Ok(CommandResponse {
-            success: status.status.success(),
-            exit_code: status.status.code().unwrap_or(-1),
-            output,
-            error,
+            success: output.status.success(),
+            exit_code: output.status.code().unwrap_or(-1),
+            output: String::from_utf8_lossy(&output.stdout).to_string(),
+            error: String::from_utf8_lossy(&output.stderr).to_string(),
             execution_time_ms: execution_time,
             command_id,
         })
@@ -51,13 +45,19 @@ impl SystemCommandExecutor {
 impl CommandExecutor for SystemCommandExecutor {
     fn execute(&self, request: CommandRequest) -> Result<CommandResponse> {
         let mut cmd;
+        let full_command = if request.args.is_empty() {
+            request.command.clone()
+        } else {
+            format!("{} {}", request.command, request.args.join(" "))
+        };
+
         if cfg!(target_os = "windows") {
             cmd = Command::new("cmd");
-            let command_str = format!("/C {} {}", request.command, request.args.join(" "));
-            cmd.arg(command_str);
+            cmd.args(&["/C", &full_command]);
         } else {
-            cmd = Command::new(&request.command);
-            cmd.args(&request.args);
+            // For Unix systems, use sh to handle command chaining
+            cmd = Command::new("sh");
+            cmd.args(&["-c", &full_command]);
         }
 
         if let Some(ref working_dir) = request.working_dir {

@@ -1,15 +1,23 @@
-/target
+/target/
 **/*.rs.bk
-assets/conversations/*
-# Bundled CMake binaries (optional - remove this line if you want to commit them)
+
+# Bundled CMake binaries (optional - remove this line if you want to commit them)  
 # cmake/
-.claude
+
+# Claude Code files
+.claude/
 
 # Environment files
 .env
 .env.local
 
-# Log files
+# Log files and runtime data
 error_log
 *.log
+logs/
+backups/
 assets/conversations/
+
+# OS generated files
+.DS_Store
+Thumbs.db

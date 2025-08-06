@@ -160,8 +160,12 @@ impl LLMBackend for LlamaCppBackendImpl {
                     tokens.len(), tokens.len(), self.config.context_size, 
                     self.config.context_size as usize - tokens.len());
 
-        // Prepare batch
-        let mut batch = LlamaBatch::new(1024, 1);
+        // Prepare batch with dynamic size based on available context
+        let available_tokens = (self.config.context_size as usize).saturating_sub(tokens.len());
+        let batch_size = std::cmp::min(1024, std::cmp::max(512, available_tokens));
+        debug_print!("[DEBUG] Creating batch with size: {} (available tokens: {})", batch_size, available_tokens);
+        
+        let mut batch = LlamaBatch::new(batch_size, 1);
         for (i, &token) in tokens.iter().enumerate() {
             let is_last = i == tokens.len() - 1;
             batch.add(token, i as i32, &[0], is_last)?;
