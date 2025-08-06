@@ -162,10 +162,12 @@ impl LLMBackend for LlamaCppBackendImpl {
 
         // Prepare batch with dynamic size based on available context
         let available_tokens = (self.config.context_size as usize).saturating_sub(tokens.len());
-        let batch_size = std::cmp::min(1024, std::cmp::max(512, available_tokens));
+        let batch_size = std::cmp::min(1024, std::cmp::max(256, available_tokens));
         debug_print!("[DEBUG] Creating batch with size: {} (available tokens: {})", batch_size, available_tokens);
+        println!("🔧 BATCH DEBUG: Creating batch size {} for {} available tokens", batch_size, available_tokens);
         
         let mut batch = LlamaBatch::new(batch_size, 1);
+        println!("🔧 BATCH DEBUG: Successfully created batch");
         for (i, &token) in tokens.iter().enumerate() {
             let is_last = i == tokens.len() - 1;
             batch.add(token, i as i32, &[0], is_last)?;
@@ -207,6 +209,12 @@ impl LLMBackend for LlamaCppBackendImpl {
                 debug_print!("[DEBUG] Hit max token limit ({}), stopping generation", max_tokens);
                 break;
             }
+            
+            // Hard limit on response length to prevent runaway generation
+            if response.len() > 10000 { // 10KB response limit
+                debug_print!("[DEBUG] Hit response length limit (10KB), stopping generation");
+                break;
+            }
 
             // Sample next token
             debug_print!("[DEBUG] About to sample token");
@@ -224,13 +232,33 @@ impl LLMBackend for LlamaCppBackendImpl {
                 recent_tokens.remove(0);
             }
 
-            // Check for repetitive patterns
+            // Enhanced repetitive pattern detection
             if recent_tokens.len() >= 5 {
                 let last_token = recent_tokens[recent_tokens.len() - 1];
                 let is_repeating = recent_tokens.iter().rev().take(5).all(|&t| t == last_token);
                 if is_repeating {
-                    debug_print!("[DEBUG] Detected repetitive pattern, stopping generation");
+                    debug_print!("[DEBUG] Detected token repetition, stopping generation");
                     break;
+                }
+            }
+            
+            // Check for text pattern repetition in the actual response
+            if response.len() > 200 && token_count % 50 == 0 { // Check every 50 tokens after 200 chars
+                let response_lines: Vec<&str> = response.lines().collect();
+                if response_lines.len() >= 3 {
+                    let last_line = response_lines.last().unwrap_or(&"");
+                    let second_last = response_lines.get(response_lines.len().saturating_sub(2)).unwrap_or(&"");
+                    let third_last = response_lines.get(response_lines.len().saturating_sub(3)).unwrap_or(&"");
+                    
+                    // If last 3 lines are very similar, it's probably stuck
+                    if last_line.len() > 20 && 
+                       last_line.contains("!CMD!") && 
+                       second_last.contains("!CMD!") &&
+                       third_last.contains("!CMD!") &&
+                       last_line.trim() == second_last.trim() {
+                        debug_print!("[DEBUG] Detected command repetition in text, stopping generation");
+                        break;
+                    }
                 }
             }
 

@@ -199,7 +199,7 @@ fn run_chat_with_backend<T: LLMBackend>(mut backend: T) -> Result<()> {
     
     let (command_examples, path_format) = match os_name {
         "windows" => (
-            "Examples: `!CMD!dir` (list), `!CMD!mkdir myproject` (create dir), `!CMD!echo print('hello') > main.py` (create file), `!CMD!curl -s https://api.github.com/repos/microsoft/vscode` (web fetch), `!CMD!findstr . filename.txt` (read file), `!CMD!git init` (initialize repo). Use '&&' to chain commands: `!CMD!mkdir api && cd api && echo code > app.py`",
+            "Examples: `!CMD!dir` (list), `!CMD!mkdir myproject` (create dir), `!CMD!echo print('hello') > main.py` (create file), `!CMD!curl -s https://api.github.com/repos/microsoft/vscode` (web fetch), `!CMD!findstr . filename.txt` (read file), `!CMD!git init` (initialize repo). Use '&&' to chain commands: `!CMD!mkdir api && cd api && echo code > app.py`. IMPORTANT: Use only 1-3 commands per response to avoid repetition.",
             "Use Windows paths like C:\\path\\to\\file or relative paths like .\\src\\main.rs"
         ),
         "linux" | "macos" => (
@@ -243,6 +243,15 @@ fn run_chat_with_backend<T: LLMBackend>(mut backend: T) -> Result<()> {
          • Rust CLI: mkdir my-tool && echo '[package]...' > my-tool/Cargo.toml \
          \
          Always use commands appropriate for the {} operating system. \
+         \
+         ⚠️ IMPORTANT GUIDELINES: \
+         • ALWAYS provide explanation before and after commands \
+         • Use only 1-3 commands per response \
+         • Don't repeat the same command multiple times \
+         • If a command fails, try a different approach \
+         • Focus on the most essential information first \
+         • After commands execute, you'll continue with analysis \
+         \
          Be creative and use your knowledge to build exactly what the user needs!",
         command_examples,
         os_name,
@@ -316,6 +325,7 @@ fn run_chat_with_backend<T: LLMBackend>(mut backend: T) -> Result<()> {
         });
 
         if response.contains("!CMD!") {
+            println!("🔍 Detected commands in AI response, starting execution phase...");
             // Extract command between !CMD! tags more reliably
             if let Some(start) = response.find("!CMD!") {
                 let after_start = &response[start + 5..]; // Skip "!CMD!"
@@ -324,8 +334,11 @@ fn run_chat_with_backend<T: LLMBackend>(mut backend: T) -> Result<()> {
                 } else {
                     // Find end of line if no closing tag, also handle markdown artifacts
                     let first_line = after_start.lines().next().unwrap_or(after_start);
-                    // Remove any trailing markdown like ``` or code block artifacts
-                    first_line.split("```").next().unwrap_or(first_line)
+                    // Remove any trailing markdown like ``` or backticks
+                    first_line.split("```").next()
+                             .unwrap_or(first_line)
+                             .split('`').next()
+                             .unwrap_or(first_line)
                 }.trim();
                 
                 println!("🤖 Executing command: '{}'", command_to_execute);
@@ -381,42 +394,40 @@ fn run_chat_with_backend<T: LLMBackend>(mut backend: T) -> Result<()> {
                 }
             }
 
-            // Save conversation after command execution but before continuation
+            // Save conversation after command execution  
             save_conversation(&conversation, &convo_path)?;
-
-            // Instead of asking for continuation, ask for analysis explicitly
-            println!("🔄 Asking AI to analyze the command results...");
             
-            conversation.push(ChatMessage {
-                role: "user".to_string(),
-                content: "Based on the command output above, please analyze what this project is about and provide a comprehensive explanation.".to_string(),
-            });
+            // Always ask the AI to continue, regardless of command success/failure
+            println!("🔄 Command execution phase complete, asking AI to continue with analysis...");
             
             print!("\n\x1B[32mAssistant: \x1B[0m");
             io::stdout().flush().unwrap();
             
+            // Use a smaller token limit and simpler config for continuation
+            let continue_config = GenerationConfig {
+                max_tokens: 512,
+                stop_strings: gen_config.stop_strings.clone(),
+            };
+            
             match backend.generate_response(
                 &conversation,
-                gen_config.clone(),
+                continue_config,
                 Box::new(move |token_info| {
                     print!("{}", token_info.token_str);
                     io::stdout().flush().unwrap();
                     true
                 }),
             ) {
-                Ok(analysis_response) => {
-                    if !analysis_response.trim().is_empty() {
+                Ok(continuation_response) => {
+                    if !continuation_response.trim().is_empty() {
                         conversation.push(ChatMessage {
                             role: "assistant".to_string(),
-                            content: analysis_response.trim().to_string(),
+                            content: continuation_response.trim().to_string(),
                         });
-                    } else {
-                        println!("\n[AI provided no analysis]");
                     }
                 }
                 Err(e) => {
-                    println!("\n❌ Failed to generate analysis response: {}", e);
-                    // Don't add error message to conversation, just continue
+                    println!("\n⚠️ Could not generate follow-up analysis: {}", e);
                 }
             }
         }
