@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
@@ -20,6 +20,7 @@ pub struct ModelConfig {
     pub n_gpu_layers: u32,
 }
 
+#[derive(Clone)]
 pub struct GenerationConfig {
     pub max_tokens: usize,
     pub stop_strings: Vec<String>,

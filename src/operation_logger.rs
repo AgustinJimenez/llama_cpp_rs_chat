@@ -1,321 +1,118 @@
 use crate::ai_operations::*;
 use anyhow::Result;
-use serde_json;
 use std::collections::HashMap;
-use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::Mutex;
+use serde_json;
 
-pub struct FileOperationLogger {
-    log_file_path: PathBuf,
-    file_handle: Mutex<File>,
-}
-
-impl FileOperationLogger {
-    pub fn new(log_file_path: PathBuf) -> Result<Self> {
-        // Create log directory if it doesn't exist
-        if let Some(parent) = log_file_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
-        let file_handle = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_file_path)?;
-
-        Ok(Self {
-            log_file_path,
-            file_handle: Mutex::new(file_handle),
-        })
-    }
-
-    fn format_log_entry(&self, log: &OperationLog) -> String {
-        let timestamp = log.timestamp
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        
-        let execution_time = log.execution_time_ms
-            .map(|ms| format!(" ({}ms)", ms))
-            .unwrap_or_default();
-
-        format!(
-            "{} [{}] [{}] {}{}",
-            timestamp,
-            log.operation_type,
-            log.status,
-            log.details,
-            execution_time
-        )
-    }
-}
-
-impl OperationLogger for FileOperationLogger {
-    fn log_operation(&mut self, log: OperationLog) -> Result<()> {
-        let entry = self.format_log_entry(&log);
-        
-        if let Ok(mut file) = self.file_handle.lock() {
-            writeln!(file, "{}", entry)?;
-            file.flush()?;
-        }
-        
-        Ok(())
-    }
-
-    fn get_operation_history(&self, limit: Option<usize>) -> Result<Vec<OperationLog>> {
-        let file = File::open(&self.log_file_path)?;
-        let reader = BufReader::new(file);
-        let lines: Vec<String> = reader.lines().collect::<std::io::Result<Vec<_>>>()?;
-        
-        let start_index = if let Some(limit) = limit {
-            lines.len().saturating_sub(limit)
-        } else {
-            0
-        };
-
-        let mut operations = Vec::new();
-        for line in &lines[start_index..] {
-            if let Ok(log) = self.parse_log_entry(line) {
-                operations.push(log);
-            }
-        }
-
-        Ok(operations)
-    }
-
-    fn get_operation_stats(&self) -> Result<HashMap<String, u64>> {
-        let operations = self.get_operation_history(None)?;
-        let mut stats = HashMap::new();
-
-        for op in operations {
-            let key = format!("{}_{}", op.operation_type, op.status);
-            *stats.entry(key).or_insert(0) += 1;
-            
-            // Also count totals by operation type
-            *stats.entry(op.operation_type).or_insert(0) += 1;
-        }
-
-        Ok(stats)
-    }
-}
-
-impl FileOperationLogger {
-    fn parse_log_entry(&self, line: &str) -> Result<OperationLog> {
-        // Parse format: "timestamp [OPERATION_TYPE] [STATUS] details (execution_time)"
-        let parts: Vec<&str> = line.splitn(4, ' ').collect();
-        if parts.len() < 4 {
-            return Err(anyhow::anyhow!("Invalid log entry format"));
-        }
-
-        let timestamp = std::time::UNIX_EPOCH + 
-            std::time::Duration::from_secs(parts[0].parse()?);
-
-        let operation_type = parts[1].trim_matches(['[', ']']).to_string();
-        let status = parts[2].trim_matches(['[', ']']).to_string();
-        let details_and_time = parts[3];
-
-        // Extract execution time if present
-        let (details, execution_time_ms) = if let Some(time_start) = details_and_time.rfind(" (") {
-            if let Some(time_end) = details_and_time.rfind("ms)") {
-                let details = details_and_time[..time_start].to_string();
-                let time_str = &details_and_time[time_start + 2..time_end];
-                let execution_time = time_str.parse().ok();
-                (details, execution_time)
-            } else {
-                (details_and_time.to_string(), None)
-            }
-        } else {
-            (details_and_time.to_string(), None)
-        };
-
-        Ok(OperationLog {
-            timestamp,
-            operation_type,
-            status,
-            details,
-            user_id: None,
-            execution_time_ms,
-        })
-    }
-}
-
-pub struct InMemoryOperationLogger {
-    operations: Mutex<Vec<OperationLog>>,
-    max_entries: usize,
-}
-
-impl InMemoryOperationLogger {
-    pub fn new(max_entries: usize) -> Self {
-        Self {
-            operations: Mutex::new(Vec::new()),
-            max_entries,
-        }
-    }
-}
-
-impl OperationLogger for InMemoryOperationLogger {
-    fn log_operation(&mut self, log: OperationLog) -> Result<()> {
-        if let Ok(mut operations) = self.operations.lock() {
-            operations.push(log);
-            
-            // Keep only the last max_entries
-            if operations.len() > self.max_entries {
-                operations.remove(0);
-            }
-        }
-        Ok(())
-    }
-
-    fn get_operation_history(&self, limit: Option<usize>) -> Result<Vec<OperationLog>> {
-        if let Ok(operations) = self.operations.lock() {
-            let start_index = if let Some(limit) = limit {
-                operations.len().saturating_sub(limit)
-            } else {
-                0
-            };
-            Ok(operations[start_index..].to_vec())
-        } else {
-            Ok(Vec::new())
-        }
-    }
-
-    fn get_operation_stats(&self) -> Result<HashMap<String, u64>> {
-        let operations = self.get_operation_history(None)?;
-        let mut stats = HashMap::new();
-
-        for op in operations {
-            let key = format!("{}_{}", op.operation_type, op.status);
-            *stats.entry(key).or_insert(0) += 1;
-            
-            // Also count totals by operation type
-            *stats.entry(op.operation_type).or_insert(0) += 1;
-        }
-
-        Ok(stats)
-    }
-}
-
-pub struct JsonOperationLogger {
-    log_file_path: PathBuf,
-    operations: Mutex<Vec<OperationLog>>,
-    max_entries: usize,
-}
-
-impl JsonOperationLogger {
-    pub fn new(log_file_path: PathBuf, max_entries: usize) -> Result<Self> {
-        // Create log directory if it doesn't exist
-        if let Some(parent) = log_file_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
-        // Load existing operations from file
-        let operations = if log_file_path.exists() {
-            let content = std::fs::read_to_string(&log_file_path)?;
-            if content.trim().is_empty() {
-                Vec::new()
-            } else {
-                serde_json::from_str(&content).unwrap_or_default()
-            }
-        } else {
-            Vec::new()
-        };
-
-        Ok(Self {
-            log_file_path,
-            operations: Mutex::new(operations),
-            max_entries,
-        })
-    }
-
-    fn save_to_file(&self) -> Result<()> {
-        if let Ok(operations) = self.operations.lock() {
-            let json = serde_json::to_string_pretty(&*operations)?;
-            std::fs::write(&self.log_file_path, json)?;
-        }
-        Ok(())
-    }
-}
-
-impl OperationLogger for JsonOperationLogger {
-    fn log_operation(&mut self, log: OperationLog) -> Result<()> {
-        if let Ok(mut operations) = self.operations.lock() {
-            operations.push(log);
-            
-            // Keep only the last max_entries
-            if operations.len() > self.max_entries {
-                operations.remove(0);
-            }
-        }
-        
-        self.save_to_file()?;
-        Ok(())
-    }
-
-    fn get_operation_history(&self, limit: Option<usize>) -> Result<Vec<OperationLog>> {
-        if let Ok(operations) = self.operations.lock() {
-            let start_index = if let Some(limit) = limit {
-                operations.len().saturating_sub(limit)
-            } else {
-                0
-            };
-            Ok(operations[start_index..].to_vec())
-        } else {
-            Ok(Vec::new())
-        }
-    }
-
-    fn get_operation_stats(&self) -> Result<HashMap<String, u64>> {
-        let operations = self.get_operation_history(None)?;
-        let mut stats = HashMap::new();
-
-        for op in operations {
-            let key = format!("{}_{}", op.operation_type, op.status);
-            *stats.entry(key).or_insert(0) += 1;
-            
-            // Also count totals by operation type
-            *stats.entry(op.operation_type).or_insert(0) += 1;
-        }
-
-        Ok(stats)
-    }
-}
-
-// Helper function to create appropriate logger based on configuration
-pub fn create_logger(config: LoggerConfig) -> Result<Box<dyn OperationLogger + Send + Sync>> {
-    match config.logger_type {
-        LoggerType::File => {
-            let logger = FileOperationLogger::new(config.log_path.unwrap_or_else(|| {
-                PathBuf::from("logs/operations.log")
-            }))?;
-            Ok(Box::new(logger))
-        }
-        LoggerType::Json => {
-            let logger = JsonOperationLogger::new(
-                config.log_path.unwrap_or_else(|| PathBuf::from("logs/operations.json")),
-                config.max_entries.unwrap_or(10000)
-            )?;
-            Ok(Box::new(logger))
-        }
-        LoggerType::Memory => {
-            let logger = InMemoryOperationLogger::new(
-                config.max_entries.unwrap_or(1000)
-            );
-            Ok(Box::new(logger))
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
 pub enum LoggerType {
-    File,
+    Console,
     Json,
-    Memory,
+    // Add other types like Csv, Database, etc.
 }
 
-#[derive(Debug, Clone)]
 pub struct LoggerConfig {
     pub logger_type: LoggerType,
     pub log_path: Option<PathBuf>,
     pub max_entries: Option<usize>,
+}
+
+pub struct JsonFileLogger {
+    log_path: PathBuf,
+    max_entries: Option<usize>,
+    // Using a Mutex to allow interior mutability for logging
+    // This is a simple approach; for high-concurrency, consider channels or a dedicated logging thread
+    log_buffer: Mutex<Vec<OperationLog>>,
+}
+
+impl JsonFileLogger {
+    pub fn new(log_path: PathBuf, max_entries: Option<usize>) -> Result<Self> {
+        // Ensure the directory exists
+        if let Some(parent) = log_path.parent() {
+            if !parent.exists() {
+                fs::create_dir_all(parent)?;
+            }
+        }
+
+        let mut logger = Self {
+            log_path,
+            max_entries,
+            log_buffer: Mutex::new(Vec::new()),
+        };
+        logger.load_logs()?;
+        Ok(logger)
+    }
+
+    fn load_logs(&mut self) -> Result<()> {
+        if self.log_path.exists() {
+            let content = fs::read_to_string(&self.log_path)?;
+            if !content.trim().is_empty() {
+                let logs: Vec<OperationLog> = serde_json::from_str(&content)?;
+                *self.log_buffer.lock().unwrap() = logs;
+            }
+        }
+        Ok(())
+    }
+
+    fn save_logs(&self) -> Result<()> {
+        let logs = self.log_buffer.lock().unwrap();
+        let file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true) // Overwrite existing content
+            .open(&self.log_path)?;
+        serde_json::to_writer_pretty(file, &*logs)?;
+        Ok(())
+    }
+}
+
+impl OperationLogger for JsonFileLogger {
+    fn log_operation(&mut self, log: OperationLog) -> Result<()> {
+        let mut buffer = self.log_buffer.lock().unwrap();
+        buffer.push(log);
+        if let Some(max) = self.max_entries {
+            if buffer.len() > max {
+                // Simple truncation: remove oldest entries
+                buffer.drain(0..buffer.len() - max);
+            }
+        }
+        self.save_logs()?;
+        Ok(())
+    }
+
+    fn get_operation_history(&self, limit: Option<usize>) -> Result<Vec<OperationLog>> {
+        let buffer = self.log_buffer.lock().unwrap();
+        let history = if let Some(l) = limit {
+            buffer.iter().rev().take(l).cloned().collect()
+        } else {
+            buffer.iter().rev().cloned().collect()
+        };
+        Ok(history)
+    }
+
+    fn get_operation_stats(&self) -> Result<HashMap<String, u64>> {
+        let buffer = self.log_buffer.lock().unwrap();
+        let mut stats = HashMap::new();
+        for log in buffer.iter() {
+            *stats.entry(log.operation_type.clone()).or_insert(0) += 1;
+        }
+        Ok(stats)
+    }
+}
+
+pub fn create_logger(config: LoggerConfig) -> Result<Box<dyn OperationLogger + Send + Sync>> {
+    match config.logger_type {
+        LoggerType::Console => {
+            // A simple console logger (not implemented as a struct here for brevity)
+            // For a real app, you'd have a ConsoleLogger struct implementing OperationLogger
+            println!("Console logger initialized. Logs will be printed to stdout.");
+            Err(anyhow::anyhow!("Console logger not fully implemented as a trait object."))
+        }
+        LoggerType::Json => {
+            let log_path = config.log_path.ok_or_else(|| anyhow::anyhow!("Log path required for JSON logger"))?;
+            Ok(Box::new(JsonFileLogger::new(log_path, config.max_entries)?))
+        }
+    }
 }

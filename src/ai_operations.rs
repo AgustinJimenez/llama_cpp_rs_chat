@@ -11,7 +11,6 @@ pub struct CommandRequest {
     pub working_dir: Option<PathBuf>,
     pub timeout_ms: Option<u64>,
     pub environment: HashMap<String, String>,
-    pub require_confirmation: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,9 +86,6 @@ pub struct OperationLog {
 
 pub trait CommandExecutor {
     fn execute(&self, request: CommandRequest) -> Result<CommandResponse>;
-    fn is_safe(&self, command: &str) -> bool;
-    fn requires_confirmation(&self, command: &str) -> bool;
-    fn get_command_help(&self, command: &str) -> Option<String>;
 }
 
 pub trait FileSystemManager {

@@ -170,7 +170,7 @@ categories = ["development-tools"]
                 FileTemplate {
                     path: PathBuf::from("src/lib.rs"),
                     content: r#"//! # {{project_name}}
-//!
+//! 
 //! A Rust library for...
 
 /// Main functionality of the library
@@ -419,7 +419,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // Routes
 app.get('/', (req, res) => {
-    res.json({ 
+    res.json({
         message: 'Hello from {{project_name}}!',
         timestamp: new Date().toISOString()
     });
@@ -960,5 +960,30 @@ impl ProjectGenerator for ProjectTemplateManager {
 
     fn get_template(&self, name: &str) -> Option<ProjectTemplate> {
         self.templates.get(name).cloned()
+    }
+}
+
+// Clone implementation for ProjectTemplate
+impl Clone for ProjectTemplate {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            description: self.description.clone(),
+            files: self.files.clone(),
+            commands: self.commands.clone(),
+            dependencies: self.dependencies.clone(),
+        }
+    }
+}
+
+// Clone implementation for FileTemplate
+impl Clone for FileTemplate {
+    fn clone(&self) -> Self {
+        Self {
+            path: self.path.clone(),
+            content: self.content.clone(),
+            permissions: self.permissions,
+            is_executable: self.is_executable,
+        }
     }
 }

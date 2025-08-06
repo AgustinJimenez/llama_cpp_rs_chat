@@ -12,3 +12,4 @@ assets/conversations/*
 # Log files
 error_log
 *.log
+assets/conversations/

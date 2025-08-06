@@ -501,7 +501,7 @@ impl FileSystemManager for SystemFileManager {
         let path_str = path.to_string_lossy();
         
         // Check for path traversal
-        if path_str.contains("..") {
+        if path_str.contains("..\") {
             return Err(anyhow::anyhow!("{}", OperationError::InvalidPath(
                 "Path traversal not allowed".to_string()
             )));

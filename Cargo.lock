@@ -468,6 +468,7 @@ dependencies = [
  "anyhow",
  "cmake",
  "dotenv",
+ "lazy_static",
  "llama-cpp-2",
  "rand",
  "regex",
