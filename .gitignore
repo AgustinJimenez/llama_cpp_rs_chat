@@ -21,3 +21,5 @@ assets/conversations/
 # OS generated files
 .DS_Store
 Thumbs.db
+
+assets/model_path.txt

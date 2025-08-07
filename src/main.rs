@@ -3,7 +3,7 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
-use sysinfo::{System};
+use sysinfo::System;
 
 use anyhow::Result;
 
@@ -17,6 +17,7 @@ use llamacpp_backend::LlamaCppBackendImpl;
 use ai_operations::{CommandRequest, CommandExecutor};
 use command_executor::SystemCommandExecutor;
 
+#[cfg(target_os = "windows")]
 use wmi::{COMLibrary, WMIConnection};
 
 fn initialize_backend() -> Result<()> {
@@ -93,26 +94,98 @@ fn try_powershell_gpu() -> Option<u64> {
     None
 }
 
+fn try_macos_system_profiler() -> Option<u64> {
+    println!("🔍 Trying macOS system_profiler...");
+    
+    // First try to get discrete GPU VRAM
+    match Command::new("system_profiler")
+        .args(&["SPDisplaysDataType"])
+        .output()
+    {
+        Ok(output) if output.status.success() => {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            
+            // Look for VRAM patterns in human-readable output
+            for line in output_str.lines() {
+                let line = line.trim();
+                if line.starts_with("VRAM (Total):") || line.starts_with("VRAM (Dynamic, Max):") {
+                    // Extract VRAM size - pattern like "VRAM (Total): 8 GB"
+                    if let Some(colon_pos) = line.find(':') {
+                        let vram_part = &line[colon_pos + 1..].trim();
+                        let parts: Vec<&str> = vram_part.split_whitespace().collect();
+                        if parts.len() >= 2 {
+                            if let Ok(size) = parts[0].parse::<f64>() {
+                                let vram_bytes = match parts[1].to_lowercase().as_str() {
+                                    "gb" => (size * 1_073_741_824.0) as u64,
+                                    "mb" => (size * 1_048_576.0) as u64,
+                                    _ => continue,
+                                };
+                                if vram_bytes > 0 {
+                                    println!("  ✅ system_profiler detected: {:.2} GB", vram_bytes as f64 / 1_073_741_824.0);
+                                    return Some(vram_bytes);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // For Apple Silicon Macs, check if it's Apple GPU and estimate based on total memory
+            if output_str.contains("Apple M1") || output_str.contains("Apple M2") || output_str.contains("Apple M3") {
+                println!("  🍎 Detected Apple Silicon Mac - using memory-based estimation");
+                
+                // Get total system memory and use a portion for GPU estimation
+                let mut sys = sysinfo::System::new_all();
+                sys.refresh_all();
+                let total_memory = sys.total_memory();
+                
+                // Apple Silicon typically allocates about 25-40% of system memory for GPU
+                // Use a conservative 25% for estimation
+                let estimated_vram = (total_memory as f64 * 0.25) as u64;
+                if estimated_vram > 0 {
+                    println!("  ✅ Apple Silicon estimated GPU memory: {:.2} GB", estimated_vram as f64 / 1_073_741_824.0);
+                    return Some(estimated_vram);
+                }
+            }
+        }
+        _ => println!("  ❌ system_profiler query failed")
+    }
+    None
+}
+
 fn get_vram() -> Result<u64> {
     println!("\n🔍 Detecting VRAM using multiple methods...");
 
+    // Try NVIDIA tools first (works on all platforms with NVIDIA GPUs)
     if let Some(vram) = try_nvidia_smi() {
         return Ok(vram);
     }
-    if let Some(vram) = try_wmic_pnpentity() {
-        return Ok(vram);
-    }
-    if let Some(vram) = try_powershell_gpu() {
-        return Ok(vram);
-    }
 
-    println!("🔍 Trying WMI (fallback method)...");
-    match try_wmi_detection() {
-        Ok(vram) if vram > 0 => {
-            println!("  ✅ WMI detected: {:.2} GB", vram as f64 / 1_073_741_824.0);
+    // Platform-specific detection methods
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(vram) = try_macos_system_profiler() {
             return Ok(vram);
         }
-        _ => println!("  ❌ WMI detection failed")
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(vram) = try_wmic_pnpentity() {
+            return Ok(vram);
+        }
+        if let Some(vram) = try_powershell_gpu() {
+            return Ok(vram);
+        }
+        
+        println!("🔍 Trying WMI (fallback method)...");
+        match try_wmi_detection() {
+            Ok(vram) if vram > 0 => {
+                println!("  ✅ WMI detected: {:.2} GB", vram as f64 / 1_073_741_824.0);
+                return Ok(vram);
+            }
+            _ => println!("  ❌ WMI detection failed")
+        }
     }
 
     println!("\n⚠️  Could not auto-detect VRAM using any method.");
@@ -128,6 +201,7 @@ fn get_vram() -> Result<u64> {
     Ok(0)
 }
 
+#[cfg(target_os = "windows")]
 fn try_wmi_detection() -> Result<u64> {
     let com_lib = COMLibrary::new()?;
     let wmi_con = WMIConnection::new(com_lib.into())?;
@@ -148,6 +222,11 @@ fn try_wmi_detection() -> Result<u64> {
     }
 
     Ok(max_vram)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn try_wmi_detection() -> Result<u64> {
+    Ok(0)
 }
 
 fn clear_terminal() {
