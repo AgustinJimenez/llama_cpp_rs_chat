@@ -1,7 +1,7 @@
 @echo off
 REM Unified run script - all configuration via .env file
 REM Usage: run.bat
-set "CMAKE_DIR=C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin"
+set "CMAKE_DIR=C:\Program Files\CMake\bin"
 set "PATH=%CMAKE_DIR%;%PATH%"
 echo 🚀 LLM Chat Runner
 

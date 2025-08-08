@@ -252,9 +252,9 @@ impl LLMBackend for LlamaCppBackendImpl {
                     
                     // If last 3 lines are very similar, it's probably stuck
                     if last_line.len() > 20 && 
-                       last_line.contains("!CMD!") && 
-                       second_last.contains("!CMD!") &&
-                       third_last.contains("!CMD!") &&
+                       last_line.contains("<|EXEC|>") && 
+                       second_last.contains("<|EXEC|>") &&
+                       third_last.contains("<|EXEC|>") &&
                        last_line.trim() == second_last.trim() {
                         debug_print!("[DEBUG] Detected command repetition in text, stopping generation");
                         break;
@@ -264,13 +264,30 @@ impl LLMBackend for LlamaCppBackendImpl {
 
             // Check for end-of-sequence token
             if token == self.model.token_eos() {
-                debug_print!("\n[DEBUG] Hit EOS token, stopping generation");
+                debug_print!("\n[DEBUG] Hit EOS token ({}), stopping generation", token.0);
+                debug_print!("[DEBUG] Current response length: {}", response.len());
+                debug_print!("[DEBUG] Current response: '{}'", response.replace('\n', "\\n"));
+                
+                // Try to decode what this EOS token actually represents
+                if let Ok(eos_str) = self.model.token_to_str(token, Special::Tokenize) {
+                    debug_print!("[DEBUG] EOS token {} represents: '{}'", token.0, eos_str.replace('\n', "\\n"));
+                    
+                    // Special handling for problematic token 151645 that stops after commands
+                    if token.0 == 151645 && response.contains("<|EXEC|>") && response.trim_end().ends_with("<|/EXEC|>") {
+                        debug_print!("[DEBUG] Detected problematic EOS token 151645 after complete command - allowing execution to continue");
+                        break; // Still break, but the command system should handle this
+                    }
+                } else {
+                    debug_print!("[DEBUG] EOS token {} could not be decoded to string", token.0);
+                }
+                
                 break;
             }
 
             // Convert token to string
-            if let Ok(token_str) = self.model.token_to_str(token, Special::Tokenize) {
-                debug_print!("\n[DEBUG] Generated token: '{}'", token_str.replace('\n', "\\n"));
+            match self.model.token_to_str(token, Special::Tokenize) {
+                Ok(token_str) => {
+                    debug_print!("[DEBUG] Generated token: '{}' (ID: {})", token_str.replace('\n', "\\n"), token.0);
                 
                 response.push_str(&token_str);
                 debug_print!("[DEBUG] Full response so far: '{}'", response.replace('\n', "\\n"));
@@ -299,6 +316,12 @@ impl LLMBackend for LlamaCppBackendImpl {
                 if !on_token(token_info) {
                     debug_print!("[DEBUG] Token callback requested stop");
                     break;
+                }
+                },
+                Err(e) => {
+                    debug_print!("[DEBUG] Failed to convert token {} to string: {}", token.0, e);
+                    debug_print!("[DEBUG] Skipping this token and continuing generation");
+                    continue;
                 }
             }
 

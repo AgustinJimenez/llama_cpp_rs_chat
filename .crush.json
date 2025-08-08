@@ -1,0 +1,32 @@
+{
+  "$schema": "https://charm.land/crush.json",
+  "providers": {
+    "local_llms": {
+      "type": "openai",
+      "base_url": "http://192.168.100.16:1234/v1",
+      "api_key": "none",
+      "models": [
+        {
+          "id": "qwen3-coder-30b-a3b-instruct-1m-ud",
+          "name": "Qwen3 coder 30B A3B Instruct 1M UD",
+          "cost_per_1m_in": 0.27,
+          "cost_per_1m_out": 1.1,
+          "cost_per_1m_in_cached": 0.07,
+          "cost_per_1m_out_cached": 1.1,
+          "context_window": 64000,
+          "default_max_tokens": 5000
+        }, 
+        {
+          "id": "mistralai/devstral-small-2507",
+          "name": "Devstral Small 2507",
+          "cost_per_1m_in": 0.27,
+          "cost_per_1m_out": 1.1,
+          "cost_per_1m_in_cached": 0.07,
+          "cost_per_1m_out_cached": 1.1,
+          "context_window": 64000,
+          "default_max_tokens": 5000
+        }
+      ]
+    }
+  }
+}

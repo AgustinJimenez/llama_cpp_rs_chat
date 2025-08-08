@@ -1,0 +1,1 @@
+E:\.lmstudio\models\lmstudio-community\Qwen3-Coder-30B-A3B-Instruct-1M-UD-Q8_K_XL-GGUF\Qwen3-Coder-30B-A3B-Instruct-1M-UD-Q8_K_XL.gguf

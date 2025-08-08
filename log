@@ -1,0 +1,73 @@
+[DEBUG] About to sample token
+[DEBUG] Sampled token: 27
+[DEBUG] Generated token: '<' (ID: 27)
+[DEBUG] Full response so far: 'I can see this is a Rust project with the following structure:\n\n- It's a standard Rust workspace with a `Cargo.toml` file\n- There's a `src` directory containing the main application code\n- The project uses `llama_cpp_rs` - a Rust binding for the llama.cpp library\n- It has a `target` directory (which is typically auto-generated)\n- There's a `README.md` file that provides project information\n\nLet me read the README to understand what this project is about:\n\n<'
+<[DEBUG] About to sample token
+[DEBUG] Sampled token: 91
+[DEBUG] Generated token: '|' (ID: 91)
+[DEBUG] Full response so far: 'I can see this is a Rust project with the following structure:\n\n- It's a standard Rust workspace with a `Cargo.toml` file\n- There's a `src` directory containing the main application code\n- The project uses `llama_cpp_rs` - a Rust binding for the llama.cpp library\n- It has a `target` directory (which is typically auto-generated)\n- There's a `README.md` file that provides project information\n\nLet me read the README to understand what this project is about:\n\n<|'
+|[DEBUG] About to sample token
+[DEBUG] Sampled token: 46340
+[DEBUG] Generated token: 'EXEC' (ID: 46340)
+[DEBUG] Full response so far: 'I can see this is a Rust project with the following structure:\n\n- It's a standard Rust workspace with a `Cargo.toml` file\n- There's a `src` directory containing the main application code\n- The project uses `llama_cpp_rs` - a Rust binding for the llama.cpp library\n- It has a `target` directory (which is typically auto-generated)\n- There's a `README.md` file that provides project information\n\nLet me read the README to understand what this project is about:\n\n<|EXEC'
+EXEC[DEBUG] About to sample token
+[DEBUG] Sampled token: 91
+[DEBUG] Generated token: '|' (ID: 91)
+[DEBUG] Full response so far: 'I can see this is a Rust project with the following structure:\n\n- It's a standard Rust workspace with a `Cargo.toml` file\n- There's a `src` directory containing the main application code\n- The project uses `llama_cpp_rs` - a Rust binding for the llama.cpp library\n- It has a `target` directory (which is typically auto-generated)\n- There's a `README.md` file that provides project information\n\nLet me read the README to understand what this project is about:\n\n<|EXEC|'
+|[DEBUG] About to sample token
+[DEBUG] Sampled token: 29
+[DEBUG] Generated token: '>' (ID: 29)
+[DEBUG] Full response so far: 'I can see this is a Rust project with the following structure:\n\n- It's a standard Rust workspace with a `Cargo.toml` file\n- There's a `src` directory containing the main application code\n- The project uses `llama_cpp_rs` - a Rust binding for the llama.cpp library\n- It has a `target` directory (which is typically auto-generated)\n- There's a `README.md` file that provides project information\n\nLet me read the README to understand what this project is about:\n\n<|EXEC|>'
+>[DEBUG] About to sample token
+[DEBUG] Sampled token: 1313
+[DEBUG] Generated token: 'type' (ID: 1313)
+[DEBUG] Full response so far: 'I can see this is a Rust project with the following structure:\n\n- It's a standard Rust workspace with a `Cargo.toml` file\n- There's a `src` directory containing the main application code\n- The project uses `llama_cpp_rs` - a Rust binding for the llama.cpp library\n- It has a `target` directory (which is typically auto-generated)\n- There's a `README.md` file that provides project information\n\nLet me read the README to understand what this project is about:\n\n<|EXEC|>type'
+type[DEBUG] About to sample token
+[DEBUG] Sampled token: 61945
+[DEBUG] Generated token: ' README' (ID: 61945)
+[DEBUG] Full response so far: 'I can see this is a Rust project with the following structure:\n\n- It's a standard Rust workspace with a `Cargo.toml` file\n- There's a `src` directory containing the main application code\n- The project uses `llama_cpp_rs` - a Rust binding for the llama.cpp library\n- It has a `target` directory (which is typically auto-generated)\n- There's a `README.md` file that provides project information\n\nLet me read the README to understand what this project is about:\n\n<|EXEC|>type README'
+ README[DEBUG] About to sample token
+[DEBUG] Sampled token: 21324
+[DEBUG] Generated token: '.md' (ID: 21324)
+[DEBUG] Full response so far: 'I can see this is a Rust project with the following structure:\n\n- It's a standard Rust workspace with a `Cargo.toml` file\n- There's a `src` directory containing the main application code\n- The project uses `llama_cpp_rs` - a Rust binding for the llama.cpp library\n- It has a `target` directory (which is typically auto-generated)\n- There's a `README.md` file that provides project information\n\nLet me read the README to understand what this project is about:\n\n<|EXEC|>type README.md'
+.md[DEBUG] About to sample token
+[DEBUG] Sampled token: 27
+[DEBUG] Generated token: '<' (ID: 27)
+[DEBUG] Full response so far: 'I can see this is a Rust project with the following structure:\n\n- It's a standard Rust workspace with a `Cargo.toml` file\n- There's a `src` directory containing the main application code\n- The project uses `llama_cpp_rs` - a Rust binding for the llama.cpp library\n- It has a `target` directory (which is typically auto-generated)\n- There's a `README.md` file that provides project information\n\nLet me read the README to understand what this project is about:\n\n<|EXEC|>type README.md<'
+<[DEBUG] About to sample token
+[DEBUG] Sampled token: 91
+[DEBUG] Generated token: '|' (ID: 91)
+[DEBUG] Full response so far: 'I can see this is a Rust project with the following structure:\n\n- It's a standard Rust workspace with a `Cargo.toml` file\n- There's a `src` directory containing the main application code\n- The project uses `llama_cpp_rs` - a Rust binding for the llama.cpp library\n- It has a `target` directory (which is typically auto-generated)\n- There's a `README.md` file that provides project information\n\nLet me read the README to understand what this project is about:\n\n<|EXEC|>type README.md<|'
+|[DEBUG] About to sample token
+[DEBUG] Sampled token: 14
+[DEBUG] Generated token: '/' (ID: 14)
+[DEBUG] Full response so far: 'I can see this is a Rust project with the following structure:\n\n- It's a standard Rust workspace with a `Cargo.toml` file\n- There's a `src` directory containing the main application code\n- The project uses `llama_cpp_rs` - a Rust binding for the llama.cpp library\n- It has a `target` directory (which is typically auto-generated)\n- There's a `README.md` file that provides project information\n\nLet me read the README to understand what this project is about:\n\n<|EXEC|>type README.md<|/'
+/[DEBUG] About to sample token
+[DEBUG] Sampled token: 46340
+[DEBUG] Generated token: 'EXEC' (ID: 46340)
+[DEBUG] Full response so far: 'I can see this is a Rust project with the following structure:\n\n- It's a standard Rust workspace with a `Cargo.toml` file\n- There's a `src` directory containing the main application code\n- The project uses `llama_cpp_rs` - a Rust binding for the llama.cpp library\n- It has a `target` directory (which is typically auto-generated)\n- There's a `README.md` file that provides project information\n\nLet me read the README to understand what this project is about:\n\n<|EXEC|>type README.md<|/EXEC'
+EXEC[DEBUG] About to sample token
+[DEBUG] Sampled token: 91
+[DEBUG] Generated token: '|' (ID: 91)
+[DEBUG] Full response so far: 'I can see this is a Rust project with the following structure:\n\n- It's a standard Rust workspace with a `Cargo.toml` file\n- There's a `src` directory containing the main application code\n- The project uses `llama_cpp_rs` - a Rust binding for the llama.cpp library\n- It has a `target` directory (which is typically auto-generated)\n- There's a `README.md` file that provides project information\n\nLet me read the README to understand what this project is about:\n\n<|EXEC|>type README.md<|/EXEC|'
+|[DEBUG] About to sample token
+[DEBUG] Sampled token: 29
+[DEBUG] Generated token: '>' (ID: 29)
+[DEBUG] Full response so far: 'I can see this is a Rust project with the following structure:\n\n- It's a standard Rust workspace with a `Cargo.toml` file\n- There's a `src` directory containing the main application code\n- The project uses `llama_cpp_rs` - a Rust binding for the llama.cpp library\n- It has a `target` directory (which is typically auto-generated)\n- There's a `README.md` file that provides project information\n\nLet me read the README to understand what this project is about:\n\n<|EXEC|>type README.md<|/EXEC|>'
+>[DEBUG] About to sample token
+[DEBUG] Sampled token: 151645
+
+[DEBUG] Hit EOS token (151645), stopping generation
+[DEBUG] Current response length: 491
+[DEBUG] Current response: 'I can see this is a Rust project with the following structure:\n\n- It's a standard Rust workspace with a `Cargo.toml` file\n- There's a `src` directory containing the main application code\n- The project uses `llama_cpp_rs` - a Rust binding for the llama.cpp library\n- It has a `target` directory (which is typically auto-generated)\n- There's a `README.md` file that provides project information\n\nLet me read the README to understand what this project is about:\n\n<|EXEC|>type README.md<|/EXEC|>'
+[DEBUG] EOS token 151645 represents: ''
+[DEBUG] Detected problematic EOS token 151645 after complete command - allowing execution to continue
+
+⚡ Generation complete: 46 tokens in 42.0s (1.1 tokens/sec)
+🔍 MAIN: About to call get_context_info
+[DEBUG] Final context: Prompt=600 + Response=46 = Total=646/8192 (8% used, 7546 remaining)
+🔍 MAIN: get_context_info returned successfully
+📊 Context: 646/8192 (8% used, 7546 tokens remaining) [llama-cpp-2]
+🔍 MAIN: About to save conversation
+🔍 MAIN: Conversation saved successfully
+🔍 MAIN: End of main loop iteration

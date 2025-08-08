@@ -34,7 +34,26 @@
       "Bash(set \"CMAKE_DIR=C:\\Program Files\\CMake\\bin\")",
       "Bash(set RUN_MODE=build)",
       "Bash(run.bat)",
-      "Bash(set LLAMA_STATIC_CRT=ON)"
+      "Bash(set LLAMA_STATIC_CRT=ON)",
+      "Bash(ls:*)",
+      "Bash(./run.bat)",
+      "Bash(set RUN_MODE=normal)",
+      "WebFetch(domain:crates.io)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:huggingface.co)",
+      "WebFetch(domain:qwenlm.github.io)",
+      "Bash(more:*)",
+      "Bash(echo:*)",
+      "Bash(del srcai_chat_integration.rs)",
+      "Bash(rustc:*)",
+      "Bash(test_command_parsing.exe)",
+      "Bash(findstr:*)",
+      "Bash(grep:*)",
+      "Bash(test_parser.exe)",
+      "Bash(del:*)",
+      "Bash(test_new_syntax.exe)",
+      "Bash(find:*)",
+      "Bash(set \"CMAKE_DIR=C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin\")"
     ],
     "deny": []
   }

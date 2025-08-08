@@ -11,11 +11,13 @@ mod llm_backend;
 mod llamacpp_backend;
 mod ai_operations;
 mod command_executor;
+mod command_detection;
+mod command_runner;
 
 use llm_backend::*;
 use llamacpp_backend::LlamaCppBackendImpl;
-use ai_operations::{CommandRequest, CommandExecutor};
-use command_executor::SystemCommandExecutor;
+use command_detection::{extract_command_from_response, response_contains_commands};
+use command_runner::{execute_command, should_generate_followup};
 
 #[cfg(target_os = "windows")]
 use wmi::{COMLibrary, WMIConnection};
@@ -271,72 +273,58 @@ fn run_chat_with_backend<T: LLMBackend>(mut backend: T) -> Result<()> {
     let mut conversation: Vec<ChatMessage> = Vec::new();
     let convo_id = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
     let convo_path = format!("assets/conversations/chat_{}.json", convo_id);
-    let command_executor = SystemCommandExecutor::new();
+    // Command executor is now handled by the command_runner module
 
     let current_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let os_name = std::env::consts::OS;
     
     let (command_examples, path_format) = match os_name {
         "windows" => (
-            "Examples: `!CMD!dir` (list), `!CMD!mkdir myproject` (create dir), `!CMD!echo print('hello') > main.py` (create file), `!CMD!curl -s https://api.github.com/repos/microsoft/vscode` (web fetch), `!CMD!findstr . filename.txt` (read file), `!CMD!git init` (initialize repo). Use '&&' to chain commands: `!CMD!mkdir api && cd api && echo code > app.py`. IMPORTANT: Use only 1-3 commands per response to avoid repetition.",
+            "Examples: `<|EXEC|>dir<|/EXEC|>` (list files), `<|EXEC|>mkdir myproject<|/EXEC|>` (create directory), `<|EXEC|>echo print('hello') > main.py<|/EXEC|>` (create file), `<|EXEC|>curl -s https://api.github.com/repos/microsoft/vscode<|/EXEC|>` (web fetch), `<|EXEC|>findstr . filename.txt<|/EXEC|>` (read file), `<|EXEC|>git init<|/EXEC|>` (initialize repo). Use '&&' to chain commands: `<|EXEC|>mkdir api && cd api && echo code > app.py<|/EXEC|>`. Use maximum 1-2 commands per response.",
             "Use Windows paths like C:\\path\\to\\file or relative paths like .\\src\\main.rs"
         ),
         "linux" | "macos" => (
-            "Examples: `!CMD!ls -la` (list files), `!CMD!cat filename.txt` (read file), `!CMD!cd subfolder` (change directory)", 
+            "Examples: `<|EXEC|>ls -la<|/EXEC|>` (list files), `<|EXEC|>cat filename.txt<|/EXEC|>` (read file), `<|EXEC|>cd subfolder<|/EXEC|>` (change directory)", 
             "Use Unix paths like /path/to/file or relative paths like ./src/main.rs"
         ),
         _ => (
-            "Examples: `!CMD!ls -la` or `!CMD!dir` (list files), depending on your system",
+            "Examples: `<|EXEC|>ls -la<|/EXEC|>` or `<|EXEC|>dir<|/EXEC|>` (list files), depending on your system",
             "Use appropriate path format for your operating system"
         )
     };
 
     let system_prompt = format!(
-        "You are an advanced AI assistant with FULL COMMAND-LINE ACCESS to the local system. \
-         You can execute any command by wrapping it in `!CMD!` tags. {} \
+        "You are an intelligent AI assistant that can execute system commands when needed. \
+         You have access to the command line through `<|EXEC|>command<|/EXEC|>` tags, but you should primarily \
+         provide helpful explanations and analysis. Only use commands when necessary to \
+         gather specific information or perform requested tasks.\
          \
-         🚀 CORE CAPABILITIES: \
-         • COMMAND LINE: Execute any system command to manage files, folders, processes \
-         • FILE OPERATIONS: Create, read, edit, delete files and directories \
-         • PROJECT CREATION: Build entire projects from scratch using command-line tools \
-         • SYSTEM NAVIGATION: Browse directories, search files, check system info \
-         • DEVELOPMENT TOOLS: Run git, npm, cargo, pip, compilers, and any installed tools \
-         • WEB ACCESS: Use curl, wget to fetch information from the internet \
-         \
-         💡 DYNAMIC PROJECT CREATION: \
-         Instead of using templates, create projects intelligently: \
-         - Ask user what they want to build \
-         - Use mkdir, echo, curl to create structure dynamically \
-         - Fetch latest docs/examples from web when needed \
-         - Initialize with proper tools (git init, npm init, etc.) \
-         - Set up configuration files based on current best practices \
+         🔧 COMMAND ACCESS: \
+         You can execute commands by wrapping them in `<|EXEC|>command<|/EXEC|>` tags when you need to: \
+         • Check file contents or directory listings \
+         • Perform specific tasks requested by the user \
+         • Gather system information that helps answer questions \
          \
          SYSTEM INFO: \
          - Operating System: {} \
          - Current working directory: {} \
          - {} \
          \
-         Examples of dynamic project creation: \
-         • Python API: mkdir api && echo 'from flask import Flask...' > api/app.py \
-         • React App: curl -s https://create-react-app.dev/docs/getting-started/ | findstr commands \
-         • Rust CLI: mkdir my-tool && echo '[package]...' > my-tool/Cargo.toml \
+         ⚠️ GUIDELINES: \
+         • Provide thoughtful explanations and analysis \
+         • Only use commands when they add specific value \
+         • Use maximum 1-2 commands per response \
+         • Explain shortly what you're doing before running commands \
+         • Focus on being helpful through knowledge, not just commands \
+         • NEVER add code blocks or markdown after <|EXEC|> - wait for execution results \
          \
-         Always use commands appropriate for the {} operating system. \
+         Command examples: {} \
          \
-         ⚠️ IMPORTANT GUIDELINES: \
-         • ALWAYS provide explanation before and after commands \
-         • Use only 1-3 commands per response \
-         • Don't repeat the same command multiple times \
-         • If a command fails, try a different approach \
-         • Focus on the most essential information first \
-         • After commands execute, you'll continue with analysis \
-         \
-         Be creative and use your knowledge to build exactly what the user needs!",
-        command_examples,
+         Be helpful, informative, and use commands strategically to enhance your responses.",
         os_name,
         current_dir.display(),
         path_format,
-        os_name
+        command_examples
     );
 
     conversation.push(ChatMessage {
@@ -386,7 +374,9 @@ fn run_chat_with_backend<T: LLMBackend>(mut backend: T) -> Result<()> {
         let token_count = Arc::new(Mutex::new(0u32));
         let token_count_clone = Arc::clone(&token_count);
 
-        let response = backend.generate_response(
+        println!("🔍 MAIN: About to call backend.generate_response");
+        
+        let response = match backend.generate_response(
             &conversation,
             gen_config.clone(),
             Box::new(move |token_info| {
@@ -396,119 +386,109 @@ fn run_chat_with_backend<T: LLMBackend>(mut backend: T) -> Result<()> {
                 io::stdout().flush().unwrap();
                 true
             }),
-        )?;
+        ) {
+            Ok(resp) => {
+                println!("\n🔍 MAIN: backend.generate_response returned successfully");
+                resp
+            },
+            Err(e) => {
+                println!("\n❌ MAIN: backend.generate_response failed with error: {}", e);
+                return Err(e);
+            }
+        };
 
+        // === RESPONSE PROCESSING SECTION ===
+        println!("\n📋 MAIN: Response generation completed successfully");
+        println!("📋 MAIN: Response length: {}", response.len());
+        println!("📋 MAIN: Response preview: '{}'", 
+                if response.len() > 100 { &response[..100] } else { &response });
+        
+        // Force flush to ensure output appears immediately
+        io::stdout().flush().unwrap();
+
+        // Add assistant response to conversation
         conversation.push(ChatMessage {
             role: "assistant".to_string(),
             content: response.trim().to_string(),
         });
 
-        if response.contains("!CMD!") {
-            println!("🔍 Detected commands in AI response, starting execution phase...");
-            // Extract command between !CMD! tags more reliably
-            if let Some(start) = response.find("!CMD!") {
-                let after_start = &response[start + 5..]; // Skip "!CMD!"
-                let command_to_execute = if let Some(end) = after_start.find("!CMD!") {
-                    &after_start[..end]
-                } else {
-                    // Find end of line if no closing tag, also handle markdown artifacts
-                    let first_line = after_start.lines().next().unwrap_or(after_start);
-                    // Remove any trailing markdown like ``` or backticks
-                    first_line.split("```").next()
-                             .unwrap_or(first_line)
-                             .split('`').next()
-                             .unwrap_or(first_line)
-                }.trim();
-                
-                println!("🤖 Executing command: '{}'", command_to_execute);
-                
-                // Handle full command line (including chained commands with &&, ||, |)
-                if !command_to_execute.is_empty() {
-                    let request = CommandRequest {
-                        command: command_to_execute.to_string(),
-                        args: vec![], // Full command is in the command field for better handling
-                        working_dir: Some(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))),
-                        timeout_ms: Some(60000), // Increased to 60 seconds for complex commands
-                        environment: std::collections::HashMap::new(),
-                    };
-
-                    match command_executor.execute(request) {
-                        Ok(result) => {
-                            println!("✅ Command executed, success: {}, exit_code: {}", result.success, result.exit_code);
+        // === COMMAND DETECTION SECTION ===
+        println!("📋 MAIN: Checking for commands in response...");
+        
+        if response_contains_commands(&response) {
+            println!("✅ MAIN: Commands detected, starting command processing...");
+            
+            // Extract the command using our modular detector
+            match extract_command_from_response(&response) {
+                Some(extracted_command) => {
+                    println!("✅ MAIN: Command extracted successfully");
+                    
+                    // Execute the command using our modular runner
+                    match execute_command(extracted_command.clone()) {
+                        Ok(command_result) => {
+                            println!("✅ MAIN: Command executed, adding result to conversation");
+                            conversation.push(command_result);
                             
-                            let output = if result.success {
-                                if result.output.is_empty() {
-                                    "[Command executed successfully but produced no output]".to_string()
-                                } else {
-                                    // Truncate very long output to prevent issues
-                                    if result.output.len() > 10000 {
-                                        format!("{}... [truncated - {} chars total]", &result.output[..10000], result.output.len())
-                                    } else {
-                                        result.output
+                            // Save conversation after command execution
+                            save_conversation(&conversation, &convo_path)?;
+                            
+                            // Generate follow-up response if appropriate
+                            if should_generate_followup(&extracted_command.command) {
+                                println!("🔄 MAIN: Generating follow-up analysis...");
+                                
+                                print!("\n\x1B[32mAssistant: \x1B[0m");
+                                io::stdout().flush().unwrap();
+                                
+                                // Use smaller token limit for continuation
+                                let continue_config = GenerationConfig {
+                                    max_tokens: 512,
+                                    stop_strings: gen_config.stop_strings.clone(),
+                                };
+                                
+                                match backend.generate_response(
+                                    &conversation,
+                                    continue_config,
+                                    Box::new(move |token_info| {
+                                        print!("{}", token_info.token_str);
+                                        io::stdout().flush().unwrap();
+                                        true
+                                    }),
+                                ) {
+                                    Ok(continuation_response) => {
+                                        if !continuation_response.trim().is_empty() {
+                                            conversation.push(ChatMessage {
+                                                role: "assistant".to_string(),
+                                                content: continuation_response.trim().to_string(),
+                                            });
+                                        }
+                                    }
+                                    Err(e) => {
+                                        println!("\n⚠️ MAIN: Could not generate follow-up analysis: {}", e);
                                     }
                                 }
                             } else {
-                                format!("Error (exit code {}): {}", result.exit_code, 
-                                       if result.error.is_empty() { "Command failed with no error message" } else { &result.error })
-                            };
-
-                            conversation.push(ChatMessage {
-                                role: "system".to_string(),
-                                content: format!("Command output:\n```\n{}\n```", output),
-                            });
+                                println!("📋 MAIN: No follow-up analysis needed for this command");
+                            }
                         }
                         Err(e) => {
-                            println!("❌ Command execution error: {}", e);
+                            println!("❌ MAIN: Command execution failed: {}", e);
                             conversation.push(ChatMessage {
                                 role: "system".to_string(),
                                 content: format!("Command execution failed: {}", e),
                             });
                         }
                     }
-                } else {
+                }
+                None => {
+                    println!("❌ MAIN: Failed to extract command from response");
                     conversation.push(ChatMessage {
                         role: "system".to_string(),
-                        content: "Error: No command found after !CMD! tag".to_string(),
+                        content: "Error: Could not extract command from response".to_string(),
                     });
                 }
             }
-
-            // Save conversation after command execution  
-            save_conversation(&conversation, &convo_path)?;
-            
-            // Always ask the AI to continue, regardless of command success/failure
-            println!("🔄 Command execution phase complete, asking AI to continue with analysis...");
-            
-            print!("\n\x1B[32mAssistant: \x1B[0m");
-            io::stdout().flush().unwrap();
-            
-            // Use a smaller token limit and simpler config for continuation
-            let continue_config = GenerationConfig {
-                max_tokens: 512,
-                stop_strings: gen_config.stop_strings.clone(),
-            };
-            
-            match backend.generate_response(
-                &conversation,
-                continue_config,
-                Box::new(move |token_info| {
-                    print!("{}", token_info.token_str);
-                    io::stdout().flush().unwrap();
-                    true
-                }),
-            ) {
-                Ok(continuation_response) => {
-                    if !continuation_response.trim().is_empty() {
-                        conversation.push(ChatMessage {
-                            role: "assistant".to_string(),
-                            content: continuation_response.trim().to_string(),
-                        });
-                    }
-                }
-                Err(e) => {
-                    println!("\n⚠️ Could not generate follow-up analysis: {}", e);
-                }
-            }
+        } else {
+            println!("📋 MAIN: No commands detected in response");
         }
 
 
@@ -527,7 +507,17 @@ fn run_chat_with_backend<T: LLMBackend>(mut backend: T) -> Result<()> {
             final_tps
         );
 
-        let context_info = backend.get_context_info(&conversation, &response)?;
+        println!("🔍 MAIN: About to call get_context_info");
+        let context_info = match backend.get_context_info(&conversation, &response) {
+            Ok(info) => {
+                println!("🔍 MAIN: get_context_info returned successfully");
+                info
+            },
+            Err(e) => {
+                println!("❌ MAIN: get_context_info failed with error: {}", e);
+                return Err(e);
+            }
+        };
         let usage_color = if context_info.usage_percent >= 90 {
             "\x1B[1;31m"
         } else if context_info.usage_percent >= 70 {
@@ -552,7 +542,10 @@ fn run_chat_with_backend<T: LLMBackend>(mut backend: T) -> Result<()> {
             println!("\x1B[1;31m🚨 Critical: Context is {}% full! Responses may be cut short. Type 'exit' and start a new chat.\x1B[0m", context_info.usage_percent);
         }
 
+        println!("🔍 MAIN: About to save conversation");
         save_conversation(&conversation, &convo_path)?;
+        println!("🔍 MAIN: Conversation saved successfully");
+        println!("🔍 MAIN: End of main loop iteration");
     }
 
     Ok(())
@@ -694,7 +687,7 @@ fn main() -> Result<()> {
     } else {
         println!("💾 CPU-only mode: All processing will be on CPU");
     }
-    
+    clear_terminal();
     let backend = LlamaCppBackendImpl::initialize(model_config)?;
     run_chat_with_backend(backend)
 }
