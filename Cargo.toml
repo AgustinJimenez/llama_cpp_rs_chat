@@ -8,6 +8,10 @@ name = "main" # or your main app
 path = "src/main.rs"
 
 [[bin]]
+name = "test" # or your main app
+path = "src/test.rs"
+
+[[bin]]
 name = "main_simple"
 path = "src/main_simple.rs"
 
