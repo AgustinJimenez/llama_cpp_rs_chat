@@ -4,11 +4,11 @@ use std::path::Path;
 use serde_json::{json, Value};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const SYSTEM_PROMPT: &str = "You are a helpful AI assistant with command-line access.
+const SYSTEM_PROMPT_TEMPLATE: &str = "You are a helpful AI assistant with command-line access running on {}.
 
 You can execute system commands by using the !CMD! syntax:
 - Format: !CMD!command!CMD!
-- Example: !CMD!ls -la!CMD! to list files
+- Example: !CMD!ls -la!CMD! to list files (Unix/Linux/macOS) or !CMD!dir!CMD! (Windows)
 - Example: !CMD!pwd!CMD! to show current directory
 
 Always be helpful and provide clear explanations for your actions.";
@@ -128,6 +128,20 @@ fn add_message(conversation_file: &str, role: &str, message: &str) {
         .expect("Failed to update conversation file");
 }
 
+fn get_operating_system() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "Windows"
+    } else if cfg!(target_os = "macos") {
+        "macOS"
+    } else if cfg!(target_os = "linux") {
+        "Linux"
+    } else {
+        "Unix-like system"
+    }
+}
+
 fn add_system_prompt(conversation_file: &str) {
-    add_message(conversation_file, "system", SYSTEM_PROMPT);
+    let os_name = get_operating_system();
+    let system_prompt = SYSTEM_PROMPT_TEMPLATE.replace("{}", os_name);
+    add_message(conversation_file, "system", &system_prompt);
 }
