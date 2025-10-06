@@ -1,0 +1,35 @@
+# Development Dockerfile with live reload
+FROM rust:1.82-bullseye
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    cmake \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    git \
+    clang \
+    libclang-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js and Bun for frontend development
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+    && apt-get install -y nodejs \
+    && npm install -g bun
+
+# Install cargo-watch for auto-recompilation
+RUN cargo install cargo-watch
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files and install dependencies
+COPY package.json bun.lockb ./
+RUN bun install
+
+# Expose ports
+EXPOSE 3000 5173
+
+# Default command for development
+CMD ["cargo", "watch", "-x", "run"]

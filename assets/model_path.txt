@@ -1,1 +1,0 @@
-E:\.lmstudio\models\lmstudio-community\Devstral-Small-2507-GGUF\Devstral-Small-2507-Q4_K_M.gguf

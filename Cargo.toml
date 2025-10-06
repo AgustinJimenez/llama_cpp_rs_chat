@@ -1,17 +1,51 @@
 [package]
-name = "llama_cpp_test"
+name = "llama_cpp_chat"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+default-run = "llama_cpp_chat"
 
+# Tauri expects a lib.rs with the lib target
+[lib]
+name = "llama_cpp_chat"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+# Tauri app binary
 [[bin]]
-name = "main" # or your main app
+name = "llama_cpp_chat"
 path = "src/main.rs"
 
+# Keep the original CLI binary for testing (disabled for now)
+# [[bin]]
+# name = "test"
+# path = "src/test.rs"
+
+# Web server binary (for Docker deployment)
+[[bin]]
+name = "web-server"
+path = "src/main_web.rs"
+
 [dependencies]
-llama-cpp-2 = "0.1.113"
-anyhow = "1.0"
+# Tauri framework  
+tauri = { version = "2.0", features = [] }
+tauri-plugin-shell = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+
+# LLaMA dependencies - enabled for Docker builds
+llama-cpp-2 = { version = "0.1.122", optional = true }
+anyhow = "1.0"
+uuid = { version = "1.0", features = ["v4"] }
+
+# Web server dependencies
+hyper = { version = "0.14", features = ["full"] }
+urlencoding = "2.1"
+
+[features]
+default = []
+docker = ["llama-cpp-2"]
 
 [build-dependencies]
+tauri-build = { version = "2.0", features = [] }
 cmake = "0.1"
+

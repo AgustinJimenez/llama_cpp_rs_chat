@@ -1,5 +1,29 @@
-/target
+/target/
 **/*.rs.bk
 
-# Bundled CMake binaries (optional - remove this line if you want to commit them)
+# Bundled CMake binaries (optional - remove this line if you want to commit them)  
 # cmake/
+
+# Claude Code files
+.claude/
+
+# Environment files
+.env
+.env.local
+
+# Node.js dependencies
+node_modules/
+dist/
+
+# Log files and runtime data
+error_log
+*.log
+logs/
+backups/
+assets/conversations/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+assets/model_path.txt

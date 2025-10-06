@@ -1,0 +1,65 @@
+# Rust build artifacts
+target/
+
+# Node.js
+node_modules/
+dist/
+.vite/
+.cache/
+
+# Git files
+.git/
+.gitignore
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Documentation
+*.md
+docs/
+
+# Local test files
+assets/conversations/
+*.log
+logs/
+
+# Model files (too large, mount as volume instead)
+*.gguf
+*.bin
+*.safetensors
+models/
+
+# Temporary files
+tmp.*
+temp/
+
+# Environment files
+.env
+.env.local
+
+# Claude settings
+.claude/
+
+# Docker files (avoid recursion)
+Dockerfile*
+docker-compose*.yml
+
+# Frontend build artifacts
+.turbo/
+coverage/
+.nyc_output/
+
+# Package manager files
+yarn.lock
+package-lock.json
+pnpm-lock.yaml
+
+# SSL certificates (should be mounted)
+ssl/

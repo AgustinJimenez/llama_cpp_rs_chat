@@ -1,0 +1,342 @@
+{
+  "config": {
+    "configFile": "/Users/agus/repo/llama_cpp_rs_chat/playwright.config.ts",
+    "rootDir": "/Users/agus/repo/llama_cpp_rs_chat/tests/e2e",
+    "forbidOnly": false,
+    "fullyParallel": true,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 4
+    },
+    "preserveOutput": "always",
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "test-results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "quiet": false,
+    "projects": [
+      {
+        "outputDir": "/Users/agus/repo/llama_cpp_rs_chat/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 4
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "/Users/agus/repo/llama_cpp_rs_chat/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/Users/agus/repo/llama_cpp_rs_chat/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 4
+        },
+        "id": "firefox",
+        "name": "firefox",
+        "testDir": "/Users/agus/repo/llama_cpp_rs_chat/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/Users/agus/repo/llama_cpp_rs_chat/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 4
+        },
+        "id": "webkit",
+        "name": "webkit",
+        "testDir": "/Users/agus/repo/llama_cpp_rs_chat/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/Users/agus/repo/llama_cpp_rs_chat/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 4
+        },
+        "id": "Mobile Chrome",
+        "name": "Mobile Chrome",
+        "testDir": "/Users/agus/repo/llama_cpp_rs_chat/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/Users/agus/repo/llama_cpp_rs_chat/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 4
+        },
+        "id": "Mobile Safari",
+        "name": "Mobile Safari",
+        "testDir": "/Users/agus/repo/llama_cpp_rs_chat/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "shard": null,
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.55.1",
+    "workers": 5,
+    "webServer": {
+      "command": "docker compose up llama-chat-app",
+      "url": "http://localhost:3000",
+      "reuseExistingServer": true,
+      "timeout": 120000
+    }
+  },
+  "suites": [
+    {
+      "title": "simple-chat.test.ts",
+      "file": "simple-chat.test.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Simple Chat Test",
+          "file": "simple-chat.test.ts",
+          "line": 3,
+          "column": 6,
+          "specs": [
+            {
+              "title": "can say hello and get a response",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 11458,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m()\u001b[22m failed\n\nLocator:  getByTestId('loading-indicator')\nExpected: visible\nReceived: <element(s) not found>\nTimeout:  5000ms\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByTestId('loading-indicator')\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m()\u001b[22m failed\n\nLocator:  getByTestId('loading-indicator')\nExpected: visible\nReceived: <element(s) not found>\nTimeout:  5000ms\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByTestId('loading-indicator')\u001b[22m\n\n    at /Users/agus/repo/llama_cpp_rs_chat/tests/e2e/simple-chat.test.ts:40:36",
+                        "location": {
+                          "file": "/Users/agus/repo/llama_cpp_rs_chat/tests/e2e/simple-chat.test.ts",
+                          "column": 36,
+                          "line": 40
+                        },
+                        "snippet": "  38 |     // Check for loading indicator\n  39 |     const loadingIndicator = page.getByTestId('loading-indicator');\n> 40 |     await expect(loadingIndicator).toBeVisible({ timeout: 5000 });\n     |                                    ^\n  41 |     \n  42 |     // Wait for assistant response\n  43 |     const assistantMessage = page.getByTestId('message-assistant');"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/agus/repo/llama_cpp_rs_chat/tests/e2e/simple-chat.test.ts",
+                            "column": 36,
+                            "line": 40
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m()\u001b[22m failed\n\nLocator:  getByTestId('loading-indicator')\nExpected: visible\nReceived: <element(s) not found>\nTimeout:  5000ms\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByTestId('loading-indicator')\u001b[22m\n\n\n  38 |     // Check for loading indicator\n  39 |     const loadingIndicator = page.getByTestId('loading-indicator');\n> 40 |     await expect(loadingIndicator).toBeVisible({ timeout: 5000 });\n     |                                    ^\n  41 |     \n  42 |     // Wait for assistant response\n  43 |     const assistantMessage = page.getByTestId('message-assistant');\n    at /Users/agus/repo/llama_cpp_rs_chat/tests/e2e/simple-chat.test.ts:40:36"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-10-05T20:28:41.594Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/Users/agus/repo/llama_cpp_rs_chat/test-results/simple-chat-Simple-Chat-Te-12b50-ay-hello-and-get-a-response-chromium/test-failed-1.png"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/agus/repo/llama_cpp_rs_chat/test-results/simple-chat-Simple-Chat-Te-12b50-ay-hello-and-get-a-response-chromium/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/agus/repo/llama_cpp_rs_chat/tests/e2e/simple-chat.test.ts",
+                        "column": 36,
+                        "line": 40
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "e76983a3360cbf1f806a-f53d49344722daae8b34",
+              "file": "simple-chat.test.ts",
+              "line": 4,
+              "column": 3
+            },
+            {
+              "title": "API hello test",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 5934,
+                      "errors": [],
+                      "stdout": [
+                        {
+                          "text": "API Response: Hello! How can I assist you today?\n"
+                        },
+                        {
+                          "text": "✅ API hello test completed!\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-10-05T20:28:41.588Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e76983a3360cbf1f806a-f28302c8ed3431640fab",
+              "file": "simple-chat.test.ts",
+              "line": 56,
+              "column": 3
+            },
+            {
+              "title": "can send multiple messages in conversation",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 2,
+                      "parallelIndex": 2,
+                      "status": "passed",
+                      "duration": 6494,
+                      "errors": [],
+                      "stdout": [
+                        {
+                          "text": "✅ Multiple messages test completed!\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-10-05T20:28:41.589Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e76983a3360cbf1f806a-6cff736adba68828b2a2",
+              "file": "simple-chat.test.ts",
+              "line": 79,
+              "column": 3
+            },
+            {
+              "title": "new chat button clears conversation",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 3,
+                      "parallelIndex": 3,
+                      "status": "passed",
+                      "duration": 6479,
+                      "errors": [],
+                      "stdout": [
+                        {
+                          "text": "✅ New chat test completed!\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-10-05T20:28:41.592Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e76983a3360cbf1f806a-3bd6aed96d4efd50a204",
+              "file": "simple-chat.test.ts",
+              "line": 104,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2025-10-05T20:28:39.957Z",
+    "duration": 13483.955,
+    "expected": 3,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  }
+}

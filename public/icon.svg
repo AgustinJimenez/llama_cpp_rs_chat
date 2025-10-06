@@ -1,0 +1,23 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="128" height="128" rx="24" fill="url(#gradient)"/>
+  <defs>
+    <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#667eea"/>
+      <stop offset="100%" style="stop-color:#764ba2"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- LLaMA/Chat icon -->
+  <path d="M32 48C32 42.4772 36.4772 38 42 38H86C91.5228 38 96 42.4772 96 48V68C96 73.5228 91.5228 78 86 78H72L64 86L56 78H42C36.4772 78 32 73.5228 32 68V48Z" fill="white" fill-opacity="0.9"/>
+  
+  <!-- Command prompt cursor -->
+  <rect x="44" y="52" width="2" height="8" fill="#667eea"/>
+  <rect x="48" y="52" width="12" height="2" fill="#667eea" fill-opacity="0.6"/>
+  <rect x="48" y="56" width="20" height="2" fill="#667eea" fill-opacity="0.4"/>
+  <rect x="48" y="60" width="16" height="2" fill="#667eea" fill-opacity="0.6"/>
+  
+  <!-- AI brain/circuit pattern -->
+  <circle cx="64" cy="96" r="16" fill="white" fill-opacity="0.9"/>
+  <circle cx="64" cy="96" r="4" fill="#764ba2"/>
+  <path d="M56 88L72 104M72 88L56 104" stroke="#764ba2" stroke-width="2" stroke-linecap="round"/>
+</svg>

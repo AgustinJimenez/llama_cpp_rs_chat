@@ -1,0 +1,11 @@
+[model]
+path = "/app/models/lmstudio-community/granite-4.0-h-tiny-GGUF/granite-4.0-h-tiny-Q4_K_M.gguf"
+context_size = 32768
+
+[sampler]
+type = "Greedy"
+temperature = 0.7
+top_p = 0.95
+top_k = 20
+mirostat_tau = 5.0
+mirostat_eta = 0.1
