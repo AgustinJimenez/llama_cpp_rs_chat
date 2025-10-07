@@ -36,11 +36,16 @@ struct SamplerConfig {
     system_prompt: Option<String>,
     context_size: Option<u32>,
     stop_tokens: Option<Vec<String>>,
+    #[serde(default)]
+    model_history: Vec<String>,
 }
 
 // Common stop tokens for different model providers
 fn get_common_stop_tokens() -> Vec<String> {
     vec![
+        // Custom command tag - stop AFTER the command is complete
+        "</COMMAND>".to_string(),
+
         // LLaMA 3+ tokens
         "<|end_of_text|>".to_string(),
         "<|eot_id|>".to_string(),
@@ -116,6 +121,7 @@ To run a command, use this exact format:
             system_prompt: Some(default_system_prompt.trim().to_string()),
             context_size: Some(32768),
             stop_tokens: Some(get_common_stop_tokens()),
+            model_history: Vec::new(),
         }
     }
 }
@@ -228,6 +234,151 @@ fn load_config() -> SamplerConfig {
     }
 }
 
+// Helper function to add a model path to history
+fn add_to_model_history(model_path: &str) {
+    let config_path = "assets/config.json";
+
+    // Load current config
+    let mut config = load_config();
+
+    // Remove the path if it already exists (to move it to the front)
+    config.model_history.retain(|p| p != model_path);
+
+    // Add to the front of the list
+    config.model_history.insert(0, model_path.to_string());
+
+    // Keep only the last 10 paths
+    if config.model_history.len() > 10 {
+        config.model_history.truncate(10);
+    }
+
+    // Save the updated config
+    let _ = fs::create_dir_all("assets");
+    if let Ok(json) = serde_json::to_string_pretty(&config) {
+        let _ = fs::write(config_path, json);
+    }
+}
+
+// Helper function to parse command with proper quote handling
+fn parse_command_with_quotes(cmd: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut current_part = String::new();
+    let mut in_quotes = false;
+    let mut chars = cmd.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '"' => {
+                in_quotes = !in_quotes;
+                // Don't include the quote character in the output
+            }
+            ' ' if !in_quotes => {
+                if !current_part.is_empty() {
+                    parts.push(current_part.clone());
+                    current_part.clear();
+                }
+            }
+            _ => {
+                current_part.push(ch);
+            }
+        }
+    }
+
+    if !current_part.is_empty() {
+        parts.push(current_part);
+    }
+
+    parts
+}
+
+// Helper function to execute system commands
+fn execute_command(cmd: &str) -> String {
+    use std::process::Command;
+    use std::env;
+
+    // Parse command with proper quote handling
+    let parts = parse_command_with_quotes(cmd.trim());
+    if parts.is_empty() {
+        return "Error: Empty command".to_string();
+    }
+
+    let command_name = &parts[0];
+
+    // Basic command validation - reject obviously invalid commands
+    if command_name.len() < 2 || command_name.contains("/") && !command_name.starts_with("/") {
+        return format!("Error: Invalid command format: {}", command_name);
+    }
+
+    // Prevent dangerous filesystem-wide searches
+    if command_name == "find" && parts.len() > 1 {
+        let search_path = &parts[1];
+        if search_path == "/" || search_path == "/usr" || search_path == "/System" {
+            return format!("Error: Filesystem-wide searches are not allowed for performance and security reasons. Try searching in specific directories like current directory '.'");
+        }
+    }
+
+    // Special handling for cd command - actually change the process working directory
+    if command_name == "cd" {
+        let target_dir = if parts.len() > 1 {
+            &parts[1]
+        } else {
+            return "Error: cd command requires a directory argument".to_string();
+        };
+
+        match env::set_current_dir(target_dir) {
+            Ok(_) => {
+                if let Ok(new_dir) = env::current_dir() {
+                    format!("Successfully changed directory to: {}", new_dir.display())
+                } else {
+                    "Directory changed successfully".to_string()
+                }
+            }
+            Err(e) => {
+                format!("Error: Failed to change directory: {}", e)
+            }
+        }
+    } else {
+        // Normal command execution for non-cd commands
+        let mut command = Command::new(&parts[0]);
+        if parts.len() > 1 {
+            command.args(&parts[1..]);
+        }
+
+        match command.output() {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+
+                // Handle commands that succeed silently
+                if output.status.success() && stdout.is_empty() && stderr.is_empty() {
+                    match command_name.as_str() {
+                        "find" => "No files found matching the search criteria".to_string(),
+                        "mkdir" => "Directory created successfully".to_string(),
+                        "touch" => "File created successfully".to_string(),
+                        "rm" | "rmdir" => "File/directory removed successfully".to_string(),
+                        "mv" | "cp" => "File operation completed successfully".to_string(),
+                        "chmod" => "Permissions changed successfully".to_string(),
+                        _ => {
+                            if parts.len() > 1 {
+                                format!("Command '{}' executed successfully", parts.join(" "))
+                            } else {
+                                format!("Command '{}' executed successfully", command_name)
+                            }
+                        }
+                    }
+                } else if !stderr.is_empty() {
+                    format!("{}\nError: {}", stdout, stderr)
+                } else {
+                    stdout.to_string()
+                }
+            }
+            Err(e) => {
+                format!("Failed to execute command: {}", e)
+            }
+        }
+    }
+}
+
 // Helper function to get model status
 #[cfg(feature = "docker")]
 fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
@@ -266,6 +417,65 @@ fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
     }
 }
 
+// Helper function to calculate optimal GPU layers based on available VRAM
+#[cfg(feature = "docker")]
+fn calculate_optimal_gpu_layers(model_path: &str) -> u32 {
+    use std::fs;
+
+    // Get model file size to estimate memory requirements
+    let model_size_bytes = match fs::metadata(model_path) {
+        Ok(metadata) => metadata.len(),
+        Err(_) => {
+            println!("[GPU] Could not read model file size, defaulting to 32 layers");
+            return 32;
+        }
+    };
+
+    let model_size_gb = model_size_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+    println!("[GPU] Model file size: {:.2} GB", model_size_gb);
+
+    // Try to get available GPU VRAM
+    // For NVIDIA GPUs, we can estimate based on typical model requirements
+    // A rough heuristic:
+    // - Small models (< 5GB): Use all GPU layers (typically ~40 layers)
+    // - Medium models (5-15GB): Use proportional layers
+    // - Large models (> 15GB): May need CPU offload
+
+    // Estimate based on RTX 4090 with ~24GB VRAM
+    // Reserve ~2GB for system/context, leaving ~22GB for model
+    let available_vram_gb = 22.0;
+
+    println!("[GPU] Estimated available VRAM: {:.2} GB", available_vram_gb);
+
+    // Calculate what percentage of the model fits in VRAM
+    let vram_ratio = (available_vram_gb / model_size_gb).min(1.0);
+
+    // Estimate typical layer count based on model size
+    // Small models (~7B params, ~4-8GB): ~32-40 layers
+    // Medium models (~13B params, ~8-15GB): ~40-50 layers
+    // Large models (~30B+ params, >15GB): ~50-80 layers
+    let estimated_total_layers = if model_size_gb < 8.0 {
+        36
+    } else if model_size_gb < 15.0 {
+        45
+    } else if model_size_gb < 25.0 {
+        60
+    } else {
+        80
+    };
+
+    let optimal_layers = (estimated_total_layers as f64 * vram_ratio).floor() as u32;
+
+    println!("[GPU] Estimated total layers: {}", estimated_total_layers);
+    println!("[GPU] VRAM utilization ratio: {:.1}%", vram_ratio * 100.0);
+    println!("[GPU] Optimal GPU layers: {} ({}% of model)",
+             optimal_layers,
+             (optimal_layers as f64 / estimated_total_layers as f64 * 100.0) as u32);
+
+    // Ensure at least 1 layer on GPU if model is small enough
+    optimal_layers.max(if vram_ratio > 0.1 { 1 } else { 0 })
+}
+
 // Helper function to load a model
 #[cfg(feature = "docker")]
 async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Result<(), String> {
@@ -276,7 +486,7 @@ async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Result<(
         println!("[DEBUG] Mutex was poisoned, recovering...");
         poisoned.into_inner()
     });
-    
+
     // Initialize backend if needed
     if state_guard.is_none() {
         let backend = LlamaBackend::init().map_err(|e| format!("Failed to init backend: {}", e))?;
@@ -287,9 +497,9 @@ async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Result<(
             last_used: std::time::SystemTime::now(),
         });
     }
-    
+
     let state = state_guard.as_mut().unwrap();
-    
+
     // Check if model is already loaded
     if let Some(ref current_path) = state.current_model_path {
         if current_path == model_path && state.model.is_some() {
@@ -297,27 +507,30 @@ async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Result<(
             return Ok(()); // Model already loaded
         }
     }
-    
+
     // Unload current model if any
     state.model = None;
     state.current_model_path = None;
-    
-    // Load new model with GPU acceleration
+
+    // Calculate optimal GPU layers
+    let optimal_gpu_layers = calculate_optimal_gpu_layers(model_path);
+
+    // Load new model with calculated GPU acceleration
     let model_params = LlamaModelParams::default()
-        .with_n_gpu_layers(32);
+        .with_n_gpu_layers(optimal_gpu_layers);
 
     println!("Loading model from: {}", model_path);
-    println!("GPU layers enabled: 32 layers will be offloaded to GPU");
+    println!("GPU layers configured: {} layers will be offloaded to GPU", optimal_gpu_layers);
 
     let model = LlamaModel::load_from_file(&state.backend, model_path, &model_params)
         .map_err(|e| format!("Failed to load model: {}", e))?;
 
     println!("Model loaded successfully!");
-    
+
     state.model = Some(model);
     state.current_model_path = Some(model_path.to_string());
     state.last_used = std::time::SystemTime::now();
-    
+
     Ok(())
 }
 
@@ -441,7 +654,17 @@ To run a command, use this exact format:
     fn finish_assistant_message(&mut self) {
         // Add proper newlines after assistant message completion
         self.content.push_str("\n\n");
-        
+
+        // Write immediately to file
+        if let Err(e) = fs::write(&self.file_path, &self.content) {
+            eprintln!("Failed to write conversation log: {}", e);
+        }
+    }
+
+    fn log_command_execution(&mut self, command: &str, output: &str) {
+        let log_entry = format!("[COMMAND: {}]\n{}\n\n", command, output);
+        self.content.push_str(&log_entry);
+
         // Write immediately to file
         if let Err(e) = fs::write(&self.file_path, &self.content) {
             eprintln!("Failed to write conversation log: {}", e);
@@ -456,13 +679,6 @@ To run a command, use this exact format:
     fn load_conversation_from_file(&self) -> io::Result<String> {
         // Read the conversation directly from file (source of truth)
         fs::read_to_string(&self.file_path)
-    }
-
-    fn save(&self) -> io::Result<()> {
-        // Final save (content should already be written, but ensure it's there)
-        fs::write(&self.file_path, &self.content)?;
-        println!("Conversation saved to: {}", self.file_path);
-        Ok(())
     }
 }
 
@@ -667,12 +883,21 @@ async fn generate_llama_response(user_message: &str, llama_state: SharedLlamaSta
         let mut logger = conversation_logger.lock().map_err(|_| "Failed to lock conversation logger")?;
         logger.log_message("ASSISTANT", "");
     }
-    
+
     // Generate response
     let mut response = String::new();
     let mut token_pos = tokens.len() as i32;
-    
-    for _ in 0..512 { // Limit response length
+    let mut total_tokens_generated = 0;
+    let max_total_tokens = 1024; // Overall limit including command execution cycles
+
+    // Outer loop to handle command execution and continuation
+    loop {
+        let mut command_executed = false;
+
+        // Inner loop for token generation
+        let tokens_to_generate = std::cmp::min(512, max_total_tokens - total_tokens_generated);
+
+        for _ in 0..tokens_to_generate { // Limit response length per cycle
         // Sample next token
         let next_token = sampler.sample(&context, -1);
 
@@ -700,12 +925,40 @@ async fn generate_llama_response(user_message: &str, llama_state: SharedLlamaSta
         let mut should_stop = false;
         let mut partial_to_remove = 0;
 
+        // Check if we're inside a COMMAND block
+        let in_command_block = response.contains("<COMMAND>") && !response.contains("</COMMAND>");
+
         for stop_token in &stop_tokens {
             // Check if the test response contains the complete stop token
             if test_response.contains(stop_token) {
                 println!("Debug: Stopping generation due to stop token detected: '{}'", stop_token);
+
+                // Special case: for </COMMAND>, we want to include it in the response
+                if stop_token == "</COMMAND>" {
+                    // Add the current token to complete the </COMMAND> tag
+                    response.push_str(&token_str);
+
+                    // Log token to conversation file
+                    {
+                        let mut logger = conversation_logger.lock().map_err(|_| "Failed to lock conversation logger")?;
+                        logger.log_token(&token_str);
+                    }
+                }
+
                 should_stop = true;
                 break;
+            }
+
+            // Special handling when inside a COMMAND block
+            // Don't stop on partial matches of stop tokens that start with "</" while generating a command
+            if in_command_block && (stop_token.starts_with("</") || stop_token.starts_with("[/")) {
+                continue; // Skip these stop tokens while inside COMMAND block
+            }
+
+            // Special handling for </COMMAND> - only stop on complete match, no partial matching
+            // This allows the full command to be generated before stopping
+            if stop_token == "</COMMAND>" {
+                continue; // Skip partial matching for </COMMAND>
             }
 
             // Check if we're at the beginning of a stop token (partial match at the end)
@@ -746,32 +999,107 @@ async fn generate_llama_response(user_message: &str, llama_state: SharedLlamaSta
 
         // If no stop sequence detected, add the token to the response
         response.push_str(&token_str);
-        
+
         // Log token to conversation file
         {
             let mut logger = conversation_logger.lock().map_err(|_| "Failed to lock conversation logger")?;
             logger.log_token(&token_str);
         }
-        
+
         // Prepare next iteration
         batch.clear();
         batch
             .add(next_token, token_pos, &[0], true)
             .map_err(|e| format!("Batch add failed: {}", e))?;
-        
+
         context
             .decode(&mut batch)
             .map_err(|e| format!("Decode failed: {}", e))?;
-        
+
         token_pos += 1;
-    }
-    
+        total_tokens_generated += 1;
+    } // End of inner token generation loop
+
+        // Check if response contains a command to execute
+        if response.contains("<COMMAND>") && response.contains("</COMMAND>") {
+            if let Some(start) = response.find("<COMMAND>") {
+                if let Some(end) = response.find("</COMMAND>") {
+                    if end > start {
+                        let command_text = &response[start + 9..end]; // 9 is length of "<COMMAND>"
+                        println!("Debug: Executing command: {}", command_text);
+
+                        // Execute the command
+                        let output = execute_command(command_text);
+                        println!("Debug: Command output: {}", output);
+
+                        // Log command execution
+                        {
+                            let mut logger = conversation_logger.lock().map_err(|_| "Failed to lock conversation logger")?;
+                            logger.log_command_execution(command_text, &output);
+                        }
+
+                        // Replace the command in the response with output
+                        let before_command = &response[..start];
+                        let after_command = &response[end + 10..]; // 10 is length of "</COMMAND>"
+
+                        let command_output_text = format!(
+                            "\n\n[COMMAND: {}]\n\n```\n{}\n```\n\n",
+                            command_text,
+                            output.trim()
+                        );
+
+                        response = format!(
+                            "{}{}{}",
+                            before_command.trim(),
+                            command_output_text,
+                            after_command
+                        );
+
+                        // Log the command output to conversation
+                        {
+                            let mut logger = conversation_logger.lock().map_err(|_| "Failed to lock conversation logger")?;
+                            logger.log_token(&command_output_text);
+                        }
+
+                        // Tokenize the command output and feed it to the context
+                        let output_tokens = model
+                            .str_to_token(&command_output_text, AddBos::Never)
+                            .map_err(|e| format!("Tokenization of command output failed: {}", e))?;
+
+                        println!("Debug: Feeding {} command output tokens to context", output_tokens.len());
+
+                        // Feed output tokens to context
+                        for token in output_tokens {
+                            batch.clear();
+                            batch
+                                .add(token, token_pos, &[0], true)
+                                .map_err(|e| format!("Batch add failed for command output: {}", e))?;
+
+                            context
+                                .decode(&mut batch)
+                                .map_err(|e| format!("Decode failed for command output: {}", e))?;
+
+                            token_pos += 1;
+                        }
+
+                        command_executed = true;
+                    }
+                }
+            }
+        }
+
+        // Break if no command was executed or if we've reached the token limit
+        if !command_executed || total_tokens_generated >= max_total_tokens {
+            break;
+        }
+    } // End of outer command execution loop
+
     // Finish the assistant message with proper formatting
     {
         let mut logger = conversation_logger.lock().map_err(|_| "Failed to lock conversation logger")?;
         logger.finish_assistant_message();
     }
-    
+
     Ok(response.trim().to_string())
 }
 
@@ -980,9 +1308,9 @@ async fn handle_request_impl(
                 }
             };
 
-            // Validate JSON structure
-            let config_json: serde_json::Value = match serde_json::from_slice(&body_bytes) {
-                Ok(json) => json,
+            // Parse incoming config
+            let incoming_config: SamplerConfig = match serde_json::from_slice(&body_bytes) {
+                Ok(config) => config,
                 Err(_) => {
                     return Ok(Response::builder()
                         .status(StatusCode::BAD_REQUEST)
@@ -993,7 +1321,23 @@ async fn handle_request_impl(
                 }
             };
 
-            // Save configuration to file
+            // Load existing config to preserve model_history
+            let mut existing_config = load_config();
+
+            // Update fields from incoming config, but preserve model_history
+            existing_config.sampler_type = incoming_config.sampler_type;
+            existing_config.temperature = incoming_config.temperature;
+            existing_config.top_p = incoming_config.top_p;
+            existing_config.top_k = incoming_config.top_k;
+            existing_config.mirostat_tau = incoming_config.mirostat_tau;
+            existing_config.mirostat_eta = incoming_config.mirostat_eta;
+            existing_config.model_path = incoming_config.model_path;
+            existing_config.system_prompt = incoming_config.system_prompt;
+            existing_config.context_size = incoming_config.context_size;
+            existing_config.stop_tokens = incoming_config.stop_tokens;
+            // Note: model_history is NOT updated from incoming config
+
+            // Save merged configuration to file
             let config_path = "assets/config.json";
             if let Err(_) = fs::create_dir_all("assets") {
                 return Ok(Response::builder()
@@ -1004,7 +1348,7 @@ async fn handle_request_impl(
                     .unwrap());
             }
 
-            match fs::write(config_path, serde_json::to_string_pretty(&config_json).unwrap_or_default()) {
+            match fs::write(config_path, serde_json::to_string_pretty(&existing_config).unwrap_or_default()) {
                 Ok(_) => {
                     Response::builder()
                         .status(StatusCode::OK)
@@ -1250,6 +1594,18 @@ async fn handle_request_impl(
                 quantization = "F32";
             }
             
+            // Estimate total layers based on model size
+            let model_size_gb = file_size_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+            let estimated_total_layers = if model_size_gb < 8.0 {
+                36  // Small models (7B and below)
+            } else if model_size_gb < 15.0 {
+                45  // Medium models (13B)
+            } else if model_size_gb < 25.0 {
+                60  // Large models (30B)
+            } else {
+                80  // Very large models (70B+)
+            };
+
             let model_info = serde_json::json!({
                 "name": filename,
                 "architecture": architecture,
@@ -1257,7 +1613,8 @@ async fn handle_request_impl(
                 "quantization": quantization,
                 "file_size": file_size,
                 "context_length": "Variable", // GGUF models can have different context lengths
-                "path": decoded_path.to_string()
+                "path": decoded_path.to_string(),
+                "estimated_layers": estimated_total_layers
             });
             
             Response::builder()
@@ -1383,7 +1740,7 @@ async fn handle_request_impl(
                         Ok(json) => json,
                         Err(_) => r#"{"loaded":false,"model_path":null,"last_used":null,"memory_usage_mb":null}"#.to_string(),
                     };
-                    
+
                     Response::builder()
                         .status(StatusCode::OK)
                         .header("content-type", "application/json")
@@ -1399,7 +1756,7 @@ async fn handle_request_impl(
                         .unwrap()
                 }
             }
-            
+
             #[cfg(not(feature = "docker"))]
             {
                 Response::builder()
@@ -1410,7 +1767,23 @@ async fn handle_request_impl(
                     .unwrap()
             }
         }
-        
+
+        (&Method::GET, "/api/model/history") => {
+            // Load config and return model history
+            let config = load_config();
+            let response_json = match serde_json::to_string(&config.model_history) {
+                Ok(json) => json,
+                Err(_) => "[]".to_string(),
+            };
+
+            Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", "application/json")
+                .header("access-control-allow-origin", "*")
+                .body(Body::from(response_json))
+                .unwrap()
+        }
+
         (&Method::POST, "/api/model/load") => {
             println!("[DEBUG] /api/model/load endpoint hit");
 
@@ -1450,18 +1823,21 @@ async fn handle_request_impl(
                     // Attempt to load the model
                     match load_model(state.clone(), &load_request.model_path).await {
                         Ok(_) => {
+                            // Add to model history on successful load
+                            add_to_model_history(&load_request.model_path);
+
                             let status = get_model_status(&state);
                             let response = ModelResponse {
                                 success: true,
                                 message: format!("Model loaded successfully from {}", load_request.model_path),
                                 status: Some(status),
                             };
-                            
+
                             let response_json = match serde_json::to_string(&response) {
                                 Ok(json) => json,
                                 Err(_) => r#"{"success":true,"message":"Model loaded successfully","status":null}"#.to_string(),
                             };
-                            
+
                             Response::builder()
                                 .status(StatusCode::OK)
                                 .header("content-type", "application/json")
@@ -1663,7 +2039,7 @@ async fn handle_request_impl(
             // Fetch conversation files from assets/conversations directory
             let conversations_dir = "assets/conversations";
             let mut conversations = Vec::new();
-            
+
             match fs::read_dir(conversations_dir) {
                 Ok(entries) => {
                     for entry in entries {
@@ -1674,7 +2050,7 @@ async fn handle_request_impl(
                                     // Extract timestamp from filename (chat_YYYY-MM-DD-HH-mm-ss-SSS.txt)
                                     if filename.starts_with("chat_") && filename.ends_with(".txt") {
                                         let timestamp_part = &filename[5..filename.len()-4]; // Remove "chat_" and ".txt"
-                                        
+
                                         conversations.push(ConversationFile {
                                             name: filename.to_string(),
                                             display_name: format!("Chat {}", timestamp_part),
@@ -1690,16 +2066,16 @@ async fn handle_request_impl(
                     eprintln!("Failed to read conversations directory: {}", e);
                 }
             }
-            
+
             // Sort conversations by timestamp (newest first)
             conversations.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-            
+
             let response = ConversationsResponse { conversations };
             let response_json = match serde_json::to_string(&response) {
                 Ok(json) => json,
                 Err(_) => r#"{"conversations":[]}"#.to_string(),
             };
-            
+
             Response::builder()
                 .status(StatusCode::OK)
                 .header("content-type", "application/json")
@@ -1707,12 +2083,60 @@ async fn handle_request_impl(
                 .body(Body::from(response_json))
                 .unwrap()
         }
-        
+
+        (&Method::DELETE, path) if path.starts_with("/api/conversations/") => {
+            // Extract filename from path
+            let filename = &path["/api/conversations/".len()..];
+
+            // Validate filename to prevent path traversal
+            if filename.contains("..") || filename.contains("/") || filename.contains("\\") {
+                return Ok(Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .header("content-type", "application/json")
+                    .header("access-control-allow-origin", "*")
+                    .body(Body::from(r#"{"error":"Invalid filename"}"#))
+                    .unwrap());
+            }
+
+            // Only allow deleting .txt files that start with "chat_"
+            if !filename.starts_with("chat_") || !filename.ends_with(".txt") {
+                return Ok(Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .header("content-type", "application/json")
+                    .header("access-control-allow-origin", "*")
+                    .body(Body::from(r#"{"error":"Invalid conversation file"}"#))
+                    .unwrap());
+            }
+
+            let file_path = format!("assets/conversations/{}", filename);
+
+            match fs::remove_file(&file_path) {
+                Ok(_) => {
+                    println!("Deleted conversation file: {}", filename);
+                    Response::builder()
+                        .status(StatusCode::OK)
+                        .header("content-type", "application/json")
+                        .header("access-control-allow-origin", "*")
+                        .body(Body::from(r#"{"success":true}"#))
+                        .unwrap()
+                }
+                Err(e) => {
+                    eprintln!("Failed to delete conversation file: {}", e);
+                    Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .header("content-type", "application/json")
+                        .header("access-control-allow-origin", "*")
+                        .body(Body::from(r#"{"error":"Failed to delete conversation"}"#))
+                        .unwrap()
+                }
+            }
+        }
+
         (&Method::OPTIONS, _) => {
             Response::builder()
                 .status(StatusCode::OK)
                 .header("access-control-allow-origin", "*")
-                .header("access-control-allow-methods", "GET, POST, OPTIONS")
+                .header("access-control-allow-methods", "GET, POST, DELETE, OPTIONS")
                 .header("access-control-allow-headers", "content-type")
                 .body(Body::empty())
                 .unwrap()

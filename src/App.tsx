@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { X } from 'lucide-react';
+import { Unplug } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Toaster, toast } from 'react-hot-toast';
@@ -116,7 +116,7 @@ function App() {
                     className="bg-white/10 hover:bg-white/20 border-white/20 text-white"
                     title="Unload model"
                   >
-                    <X className="h-4 w-4" />
+                    <Unplug className="h-4 w-4" />
                   </Button>
                 </div>
               )}

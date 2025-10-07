@@ -92,9 +92,31 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   const [isCheckingFile, setIsCheckingFile] = useState(false);
   const [directorySuggestions, setDirectorySuggestions] = useState<string[]>([]);
   const [directoryError, setDirectoryError] = useState<string | null>(null);
+  const [modelHistory, setModelHistory] = useState<string[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [maxLayers, setMaxLayers] = useState(99);  // Dynamic max layers based on model
 
   // Check if we're in Tauri environment
   const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+
+  // Fetch model history when modal opens
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const response = await fetch('/api/model/history');
+        if (response.ok) {
+          const history = await response.json();
+          setModelHistory(history);
+        }
+      } catch (error) {
+        console.error('Failed to fetch model history:', error);
+      }
+    };
+
+    if (isOpen) {
+      fetchHistory();
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (modelPath) {
@@ -145,6 +167,10 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
               setFileExists(true);
               setDirectoryError(null);
               setDirectorySuggestions([]);
+              // Update max layers if available
+              if (data.estimated_layers) {
+                setMaxLayers(data.estimated_layers);
+              }
             } else {
               // Check if it's a directory error with suggestions
               const errorData = await response.json();
@@ -292,7 +318,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
         // Web: Use HTTP API
         const encodedPath = encodeURIComponent(modelPath);
         const response = await fetch(`/api/model/info?path=${encodedPath}`);
-        
+
         if (response.ok) {
           const metadata = await response.json();
           console.log('Received metadata object:', JSON.stringify(metadata, null, 2));
@@ -304,7 +330,12 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
             file_size: metadata.file_size || "Unknown",
             context_length: metadata.context_length || "Unknown",
             file_path: modelPath,
+            estimated_layers: metadata.estimated_layers,
           });
+          // Update max layers if available
+          if (metadata.estimated_layers) {
+            setMaxLayers(metadata.estimated_layers);
+          }
         } else {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
@@ -364,10 +395,12 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                       type="text"
                       value={modelPath}
                       onChange={(e) => setModelPath(e.target.value)}
+                      onFocus={() => setShowHistory(true)}
+                      onBlur={() => setTimeout(() => setShowHistory(false), 200)}
                       placeholder={isTauri ? "Select a .gguf file or enter full path" : "Enter full path to .gguf file (e.g., C:\\path\\to\\model.gguf)"}
                       className={`w-full px-3 py-2 pr-8 text-sm border rounded-md bg-background ${
-                        fileExists === true ? 'border-green-500' : 
-                        fileExists === false ? 'border-red-500' : 
+                        fileExists === true ? 'border-green-500' :
+                        fileExists === false ? 'border-red-500' :
                         'border-input'
                       }`}
                     />
@@ -380,6 +413,27 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                         ) : fileExists === false ? (
                           <XCircle className="h-4 w-4 text-red-500" />
                         ) : null}
+                      </div>
+                    )}
+                    {/* Model History Suggestions */}
+                    {showHistory && modelHistory.length > 0 && !modelPath.trim() && (
+                      <div className="absolute z-10 w-full mt-1 bg-background border border-input rounded-md shadow-lg max-h-60 overflow-y-auto">
+                        <div className="p-2 text-xs text-muted-foreground border-b">
+                          Previously used paths:
+                        </div>
+                        {modelHistory.map((path, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => {
+                              setModelPath(path);
+                              setShowHistory(false);
+                            }}
+                            className="block w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors border-b last:border-b-0"
+                          >
+                            <div className="font-mono text-xs truncate">{path}</div>
+                          </button>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -576,18 +630,47 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                   <div className="space-y-2">
                     <div className="flex justify-between items-center">
                       <label className="text-sm font-medium">GPU Layers (CUDA)</label>
-                      <span className="text-sm font-mono text-muted-foreground">{config.gpu_layers || 0}</span>
+                      <span className="text-sm font-mono text-muted-foreground">{config.gpu_layers || 0} / {maxLayers}</span>
                     </div>
+
+                    {/* Visual representation of GPU vs CPU split */}
+                    <div className="relative w-full h-8 rounded-md overflow-hidden border border-border bg-background">
+                      <div className="absolute inset-0 flex">
+                        {/* GPU portion (green) */}
+                        <div
+                          className="h-full bg-gradient-to-r from-green-600 to-green-500 transition-all duration-200"
+                          style={{ width: `${((config.gpu_layers || 0) / maxLayers) * 100}%` }}
+                        >
+                          {(config.gpu_layers || 0) > 0 && (
+                            <div className="h-full flex items-center justify-center text-xs font-semibold text-white">
+                              GPU
+                            </div>
+                          )}
+                        </div>
+                        {/* CPU portion (light gray) */}
+                        <div
+                          className="h-full bg-gradient-to-r from-slate-300 to-slate-200 transition-all duration-200"
+                          style={{ width: `${((maxLayers - (config.gpu_layers || 0)) / maxLayers) * 100}%` }}
+                        >
+                          {(maxLayers - (config.gpu_layers || 0)) > (maxLayers * 0.1) && (
+                            <div className="h-full flex items-center justify-center text-xs font-semibold text-slate-700">
+                              CPU
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
                     <Slider
                       value={[config.gpu_layers || 0]}
                       onValueChange={([value]) => handleInputChange('gpu_layers', value)}
-                      max={99}
+                      max={maxLayers}
                       min={0}
                       step={1}
                       className="w-full"
                     />
                     <p className="text-xs text-muted-foreground">
-                      Number of model layers to offload to GPU. Higher values = faster inference but more VRAM usage. 0 = CPU only, 32+ recommended for RTX 4090.
+                      Number of model layers to offload to GPU. Higher values = faster inference but more VRAM usage. 0 = CPU only. Model has ~{maxLayers} layers total.
                     </p>
                   </div>
 

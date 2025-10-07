@@ -62,4 +62,5 @@ export interface ModelMetadata {
   file_size: string;
   context_length: string;
   file_path: string;
+  estimated_layers?: number;  // Estimated total layers based on model size
 }

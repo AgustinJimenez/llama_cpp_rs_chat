@@ -57,6 +57,9 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode 
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[rehypeHighlight]}
             components={{
+              pre: ({ children }) => (
+                <pre className="my-0 p-0">{children}</pre>
+              ),
               code: ({ node, inline, className, children, ...props }) => {
                 return inline ? (
                   <code className={`${className} bg-slate-700 text-slate-100 px-1.5 py-0.5 rounded`} {...props}>

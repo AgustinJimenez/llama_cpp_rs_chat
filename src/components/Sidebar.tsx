@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Menu, ChevronLeft, Plus, Settings, RotateCcw } from 'lucide-react';
+import { Menu, ChevronLeft, Plus, Settings, RotateCcw, X } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 import './Sidebar.css';
 
 interface ConversationFile {
@@ -20,6 +22,8 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, onNewChat, onOpenSettings, onLoadConversation, currentConversationId }) => {
   const [conversations, setConversations] = useState<ConversationFile[]>([]);
   const [loading, setLoading] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [conversationToDelete, setConversationToDelete] = useState<ConversationFile | null>(null);
 
   const fetchConversations = async () => {
     setLoading(true);
@@ -52,6 +56,40 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, onNewChat, onOpenSe
       return `${month}/${day}/${year} ${hour}:${minute}`;
     }
     return timestamp;
+  };
+
+  const handleDeleteClick = (e: React.MouseEvent, conversation: ConversationFile) => {
+    e.stopPropagation(); // Prevent conversation from being loaded
+    setConversationToDelete(conversation);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!conversationToDelete) return;
+
+    try {
+      const response = await fetch(`/api/conversations/${conversationToDelete.name}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        // Remove from list
+        setConversations(prev => prev.filter(c => c.name !== conversationToDelete.name));
+        setDeleteDialogOpen(false);
+        setConversationToDelete(null);
+      } else {
+        console.error('Failed to delete conversation');
+        alert('Failed to delete conversation');
+      }
+    } catch (error) {
+      console.error('Error deleting conversation:', error);
+      alert('Error deleting conversation');
+    }
+  };
+
+  const handleDeleteCancel = () => {
+    setDeleteDialogOpen(false);
+    setConversationToDelete(null);
   };
 
   return (
@@ -130,18 +168,28 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, onNewChat, onOpenSe
                 conversations.map((conversation, index) => {
                   const isActive = currentConversationId === conversation.name;
                   return (
-                    <div 
+                    <div
                       key={conversation.name}
                       className={`conversation-item ${isActive ? 'conversation-item-active' : ''}`}
                       onClick={() => onLoadConversation(conversation.name)}
                       data-testid={`conversation-${index}`}
                     >
-                      <div className="conversation-title">
-                        Chat {formatTimestamp(conversation.timestamp)}
+                      <div className="conversation-content">
+                        <div className="conversation-title">
+                          Chat {formatTimestamp(conversation.timestamp)}
+                        </div>
+                        <div className="conversation-filename">
+                          {conversation.name}
+                        </div>
                       </div>
-                      <div className="conversation-filename">
-                        {conversation.name}
-                      </div>
+                      <button
+                        className="conversation-delete-btn"
+                        onClick={(e) => handleDeleteClick(e, conversation)}
+                        aria-label="Delete conversation"
+                        data-testid={`delete-conversation-${index}`}
+                      >
+                        <X size={16} />
+                      </button>
                     </div>
                   );
                 })
@@ -172,6 +220,31 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, onNewChat, onOpenSe
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Conversation</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this conversation? This action cannot be undone.
+              {conversationToDelete && (
+                <div className="mt-2 text-sm font-medium">
+                  {conversationToDelete.name}
+                </div>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={handleDeleteCancel}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteConfirm}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 };

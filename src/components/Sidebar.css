@@ -223,6 +223,11 @@
   cursor: pointer;
   transition: all 0.2s;
   border: 1px solid transparent;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  position: relative;
 }
 
 .conversation-item:hover {
@@ -241,6 +246,11 @@
   background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
 }
 
+.conversation-content {
+  flex: 1;
+  min-width: 0;
+}
+
 .conversation-title {
   color: #e2e8f0;
   font-size: 0.875rem;
@@ -253,6 +263,31 @@
   font-size: 0.75rem;
   font-family: 'Courier New', monospace;
   opacity: 0.8;
+}
+
+.conversation-delete-btn {
+  background: none;
+  border: none;
+  color: #a0aec0;
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 0.25rem;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.conversation-delete-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fc8181;
+  opacity: 1;
+}
+
+.conversation-item:hover .conversation-delete-btn {
+  opacity: 1;
 }
 
 /* Collapsed State */
