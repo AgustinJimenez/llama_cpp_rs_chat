@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [react()],
   clearScreen: false,
   server: {
-    port: 3000,
+    port: 4000,
     strictPort: true,
     host: true,
     proxy: {

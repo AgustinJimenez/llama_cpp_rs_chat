@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { toast } from 'react-hot-toast';
 import { TauriAPI } from '../utils/tauri';
 import type { Message, ChatRequest } from '../types';
 
@@ -67,6 +68,7 @@ export function useChat() {
         // onError - handle errors
         (errorMessage: string) => {
           setError(errorMessage);
+          toast.error(`Chat error: ${errorMessage}`, { duration: 5000 });
           updateMessage(assistantMessageId, `Error: ${errorMessage}`);
           setIsLoading(false);
         }
@@ -75,6 +77,7 @@ export function useChat() {
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
       setError(errorMessage);
+      toast.error(`Chat error: ${errorMessage}`, { duration: 5000 });
       updateMessage(assistantMessageId, `Error: ${errorMessage}`);
       setIsLoading(false);
     }
@@ -105,6 +108,7 @@ export function useChat() {
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load conversation';
       setError(errorMessage);
+      toast.error(`Failed to load conversation: ${errorMessage}`, { duration: 5000 });
     } finally {
       setIsLoading(false);
     }

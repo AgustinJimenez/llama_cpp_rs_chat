@@ -1,43 +1,104 @@
 import React from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
 import { Card, CardContent } from '@/components/ui/card';
 import type { Message } from '../types';
+import 'highlight.js/styles/github-dark.css';
 
 interface MessageBubbleProps {
   message: Message;
+  viewMode?: 'text' | 'markdown';
 }
 
-export const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
+export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode = 'text' }) => {
   const isUser = message.role === 'user';
-  
+
   if (isUser) {
     // User messages keep the card styling and right alignment
     return (
-      <div 
+      <div
         className="flex w-full justify-end"
         data-testid={`message-${message.role}`}
         data-message-id={message.id}
       >
         <Card className="border-0 shadow-md max-w-[80%] bg-gradient-to-br from-slate-600 to-slate-500 text-white">
           <CardContent className="p-3">
-            <p className="text-sm whitespace-pre-wrap leading-relaxed" data-testid="message-content">
-              {message.content}
-            </p>
+            {viewMode === 'markdown' ? (
+              <div className="text-sm prose prose-invert prose-sm max-w-none" data-testid="message-content">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[rehypeHighlight]}
+                >
+                  {message.content}
+                </ReactMarkdown>
+              </div>
+            ) : (
+              <p className="text-sm whitespace-pre-wrap leading-relaxed" data-testid="message-content">
+                {message.content}
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>
     );
   }
-  
+
   // Assistant messages take full width with no card styling
   return (
-    <div 
+    <div
       className="w-full"
       data-testid={`message-${message.role}`}
       data-message-id={message.id}
     >
-      <p className="text-sm whitespace-pre-wrap leading-relaxed text-card-foreground" data-testid="message-content">
-        {message.content}
-      </p>
+      {viewMode === 'markdown' ? (
+        <div className="text-sm prose prose-slate prose-sm max-w-none prose-invert text-slate-200" data-testid="message-content">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            rehypePlugins={[rehypeHighlight]}
+            components={{
+              code: ({ node, inline, className, children, ...props }) => {
+                return inline ? (
+                  <code className={`${className} bg-slate-700 text-slate-100 px-1.5 py-0.5 rounded`} {...props}>
+                    {children}
+                  </code>
+                ) : (
+                  <code className={`${className} block bg-slate-800 text-slate-100 p-4 rounded-lg overflow-x-auto`} {...props}>
+                    {children}
+                  </code>
+                );
+              },
+              p: ({ children }) => (
+                <p className="text-slate-200 my-2">{children}</p>
+              ),
+              h1: ({ children }) => (
+                <h1 className="text-slate-100 font-bold text-xl my-2">{children}</h1>
+              ),
+              h2: ({ children }) => (
+                <h2 className="text-slate-100 font-bold text-lg my-2">{children}</h2>
+              ),
+              h3: ({ children }) => (
+                <h3 className="text-slate-100 font-bold text-base my-2">{children}</h3>
+              ),
+              ul: ({ children }) => (
+                <ul className="text-slate-200 list-disc ml-4 my-2">{children}</ul>
+              ),
+              ol: ({ children }) => (
+                <ol className="text-slate-200 list-decimal ml-4 my-2">{children}</ol>
+              ),
+              li: ({ children }) => (
+                <li className="text-slate-200">{children}</li>
+              ),
+            }}
+          >
+            {message.content}
+          </ReactMarkdown>
+        </div>
+      ) : (
+        <p className="text-sm whitespace-pre-wrap leading-relaxed text-card-foreground" data-testid="message-content">
+          {message.content}
+        </p>
+      )}
     </div>
   );
 };

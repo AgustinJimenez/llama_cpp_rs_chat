@@ -35,6 +35,42 @@ struct SamplerConfig {
     model_path: Option<String>,
     system_prompt: Option<String>,
     context_size: Option<u32>,
+    stop_tokens: Option<Vec<String>>,
+}
+
+// Common stop tokens for different model providers
+fn get_common_stop_tokens() -> Vec<String> {
+    vec![
+        // LLaMA 3+ tokens
+        "<|end_of_text|>".to_string(),
+        "<|eot_id|>".to_string(),
+        "<|start_header_id|>".to_string(),
+        "<|end_header_id|>".to_string(),
+
+        // Qwen tokens
+        "<|im_start|>".to_string(),
+        "<|im_end|>".to_string(),
+        "<|endoftext|>".to_string(),
+
+        // Mistral/Mixtral tokens
+        "[INST]".to_string(),
+        "[/INST]".to_string(),
+        "</s>".to_string(),
+
+        // Phi tokens
+        "<|user|>".to_string(),
+        "<|assistant|>".to_string(),
+        "<|end|>".to_string(),
+        "<|system|>".to_string(),
+
+        // Gemma tokens
+        "<start_of_turn>".to_string(),
+        "<end_of_turn>".to_string(),
+
+        // Generic role tokens
+        "<|start_of_role|>".to_string(),
+        "<|end_of_role|>".to_string(),
+    ]
 }
 
 impl Default for SamplerConfig {
@@ -79,6 +115,7 @@ To run a command, use this exact format:
             model_path: Some("/app/models/lmstudio-community/granite-4.0-h-tiny-GGUF/granite-4.0-h-tiny-Q4_K_M.gguf".to_string()),
             system_prompt: Some(default_system_prompt.trim().to_string()),
             context_size: Some(32768),
+            stop_tokens: Some(get_common_stop_tokens()),
         }
     }
 }
@@ -232,7 +269,13 @@ fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
 // Helper function to load a model
 #[cfg(feature = "docker")]
 async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Result<(), String> {
-    let mut state_guard = llama_state.lock().map_err(|_| "Failed to lock LLaMA state")?;
+    println!("[DEBUG] load_model called with path: {}", model_path);
+
+    // Handle poisoned mutex by recovering from panic
+    let mut state_guard = llama_state.lock().unwrap_or_else(|poisoned| {
+        println!("[DEBUG] Mutex was poisoned, recovering...");
+        poisoned.into_inner()
+    });
     
     // Initialize backend if needed
     if state_guard.is_none() {
@@ -259,10 +302,17 @@ async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Result<(
     state.model = None;
     state.current_model_path = None;
     
-    // Load new model
-    let model_params = LlamaModelParams::default();
+    // Load new model with GPU acceleration
+    let model_params = LlamaModelParams::default()
+        .with_n_gpu_layers(32);
+
+    println!("Loading model from: {}", model_path);
+    println!("GPU layers enabled: 32 layers will be offloaded to GPU");
+
     let model = LlamaModel::load_from_file(&state.backend, model_path, &model_params)
         .map_err(|e| format!("Failed to load model: {}", e))?;
+
+    println!("Model loaded successfully!");
     
     state.model = Some(model);
     state.current_model_path = Some(model_path.to_string());
@@ -563,6 +613,7 @@ async fn generate_llama_response(user_message: &str, llama_state: SharedLlamaSta
     let config = load_config();
     let model_path = config.model_path.as_deref().unwrap_or(MODEL_PATH);
     let context_size = config.context_size.unwrap_or(CONTEXT_SIZE);
+    let stop_tokens = config.stop_tokens.unwrap_or_else(get_common_stop_tokens);
     
     // Ensure model is loaded
     load_model(llama_state.clone(), model_path).await?;
@@ -624,22 +675,76 @@ async fn generate_llama_response(user_message: &str, llama_state: SharedLlamaSta
     for _ in 0..512 { // Limit response length
         // Sample next token
         let next_token = sampler.sample(&context, -1);
-        
+
         // Check for end-of-sequence token
         if next_token == model.token_eos() {
+            println!("Debug: Stopping generation due to EOS token");
             break;
         }
-        
+
         // Convert to string
         let token_str = model
             .token_to_str(next_token, Special::Tokenize)
             .map_err(|e| format!("Token conversion failed: {}", e))?;
-        
-        // Check for stop tokens
-        if token_str.contains("<|user|>") || token_str.contains("<|end|>") || token_str.contains("<|endoftext|>") {
+
+        // Debug: log suspicious tokens
+        if token_str.contains('<') || token_str.contains('>') || token_str.contains('|') {
+            println!("Debug: Found special character in token: '{}'", token_str);
+        }
+
+        // IMPORTANT: Check for stop sequences BEFORE adding the token to the response
+        // This prevents the stop sequences from appearing in the final output
+        let test_response = format!("{}{}", response, token_str);
+
+        // Check for any configured stop tokens
+        let mut should_stop = false;
+        let mut partial_to_remove = 0;
+
+        for stop_token in &stop_tokens {
+            // Check if the test response contains the complete stop token
+            if test_response.contains(stop_token) {
+                println!("Debug: Stopping generation due to stop token detected: '{}'", stop_token);
+                should_stop = true;
+                break;
+            }
+
+            // Check if we're at the beginning of a stop token (partial match at the end)
+            // This prevents incomplete stop tokens from appearing
+            // Only check for partial matches of 2+ characters to avoid false positives on single '<' or '['
+            if stop_token.len() > 2 {
+                let trimmed = test_response.trim_end();
+                for i in 2..stop_token.len() {
+                    if trimmed.ends_with(&stop_token[..i]) {
+                        println!("Debug: Stopping generation due to partial stop token: '{}' (partial: '{}')",
+                                 stop_token, &stop_token[..i]);
+
+                        // Check if the partial exists in the current response (before adding new token)
+                        // If so, we need to remove it
+                        if response.trim_end().ends_with(&stop_token[..i-token_str.len()]) && i > token_str.len() {
+                            partial_to_remove = i - token_str.len();
+                        }
+
+                        should_stop = true;
+                        break;
+                    }
+                }
+                if should_stop {
+                    break;
+                }
+            }
+        }
+
+        if should_stop {
+            // Remove any partial stop token from the response
+            if partial_to_remove > 0 {
+                let new_len = response.len().saturating_sub(partial_to_remove);
+                response.truncate(new_len);
+                println!("Debug: Removed {} characters of partial stop token from response", partial_to_remove);
+            }
             break;
         }
-        
+
+        // If no stop sequence detected, add the token to the response
         response.push_str(&token_str);
         
         // Log token to conversation file
@@ -957,21 +1062,27 @@ async fn handle_request_impl(
         }
         
         (&Method::GET, "/api/model/info") => {
+            println!("[DEBUG] /api/model/info endpoint hit");
+
             // Extract model path from query parameters
             let query = req.uri().query().unwrap_or("");
+            println!("[DEBUG] Query string: {}", query);
+
             let mut model_path = "";
-            
+
             for param in query.split('&') {
                 if let Some((key, value)) = param.split_once('=') {
                     if key == "path" {
                         // URL decode the path
                         model_path = value;
+                        println!("[DEBUG] Found path parameter (encoded): {}", model_path);
                         break;
                     }
                 }
             }
-            
+
             if model_path.is_empty() {
+                println!("[DEBUG] ERROR: No path parameter provided");
                 return Ok(Response::builder()
                     .status(StatusCode::BAD_REQUEST)
                     .header("content-type", "application/json")
@@ -979,17 +1090,90 @@ async fn handle_request_impl(
                     .body(Body::from(r#"{"error":"Model path is required"}"#))
                     .unwrap());
             }
-            
+
             // URL decode the path properly
             let decoded_path = urlencoding::decode(model_path).unwrap_or(std::borrow::Cow::Borrowed(model_path));
-            
+            println!("[DEBUG] Decoded path: {}", decoded_path);
+
             // Check if file exists
-            if !std::path::Path::new(&*decoded_path).exists() {
+            let path_obj = std::path::Path::new(&*decoded_path);
+            let exists = path_obj.exists();
+            println!("[DEBUG] File exists: {}", exists);
+            println!("[DEBUG] Path is file: {}", path_obj.is_file());
+            println!("[DEBUG] Path is dir: {}", path_obj.is_dir());
+
+            if !exists {
+                println!("[DEBUG] ERROR: File does not exist at path: {}", decoded_path);
                 return Ok(Response::builder()
                     .status(StatusCode::NOT_FOUND)
                     .header("content-type", "application/json")
                     .header("access-control-allow-origin", "*")
                     .body(Body::from(r#"{"error":"Model file not found"}"#))
+                    .unwrap());
+            }
+
+            // Check if path is a directory
+            if path_obj.is_dir() {
+                println!("[DEBUG] Path is a directory, scanning for .gguf files...");
+
+                // Find all .gguf files in the directory
+                let mut gguf_files = Vec::new();
+                if let Ok(entries) = fs::read_dir(path_obj) {
+                    for entry in entries.flatten() {
+                        let entry_path = entry.path();
+                        if entry_path.is_file() {
+                            if let Some(ext) = entry_path.extension() {
+                                if ext.eq_ignore_ascii_case("gguf") {
+                                    if let Some(filename) = entry_path.file_name().and_then(|n| n.to_str()) {
+                                        gguf_files.push(filename.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let response_json = if gguf_files.is_empty() {
+                    serde_json::json!({
+                        "error": "This is a directory. No .gguf files found in this directory.",
+                        "is_directory": true,
+                        "suggestions": []
+                    })
+                } else {
+                    serde_json::json!({
+                        "error": format!("This is a directory. Found {} .gguf file(s). Please select one:", gguf_files.len()),
+                        "is_directory": true,
+                        "suggestions": gguf_files
+                    })
+                };
+
+                println!("[DEBUG] Returning directory error with {} suggestions", gguf_files.len());
+                return Ok(Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .header("content-type", "application/json")
+                    .header("access-control-allow-origin", "*")
+                    .body(Body::from(response_json.to_string()))
+                    .unwrap());
+            }
+
+            // Check if file has .gguf extension
+            if let Some(ext) = path_obj.extension() {
+                if !ext.eq_ignore_ascii_case("gguf") {
+                    println!("[DEBUG] ERROR: File is not a .gguf file");
+                    return Ok(Response::builder()
+                        .status(StatusCode::BAD_REQUEST)
+                        .header("content-type", "application/json")
+                        .header("access-control-allow-origin", "*")
+                        .body(Body::from(r#"{"error":"File must have .gguf extension"}"#))
+                        .unwrap());
+                }
+            } else {
+                println!("[DEBUG] ERROR: File has no extension");
+                return Ok(Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .header("content-type", "application/json")
+                    .header("access-control-allow-origin", "*")
+                    .body(Body::from(r#"{"error":"File must have .gguf extension"}"#))
                     .unwrap());
             }
             
@@ -1228,13 +1412,16 @@ async fn handle_request_impl(
         }
         
         (&Method::POST, "/api/model/load") => {
+            println!("[DEBUG] /api/model/load endpoint hit");
+
             #[cfg(feature = "docker")]
             {
                 if let Some(state) = llama_state {
                     // Parse request body
                     let body_bytes = match hyper::body::to_bytes(req.into_body()).await {
                         Ok(bytes) => bytes,
-                        Err(_) => {
+                        Err(e) => {
+                            println!("[DEBUG] Failed to read request body: {}", e);
                             return Ok(Response::builder()
                                 .status(StatusCode::BAD_REQUEST)
                                 .header("content-type", "application/json")
@@ -1244,9 +1431,13 @@ async fn handle_request_impl(
                         }
                     };
 
+                    println!("[DEBUG] Request body: {}", String::from_utf8_lossy(&body_bytes));
+
                     let load_request: ModelLoadRequest = match serde_json::from_slice(&body_bytes) {
                         Ok(req) => req,
-                        Err(_) => {
+                        Err(e) => {
+                            println!("[DEBUG] JSON parsing error in model/load: {}", e);
+                            println!("[DEBUG] Raw body was: {}", String::from_utf8_lossy(&body_bytes));
                             return Ok(Response::builder()
                                 .status(StatusCode::BAD_REQUEST)
                                 .header("content-type", "application/json")

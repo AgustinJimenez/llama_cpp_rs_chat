@@ -25,6 +25,7 @@ export interface SamplerConfig {
   model_path?: string;
   system_prompt?: string;
   context_size?: number;
+  gpu_layers?: number;  // Number of layers to offload to GPU
 }
 
 export type SamplerType = 
@@ -51,4 +52,14 @@ export interface BrowseFilesResponse {
   files: FileItem[];
   current_path: string;
   parent_path?: string;
+}
+
+export interface ModelMetadata {
+  name: string;
+  architecture: string;
+  parameters: string;
+  quantization: string;
+  file_size: string;
+  context_length: string;
+  file_path: string;
 }

@@ -22,6 +22,13 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     }
   }, []);
 
+  // Auto-focus when disabled changes from true to false (LLM finishes generating)
+  useEffect(() => {
+    if (!disabled && textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, [disabled]);
+
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
     if (message.trim() && !disabled) {

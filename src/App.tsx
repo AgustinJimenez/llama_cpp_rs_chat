@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Toaster, toast } from 'react-hot-toast';
 import { MessageBubble } from './components/MessageBubble';
 import { LoadingIndicator } from './components/LoadingIndicator';
 import { MessageInput } from './components/MessageInput';
@@ -13,11 +14,14 @@ import { useChat } from './hooks/useChat';
 import { useModel } from './hooks/useModel';
 import type { SamplerConfig } from './types';
 
+type ViewMode = 'text' | 'markdown';
+
 function App() {
   const { messages, isLoading, sendMessage, clearMessages, loadConversation, currentConversationId } = useChat();
   const { status: modelStatus, isLoading: isModelLoading, error: modelError, loadModel, unloadModel } = useModel();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>('markdown');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -43,10 +47,10 @@ function App() {
   const handleModelLoad = async (modelPath: string, config: SamplerConfig) => {
     const result = await loadModel(modelPath, config);
     if (result.success) {
-      // Optionally show a success message or refresh something
+      toast.success('Model loaded successfully!');
       console.log('Model loaded successfully:', result.message);
     } else {
-      // Optionally show an error message
+      toast.error(`Failed to load model: ${result.message}`, { duration: 5000 });
       console.error('Failed to load model:', result.message);
     }
   };
@@ -54,10 +58,12 @@ function App() {
   const handleModelUnload = async () => {
     const result = await unloadModel();
     if (result.success) {
+      toast.success('Model unloaded successfully');
       console.log('Model unloaded successfully:', result.message);
       // Clear any existing conversation when model is unloaded
       clearMessages();
     } else {
+      toast.error(`Failed to unload model: ${result.message}`, { duration: 5000 });
       console.error('Failed to unload model:', result.message);
     }
   };
@@ -95,7 +101,12 @@ function App() {
               {modelStatus.loaded && (
                 <div className="flex items-center gap-3">
                   <p className="text-lg font-semibold text-white">
-                    {modelStatus.model_path?.split('/').pop() || 'Model loaded'}
+                    {(() => {
+                      const fullPath = modelStatus.model_path || '';
+                      const fileName = fullPath.split(/[/\\]/).pop() || 'Model loaded';
+                      // Remove .gguf extension if present
+                      return fileName.replace(/\.gguf$/i, '');
+                    })()}
                   </p>
                   <Button
                     onClick={handleModelUnload}
@@ -110,17 +121,44 @@ function App() {
                 </div>
               )}
             </div>
-            <div className="w-10"></div> {/* Spacer for centering */}
+            <div className="flex items-center">
+              <Button
+                onClick={() => setViewMode('markdown')}
+                variant="outline"
+                size="sm"
+                className={`${
+                  viewMode === 'markdown'
+                    ? 'bg-white/20 border-white/40'
+                    : 'bg-white/10 border-white/20'
+                } hover:bg-white/20 text-white rounded-l-full rounded-r-none border-r-0`}
+                title="Markdown view"
+              >
+                Markdown
+              </Button>
+              <Button
+                onClick={() => setViewMode('text')}
+                variant="outline"
+                size="sm"
+                className={`${
+                  viewMode === 'text'
+                    ? 'bg-white/20 border-white/40'
+                    : 'bg-white/10 border-white/20'
+                } hover:bg-white/20 text-white rounded-r-full rounded-l-none`}
+                title="Plain text view"
+              >
+                Plain Text
+              </Button>
+            </div>
           </div>
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-6 space-y-4" data-testid="messages-container">
             {messages.length === 0 ? (
-              <WelcomeMessage modelLoaded={modelStatus.loaded} />
+              <WelcomeMessage modelLoaded={modelStatus.loaded} isModelLoading={isModelLoading} />
             ) : (
               <>
                 {messages.map((message) => (
-                  <MessageBubble key={message.id} message={message} />
+                  <MessageBubble key={message.id} message={message} viewMode={viewMode} />
                 ))}
                 {isLoading && <LoadingIndicator />}
                 <div ref={messagesEndRef} />
@@ -147,9 +185,35 @@ function App() {
       </div>
 
       {/* Settings Modal */}
-      <SettingsModal 
-        isOpen={isSettingsOpen} 
-        onClose={() => setIsSettingsOpen(false)} 
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+      />
+
+      {/* Toast Notifications */}
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          duration: 3000,
+          style: {
+            background: '#363636',
+            color: '#fff',
+          },
+          success: {
+            duration: 3000,
+            iconTheme: {
+              primary: '#10b981',
+              secondary: '#fff',
+            },
+          },
+          error: {
+            duration: 5000,
+            iconTheme: {
+              primary: '#ef4444',
+              secondary: '#fff',
+            },
+          },
+        }}
       />
     </div>
   );

@@ -93,4 +93,19 @@ impl ChatEngine {
         
         Ok(format!("{} (Using {} sampler)", response, format!("{:?}", self.config.sampler_type)))
     }
+    
+    // Add a method to validate model path (mock implementation)
+    pub fn new_with_model(config: ChatConfig, model_path: &str) -> Result<Self, String> {
+        // In mock mode, just verify the file exists
+        if !std::path::Path::new(model_path).exists() {
+            return Err(format!("Model file not found: {}", model_path));
+        }
+        
+        // Simulate that only .gguf files are supported
+        if !model_path.ends_with(".gguf") {
+            return Err("Only .gguf model files are supported".to_string());
+        }
+        
+        Ok(Self { config })
+    }
 }

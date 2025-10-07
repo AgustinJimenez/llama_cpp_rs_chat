@@ -2,16 +2,16 @@
 name = "llama_cpp_chat"
 version = "0.1.0"
 edition = "2021"
-default-run = "llama_cpp_chat"
+default-run = "llama_chat_app"
 
 # Tauri expects a lib.rs with the lib target
 [lib]
 name = "llama_cpp_chat"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
-# Tauri app binary
+# Tauri app binary  
 [[bin]]
-name = "llama_cpp_chat"
+name = "llama_chat_app"
 path = "src/main.rs"
 
 # Keep the original CLI binary for testing (disabled for now)
@@ -21,19 +21,20 @@ path = "src/main.rs"
 
 # Web server binary (for Docker deployment)
 [[bin]]
-name = "web-server"
+name = "llama_chat_web"
 path = "src/main_web.rs"
 
 [dependencies]
 # Tauri framework  
 tauri = { version = "2.0", features = [] }
 tauri-plugin-shell = "2.0"
+tauri-plugin-dialog = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.0", features = ["full"] }
 
-# LLaMA dependencies - enabled for Docker builds
-llama-cpp-2 = { version = "0.1.122", optional = true }
+# LLaMA dependencies - with CUDA GPU acceleration (optional for mock testing)
+llama-cpp-2 = { version = "0.1.122", optional = true, features = ["cuda"] }
 anyhow = "1.0"
 uuid = { version = "1.0", features = ["v4"] }
 
@@ -42,8 +43,9 @@ hyper = { version = "0.14", features = ["full"] }
 urlencoding = "2.1"
 
 [features]
-default = []
-docker = ["llama-cpp-2"]
+default = ["docker"]  # Real LLaMA implementation enabled by default
+docker = ["llama-cpp-2"]  # Real LLaMA with CUDA
+mock = []     # Mock implementation only for E2E tests (overrides real implementation)
 
 [build-dependencies]
 tauri-build = { version = "2.0", features = [] }

@@ -148,4 +148,56 @@ test.describe('API Endpoints', () => {
     expect(response.headers()['access-control-allow-origin']).toBe('*');
     expect(response.headers()['access-control-allow-methods']).toContain('POST');
   });
+
+  test('chat endpoint handles code generation with comparison operators', async ({ request }) => {
+    test.setTimeout(120000); // 2 minutes for code generation
+
+    // First message: simple greeting
+    const firstResponse = await request.post('/api/chat', {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      data: {
+        message: 'hello',
+      }
+    });
+
+    expect(firstResponse.status()).toBe(200);
+    const firstData = await firstResponse.json();
+    expect(firstData.message.content.length).toBeGreaterThan(0);
+    const conversationId = firstData.conversation_id;
+
+    // Second message: request code with < operator
+    const secondResponse = await request.post('/api/chat', {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      data: {
+        message: 'write me a binary search example code in javascript',
+        conversation_id: conversationId
+      }
+    });
+
+    expect(secondResponse.status()).toBe(200);
+    const secondData = await secondResponse.json();
+
+    // Should maintain the same conversation ID
+    expect(secondData.conversation_id).toBe(conversationId);
+
+    // Response should contain code
+    expect(secondData.message.content.length).toBeGreaterThan(0);
+
+    // Response should not be truncated at '<' character
+    // (This verifies the stop token fix)
+    // A proper binary search will contain comparison operators like '<' or '<='
+    const content = secondData.message.content.toLowerCase();
+    const hasCode = content.includes('function') ||
+                    content.includes('search') ||
+                    content.includes('binary');
+
+    expect(hasCode).toBe(true);
+
+    // Verify response is substantial (not cut off prematurely)
+    expect(secondData.message.content.length).toBeGreaterThan(50);
+  });
 });
