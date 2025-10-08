@@ -5,8 +5,9 @@
   "scripts": {
     "dev": "vite --host",
     "dev:web": "concurrently \"npm run dev\" \"npm run server:web\"",
-    "server:web": "cargo run --bin llama_chat_web",
+    "server:web": "cargo build --bin llama_chat_web && cargo run --bin llama_chat_web",
     "build": "tsc && vite build",
+    "build:rust": "cargo build --bin llama_chat_web",
     "preview": "vite preview",
     "test": "npm run test:e2e",
     "test:e2e": "docker compose down && TEST_MODE=true docker compose up -d && sleep 5 && playwright test && docker compose down && docker compose up -d",

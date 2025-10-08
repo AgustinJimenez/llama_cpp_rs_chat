@@ -7,6 +7,10 @@ use std::fs;
 use std::io;
 use serde::{Deserialize, Serialize};
 use serde_json;
+use gguf_llms::{GgufHeader, GgufReader, Value};
+use std::io::BufReader;
+use tokio::sync::mpsc;
+use hyper::body::Bytes;
 
 // HTTP server using hyper
 use hyper::service::{make_service_fn, service_fn};
@@ -18,7 +22,7 @@ use llama_cpp_2::{
     context::params::LlamaContextParams,
     llama_backend::LlamaBackend,
     llama_batch::LlamaBatch,
-    model::{params::LlamaModelParams, AddBos, LlamaModel, Special},
+    model::{params::LlamaModelParams, AddBos, LlamaModel, Special, LlamaChatMessage},
     sampling::LlamaSampler,
     // send_logs_to_tracing, LogOptions,
 };
@@ -38,6 +42,14 @@ struct SamplerConfig {
     stop_tokens: Option<Vec<String>>,
     #[serde(default)]
     model_history: Vec<String>,
+}
+
+// Token data with metadata for streaming
+#[derive(Serialize, Clone)]
+struct TokenData {
+    token: String,
+    tokens_used: i32,
+    max_tokens: i32,
 }
 
 // Common stop tokens for different model providers
@@ -137,6 +149,8 @@ struct ChatRequest {
 struct ChatResponse {
     message: ChatMessage,
     conversation_id: String,
+    tokens_used: Option<i32>,
+    max_tokens: Option<i32>,
 }
 
 #[derive(Serialize)]
@@ -206,6 +220,8 @@ struct LlamaState {
     backend: LlamaBackend,
     model: Option<LlamaModel>,
     current_model_path: Option<String>,
+    model_context_length: Option<u32>,
+    chat_template_type: Option<String>, // Store detected template type
     last_used: std::time::SystemTime,
 }
 
@@ -494,6 +510,8 @@ async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Result<(
             backend,
             model: None,
             current_model_path: None,
+            model_context_length: None,
+            chat_template_type: None,
             last_used: std::time::SystemTime::now(),
         });
     }
@@ -527,8 +545,89 @@ async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Result<(
 
     println!("Model loaded successfully!");
 
+    // Read model's context length, token IDs, and chat template from GGUF metadata
+    let (model_context_length, bos_token_id, eos_token_id, chat_template_type) = if let Ok(file) = fs::File::open(model_path) {
+        let mut reader = BufReader::new(file);
+        if let Ok(header) = GgufHeader::parse(&mut reader) {
+            if let Ok(metadata) = GgufReader::read_metadata(&mut reader, header.n_kv) {
+                let ctx_len = metadata.get("llama.context_length")
+                    .and_then(|v| match v {
+                        Value::Uint32(n) => Some(*n),
+                        Value::Uint64(n) => Some(*n as u32),
+                        _ => None,
+                    });
+
+                let bos_id = metadata.get("tokenizer.ggml.bos_token_id")
+                    .and_then(|v| match v {
+                        Value::Uint32(n) => Some(*n as i32),
+                        Value::Int32(n) => Some(*n),
+                        _ => None,
+                    });
+
+                let eos_id = metadata.get("tokenizer.ggml.eos_token_id")
+                    .and_then(|v| match v {
+                        Value::Uint32(n) => Some(*n as i32),
+                        Value::Int32(n) => Some(*n),
+                        _ => None,
+                    });
+
+                // Detect chat template type
+                let template_type = metadata.get("tokenizer.chat_template")
+                    .and_then(|v| match v {
+                        Value::String(s) => {
+                            // Detect template type based on template content
+                            if s.contains("<|im_start|>") && s.contains("<|im_end|>") {
+                                Some("ChatML".to_string()) // Qwen, OpenAI format
+                            } else if s.contains("[INST]") && s.contains("[/INST]") {
+                                Some("Mistral".to_string()) // Mistral format
+                            } else if s.contains("<|start_header_id|>") {
+                                Some("Llama3".to_string()) // Llama 3 format
+                            } else {
+                                Some("Generic".to_string()) // Fallback
+                            }
+                        }
+                        _ => None,
+                    });
+
+                (ctx_len, bos_id, eos_id, template_type)
+            } else {
+                (None, None, None, None)
+            }
+        } else {
+            (None, None, None, None)
+        }
+    } else {
+        (None, None, None, None)
+    };
+
+    if let Some(ctx_len) = model_context_length {
+        println!("Model context length from GGUF: {}", ctx_len);
+    }
+    if let Some(bos) = bos_token_id {
+        println!("Model BOS token ID from GGUF: {}", bos);
+    }
+    if let Some(eos) = eos_token_id {
+        println!("Model EOS token ID from GGUF: {}", eos);
+
+        // Validate against what the model reports
+        let model_eos = model.token_eos().0; // Extract underlying i32 from LlamaToken
+        if eos != model_eos {
+            println!("WARNING: GGUF EOS token ({}) doesn't match model.token_eos() ({})", eos, model_eos);
+        } else {
+            println!("✓ EOS token validation passed: GGUF and model agree on token {}", eos);
+        }
+    }
+
+    if let Some(ref template) = chat_template_type {
+        println!("Detected chat template type: {}", template);
+    } else {
+        println!("No chat template detected, using Mistral format as default");
+    }
+
     state.model = Some(model);
     state.current_model_path = Some(model_path.to_string());
+    state.model_context_length = model_context_length;
+    state.chat_template_type = chat_template_type;
     state.last_used = std::time::SystemTime::now();
 
     Ok(())
@@ -594,40 +693,13 @@ impl ConversationLogger {
             file_path,
             content: String::new(),
         };
-        
-        // Add system prompt at the beginning - use configured prompt or fallback
-        let default_system_prompt = r#"
-You are a local cli AI tool with shell access on a computer, your goal is to understand what the user wants and help with tasks.
-The current system is running on your detected OS
-From that, you must automatically know what commands are available and how to format them
 
-Rules of operation
-- Don't ask the user to do tasks you can do
-- You can freely manipulate files or folders for normal work.
-- Try at least 10 times to do the tasks with a different approach before requesting more information to the user if you are stuck 
-- Confirm only for risky changes (for example, deleting or overwriting many files, running privileged commands, installing software, or altering system paths).
-- Before working with a file, verify that it exists first
-- When looking for files: if not found in current directory, immediately use: find . -name "*filename*" -type f
-- For file searches: use wildcards to match partial names across the entire project (e.g., find . -name "*alejandro*" -type f)
-- IMPORTANT: Always put wildcards in quotes when using find command (e.g., "*.gguf" not *.gguf)
-- NEVER search the entire filesystem with find / - use specific directories like . or ~/
-- After finding file location, navigate and read the file from its actual path
-- Always check subdirectories that seem relevant to the file you're looking for
-- Always be thorough - execute search commands, don't just describe them
-- Summarize the output briefly after execution and what you think about it.
-- If a command fails, show the error and try a different approach - don't repeat the same failing command
-- For web access, use curl, wget, or PowerShell's Invoke-WebRequest, with short timeouts and limited output.
-- Keep responses concise, technical, and neutral.
-- Try to run commands without moving from the current directory, don't use the 'cd' command
-- Don't repeat the same commands over and over again
+        // Only log system prompt if one is explicitly provided
+        // If None, the model's chat template will use its built-in default
+        if let Some(prompt) = system_prompt {
+            logger.log_message("SYSTEM", prompt);
+        }
 
-To run a command, use this exact format:
-<COMMAND>command_here</COMMAND>
-"#;
-        
-        let prompt_to_use = system_prompt.unwrap_or(default_system_prompt.trim());
-        logger.log_message("SYSTEM", prompt_to_use);
-        
         Ok(logger)
     }
 
@@ -752,8 +824,55 @@ fn parse_conversation_to_messages(conversation: &str) -> Vec<ChatMessage> {
     messages
 }
 
-fn convert_conversation_to_chat_format(conversation: &str) -> String {
-    let mut chat_format = String::new();
+#[cfg(feature = "docker")]
+fn get_available_tools_json() -> String {
+    // Detect OS and provide appropriate command examples
+    let os_name = std::env::consts::OS;
+    let (description, example_commands) = match os_name {
+        "windows" => (
+            "Execute shell commands on Windows. Use 'dir' to list files, 'type' to read files, 'cd' to change directory, and other Windows cmd.exe commands.",
+            "dir E:\\repo, type file.txt, cd C:\\Users"
+        ),
+        "linux" => (
+            "Execute shell commands on Linux. Use 'ls' to list files, 'cat' to read files, 'cd' to change directory, and other bash commands.",
+            "ls /home, cat file.txt, pwd"
+        ),
+        "macos" => (
+            "Execute shell commands on macOS. Use 'ls' to list files, 'cat' to read files, 'cd' to change directory, and other bash commands.",
+            "ls /Users, cat file.txt, pwd"
+        ),
+        _ => (
+            "Execute shell commands on the system. Use this to interact with the filesystem, run programs, and check system information.",
+            "Use appropriate commands for your operating system"
+        )
+    };
+
+    serde_json::json!([
+        {
+            "type": "function",
+            "function": {
+                "name": "bash",
+                "description": format!("{} OS: {}", description, os_name),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "command": {
+                            "type": "string",
+                            "description": format!("The shell command to execute. Examples: {}", example_commands)
+                        }
+                    },
+                    "required": ["command"]
+                }
+            }
+        }
+    ]).to_string()
+}
+
+fn apply_model_chat_template(conversation: &str, template_type: Option<&str>) -> Result<String, String> {
+    // Parse conversation into messages
+    let mut system_message: Option<String> = None;
+    let mut user_messages = Vec::new();
+    let mut assistant_messages = Vec::new();
     let mut current_role = "";
     let mut current_content = String::new();
 
@@ -765,24 +884,19 @@ fn convert_conversation_to_chat_format(conversation: &str) -> String {
         {
             // Save previous role's content
             if !current_role.is_empty() && !current_content.trim().is_empty() {
-                let role_tag = match current_role {
-                    "SYSTEM" => "system",
-                    "USER" => "user",
-                    "ASSISTANT" => "assistant",
-                    _ => "user",
-                };
-                chat_format.push_str(&format!(
-                    "<|start_of_role|>{}<|end_of_role|>{}<|end_of_text|>",
-                    role_tag,
-                    current_content.trim()
-                ));
+                match current_role {
+                    "SYSTEM" => system_message = Some(current_content.trim().to_string()),
+                    "USER" => user_messages.push(current_content.trim().to_string()),
+                    "ASSISTANT" => assistant_messages.push(current_content.trim().to_string()),
+                    _ => {}
+                }
             }
 
             // Start new role
             current_role = line.trim_end_matches(":");
             current_content.clear();
         } else if !line.starts_with("[COMMAND:") {
-            // Skip command execution logs in this conversion, add content
+            // Skip command execution logs, add content
             if !line.trim().is_empty() {
                 current_content.push_str(line);
                 current_content.push('\n');
@@ -792,23 +906,140 @@ fn convert_conversation_to_chat_format(conversation: &str) -> String {
 
     // Add the final role content
     if !current_role.is_empty() && !current_content.trim().is_empty() {
-        let role_tag = match current_role {
-            "SYSTEM" => "system",
-            "USER" => "user",
-            "ASSISTANT" => "assistant",
-            _ => "user",
-        };
-        chat_format.push_str(&format!(
-            "<|start_of_role|>{}<|end_of_role|>{}<|end_of_text|>",
-            role_tag,
-            current_content.trim()
-        ));
+        match current_role {
+            "SYSTEM" => system_message = Some(current_content.trim().to_string()),
+            "USER" => user_messages.push(current_content.trim().to_string()),
+            "ASSISTANT" => assistant_messages.push(current_content.trim().to_string()),
+            _ => {}
+        }
     }
 
-    // Add assistant start for response generation
-    chat_format.push_str("<|start_of_role|>assistant<|end_of_role|>");
+    // Construct prompt based on detected template type
+    let prompt = match template_type {
+        Some("ChatML") => {
+            // Qwen/ChatML format: <|im_start|>role\ncontent<|im_end|>
+            let mut p = String::new();
 
-    chat_format
+            // Add system message
+            if let Some(sys_msg) = system_message {
+                p.push_str("<|im_start|>system\n");
+                p.push_str(&sys_msg);
+                p.push_str("<|im_end|>\n");
+            }
+
+            // Add conversation history
+            let turn_count = user_messages.len().max(assistant_messages.len());
+            for i in 0..turn_count {
+                if i < user_messages.len() {
+                    p.push_str("<|im_start|>user\n");
+                    p.push_str(&user_messages[i]);
+                    p.push_str("<|im_end|>\n");
+                }
+                if i < assistant_messages.len() {
+                    p.push_str("<|im_start|>assistant\n");
+                    p.push_str(&assistant_messages[i]);
+                    p.push_str("<|im_end|>\n");
+                }
+            }
+
+            // Add generation prompt
+            p.push_str("<|im_start|>assistant\n");
+
+            p
+        }
+        Some("Mistral") | None => {
+            // Mistral format: <s>[INST] user [/INST] assistant </s>
+            let mut p = String::new();
+            p.push_str("<s>");
+
+            // Add system prompt if present
+            if let Some(sys_msg) = system_message {
+                p.push_str("[SYSTEM_PROMPT]");
+                p.push_str(&sys_msg);
+                p.push_str("[/SYSTEM_PROMPT]");
+            }
+
+            // Add conversation history
+            let turn_count = user_messages.len().max(assistant_messages.len());
+            for i in 0..turn_count {
+                if i < user_messages.len() {
+                    p.push_str("[INST]");
+                    p.push_str(&user_messages[i]);
+                    p.push_str("[/INST]");
+                }
+                if i < assistant_messages.len() {
+                    p.push_str(&assistant_messages[i]);
+                    p.push_str("</s>");
+                }
+            }
+
+            p
+        }
+        Some("Llama3") => {
+            // Llama 3 format
+            let mut p = String::new();
+            p.push_str("<|begin_of_text|>");
+
+            if let Some(sys_msg) = system_message {
+                p.push_str("<|start_header_id|>system<|end_header_id|>\n\n");
+                p.push_str(&sys_msg);
+                p.push_str("<|eot_id|>");
+            }
+
+            let turn_count = user_messages.len().max(assistant_messages.len());
+            for i in 0..turn_count {
+                if i < user_messages.len() {
+                    p.push_str("<|start_header_id|>user<|end_header_id|>\n\n");
+                    p.push_str(&user_messages[i]);
+                    p.push_str("<|eot_id|>");
+                }
+                if i < assistant_messages.len() {
+                    p.push_str("<|start_header_id|>assistant<|end_header_id|>\n\n");
+                    p.push_str(&assistant_messages[i]);
+                    p.push_str("<|eot_id|>");
+                }
+            }
+
+            p.push_str("<|start_header_id|>assistant<|end_header_id|>\n\n");
+
+            p
+        }
+        Some(_) => {
+            // Generic fallback - use ChatML-style
+            let mut p = String::new();
+
+            if let Some(sys_msg) = system_message {
+                p.push_str("System: ");
+                p.push_str(&sys_msg);
+                p.push_str("\n\n");
+            }
+
+            let turn_count = user_messages.len().max(assistant_messages.len());
+            for i in 0..turn_count {
+                if i < user_messages.len() {
+                    p.push_str("User: ");
+                    p.push_str(&user_messages[i]);
+                    p.push_str("\n\n");
+                }
+                if i < assistant_messages.len() {
+                    p.push_str("Assistant: ");
+                    p.push_str(&assistant_messages[i]);
+                    p.push_str("\n\n");
+                }
+            }
+
+            p.push_str("Assistant: ");
+
+            p
+        }
+    };
+
+    // Debug: Print first 1000 chars of prompt
+    eprintln!("\n[DEBUG] Template type: {:?}", template_type);
+    eprintln!("[DEBUG] Constructed prompt (first 1000 chars):");
+    eprintln!("{}", &prompt.chars().take(1000).collect::<String>());
+
+    Ok(prompt)
 }
 
 // Constants for LLaMA configuration
@@ -818,7 +1049,12 @@ const CONTEXT_SIZE: u32 = 32768;
 const MODEL_PATH: &str = "/app/models/lmstudio-community/granite-4.0-h-tiny-GGUF/granite-4.0-h-tiny-Q4_K_M.gguf";
 
 #[cfg(feature = "docker")]
-async fn generate_llama_response(user_message: &str, llama_state: SharedLlamaState, conversation_logger: SharedConversationLogger) -> Result<String, String> {
+async fn generate_llama_response(
+    user_message: &str,
+    llama_state: SharedLlamaState,
+    conversation_logger: SharedConversationLogger,
+    token_sender: Option<mpsc::UnboundedSender<TokenData>>
+) -> Result<(String, i32, i32), String> {
     // Log user message to conversation file
     {
         let mut logger = conversation_logger.lock().map_err(|_| "Failed to lock conversation logger")?;
@@ -828,16 +1064,23 @@ async fn generate_llama_response(user_message: &str, llama_state: SharedLlamaSta
     // Load configuration to get model path and context size
     let config = load_config();
     let model_path = config.model_path.as_deref().unwrap_or(MODEL_PATH);
-    let context_size = config.context_size.unwrap_or(CONTEXT_SIZE);
     let stop_tokens = config.stop_tokens.unwrap_or_else(get_common_stop_tokens);
     
     // Ensure model is loaded
     load_model(llama_state.clone(), model_path).await?;
-    
+
     // Now use the shared state for generation
     let state_guard = llama_state.lock().map_err(|_| "Failed to lock LLaMA state")?;
     let state = state_guard.as_ref().ok_or("LLaMA state not initialized")?;
     let model = state.model.as_ref().ok_or("No model loaded")?;
+
+    // Get context size: prefer user config, fallback to model's context_length, then default
+    let context_size = config.context_size
+        .or(state.model_context_length)
+        .unwrap_or(CONTEXT_SIZE);
+
+    println!("Using context size: {} (user config: {:?}, model max: {:?})",
+        context_size, config.context_size, state.model_context_length);
     
     // Create sampler
     let mut sampler = LlamaSampler::greedy();
@@ -847,9 +1090,10 @@ async fn generate_llama_response(user_message: &str, llama_state: SharedLlamaSta
         let logger = conversation_logger.lock().map_err(|_| "Failed to lock conversation logger")?;
         logger.load_conversation_from_file().unwrap_or_else(|_| logger.get_full_conversation())
     };
-    
-    // Convert conversation to chat format for LLaMA
-    let prompt = convert_conversation_to_chat_format(&conversation_content);
+
+    // Convert conversation to chat format using model's chat template
+    let template_type = state.chat_template_type.clone();
+    let prompt = apply_model_chat_template(&conversation_content, template_type.as_deref())?;
     
     // Tokenize
     let tokens = model
@@ -888,29 +1132,60 @@ async fn generate_llama_response(user_message: &str, llama_state: SharedLlamaSta
     let mut response = String::new();
     let mut token_pos = tokens.len() as i32;
     let mut total_tokens_generated = 0;
-    let max_total_tokens = 1024; // Overall limit including command execution cycles
+
+    // Calculate max tokens based on remaining context space
+    // Leave some buffer for safety (e.g., 128 tokens)
+    let remaining_context = (context_size as i32) - token_pos - 128;
+    let max_total_tokens = remaining_context.max(512); // Ensure at least 512 tokens if possible
+
+    println!("Context size: {}, Prompt tokens: {}, Max tokens to generate: {}",
+             context_size, token_pos, max_total_tokens);
 
     // Outer loop to handle command execution and continuation
     loop {
         let mut command_executed = false;
+        let mut hit_stop_condition = false; // Track if we hit EOS or stop token
 
         // Inner loop for token generation
-        let tokens_to_generate = std::cmp::min(512, max_total_tokens - total_tokens_generated);
+        let tokens_to_generate = std::cmp::min(2048, max_total_tokens - total_tokens_generated);
 
-        for _ in 0..tokens_to_generate { // Limit response length per cycle
+        println!("[DEBUG] Starting generation cycle: tokens_to_generate={}, total_tokens_generated={}", tokens_to_generate, total_tokens_generated);
+
+        for _i in 0..tokens_to_generate { // Limit response length per cycle
         // Sample next token
         let next_token = sampler.sample(&context, -1);
 
         // Check for end-of-sequence token
         if next_token == model.token_eos() {
-            println!("Debug: Stopping generation due to EOS token");
+            println!("Debug: Stopping generation - EOS token detected (token ID: {})", next_token);
+            hit_stop_condition = true;
             break;
         }
 
-        // Convert to string
-        let token_str = model
-            .token_to_str(next_token, Special::Tokenize)
-            .map_err(|e| format!("Token conversion failed: {}", e))?;
+        // IMPORTANT: Add token to batch and decode FIRST, before string conversion
+        // This ensures the model progresses even if we can't display the token
+        batch.clear();
+        batch
+            .add(next_token, token_pos, &[0], true)
+            .map_err(|e| format!("Batch add failed: {}", e))?;
+
+        context
+            .decode(&mut batch)
+            .map_err(|e| format!("Decode failed: {}", e))?;
+
+        token_pos += 1;
+        total_tokens_generated += 1;
+
+        // Now try to convert to string for display - if this fails, we skip display but keep going
+        let token_str = match model.token_to_str(next_token, Special::Tokenize) {
+            Ok(s) => s,
+            Err(e) => {
+                // Log UTF-8 error but continue generation
+                // Token is already processed in context, just can't display it
+                println!("[WARN] Token {} can't be displayed as UTF-8: {}. Continuing generation.", next_token, e);
+                continue; // Skip display but token is already in context
+            }
+        };
 
         // Debug: log suspicious tokens
         if token_str.contains('<') || token_str.contains('>') || token_str.contains('|') {
@@ -994,30 +1269,29 @@ async fn generate_llama_response(user_message: &str, llama_state: SharedLlamaSta
                 response.truncate(new_len);
                 println!("Debug: Removed {} characters of partial stop token from response", partial_to_remove);
             }
+            hit_stop_condition = true;
             break;
         }
 
         // If no stop sequence detected, add the token to the response
         response.push_str(&token_str);
 
+        // Send token through channel for streaming (if enabled)
+        if let Some(ref sender) = token_sender {
+            println!("[STREAMING] Sending token: '{}'", token_str);
+            let token_data = TokenData {
+                token: token_str.clone(),
+                tokens_used: token_pos,
+                max_tokens: context_size as i32,
+            };
+            let _ = sender.send(token_data);
+        }
+
         // Log token to conversation file
         {
             let mut logger = conversation_logger.lock().map_err(|_| "Failed to lock conversation logger")?;
             logger.log_token(&token_str);
         }
-
-        // Prepare next iteration
-        batch.clear();
-        batch
-            .add(next_token, token_pos, &[0], true)
-            .map_err(|e| format!("Batch add failed: {}", e))?;
-
-        context
-            .decode(&mut batch)
-            .map_err(|e| format!("Decode failed: {}", e))?;
-
-        token_pos += 1;
-        total_tokens_generated += 1;
     } // End of inner token generation loop
 
         // Check if response contains a command to execute
@@ -1088,9 +1362,18 @@ async fn generate_llama_response(user_message: &str, llama_state: SharedLlamaSta
             }
         }
 
-        // Break if no command was executed or if we've reached the token limit
-        if !command_executed || total_tokens_generated >= max_total_tokens {
+        // Break if we hit a stop condition (EOS/stop token) or reached token limit
+        // Continue if we just completed a generation cycle without hitting stop
+        if hit_stop_condition || total_tokens_generated >= max_total_tokens {
+            println!("[DEBUG] Exiting outer loop: hit_stop_condition={}, total_tokens_generated={}, max_total_tokens={}",
+                     hit_stop_condition, total_tokens_generated, max_total_tokens);
             break;
+        }
+
+        // Only continue outer loop if command was executed (for command execution workflow)
+        if !command_executed {
+            // No command executed and no stop condition - continue generating
+            println!("[DEBUG] Continuing generation: no stop condition hit");
         }
     } // End of outer command execution loop
 
@@ -1100,7 +1383,7 @@ async fn generate_llama_response(user_message: &str, llama_state: SharedLlamaSta
         logger.finish_assistant_message();
     }
 
-    Ok(response.trim().to_string())
+    Ok((response.trim().to_string(), token_pos, max_total_tokens))
 }
 
 #[cfg(feature = "docker")]
@@ -1188,6 +1471,8 @@ async fn handle_request_impl(
                                 .as_secs(),
                         },
                         conversation_id: chat_request.conversation_id.unwrap_or_else(|| format!("{}", uuid::Uuid::new_v4())),
+                        tokens_used: None,
+                        max_tokens: None,
                     };
                     
                     return Ok(Response::builder()
@@ -1216,14 +1501,14 @@ async fn handle_request_impl(
                 };
                 
                 // Generate actual LLaMA response
-                let response_content = match llama_state {
+                let (response_content, tokens_used, max_tokens) = match llama_state {
                     Some(state) => {
-                        match generate_llama_response(&chat_request.message, state, conversation_logger).await {
-                            Ok(content) => content,
-                            Err(err) => format!("Error generating response: {}", err),
+                        match generate_llama_response(&chat_request.message, state, conversation_logger, None).await {
+                            Ok((content, tokens, max_tok)) => (content, Some(tokens), Some(max_tok)),
+                            Err(err) => (format!("Error generating response: {}", err), None, None),
                         }
                     }
-                    None => "LLaMA state not available".to_string(),
+                    None => ("LLaMA state not available".to_string(), None, None),
                 };
 
                 let chat_response = ChatResponse {
@@ -1238,6 +1523,8 @@ async fn handle_request_impl(
                     },
                     conversation_id: chat_request.conversation_id
                         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+                    tokens_used,
+                    max_tokens,
                 };
 
                 let response_json = match serde_json::to_string(&chat_response) {
@@ -1269,7 +1556,118 @@ async fn handle_request_impl(
                     .unwrap()
             }
         }
-        
+
+        (&Method::POST, "/api/chat/stream") => {
+            println!("[STREAMING] Received request to /api/chat/stream");
+            // Parse request body
+            let body_bytes = match hyper::body::to_bytes(req.into_body()).await {
+                Ok(bytes) => bytes,
+                Err(_) => {
+                    return Ok(Response::builder()
+                        .status(StatusCode::BAD_REQUEST)
+                        .header("content-type", "application/json")
+                        .header("access-control-allow-origin", "*")
+                        .body(Body::from(r#"{"error":"Failed to read request body"}"#))
+                        .unwrap());
+                }
+            };
+
+            let chat_request: ChatRequest = match serde_json::from_slice(&body_bytes) {
+                Ok(req) => req,
+                Err(e) => {
+                    println!("JSON parsing error: {}", e);
+                    return Ok(Response::builder()
+                        .status(StatusCode::BAD_REQUEST)
+                        .header("content-type", "application/json")
+                        .header("access-control-allow-origin", "*")
+                        .body(Body::from(r#"{"error":"Invalid JSON format"}"#))
+                        .unwrap());
+                }
+            };
+
+            #[cfg(feature = "docker")]
+            {
+                // Load configuration to get system prompt
+                let config = load_config();
+                let system_prompt = config.system_prompt.as_deref();
+
+                // Create a new conversation logger for this chat session
+                let conversation_logger = match ConversationLogger::new(system_prompt) {
+                    Ok(logger) => Arc::new(Mutex::new(logger)),
+                    Err(e) => {
+                        return Ok(Response::builder()
+                            .status(StatusCode::INTERNAL_SERVER_ERROR)
+                            .header("content-type", "application/json")
+                            .header("access-control-allow-origin", "*")
+                            .body(Body::from(format!(r#"{{"error":"Failed to create conversation logger: {}"}}"#, e)))
+                            .unwrap());
+                    }
+                };
+
+                // Create channel for streaming tokens
+                let (tx, mut rx) = mpsc::unbounded_channel::<TokenData>();
+
+                // Spawn generation task
+                let message = chat_request.message.clone();
+                let state_clone = llama_state.clone();
+                tokio::spawn(async move {
+                    if let Some(state) = state_clone {
+                        match generate_llama_response(&message, state, conversation_logger, Some(tx)).await {
+                            Ok((content, tokens, max)) => {
+                                println!("[DEBUG] Generation completed successfully: {} tokens used, {} max", tokens, max);
+                            }
+                            Err(e) => {
+                                println!("[ERROR] Generation failed: {}", e);
+                            }
+                        }
+                    } else {
+                        println!("[ERROR] No LLaMA state available for generation");
+                    }
+                });
+
+                // Stream tokens as Server-Sent Events
+                // Send TokenData objects with metadata for real-time token count updates
+                let stream = async_stream::stream! {
+                    loop {
+                        match rx.recv().await {
+                            Some(token_data) => {
+                                // Send TokenData as JSON
+                                let json = serde_json::to_string(&token_data).unwrap_or_else(|_| r#"{"token":"","tokens_used":0,"max_tokens":0}"#.to_string());
+                                let event = format!("data: {}\n\n", json);
+                                yield Ok::<_, Infallible>(Bytes::from(event));
+                            }
+                            None => {
+                                // Channel closed, break
+                                break;
+                            }
+                        }
+                    }
+                    // Send done event
+                    yield Ok::<_, Infallible>(Bytes::from("data: [DONE]\n\n"));
+                };
+
+                Response::builder()
+                    .status(StatusCode::OK)
+                    .header("content-type", "text/event-stream")
+                    .header("cache-control", "no-cache")
+                    .header("access-control-allow-origin", "*")
+                    .header("connection", "keep-alive")
+                    .header("x-accel-buffering", "no")  // Disable nginx buffering
+                    .body(Body::wrap_stream(stream))
+                    .unwrap()
+            }
+
+            #[cfg(not(feature = "docker"))]
+            {
+                Response::builder()
+                    .status(StatusCode::OK)
+                    .header("content-type", "application/json")
+                    .header("access-control-allow-origin", "*")
+                    .body(Body::from(r#"{"error":"Streaming not available (docker feature not enabled)"}"#))
+                    .unwrap()
+            }
+        }
+
         (&Method::GET, "/api/config") => {
             // Load current configuration from file or use defaults
             let config = load_config();
@@ -1606,16 +2004,214 @@ async fn handle_request_impl(
                 80  // Very large models (70B+)
             };
 
-            let model_info = serde_json::json!({
+            // Build base model info
+            let mut model_info = serde_json::json!({
                 "name": filename,
                 "architecture": architecture,
                 "parameters": parameters,
                 "quantization": quantization,
                 "file_size": file_size,
-                "context_length": "Variable", // GGUF models can have different context lengths
+                "context_length": "Variable",
                 "path": decoded_path.to_string(),
                 "estimated_layers": estimated_total_layers
             });
+
+            // Try to parse GGUF metadata
+            if let Ok(file) = fs::File::open(&*decoded_path) {
+                let mut reader = BufReader::new(file);
+
+                if let Ok(header) = GgufHeader::parse(&mut reader) {
+                    if let Ok(metadata) = GgufReader::read_metadata(&mut reader, header.n_kv) {
+                        // Debug: Print all available metadata keys and values
+                        println!("=== GGUF Metadata Found ===");
+                        for (key, value) in metadata.iter() {
+                            let val_str = match value {
+                                Value::String(s) => format!("\"{}\"", s),
+                                Value::Uint8(n) => n.to_string(),
+                                Value::Uint16(n) => n.to_string(),
+                                Value::Uint32(n) => n.to_string(),
+                                Value::Uint64(n) => n.to_string(),
+                                Value::Int8(n) => n.to_string(),
+                                Value::Int16(n) => n.to_string(),
+                                Value::Int32(n) => n.to_string(),
+                                Value::Int64(n) => n.to_string(),
+                                Value::Float32(f) => f.to_string(),
+                                Value::Float64(f) => f.to_string(),
+                                Value::Bool(b) => b.to_string(),
+                                Value::Array(_, items) => format!("[Array with {} items]", items.len()),
+                            };
+                            println!("  {} = {}", key, val_str);
+                        }
+                        println!("================================");
+
+                        // Helper to get metadata value as string
+                        let get_meta_string = |key: &str| -> Option<String> {
+                            metadata.get(key).and_then(|v| match v {
+                                Value::String(s) => Some(s.clone()),
+                                Value::Uint8(n) => Some(n.to_string()),
+                                Value::Uint16(n) => Some(n.to_string()),
+                                Value::Uint32(n) => Some(n.to_string()),
+                                Value::Uint64(n) => Some(n.to_string()),
+                                Value::Int8(n) => Some(n.to_string()),
+                                Value::Int16(n) => Some(n.to_string()),
+                                Value::Int32(n) => Some(n.to_string()),
+                                Value::Int64(n) => Some(n.to_string()),
+                                Value::Float32(f) => Some(f.to_string()),
+                                Value::Float64(f) => Some(f.to_string()),
+                                Value::Bool(b) => Some(b.to_string()),
+                                _ => None,
+                            })
+                        };
+
+                        // Create a metadata object with all values
+                        let mut all_metadata = serde_json::Map::new();
+                        for (key, value) in metadata.iter() {
+                            let val_json = match value {
+                                Value::String(s) => serde_json::json!(s),
+                                Value::Uint8(n) => serde_json::json!(n),
+                                Value::Uint16(n) => serde_json::json!(n),
+                                Value::Uint32(n) => serde_json::json!(n),
+                                Value::Uint64(n) => serde_json::json!(n),
+                                Value::Int8(n) => serde_json::json!(n),
+                                Value::Int16(n) => serde_json::json!(n),
+                                Value::Int32(n) => serde_json::json!(n),
+                                Value::Int64(n) => serde_json::json!(n),
+                                Value::Float32(f) => serde_json::json!(f),
+                                Value::Float64(f) => serde_json::json!(f),
+                                Value::Bool(b) => serde_json::json!(b),
+                                Value::Array(_, _) => serde_json::json!("[Array]"),
+                            };
+                            all_metadata.insert(key.clone(), val_json);
+                        }
+                        model_info["gguf_metadata"] = serde_json::json!(all_metadata);
+
+                        // Get architecture
+                        let arch = get_meta_string("general.architecture")
+                            .unwrap_or_else(|| "llama".to_string());
+
+                        // Update architecture
+                        model_info["architecture"] = serde_json::json!(arch.clone());
+
+                        // Detect tool calling format based on architecture and model name
+                        let model_name = get_meta_string("general.name").unwrap_or_default().to_lowercase();
+                        let tool_format = if arch.contains("mistral") || model_name.contains("mistral") || model_name.contains("devstral") {
+                            "mistral"
+                        } else if arch.contains("llama") && (model_name.contains("llama-3") || model_name.contains("llama3")) {
+                            "llama3"
+                        } else if arch.contains("qwen") || model_name.contains("qwen") {
+                            "qwen"
+                        } else if arch.contains("llama") {
+                            // Older llama models don't support tools
+                            "unknown"
+                        } else {
+                            "unknown"
+                        };
+                        model_info["tool_format"] = serde_json::json!(tool_format);
+
+                        // Core model information
+                        if let Some(val) = get_meta_string("general.name") {
+                            model_info["general_name"] = serde_json::json!(val);
+                        }
+                        if let Some(val) = get_meta_string("general.author") {
+                            model_info["author"] = serde_json::json!(val);
+                        }
+                        if let Some(val) = get_meta_string("general.version") {
+                            model_info["version"] = serde_json::json!(val);
+                        }
+                        if let Some(val) = get_meta_string("general.organization") {
+                            model_info["organization"] = serde_json::json!(val);
+                        }
+                        if let Some(val) = get_meta_string("general.description") {
+                            model_info["description"] = serde_json::json!(val);
+                        }
+                        if let Some(val) = get_meta_string("general.license") {
+                            model_info["license"] = serde_json::json!(val);
+                        }
+                        if let Some(val) = get_meta_string("general.url") {
+                            model_info["url"] = serde_json::json!(val);
+                        }
+                        if let Some(val) = get_meta_string("general.repo_url") {
+                            model_info["repo_url"] = serde_json::json!(val);
+                        }
+                        if let Some(val) = get_meta_string("general.file_type") {
+                            model_info["file_type"] = serde_json::json!(val);
+                        }
+                        if let Some(val) = get_meta_string("general.quantization_version") {
+                            model_info["quantization_version"] = serde_json::json!(val);
+                        }
+
+                        // Context length - try multiple keys
+                        let context_keys = vec![
+                            format!("{}.context_length", arch),
+                            "llama.context_length".to_string(),
+                            "context_length".to_string(),
+                        ];
+                        for key in &context_keys {
+                            if let Some(val) = get_meta_string(key) {
+                                model_info["context_length"] = serde_json::json!(val);
+                                break;
+                            }
+                        }
+
+                        // Architecture-specific fields
+                        if let Some(val) = get_meta_string(&format!("{}.embedding_length", arch)) {
+                            model_info["embedding_length"] = serde_json::json!(val);
+                        }
+                        if let Some(val) = get_meta_string(&format!("{}.block_count", arch)) {
+                            model_info["block_count"] = serde_json::json!(val.clone());
+                            // Use actual block count for layers
+                            if let Ok(block_count) = val.parse::<u32>() {
+                                model_info["estimated_layers"] = serde_json::json!(block_count);
+                            }
+                        }
+                        if let Some(val) = get_meta_string(&format!("{}.feed_forward_length", arch)) {
+                            model_info["feed_forward_length"] = serde_json::json!(val);
+                        }
+                        if let Some(val) = get_meta_string(&format!("{}.attention.head_count", arch)) {
+                            model_info["attention_head_count"] = serde_json::json!(val);
+                        }
+                        if let Some(val) = get_meta_string(&format!("{}.attention.head_count_kv", arch)) {
+                            model_info["attention_head_count_kv"] = serde_json::json!(val);
+                        }
+                        if let Some(val) = get_meta_string(&format!("{}.attention.layer_norm_rms_epsilon", arch)) {
+                            model_info["layer_norm_epsilon"] = serde_json::json!(val);
+                        }
+                        if let Some(val) = get_meta_string(&format!("{}.rope.dimension_count", arch)) {
+                            model_info["rope_dimension_count"] = serde_json::json!(val);
+                        }
+                        if let Some(val) = get_meta_string(&format!("{}.rope.freq_base", arch)) {
+                            model_info["rope_freq_base"] = serde_json::json!(val);
+                        }
+
+                        // Tokenizer information
+                        if let Some(val) = get_meta_string("tokenizer.ggml.model") {
+                            model_info["tokenizer_model"] = serde_json::json!(val);
+                        }
+                        if let Some(val) = get_meta_string("tokenizer.ggml.bos_token_id") {
+                            model_info["bos_token_id"] = serde_json::json!(val);
+                        }
+                        if let Some(val) = get_meta_string("tokenizer.ggml.eos_token_id") {
+                            model_info["eos_token_id"] = serde_json::json!(val);
+                        }
+                        if let Some(val) = get_meta_string("tokenizer.ggml.padding_token_id") {
+                            model_info["padding_token_id"] = serde_json::json!(val);
+                        }
+                        if let Some(val) = get_meta_string("tokenizer.chat_template") {
+                            model_info["chat_template"] = serde_json::json!(val);
+
+                            // Extract default system prompt from chat template
+                            // Look for: {%- set default_system_message = '...' %}
+                            if let Some(start_idx) = val.find("set default_system_message = '") {
+                                let after_start = &val[start_idx + "set default_system_message = '".len()..];
+                                if let Some(end_idx) = after_start.find("' %}") {
+                                    let default_prompt = &after_start[..end_idx];
+                                    model_info["default_system_prompt"] = serde_json::json!(default_prompt);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             
             Response::builder()
                 .status(StatusCode::OK)
@@ -2209,7 +2805,109 @@ async fn handle_request_impl(
                 }
             }
         }
-        
+
+        (&Method::POST, "/api/tools/execute") => {
+            // Parse request body
+            let body_bytes = match hyper::body::to_bytes(req.into_body()).await {
+                Ok(bytes) => bytes,
+                Err(_) => {
+                    return Ok(Response::builder()
+                        .status(StatusCode::BAD_REQUEST)
+                        .header("content-type", "application/json")
+                        .header("access-control-allow-origin", "*")
+                        .body(Body::from(r#"{"error":"Failed to read request body"}"#))
+                        .unwrap());
+                }
+            };
+
+            #[derive(serde::Deserialize)]
+            struct ToolExecuteRequest {
+                tool_name: String,
+                arguments: serde_json::Value,
+            }
+
+            let request: ToolExecuteRequest = match serde_json::from_slice(&body_bytes) {
+                Ok(req) => req,
+                Err(e) => {
+                    println!("JSON parsing error: {}", e);
+                    return Ok(Response::builder()
+                        .status(StatusCode::BAD_REQUEST)
+                        .header("content-type", "application/json")
+                        .header("access-control-allow-origin", "*")
+                        .body(Body::from(r#"{"error":"Invalid JSON format"}"#))
+                        .unwrap());
+                }
+            };
+
+            // Execute tool based on name
+            let result = match request.tool_name.as_str() {
+                "bash" | "shell" | "command" => {
+                    // Extract command from arguments
+                    let command = request.arguments.get("command")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+
+                    if command.is_empty() {
+                        return Ok(Response::builder()
+                            .status(StatusCode::BAD_REQUEST)
+                            .header("content-type", "application/json")
+                            .header("access-control-allow-origin", "*")
+                            .body(Body::from(r#"{"error":"Command is required"}"#))
+                            .unwrap());
+                    }
+
+                    // Execute command (with timeout for safety)
+                    let output = if cfg!(target_os = "windows") {
+                        std::process::Command::new("cmd")
+                            .args(["/C", command])
+                            .output()
+                    } else {
+                        std::process::Command::new("sh")
+                            .arg("-c")
+                            .arg(command)
+                            .output()
+                    };
+
+                    match output {
+                        Ok(output) => {
+                            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                            let combined = if !stderr.is_empty() {
+                                format!("{}\nSTDERR:\n{}", stdout, stderr)
+                            } else {
+                                stdout
+                            };
+
+                            serde_json::json!({
+                                "success": true,
+                                "result": combined,
+                                "exit_code": output.status.code()
+                            })
+                        }
+                        Err(e) => {
+                            serde_json::json!({
+                                "success": false,
+                                "error": format!("Failed to execute command: {}", e)
+                            })
+                        }
+                    }
+                }
+                _ => {
+                    serde_json::json!({
+                        "success": false,
+                        "error": format!("Unknown tool: {}", request.tool_name)
+                    })
+                }
+            };
+
+            Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", "application/json")
+                .header("access-control-allow-origin", "*")
+                .body(Body::from(result.to_string()))
+                .unwrap()
+        }
+
         _ => {
             Response::builder()
                 .status(StatusCode::NOT_FOUND)
@@ -2268,6 +2966,7 @@ async fn main() -> std::io::Result<()> {
     println!("  POST /api/model/unload     - Unload current model");
     println!("  POST /api/upload           - Upload model file");
     println!("  GET  /api/conversations    - List conversation files");
+    println!("  POST /api/tools/execute    - Execute tool calls");
     println!("  GET  /api/browse           - Browse model files");
     println!("  GET  /                     - Web interface");
     

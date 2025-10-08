@@ -83,27 +83,70 @@ export class TauriAPI {
 
   static async sendMessageStream(
     request: ChatRequest,
-    onToken: (token: string) => void,
-    onComplete: (messageId: string, conversationId: string) => void,
+    onToken: (token: string, tokensUsed?: number, maxTokens?: number) => void,
+    onComplete: (messageId: string, conversationId: string, tokensUsed?: number, maxTokens?: number) => void,
     onError: (error: string) => void
   ): Promise<void> {
-    // For demo purposes, simulate streaming by getting the full response and streaming it
     try {
-      const response = await this.sendMessage(request);
-      const fullContent = response.message.content;
-      
-      // Split the response into words and stream them
-      const words = fullContent.split(' ');
-      
-      for (let i = 0; i < words.length; i++) {
-        const token = i === 0 ? words[i] : ' ' + words[i];
-        onToken(token);
-        
-        // Add delay to simulate streaming
-        await new Promise(resolve => setTimeout(resolve, 100));
+      console.log('[FRONTEND] Calling /api/chat/stream endpoint');
+      const response = await fetch('/api/chat/stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(request),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-      
-      onComplete(response.message.id, response.conversation_id);
+
+      if (!response.body) {
+        throw new Error('Response body is null');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.substring(6);
+
+            if (data === '[DONE]') {
+              // Stream complete
+              onComplete(crypto.randomUUID(), request.conversation_id || crypto.randomUUID(), undefined, undefined);
+              return;
+            }
+
+            try {
+              const tokenData = JSON.parse(data);
+              console.log('[FRONTEND] Received token data:', tokenData);
+
+              // Check if it's the new TokenData format with metadata
+              if (typeof tokenData === 'object' && tokenData.token !== undefined) {
+                onToken(tokenData.token, tokenData.tokens_used, tokenData.max_tokens);
+              } else if (typeof tokenData === 'string') {
+                // Fallback for old format (just a string token)
+                onToken(tokenData, undefined, undefined);
+              }
+            } catch (e) {
+              console.error('Failed to parse token:', e);
+            }
+          }
+        }
+      }
+
+      onComplete(crypto.randomUUID(), request.conversation_id || crypto.randomUUID(), undefined, undefined);
     } catch (error) {
       onError(error instanceof Error ? error.message : 'Unknown error');
     }

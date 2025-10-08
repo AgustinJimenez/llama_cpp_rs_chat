@@ -17,7 +17,7 @@ import type { SamplerConfig } from './types';
 type ViewMode = 'text' | 'markdown';
 
 function App() {
-  const { messages, isLoading, sendMessage, clearMessages, loadConversation, currentConversationId } = useChat();
+  const { messages, isLoading, sendMessage, clearMessages, loadConversation, currentConversationId, tokensUsed, maxTokens } = useChat();
   const { status: modelStatus, isLoading: isModelLoading, error: modelError, loadModel, unloadModel } = useModel();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -121,34 +121,36 @@ function App() {
                 </div>
               )}
             </div>
-            <div className="flex items-center">
-              <Button
-                onClick={() => setViewMode('markdown')}
-                variant="outline"
-                size="sm"
-                className={`${
-                  viewMode === 'markdown'
-                    ? 'bg-white/20 border-white/40'
-                    : 'bg-white/10 border-white/20'
-                } hover:bg-white/20 text-white rounded-l-full rounded-r-none border-r-0`}
-                title="Markdown view"
-              >
-                Markdown
-              </Button>
-              <Button
-                onClick={() => setViewMode('text')}
-                variant="outline"
-                size="sm"
-                className={`${
-                  viewMode === 'text'
-                    ? 'bg-white/20 border-white/40'
-                    : 'bg-white/10 border-white/20'
-                } hover:bg-white/20 text-white rounded-r-full rounded-l-none`}
-                title="Plain text view"
-              >
-                Plain Text
-              </Button>
-            </div>
+            {messages.length > 0 && (
+              <div className="flex items-center">
+                <Button
+                  onClick={() => setViewMode('markdown')}
+                  variant="outline"
+                  size="sm"
+                  className={`${
+                    viewMode === 'markdown'
+                      ? 'bg-white/20 border-white/40'
+                      : 'bg-white/10 border-white/20'
+                  } hover:bg-white/20 text-white rounded-l-full rounded-r-none border-r-0`}
+                  title="Markdown view"
+                >
+                  Markdown
+                </Button>
+                <Button
+                  onClick={() => setViewMode('text')}
+                  variant="outline"
+                  size="sm"
+                  className={`${
+                    viewMode === 'text'
+                      ? 'bg-white/20 border-white/40'
+                      : 'bg-white/10 border-white/20'
+                  } hover:bg-white/20 text-white rounded-r-full rounded-l-none`}
+                  title="Plain text view"
+                >
+                  Plain Text
+                </Button>
+              </div>
+            )}
           </div>
 
           {/* Messages */}
@@ -169,7 +171,14 @@ function App() {
           {/* Input / Model Selection */}
           <div className="border-t bg-muted/20 p-6" data-testid="input-container">
             {modelStatus.loaded ? (
-              <MessageInput onSendMessage={sendMessage} disabled={isLoading} />
+              <>
+                {tokensUsed !== undefined && maxTokens !== undefined && (
+                  <div className="mb-3 text-center text-sm text-muted-foreground">
+                    Context: <span className="font-mono font-medium">{tokensUsed}</span> / <span className="font-mono font-medium">{maxTokens}</span> tokens
+                  </div>
+                )}
+                <MessageInput onSendMessage={sendMessage} disabled={isLoading} />
+              </>
             ) : (
               <div className="flex justify-center">
                 <ModelSelector

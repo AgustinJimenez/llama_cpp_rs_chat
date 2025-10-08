@@ -26,6 +26,7 @@ interface ModelConfigModalProps {
   onClose: () => void;
   onSave: (config: SamplerConfig) => void;
   isLoading?: boolean;
+  initialModelPath?: string;
 }
 
 const SAMPLER_OPTIONS: SamplerType[] = [
@@ -56,20 +57,14 @@ const SAMPLER_DESCRIPTIONS: Record<SamplerType, string> = {
   'ChainFull': 'Full chain sampling (IBM recommended for best results)'
 };
 
-const CONTEXT_SIZE_OPTIONS = [
-  { value: 2048, label: '2K - Fast, minimal memory' },
-  { value: 4096, label: '4K - Good for most tasks' },
-  { value: 8192, label: '8K - Balanced performance' },
-  { value: 16384, label: '16K - Large contexts' },
-  { value: 32768, label: '32K - Very large contexts' },
-  { value: 65536, label: '64K - Maximum contexts' },
-];
+const CONTEXT_SIZE_PRESETS = [2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576];
 
-export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({ 
-  isOpen, 
-  onClose, 
+export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
+  isOpen,
+  onClose,
   onSave,
-  isLoading = false
+  isLoading = false,
+  initialModelPath
 }) => {
   const [config, setConfig] = useState<SamplerConfig>({
     sampler_type: 'Greedy',
@@ -95,9 +90,18 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   const [modelHistory, setModelHistory] = useState<string[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [maxLayers, setMaxLayers] = useState(99);  // Dynamic max layers based on model
+  const [systemPromptMode, setSystemPromptMode] = useState<'default' | 'custom'>('default');
+  const [customSystemPrompt, setCustomSystemPrompt] = useState('You are a helpful AI assistant.');
 
   // Check if we're in Tauri environment
   const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+
+  // Initialize model path from config when modal opens
+  useEffect(() => {
+    if (isOpen && initialModelPath && !modelPath) {
+      setModelPath(initialModelPath);
+    }
+  }, [isOpen, initialModelPath]);
 
   // Fetch model history when modal opens
   useEffect(() => {
@@ -127,6 +131,23 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     }
   }, [modelPath]);
 
+  // Auto-expand metadata when loaded
+  useEffect(() => {
+    if (modelInfo) {
+      setIsMetadataExpanded(true);
+    }
+  }, [modelInfo]);
+
+  // Set context size to model's max when metadata is loaded
+  useEffect(() => {
+    if (modelInfo?.context_length) {
+      const maxContext = parseInt(modelInfo.context_length.toString().replace(/,/g, ''));
+      if (!isNaN(maxContext)) {
+        setContextSize(maxContext);
+      }
+    }
+  }, [modelInfo]);
+
   // Debounced file existence check
   useEffect(() => {
     if (!modelPath.trim()) {
@@ -142,10 +163,21 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
           const { invoke } = await import('@tauri-apps/api/core');
           try {
             // Try to get metadata - if it succeeds, file exists
-            await invoke('get_model_metadata', { modelPath: modelPath });
+            const metadata = await invoke<ModelMetadata>('get_model_metadata', { modelPath: modelPath });
             setFileExists(true);
+
+            // Automatically set all model metadata
+            console.log('[DEBUG] Tauri metadata received:', metadata);
+            console.log('[DEBUG] GGUF metadata:', metadata.gguf_metadata);
+            setModelInfo(metadata);
+
+            // Update max layers if available
+            if (metadata.estimated_layers) {
+              setMaxLayers(metadata.estimated_layers);
+            }
           } catch (error) {
             setFileExists(false);
+            setModelInfo(null);
           }
         } else {
           // For web, make a GET request to check if file exists on server
@@ -167,6 +199,21 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
               setFileExists(true);
               setDirectoryError(null);
               setDirectorySuggestions([]);
+
+              // Automatically set model metadata
+              console.log('[DEBUG] GGUF metadata received:', data.gguf_metadata);
+              setModelInfo({
+                name: data.name || trimmedPath.split(/[\\/]/).pop() || 'Unknown',
+                architecture: data.architecture || "Unknown",
+                parameters: data.parameters || "Unknown",
+                quantization: data.quantization || "Unknown",
+                file_size: data.file_size || "Unknown",
+                context_length: data.context_length || "Unknown",
+                file_path: trimmedPath,
+                estimated_layers: data.estimated_layers,
+                gguf_metadata: data.gguf_metadata,
+              });
+
               // Update max layers if available
               if (data.estimated_layers) {
                 setMaxLayers(data.estimated_layers);
@@ -194,6 +241,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                 setFileExists(false);
                 setDirectoryError(null);
                 setDirectorySuggestions([]);
+                setModelInfo(null);
               }
             }
           } catch (error) {
@@ -201,10 +249,12 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
             setFileExists(false);
             setDirectoryError(null);
             setDirectorySuggestions([]);
+            setModelInfo(null);
           }
         }
       } catch (error) {
         setFileExists(false);
+        setModelInfo(null);
       } finally {
         setIsCheckingFile(false);
       }
@@ -229,22 +279,33 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
       alert('Please select a model file or enter a model path.');
       return;
     }
-    
+
     if (fileExists === false) {
       alert('The specified file does not exist or is not accessible. Please check the path and try again.');
       return;
     }
-    
+
     // Log what we're trying to load for debugging
     console.log('Attempting to load model:', modelPath);
     console.log('Model path type:', typeof modelPath);
     console.log('Full model path being saved:', modelPath);
     console.log('File exists:', fileExists);
-    
+
+    // Determine system prompt based on mode
+    let systemPrompt: string | null = null;
+    if (systemPromptMode === 'default') {
+      // Use null to let backend use model's default from chat template
+      systemPrompt = null;
+    } else {
+      // Use custom prompt
+      systemPrompt = customSystemPrompt;
+    }
+
     const finalConfig = {
       ...config,
       model_path: modelPath,
       context_size: contextSize,
+      system_prompt: systemPrompt,
     };
     onSave(finalConfig);
   };
@@ -277,13 +338,18 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
           const metadata = await invoke<ModelMetadata>('get_model_metadata', { modelPath: filePath });
           console.log('Received metadata object:', metadata);
           setModelInfo(metadata);
+
+          // Update max layers if available
+          if (metadata.estimated_layers) {
+            setMaxLayers(metadata.estimated_layers);
+          }
         } catch (error) {
           console.error('Failed to get model metadata:', error);
           const fileName = filePath.split(/[\\/]/).pop() || filePath;
           setModelInfo({
             name: fileName,
             architecture: "Unknown",
-            parameters: "Unknown", 
+            parameters: "Unknown",
             quantization: "Unknown",
             file_size: "Unknown",
             context_length: "Unknown",
@@ -299,66 +365,6 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     }
   };
 
-  const handleGetMetadata = async () => {
-    if (!modelPath.trim()) {
-      alert('Please enter a file path first.');
-      return;
-    }
-
-    setIsLoadingInfo(true);
-    setModelInfo(null);
-
-    try {
-      if (isTauri) {
-        // Desktop: Use Tauri command
-        const metadata = await invoke<ModelMetadata>('get_model_metadata', { modelPath: modelPath });
-        console.log('Received metadata object:', metadata);
-        setModelInfo(metadata);
-      } else {
-        // Web: Use HTTP API
-        const encodedPath = encodeURIComponent(modelPath);
-        const response = await fetch(`/api/model/info?path=${encodedPath}`);
-
-        if (response.ok) {
-          const metadata = await response.json();
-          console.log('Received metadata object:', JSON.stringify(metadata, null, 2));
-          setModelInfo({
-            name: metadata.name || modelPath.split(/[\\/]/).pop() || 'Unknown',
-            architecture: metadata.architecture || "Unknown",
-            parameters: metadata.parameters || "Unknown",
-            quantization: metadata.quantization || "Unknown",
-            file_size: metadata.file_size || "Unknown",
-            context_length: metadata.context_length || "Unknown",
-            file_path: modelPath,
-            estimated_layers: metadata.estimated_layers,
-          });
-          // Update max layers if available
-          if (metadata.estimated_layers) {
-            setMaxLayers(metadata.estimated_layers);
-          }
-        } else {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to get model metadata:', error);
-      const fileName = modelPath.split(/[\\/]/).pop() || modelPath;
-      setModelInfo({
-        name: fileName,
-        architecture: "Unknown",
-        parameters: "Unknown", 
-        quantization: "Unknown",
-        file_size: "Unknown",
-        context_length: "Unknown",
-        file_path: modelPath,
-      });
-    } finally {
-      setIsLoadingInfo(false);
-    }
-  };
-
-
-
 
   const getModelFileName = () => {
     if (!modelPath) return 'No model selected';
@@ -368,8 +374,8 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="w-[95vw] max-w-7xl h-[90vh] max-h-[90vh] flex flex-col p-0">
+        <DialogHeader className="px-6 pt-6">
           <DialogTitle className="flex items-center gap-2">
             <Brain className="h-5 w-5" />
             Load Model
@@ -380,8 +386,8 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
             </p>
           )}
         </DialogHeader>
-        
-        <div className="space-y-6">
+
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
           {/* Model File Selection */}
           <Card>
             <CardHeader>
@@ -394,7 +400,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                     <input
                       type="text"
                       value={modelPath}
-                      onChange={(e) => setModelPath(e.target.value)}
+                      onChange={(e) => setModelPath(e.target.value.replace(/"/g, ''))}
                       onFocus={() => setShowHistory(true)}
                       onBlur={() => setTimeout(() => setShowHistory(false), 200)}
                       placeholder={isTauri ? "Select a .gguf file or enter full path" : "Enter full path to .gguf file (e.g., C:\\path\\to\\model.gguf)"}
@@ -437,7 +443,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                       </div>
                     )}
                   </div>
-                  {isTauri ? (
+                  {isTauri && (
                     <Button
                       type="button"
                       onClick={handleBrowseFile}
@@ -454,26 +460,6 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                         <>
                           <FolderOpen className="h-4 w-4" />
                           Browse
-                        </>
-                      )}
-                    </Button>
-                  ) : (
-                    <Button
-                      type="button"
-                      onClick={handleGetMetadata}
-                      disabled={isLoadingInfo || !modelPath.trim()}
-                      variant="outline"
-                      className="flex items-center gap-2 px-3"
-                    >
-                      {isLoadingInfo ? (
-                        <>
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          Reading...
-                        </>
-                      ) : (
-                        <>
-                          <Brain className="h-4 w-4" />
-                          Get Info
                         </>
                       )}
                     </Button>
@@ -567,15 +553,98 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                     </CardHeader>
                     {isMetadataExpanded && (
                       <CardContent className="pt-0">
-                        <div className="space-y-1 text-xs text-muted-foreground max-h-48 overflow-y-auto">
-                          <p><strong>File Size:</strong> {modelInfo.file_size}</p>
-                          <p><strong>File Path:</strong> {modelInfo.file_path}</p>
-                          <div className="mt-3 p-2 bg-muted rounded text-xs">
-                            <p><strong>Note:</strong> Complete GGUF metadata is displayed in the console/terminal.</p>
-                            <p>Architecture: {modelInfo.architecture}</p>
-                            <p>Parameters: {modelInfo.parameters}</p>
-                            <p>Quantization: {modelInfo.quantization}</p>
-                            <p>Context Length: {modelInfo.context_length}</p>
+                        <div className="space-y-3 text-xs max-h-96 overflow-y-auto">
+                          {/* Basic Info */}
+                          <div className="space-y-1">
+                            <h4 className="font-semibold text-sm mb-2">Basic Information</h4>
+                            <p><strong>File Name:</strong> <span className="text-muted-foreground">{modelInfo.name}</span></p>
+                            {modelInfo.general_name && <p><strong>Model Name:</strong> <span className="text-muted-foreground">{modelInfo.general_name}</span></p>}
+                            <p><strong>File Size:</strong> <span className="text-muted-foreground">{modelInfo.file_size}</span></p>
+                            <p><strong>Architecture:</strong> <span className="text-muted-foreground">{modelInfo.architecture}</span></p>
+                            <p><strong>Parameters:</strong> <span className="text-muted-foreground">{modelInfo.parameters}</span></p>
+                            <p><strong>Quantization:</strong> <span className="text-muted-foreground">{modelInfo.quantization}</span></p>
+                            {modelInfo.file_type && <p><strong>File Type:</strong> <span className="text-muted-foreground">{modelInfo.file_type}</span></p>}
+                            {modelInfo.quantization_version && <p><strong>Quant Version:</strong> <span className="text-muted-foreground">{modelInfo.quantization_version}</span></p>}
+                          </div>
+
+                          {/* Model Details */}
+                          {(modelInfo.description || modelInfo.author || modelInfo.organization || modelInfo.version || modelInfo.license) && (
+                            <div className="space-y-1 pt-2 border-t">
+                              <h4 className="font-semibold text-sm mb-2">Model Details</h4>
+                              {modelInfo.description && <p><strong>Description:</strong> <span className="text-muted-foreground">{modelInfo.description}</span></p>}
+                              {modelInfo.author && <p><strong>Author:</strong> <span className="text-muted-foreground">{modelInfo.author}</span></p>}
+                              {modelInfo.organization && <p><strong>Organization:</strong> <span className="text-muted-foreground">{modelInfo.organization}</span></p>}
+                              {modelInfo.version && <p><strong>Version:</strong> <span className="text-muted-foreground">{modelInfo.version}</span></p>}
+                              {modelInfo.license && <p><strong>License:</strong> <span className="text-muted-foreground">{modelInfo.license}</span></p>}
+                              {modelInfo.url && (
+                                <p><strong>URL:</strong> <a href={modelInfo.url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline break-all">{modelInfo.url}</a></p>
+                              )}
+                              {modelInfo.repo_url && (
+                                <p><strong>Repository:</strong> <a href={modelInfo.repo_url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline break-all">{modelInfo.repo_url}</a></p>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Architecture Specs */}
+                          {(modelInfo.context_length || modelInfo.block_count || modelInfo.embedding_length || modelInfo.feed_forward_length) && (
+                            <div className="space-y-1 pt-2 border-t">
+                              <h4 className="font-semibold text-sm mb-2">Architecture Specifications</h4>
+                              <p><strong>Context Length:</strong> <span className="text-muted-foreground">{modelInfo.context_length}</span></p>
+                              {modelInfo.block_count && <p><strong>Block Count (Layers):</strong> <span className="text-muted-foreground">{modelInfo.block_count}</span></p>}
+                              {modelInfo.embedding_length && <p><strong>Embedding Length:</strong> <span className="text-muted-foreground">{modelInfo.embedding_length}</span></p>}
+                              {modelInfo.feed_forward_length && <p><strong>FFN Length:</strong> <span className="text-muted-foreground">{modelInfo.feed_forward_length}</span></p>}
+                              {modelInfo.attention_head_count && <p><strong>Attention Heads:</strong> <span className="text-muted-foreground">{modelInfo.attention_head_count}</span></p>}
+                              {modelInfo.attention_head_count_kv && <p><strong>KV Heads:</strong> <span className="text-muted-foreground">{modelInfo.attention_head_count_kv}</span></p>}
+                              {modelInfo.layer_norm_epsilon && <p><strong>Layer Norm Epsilon:</strong> <span className="text-muted-foreground font-mono">{modelInfo.layer_norm_epsilon}</span></p>}
+                              {modelInfo.rope_dimension_count && <p><strong>RoPE Dimensions:</strong> <span className="text-muted-foreground">{modelInfo.rope_dimension_count}</span></p>}
+                              {modelInfo.rope_freq_base && <p><strong>RoPE Freq Base:</strong> <span className="text-muted-foreground">{modelInfo.rope_freq_base}</span></p>}
+                            </div>
+                          )}
+
+                          {/* Tokenizer Info */}
+                          {(modelInfo.tokenizer_model || modelInfo.bos_token_id || modelInfo.eos_token_id || modelInfo.chat_template) && (
+                            <div className="space-y-1 pt-2 border-t">
+                              <h4 className="font-semibold text-sm mb-2">Tokenizer Information</h4>
+                              {modelInfo.tokenizer_model && <p><strong>Tokenizer Type:</strong> <span className="text-muted-foreground">{modelInfo.tokenizer_model}</span></p>}
+                              {modelInfo.bos_token_id && <p><strong>BOS Token ID:</strong> <span className="text-muted-foreground font-mono">{modelInfo.bos_token_id}</span></p>}
+                              {modelInfo.eos_token_id && <p><strong>EOS Token ID:</strong> <span className="text-muted-foreground font-mono">{modelInfo.eos_token_id}</span></p>}
+                              {modelInfo.padding_token_id && <p><strong>Padding Token ID:</strong> <span className="text-muted-foreground font-mono">{modelInfo.padding_token_id}</span></p>}
+                              {modelInfo.chat_template && (
+                                <div>
+                                  <p><strong>Chat Template:</strong></p>
+                                  <pre className="mt-1 p-2 bg-muted rounded text-xs overflow-x-auto whitespace-pre-wrap break-words max-h-32 overflow-y-auto">{modelInfo.chat_template}</pre>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* All GGUF Metadata */}
+                          {modelInfo.gguf_metadata && Object.keys(modelInfo.gguf_metadata).length > 0 && (
+                            <div className="space-y-1 pt-2 border-t">
+                              <h4 className="font-semibold text-sm mb-2">All GGUF Metadata</h4>
+                              <div className="space-y-1">
+                                {Object.entries(modelInfo.gguf_metadata)
+                                  .sort(([a], [b]) => a.localeCompare(b))
+                                  .map(([key, value]) => (
+                                    <p key={key} className="text-xs">
+                                      <strong className="font-mono text-blue-600 dark:text-blue-400">{key}:</strong>{' '}
+                                      <span className="text-muted-foreground font-mono">
+                                        {typeof value === 'string'
+                                          ? value
+                                          : typeof value === 'object'
+                                            ? JSON.stringify(value)
+                                            : String(value)}
+                                      </span>
+                                    </p>
+                                  ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* File Path at the end */}
+                          <div className="pt-2 border-t">
+                            <p className="text-xs"><strong>File Path:</strong></p>
+                            <p className="text-xs text-muted-foreground font-mono break-all mt-1">{modelInfo.file_path}</p>
                           </div>
                         </div>
                       </CardContent>
@@ -605,25 +674,116 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                 <CardContent className="space-y-4 pt-0">
                   {/* Context Size */}
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Context Length</label>
-              <Select
-                value={contextSize.toString()}
-                onValueChange={(value) => setContextSize(parseInt(value))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select context size" />
-                </SelectTrigger>
-                <SelectContent>
-                  {CONTEXT_SIZE_OPTIONS.map(option => (
-                    <SelectItem key={option.value} value={option.value.toString()}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Larger context sizes allow longer conversations but use more memory and are slower.
-              </p>
+                    <div className="flex justify-between items-center">
+                      <label className="text-sm font-medium">Context Length</label>
+                      <span className="text-sm font-mono text-muted-foreground">
+                        {contextSize.toLocaleString()} tokens
+                      </span>
+                    </div>
+
+                    <input
+                      type="number"
+                      value={contextSize}
+                      onChange={(e) => {
+                        const value = parseInt(e.target.value);
+                        if (!isNaN(value) && value > 0) {
+                          setContextSize(value);
+                        }
+                      }}
+                      min={512}
+                      max={2097152}
+                      step={512}
+                      className="w-full px-3 py-2 text-sm border rounded-md bg-background"
+                    />
+
+                    <div className="flex gap-2 flex-wrap">
+                      {CONTEXT_SIZE_PRESETS.map(preset => (
+                        <Button
+                          key={preset}
+                          type="button"
+                          variant={contextSize === preset ? 'default' : 'outline'}
+                          size="sm"
+                          onClick={() => setContextSize(preset)}
+                          className="text-xs"
+                        >
+                          {preset >= 1048576 ? `${preset / 1048576}M` : preset >= 1024 ? `${preset / 1024}K` : preset}
+                        </Button>
+                      ))}
+                      {modelInfo?.context_length && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const maxContext = parseInt(modelInfo.context_length.toString().replace(/,/g, ''));
+                            if (!isNaN(maxContext)) {
+                              setContextSize(maxContext);
+                            }
+                          }}
+                          className="text-xs bg-blue-50 dark:bg-blue-950 border-blue-300 dark:border-blue-700"
+                        >
+                          Max ({parseInt(modelInfo.context_length.toString().replace(/,/g, '')).toLocaleString()})
+                        </Button>
+                      )}
+                    </div>
+
+                    <p className="text-xs text-muted-foreground">
+                      Larger context sizes allow longer conversations but use more memory and are slower.
+                      {modelInfo?.context_length && ` Model maximum: ${modelInfo.context_length}`}
+                    </p>
+                  </div>
+
+                  {/* System Prompt */}
+                  <div className="space-y-3 pt-2 border-t">
+                    <label className="text-sm font-medium">System Prompt</label>
+
+                    {/* Toggle between Default and Custom */}
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant={systemPromptMode === 'default' ? 'default' : 'outline'}
+                        onClick={() => setSystemPromptMode('default')}
+                        className="flex-1"
+                      >
+                        Use Model Default
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={systemPromptMode === 'custom' ? 'default' : 'outline'}
+                        onClick={() => setSystemPromptMode('custom')}
+                        className="flex-1"
+                      >
+                        Custom Prompt
+                      </Button>
+                    </div>
+
+                    {/* Show model's default prompt or custom input based on mode */}
+                    {systemPromptMode === 'default' ? (
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted-foreground">
+                          Using the model's built-in default system prompt from chat template.
+                        </p>
+                        {modelInfo?.default_system_prompt && (
+                          <div className="p-3 bg-muted rounded-md text-xs max-h-40 overflow-y-auto">
+                            <pre className="whitespace-pre-wrap break-words text-muted-foreground">
+                              {modelInfo.default_system_prompt}
+                            </pre>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <textarea
+                          value={customSystemPrompt}
+                          onChange={(e) => setCustomSystemPrompt(e.target.value)}
+                          placeholder="Enter your custom system prompt..."
+                          className="w-full px-3 py-2 text-sm border rounded-md bg-background min-h-[100px] resize-y"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Custom system prompt that will be used instead of the model's default.
+                        </p>
+                      </div>
+                    )}
                   </div>
 
                   {/* GPU Layers */}
@@ -858,18 +1018,18 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
               )}
             </Card>
           )}
-        </div>
-        
-        {isLoading && (
-          <div className="px-6 pb-4">
-            <div className="flex items-center justify-center gap-2 py-4">
-              <Loader2 className="h-5 w-5 animate-spin" />
-              <span className="text-sm font-medium">Loading model...</span>
+
+          {isLoading && (
+            <div className="pb-4">
+              <div className="flex items-center justify-center gap-2 py-4">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                <span className="text-sm font-medium">Loading model...</span>
+              </div>
             </div>
-          </div>
-        )}
-        
-        <DialogFooter>
+          )}
+        </div>
+
+        <DialogFooter className="px-6 py-4 border-t">
           <Button variant="outline" onClick={onClose} disabled={isLoading}>
             Cancel
           </Button>

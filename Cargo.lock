@@ -101,6 +101,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-stream"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b5a71a6f37880a80d1d7f19efd781e4b5de42c88f0722cc13bcb6cc2cfe8476"
+dependencies = [
+ "async-stream-impl",
+ "futures-core",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "async-stream-impl"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7c24de15d275a1ecfd47a380fb4d5ec9bfe0933f309ed5e705b775596a3574d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.106",
+]
+
+[[package]]
 name = "async-trait"
 version = "0.1.89"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1239,6 +1261,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "gguf-llms"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f80ebed3c640aef5f6f3c7d4eaa28aa51cc5912200cc7564a6b388b88fcdfda"
+dependencies = [
+ "byteorder",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "gimli"
 version = "0.32.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2050,7 +2083,9 @@ name = "llama_cpp_chat"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-stream",
  "cmake",
+ "gguf-llms",
  "hyper 0.14.32",
  "llama-cpp-2",
  "serde",

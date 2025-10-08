@@ -2,10 +2,7 @@
 // It will be refactored to work with the Tauri application
 
 use std::env;
-use std::fs;
-use std::io::{self, Write};
 use std::num::NonZeroU32;
-use std::process::Command;
 
 #[cfg(feature = "docker")]
 use llama_cpp_2::{
@@ -14,7 +11,6 @@ use llama_cpp_2::{
     llama_batch::LlamaBatch,
     model::{params::LlamaModelParams, AddBos, LlamaModel, Special},
     sampling::LlamaSampler,
-    send_logs_to_tracing, LogOptions,
 };
 
 // Enum for sampler types

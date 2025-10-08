@@ -41,6 +41,10 @@ uuid = { version = "1.0", features = ["v4"] }
 # Web server dependencies
 hyper = { version = "0.14", features = ["full"] }
 urlencoding = "2.1"
+async-stream = "0.3"
+
+# GGUF file parser for reading model metadata
+gguf-llms = "0.0.2"
 
 [features]
 default = ["docker"]  # Real LLaMA implementation enabled by default

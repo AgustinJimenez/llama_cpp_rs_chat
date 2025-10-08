@@ -48,6 +48,13 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, onNewChat, onOpenSe
     }
   }, [isOpen]);
 
+  // Auto-refresh when currentConversationId changes (new conversation created)
+  useEffect(() => {
+    if (currentConversationId && isOpen) {
+      fetchConversations();
+    }
+  }, [currentConversationId, isOpen]);
+
   const formatTimestamp = (timestamp: string) => {
     // Parse timestamp format: YYYY-MM-DD-HH-mm-ss-SSS
     const parts = timestamp.split('-');
@@ -73,10 +80,18 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, onNewChat, onOpenSe
       });
 
       if (response.ok) {
+        // Check if we're deleting the currently loaded conversation
+        const deletingCurrentConversation = currentConversationId && conversationToDelete.name === currentConversationId;
+
         // Remove from list
         setConversations(prev => prev.filter(c => c.name !== conversationToDelete.name));
         setDeleteDialogOpen(false);
         setConversationToDelete(null);
+
+        // If we deleted the current conversation, clear the chat
+        if (deletingCurrentConversation) {
+          onNewChat();
+        }
       } else {
         console.error('Failed to delete conversation');
         alert('Failed to delete conversation');

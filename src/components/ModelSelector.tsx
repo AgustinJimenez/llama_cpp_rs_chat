@@ -77,6 +77,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
         onClose={handleConfigCancel}
         onSave={handleConfigSave}
         isLoading={isLoading}
+        initialModelPath={currentModelPath}
       />
     </div>
   );
