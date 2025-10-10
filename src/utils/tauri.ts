@@ -108,6 +108,8 @@ export class TauriAPI {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let lastTokensUsed: number | undefined = undefined;
+      let lastMaxTokens: number | undefined = undefined;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -123,8 +125,8 @@ export class TauriAPI {
             const data = line.substring(6);
 
             if (data === '[DONE]') {
-              // Stream complete
-              onComplete(crypto.randomUUID(), request.conversation_id || crypto.randomUUID(), undefined, undefined);
+              // Stream complete - pass the last known token counts
+              onComplete(crypto.randomUUID(), request.conversation_id || crypto.randomUUID(), lastTokensUsed, lastMaxTokens);
               return;
             }
 
@@ -134,6 +136,13 @@ export class TauriAPI {
 
               // Check if it's the new TokenData format with metadata
               if (typeof tokenData === 'object' && tokenData.token !== undefined) {
+                // Track the last token counts
+                if (tokenData.tokens_used !== undefined) {
+                  lastTokensUsed = tokenData.tokens_used;
+                }
+                if (tokenData.max_tokens !== undefined) {
+                  lastMaxTokens = tokenData.max_tokens;
+                }
                 onToken(tokenData.token, tokenData.tokens_used, tokenData.max_tokens);
               } else if (typeof tokenData === 'string') {
                 // Fallback for old format (just a string token)
@@ -146,7 +155,7 @@ export class TauriAPI {
         }
       }
 
-      onComplete(crypto.randomUUID(), request.conversation_id || crypto.randomUUID(), undefined, undefined);
+      onComplete(crypto.randomUUID(), request.conversation_id || crypto.randomUUID(), lastTokensUsed, lastMaxTokens);
     } catch (error) {
       onError(error instanceof Error ? error.message : 'Unknown error');
     }
