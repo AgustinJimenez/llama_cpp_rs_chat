@@ -93,11 +93,6 @@ export class TauriAPI {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${protocol}//${window.location.host}/ws/chat/stream`;
 
-      console.log('[FRONTEND] Connecting to WebSocket');
-      console.log('[FRONTEND] Protocol:', window.location.protocol);
-      console.log('[FRONTEND] Host:', window.location.host);
-      console.log('[FRONTEND] Full WebSocket URL:', wsUrl);
-
       const ws = new WebSocket(wsUrl);
       let lastTokensUsed: number | undefined = undefined;
       let lastMaxTokens: number | undefined = undefined;
@@ -106,21 +101,18 @@ export class TauriAPI {
       // Handle abort signal
       if (abortSignal) {
         abortSignal.addEventListener('abort', () => {
-          console.log('[FRONTEND] WebSocket connection aborted');
           ws.close();
           resolve();
         });
       }
 
       ws.onopen = () => {
-        console.log('[FRONTEND] WebSocket connected, sending request');
         ws.send(JSON.stringify(request));
       };
 
       ws.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data);
-          console.log('[FRONTEND] Received WebSocket message:', message);
 
           if (message.type === 'token') {
             // Update token counts
@@ -132,7 +124,6 @@ export class TauriAPI {
             }
             onToken(message.token, message.tokens_used, message.max_tokens);
           } else if (message.type === 'done') {
-            console.log('[FRONTEND] Stream complete');
             isCompleted = true;
             onComplete(crypto.randomUUID(), request.conversation_id || crypto.randomUUID(), lastTokensUsed, lastMaxTokens);
             ws.close();
@@ -160,7 +151,6 @@ export class TauriAPI {
       };
 
       ws.onclose = (event) => {
-        console.log('[FRONTEND] WebSocket closed:', event.code, event.reason);
         if (!isCompleted && event.code !== 1000) {
           // Abnormal closure
           onError(`Connection closed unexpectedly: ${event.reason || 'Unknown reason'}`);

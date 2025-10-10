@@ -111,7 +111,6 @@ export function useChat() {
 
     // Abort any previous request
     if (abortControllerRef.current) {
-      console.log('[FRONTEND] Aborting previous request');
       abortControllerRef.current.abort();
     }
 
@@ -229,19 +228,13 @@ export function useChat() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/conversation/watch/${currentConversationId}`;
 
-    console.log('[FRONTEND] Connecting to conversation file watcher:', wsUrl);
     const ws = new WebSocket(wsUrl);
-
-    ws.onopen = () => {
-      console.log('[FRONTEND] File watcher connected');
-    };
 
     ws.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data);
 
         if (message.type === 'update') {
-          console.log('[FRONTEND] File updated, parsing content');
           // Parse the file content and update messages
           const content = message.content;
           const parsedMessages = parseConversationFile(content);
@@ -256,13 +249,8 @@ export function useChat() {
       console.error('[FRONTEND] File watcher error:', error);
     };
 
-    ws.onclose = () => {
-      console.log('[FRONTEND] File watcher disconnected');
-    };
-
     // Clean up on unmount or when conversation changes
     return () => {
-      console.log('[FRONTEND] Closing file watcher connection');
       ws.close();
     };
   }, [currentConversationId]);

@@ -48,10 +48,8 @@ function App() {
     const result = await loadModel(modelPath, config);
     if (result.success) {
       toast.success('Model loaded successfully!');
-      console.log('Model loaded successfully:', result.message);
     } else {
       toast.error(`Failed to load model: ${result.message}`, { duration: 5000 });
-      console.error('Failed to load model:', result.message);
     }
   };
 
@@ -59,12 +57,10 @@ function App() {
     const result = await unloadModel();
     if (result.success) {
       toast.success('Model unloaded successfully');
-      console.log('Model unloaded successfully:', result.message);
       // Clear any existing conversation when model is unloaded
       clearMessages();
     } else {
       toast.error(`Failed to unload model: ${result.message}`, { duration: 5000 });
-      console.error('Failed to unload model:', result.message);
     }
   };
 

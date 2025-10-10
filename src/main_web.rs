@@ -11,7 +11,6 @@ use gguf_llms::{GgufHeader, GgufReader, Value};
 use std::io::BufReader;
 use tokio::sync::mpsc;
 use hyper::body::Bytes;
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 // HTTP server using hyper
@@ -35,20 +34,6 @@ use llama_cpp_2::{
 
 // Global counter for active WebSocket connections
 static ACTIVE_WS_CONNECTIONS: AtomicU32 = AtomicU32::new(0);
-
-// Helper function to get timestamp for logging
-fn timestamp() -> String {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap();
-    let millis = now.as_millis() % 1000;
-    let secs = now.as_secs();
-    let local_time = secs + (8 * 3600); // Adjust if needed for your timezone
-    let hours = (local_time / 3600) % 24;
-    let minutes = (local_time / 60) % 60;
-    let seconds = local_time % 60;
-    format!("{:02}:{:02}:{:02}.{:03}", hours, minutes, seconds, millis)
-}
 
 // Configuration structure
 #[derive(Deserialize, Serialize, Clone)]
@@ -1084,14 +1069,10 @@ async fn generate_llama_response(
     let stop_tokens = config.stop_tokens.unwrap_or_else(get_common_stop_tokens);
     
     // Ensure model is loaded
-    println!("[{}] [GENERATION] Loading model...", timestamp());
     load_model(llama_state.clone(), model_path).await?;
-    println!("[{}] [GENERATION] Model loaded", timestamp());
 
     // Now use the shared state for generation
-    println!("[{}] [GENERATION] Acquiring LLaMA state lock...", timestamp());
     let state_guard = llama_state.lock().map_err(|_| "Failed to lock LLaMA state")?;
-    println!("[{}] [GENERATION] Lock acquired!", timestamp());
     let state = state_guard.as_ref().ok_or("LLaMA state not initialized")?;
     let model = state.model.as_ref().ok_or("No model loaded")?;
 
@@ -1173,10 +1154,8 @@ async fn generate_llama_response(
         println!("[DEBUG] Starting generation cycle: tokens_to_generate={}, total_tokens_generated={}", tokens_to_generate, total_tokens_generated);
 
         for _i in 0..tokens_to_generate { // Limit response length per cycle
-        println!("[{}] [GENERATION] Sampling next token...", timestamp());
         // Sample next token
         let next_token = sampler.sample(&context, -1);
-        println!("[{}] [GENERATION] Sampled token ID: {}", timestamp(), next_token);
 
         // Check for end-of-sequence token
         if next_token == model.token_eos() {
@@ -1187,7 +1166,6 @@ async fn generate_llama_response(
 
         // IMPORTANT: Add token to batch and decode FIRST, before string conversion
         // This ensures the model progresses even if we can't display the token
-        println!("[{}] [GENERATION] Adding to batch and decoding...", timestamp());
         batch.clear();
         batch
             .add(next_token, token_pos, &[0], true)
@@ -1196,7 +1174,6 @@ async fn generate_llama_response(
         context
             .decode(&mut batch)
             .map_err(|e| format!("Decode failed: {}", e))?;
-        println!("[{}] [GENERATION] Decode complete", timestamp());
 
         token_pos += 1;
         total_tokens_generated += 1;
@@ -1303,7 +1280,6 @@ async fn generate_llama_response(
 
         // Send token through channel for streaming (if enabled)
         if let Some(ref sender) = token_sender {
-            println!("[{}] [STREAMING] Sending token: '{}'", timestamp(), token_str);
             let token_data = TokenData {
                 token: token_str.clone(),
                 tokens_used: token_pos,
@@ -1313,12 +1289,10 @@ async fn generate_llama_response(
         }
 
         // Log token to conversation file
-        println!("[{}] [GENERATION] Logging token to file...", timestamp());
         {
             let mut logger = conversation_logger.lock().map_err(|_| "Failed to lock conversation logger")?;
             logger.log_token(&token_str);
         }
-        println!("[{}] [GENERATION] Token logged", timestamp());
     } // End of inner token generation loop
 
         // Check if response contains a command to execute
@@ -1410,7 +1384,6 @@ async fn generate_llama_response(
         logger.finish_assistant_message();
     }
 
-    println!("[{}] [GENERATION] Releasing LLaMA state lock (function returning)", timestamp());
     Ok((response.trim().to_string(), token_pos, max_total_tokens))
 }
 
@@ -1429,19 +1402,16 @@ async fn handle_websocket(
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
 
     let conn_count = ACTIVE_WS_CONNECTIONS.fetch_add(1, Ordering::SeqCst) + 1;
-    println!("[{}] [WEBSOCKET] Connection established (active connections: {})", timestamp(), conn_count);
 
     // Wait for the first message from the client (should be the chat request)
     while let Some(msg) = ws_receiver.next().await {
         match msg {
             Ok(WsMessage::Text(text)) => {
-                println!("[{}] [WEBSOCKET] Received message: {}", timestamp(), text);
 
                 // Parse the chat request
                 let chat_request: ChatRequest = match serde_json::from_str(&text) {
                     Ok(req) => req,
                     Err(e) => {
-                        println!("[WEBSOCKET] JSON parsing error: {}", e);
                         let error_msg = serde_json::json!({
                             "type": "error",
                             "error": "Invalid JSON format"
@@ -1459,7 +1429,6 @@ async fn handle_websocket(
                 let conversation_logger = match ConversationLogger::new(system_prompt) {
                     Ok(logger) => Arc::new(Mutex::new(logger)),
                     Err(e) => {
-                        println!("[WEBSOCKET] Failed to create conversation logger: {}", e);
                         let error_msg = serde_json::json!({
                             "type": "error",
                             "error": format!("Failed to create conversation logger: {}", e)
@@ -1475,27 +1444,19 @@ async fn handle_websocket(
                 // Spawn generation task
                 let message = chat_request.message.clone();
 
-                println!("[{}] [WEBSOCKET] Spawning generation task for message: {:?}", timestamp(), message);
                 let state_clone = llama_state.clone();
                 tokio::spawn(async move {
-                    println!("[{}] [GENERATION] Task started", timestamp());
                     if let Some(state) = state_clone {
-                        println!("[{}] [GENERATION] Calling generate_llama_response", timestamp());
                         match generate_llama_response(&message, state, conversation_logger, Some(tx)).await {
                             Ok((_content, tokens, max)) => {
-                                println!("[{}] [GENERATION] Completed successfully: {} tokens used, {} max", timestamp(), tokens, max);
                             }
                             Err(e) => {
-                                println!("[{}] [GENERATION] Failed: {}", timestamp(), e);
                             }
                         }
                     } else {
-                        println!("[{}] [GENERATION] ERROR: No LLaMA state available", timestamp());
                     }
-                    println!("[{}] [GENERATION] Task ended", timestamp());
                 });
 
-                println!("[{}] [WEBSOCKET] Entering token streaming loop", timestamp());
 
                 // Stream tokens through WebSocket
                 loop {
@@ -1505,7 +1466,6 @@ async fn handle_websocket(
                             match token_result {
                                 Some(token_data) => {
                                     // Send token as JSON
-                                    println!("[{}] [WEBSOCKET] Received token from channel: {:?}", timestamp(), token_data.token);
                                     let json = serde_json::json!({
                                         "type": "token",
                                         "token": token_data.token,
@@ -1513,12 +1473,9 @@ async fn handle_websocket(
                                         "max_tokens": token_data.max_tokens
                                     });
 
-                                    println!("[{}] [WEBSOCKET] Sending to client...", timestamp());
                                     if let Err(e) = ws_sender.send(WsMessage::Text(json.to_string())).await {
-                                        println!("[{}] [WEBSOCKET] Failed to send token: {}", timestamp(), e);
                                         break;
                                     }
-                                    println!("[{}] [WEBSOCKET] Token sent successfully", timestamp());
                                 }
                                 None => {
                                     // Channel closed, generation complete
@@ -1534,14 +1491,12 @@ async fn handle_websocket(
                         ws_msg = ws_receiver.next() => {
                             match ws_msg {
                                 Some(Ok(WsMessage::Close(_))) | None => {
-                                    println!("[WEBSOCKET] Client disconnected");
                                     break;
                                 }
                                 Some(Ok(WsMessage::Ping(data))) => {
                                     let _ = ws_sender.send(WsMessage::Pong(data)).await;
                                 }
                                 Some(Err(e)) => {
-                                    println!("[WEBSOCKET] Receive error: {}", e);
                                     break;
                                 }
                                 _ => {}
@@ -1552,7 +1507,6 @@ async fn handle_websocket(
                 break;
             }
             Ok(WsMessage::Close(_)) => {
-                println!("[WEBSOCKET] Client closed connection");
                 break;
             }
             Ok(WsMessage::Ping(data)) => {
@@ -1562,14 +1516,12 @@ async fn handle_websocket(
                 // Ignore other message types
             }
             Err(e) => {
-                println!("[WEBSOCKET] Receive error: {}", e);
                 break;
             }
         }
     }
 
     let conn_count = ACTIVE_WS_CONNECTIONS.fetch_sub(1, Ordering::SeqCst) - 1;
-    println!("[{}] [WEBSOCKET] Connection closed (active connections: {})", timestamp(), conn_count);
     Ok(())
 }
 
@@ -1586,9 +1538,7 @@ async fn handle_conversation_watch(
 
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
 
-    let conn_count = ACTIVE_WS_CONNECTIONS.fetch_add(1, Ordering::SeqCst) + 1;
-    println!("[{}] [CONV-WATCH] Connection established for conversation: {} (active: {})",
-             timestamp(), conversation_id, conn_count);
+    let _ = ACTIVE_WS_CONNECTIONS.fetch_add(1, Ordering::SeqCst);
 
     // Construct file path - handle .txt extension if already present
     let file_path = if conversation_id.ends_with(".txt") {
@@ -1600,19 +1550,13 @@ async fn handle_conversation_watch(
     // Read initial content
     let mut last_content = fs::read_to_string(&file_path).unwrap_or_default();
 
-    println!("[{}] [CONV-WATCH] Read file: {} ({} bytes)", timestamp(), file_path, last_content.len());
-
     // Send initial content
     let initial_msg = serde_json::json!({
         "type": "update",
         "content": last_content
     });
 
-    if let Err(e) = ws_sender.send(WsMessage::Text(initial_msg.to_string())).await {
-        println!("[{}] [CONV-WATCH] Failed to send initial content: {}", timestamp(), e);
-    } else {
-        println!("[{}] [CONV-WATCH] Sent initial content ({} bytes)", timestamp(), last_content.len());
-    }
+    let _ = ws_sender.send(WsMessage::Text(initial_msg.to_string())).await;
 
     // Poll for file changes every 500ms
     let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(500));
@@ -1623,7 +1567,6 @@ async fn handle_conversation_watch(
                 // Read file and check if changed
                 if let Ok(current_content) = fs::read_to_string(&file_path) {
                     if current_content != last_content {
-                        println!("[{}] [CONV-WATCH] File changed, sending update", timestamp());
                         last_content = current_content.clone();
 
                         let update_msg = serde_json::json!({
@@ -1631,8 +1574,7 @@ async fn handle_conversation_watch(
                             "content": current_content
                         });
 
-                        if let Err(e) = ws_sender.send(WsMessage::Text(update_msg.to_string())).await {
-                            println!("[{}] [CONV-WATCH] Failed to send update: {}", timestamp(), e);
+                        if ws_sender.send(WsMessage::Text(update_msg.to_string())).await.is_err() {
                             break;
                         }
                     }
@@ -1641,14 +1583,12 @@ async fn handle_conversation_watch(
             ws_msg = ws_receiver.next() => {
                 match ws_msg {
                     Some(Ok(WsMessage::Close(_))) | None => {
-                        println!("[{}] [CONV-WATCH] Client disconnected", timestamp());
                         break;
                     }
                     Some(Ok(WsMessage::Ping(data))) => {
                         let _ = ws_sender.send(WsMessage::Pong(data)).await;
                     }
-                    Some(Err(e)) => {
-                        println!("[{}] [CONV-WATCH] Receive error: {}", timestamp(), e);
+                    Some(Err(_)) => {
                         break;
                     }
                     _ => {}
@@ -1657,8 +1597,7 @@ async fn handle_conversation_watch(
         }
     }
 
-    let conn_count = ACTIVE_WS_CONNECTIONS.fetch_sub(1, Ordering::SeqCst) - 1;
-    println!("[{}] [CONV-WATCH] Connection closed (active: {})", timestamp(), conn_count);
+    let _ = ACTIVE_WS_CONNECTIONS.fetch_sub(1, Ordering::SeqCst);
     Ok(())
 }
 
@@ -1856,7 +1795,6 @@ async fn handle_request_impl(
         }
 
         (&Method::POST, "/api/chat/stream") => {
-            println!("[STREAMING] Received request to /api/chat/stream");
             // Parse request body
             let body_bytes = match hyper::body::to_bytes(req.into_body()).await {
                 Ok(bytes) => bytes,
@@ -1974,7 +1912,6 @@ async fn handle_request_impl(
         }
 
         (&Method::GET, "/ws/chat/stream") => {
-            println!("[WEBSOCKET] Received request to /ws/chat/stream");
 
             // Check if the request wants to upgrade to WebSocket
             let upgrade_header = req.headers().get("upgrade")
