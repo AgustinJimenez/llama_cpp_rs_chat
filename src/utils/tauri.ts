@@ -88,78 +88,85 @@ export class TauriAPI {
     onError: (error: string) => void,
     abortSignal?: AbortSignal
   ): Promise<void> {
-    try {
-      console.log('[FRONTEND] Calling /api/chat/stream endpoint');
-      const response = await fetch('/api/chat/stream', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(request),
-        signal: abortSignal,
-      });
+    return new Promise((resolve, reject) => {
+      console.log('[FRONTEND] Connecting to WebSocket at /ws/chat/stream');
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      // Determine WebSocket URL based on current protocol
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws/chat/stream`;
 
-      if (!response.body) {
-        throw new Error('Response body is null');
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
+      const ws = new WebSocket(wsUrl);
       let lastTokensUsed: number | undefined = undefined;
       let lastMaxTokens: number | undefined = undefined;
+      let isCompleted = false;
 
-      while (true) {
-        const { done, value } = await reader.read();
-
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || ''; // Keep incomplete line in buffer
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.substring(6);
-
-            if (data === '[DONE]') {
-              // Stream complete - pass the last known token counts
-              onComplete(crypto.randomUUID(), request.conversation_id || crypto.randomUUID(), lastTokensUsed, lastMaxTokens);
-              return;
-            }
-
-            try {
-              const tokenData = JSON.parse(data);
-              console.log('[FRONTEND] Received token data:', tokenData);
-
-              // Check if it's the new TokenData format with metadata
-              if (typeof tokenData === 'object' && tokenData.token !== undefined) {
-                // Track the last token counts
-                if (tokenData.tokens_used !== undefined) {
-                  lastTokensUsed = tokenData.tokens_used;
-                }
-                if (tokenData.max_tokens !== undefined) {
-                  lastMaxTokens = tokenData.max_tokens;
-                }
-                onToken(tokenData.token, tokenData.tokens_used, tokenData.max_tokens);
-              } else if (typeof tokenData === 'string') {
-                // Fallback for old format (just a string token)
-                onToken(tokenData, undefined, undefined);
-              }
-            } catch (e) {
-              console.error('Failed to parse token:', e);
-            }
-          }
-        }
+      // Handle abort signal
+      if (abortSignal) {
+        abortSignal.addEventListener('abort', () => {
+          console.log('[FRONTEND] WebSocket connection aborted');
+          ws.close();
+          resolve();
+        });
       }
 
-      onComplete(crypto.randomUUID(), request.conversation_id || crypto.randomUUID(), lastTokensUsed, lastMaxTokens);
-    } catch (error) {
-      onError(error instanceof Error ? error.message : 'Unknown error');
-    }
+      ws.onopen = () => {
+        console.log('[FRONTEND] WebSocket connected, sending request');
+        ws.send(JSON.stringify(request));
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          console.log('[FRONTEND] Received WebSocket message:', message);
+
+          if (message.type === 'token') {
+            // Update token counts
+            if (message.tokens_used !== undefined) {
+              lastTokensUsed = message.tokens_used;
+            }
+            if (message.max_tokens !== undefined) {
+              lastMaxTokens = message.max_tokens;
+            }
+            onToken(message.token, message.tokens_used, message.max_tokens);
+          } else if (message.type === 'done') {
+            console.log('[FRONTEND] Stream complete');
+            isCompleted = true;
+            onComplete(crypto.randomUUID(), request.conversation_id || crypto.randomUUID(), lastTokensUsed, lastMaxTokens);
+            ws.close();
+            resolve();
+          } else if (message.type === 'error') {
+            console.error('[FRONTEND] Stream error:', message.error);
+            onError(message.error || 'Unknown error');
+            ws.close();
+            reject(new Error(message.error || 'Unknown error'));
+          }
+        } catch (e) {
+          console.error('[FRONTEND] Failed to parse WebSocket message:', e);
+          onError('Failed to parse server message');
+          ws.close();
+          reject(e);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('[FRONTEND] WebSocket error:', error);
+        if (!isCompleted) {
+          onError('WebSocket connection error');
+          reject(new Error('WebSocket connection error'));
+        }
+      };
+
+      ws.onclose = (event) => {
+        console.log('[FRONTEND] WebSocket closed:', event.code, event.reason);
+        if (!isCompleted && event.code !== 1000) {
+          // Abnormal closure
+          onError(`Connection closed unexpectedly: ${event.reason || 'Unknown reason'}`);
+          reject(new Error('Connection closed unexpectedly'));
+        } else if (!isCompleted) {
+          // Normal closure but not completed
+          resolve();
+        }
+      };
+    });
   }
 }

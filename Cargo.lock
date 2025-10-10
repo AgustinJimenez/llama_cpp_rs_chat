@@ -2090,6 +2090,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-stream",
+ "base64 0.21.7",
  "cmake",
  "futures-util",
  "gguf-llms",
@@ -2097,6 +2098,7 @@ dependencies = [
  "llama-cpp-2",
  "serde",
  "serde_json",
+ "sha1",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

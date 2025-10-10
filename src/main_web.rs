@@ -1362,6 +1362,153 @@ async fn generate_llama_response(
     Ok((response.trim().to_string(), token_pos, max_total_tokens))
 }
 
+// WebSocket handler for real-time token streaming
+async fn handle_websocket(
+    upgraded: Upgraded,
+    llama_state: Option<SharedLlamaState>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Convert the upgraded connection to a WebSocket stream
+    let ws_stream = WebSocketStream::from_raw_socket(
+        upgraded,
+        tokio_tungstenite::tungstenite::protocol::Role::Server,
+        None,
+    ).await;
+
+    let (mut ws_sender, mut ws_receiver) = ws_stream.split();
+
+    println!("[WEBSOCKET] Connection established");
+
+    // Wait for the first message from the client (should be the chat request)
+    while let Some(msg) = ws_receiver.next().await {
+        match msg {
+            Ok(WsMessage::Text(text)) => {
+                println!("[WEBSOCKET] Received message: {}", text);
+
+                // Parse the chat request
+                let chat_request: ChatRequest = match serde_json::from_str(&text) {
+                    Ok(req) => req,
+                    Err(e) => {
+                        println!("[WEBSOCKET] JSON parsing error: {}", e);
+                        let error_msg = serde_json::json!({
+                            "type": "error",
+                            "error": "Invalid JSON format"
+                        });
+                        let _ = ws_sender.send(WsMessage::Text(error_msg.to_string())).await;
+                        break;
+                    }
+                };
+
+                // Load configuration to get system prompt
+                let config = load_config();
+                let system_prompt = config.system_prompt.as_deref();
+
+                // Create a new conversation logger for this chat session
+                let conversation_logger = match ConversationLogger::new(system_prompt) {
+                    Ok(logger) => Arc::new(Mutex::new(logger)),
+                    Err(e) => {
+                        println!("[WEBSOCKET] Failed to create conversation logger: {}", e);
+                        let error_msg = serde_json::json!({
+                            "type": "error",
+                            "error": format!("Failed to create conversation logger: {}", e)
+                        });
+                        let _ = ws_sender.send(WsMessage::Text(error_msg.to_string())).await;
+                        break;
+                    }
+                };
+
+                // Create channel for streaming tokens
+                let (tx, mut rx) = mpsc::unbounded_channel::<TokenData>();
+
+                // Spawn generation task
+                let message = chat_request.message.clone();
+                let state_clone = llama_state.clone();
+                tokio::spawn(async move {
+                    if let Some(state) = state_clone {
+                        match generate_llama_response(&message, state, conversation_logger, Some(tx)).await {
+                            Ok((_content, tokens, max)) => {
+                                println!("[WEBSOCKET] Generation completed successfully: {} tokens used, {} max", tokens, max);
+                            }
+                            Err(e) => {
+                                println!("[WEBSOCKET ERROR] Generation failed: {}", e);
+                            }
+                        }
+                    } else {
+                        println!("[WEBSOCKET ERROR] No LLaMA state available for generation");
+                    }
+                });
+
+                // Stream tokens through WebSocket
+                loop {
+                    tokio::select! {
+                        // Receive tokens from the generation task
+                        token_result = rx.recv() => {
+                            match token_result {
+                                Some(token_data) => {
+                                    // Send token as JSON
+                                    let json = serde_json::json!({
+                                        "type": "token",
+                                        "token": token_data.token,
+                                        "tokens_used": token_data.tokens_used,
+                                        "max_tokens": token_data.max_tokens
+                                    });
+
+                                    if let Err(e) = ws_sender.send(WsMessage::Text(json.to_string())).await {
+                                        println!("[WEBSOCKET] Failed to send token: {}", e);
+                                        break;
+                                    }
+                                }
+                                None => {
+                                    // Channel closed, generation complete
+                                    let done_msg = serde_json::json!({
+                                        "type": "done"
+                                    });
+                                    let _ = ws_sender.send(WsMessage::Text(done_msg.to_string())).await;
+                                    break;
+                                }
+                            }
+                        }
+                        // Handle client disconnection or close messages
+                        ws_msg = ws_receiver.next() => {
+                            match ws_msg {
+                                Some(Ok(WsMessage::Close(_))) | None => {
+                                    println!("[WEBSOCKET] Client disconnected");
+                                    break;
+                                }
+                                Some(Ok(WsMessage::Ping(data))) => {
+                                    let _ = ws_sender.send(WsMessage::Pong(data)).await;
+                                }
+                                Some(Err(e)) => {
+                                    println!("[WEBSOCKET] Receive error: {}", e);
+                                    break;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+                break;
+            }
+            Ok(WsMessage::Close(_)) => {
+                println!("[WEBSOCKET] Client closed connection");
+                break;
+            }
+            Ok(WsMessage::Ping(data)) => {
+                let _ = ws_sender.send(WsMessage::Pong(data)).await;
+            }
+            Ok(_) => {
+                // Ignore other message types
+            }
+            Err(e) => {
+                println!("[WEBSOCKET] Receive error: {}", e);
+                break;
+            }
+        }
+    }
+
+    println!("[WEBSOCKET] Connection closed");
+    Ok(())
+}
+
 
 async fn handle_request(
     req: Request<Body>,
@@ -1649,6 +1796,69 @@ async fn handle_request_impl(
                     .body(Body::from(r#"{"error":"Streaming not available (mock feature enabled)"}"#))
                     .unwrap()
             }
+        }
+
+        (&Method::GET, "/ws/chat/stream") => {
+            println!("[WEBSOCKET] Received request to /ws/chat/stream");
+
+            // Check if the request wants to upgrade to WebSocket
+            let upgrade_header = req.headers().get("upgrade")
+                .and_then(|v| v.to_str().ok())
+                .map(|v| v.to_lowercase());
+
+            if upgrade_header.as_deref() != Some("websocket") {
+                return Ok(Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .header("content-type", "application/json")
+                    .header("access-control-allow-origin", "*")
+                    .body(Body::from(r#"{"error":"WebSocket upgrade required"}"#))
+                    .unwrap());
+            }
+
+            // Extract the WebSocket key before moving req
+            let key = req.headers()
+                .get("sec-websocket-key")
+                .and_then(|k| k.to_str().ok())
+                .unwrap_or("")
+                .to_string();
+
+            // Calculate accept key using the WebSocket protocol
+            let accept_key = {
+                use sha1::{Digest, Sha1};
+                use base64::{Engine as _, engine::general_purpose};
+
+                let mut hasher = Sha1::new();
+                hasher.update(key.as_bytes());
+                hasher.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+                let hash = hasher.finalize();
+                general_purpose::STANDARD.encode(hash)
+            };
+
+            // Clone state for the WebSocket handler
+            let llama_state_ws = llama_state.clone();
+
+            // Spawn WebSocket handler on the upgraded connection
+            tokio::spawn(async move {
+                match hyper::upgrade::on(req).await {
+                    Ok(upgraded) => {
+                        if let Err(e) = handle_websocket(upgraded, llama_state_ws).await {
+                            println!("[WEBSOCKET ERROR] {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        println!("[WEBSOCKET UPGRADE ERROR] {}", e);
+                    }
+                }
+            });
+
+            // Return 101 Switching Protocols response
+            Response::builder()
+                .status(StatusCode::SWITCHING_PROTOCOLS)
+                .header("upgrade", "websocket")
+                .header("connection", "upgrade")
+                .header("sec-websocket-accept", accept_key)
+                .body(Body::empty())
+                .unwrap()
         }
 
         (&Method::GET, "/api/config") => {

@@ -305,7 +305,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
       ...config,
       model_path: modelPath,
       context_size: contextSize,
-      system_prompt: systemPrompt,
+      system_prompt: systemPrompt ?? undefined,
     };
     onSave(finalConfig);
   };

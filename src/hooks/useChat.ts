@@ -143,7 +143,7 @@ export function useChat() {
             // Execute tools and continue
             try {
               const results = await Promise.all(toolCalls.map(executeTool));
-              const formattedResults = results.map((result, idx) =>
+              const formattedResults = results.map((result) =>
                 `[TOOL_RESULTS]${result}[/TOOL_RESULTS]`
               ).join('\n');
 
@@ -211,7 +211,7 @@ export function useChat() {
               const results = await Promise.all(toolCalls.map(executeTool));
 
               // Format results for model
-              const formattedResults = results.map((result, idx) =>
+              const formattedResults = results.map((result) =>
                 `[TOOL_RESULTS]${result}[/TOOL_RESULTS]`
               ).join('\n');
 
