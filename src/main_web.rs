@@ -712,11 +712,9 @@ impl ConversationLogger {
     fn log_token(&mut self, token: &str) {
         // Append token to the last assistant message in content
         self.content.push_str(token);
-        
-        // Write immediately to file
-        if let Err(e) = fs::write(&self.file_path, &self.content) {
-            eprintln!("Failed to write conversation log: {}", e);
-        }
+
+        // Don't write to file on every token - too slow!
+        // File will be written at the end in finish_assistant_message()
     }
     
     fn finish_assistant_message(&mut self) {
