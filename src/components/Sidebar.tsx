@@ -125,13 +125,13 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, onNewChat, onOpenSe
       >
         {/* Header */}
         <div className="sidebar-header">
-          <button 
-            className="sidebar-toggle-btn"
+          <button
+            className={isOpen ? 'sidebar-toggle-btn' : 'sidebar-icon-btn'}
             onClick={onToggle}
             data-testid="sidebar-toggle"
             aria-label={isOpen ? 'Close sidebar' : 'Open sidebar'}
           >
-{isOpen ? <ChevronLeft size={20} /> : <Menu size={20} />}
+{isOpen ? <ChevronLeft size={20} /> : <Menu size={24} />}
           </button>
           {isOpen && <h2 className="sidebar-title">LLaMA Chat</h2>}
         </div>
