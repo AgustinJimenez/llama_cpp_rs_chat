@@ -89,11 +89,14 @@ export class TauriAPI {
     abortSignal?: AbortSignal
   ): Promise<void> {
     return new Promise((resolve, reject) => {
-      console.log('[FRONTEND] Connecting to WebSocket at /ws/chat/stream');
-
       // Determine WebSocket URL based on current protocol
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${protocol}//${window.location.host}/ws/chat/stream`;
+
+      console.log('[FRONTEND] Connecting to WebSocket');
+      console.log('[FRONTEND] Protocol:', window.location.protocol);
+      console.log('[FRONTEND] Host:', window.location.host);
+      console.log('[FRONTEND] Full WebSocket URL:', wsUrl);
 
       const ws = new WebSocket(wsUrl);
       let lastTokensUsed: number | undefined = undefined;
