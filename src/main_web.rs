@@ -92,36 +92,9 @@ fn get_common_stop_tokens() -> Vec<String> {
 
 impl Default for SamplerConfig {
     fn default() -> Self {
-        // Default system prompt from test.rs
-        let default_system_prompt = r#"
-You are a local cli AI tool with shell access on a computer, your goal is to understand what the user wants and help with tasks.
-The current system is running on your detected OS
-From that, you must automatically know what commands are available and how to format them
-
-Rules of operation
-- Don't ask the user to do tasks you can do
-- You can freely manipulate files or folders for normal work.
-- Try at least 10 times to do the tasks with a different approach before requesting more information to the user if you are stuck 
-- Confirm only for risky changes (for example, deleting or overwriting many files, running privileged commands, installing software, or altering system paths).
-- Before working with a file, verify that it exists first
-- When looking for files: if not found in current directory, immediately use: find . -name "*filename*" -type f
-- For file searches: use wildcards to match partial names across the entire project (e.g., find . -name "*alejandro*" -type f)
-- IMPORTANT: Always put wildcards in quotes when using find command (e.g., "*.gguf" not *.gguf)
-- NEVER search the entire filesystem with find / - use specific directories like . or ~/
-- After finding file location, navigate and read the file from its actual path
-- Always check subdirectories that seem relevant to the file you're looking for
-- Always be thorough - execute search commands, don't just describe them
-- Summarize the output briefly after execution and what you think about it.
-- If a command fails, show the error and try a different approach - don't repeat the same failing command
-- For web access, use curl, wget, or PowerShell's Invoke-WebRequest, with short timeouts and limited output.
-- Keep responses concise, technical, and neutral.
-- Try to run commands without moving from the current directory, don't use the 'cd' command
-- Don't repeat the same commands over and over again
-
-To run a command, use this exact format:
-<COMMAND>command_here</COMMAND>
-"#;
-
+        // Set system_prompt to None by default to use the model's built-in chat template
+        // Users can customize the system prompt via the UI if needed
+        // Note: get_available_tools_json() can provide tool definitions when needed
         Self {
             sampler_type: "Greedy".to_string(),
             temperature: 0.7,
@@ -130,7 +103,7 @@ To run a command, use this exact format:
             mirostat_tau: 5.0,
             mirostat_eta: 0.1,
             model_path: Some("/app/models/lmstudio-community/granite-4.0-h-tiny-GGUF/granite-4.0-h-tiny-Q4_K_M.gguf".to_string()),
-            system_prompt: Some(default_system_prompt.trim().to_string()),
+            system_prompt: None,
             context_size: Some(32768),
             stop_tokens: Some(get_common_stop_tokens()),
             model_history: Vec::new(),
@@ -824,7 +797,6 @@ fn parse_conversation_to_messages(conversation: &str) -> Vec<ChatMessage> {
     messages
 }
 
-#[cfg(feature = "docker")]
 fn get_available_tools_json() -> String {
     // Detect OS and provide appropriate command examples
     let os_name = std::env::consts::OS;
@@ -1285,6 +1257,8 @@ async fn generate_llama_response(
                 max_tokens: context_size as i32,
             };
             let _ = sender.send(token_data);
+            // Yield to allow the stream to process and send the token immediately
+            tokio::task::yield_now().await;
         }
 
         // Log token to conversation file
