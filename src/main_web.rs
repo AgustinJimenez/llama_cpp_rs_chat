@@ -12,6 +12,7 @@ use std::io::BufReader;
 use tokio::sync::mpsc;
 use hyper::body::Bytes;
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 // HTTP server using hyper
 use hyper::service::{make_service_fn, service_fn};
@@ -31,6 +32,9 @@ use llama_cpp_2::{
     sampling::LlamaSampler,
     // send_logs_to_tracing, LogOptions,
 };
+
+// Global counter for active WebSocket connections
+static ACTIVE_WS_CONNECTIONS: AtomicU32 = AtomicU32::new(0);
 
 // Helper function to get timestamp for logging
 fn timestamp() -> String {
@@ -1403,7 +1407,8 @@ async fn handle_websocket(
 
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
 
-    println!("[{}] [WEBSOCKET] Connection established", timestamp());
+    let conn_count = ACTIVE_WS_CONNECTIONS.fetch_add(1, Ordering::SeqCst) + 1;
+    println!("[{}] [WEBSOCKET] Connection established (active connections: {})", timestamp(), conn_count);
 
     // Wait for the first message from the client (should be the chat request)
     while let Some(msg) = ws_receiver.next().await {
@@ -1539,7 +1544,8 @@ async fn handle_websocket(
         }
     }
 
-    println!("[WEBSOCKET] Connection closed");
+    let conn_count = ACTIVE_WS_CONNECTIONS.fetch_sub(1, Ordering::SeqCst) - 1;
+    println!("[{}] [WEBSOCKET] Connection closed (active connections: {})", timestamp(), conn_count);
     Ok(())
 }
 
