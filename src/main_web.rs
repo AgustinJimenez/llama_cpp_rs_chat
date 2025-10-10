@@ -15,9 +15,13 @@ use hyper::body::Bytes;
 // HTTP server using hyper
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
+use hyper::upgrade::Upgraded;
+use tokio_tungstenite::tungstenite::protocol::Message as WsMessage;
+use tokio_tungstenite::WebSocketStream;
+use futures_util::{StreamExt, SinkExt};
 
 // LLaMA integration
-#[cfg(feature = "docker")]
+
 use llama_cpp_2::{
     context::params::LlamaContextParams,
     llama_backend::LlamaBackend,
@@ -188,7 +192,7 @@ struct ModelResponse {
 }
 
 // Shared state for LLaMA
-#[cfg(feature = "docker")]
+
 struct LlamaState {
     backend: LlamaBackend,
     model: Option<LlamaModel>,
@@ -198,7 +202,7 @@ struct LlamaState {
     last_used: std::time::SystemTime,
 }
 
-#[cfg(feature = "docker")]
+
 type SharedLlamaState = Arc<Mutex<Option<LlamaState>>>;
 
 type SharedConversationLogger = Arc<Mutex<ConversationLogger>>;
@@ -369,7 +373,7 @@ fn execute_command(cmd: &str) -> String {
 }
 
 // Helper function to get model status
-#[cfg(feature = "docker")]
+
 fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
     match llama_state.lock() {
         Ok(state_guard) => {
@@ -407,7 +411,7 @@ fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
 }
 
 // Helper function to calculate optimal GPU layers based on available VRAM
-#[cfg(feature = "docker")]
+
 fn calculate_optimal_gpu_layers(model_path: &str) -> u32 {
     use std::fs;
 
@@ -466,7 +470,7 @@ fn calculate_optimal_gpu_layers(model_path: &str) -> u32 {
 }
 
 // Helper function to load a model
-#[cfg(feature = "docker")]
+
 async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Result<(), String> {
     println!("[DEBUG] load_model called with path: {}", model_path);
 
@@ -607,7 +611,7 @@ async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Result<(
 }
 
 // Helper function to unload the current model
-#[cfg(feature = "docker")]
+
 async fn unload_model(llama_state: SharedLlamaState) -> Result<(), String> {
     let mut state_guard = llama_state.lock().map_err(|_| "Failed to lock LLaMA state")?;
     
@@ -1015,12 +1019,12 @@ fn apply_model_chat_template(conversation: &str, template_type: Option<&str>) ->
 }
 
 // Constants for LLaMA configuration
-#[cfg(feature = "docker")]
+
 const CONTEXT_SIZE: u32 = 32768;
-#[cfg(feature = "docker")]
+
 const MODEL_PATH: &str = "/app/models/lmstudio-community/granite-4.0-h-tiny-GGUF/granite-4.0-h-tiny-Q4_K_M.gguf";
 
-#[cfg(feature = "docker")]
+
 async fn generate_llama_response(
     user_message: &str,
     llama_state: SharedLlamaState,
@@ -1257,8 +1261,6 @@ async fn generate_llama_response(
                 max_tokens: context_size as i32,
             };
             let _ = sender.send(token_data);
-            // Yield to allow the stream to process and send the token immediately
-            tokio::task::yield_now().await;
         }
 
         // Log token to conversation file
@@ -1360,7 +1362,7 @@ async fn generate_llama_response(
     Ok((response.trim().to_string(), token_pos, max_total_tokens))
 }
 
-#[cfg(feature = "docker")]
+
 async fn handle_request(
     req: Request<Body>,
     llama_state: SharedLlamaState,
@@ -1368,7 +1370,7 @@ async fn handle_request(
     handle_request_impl(req, Some(llama_state)).await
 }
 
-#[cfg(not(feature = "docker"))]
+#[cfg(feature = "mock")]
 async fn handle_request(
     req: Request<Body>,
 ) -> std::result::Result<Response<Body>, Infallible> {
@@ -1377,9 +1379,9 @@ async fn handle_request(
 
 async fn handle_request_impl(
     req: Request<Body>,
-    #[cfg(feature = "docker")]
+    
     llama_state: Option<SharedLlamaState>,
-    #[cfg(not(feature = "docker"))]
+    #[cfg(feature = "mock")]
     _llama_state: Option<()>,
 ) -> std::result::Result<Response<Body>, Infallible> {
     let response = match (req.method(), req.uri().path()) {
@@ -1424,7 +1426,7 @@ async fn handle_request_impl(
                 }
             };
 
-            #[cfg(feature = "docker")]
+            
             {
                 // Check for test mode environment variable
                 if std::env::var("TEST_MODE").unwrap_or_default() == "true" {
@@ -1516,10 +1518,10 @@ async fn handle_request_impl(
                     .unwrap()
             }
 
-            #[cfg(not(feature = "docker"))]
+            #[cfg(feature = "mock")]
             {
-                // Fallback mock response when not using docker feature
-                let mock_response = r#"{"message":{"id":"test","role":"assistant","content":"LLaMA integration not available (docker feature not enabled)","timestamp":1234567890},"conversation_id":"test-conversation"}"#;
+                // Fallback mock response when using mock feature
+                let mock_response = r#"{"message":{"id":"test","role":"assistant","content":"LLaMA integration not available (mock feature enabled)","timestamp":1234567890},"conversation_id":"test-conversation"}"#;
                 Response::builder()
                     .status(StatusCode::OK)
                     .header("content-type", "application/json")
@@ -1559,7 +1561,7 @@ async fn handle_request_impl(
                 }
             };
 
-            #[cfg(feature = "docker")]
+            
             {
                 // Load configuration to get system prompt
                 let config = load_config();
@@ -1587,7 +1589,7 @@ async fn handle_request_impl(
                 tokio::spawn(async move {
                     if let Some(state) = state_clone {
                         match generate_llama_response(&message, state, conversation_logger, Some(tx)).await {
-                            Ok((content, tokens, max)) => {
+                            Ok((_content, tokens, max)) => {
                                 println!("[DEBUG] Generation completed successfully: {} tokens used, {} max", tokens, max);
                             }
                             Err(e) => {
@@ -1599,26 +1601,33 @@ async fn handle_request_impl(
                     }
                 });
 
-                // Stream tokens as Server-Sent Events
-                // Send TokenData objects with metadata for real-time token count updates
-                let stream = async_stream::stream! {
+                // Use Body::channel for direct control over chunk sending
+                let (mut sender, body) = Body::channel();
+
+                // Spawn task to send tokens through the channel
+                tokio::spawn(async move {
                     loop {
                         match rx.recv().await {
                             Some(token_data) => {
                                 // Send TokenData as JSON
                                 let json = serde_json::to_string(&token_data).unwrap_or_else(|_| r#"{"token":"","tokens_used":0,"max_tokens":0}"#.to_string());
                                 let event = format!("data: {}\n\n", json);
-                                yield Ok::<_, Infallible>(Bytes::from(event));
+
+                                // Send chunk immediately - this ensures no buffering
+                                if sender.send_data(Bytes::from(event)).await.is_err() {
+                                    // Client disconnected
+                                    break;
+                                }
                             }
                             None => {
-                                // Channel closed, break
+                                // Channel closed, generation complete
                                 break;
                             }
                         }
                     }
                     // Send done event
-                    yield Ok::<_, Infallible>(Bytes::from("data: [DONE]\n\n"));
-                };
+                    let _ = sender.send_data(Bytes::from("data: [DONE]\n\n")).await;
+                });
 
                 Response::builder()
                     .status(StatusCode::OK)
@@ -1627,17 +1636,17 @@ async fn handle_request_impl(
                     .header("access-control-allow-origin", "*")
                     .header("connection", "keep-alive")
                     .header("x-accel-buffering", "no")  // Disable nginx buffering
-                    .body(Body::wrap_stream(stream))
+                    .body(body)
                     .unwrap()
             }
 
-            #[cfg(not(feature = "docker"))]
+            #[cfg(feature = "mock")]
             {
                 Response::builder()
                     .status(StatusCode::OK)
                     .header("content-type", "application/json")
                     .header("access-control-allow-origin", "*")
-                    .body(Body::from(r#"{"error":"Streaming not available (docker feature not enabled)"}"#))
+                    .body(Body::from(r#"{"error":"Streaming not available (mock feature enabled)"}"#))
                     .unwrap()
             }
         }
@@ -2302,7 +2311,7 @@ async fn handle_request_impl(
         }
         
         (&Method::GET, "/api/model/status") => {
-            #[cfg(feature = "docker")]
+            
             {
                 if let Some(state) = llama_state {
                     let status = get_model_status(&state);
@@ -2327,7 +2336,7 @@ async fn handle_request_impl(
                 }
             }
 
-            #[cfg(not(feature = "docker"))]
+            #[cfg(feature = "mock")]
             {
                 Response::builder()
                     .status(StatusCode::OK)
@@ -2357,7 +2366,7 @@ async fn handle_request_impl(
         (&Method::POST, "/api/model/load") => {
             println!("[DEBUG] /api/model/load endpoint hit");
 
-            #[cfg(feature = "docker")]
+            
             {
                 if let Some(state) = llama_state {
                     // Parse request body
@@ -2445,19 +2454,19 @@ async fn handle_request_impl(
                 }
             }
             
-            #[cfg(not(feature = "docker"))]
+            #[cfg(feature = "mock")]
             {
                 Response::builder()
                     .status(StatusCode::SERVICE_UNAVAILABLE)
                     .header("content-type", "application/json")
                     .header("access-control-allow-origin", "*")
-                    .body(Body::from(r#"{"success":false,"message":"Model loading not available (docker feature not enabled)"}"#))
+                    .body(Body::from(r#"{"success":false,"message":"Model loading not available (mock feature enabled)"}"#))
                     .unwrap()
             }
         }
         
         (&Method::POST, "/api/model/unload") => {
-            #[cfg(feature = "docker")]
+            
             {
                 if let Some(state) = llama_state {
                     match unload_model(state.clone()).await {
@@ -2511,13 +2520,13 @@ async fn handle_request_impl(
                 }
             }
             
-            #[cfg(not(feature = "docker"))]
+            #[cfg(feature = "mock")]
             {
                 Response::builder()
                     .status(StatusCode::SERVICE_UNAVAILABLE)
                     .header("content-type", "application/json")
                     .header("access-control-allow-origin", "*")
-                    .body(Body::from(r#"{"success":false,"message":"Model unloading not available (docker feature not enabled)"}"#))
+                    .body(Body::from(r#"{"success":false,"message":"Model unloading not available (mock feature enabled)"}"#))
                     .unwrap()
             }
         }
@@ -2896,27 +2905,27 @@ async fn handle_request_impl(
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     // Create shared LLaMA state
-    #[cfg(feature = "docker")]
+    
     let llama_state: SharedLlamaState = Arc::new(Mutex::new(None));
     
     // Note: ConversationLogger will be created per chat request, not globally
     
     // Create HTTP service
     let make_svc = make_service_fn({
-        #[cfg(feature = "docker")]
+        
         let llama_state = llama_state.clone();
         
         move |_conn| {
-            #[cfg(feature = "docker")]
+            
             let llama_state = llama_state.clone();
             
             async move {
                 Ok::<_, Infallible>(service_fn(move |req| {
-                    #[cfg(feature = "docker")]
+                    
                     {
                         handle_request(req, llama_state.clone())
                     }
-                    #[cfg(not(feature = "docker"))]
+                    #[cfg(feature = "mock")]
                     {
                         handle_request(req)
                     }

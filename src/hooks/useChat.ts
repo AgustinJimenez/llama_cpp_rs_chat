@@ -42,6 +42,7 @@ export function useChat() {
   const [tokensUsed, setTokensUsed] = useState<number | undefined>(undefined);
   const [maxTokens, setMaxTokens] = useState<number | undefined>(undefined);
   const toolIterationCount = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const addMessage = useCallback((message: Message) => {
     setMessages(prev => [...prev, message]);
@@ -55,6 +56,15 @@ export function useChat() {
 
   const sendMessage = useCallback(async (content: string) => {
     if (isLoading || !content.trim()) return;
+
+    // Abort any previous request
+    if (abortControllerRef.current) {
+      console.log('[FRONTEND] Aborting previous request');
+      abortControllerRef.current.abort();
+    }
+
+    // Create new AbortController for this request
+    abortControllerRef.current = new AbortController();
 
     // Reset tool iteration counter for new user message
     toolIterationCount.current = 0;
@@ -153,7 +163,8 @@ export function useChat() {
           toast.error(`Chat error: ${errorMessage}`, { duration: 5000 });
           updateMessage(newAssistantMessageId, `Error: ${errorMessage}`);
           setIsLoading(false);
-        }
+        },
+        abortControllerRef.current?.signal
       );
     };
 
@@ -222,7 +233,8 @@ export function useChat() {
           toast.error(`Chat error: ${errorMessage}`, { duration: 5000 });
           updateMessage(assistantMessageId, `Error: ${errorMessage}`);
           setIsLoading(false);
-        }
+        },
+        abortControllerRef.current?.signal
       );
 
     } catch (err) {

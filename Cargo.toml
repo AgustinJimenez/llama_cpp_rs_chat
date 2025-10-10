@@ -33,8 +33,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.0", features = ["full"] }
 
-# LLaMA dependencies - with CUDA GPU acceleration (optional for mock testing)
-llama-cpp-2 = { version = "0.1.122", optional = true, features = ["cuda"] }
+# LLaMA dependencies - with CUDA GPU acceleration
+llama-cpp-2 = { version = "0.1.122", features = ["cuda"] }
 anyhow = "1.0"
 uuid = { version = "1.0", features = ["v4"] }
 
@@ -42,14 +42,15 @@ uuid = { version = "1.0", features = ["v4"] }
 hyper = { version = "0.14", features = ["full"] }
 urlencoding = "2.1"
 async-stream = "0.3"
+tokio-tungstenite = "0.21"
+futures-util = "0.3"
 
 # GGUF file parser for reading model metadata
 gguf-llms = "0.0.2"
 
 [features]
-default = ["docker"]  # Real LLaMA implementation enabled by default
-docker = ["llama-cpp-2"]  # Real LLaMA with CUDA
-mock = []     # Mock implementation only for E2E tests (overrides real implementation)
+default = []
+mock = []  # Mock implementation for E2E tests
 
 [build-dependencies]
 tauri-build = { version = "2.0", features = [] }

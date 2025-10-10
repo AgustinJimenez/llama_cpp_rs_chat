@@ -4,7 +4,7 @@
 use std::env;
 use std::num::NonZeroU32;
 
-#[cfg(feature = "docker")]
+
 use llama_cpp_2::{
     context::params::LlamaContextParams,
     llama_backend::LlamaBackend,
@@ -89,14 +89,14 @@ impl Default for ChatConfig {
     }
 }
 
-#[cfg(feature = "docker")]
+
 pub struct ChatEngine {
     backend: LlamaBackend,
     model: LlamaModel,
     config: ChatConfig,
 }
 
-#[cfg(feature = "docker")]
+
 impl ChatEngine {
     pub fn new(config: ChatConfig) -> Result<Self, String> {
         // Initialize backend

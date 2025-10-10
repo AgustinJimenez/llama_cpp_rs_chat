@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dialog Test</title>
+</head>
+<body>
+    <h1>Dialog Test</h1>
+    <p>This is a simple test to verify the dialog API changes work correctly.</p>
+    
+    <h2>Changes Made:</h2>
+    <ul>
+        <li>Installed @tauri-apps/plugin-dialog package</li>
+        <li>Added dialog plugin to Cargo.toml and main.rs</li>
+        <li>Updated ModelConfigModal.tsx to use Tauri's dialog API instead of HTML file input</li>
+        <li>Fixed file path handling to store full absolute paths instead of just filenames</li>
+    </ul>
+    
+    <h2>Key Fix:</h2>
+    <p>Previously: <code>setModelPath(file.name)</code> - Only stored filename</p>
+    <p>Now: <code>setModelPath(filePath)</code> - Stores full absolute path</p>
+    
+    <h2>Expected Behavior:</h2>
+    <p>When users click "Browse" button, it will:</p>
+    <ol>
+        <li>Open Tauri's native file dialog</li>
+        <li>Filter to show only .gguf files</li>
+        <li>Return the full absolute path when file is selected</li>
+        <li>Store the complete path (e.g., "E:\repo\llama_cpp_rs_chat\assets\test-models\test.gguf") instead of just "test.gguf"</li>
+    </ol>
+    
+    <p><strong>This should fix the "does not exist" error when loading models.</strong></p>
+</body>
+</html>

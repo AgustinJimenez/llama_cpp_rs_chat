@@ -85,7 +85,8 @@ export class TauriAPI {
     request: ChatRequest,
     onToken: (token: string, tokensUsed?: number, maxTokens?: number) => void,
     onComplete: (messageId: string, conversationId: string, tokensUsed?: number, maxTokens?: number) => void,
-    onError: (error: string) => void
+    onError: (error: string) => void,
+    abortSignal?: AbortSignal
   ): Promise<void> {
     try {
       console.log('[FRONTEND] Calling /api/chat/stream endpoint');
@@ -95,6 +96,7 @@ export class TauriAPI {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(request),
+        signal: abortSignal,
       });
 
       if (!response.ok) {
