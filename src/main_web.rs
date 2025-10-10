@@ -699,6 +699,26 @@ impl ConversationLogger {
         Ok(logger)
     }
 
+    fn from_existing(conversation_id: &str) -> io::Result<Self> {
+        // Load existing conversation file
+        let conversations_dir = "assets/conversations";
+
+        // Handle .txt extension if already present
+        let file_path = if conversation_id.ends_with(".txt") {
+            format!("{}/{}", conversations_dir, conversation_id)
+        } else {
+            format!("{}/{}.txt", conversations_dir, conversation_id)
+        };
+
+        // Read existing content
+        let content = fs::read_to_string(&file_path)?;
+
+        Ok(ConversationLogger {
+            file_path,
+            content,
+        })
+    }
+
     fn log_message(&mut self, role: &str, message: &str) {
         let log_entry = format!("{}:\n{}\n\n", role, message);
         self.content.push_str(&log_entry);
@@ -713,8 +733,11 @@ impl ConversationLogger {
         // Append token to the last assistant message in content
         self.content.push_str(token);
 
-        // Don't write to file on every token - too slow!
-        // File will be written at the end in finish_assistant_message()
+        // Write to file immediately so file watcher can update UI in real-time
+        // This is now fast enough since we're not blocking on WebSocket
+        if let Err(e) = fs::write(&self.file_path, &self.content) {
+            eprintln!("Failed to write conversation log: {}", e);
+        }
     }
     
     fn finish_assistant_message(&mut self) {
@@ -1550,6 +1573,95 @@ async fn handle_websocket(
     Ok(())
 }
 
+// WebSocket handler for watching conversation file changes
+async fn handle_conversation_watch(
+    upgraded: Upgraded,
+    conversation_id: String,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let ws_stream = WebSocketStream::from_raw_socket(
+        upgraded,
+        tokio_tungstenite::tungstenite::protocol::Role::Server,
+        None,
+    ).await;
+
+    let (mut ws_sender, mut ws_receiver) = ws_stream.split();
+
+    let conn_count = ACTIVE_WS_CONNECTIONS.fetch_add(1, Ordering::SeqCst) + 1;
+    println!("[{}] [CONV-WATCH] Connection established for conversation: {} (active: {})",
+             timestamp(), conversation_id, conn_count);
+
+    // Construct file path - handle .txt extension if already present
+    let file_path = if conversation_id.ends_with(".txt") {
+        format!("assets/conversations/{}", conversation_id)
+    } else {
+        format!("assets/conversations/{}.txt", conversation_id)
+    };
+
+    // Read initial content
+    let mut last_content = fs::read_to_string(&file_path).unwrap_or_default();
+
+    println!("[{}] [CONV-WATCH] Read file: {} ({} bytes)", timestamp(), file_path, last_content.len());
+
+    // Send initial content
+    let initial_msg = serde_json::json!({
+        "type": "update",
+        "content": last_content
+    });
+
+    if let Err(e) = ws_sender.send(WsMessage::Text(initial_msg.to_string())).await {
+        println!("[{}] [CONV-WATCH] Failed to send initial content: {}", timestamp(), e);
+    } else {
+        println!("[{}] [CONV-WATCH] Sent initial content ({} bytes)", timestamp(), last_content.len());
+    }
+
+    // Poll for file changes every 500ms
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(500));
+
+    loop {
+        tokio::select! {
+            _ = interval.tick() => {
+                // Read file and check if changed
+                if let Ok(current_content) = fs::read_to_string(&file_path) {
+                    if current_content != last_content {
+                        println!("[{}] [CONV-WATCH] File changed, sending update", timestamp());
+                        last_content = current_content.clone();
+
+                        let update_msg = serde_json::json!({
+                            "type": "update",
+                            "content": current_content
+                        });
+
+                        if let Err(e) = ws_sender.send(WsMessage::Text(update_msg.to_string())).await {
+                            println!("[{}] [CONV-WATCH] Failed to send update: {}", timestamp(), e);
+                            break;
+                        }
+                    }
+                }
+            }
+            ws_msg = ws_receiver.next() => {
+                match ws_msg {
+                    Some(Ok(WsMessage::Close(_))) | None => {
+                        println!("[{}] [CONV-WATCH] Client disconnected", timestamp());
+                        break;
+                    }
+                    Some(Ok(WsMessage::Ping(data))) => {
+                        let _ = ws_sender.send(WsMessage::Pong(data)).await;
+                    }
+                    Some(Err(e)) => {
+                        println!("[{}] [CONV-WATCH] Receive error: {}", timestamp(), e);
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    let conn_count = ACTIVE_WS_CONNECTIONS.fetch_sub(1, Ordering::SeqCst) - 1;
+    println!("[{}] [CONV-WATCH] Connection closed (active: {})", timestamp(), conn_count);
+    Ok(())
+}
+
 
 async fn handle_request(
     req: Request<Body>,
@@ -1647,32 +1759,55 @@ async fn handle_request_impl(
                         .unwrap());
                 }
                 
-                // Load configuration to get system prompt
-                let config = load_config();
-                let system_prompt = config.system_prompt.as_deref();
-                
-                // Create a new conversation logger for this chat session
-                let conversation_logger = match ConversationLogger::new(system_prompt) {
-                    Ok(logger) => Arc::new(Mutex::new(logger)),
-                    Err(e) => {
-                        return Ok(Response::builder()
-                            .status(StatusCode::INTERNAL_SERVER_ERROR)
-                            .header("content-type", "application/json")
-                            .header("access-control-allow-origin", "*")
-                            .body(Body::from(format!(r#"{{"error":"Failed to create conversation logger: {}"}}"#, e)))
-                            .unwrap());
+                // Create or load conversation logger
+                let conversation_logger = if let Some(conversation_id) = &chat_request.conversation_id {
+                    // Load existing conversation
+                    match ConversationLogger::from_existing(conversation_id) {
+                        Ok(logger) => Arc::new(Mutex::new(logger)),
+                        Err(e) => {
+                            return Ok(Response::builder()
+                                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                                .header("content-type", "application/json")
+                                .header("access-control-allow-origin", "*")
+                                .body(Body::from(format!(r#"{{"error":"Failed to load conversation: {}"}}"#, e)))
+                                .unwrap());
+                        }
+                    }
+                } else {
+                    // Create new conversation
+                    let config = load_config();
+                    let system_prompt = config.system_prompt.as_deref();
+
+                    match ConversationLogger::new(system_prompt) {
+                        Ok(logger) => Arc::new(Mutex::new(logger)),
+                        Err(e) => {
+                            return Ok(Response::builder()
+                                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                                .header("content-type", "application/json")
+                                .header("access-control-allow-origin", "*")
+                                .body(Body::from(format!(r#"{{"error":"Failed to create conversation logger: {}"}}"#, e)))
+                                .unwrap());
+                        }
                     }
                 };
                 
                 // Generate actual LLaMA response
                 let (response_content, tokens_used, max_tokens) = match llama_state {
                     Some(state) => {
-                        match generate_llama_response(&chat_request.message, state, conversation_logger, None).await {
+                        match generate_llama_response(&chat_request.message, state, conversation_logger.clone(), None).await {
                             Ok((content, tokens, max_tok)) => (content, Some(tokens), Some(max_tok)),
                             Err(err) => (format!("Error generating response: {}", err), None, None),
                         }
                     }
                     None => ("LLaMA state not available".to_string(), None, None),
+                };
+
+                // Extract conversation ID from the logger's file path
+                let conversation_id = {
+                    let logger = conversation_logger.lock().unwrap();
+                    let file_path = &logger.file_path;
+                    // Extract filename from path: "assets/conversations/chat_xxx.txt" -> "chat_xxx.txt"
+                    file_path.split('/').last().unwrap_or("unknown").to_string()
                 };
 
                 let chat_response = ChatResponse {
@@ -1685,8 +1820,7 @@ async fn handle_request_impl(
                             .unwrap_or_default()
                             .as_secs(),
                     },
-                    conversation_id: chat_request.conversation_id
-                        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+                    conversation_id,
                     tokens_used,
                     max_tokens,
                 };
@@ -1888,6 +2022,69 @@ async fn handle_request_impl(
                     }
                     Err(e) => {
                         println!("[WEBSOCKET UPGRADE ERROR] {}", e);
+                    }
+                }
+            });
+
+            // Return 101 Switching Protocols response
+            Response::builder()
+                .status(StatusCode::SWITCHING_PROTOCOLS)
+                .header("upgrade", "websocket")
+                .header("connection", "upgrade")
+                .header("sec-websocket-accept", accept_key)
+                .body(Body::empty())
+                .unwrap()
+        }
+
+        (&Method::GET, path) if path.starts_with("/ws/conversation/watch/") => {
+            println!("[CONV-WATCH] Received request to {}", path);
+
+            // Extract conversation ID from path
+            let conversation_id = path.trim_start_matches("/ws/conversation/watch/").to_string();
+
+            // Check if the request wants to upgrade to WebSocket
+            let upgrade_header = req.headers().get("upgrade")
+                .and_then(|v| v.to_str().ok())
+                .map(|v| v.to_lowercase());
+
+            if upgrade_header.as_deref() != Some("websocket") {
+                return Ok(Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .header("content-type", "application/json")
+                    .header("access-control-allow-origin", "*")
+                    .body(Body::from(r#"{"error":"WebSocket upgrade required"}"#))
+                    .unwrap());
+            }
+
+            // Extract the WebSocket key
+            let key = req.headers()
+                .get("sec-websocket-key")
+                .and_then(|k| k.to_str().ok())
+                .unwrap_or("")
+                .to_string();
+
+            // Calculate accept key
+            let accept_key = {
+                use sha1::{Digest, Sha1};
+                use base64::{Engine as _, engine::general_purpose};
+
+                let mut hasher = Sha1::new();
+                hasher.update(key.as_bytes());
+                hasher.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+                let hash = hasher.finalize();
+                general_purpose::STANDARD.encode(hash)
+            };
+
+            // Spawn WebSocket handler
+            tokio::spawn(async move {
+                match hyper::upgrade::on(req).await {
+                    Ok(upgraded) => {
+                        if let Err(e) = handle_conversation_watch(upgraded, conversation_id).await {
+                            println!("[CONV-WATCH ERROR] {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        println!("[CONV-WATCH UPGRADE ERROR] {}", e);
                     }
                 }
             });

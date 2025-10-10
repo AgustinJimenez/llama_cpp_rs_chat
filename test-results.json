@@ -46,7 +46,7 @@
         "testMatch": [
           "**/*.@(spec|test).?(c|m)[jt]s?(x)"
         ],
-        "timeout": 90000
+        "timeout": 30000
       },
       {
         "outputDir": "E:/repo/llama_cpp_rs_chat/test-results",
@@ -62,7 +62,7 @@
         "testMatch": [
           "**/*.@(spec|test).?(c|m)[jt]s?(x)"
         ],
-        "timeout": 90000
+        "timeout": 30000
       },
       {
         "outputDir": "E:/repo/llama_cpp_rs_chat/test-results",
@@ -78,7 +78,7 @@
         "testMatch": [
           "**/*.@(spec|test).?(c|m)[jt]s?(x)"
         ],
-        "timeout": 90000
+        "timeout": 30000
       },
       {
         "outputDir": "E:/repo/llama_cpp_rs_chat/test-results",
@@ -94,7 +94,7 @@
         "testMatch": [
           "**/*.@(spec|test).?(c|m)[jt]s?(x)"
         ],
-        "timeout": 90000
+        "timeout": 30000
       },
       {
         "outputDir": "E:/repo/llama_cpp_rs_chat/test-results",
@@ -110,7 +110,7 @@
         "testMatch": [
           "**/*.@(spec|test).?(c|m)[jt]s?(x)"
         ],
-        "timeout": 90000
+        "timeout": 30000
       }
     ],
     "shard": null,
@@ -122,25 +122,25 @@
   },
   "suites": [
     {
-      "title": "tool-calling.test.ts",
-      "file": "tool-calling.test.ts",
+      "title": "simple-chat.test.ts",
+      "file": "simple-chat.test.ts",
       "column": 0,
       "line": 0,
       "specs": [],
       "suites": [
         {
-          "title": "Tool Calling Tests",
-          "file": "tool-calling.test.ts",
+          "title": "Simple Chat Test",
+          "file": "simple-chat.test.ts",
           "line": 3,
           "column": 6,
           "specs": [
             {
-              "title": "should detect and display tool calls in assistant messages",
-              "ok": false,
+              "title": "can say hello and get a response",
+              "ok": true,
               "tags": [],
               "tests": [
                 {
-                  "timeout": 90000,
+                  "timeout": 30000,
                   "annotations": [],
                   "expectedStatus": "passed",
                   "projectId": "chromium",
@@ -149,59 +149,36 @@
                     {
                       "workerIndex": 0,
                       "parallelIndex": 0,
-                      "status": "timedOut",
-                      "duration": 90084,
-                      "error": {
-                        "message": "\u001b[31mTest timeout of 90000ms exceeded.\u001b[39m",
-                        "stack": "\u001b[31mTest timeout of 90000ms exceeded.\u001b[39m"
-                      },
-                      "errors": [
+                      "status": "passed",
+                      "duration": 11658,
+                      "errors": [],
+                      "stdout": [
                         {
-                          "message": "\u001b[31mTest timeout of 90000ms exceeded.\u001b[39m"
-                        },
-                        {
-                          "location": {
-                            "file": "E:\\repo\\llama_cpp_rs_chat\\tests\\e2e\\tool-calling.test.ts",
-                            "column": 24,
-                            "line": 15
-                          },
-                          "message": "Error: locator.fill: Test timeout of 90000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByTestId('message-input')\u001b[22m\n\n\n  13 |     const sendButton = page.getByTestId('send-button');\n  14 |\n> 15 |     await messageInput.fill('What files are in the current directory?');\n     |                        ^\n  16 |     await sendButton.click();\n  17 |\n  18 |     // Wait for user message to appear\n    at E:\\repo\\llama_cpp_rs_chat\\tests\\e2e\\tool-calling.test.ts:15:24"
+                          "text": "✅ Chat test completed - hello message sent and response received!\n"
                         }
                       ],
-                      "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-10-08T04:08:27.663Z",
+                      "startTime": "2025-10-10T04:34:10.787Z",
                       "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "E:\\repo\\llama_cpp_rs_chat\\test-results\\tool-calling-Tool-Calling--6a39c-calls-in-assistant-messages-chromium\\test-failed-1.png"
-                        },
-                        {
-                          "name": "error-context",
-                          "contentType": "text/markdown",
-                          "path": "E:\\repo\\llama_cpp_rs_chat\\test-results\\tool-calling-Tool-Calling--6a39c-calls-in-assistant-messages-chromium\\error-context.md"
-                        }
-                      ]
+                      "attachments": []
                     }
                   ],
-                  "status": "unexpected"
+                  "status": "expected"
                 }
               ],
-              "id": "6426c855712fdde40f90-5b811e825a672330f2c5",
-              "file": "tool-calling.test.ts",
+              "id": "e76983a3360cbf1f806a-f53d49344722daae8b34",
+              "file": "simple-chat.test.ts",
               "line": 4,
               "column": 3
             },
             {
-              "title": "should execute bash tool via API",
+              "title": "API hello test",
               "ok": true,
               "tags": [],
               "tests": [
                 {
-                  "timeout": 90000,
+                  "timeout": 30000,
                   "annotations": [],
                   "expectedStatus": "passed",
                   "projectId": "chromium",
@@ -211,19 +188,19 @@
                       "workerIndex": 1,
                       "parallelIndex": 1,
                       "status": "passed",
-                      "duration": 372,
+                      "duration": 5134,
                       "errors": [],
                       "stdout": [
                         {
-                          "text": "Tool execution result: \\\"Hello from tool\\\"\r\n\n"
+                          "text": "API Response: Hello! How can I assist you today?\n"
                         },
                         {
-                          "text": "✅ Tool execution API test completed!\n"
+                          "text": "✅ API hello test completed!\n"
                         }
                       ],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-10-08T04:08:27.682Z",
+                      "startTime": "2025-10-10T04:34:10.786Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -231,18 +208,18 @@
                   "status": "expected"
                 }
               ],
-              "id": "6426c855712fdde40f90-93828382425120fbd2fc",
-              "file": "tool-calling.test.ts",
-              "line": 48,
+              "id": "e76983a3360cbf1f806a-f28302c8ed3431640fab",
+              "file": "simple-chat.test.ts",
+              "line": 65,
               "column": 3
             },
             {
-              "title": "should handle tool parsing for Mistral format",
-              "ok": false,
+              "title": "can send multiple messages in conversation",
+              "ok": true,
               "tags": [],
               "tests": [
                 {
-                  "timeout": 90000,
+                  "timeout": 30000,
                   "annotations": [],
                   "expectedStatus": "passed",
                   "projectId": "chromium",
@@ -251,59 +228,36 @@
                     {
                       "workerIndex": 2,
                       "parallelIndex": 2,
-                      "status": "timedOut",
-                      "duration": 90085,
-                      "error": {
-                        "message": "\u001b[31mTest timeout of 90000ms exceeded.\u001b[39m",
-                        "stack": "\u001b[31mTest timeout of 90000ms exceeded.\u001b[39m"
-                      },
-                      "errors": [
+                      "status": "passed",
+                      "duration": 20716,
+                      "errors": [],
+                      "stdout": [
                         {
-                          "message": "\u001b[31mTest timeout of 90000ms exceeded.\u001b[39m"
-                        },
-                        {
-                          "location": {
-                            "file": "E:\\repo\\llama_cpp_rs_chat\\tests\\e2e\\tool-calling.test.ts",
-                            "column": 24,
-                            "line": 83
-                          },
-                          "message": "Error: locator.fill: Test timeout of 90000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByTestId('message-input')\u001b[22m\n\n\n  81 |     const sendButton = page.getByTestId('send-button');\n  82 |\n> 83 |     await messageInput.fill('List all .rs files in src/');\n     |                        ^\n  84 |     await sendButton.click();\n  85 |\n  86 |     // Wait for response\n    at E:\\repo\\llama_cpp_rs_chat\\tests\\e2e\\tool-calling.test.ts:83:24"
+                          "text": "✅ Multiple messages test completed!\n"
                         }
                       ],
-                      "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-10-08T04:08:27.662Z",
+                      "startTime": "2025-10-10T04:34:10.787Z",
                       "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "E:\\repo\\llama_cpp_rs_chat\\test-results\\tool-calling-Tool-Calling--29b59--parsing-for-Mistral-format-chromium\\test-failed-1.png"
-                        },
-                        {
-                          "name": "error-context",
-                          "contentType": "text/markdown",
-                          "path": "E:\\repo\\llama_cpp_rs_chat\\test-results\\tool-calling-Tool-Calling--29b59--parsing-for-Mistral-format-chromium\\error-context.md"
-                        }
-                      ]
+                      "attachments": []
                     }
                   ],
-                  "status": "unexpected"
+                  "status": "expected"
                 }
               ],
-              "id": "6426c855712fdde40f90-65e5507330709bd9b0fb",
-              "file": "tool-calling.test.ts",
-              "line": 72,
+              "id": "e76983a3360cbf1f806a-6cff736adba68828b2a2",
+              "file": "simple-chat.test.ts",
+              "line": 88,
               "column": 3
             },
             {
-              "title": "should handle agentic loop with multiple tool calls",
-              "ok": false,
+              "title": "new chat button clears conversation",
+              "ok": true,
               "tags": [],
               "tests": [
                 {
-                  "timeout": 90000,
+                  "timeout": 30000,
                   "annotations": [],
                   "expectedStatus": "passed",
                   "projectId": "chromium",
@@ -312,203 +266,17 @@
                     {
                       "workerIndex": 1,
                       "parallelIndex": 1,
-                      "status": "timedOut",
-                      "duration": 90080,
-                      "error": {
-                        "message": "\u001b[31mTest timeout of 90000ms exceeded.\u001b[39m",
-                        "stack": "\u001b[31mTest timeout of 90000ms exceeded.\u001b[39m"
-                      },
-                      "errors": [
-                        {
-                          "message": "\u001b[31mTest timeout of 90000ms exceeded.\u001b[39m"
-                        },
-                        {
-                          "location": {
-                            "file": "E:\\repo\\llama_cpp_rs_chat\\tests\\e2e\\tool-calling.test.ts",
-                            "column": 24,
-                            "line": 118
-                          },
-                          "message": "Error: locator.fill: Test timeout of 90000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByTestId('message-input')\u001b[22m\n\n\n  116 |     const sendButton = page.getByTestId('send-button');\n  117 |\n> 118 |     await messageInput.fill('Check the current directory and tell me what you find');\n      |                        ^\n  119 |     await sendButton.click();\n  120 |\n  121 |     // Wait for initial user message\n    at E:\\repo\\llama_cpp_rs_chat\\tests\\e2e\\tool-calling.test.ts:118:24"
-                        }
-                      ],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-10-08T04:08:28.072Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "E:\\repo\\llama_cpp_rs_chat\\test-results\\tool-calling-Tool-Calling--365c1-op-with-multiple-tool-calls-chromium\\test-failed-1.png"
-                        },
-                        {
-                          "name": "error-context",
-                          "contentType": "text/markdown",
-                          "path": "E:\\repo\\llama_cpp_rs_chat\\test-results\\tool-calling-Tool-Calling--365c1-op-with-multiple-tool-calls-chromium\\error-context.md"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "unexpected"
-                }
-              ],
-              "id": "6426c855712fdde40f90-50b26ed057b566efd975",
-              "file": "tool-calling.test.ts",
-              "line": 110,
-              "column": 3
-            },
-            {
-              "title": "should respect MAX_TOOL_ITERATIONS limit",
-              "ok": false,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 90000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 4,
-                      "parallelIndex": 2,
-                      "status": "timedOut",
-                      "duration": 90086,
-                      "error": {
-                        "message": "\u001b[31mTest timeout of 90000ms exceeded.\u001b[39m",
-                        "stack": "\u001b[31mTest timeout of 90000ms exceeded.\u001b[39m"
-                      },
-                      "errors": [
-                        {
-                          "message": "\u001b[31mTest timeout of 90000ms exceeded.\u001b[39m"
-                        },
-                        {
-                          "location": {
-                            "file": "E:\\repo\\llama_cpp_rs_chat\\tests\\e2e\\tool-calling.test.ts",
-                            "column": 24,
-                            "line": 156
-                          },
-                          "message": "Error: locator.fill: Test timeout of 90000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByTestId('message-input')\u001b[22m\n\n\n  154 |     const sendButton = page.getByTestId('send-button');\n  155 |\n> 156 |     await messageInput.fill('Hello');\n      |                        ^\n  157 |     await sendButton.click();\n  158 |\n  159 |     // Wait for response\n    at E:\\repo\\llama_cpp_rs_chat\\tests\\e2e\\tool-calling.test.ts:156:24"
-                        }
-                      ],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-10-08T04:09:59.003Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "E:\\repo\\llama_cpp_rs_chat\\test-results\\tool-calling-Tool-Calling--f5747-t-MAX-TOOL-ITERATIONS-limit-chromium\\test-failed-1.png"
-                        },
-                        {
-                          "name": "error-context",
-                          "contentType": "text/markdown",
-                          "path": "E:\\repo\\llama_cpp_rs_chat\\test-results\\tool-calling-Tool-Calling--f5747-t-MAX-TOOL-ITERATIONS-limit-chromium\\error-context.md"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "unexpected"
-                }
-              ],
-              "id": "6426c855712fdde40f90-ced00b77f227cd81f1ee",
-              "file": "tool-calling.test.ts",
-              "line": 139,
-              "column": 3
-            },
-            {
-              "title": "should strip tool call markers from displayed content",
-              "ok": false,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 90000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 3,
-                      "parallelIndex": 0,
-                      "status": "timedOut",
-                      "duration": 90085,
-                      "error": {
-                        "message": "\u001b[31mTest timeout of 90000ms exceeded.\u001b[39m",
-                        "stack": "\u001b[31mTest timeout of 90000ms exceeded.\u001b[39m"
-                      },
-                      "errors": [
-                        {
-                          "message": "\u001b[31mTest timeout of 90000ms exceeded.\u001b[39m"
-                        },
-                        {
-                          "location": {
-                            "file": "E:\\repo\\llama_cpp_rs_chat\\tests\\e2e\\tool-calling.test.ts",
-                            "column": 24,
-                            "line": 178
-                          },
-                          "message": "Error: locator.fill: Test timeout of 90000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByTestId('message-input')\u001b[22m\n\n\n  176 |     const sendButton = page.getByTestId('send-button');\n  177 |\n> 178 |     await messageInput.fill('What is the weather like?');\n      |                        ^\n  179 |     await sendButton.click();\n  180 |\n  181 |     // Wait for assistant response\n    at E:\\repo\\llama_cpp_rs_chat\\tests\\e2e\\tool-calling.test.ts:178:24"
-                        }
-                      ],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-10-08T04:09:59.015Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "E:\\repo\\llama_cpp_rs_chat\\test-results\\tool-calling-Tool-Calling--b677d-kers-from-displayed-content-chromium\\test-failed-1.png"
-                        },
-                        {
-                          "name": "error-context",
-                          "contentType": "text/markdown",
-                          "path": "E:\\repo\\llama_cpp_rs_chat\\test-results\\tool-calling-Tool-Calling--b677d-kers-from-displayed-content-chromium\\error-context.md"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "unexpected"
-                }
-              ],
-              "id": "6426c855712fdde40f90-750f2904e3ce66ce8393",
-              "file": "tool-calling.test.ts",
-              "line": 171,
-              "column": 3
-            },
-            {
-              "title": "should handle tool execution errors gracefully",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 90000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 5,
-                      "parallelIndex": 1,
                       "status": "passed",
-                      "duration": 362,
+                      "duration": 11173,
                       "errors": [],
                       "stdout": [
                         {
-                          "text": "Tool error handling result: {\n  exit_code: \u001b[33m1\u001b[39m,\n  result: \u001b[32m'\\n'\u001b[39m +\n    \u001b[32m'STDERR:\\n'\u001b[39m +\n    \u001b[32m\"'this_is_not_a_valid_command_12345' is not recognized as an internal or external command,\\r\\n\"\u001b[39m +\n    \u001b[32m'operable program or batch file.\\r\\n'\u001b[39m,\n  success: \u001b[33mtrue\u001b[39m\n}\n"
-                        },
-                        {
-                          "text": "✅ Tool error handling test completed!\n"
+                          "text": "✅ New chat test completed!\n"
                         }
                       ],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-10-08T04:09:59.261Z",
+                      "startTime": "2025-10-10T04:34:15.938Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -516,70 +284,9 @@
                   "status": "expected"
                 }
               ],
-              "id": "6426c855712fdde40f90-5923ff04b90828255c1d",
-              "file": "tool-calling.test.ts",
-              "line": 201,
-              "column": 3
-            },
-            {
-              "title": "should display tool call arguments in UI",
-              "ok": false,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 90000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 5,
-                      "parallelIndex": 1,
-                      "status": "timedOut",
-                      "duration": 90090,
-                      "error": {
-                        "message": "\u001b[31mTest timeout of 90000ms exceeded.\u001b[39m",
-                        "stack": "\u001b[31mTest timeout of 90000ms exceeded.\u001b[39m"
-                      },
-                      "errors": [
-                        {
-                          "message": "\u001b[31mTest timeout of 90000ms exceeded.\u001b[39m"
-                        },
-                        {
-                          "location": {
-                            "file": "E:\\repo\\llama_cpp_rs_chat\\tests\\e2e\\tool-calling.test.ts",
-                            "column": 24,
-                            "line": 234
-                          },
-                          "message": "Error: locator.fill: Test timeout of 90000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByTestId('message-input')\u001b[22m\n\n\n  232 |     const sendButton = page.getByTestId('send-button');\n  233 |\n> 234 |     await messageInput.fill('Show me the contents of package.json');\n      |                        ^\n  235 |     await sendButton.click();\n  236 |\n  237 |     // Wait for response\n    at E:\\repo\\llama_cpp_rs_chat\\tests\\e2e\\tool-calling.test.ts:234:24"
-                        }
-                      ],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-10-08T04:09:59.638Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "E:\\repo\\llama_cpp_rs_chat\\test-results\\tool-calling-Tool-Calling--1eaf6-y-tool-call-arguments-in-UI-chromium\\test-failed-1.png"
-                        },
-                        {
-                          "name": "error-context",
-                          "contentType": "text/markdown",
-                          "path": "E:\\repo\\llama_cpp_rs_chat\\test-results\\tool-calling-Tool-Calling--1eaf6-y-tool-call-arguments-in-UI-chromium\\error-context.md"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "unexpected"
-                }
-              ],
-              "id": "6426c855712fdde40f90-0f65923046692d5697d5",
-              "file": "tool-calling.test.ts",
-              "line": 227,
+              "id": "e76983a3360cbf1f806a-3bd6aed96d4efd50a204",
+              "file": "simple-chat.test.ts",
+              "line": 113,
               "column": 3
             }
           ]
@@ -589,11 +296,11 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2025-10-08T04:08:26.676Z",
-    "duration": 183186.297,
-    "expected": 2,
+    "startTime": "2025-10-10T04:34:09.817Z",
+    "duration": 22013.183,
+    "expected": 4,
     "skipped": 0,
-    "unexpected": 6,
+    "unexpected": 0,
     "flaky": 0
   }
 }

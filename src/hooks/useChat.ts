@@ -1,10 +1,62 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { toast } from 'react-hot-toast';
 import { TauriAPI } from '../utils/tauri';
 import { autoParseToolCalls } from '../utils/toolParser';
 import type { Message, ChatRequest, ToolCall } from '../types';
 
 const MAX_TOOL_ITERATIONS = 5; // Safety limit to prevent infinite loops
+
+// Helper function to parse conversation file content
+function parseConversationFile(content: string): Message[] {
+  const messages: Message[] = [];
+  let currentRole = '';
+  let currentContent = '';
+
+  for (const line of content.split('\n')) {
+    if (
+      line.endsWith(':') &&
+      (line.startsWith('SYSTEM:') || line.startsWith('USER:') || line.startsWith('ASSISTANT:'))
+    ) {
+      // Save previous message if it exists
+      if (currentRole && currentContent.trim()) {
+        const role = currentRole === 'USER' ? 'user' : currentRole === 'ASSISTANT' ? 'assistant' : 'system';
+
+        // Skip system messages in the UI
+        if (role !== 'system') {
+          messages.push({
+            id: crypto.randomUUID(),
+            role: role as 'user' | 'assistant',
+            content: currentContent.trim(),
+            timestamp: Date.now(),
+          });
+        }
+      }
+
+      // Start new message
+      currentRole = line.replace(':', '');
+      currentContent = '';
+    } else if (!line.startsWith('[COMMAND:') && line.trim()) {
+      // Skip command execution logs, add content
+      currentContent += line + '\n';
+    }
+  }
+
+  // Add the final message
+  if (currentRole && currentContent.trim()) {
+    const role = currentRole === 'USER' ? 'user' : currentRole === 'ASSISTANT' ? 'assistant' : 'system';
+
+    if (role !== 'system') {
+      messages.push({
+        id: crypto.randomUUID(),
+        role: role as 'user' | 'assistant',
+        content: currentContent.trim(),
+        timestamp: Date.now(),
+      });
+    }
+  }
+
+  return messages;
+}
 
 // Helper function to execute a tool
 async function executeTool(toolCall: ToolCall): Promise<string> {
@@ -76,97 +128,9 @@ export function useChat() {
       timestamp: Date.now(),
     };
 
-    addMessage(userMessage);
+    // Don't manually add user message - file watcher will handle it
     setIsLoading(true);
     setError(null);
-
-    // Create assistant message placeholder
-    const assistantMessageId = crypto.randomUUID();
-    const assistantMessage: Message = {
-      id: assistantMessageId,
-      role: 'assistant',
-      content: '',
-      timestamp: Date.now(),
-    };
-    addMessage(assistantMessage);
-
-    // Agentic loop helper
-    const continueWithToolResults = async (toolResults: string) => {
-      toolIterationCount.current += 1;
-
-      if (toolIterationCount.current >= MAX_TOOL_ITERATIONS) {
-        toast.error('Maximum tool iterations reached. Stopping to prevent infinite loop.', { duration: 5000 });
-        setIsLoading(false);
-        return;
-      }
-
-      // Create a new assistant message for continued generation
-      const newAssistantMessageId = crypto.randomUUID();
-      const newAssistantMessage: Message = {
-        id: newAssistantMessageId,
-        role: 'assistant',
-        content: '',
-        timestamp: Date.now(),
-      };
-      addMessage(newAssistantMessage);
-
-      const request: ChatRequest = {
-        message: toolResults, // Send tool results as the "user" message
-        conversation_id: currentConversationId || undefined,
-      };
-
-      let streamingContent = '';
-
-      await TauriAPI.sendMessageStream(
-        request,
-        (token: string, tokensUsed?: number, maxTokens?: number) => {
-          streamingContent += token;
-          updateMessage(newAssistantMessageId, streamingContent);
-
-          if (tokensUsed !== undefined) {
-            setTokensUsed(tokensUsed);
-          }
-          if (maxTokens !== undefined) {
-            setMaxTokens(maxTokens);
-          }
-        },
-        async (_messageId: string, conversationId: string, tokensUsed?: number, maxTokens?: number) => {
-          if (!currentConversationId) {
-            setCurrentConversationId(conversationId);
-          }
-          setTokensUsed(tokensUsed);
-          setMaxTokens(maxTokens);
-
-          // Check for more tool calls
-          const toolCalls = autoParseToolCalls(streamingContent);
-          if (toolCalls.length > 0) {
-            // Execute tools and continue
-            try {
-              const results = await Promise.all(toolCalls.map(executeTool));
-              const formattedResults = results.map((result) =>
-                `[TOOL_RESULTS]${result}[/TOOL_RESULTS]`
-              ).join('\n');
-
-              await continueWithToolResults(formattedResults);
-            } catch (err) {
-              const errorMessage = err instanceof Error ? err.message : 'Tool execution failed';
-              toast.error(`Tool error: ${errorMessage}`, { duration: 5000 });
-              setIsLoading(false);
-            }
-          } else {
-            // No more tool calls, done
-            setIsLoading(false);
-          }
-        },
-        (errorMessage: string) => {
-          setError(errorMessage);
-          toast.error(`Chat error: ${errorMessage}`, { duration: 5000 });
-          updateMessage(newAssistantMessageId, `Error: ${errorMessage}`);
-          setIsLoading(false);
-        },
-        abortControllerRef.current?.signal
-      );
-    };
 
     try {
       const request: ChatRequest = {
@@ -174,77 +138,53 @@ export function useChat() {
         conversation_id: currentConversationId || undefined,
       };
 
-      let streamingContent = '';
+      // Use simple HTTP API instead of WebSocket streaming
+      // The file watcher will update the UI in real-time
+      const response = await TauriAPI.sendMessage(request);
 
-      await TauriAPI.sendMessageStream(
-        request,
-        // onToken - append each token to the message and update token count
-        (token: string, tokensUsed?: number, maxTokens?: number) => {
-          streamingContent += token;
-          updateMessage(assistantMessageId, streamingContent);
+      // Update conversation ID if this is a new conversation
+      if (!currentConversationId) {
+        setCurrentConversationId(response.conversation_id);
+      }
 
-          // Update token count in real-time during streaming
-          if (tokensUsed !== undefined) {
-            setTokensUsed(tokensUsed);
-          }
-          if (maxTokens !== undefined) {
-            setMaxTokens(maxTokens);
-          }
-        },
-        // onComplete - check for tool calls and execute if needed
-        async (_messageId: string, conversationId: string, tokensUsed?: number, maxTokens?: number) => {
-          if (!currentConversationId) {
-            setCurrentConversationId(conversationId);
-          }
-          // Update final token counts
-          setTokensUsed(tokensUsed);
-          setMaxTokens(maxTokens);
+      // Update token counts
+      setTokensUsed(response.tokens_used);
+      setMaxTokens(response.max_tokens);
 
-          // Check if response contains tool calls
-          const toolCalls = autoParseToolCalls(streamingContent);
+      // Check if response contains tool calls
+      const toolCalls = autoParseToolCalls(response.message.content);
 
-          if (toolCalls.length > 0) {
-            // Execute tool calls
-            try {
-              toast.success(`Executing ${toolCalls.length} tool call(s)...`, { duration: 2000 });
+      if (toolCalls.length > 0) {
+        // Execute tool calls
+        try {
+          toast.success(`Executing ${toolCalls.length} tool call(s)...`, { duration: 2000 });
 
-              const results = await Promise.all(toolCalls.map(executeTool));
+          const results = await Promise.all(toolCalls.map(executeTool));
 
-              // Format results for model
-              const formattedResults = results.map((result) =>
-                `[TOOL_RESULTS]${result}[/TOOL_RESULTS]`
-              ).join('\n');
+          // Format results for model
+          const formattedResults = results.map((result) =>
+            `[TOOL_RESULTS]${result}[/TOOL_RESULTS]`
+          ).join('\n');
 
-              // Continue generation with tool results
-              await continueWithToolResults(formattedResults);
-            } catch (err) {
-              const errorMessage = err instanceof Error ? err.message : 'Tool execution failed';
-              toast.error(`Tool error: ${errorMessage}`, { duration: 5000 });
-              setIsLoading(false);
-            }
-          } else {
-            // No tool calls, generation complete
-            setIsLoading(false);
-          }
-        },
-        // onError - handle errors
-        (errorMessage: string) => {
-          setError(errorMessage);
-          toast.error(`Chat error: ${errorMessage}`, { duration: 5000 });
-          updateMessage(assistantMessageId, `Error: ${errorMessage}`);
+          // Continue generation with tool results (recursive call)
+          await sendMessage(formattedResults);
+        } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : 'Tool execution failed';
+          toast.error(`Tool error: ${errorMessage}`, { duration: 5000 });
           setIsLoading(false);
-        },
-        abortControllerRef.current?.signal
-      );
+        }
+      } else {
+        // No tool calls, generation complete
+        setIsLoading(false);
+      }
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
       setError(errorMessage);
       toast.error(`Chat error: ${errorMessage}`, { duration: 5000 });
-      updateMessage(assistantMessageId, `Error: ${errorMessage}`);
       setIsLoading(false);
     }
-  }, [isLoading, currentConversationId, addMessage, updateMessage]);
+  }, [isLoading, currentConversationId]);
 
   const clearMessages = useCallback(() => {
     setMessages([]);
@@ -280,6 +220,52 @@ export function useChat() {
       setIsLoading(false);
     }
   }, []);
+
+  // Watch for file changes when viewing a conversation
+  useEffect(() => {
+    if (!currentConversationId) return;
+
+    // Determine WebSocket URL based on current protocol
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/conversation/watch/${currentConversationId}`;
+
+    console.log('[FRONTEND] Connecting to conversation file watcher:', wsUrl);
+    const ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      console.log('[FRONTEND] File watcher connected');
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+
+        if (message.type === 'update') {
+          console.log('[FRONTEND] File updated, parsing content');
+          // Parse the file content and update messages
+          const content = message.content;
+          const parsedMessages = parseConversationFile(content);
+          setMessages(parsedMessages);
+        }
+      } catch (e) {
+        console.error('[FRONTEND] Failed to parse file update:', e);
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error('[FRONTEND] File watcher error:', error);
+    };
+
+    ws.onclose = () => {
+      console.log('[FRONTEND] File watcher disconnected');
+    };
+
+    // Clean up on unmount or when conversation changes
+    return () => {
+      console.log('[FRONTEND] Closing file watcher connection');
+      ws.close();
+    };
+  }, [currentConversationId]);
 
   return {
     messages,
