@@ -1482,6 +1482,7 @@ async fn handle_websocket(
                             match token_result {
                                 Some(token_data) => {
                                     // Send token as JSON
+                                    println!("[{}] [WEBSOCKET] Received token from channel: {:?}", timestamp(), token_data.token);
                                     let json = serde_json::json!({
                                         "type": "token",
                                         "token": token_data.token,
@@ -1489,10 +1490,12 @@ async fn handle_websocket(
                                         "max_tokens": token_data.max_tokens
                                     });
 
+                                    println!("[{}] [WEBSOCKET] Sending to client...", timestamp());
                                     if let Err(e) = ws_sender.send(WsMessage::Text(json.to_string())).await {
-                                        println!("[WEBSOCKET] Failed to send token: {}", e);
+                                        println!("[{}] [WEBSOCKET] Failed to send token: {}", timestamp(), e);
                                         break;
                                     }
+                                    println!("[{}] [WEBSOCKET] Token sent successfully", timestamp());
                                 }
                                 None => {
                                     // Channel closed, generation complete
