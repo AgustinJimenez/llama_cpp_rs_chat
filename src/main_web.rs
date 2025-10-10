@@ -1148,8 +1148,10 @@ async fn generate_llama_response(
         println!("[DEBUG] Starting generation cycle: tokens_to_generate={}, total_tokens_generated={}", tokens_to_generate, total_tokens_generated);
 
         for _i in 0..tokens_to_generate { // Limit response length per cycle
+        println!("[{}] [GENERATION] Sampling next token...", timestamp());
         // Sample next token
         let next_token = sampler.sample(&context, -1);
+        println!("[{}] [GENERATION] Sampled token ID: {}", timestamp(), next_token);
 
         // Check for end-of-sequence token
         if next_token == model.token_eos() {
@@ -1160,6 +1162,7 @@ async fn generate_llama_response(
 
         // IMPORTANT: Add token to batch and decode FIRST, before string conversion
         // This ensures the model progresses even if we can't display the token
+        println!("[{}] [GENERATION] Adding to batch and decoding...", timestamp());
         batch.clear();
         batch
             .add(next_token, token_pos, &[0], true)
@@ -1168,6 +1171,7 @@ async fn generate_llama_response(
         context
             .decode(&mut batch)
             .map_err(|e| format!("Decode failed: {}", e))?;
+        println!("[{}] [GENERATION] Decode complete", timestamp());
 
         token_pos += 1;
         total_tokens_generated += 1;
@@ -1284,10 +1288,12 @@ async fn generate_llama_response(
         }
 
         // Log token to conversation file
+        println!("[{}] [GENERATION] Logging token to file...", timestamp());
         {
             let mut logger = conversation_logger.lock().map_err(|_| "Failed to lock conversation logger")?;
             logger.log_token(&token_str);
         }
+        println!("[{}] [GENERATION] Token logged", timestamp());
     } // End of inner token generation loop
 
         // Check if response contains a command to execute
