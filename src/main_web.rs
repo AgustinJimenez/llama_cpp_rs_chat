@@ -26,7 +26,7 @@ use llama_cpp_2::{
     context::params::LlamaContextParams,
     llama_backend::LlamaBackend,
     llama_batch::LlamaBatch,
-    model::{params::LlamaModelParams, AddBos, LlamaModel, Special, LlamaChatMessage},
+    model::{params::LlamaModelParams, AddBos, LlamaModel, Special},
     sampling::LlamaSampler,
     // send_logs_to_tracing, LogOptions,
 };
@@ -801,6 +801,7 @@ fn parse_conversation_to_messages(conversation: &str) -> Vec<ChatMessage> {
     messages
 }
 
+#[allow(dead_code)]
 fn get_available_tools_json() -> String {
     // Detect OS and provide appropriate command examples
     let os_name = std::env::consts::OS;
