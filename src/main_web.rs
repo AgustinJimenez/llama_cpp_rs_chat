@@ -11,6 +11,7 @@ use gguf_llms::{GgufHeader, GgufReader, Value};
 use std::io::BufReader;
 use tokio::sync::mpsc;
 use hyper::body::Bytes;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 // HTTP server using hyper
 use hyper::service::{make_service_fn, service_fn};
@@ -30,6 +31,20 @@ use llama_cpp_2::{
     sampling::LlamaSampler,
     // send_logs_to_tracing, LogOptions,
 };
+
+// Helper function to get timestamp for logging
+fn timestamp() -> String {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap();
+    let millis = now.as_millis() % 1000;
+    let secs = now.as_secs();
+    let local_time = secs + (8 * 3600); // Adjust if needed for your timezone
+    let hours = (local_time / 3600) % 24;
+    let minutes = (local_time / 60) % 60;
+    let seconds = local_time % 60;
+    format!("{:02}:{:02}:{:02}.{:03}", hours, minutes, seconds, millis)
+}
 
 // Configuration structure
 #[derive(Deserialize, Serialize, Clone)]
@@ -1044,10 +1059,14 @@ async fn generate_llama_response(
     let stop_tokens = config.stop_tokens.unwrap_or_else(get_common_stop_tokens);
     
     // Ensure model is loaded
+    println!("[{}] [GENERATION] Loading model...", timestamp());
     load_model(llama_state.clone(), model_path).await?;
+    println!("[{}] [GENERATION] Model loaded", timestamp());
 
     // Now use the shared state for generation
+    println!("[{}] [GENERATION] Acquiring LLaMA state lock...", timestamp());
     let state_guard = llama_state.lock().map_err(|_| "Failed to lock LLaMA state")?;
+    println!("[{}] [GENERATION] Lock acquired!", timestamp());
     let state = state_guard.as_ref().ok_or("LLaMA state not initialized")?;
     let model = state.model.as_ref().ok_or("No model loaded")?;
 
@@ -1255,7 +1274,7 @@ async fn generate_llama_response(
 
         // Send token through channel for streaming (if enabled)
         if let Some(ref sender) = token_sender {
-            println!("[STREAMING] Sending token: '{}'", token_str);
+            println!("[{}] [STREAMING] Sending token: '{}'", timestamp(), token_str);
             let token_data = TokenData {
                 token: token_str.clone(),
                 tokens_used: token_pos,
@@ -1360,6 +1379,7 @@ async fn generate_llama_response(
         logger.finish_assistant_message();
     }
 
+    println!("[{}] [GENERATION] Releasing LLaMA state lock (function returning)", timestamp());
     Ok((response.trim().to_string(), token_pos, max_total_tokens))
 }
 
@@ -1377,13 +1397,13 @@ async fn handle_websocket(
 
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
 
-    println!("[WEBSOCKET] Connection established");
+    println!("[{}] [WEBSOCKET] Connection established", timestamp());
 
     // Wait for the first message from the client (should be the chat request)
     while let Some(msg) = ws_receiver.next().await {
         match msg {
             Ok(WsMessage::Text(text)) => {
-                println!("[WEBSOCKET] Received message: {}", text);
+                println!("[{}] [WEBSOCKET] Received message: {}", timestamp(), text);
 
                 // Parse the chat request
                 let chat_request: ChatRequest = match serde_json::from_str(&text) {
@@ -1422,21 +1442,28 @@ async fn handle_websocket(
 
                 // Spawn generation task
                 let message = chat_request.message.clone();
+
+                println!("[{}] [WEBSOCKET] Spawning generation task for message: {:?}", timestamp(), message);
                 let state_clone = llama_state.clone();
                 tokio::spawn(async move {
+                    println!("[{}] [GENERATION] Task started", timestamp());
                     if let Some(state) = state_clone {
+                        println!("[{}] [GENERATION] Calling generate_llama_response", timestamp());
                         match generate_llama_response(&message, state, conversation_logger, Some(tx)).await {
                             Ok((_content, tokens, max)) => {
-                                println!("[WEBSOCKET] Generation completed successfully: {} tokens used, {} max", tokens, max);
+                                println!("[{}] [GENERATION] Completed successfully: {} tokens used, {} max", timestamp(), tokens, max);
                             }
                             Err(e) => {
-                                println!("[WEBSOCKET ERROR] Generation failed: {}", e);
+                                println!("[{}] [GENERATION] Failed: {}", timestamp(), e);
                             }
                         }
                     } else {
-                        println!("[WEBSOCKET ERROR] No LLaMA state available for generation");
+                        println!("[{}] [GENERATION] ERROR: No LLaMA state available", timestamp());
                     }
+                    println!("[{}] [GENERATION] Task ended", timestamp());
                 });
+
+                println!("[{}] [WEBSOCKET] Entering token streaming loop", timestamp());
 
                 // Stream tokens through WebSocket
                 loop {
