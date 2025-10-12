@@ -9,9 +9,9 @@
     "globalTimeout": 0,
     "grep": {},
     "grepInvert": null,
-    "maxFailures": 0,
+    "maxFailures": 1,
     "metadata": {
-      "actualWorkers": 3
+      "actualWorkers": 1
     },
     "preserveOutput": "always",
     "reporter": [
@@ -37,7 +37,7 @@
         "repeatEach": 1,
         "retries": 0,
         "metadata": {
-          "actualWorkers": 3
+          "actualWorkers": 1
         },
         "id": "chromium",
         "name": "chromium",
@@ -46,14 +46,14 @@
         "testMatch": [
           "**/*.@(spec|test).?(c|m)[jt]s?(x)"
         ],
-        "timeout": 30000
+        "timeout": 0
       },
       {
         "outputDir": "E:/repo/llama_cpp_rs_chat/test-results",
         "repeatEach": 1,
         "retries": 0,
         "metadata": {
-          "actualWorkers": 3
+          "actualWorkers": 1
         },
         "id": "firefox",
         "name": "firefox",
@@ -62,14 +62,14 @@
         "testMatch": [
           "**/*.@(spec|test).?(c|m)[jt]s?(x)"
         ],
-        "timeout": 30000
+        "timeout": 0
       },
       {
         "outputDir": "E:/repo/llama_cpp_rs_chat/test-results",
         "repeatEach": 1,
         "retries": 0,
         "metadata": {
-          "actualWorkers": 3
+          "actualWorkers": 1
         },
         "id": "webkit",
         "name": "webkit",
@@ -78,14 +78,14 @@
         "testMatch": [
           "**/*.@(spec|test).?(c|m)[jt]s?(x)"
         ],
-        "timeout": 30000
+        "timeout": 0
       },
       {
         "outputDir": "E:/repo/llama_cpp_rs_chat/test-results",
         "repeatEach": 1,
         "retries": 0,
         "metadata": {
-          "actualWorkers": 3
+          "actualWorkers": 1
         },
         "id": "Mobile Chrome",
         "name": "Mobile Chrome",
@@ -94,14 +94,14 @@
         "testMatch": [
           "**/*.@(spec|test).?(c|m)[jt]s?(x)"
         ],
-        "timeout": 30000
+        "timeout": 0
       },
       {
         "outputDir": "E:/repo/llama_cpp_rs_chat/test-results",
         "repeatEach": 1,
         "retries": 0,
         "metadata": {
-          "actualWorkers": 3
+          "actualWorkers": 1
         },
         "id": "Mobile Safari",
         "name": "Mobile Safari",
@@ -110,37 +110,37 @@
         "testMatch": [
           "**/*.@(spec|test).?(c|m)[jt]s?(x)"
         ],
-        "timeout": 30000
+        "timeout": 0
       }
     ],
     "shard": null,
     "updateSnapshots": "missing",
     "updateSourceMethod": "patch",
     "version": "1.55.1",
-    "workers": 3,
+    "workers": 1,
     "webServer": null
   },
   "suites": [
     {
-      "title": "simple-chat.test.ts",
-      "file": "simple-chat.test.ts",
+      "title": "model-loading-and-chat.test.ts",
+      "file": "model-loading-and-chat.test.ts",
       "column": 0,
       "line": 0,
       "specs": [],
       "suites": [
         {
-          "title": "Simple Chat Test",
-          "file": "simple-chat.test.ts",
+          "title": "Model Loading and Chat Test",
+          "file": "model-loading-and-chat.test.ts",
           "line": 3,
           "column": 6,
           "specs": [
             {
-              "title": "can say hello and get a response",
+              "title": "loads model using modal UI with GPU layers, says hello, and requests a code algorithm",
               "ok": true,
               "tags": [],
               "tests": [
                 {
-                  "timeout": 30000,
+                  "timeout": 0,
                   "annotations": [],
                   "expectedStatus": "passed",
                   "projectId": "chromium",
@@ -149,144 +149,218 @@
                     {
                       "workerIndex": 0,
                       "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 11658,
-                      "errors": [],
+                      "status": "interrupted",
+                      "duration": 135705,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mnot\u001b[2m.\u001b[22mtoBeEmpty\u001b[2m()\u001b[22m failed\n\nLocator:  getByTestId('message-assistant').first().getByTestId('message-content')\nExpected: not empty\nReceived: <element(s) not found>\n\nCall log:\n\u001b[2m  - Expect \"not toBeEmpty\" with timeout 90000ms\u001b[22m\n\u001b[2m  - waiting for getByTestId('message-assistant').first().getByTestId('message-content')\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mnot\u001b[2m.\u001b[22mtoBeEmpty\u001b[2m()\u001b[22m failed\n\nLocator:  getByTestId('message-assistant').first().getByTestId('message-content')\nExpected: not empty\nReceived: <element(s) not found>\n\nCall log:\n\u001b[2m  - Expect \"not toBeEmpty\" with timeout 90000ms\u001b[22m\n\u001b[2m  - waiting for getByTestId('message-assistant').first().getByTestId('message-content')\u001b[22m\n\n    at E:\\repo\\llama_cpp_rs_chat\\tests\\e2e\\model-loading-and-chat.test.ts:242:45",
+                        "location": {
+                          "file": "E:\\repo\\llama_cpp_rs_chat\\tests\\e2e\\model-loading-and-chat.test.ts",
+                          "column": 45,
+                          "line": 242
+                        },
+                        "snippet": "\u001b[0m \u001b[90m 240 |\u001b[39m     \u001b[36mconst\u001b[39m firstResponseText \u001b[33m=\u001b[39m \u001b[36mawait\u001b[39m firstAssistantContent\u001b[33m.\u001b[39mtextContent()\u001b[33m;\u001b[39m\n \u001b[90m 241 |\u001b[39m     console\u001b[33m.\u001b[39mlog(\u001b[32m'✅ First response received:'\u001b[39m\u001b[33m,\u001b[39m firstResponseText\u001b[33m?\u001b[39m\u001b[33m.\u001b[39msubstring(\u001b[35m0\u001b[39m\u001b[33m,\u001b[39m \u001b[35m100\u001b[39m) \u001b[33m+\u001b[39m \u001b[32m'...'\u001b[39m)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 242 |\u001b[39m\n \u001b[90m     |\u001b[39m \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 243 |\u001b[39m     \u001b[90m// Step 10: Send second message - request a code algorithm\u001b[39m\n \u001b[90m 244 |\u001b[39m     console\u001b[33m.\u001b[39mlog(\u001b[32m'💬 Sending second message: \"Can you write a small algorithm to check if a number is prime?\"'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 245 |\u001b[39m     \u001b[36mawait\u001b[39m messageInput\u001b[33m.\u001b[39mfill(\u001b[32m'Can you write a small algorithm to check if a number is prime?'\u001b[39m)\u001b[33m;\u001b[39m\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "E:\\repo\\llama_cpp_rs_chat\\tests\\e2e\\model-loading-and-chat.test.ts",
+                            "column": 45,
+                            "line": 242
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mnot\u001b[2m.\u001b[22mtoBeEmpty\u001b[2m()\u001b[22m failed\n\nLocator:  getByTestId('message-assistant').first().getByTestId('message-content')\nExpected: not empty\nReceived: <element(s) not found>\n\nCall log:\n\u001b[2m  - Expect \"not toBeEmpty\" with timeout 90000ms\u001b[22m\n\u001b[2m  - waiting for getByTestId('message-assistant').first().getByTestId('message-content')\u001b[22m\n\n\n\u001b[0m \u001b[90m 240 |\u001b[39m     \u001b[36mconst\u001b[39m firstResponseText \u001b[33m=\u001b[39m \u001b[36mawait\u001b[39m firstAssistantContent\u001b[33m.\u001b[39mtextContent()\u001b[33m;\u001b[39m\n \u001b[90m 241 |\u001b[39m     console\u001b[33m.\u001b[39mlog(\u001b[32m'✅ First response received:'\u001b[39m\u001b[33m,\u001b[39m firstResponseText\u001b[33m?\u001b[39m\u001b[33m.\u001b[39msubstring(\u001b[35m0\u001b[39m\u001b[33m,\u001b[39m \u001b[35m100\u001b[39m) \u001b[33m+\u001b[39m \u001b[32m'...'\u001b[39m)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 242 |\u001b[39m\n \u001b[90m     |\u001b[39m \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 243 |\u001b[39m     \u001b[90m// Step 10: Send second message - request a code algorithm\u001b[39m\n \u001b[90m 244 |\u001b[39m     console\u001b[33m.\u001b[39mlog(\u001b[32m'💬 Sending second message: \"Can you write a small algorithm to check if a number is prime?\"'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 245 |\u001b[39m     \u001b[36mawait\u001b[39m messageInput\u001b[33m.\u001b[39mfill(\u001b[32m'Can you write a small algorithm to check if a number is prime?'\u001b[39m)\u001b[33m;\u001b[39m\u001b[0m\n\u001b[2m    at E:\\repo\\llama_cpp_rs_chat\\tests\\e2e\\model-loading-and-chat.test.ts:242:45\u001b[22m"
+                        },
+                        {
+                          "message": "Error: browserContext.close: Target page, context or browser has been closed"
+                        }
+                      ],
                       "stdout": [
                         {
-                          "text": "✅ Chat test completed - hello message sent and response received!\n"
+                          "text": "📱 Navigating to the app...\n"
+                        },
+                        {
+                          "text": "✅ App loaded successfully\n"
+                        },
+                        {
+                          "text": "🔧 No model loaded, opening model configuration modal...\n"
+                        },
+                        {
+                          "text": "⚠️  Test-id not found, trying by text content...\n"
+                        },
+                        {
+                          "text": "✅ Model configuration modal opened\n"
+                        },
+                        {
+                          "text": "📝 Selecting model path: E:\\.lmstudio\\models\\lmstudio-community\\Devstral-Small-2507-GGUF\\Devstral-Small-2507-Q4_K_M.gguf\n"
+                        },
+                        {
+                          "text": "📋 Found model in history, clicking on it...\n"
+                        },
+                        {
+                          "text": "⏳ Waiting for file validation...\n"
+                        },
+                        {
+                          "text": "⚠️  File validation indicator not found, continuing anyway...\n"
+                        },
+                        {
+                          "text": "🔽 Scrolling to configuration section...\n"
+                        },
+                        {
+                          "text": "🔽 Expanding model configuration section...\n"
+                        },
+                        {
+                          "text": "⚠️  Config expand button test-id not found, trying by text...\n"
+                        },
+                        {
+                          "text": "🎮 Setting GPU layers to maximum (all layers on GPU)...\n"
+                        },
+                        {
+                          "text": "⚠️  GPU slider test-id not found, trying by label...\n"
+                        },
+                        {
+                          "text": "📊 Model has 40 layers, setting all to GPU...\n"
+                        },
+                        {
+                          "text": "⚠️  GPU layers display test-id not found, trying by text pattern...\n"
+                        },
+                        {
+                          "text": "✅ GPU layers set to: 40 / 40\n"
+                        },
+                        {
+                          "text": "🔍 Verifying modal is still open...\n"
+                        },
+                        {
+                          "text": "✅ Modal confirmed open\n"
+                        },
+                        {
+                          "text": "📜 Scrolling to bottom to see Load Model button...\n"
+                        },
+                        {
+                          "text": "💾 Clicking Load Model button...\n"
+                        },
+                        {
+                          "text": "⚠️  Load button test-id not found, trying by text...\n"
+                        },
+                        {
+                          "text": "✅ Load Model button found and enabled, clicking now...\n"
+                        },
+                        {
+                          "text": "✅ Modal closed after clicking Load Model\n"
+                        },
+                        {
+                          "text": "⏳ Waiting for model to load (checking for Unload model button)...\n"
+                        },
+                        {
+                          "text": "✅ Model loaded successfully (Unload model button appeared)\n"
+                        },
+                        {
+                          "text": "💬 Sending first message: \"Hello\"\n"
+                        },
+                        {
+                          "text": "✅ First message sent: \"Hello\"\n"
+                        },
+                        {
+                          "text": "⏳ Waiting for first response...\n"
                         }
                       ],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-10-10T04:34:10.787Z",
+                      "startTime": "2025-10-12T02:28:28.844Z",
                       "annotations": [],
-                      "attachments": []
+                      "attachments": [],
+                      "errorLocation": {
+                        "file": "E:\\repo\\llama_cpp_rs_chat\\tests\\e2e\\model-loading-and-chat.test.ts",
+                        "column": 45,
+                        "line": 242
+                      }
                     }
                   ],
-                  "status": "expected"
+                  "status": "skipped"
                 }
               ],
-              "id": "e76983a3360cbf1f806a-f53d49344722daae8b34",
-              "file": "simple-chat.test.ts",
+              "id": "57acbae82133077a4f06-da14a8d35a47cf1b88ea",
+              "file": "model-loading-and-chat.test.ts",
               "line": 4,
               "column": 3
             },
             {
-              "title": "API hello test",
+              "title": "loads model using modal UI with GPU layers, says hello, and requests a code algorithm",
               "ok": true,
               "tags": [],
               "tests": [
                 {
-                  "timeout": 30000,
+                  "timeout": 0,
                   "annotations": [],
                   "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 1,
-                      "parallelIndex": 1,
-                      "status": "passed",
-                      "duration": 5134,
-                      "errors": [],
-                      "stdout": [
-                        {
-                          "text": "API Response: Hello! How can I assist you today?\n"
-                        },
-                        {
-                          "text": "✅ API hello test completed!\n"
-                        }
-                      ],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-10-10T04:34:10.786Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
-              "id": "e76983a3360cbf1f806a-f28302c8ed3431640fab",
-              "file": "simple-chat.test.ts",
-              "line": 65,
+              "id": "57acbae82133077a4f06-13c0793ef910475b27bd",
+              "file": "model-loading-and-chat.test.ts",
+              "line": 4,
               "column": 3
             },
             {
-              "title": "can send multiple messages in conversation",
+              "title": "loads model using modal UI with GPU layers, says hello, and requests a code algorithm",
               "ok": true,
               "tags": [],
               "tests": [
                 {
-                  "timeout": 30000,
+                  "timeout": 0,
                   "annotations": [],
                   "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 2,
-                      "parallelIndex": 2,
-                      "status": "passed",
-                      "duration": 20716,
-                      "errors": [],
-                      "stdout": [
-                        {
-                          "text": "✅ Multiple messages test completed!\n"
-                        }
-                      ],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-10-10T04:34:10.787Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
-              "id": "e76983a3360cbf1f806a-6cff736adba68828b2a2",
-              "file": "simple-chat.test.ts",
-              "line": 88,
+              "id": "57acbae82133077a4f06-f42c86a8fac7158bc8d1",
+              "file": "model-loading-and-chat.test.ts",
+              "line": 4,
               "column": 3
             },
             {
-              "title": "new chat button clears conversation",
+              "title": "loads model using modal UI with GPU layers, says hello, and requests a code algorithm",
               "ok": true,
               "tags": [],
               "tests": [
                 {
-                  "timeout": 30000,
+                  "timeout": 0,
                   "annotations": [],
                   "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 1,
-                      "parallelIndex": 1,
-                      "status": "passed",
-                      "duration": 11173,
-                      "errors": [],
-                      "stdout": [
-                        {
-                          "text": "✅ New chat test completed!\n"
-                        }
-                      ],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-10-10T04:34:15.938Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
-              "id": "e76983a3360cbf1f806a-3bd6aed96d4efd50a204",
-              "file": "simple-chat.test.ts",
-              "line": 113,
+              "id": "57acbae82133077a4f06-12bd611145b9e4547d67",
+              "file": "model-loading-and-chat.test.ts",
+              "line": 4,
+              "column": 3
+            },
+            {
+              "title": "loads model using modal UI with GPU layers, says hello, and requests a code algorithm",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 0,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "57acbae82133077a4f06-134318acc6170e36701d",
+              "file": "model-loading-and-chat.test.ts",
+              "line": 4,
               "column": 3
             }
           ]
@@ -296,10 +370,10 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2025-10-10T04:34:09.817Z",
-    "duration": 22013.183,
-    "expected": 4,
-    "skipped": 0,
+    "startTime": "2025-10-12T02:28:27.933Z",
+    "duration": 136943.37099999998,
+    "expected": 0,
+    "skipped": 5,
     "unexpected": 0,
     "flaky": 0
   }

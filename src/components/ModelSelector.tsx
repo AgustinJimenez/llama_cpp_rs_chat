@@ -51,8 +51,9 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   };
 
   return (
-    <div className="relative">
+    <div className="relative" data-testid="model-selector">
       <Button
+        data-testid="select-model-button"
         onClick={handleButtonClick}
         disabled={isLoading}
         variant="outline"

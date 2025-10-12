@@ -399,6 +399,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                   <div className="flex-1 relative">
                     <input
                       type="text"
+                      data-testid="model-path-input"
                       value={modelPath}
                       onChange={(e) => setModelPath(e.target.value.replace(/"/g, ''))}
                       onFocus={() => setShowHistory(true)}
@@ -476,12 +477,12 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                 {modelPath.trim() && (
                   <div className="text-xs space-y-2">
                     {isCheckingFile ? (
-                      <span className="text-muted-foreground flex items-center gap-1">
+                      <span className="text-muted-foreground flex items-center gap-1" data-testid="file-checking">
                         <Clock className="h-3 w-3" />
                         Checking file...
                       </span>
                     ) : fileExists === true ? (
-                      <span className="text-green-600 flex items-center gap-1">
+                      <span className="text-green-600 flex items-center gap-1" data-testid="file-found">
                         <CheckCircle className="h-3 w-3" />
                         File found and accessible
                       </span>
@@ -663,6 +664,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                   className="flex items-center justify-between w-full text-left"
                   onClick={() => setIsConfigExpanded(!isConfigExpanded)}
                   type="button"
+                  data-testid="config-expand-button"
                 >
                   <CardTitle className="text-sm flex items-center gap-2">
                     {isConfigExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
@@ -790,7 +792,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                   <div className="space-y-2">
                     <div className="flex justify-between items-center">
                       <label className="text-sm font-medium">GPU Layers (CUDA)</label>
-                      <span className="text-sm font-mono text-muted-foreground">{config.gpu_layers || 0} / {maxLayers}</span>
+                      <span className="text-sm font-mono text-muted-foreground" data-testid="gpu-layers-display">{config.gpu_layers || 0} / {maxLayers}</span>
                     </div>
 
                     {/* Visual representation of GPU vs CPU split */}
@@ -822,6 +824,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                     </div>
 
                     <Slider
+                      data-testid="gpu-layers-slider"
                       value={[config.gpu_layers || 0]}
                       onValueChange={([value]) => handleInputChange('gpu_layers', value)}
                       max={maxLayers}
@@ -1033,7 +1036,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
           <Button variant="outline" onClick={onClose} disabled={isLoading}>
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={!modelPath.trim() || isLoadingInfo || isLoading}>
+          <Button data-testid="load-model-button" onClick={handleSave} disabled={!modelPath.trim() || isLoadingInfo || isLoading}>
             {isLoading ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
