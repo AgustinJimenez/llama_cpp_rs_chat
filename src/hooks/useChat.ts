@@ -248,6 +248,14 @@ export function useChat() {
           const content = message.content;
           const parsedMessages = parseConversationFile(content);
           setMessages(parsedMessages);
+
+          // Update token counts if provided
+          if (message.tokens_used !== undefined && message.tokens_used !== null) {
+            setTokensUsed(message.tokens_used);
+          }
+          if (message.max_tokens !== undefined && message.max_tokens !== null) {
+            setMaxTokens(message.max_tokens);
+          }
         }
       } catch (e) {
         console.error('[FRONTEND] Failed to parse file update:', e);

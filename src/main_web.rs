@@ -735,6 +735,15 @@ impl ConversationLogger {
         }
     }
 
+    fn get_conversation_id(&self) -> String {
+        // Extract filename from path (e.g., "assets/conversations/chat_2025-01-15-10-30-45-123.txt" -> "chat_2025-01-15-10-30-45-123.txt")
+        std::path::Path::new(&self.file_path)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("")
+            .to_string()
+    }
+
     fn log_command_execution(&mut self, command: &str, output: &str) {
         let log_entry = format!("[COMMAND: {}]\n{}\n\n", command, output);
         self.content.push_str(&log_entry);
@@ -1401,17 +1410,19 @@ async fn handle_websocket(
 
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
 
-    let conn_count = ACTIVE_WS_CONNECTIONS.fetch_add(1, Ordering::SeqCst) + 1;
+    let _conn_count = ACTIVE_WS_CONNECTIONS.fetch_add(1, Ordering::SeqCst) + 1;
+    eprintln!("[WS_CHAT] New WebSocket connection established");
 
     // Wait for the first message from the client (should be the chat request)
     while let Some(msg) = ws_receiver.next().await {
         match msg {
             Ok(WsMessage::Text(text)) => {
+                eprintln!("[WS_CHAT] Received message: {}", text.chars().take(100).collect::<String>());
 
                 // Parse the chat request
                 let chat_request: ChatRequest = match serde_json::from_str(&text) {
                     Ok(req) => req,
-                    Err(e) => {
+                    Err(_e) => {
                         let error_msg = serde_json::json!({
                             "type": "error",
                             "error": "Invalid JSON format"
@@ -1425,18 +1436,55 @@ async fn handle_websocket(
                 let config = load_config();
                 let system_prompt = config.system_prompt.as_deref();
 
-                // Create a new conversation logger for this chat session
-                let conversation_logger = match ConversationLogger::new(system_prompt) {
-                    Ok(logger) => Arc::new(Mutex::new(logger)),
-                    Err(e) => {
-                        let error_msg = serde_json::json!({
-                            "type": "error",
-                            "error": format!("Failed to create conversation logger: {}", e)
-                        });
-                        let _ = ws_sender.send(WsMessage::Text(error_msg.to_string())).await;
-                        break;
+                // Create or load conversation logger based on conversation_id
+                let conversation_logger = match &chat_request.conversation_id {
+                    Some(conv_id) => {
+                        eprintln!("[WS_CHAT] Loading existing conversation: {}", conv_id);
+                        // Load existing conversation
+                        match ConversationLogger::from_existing(conv_id) {
+                            Ok(logger) => {
+                                eprintln!("[WS_CHAT] Successfully loaded conversation: {}", conv_id);
+                                Arc::new(Mutex::new(logger))
+                            },
+                            Err(e) => {
+                                eprintln!("[WS_CHAT] Failed to load conversation: {}", e);
+                                let error_msg = serde_json::json!({
+                                    "type": "error",
+                                    "error": format!("Failed to load conversation: {}", e)
+                                });
+                                let _ = ws_sender.send(WsMessage::Text(error_msg.to_string())).await;
+                                break;
+                            }
+                        }
+                    }
+                    None => {
+                        eprintln!("[WS_CHAT] Creating new conversation");
+                        // Create a new conversation
+                        match ConversationLogger::new(system_prompt) {
+                            Ok(logger) => {
+                                eprintln!("[WS_CHAT] Successfully created new conversation");
+                                Arc::new(Mutex::new(logger))
+                            },
+                            Err(e) => {
+                                eprintln!("[WS_CHAT] Failed to create conversation: {}", e);
+                                let error_msg = serde_json::json!({
+                                    "type": "error",
+                                    "error": format!("Failed to create conversation logger: {}", e)
+                                });
+                                let _ = ws_sender.send(WsMessage::Text(error_msg.to_string())).await;
+                                break;
+                            }
+                        }
                     }
                 };
+
+                // Get conversation ID to send back to client
+                let conversation_id = {
+                    let logger = conversation_logger.lock().unwrap();
+                    logger.get_conversation_id()
+                };
+                eprintln!("[WS_CHAT] Conversation ID: {}", conversation_id);
+                eprintln!("[WS_CHAT] User message: {}", chat_request.message);
 
                 // Create channel for streaming tokens
                 let (tx, mut rx) = mpsc::unbounded_channel::<TokenData>();
@@ -1445,12 +1493,14 @@ async fn handle_websocket(
                 let message = chat_request.message.clone();
 
                 let state_clone = llama_state.clone();
+                eprintln!("[WS_CHAT] Spawning generation task");
                 tokio::spawn(async move {
+                    eprintln!("[WS_CHAT] Generation task started");
                     if let Some(state) = state_clone {
                         match generate_llama_response(&message, state, conversation_logger, Some(tx)).await {
-                            Ok((_content, tokens, max)) => {
+                            Ok((_content, _tokens, _max)) => {
                             }
-                            Err(e) => {
+                            Err(_e) => {
                             }
                         }
                     } else {
@@ -1473,16 +1523,19 @@ async fn handle_websocket(
                                         "max_tokens": token_data.max_tokens
                                     });
 
-                                    if let Err(e) = ws_sender.send(WsMessage::Text(json.to_string())).await {
+                                    if let Err(_e) = ws_sender.send(WsMessage::Text(json.to_string())).await {
                                         break;
                                     }
                                 }
                                 None => {
                                     // Channel closed, generation complete
+                                    eprintln!("[WS_CHAT] Generation complete, sending done message");
                                     let done_msg = serde_json::json!({
-                                        "type": "done"
+                                        "type": "done",
+                                        "conversation_id": conversation_id
                                     });
                                     let _ = ws_sender.send(WsMessage::Text(done_msg.to_string())).await;
+                                    eprintln!("[WS_CHAT] Done message sent");
                                     break;
                                 }
                             }
@@ -1496,7 +1549,7 @@ async fn handle_websocket(
                                 Some(Ok(WsMessage::Ping(data))) => {
                                     let _ = ws_sender.send(WsMessage::Pong(data)).await;
                                 }
-                                Some(Err(e)) => {
+                                Some(Err(_e)) => {
                                     break;
                                 }
                                 _ => {}
@@ -1504,9 +1557,11 @@ async fn handle_websocket(
                         }
                     }
                 }
-                break;
+                eprintln!("[WS_CHAT] Message processing complete, waiting for next message");
+                // Don't break - keep WebSocket open for subsequent messages
             }
             Ok(WsMessage::Close(_)) => {
+                eprintln!("[WS_CHAT] Received Close message");
                 break;
             }
             Ok(WsMessage::Ping(data)) => {
@@ -1515,13 +1570,14 @@ async fn handle_websocket(
             Ok(_) => {
                 // Ignore other message types
             }
-            Err(e) => {
+            Err(_e) => {
                 break;
             }
         }
     }
 
-    let conn_count = ACTIVE_WS_CONNECTIONS.fetch_sub(1, Ordering::SeqCst) - 1;
+    let _conn_count = ACTIVE_WS_CONNECTIONS.fetch_sub(1, Ordering::SeqCst) - 1;
+    eprintln!("[WS_CHAT] WebSocket connection closed");
     Ok(())
 }
 
@@ -1529,6 +1585,7 @@ async fn handle_websocket(
 async fn handle_conversation_watch(
     upgraded: Upgraded,
     conversation_id: String,
+    llama_state: Option<SharedLlamaState>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let ws_stream = WebSocketStream::from_raw_socket(
         upgraded,
@@ -1550,10 +1607,36 @@ async fn handle_conversation_watch(
     // Read initial content
     let mut last_content = fs::read_to_string(&file_path).unwrap_or_default();
 
-    // Send initial content
+    // Calculate token counts for initial content
+    let (tokens_used, max_tokens) = if let Some(ref state) = llama_state {
+        if let Ok(state_lock) = state.lock() {
+            let model = &state_lock.model;
+            let context_size = state_lock.context.n_ctx() as i32;
+
+            // Apply chat template to get the prompt
+            let template_type = state_lock.chat_template_type.as_deref();
+            match apply_model_chat_template(&last_content, template_type) {
+                Ok(prompt) => {
+                    match model.str_to_token(&prompt, llama_cpp_2::model::AddBos::Always) {
+                        Ok(tokens) => (Some(tokens.len() as i32), Some(context_size)),
+                        Err(_) => (None, Some(context_size))
+                    }
+                },
+                Err(_) => (None, Some(context_size))
+            }
+        } else {
+            (None, None)
+        }
+    } else {
+        (None, None)
+    };
+
+    // Send initial content with token info
     let initial_msg = serde_json::json!({
         "type": "update",
-        "content": last_content
+        "content": last_content,
+        "tokens_used": tokens_used,
+        "max_tokens": max_tokens
     });
 
     let _ = ws_sender.send(WsMessage::Text(initial_msg.to_string())).await;
@@ -1569,9 +1652,35 @@ async fn handle_conversation_watch(
                     if current_content != last_content {
                         last_content = current_content.clone();
 
+                        // Calculate token counts for updated content
+                        let (tokens_used, max_tokens) = if let Some(ref state) = llama_state {
+                            if let Ok(state_lock) = state.lock() {
+                                let model = &state_lock.model;
+                                let context_size = state_lock.context.n_ctx() as i32;
+
+                                // Apply chat template to get the prompt
+                                let template_type = state_lock.chat_template_type.as_deref();
+                                match apply_model_chat_template(&current_content, template_type) {
+                                    Ok(prompt) => {
+                                        match model.str_to_token(&prompt, llama_cpp_2::model::AddBos::Always) {
+                                            Ok(tokens) => (Some(tokens.len() as i32), Some(context_size)),
+                                            Err(_) => (None, Some(context_size))
+                                        }
+                                    },
+                                    Err(_) => (None, Some(context_size))
+                                }
+                            } else {
+                                (None, None)
+                            }
+                        } else {
+                            (None, None)
+                        };
+
                         let update_msg = serde_json::json!({
                             "type": "update",
-                            "content": current_content
+                            "content": current_content,
+                            "tokens_used": tokens_used,
+                            "max_tokens": max_tokens
                         });
 
                         if ws_sender.send(WsMessage::Text(update_msg.to_string())).await.is_err() {
@@ -2013,10 +2122,11 @@ async fn handle_request_impl(
             };
 
             // Spawn WebSocket handler
+            let state_for_watch = llama_state.clone();
             tokio::spawn(async move {
                 match hyper::upgrade::on(req).await {
                     Ok(upgraded) => {
-                        if let Err(e) = handle_conversation_watch(upgraded, conversation_id).await {
+                        if let Err(e) = handle_conversation_watch(upgraded, conversation_id, state_for_watch).await {
                             println!("[CONV-WATCH ERROR] {}", e);
                         }
                     }
