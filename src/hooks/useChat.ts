@@ -121,14 +121,15 @@ export function useChat() {
     // Reset tool iteration counter for new user message
     toolIterationCount.current = 0;
 
-    // const userMessage: Message = {
-    //   id: crypto.randomUUID(),
-    //   role: 'user',
-    //   content: content.trim(),
-    //   timestamp: Date.now(),
-    // };
+    const userMessage: Message = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: content.trim(),
+      timestamp: Date.now(),
+    };
 
-    // Don't manually add user message - file watcher will handle it
+    // Add user message immediately for instant feedback
+    setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
     setError(null);
 
