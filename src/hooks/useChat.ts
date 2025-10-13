@@ -4,7 +4,7 @@ import { TauriAPI } from '../utils/tauri';
 import { autoParseToolCalls } from '../utils/toolParser';
 import type { Message, ChatRequest, ToolCall } from '../types';
 
-const MAX_TOOL_ITERATIONS = 5; // Safety limit to prevent infinite loops
+// const MAX_TOOL_ITERATIONS = 5; // Safety limit to prevent infinite loops
 
 // Helper function to parse conversation file content
 function parseConversationFile(content: string): Message[] {
@@ -93,18 +93,19 @@ export function useChat() {
   const [error, setError] = useState<string | null>(null);
   const [tokensUsed, setTokensUsed] = useState<number | undefined>(undefined);
   const [maxTokens, setMaxTokens] = useState<number | undefined>(undefined);
+  const [isWsConnected, setIsWsConnected] = useState(false);
   const toolIterationCount = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const addMessage = useCallback((message: Message) => {
-    setMessages(prev => [...prev, message]);
-  }, []);
+  // const addMessage = useCallback((message: Message) => {
+  //   setMessages(prev => [...prev, message]);
+  // }, []);
 
-  const updateMessage = useCallback((messageId: string, content: string) => {
-    setMessages(prev => prev.map(msg => 
-      msg.id === messageId ? { ...msg, content } : msg
-    ));
-  }, []);
+  // const updateMessage = useCallback((messageId: string, content: string) => {
+  //   setMessages(prev => prev.map(msg =>
+  //     msg.id === messageId ? { ...msg, content } : msg
+  //   ));
+  // }, []);
 
   const sendMessage = useCallback(async (content: string) => {
     if (isLoading || !content.trim()) return;
@@ -120,12 +121,12 @@ export function useChat() {
     // Reset tool iteration counter for new user message
     toolIterationCount.current = 0;
 
-    const userMessage: Message = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: content.trim(),
-      timestamp: Date.now(),
-    };
+    // const userMessage: Message = {
+    //   id: crypto.randomUUID(),
+    //   role: 'user',
+    //   content: content.trim(),
+    //   timestamp: Date.now(),
+    // };
 
     // Don't manually add user message - file watcher will handle it
     setIsLoading(true);
@@ -222,13 +223,21 @@ export function useChat() {
 
   // Watch for file changes when viewing a conversation
   useEffect(() => {
-    if (!currentConversationId) return;
+    if (!currentConversationId) {
+      setIsWsConnected(false);
+      return;
+    }
 
     // Determine WebSocket URL based on current protocol
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/conversation/watch/${currentConversationId}`;
 
     const ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      setIsWsConnected(true);
+      console.log('[FRONTEND] WebSocket connected to conversation:', currentConversationId);
+    };
 
     ws.onmessage = (event) => {
       try {
@@ -247,6 +256,12 @@ export function useChat() {
 
     ws.onerror = (error) => {
       console.error('[FRONTEND] File watcher error:', error);
+      setIsWsConnected(false);
+    };
+
+    ws.onclose = () => {
+      setIsWsConnected(false);
+      console.log('[FRONTEND] WebSocket disconnected');
     };
 
     // Clean up on unmount or when conversation changes
@@ -265,5 +280,6 @@ export function useChat() {
     currentConversationId,
     tokensUsed,
     maxTokens,
+    isWsConnected,
   };
 }

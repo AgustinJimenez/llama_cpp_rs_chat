@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Unplug } from 'lucide-react';
+import { Unplug, Radio } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Toaster, toast } from 'react-hot-toast';
@@ -17,7 +17,7 @@ import type { SamplerConfig } from './types';
 type ViewMode = 'text' | 'markdown';
 
 function App() {
-  const { messages, isLoading, sendMessage, clearMessages, loadConversation, currentConversationId, tokensUsed, maxTokens } = useChat();
+  const { messages, isLoading, sendMessage, clearMessages, loadConversation, currentConversationId, tokensUsed, maxTokens, isWsConnected } = useChat();
   const { status: modelStatus, isLoading: isModelLoading, error: modelError, loadModel, unloadModel } = useModel();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -118,33 +118,48 @@ function App() {
               )}
             </div>
             {messages.length > 0 && (
-              <div className="flex items-center">
-                <Button
-                  onClick={() => setViewMode('markdown')}
-                  variant="outline"
-                  size="sm"
-                  className={`${
-                    viewMode === 'markdown'
-                      ? 'bg-white/20 border-white/40'
-                      : 'bg-white/10 border-white/20'
-                  } hover:bg-white/20 text-white rounded-l-full rounded-r-none border-r-0`}
-                  title="Markdown view"
-                >
-                  Markdown
-                </Button>
-                <Button
-                  onClick={() => setViewMode('text')}
-                  variant="outline"
-                  size="sm"
-                  className={`${
-                    viewMode === 'text'
-                      ? 'bg-white/20 border-white/40'
-                      : 'bg-white/10 border-white/20'
-                  } hover:bg-white/20 text-white rounded-r-full rounded-l-none`}
-                  title="Plain text view"
-                >
-                  Plain Text
-                </Button>
+              <div className="flex items-center gap-4">
+                {/* WebSocket Debug Info */}
+                {isWsConnected && currentConversationId && (
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-green-500/20 border border-green-500/40 rounded-full">
+                    <Radio className="h-3.5 w-3.5 text-green-400 animate-pulse" />
+                    <span className="text-xs font-mono text-green-300" title={`Connected to: ${currentConversationId}`}>
+                      {currentConversationId.length > 20
+                        ? `...${currentConversationId.slice(-20)}`
+                        : currentConversationId}
+                    </span>
+                  </div>
+                )}
+
+                {/* View Mode Toggle */}
+                <div className="flex items-center">
+                  <Button
+                    onClick={() => setViewMode('markdown')}
+                    variant="outline"
+                    size="sm"
+                    className={`${
+                      viewMode === 'markdown'
+                        ? 'bg-white/20 border-white/40'
+                        : 'bg-white/10 border-white/20'
+                    } hover:bg-white/20 text-white rounded-l-full rounded-r-none border-r-0`}
+                    title="Markdown view"
+                  >
+                    Markdown
+                  </Button>
+                  <Button
+                    onClick={() => setViewMode('text')}
+                    variant="outline"
+                    size="sm"
+                    className={`${
+                      viewMode === 'text'
+                        ? 'bg-white/20 border-white/40'
+                        : 'bg-white/10 border-white/20'
+                    } hover:bg-white/20 text-white rounded-r-full rounded-l-none`}
+                    title="Plain text view"
+                  >
+                    Plain Text
+                  </Button>
+                </div>
               </div>
             )}
           </div>
