@@ -174,10 +174,12 @@ export function useChat() {
           toast.error(`Tool error: ${errorMessage}`, { duration: 5000 });
           setIsLoading(false);
         }
-      } else {
-        // No tool calls, generation complete
+      } else if (response.message.content.trim() !== '') {
+        // Only set loading false if we got actual content (not empty response)
+        // Empty response means generation is happening in background via WebSocket
         setIsLoading(false);
       }
+      // If content is empty, keep loading - WebSocket will handle the response
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
@@ -249,6 +251,12 @@ export function useChat() {
           const content = message.content;
           const parsedMessages = parseConversationFile(content);
           setMessages(parsedMessages);
+
+          // Check if assistant has started responding (turn off loading spinner)
+          const lastMessage = parsedMessages[parsedMessages.length - 1];
+          if (lastMessage && lastMessage.role === 'assistant' && lastMessage.content.length > 0) {
+            setIsLoading(false);
+          }
 
           // Update token counts if provided
           if (message.tokens_used !== undefined && message.tokens_used !== null) {
