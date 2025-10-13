@@ -1605,8 +1605,11 @@ async fn handle_conversation_watch(
         format!("assets/conversations/{}.txt", conversation_id)
     };
 
+    eprintln!("[WS_WATCH] Watching file: {}", file_path);
+
     // Read initial content
     let mut last_content = fs::read_to_string(&file_path).unwrap_or_default();
+    eprintln!("[WS_WATCH] Initial content length: {}", last_content.len());
 
     // Calculate token counts for initial content
     let (tokens_used, max_tokens) = if let Some(ref state) = llama_state {
@@ -1660,6 +1663,7 @@ async fn handle_conversation_watch(
                 // Read file and check if changed
                 if let Ok(current_content) = fs::read_to_string(&file_path) {
                     if current_content != last_content {
+                        eprintln!("[WS_WATCH] File changed! Length: {} -> {}", last_content.len(), current_content.len());
                         last_content = current_content.clone();
 
                         // Calculate token counts for updated content
@@ -1702,9 +1706,12 @@ async fn handle_conversation_watch(
                             "max_tokens": max_tokens
                         });
 
+                        eprintln!("[WS_WATCH] Sending update via WebSocket (content length: {})", current_content.len());
                         if ws_sender.send(WsMessage::Text(update_msg.to_string())).await.is_err() {
+                            eprintln!("[WS_WATCH] Failed to send WebSocket message - connection closed");
                             break;
                         }
+                        eprintln!("[WS_WATCH] Update sent successfully");
                     }
                 }
             }
