@@ -1064,10 +1064,11 @@ async fn generate_llama_response(
     user_message: &str,
     llama_state: SharedLlamaState,
     conversation_logger: SharedConversationLogger,
-    token_sender: Option<mpsc::UnboundedSender<TokenData>>
+    token_sender: Option<mpsc::UnboundedSender<TokenData>>,
+    skip_user_logging: bool
 ) -> Result<(String, i32, i32), String> {
-    // Log user message to conversation file
-    {
+    // Log user message to conversation file (unless already logged)
+    if !skip_user_logging {
         let mut logger = conversation_logger.lock().map_err(|_| "Failed to lock conversation logger")?;
         logger.log_message("USER", user_message);
     }
@@ -1497,7 +1498,7 @@ async fn handle_websocket(
                 tokio::spawn(async move {
                     eprintln!("[WS_CHAT] Generation task started");
                     if let Some(state) = state_clone {
-                        match generate_llama_response(&message, state, conversation_logger, Some(tx)).await {
+                        match generate_llama_response(&message, state, conversation_logger, Some(tx), false).await {
                             Ok((_content, _tokens, _max)) => {
                             }
                             Err(_e) => {
@@ -1856,11 +1857,21 @@ async fn handle_request_impl(
                         }
                     }
                 };
-                
-                // Generate actual LLaMA response
+
+                // Log user message immediately so WebSocket can pick it up
+                {
+                    let mut logger = conversation_logger.lock().unwrap();
+                    logger.log_message("USER", &chat_request.message);
+                }
+
+                // Small delay to ensure file is written and WebSocket picks it up
+                // This allows the user to see their message immediately
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+                // Generate actual LLaMA response (user message already logged)
                 let (response_content, tokens_used, max_tokens) = match llama_state {
                     Some(state) => {
-                        match generate_llama_response(&chat_request.message, state, conversation_logger.clone(), None).await {
+                        match generate_llama_response(&chat_request.message, state, conversation_logger.clone(), None, true).await {
                             Ok((content, tokens, max_tok)) => (content, Some(tokens), Some(max_tok)),
                             Err(err) => (format!("Error generating response: {}", err), None, None),
                         }
@@ -1975,7 +1986,7 @@ async fn handle_request_impl(
                 let state_clone = llama_state.clone();
                 tokio::spawn(async move {
                     if let Some(state) = state_clone {
-                        match generate_llama_response(&message, state, conversation_logger, Some(tx)).await {
+                        match generate_llama_response(&message, state, conversation_logger, Some(tx), false).await {
                             Ok((_content, tokens, max)) => {
                                 println!("[DEBUG] Generation completed successfully: {} tokens used, {} max", tokens, max);
                             }
