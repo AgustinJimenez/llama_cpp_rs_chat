@@ -1610,19 +1610,28 @@ async fn handle_conversation_watch(
     // Calculate token counts for initial content
     let (tokens_used, max_tokens) = if let Some(ref state) = llama_state {
         if let Ok(state_lock) = state.lock() {
-            let model = &state_lock.model;
-            let context_size = state_lock.context.n_ctx() as i32;
-
-            // Apply chat template to get the prompt
-            let template_type = state_lock.chat_template_type.as_deref();
-            match apply_model_chat_template(&last_content, template_type) {
-                Ok(prompt) => {
-                    match model.str_to_token(&prompt, llama_cpp_2::model::AddBos::Always) {
-                        Ok(tokens) => (Some(tokens.len() as i32), Some(context_size)),
-                        Err(_) => (None, Some(context_size))
+            if let Some(ref llama_state_inner) = *state_lock {
+                if let Some(ref model) = llama_state_inner.model {
+                    if let Some(context_size) = llama_state_inner.model_context_length {
+                        // Apply chat template to get the prompt
+                        let template_type = llama_state_inner.chat_template_type.as_deref();
+                        match apply_model_chat_template(&last_content, template_type) {
+                            Ok(prompt) => {
+                                match model.str_to_token(&prompt, llama_cpp_2::model::AddBos::Always) {
+                                    Ok(tokens) => (Some(tokens.len() as i32), Some(context_size as i32)),
+                                    Err(_) => (None, Some(context_size as i32))
+                                }
+                            },
+                            Err(_) => (None, Some(context_size as i32))
+                        }
+                    } else {
+                        (None, None)
                     }
-                },
-                Err(_) => (None, Some(context_size))
+                } else {
+                    (None, None)
+                }
+            } else {
+                (None, None)
             }
         } else {
             (None, None)
@@ -1655,19 +1664,28 @@ async fn handle_conversation_watch(
                         // Calculate token counts for updated content
                         let (tokens_used, max_tokens) = if let Some(ref state) = llama_state {
                             if let Ok(state_lock) = state.lock() {
-                                let model = &state_lock.model;
-                                let context_size = state_lock.context.n_ctx() as i32;
-
-                                // Apply chat template to get the prompt
-                                let template_type = state_lock.chat_template_type.as_deref();
-                                match apply_model_chat_template(&current_content, template_type) {
-                                    Ok(prompt) => {
-                                        match model.str_to_token(&prompt, llama_cpp_2::model::AddBos::Always) {
-                                            Ok(tokens) => (Some(tokens.len() as i32), Some(context_size)),
-                                            Err(_) => (None, Some(context_size))
+                                if let Some(ref llama_state_inner) = *state_lock {
+                                    if let Some(ref model) = llama_state_inner.model {
+                                        if let Some(context_size) = llama_state_inner.model_context_length {
+                                            // Apply chat template to get the prompt
+                                            let template_type = llama_state_inner.chat_template_type.as_deref();
+                                            match apply_model_chat_template(&current_content, template_type) {
+                                                Ok(prompt) => {
+                                                    match model.str_to_token(&prompt, llama_cpp_2::model::AddBos::Always) {
+                                                        Ok(tokens) => (Some(tokens.len() as i32), Some(context_size as i32)),
+                                                        Err(_) => (None, Some(context_size as i32))
+                                                    }
+                                                },
+                                                Err(_) => (None, Some(context_size as i32))
+                                            }
+                                        } else {
+                                            (None, None)
                                         }
-                                    },
-                                    Err(_) => (None, Some(context_size))
+                                    } else {
+                                        (None, None)
+                                    }
+                                } else {
+                                    (None, None)
                                 }
                             } else {
                                 (None, None)
