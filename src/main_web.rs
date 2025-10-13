@@ -5,8 +5,22 @@ use std::sync::{Arc, Mutex};
 use std::num::NonZeroU32;
 use std::fs;
 use std::io;
+use std::time::SystemTime;
 use serde::{Deserialize, Serialize};
 use serde_json;
+
+// Helper function to get current timestamp for logging
+fn timestamp_now() -> String {
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap();
+    let secs = now.as_secs();
+    let millis = now.subsec_millis();
+    let hours = (secs / 3600) % 24;
+    let minutes = (secs / 60) % 60;
+    let seconds = secs % 60;
+    format!("{:02}:{:02}:{:02}.{:03}", hours, minutes, seconds, millis)
+}
 use gguf_llms::{GgufHeader, GgufReader, Value};
 use std::io::BufReader;
 use tokio::sync::mpsc;
@@ -718,10 +732,18 @@ impl ConversationLogger {
         // Append token to the last assistant message in content
         self.content.push_str(token);
 
+        eprintln!("[{}] [LOGGER] Writing token to file: {} (token: '{}', total content length: {})",
+            timestamp_now(), self.file_path,
+            if token.len() > 50 { &token[..50] } else { token }, self.content.len());
+
         // Write to file immediately so file watcher can update UI in real-time
         // This is now fast enough since we're not blocking on WebSocket
         if let Err(e) = fs::write(&self.file_path, &self.content) {
-            eprintln!("Failed to write conversation log: {}", e);
+            eprintln!("[{}] [LOGGER] ERROR: Failed to write conversation log: {}",
+                timestamp_now(), e);
+        } else {
+            eprintln!("[{}] [LOGGER] File written successfully",
+                timestamp_now());
         }
     }
     
@@ -1883,16 +1905,28 @@ async fn handle_request_impl(
                 let message_clone = chat_request.message.clone();
                 let conversation_logger_clone = conversation_logger.clone();
                 let llama_state_clone = llama_state.clone();
+                let conv_id_for_log = conversation_id.clone();
+                eprintln!("[{}] [API_CHAT] Spawning background generation task for conversation: {}",
+                    timestamp_now(), conv_id_for_log);
                 tokio::spawn(async move {
+                    eprintln!("[{}] [BACKGROUND_GEN] Task started for: {}",
+                        timestamp_now(), conv_id_for_log);
                     if let Some(state) = llama_state_clone {
+                        eprintln!("[{}] [BACKGROUND_GEN] Calling generate_llama_response...",
+                            timestamp_now());
                         match generate_llama_response(&message_clone, state, conversation_logger_clone, None, true).await {
                             Ok((_content, tokens, max_tok)) => {
-                                eprintln!("[API_CHAT] Generation completed: {} tokens / {} max", tokens, max_tok);
+                                eprintln!("[{}] [BACKGROUND_GEN] Generation completed: {} tokens / {} max",
+                                    timestamp_now(), tokens, max_tok);
                             },
                             Err(err) => {
-                                eprintln!("[API_CHAT] Generation failed: {}", err);
+                                eprintln!("[{}] [BACKGROUND_GEN] Generation failed: {}",
+                                    timestamp_now(), err);
                             }
                         }
+                    } else {
+                        eprintln!("[{}] [BACKGROUND_GEN] ERROR: llama_state is None!",
+                            timestamp_now());
                     }
                 });
 
