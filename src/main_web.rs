@@ -1864,22 +1864,7 @@ async fn handle_request_impl(
                     logger.log_message("USER", &chat_request.message);
                 }
 
-                // Small delay to ensure file is written and WebSocket picks it up
-                // This allows the user to see their message immediately
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-                // Generate actual LLaMA response (user message already logged)
-                let (response_content, tokens_used, max_tokens) = match llama_state {
-                    Some(state) => {
-                        match generate_llama_response(&chat_request.message, state, conversation_logger.clone(), None, true).await {
-                            Ok((content, tokens, max_tok)) => (content, Some(tokens), Some(max_tok)),
-                            Err(err) => (format!("Error generating response: {}", err), None, None),
-                        }
-                    }
-                    None => ("LLaMA state not available".to_string(), None, None),
-                };
-
-                // Extract conversation ID from the logger's file path
+                // Extract conversation ID immediately so we can return it
                 let conversation_id = {
                     let logger = conversation_logger.lock().unwrap();
                     let file_path = &logger.file_path;
@@ -1887,19 +1872,37 @@ async fn handle_request_impl(
                     file_path.split('/').last().unwrap_or("unknown").to_string()
                 };
 
+                // Spawn generation in background - don't wait for it
+                let message_clone = chat_request.message.clone();
+                let conversation_logger_clone = conversation_logger.clone();
+                let llama_state_clone = llama_state.clone();
+                tokio::spawn(async move {
+                    if let Some(state) = llama_state_clone {
+                        match generate_llama_response(&message_clone, state, conversation_logger_clone, None, true).await {
+                            Ok((_content, tokens, max_tok)) => {
+                                eprintln!("[API_CHAT] Generation completed: {} tokens / {} max", tokens, max_tok);
+                            },
+                            Err(err) => {
+                                eprintln!("[API_CHAT] Generation failed: {}", err);
+                            }
+                        }
+                    }
+                });
+
+                // Return immediately with conversation_id so frontend can connect WebSocket
                 let chat_response = ChatResponse {
                     message: ChatMessage {
                         id: uuid::Uuid::new_v4().to_string(),
                         role: "assistant".to_string(),
-                        content: response_content,
+                        content: "".to_string(), // Empty - real content comes via WebSocket
                         timestamp: std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_secs(),
                     },
                     conversation_id,
-                    tokens_used,
-                    max_tokens,
+                    tokens_used: None,  // Will be updated via WebSocket
+                    max_tokens: None,   // Will be updated via WebSocket
                 };
 
                 let response_json = match serde_json::to_string(&chat_response) {
