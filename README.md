@@ -1,12 +1,12 @@
-# 🦙 LLaMA Chat - Desktop AI Assistant
+# 🦙 LLaMA Chat - AI Assistant
 
-A modern desktop AI chat application built with Tauri, Rust, and llama-cpp-2. Features a beautiful UI with integrated shell command execution capabilities.
+A modern AI chat application built with Tauri, Rust, and llama-cpp-2. Features a beautiful UI with integrated shell command execution capabilities. Available as both a native desktop app and web application.
 
-![LLaMA Chat Screenshot](https://img.shields.io/badge/Platform-Desktop-blue) ![Rust](https://img.shields.io/badge/Language-Rust-orange) ![Tauri](https://img.shields.io/badge/Framework-Tauri-green)
+![LLaMA Chat Screenshot](https://img.shields.io/badge/Platform-Desktop%20%26%20Web-blue) ![Rust](https://img.shields.io/badge/Language-Rust-orange) ![Tauri](https://img.shields.io/badge/Framework-Tauri-green)
 
 ## ✨ Features
 
-- 🖥️ **Native Desktop Application** - Built with Tauri for optimal performance
+- 🖥️ **Native Desktop & Web Application** - Built with Tauri for desktop or run as a web app
 - 🧠 **Local LLM Inference** - Powered by llama-cpp-2 with multiple model support
 - 🎨 **Modern UI** - Beautiful gradient design with real-time chat interface
 - ⚙️ **Advanced Sampling** - 11 different sampling strategies including IBM-recommended settings
@@ -16,13 +16,28 @@ A modern desktop AI chat application built with Tauri, Rust, and llama-cpp-2. Fe
 
 ## 🚀 Quick Start
 
-### Option 1: Desktop Application (Recommended)
+### Option 1: Web Application (Recommended for Development)
+
+1. **Install Dependencies:**
+   ```bash
+   npm install
+   ```
+
+2. **Run the Web App:**
+   ```bash
+   # Starts both frontend (Vite) and backend (Rust web server)
+   npm run dev
+   ```
+
+   The app will be available at `http://localhost:5173`
+
+### Option 2: Desktop Application
 
 1. **Install Dependencies:**
    ```bash
    # Install Node.js dependencies
    npm install
-   
+
    # Install Tauri CLI (if not already installed)
    cargo install tauri-cli
    ```
@@ -31,21 +46,18 @@ A modern desktop AI chat application built with Tauri, Rust, and llama-cpp-2. Fe
    ```bash
    # Development mode with hot reload
    cargo tauri dev
-   
+
    # Or build for production
    cargo tauri build
    ```
 
-### Option 2: Command Line Interface
+### Option 3: Command Line Interface
 
 For testing or headless usage:
 
 ```bash
 # Run the CLI version (original test interface)
 cargo run --bin test
-
-# Or run the default Tauri binary (if not using desktop UI)
-cargo run
 ```
 
 ## 🔧 Configuration
@@ -112,13 +124,16 @@ llama_cpp_rs_chat/
 
 ## 🎯 Usage
 
-### Desktop App
+### Web & Desktop App
 
-1. **Launch** the application using `cargo tauri dev`
-2. **Chat** with the AI using the beautiful interface
-3. **Configure** samplers via the settings button
-4. **Execute Commands** by asking the AI to perform file operations
-5. **View History** - all conversations are automatically saved
+1. **Launch** the application:
+   - Web: `npm run dev` → Open `http://localhost:5173`
+   - Desktop: `cargo tauri dev`
+2. **Load a Model** - Click "Select a model to load" and browse for a `.gguf` file
+3. **Chat** with the AI using the beautiful interface
+4. **Configure** samplers and model settings in the model configuration modal
+5. **Execute Commands** by asking the AI to perform file operations
+6. **View History** - all conversations are automatically saved
 
 ### Command Examples
 
@@ -143,33 +158,23 @@ cargo test --bin test
 
 ## 🔧 Development
 
-### Building
+### Available Commands
 
 ```bash
-# Build library
-cargo build --lib
+# Web Development (Frontend + Backend)
+npm run dev              # Start Vite dev server + Rust web backend
 
-# Build Tauri app binary
-cargo build --bin llama_cpp_chat
+# Desktop Development
+cargo tauri dev          # Start Tauri desktop app with hot reload
+cargo tauri build        # Build production desktop app
 
-# Build CLI test binary
-cargo build --bin test
+# Frontend Only
+npm run build            # Build frontend for production
 
-# Build Tauri desktop app
-cargo tauri build
-```
-
-### Frontend Development
-
-```bash
-# Install dependencies
-npm install
-
-# Start frontend dev server
-npm run dev
-
-# Build frontend
-npm run build
+# Rust Builds
+cargo build --lib                    # Build library
+cargo build --bin llama_chat_web     # Build web backend
+cargo build --bin test               # Build CLI test binary
 ```
 
 ### Testing

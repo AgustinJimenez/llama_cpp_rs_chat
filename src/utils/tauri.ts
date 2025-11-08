@@ -125,7 +125,9 @@ export class TauriAPI {
             onToken(message.token, message.tokens_used, message.max_tokens);
           } else if (message.type === 'done') {
             isCompleted = true;
-            onComplete(crypto.randomUUID(), request.conversation_id || crypto.randomUUID(), lastTokensUsed, lastMaxTokens);
+            // Use conversation_id from server response, fallback to request or generate new UUID
+            const conversationId = message.conversation_id || request.conversation_id || crypto.randomUUID();
+            onComplete(crypto.randomUUID(), conversationId, lastTokensUsed, lastMaxTokens);
             ws.close();
             resolve();
           } else if (message.type === 'error') {

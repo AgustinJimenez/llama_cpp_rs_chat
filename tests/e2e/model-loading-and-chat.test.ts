@@ -4,8 +4,8 @@ test.describe('Model Loading and Chat Test', () => {
   test('loads model using modal UI with GPU layers, says hello, and requests a code algorithm', async ({ page }) => {
     // Step 1: Navigate to the app and wait for it to load
     console.log('📱 Navigating to the app...');
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await page.goto('/', { waitUntil: 'networkidle' });
+    await page.reload({ waitUntil: 'networkidle' }); // Force reload to clear cache
 
     // Verify the main app loaded
     await expect(page.getByTestId('chat-app')).toBeVisible();
@@ -69,7 +69,21 @@ test.describe('Model Loading and Chat Test', () => {
 
     // Wait for file validation - look for "File found and accessible" indicator
     console.log('⏳ Waiting for file validation...');
-    const fileExistsIndicator = page.getByTestId('file-found');
+     await page.waitForTimeout(2000); // Wait for file check
+
+    // Try to find by test-id first, fallback to text if needed
+    let fileExistsIndicator = page.getByTestId('file-found-label');
+    const hasFileTestId = await fileExistsIndicator.count() > 0;
+
+    if (!hasFileTestId) {
+      console.log('⚠️  Test-id "file-found-label" not found, trying by text...');
+      fileExistsIndicator = page.getByText('File found and accessible');
+    }
+
+    // Print the HTML for debugging
+    //console.log('🔍 Current page HTML:');
+    //console.log(await page.content());
+
     await expect(fileExistsIndicator).toBeVisible({ timeout: 10000 });
     console.log('✅ Model file found and validated (file-found indicator visible)');
 
@@ -256,6 +270,15 @@ test.describe('Model Loading and Chat Test', () => {
 
     // Wait for second assistant response
     console.log('⏳ Waiting for second response (algorithm)...');
+
+    // Debug: Check how many assistant messages exist
+    const assistantMessageCount = await page.getByTestId('message-assistant').count();
+    console.log(`🔍 Assistant message count: ${assistantMessageCount}`);
+
+    // Debug: Print HTML of messages container
+    const messagesHtml = await page.getByTestId('messages-container').innerHTML();
+    console.log('🔍 Messages container HTML:', messagesHtml.substring(0, 2000));
+
     const secondAssistantMessage = page.getByTestId('message-assistant').nth(1);
     await expect(secondAssistantMessage).toBeVisible({ timeout: 60000 }); // 60 second timeout for response
 

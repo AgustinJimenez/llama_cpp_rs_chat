@@ -9,7 +9,7 @@
     "globalTimeout": 0,
     "grep": {},
     "grepInvert": null,
-    "maxFailures": 1,
+    "maxFailures": 0,
     "metadata": {
       "actualWorkers": 1
     },
@@ -46,7 +46,7 @@
         "testMatch": [
           "**/*.@(spec|test).?(c|m)[jt]s?(x)"
         ],
-        "timeout": 0
+        "timeout": 30000
       },
       {
         "outputDir": "E:/repo/llama_cpp_rs_chat/test-results",
@@ -62,7 +62,7 @@
         "testMatch": [
           "**/*.@(spec|test).?(c|m)[jt]s?(x)"
         ],
-        "timeout": 0
+        "timeout": 30000
       },
       {
         "outputDir": "E:/repo/llama_cpp_rs_chat/test-results",
@@ -78,7 +78,7 @@
         "testMatch": [
           "**/*.@(spec|test).?(c|m)[jt]s?(x)"
         ],
-        "timeout": 0
+        "timeout": 30000
       },
       {
         "outputDir": "E:/repo/llama_cpp_rs_chat/test-results",
@@ -94,7 +94,7 @@
         "testMatch": [
           "**/*.@(spec|test).?(c|m)[jt]s?(x)"
         ],
-        "timeout": 0
+        "timeout": 30000
       },
       {
         "outputDir": "E:/repo/llama_cpp_rs_chat/test-results",
@@ -110,14 +110,14 @@
         "testMatch": [
           "**/*.@(spec|test).?(c|m)[jt]s?(x)"
         ],
-        "timeout": 0
+        "timeout": 30000
       }
     ],
     "shard": null,
     "updateSnapshots": "missing",
     "updateSourceMethod": "patch",
     "version": "1.55.1",
-    "workers": 1,
+    "workers": 3,
     "webServer": null
   },
   "suites": [
@@ -136,11 +136,11 @@
           "specs": [
             {
               "title": "loads model using modal UI with GPU layers, says hello, and requests a code algorithm",
-              "ok": true,
+              "ok": false,
               "tags": [],
               "tests": [
                 {
-                  "timeout": 0,
+                  "timeout": 30000,
                   "annotations": [],
                   "expectedStatus": "passed",
                   "projectId": "chromium",
@@ -149,29 +149,23 @@
                     {
                       "workerIndex": 0,
                       "parallelIndex": 0,
-                      "status": "interrupted",
-                      "duration": 135705,
+                      "status": "timedOut",
+                      "duration": 30107,
                       "error": {
-                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mnot\u001b[2m.\u001b[22mtoBeEmpty\u001b[2m()\u001b[22m failed\n\nLocator:  getByTestId('message-assistant').first().getByTestId('message-content')\nExpected: not empty\nReceived: <element(s) not found>\n\nCall log:\n\u001b[2m  - Expect \"not toBeEmpty\" with timeout 90000ms\u001b[22m\n\u001b[2m  - waiting for getByTestId('message-assistant').first().getByTestId('message-content')\u001b[22m\n",
-                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mnot\u001b[2m.\u001b[22mtoBeEmpty\u001b[2m()\u001b[22m failed\n\nLocator:  getByTestId('message-assistant').first().getByTestId('message-content')\nExpected: not empty\nReceived: <element(s) not found>\n\nCall log:\n\u001b[2m  - Expect \"not toBeEmpty\" with timeout 90000ms\u001b[22m\n\u001b[2m  - waiting for getByTestId('message-assistant').first().getByTestId('message-content')\u001b[22m\n\n    at E:\\repo\\llama_cpp_rs_chat\\tests\\e2e\\model-loading-and-chat.test.ts:242:45",
-                        "location": {
-                          "file": "E:\\repo\\llama_cpp_rs_chat\\tests\\e2e\\model-loading-and-chat.test.ts",
-                          "column": 45,
-                          "line": 242
-                        },
-                        "snippet": "\u001b[0m \u001b[90m 240 |\u001b[39m     \u001b[36mconst\u001b[39m firstResponseText \u001b[33m=\u001b[39m \u001b[36mawait\u001b[39m firstAssistantContent\u001b[33m.\u001b[39mtextContent()\u001b[33m;\u001b[39m\n \u001b[90m 241 |\u001b[39m     console\u001b[33m.\u001b[39mlog(\u001b[32m'✅ First response received:'\u001b[39m\u001b[33m,\u001b[39m firstResponseText\u001b[33m?\u001b[39m\u001b[33m.\u001b[39msubstring(\u001b[35m0\u001b[39m\u001b[33m,\u001b[39m \u001b[35m100\u001b[39m) \u001b[33m+\u001b[39m \u001b[32m'...'\u001b[39m)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 242 |\u001b[39m\n \u001b[90m     |\u001b[39m \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 243 |\u001b[39m     \u001b[90m// Step 10: Send second message - request a code algorithm\u001b[39m\n \u001b[90m 244 |\u001b[39m     console\u001b[33m.\u001b[39mlog(\u001b[32m'💬 Sending second message: \"Can you write a small algorithm to check if a number is prime?\"'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 245 |\u001b[39m     \u001b[36mawait\u001b[39m messageInput\u001b[33m.\u001b[39mfill(\u001b[32m'Can you write a small algorithm to check if a number is prime?'\u001b[39m)\u001b[33m;\u001b[39m\u001b[0m"
+                        "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m",
+                        "stack": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
                       },
                       "errors": [
                         {
-                          "location": {
-                            "file": "E:\\repo\\llama_cpp_rs_chat\\tests\\e2e\\model-loading-and-chat.test.ts",
-                            "column": 45,
-                            "line": 242
-                          },
-                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mnot\u001b[2m.\u001b[22mtoBeEmpty\u001b[2m()\u001b[22m failed\n\nLocator:  getByTestId('message-assistant').first().getByTestId('message-content')\nExpected: not empty\nReceived: <element(s) not found>\n\nCall log:\n\u001b[2m  - Expect \"not toBeEmpty\" with timeout 90000ms\u001b[22m\n\u001b[2m  - waiting for getByTestId('message-assistant').first().getByTestId('message-content')\u001b[22m\n\n\n\u001b[0m \u001b[90m 240 |\u001b[39m     \u001b[36mconst\u001b[39m firstResponseText \u001b[33m=\u001b[39m \u001b[36mawait\u001b[39m firstAssistantContent\u001b[33m.\u001b[39mtextContent()\u001b[33m;\u001b[39m\n \u001b[90m 241 |\u001b[39m     console\u001b[33m.\u001b[39mlog(\u001b[32m'✅ First response received:'\u001b[39m\u001b[33m,\u001b[39m firstResponseText\u001b[33m?\u001b[39m\u001b[33m.\u001b[39msubstring(\u001b[35m0\u001b[39m\u001b[33m,\u001b[39m \u001b[35m100\u001b[39m) \u001b[33m+\u001b[39m \u001b[32m'...'\u001b[39m)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 242 |\u001b[39m\n \u001b[90m     |\u001b[39m \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 243 |\u001b[39m     \u001b[90m// Step 10: Send second message - request a code algorithm\u001b[39m\n \u001b[90m 244 |\u001b[39m     console\u001b[33m.\u001b[39mlog(\u001b[32m'💬 Sending second message: \"Can you write a small algorithm to check if a number is prime?\"'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 245 |\u001b[39m     \u001b[36mawait\u001b[39m messageInput\u001b[33m.\u001b[39mfill(\u001b[32m'Can you write a small algorithm to check if a number is prime?'\u001b[39m)\u001b[33m;\u001b[39m\u001b[0m\n\u001b[2m    at E:\\repo\\llama_cpp_rs_chat\\tests\\e2e\\model-loading-and-chat.test.ts:242:45\u001b[22m"
+                          "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
                         },
                         {
-                          "message": "Error: browserContext.close: Target page, context or browser has been closed"
+                          "location": {
+                            "file": "E:\\repo\\llama_cpp_rs_chat\\tests\\e2e\\model-loading-and-chat.test.ts",
+                            "column": 42,
+                            "line": 283
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m()\u001b[22m failed\n\nLocator:  getByTestId('message-assistant').nth(1)\nExpected: visible\nReceived: hidden\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 60000ms\u001b[22m\n\u001b[2m  - waiting for getByTestId('message-assistant').nth(1)\u001b[22m\n\u001b[2m    8 × locator resolved to <div class=\"w-full space-y-2\" data-testid=\"message-assistant\" data-message-id=\"38d1c306-47ab-4551-91b0-15fe55bd8a61\"></div>\u001b[22m\n\u001b[2m      - unexpected value \"hidden\"\u001b[22m\n\n\n  281 |\n  282 |     const secondAssistantMessage = page.getByTestId('message-assistant').nth(1);\n> 283 |     await expect(secondAssistantMessage).toBeVisible({ timeout: 60000 }); // 60 second timeout for response\n      |                                          ^\n  284 |\n  285 |     // Verify the assistant response has content\n  286 |     const secondAssistantContent = secondAssistantMessage.getByTestId('message-content');\n    at E:\\repo\\llama_cpp_rs_chat\\tests\\e2e\\model-loading-and-chat.test.ts:283:42"
                         }
                       ],
                       "stdout": [
@@ -200,7 +194,10 @@
                           "text": "⏳ Waiting for file validation...\n"
                         },
                         {
-                          "text": "⚠️  File validation indicator not found, continuing anyway...\n"
+                          "text": "⚠️  Test-id \"file-found-label\" not found, trying by text...\n"
+                        },
+                        {
+                          "text": "✅ Model file found and validated (file-found indicator visible)\n"
                         },
                         {
                           "text": "🔽 Scrolling to configuration section...\n"
@@ -261,104 +258,48 @@
                         },
                         {
                           "text": "⏳ Waiting for first response...\n"
+                        },
+                        {
+                          "text": "✅ First response received: Hello! How can I assist you today?...\n"
+                        },
+                        {
+                          "text": "💬 Sending second message: \"Can you write a small algorithm to check if a number is prime?\"\n"
+                        },
+                        {
+                          "text": "✅ Second message sent: \"Can you write a small algorithm...\"\n"
+                        },
+                        {
+                          "text": "⏳ Waiting for second response (algorithm)...\n"
+                        },
+                        {
+                          "text": "🔍 Assistant message count: 2\n"
+                        },
+                        {
+                          "text": "🔍 Messages container HTML: <div class=\"flex w-full justify-end\" data-testid=\"message-user\" data-message-id=\"49c5b4a9-cbd9-4a39-8707-9c311b32feb8\"><div class=\"rounded-lg border-0 shadow-md max-w-[80%] bg-gradient-to-br from-slate-600 to-slate-500 text-white\"><div class=\"p-3\"><div class=\"text-sm prose prose-invert prose-sm max-w-none\" data-testid=\"message-content\"><p>Hello</p></div></div></div></div><div class=\"w-full space-y-2\" data-testid=\"message-assistant\" data-message-id=\"a68d3bc4-d673-40b0-95ab-6959949fe876\"><div class=\"text-sm prose prose-slate prose-sm max-w-none prose-invert text-slate-200\" data-testid=\"message-content\"><p class=\"text-slate-200 my-2\">Hello! How can I assist you today?</p></div></div><div class=\"flex w-full justify-end\" data-testid=\"message-user\" data-message-id=\"9a591540-1f09-46f0-a145-7a260edf0c28\"><div class=\"rounded-lg border-0 shadow-md max-w-[80%] bg-gradient-to-br from-slate-600 to-slate-500 text-white\"><div class=\"p-3\"><div class=\"text-sm prose prose-invert prose-sm max-w-none\" data-testid=\"message-content\"><p>Can you write a small algorithm to check if a number is prime?</p></div></div></div></div><div class=\"w-full space-y-2\" data-testid=\"message-assistant\" data-message-id=\"38d1c306-47ab-4551-91b0-15fe55bd8a61\"></div><div class=\"w-full\" data-testid=\"loading-indicator\"><div class=\"flex gap-1\"><div class=\"w-2 h-2 bg-slate-400 rounded-full animate-pulse\" data-testid=\"loading-dot-1\"></div><div class=\"w-2 h-2 bg-slate-400 rounded-full animate-pulse [animation-delay:200ms]\" data-testid=\"loading-dot-2\"></div><div class=\"w-2 h-2 bg-slate-400 rounded-full animate-pulse [animation-delay:400ms]\" data-testid=\"loading-dot-3\"></div></div></div><div></div>\n"
                         }
                       ],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-10-12T02:28:28.844Z",
+                      "startTime": "2025-10-12T04:48:20.076Z",
                       "annotations": [],
-                      "attachments": [],
-                      "errorLocation": {
-                        "file": "E:\\repo\\llama_cpp_rs_chat\\tests\\e2e\\model-loading-and-chat.test.ts",
-                        "column": 45,
-                        "line": 242
-                      }
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "E:\\repo\\llama_cpp_rs_chat\\test-results\\model-loading-and-chat-Mod-d1ed5-d-requests-a-code-algorithm-chromium\\test-failed-1.png"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "E:\\repo\\llama_cpp_rs_chat\\test-results\\model-loading-and-chat-Mod-d1ed5-d-requests-a-code-algorithm-chromium\\error-context.md"
+                        }
+                      ]
                     }
                   ],
-                  "status": "skipped"
+                  "status": "unexpected"
                 }
               ],
               "id": "57acbae82133077a4f06-da14a8d35a47cf1b88ea",
-              "file": "model-loading-and-chat.test.ts",
-              "line": 4,
-              "column": 3
-            },
-            {
-              "title": "loads model using modal UI with GPU layers, says hello, and requests a code algorithm",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 0,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "firefox",
-                  "projectName": "firefox",
-                  "results": [],
-                  "status": "skipped"
-                }
-              ],
-              "id": "57acbae82133077a4f06-13c0793ef910475b27bd",
-              "file": "model-loading-and-chat.test.ts",
-              "line": 4,
-              "column": 3
-            },
-            {
-              "title": "loads model using modal UI with GPU layers, says hello, and requests a code algorithm",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 0,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "webkit",
-                  "projectName": "webkit",
-                  "results": [],
-                  "status": "skipped"
-                }
-              ],
-              "id": "57acbae82133077a4f06-f42c86a8fac7158bc8d1",
-              "file": "model-loading-and-chat.test.ts",
-              "line": 4,
-              "column": 3
-            },
-            {
-              "title": "loads model using modal UI with GPU layers, says hello, and requests a code algorithm",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 0,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "Mobile Chrome",
-                  "projectName": "Mobile Chrome",
-                  "results": [],
-                  "status": "skipped"
-                }
-              ],
-              "id": "57acbae82133077a4f06-12bd611145b9e4547d67",
-              "file": "model-loading-and-chat.test.ts",
-              "line": 4,
-              "column": 3
-            },
-            {
-              "title": "loads model using modal UI with GPU layers, says hello, and requests a code algorithm",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 0,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "Mobile Safari",
-                  "projectName": "Mobile Safari",
-                  "results": [],
-                  "status": "skipped"
-                }
-              ],
-              "id": "57acbae82133077a4f06-134318acc6170e36701d",
               "file": "model-loading-and-chat.test.ts",
               "line": 4,
               "column": 3
@@ -370,11 +311,11 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2025-10-12T02:28:27.933Z",
-    "duration": 136943.37099999998,
+    "startTime": "2025-10-12T04:48:19.358Z",
+    "duration": 30937.242,
     "expected": 0,
-    "skipped": 5,
-    "unexpected": 0,
+    "skipped": 0,
+    "unexpected": 1,
     "flaky": 0
   }
 }

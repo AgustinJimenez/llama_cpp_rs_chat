@@ -1676,64 +1676,50 @@ async fn handle_conversation_watch(
 
     let _ = ws_sender.send(WsMessage::Text(initial_msg.to_string())).await;
 
-    // Poll for file changes every 500ms
-    let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(500));
+    // TEMPORARILY DISABLED: File watching causes Windows file locking issues that block generation
+    // Just wait for WebSocket close and send final update
+    eprintln!("[WS_WATCH] File watching DISABLED - will only send updates on request");
 
     loop {
         tokio::select! {
-            _ = interval.tick() => {
-                // Read file and check if changed
+            _ = tokio::time::sleep(tokio::time::Duration::from_secs(5)) => {
+                // Read file periodically but much less frequently
                 if let Ok(current_content) = fs::read_to_string(&file_path) {
                     if current_content != last_content {
                         eprintln!("[WS_WATCH] File changed! Length: {} -> {}", last_content.len(), current_content.len());
                         last_content = current_content.clone();
 
-                        // Calculate token counts for updated content
-                        let (tokens_used, max_tokens) = if let Some(ref state) = llama_state {
-                            if let Ok(state_lock) = state.lock() {
-                                if let Some(ref llama_state_inner) = *state_lock {
-                                    if let Some(ref model) = llama_state_inner.model {
-                                        if let Some(context_size) = llama_state_inner.model_context_length {
-                                            // Apply chat template to get the prompt
-                                            let template_type = llama_state_inner.chat_template_type.as_deref();
-                                            match apply_model_chat_template(&current_content, template_type) {
-                                                Ok(prompt) => {
-                                                    match model.str_to_token(&prompt, llama_cpp_2::model::AddBos::Always) {
-                                                        Ok(tokens) => (Some(tokens.len() as i32), Some(context_size as i32)),
-                                                        Err(_) => (None, Some(context_size as i32))
-                                                    }
-                                                },
-                                                Err(_) => (None, Some(context_size as i32))
-                                            }
-                                        } else {
-                                            (None, None)
-                                        }
-                                    } else {
-                                        (None, None)
-                                    }
-                                } else {
-                                    (None, None)
-                                }
-                            } else {
-                                (None, None)
-                            }
-                        } else {
-                            (None, None)
-                        };
-
+                        // Skip token counting during streaming - it's too expensive and blocks
+                        // Just send content updates for real-time display
                         let update_msg = serde_json::json!({
                             "type": "update",
                             "content": current_content,
-                            "tokens_used": tokens_used,
-                            "max_tokens": max_tokens
+                            "tokens_used": null,
+                            "max_tokens": null
                         });
 
                         eprintln!("[WS_WATCH] Sending update via WebSocket (content length: {})", current_content.len());
-                        if ws_sender.send(WsMessage::Text(update_msg.to_string())).await.is_err() {
-                            eprintln!("[WS_WATCH] Failed to send WebSocket message - connection closed");
-                            break;
+
+                        // Add short timeout to prevent blocking if browser can't keep up
+                        // 50ms timeout ensures we don't block the watcher for too long
+                        let send_result = tokio::time::timeout(
+                            tokio::time::Duration::from_millis(50),
+                            ws_sender.send(WsMessage::Text(update_msg.to_string()))
+                        ).await;
+
+                        match send_result {
+                            Ok(Ok(_)) => {
+                                eprintln!("[WS_WATCH] Update sent successfully");
+                            }
+                            Ok(Err(_)) => {
+                                eprintln!("[WS_WATCH] Failed to send WebSocket message - connection closed");
+                                break;
+                            }
+                            Err(_) => {
+                                eprintln!("[WS_WATCH] WebSocket send timed out - browser may be overloaded, skipping this update");
+                                // Continue anyway - don't break the connection
+                            }
                         }
-                        eprintln!("[WS_WATCH] Update sent successfully");
                     }
                 }
             }
@@ -1908,13 +1894,22 @@ async fn handle_request_impl(
                 let conv_id_for_log = conversation_id.clone();
                 eprintln!("[{}] [API_CHAT] Spawning background generation task for conversation: {}",
                     timestamp_now(), conv_id_for_log);
-                tokio::spawn(async move {
-                    eprintln!("[{}] [BACKGROUND_GEN] Task started for: {}",
+                // Use std::thread instead of tokio::spawn to avoid deadlocks
+                // Generation is CPU-bound and doesn't need async runtime
+                std::thread::spawn(move || {
+                    eprintln!("[{}] [BACKGROUND_GEN] Thread started for: {}",
                         timestamp_now(), conv_id_for_log);
                     if let Some(state) = llama_state_clone {
                         eprintln!("[{}] [BACKGROUND_GEN] Calling generate_llama_response...",
                             timestamp_now());
-                        match generate_llama_response(&message_clone, state, conversation_logger_clone, None, true).await {
+
+                        // Create a new tokio runtime for this thread
+                        let rt = tokio::runtime::Runtime::new().unwrap();
+                        let result = rt.block_on(
+                            generate_llama_response(&message_clone, state, conversation_logger_clone, None, true)
+                        );
+
+                        match result {
                             Ok((_content, tokens, max_tok)) => {
                                 eprintln!("[{}] [BACKGROUND_GEN] Generation completed: {} tokens / {} max",
                                     timestamp_now(), tokens, max_tok);
@@ -2156,66 +2151,15 @@ async fn handle_request_impl(
         }
 
         (&Method::GET, path) if path.starts_with("/ws/conversation/watch/") => {
-            println!("[CONV-WATCH] Received request to {}", path);
+            eprintln!("[CONV-WATCH] WebSocket file watcher DISABLED for testing");
 
-            // Extract conversation ID from path
-            let conversation_id = path.trim_start_matches("/ws/conversation/watch/").to_string();
-
-            // Check if the request wants to upgrade to WebSocket
-            let upgrade_header = req.headers().get("upgrade")
-                .and_then(|v| v.to_str().ok())
-                .map(|v| v.to_lowercase());
-
-            if upgrade_header.as_deref() != Some("websocket") {
-                return Ok(Response::builder()
-                    .status(StatusCode::BAD_REQUEST)
-                    .header("content-type", "application/json")
-                    .header("access-control-allow-origin", "*")
-                    .body(Body::from(r#"{"error":"WebSocket upgrade required"}"#))
-                    .unwrap());
-            }
-
-            // Extract the WebSocket key
-            let key = req.headers()
-                .get("sec-websocket-key")
-                .and_then(|k| k.to_str().ok())
-                .unwrap_or("")
-                .to_string();
-
-            // Calculate accept key
-            let accept_key = {
-                use sha1::{Digest, Sha1};
-                use base64::{Engine as _, engine::general_purpose};
-
-                let mut hasher = Sha1::new();
-                hasher.update(key.as_bytes());
-                hasher.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
-                let hash = hasher.finalize();
-                general_purpose::STANDARD.encode(hash)
-            };
-
-            // Spawn WebSocket handler
-            let state_for_watch = llama_state.clone();
-            tokio::spawn(async move {
-                match hyper::upgrade::on(req).await {
-                    Ok(upgraded) => {
-                        if let Err(e) = handle_conversation_watch(upgraded, conversation_id, state_for_watch).await {
-                            println!("[CONV-WATCH ERROR] {}", e);
-                        }
-                    }
-                    Err(e) => {
-                        println!("[CONV-WATCH UPGRADE ERROR] {}", e);
-                    }
-                }
-            });
-
-            // Return 101 Switching Protocols response
+            // TEMPORARILY DISABLED: Return error to prevent WebSocket connection
+            // This is to test if the WebSocket is causing generation to block
             Response::builder()
-                .status(StatusCode::SWITCHING_PROTOCOLS)
-                .header("upgrade", "websocket")
-                .header("connection", "upgrade")
-                .header("sec-websocket-accept", accept_key)
-                .body(Body::empty())
+                .status(StatusCode::SERVICE_UNAVAILABLE)
+                .header("content-type", "application/json")
+                .header("access-control-allow-origin", "*")
+                .body(Body::from(r#"{"error":"WebSocket file watcher temporarily disabled for testing"}"#))
                 .unwrap()
         }
 
@@ -2931,6 +2875,50 @@ async fn handle_request_impl(
                 .unwrap()
         }
 
+        (&Method::POST, "/api/model/history") => {
+            // Add a model path to history
+            let body_bytes = match hyper::body::to_bytes(req.into_body()).await {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    println!("[DEBUG] Failed to read request body: {}", e);
+                    return Ok(Response::builder()
+                        .status(StatusCode::BAD_REQUEST)
+                        .header("content-type", "application/json")
+                        .header("access-control-allow-origin", "*")
+                        .body(Body::from(r#"{"success":false,"message":"Failed to read request body"}"#))
+                        .unwrap());
+                }
+            };
+
+            #[derive(Deserialize)]
+            struct AddHistoryRequest {
+                model_path: String,
+            }
+
+            let request: AddHistoryRequest = match serde_json::from_slice(&body_bytes) {
+                Ok(req) => req,
+                Err(e) => {
+                    println!("[DEBUG] JSON parsing error: {}", e);
+                    return Ok(Response::builder()
+                        .status(StatusCode::BAD_REQUEST)
+                        .header("content-type", "application/json")
+                        .header("access-control-allow-origin", "*")
+                        .body(Body::from(r#"{"success":false,"message":"Invalid JSON format"}"#))
+                        .unwrap());
+                }
+            };
+
+            // Add to history
+            add_to_model_history(&request.model_path);
+
+            Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", "application/json")
+                .header("access-control-allow-origin", "*")
+                .body(Body::from(r#"{"success":true}"#))
+                .unwrap()
+        }
+
         (&Method::POST, "/api/model/load") => {
             println!("[DEBUG] /api/model/load endpoint hit");
 
@@ -3513,6 +3501,8 @@ async fn main() -> std::io::Result<()> {
     println!("  GET  /api/config           - Get sampler configuration");
     println!("  POST /api/config           - Update sampler configuration");
     println!("  GET  /api/model/status     - Get current model status");
+    println!("  GET  /api/model/history    - Get model path history");
+    println!("  POST /api/model/history    - Add model path to history");
     println!("  POST /api/model/load       - Load a specific model");
     println!("  POST /api/model/unload     - Unload current model");
     println!("  POST /api/upload           - Upload model file");

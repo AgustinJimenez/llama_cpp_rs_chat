@@ -3,9 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host",
-    "dev:web": "concurrently \"npm run dev\" \"npm run server:web\"",
-    "server:web": "cargo build --bin llama_chat_web && cargo run --bin llama_chat_web",
+    "dev": "concurrently \"vite --host\" \"cargo build --bin llama_chat_web && cargo run --bin llama_chat_web\"",
     "build": "tsc && vite build",
     "build:rust": "cargo build --bin llama_chat_web",
     "preview": "vite preview",

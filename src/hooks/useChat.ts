@@ -143,9 +143,16 @@ export function useChat() {
       // The file watcher will update the UI in real-time
       const response = await TauriAPI.sendMessage(request);
 
+      console.log('[FRONTEND] Got response:', response);
+      console.log('[FRONTEND] Response conversation_id:', response.conversation_id);
+      console.log('[FRONTEND] Current conversation_id before update:', currentConversationId);
+
       // Update conversation ID if this is a new conversation
       if (!currentConversationId) {
+        console.log('[FRONTEND] Setting new conversation_id:', response.conversation_id);
         setCurrentConversationId(response.conversation_id);
+      } else {
+        console.log('[FRONTEND] Already have conversation_id, not updating');
       }
 
       // Update token counts
@@ -226,7 +233,10 @@ export function useChat() {
 
   // Watch for file changes when viewing a conversation
   useEffect(() => {
+    console.log('[FRONTEND] useEffect triggered! currentConversationId:', currentConversationId);
+
     if (!currentConversationId) {
+      console.log('[FRONTEND] No conversation ID, skipping WebSocket');
       setIsWsConnected(false);
       return;
     }
@@ -235,11 +245,13 @@ export function useChat() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/conversation/watch/${currentConversationId}`;
 
+    console.log('[FRONTEND] Attempting to connect WebSocket to:', wsUrl);
+
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
       setIsWsConnected(true);
-      console.log('[FRONTEND] WebSocket connected to conversation:', currentConversationId);
+      console.log('[FRONTEND] ✅ WebSocket connected successfully to conversation:', currentConversationId);
     };
 
     ws.onmessage = (event) => {
@@ -272,13 +284,14 @@ export function useChat() {
     };
 
     ws.onerror = (error) => {
-      console.error('[FRONTEND] File watcher error:', error);
+      console.error('[FRONTEND] ❌ WebSocket ERROR:', error);
+      console.error('[FRONTEND] WebSocket URL was:', wsUrl);
       setIsWsConnected(false);
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       setIsWsConnected(false);
-      console.log('[FRONTEND] WebSocket disconnected');
+      console.log('[FRONTEND] WebSocket closed. Code:', event.code, 'Reason:', event.reason, 'Clean:', event.wasClean);
     };
 
     // Clean up on unmount or when conversation changes
