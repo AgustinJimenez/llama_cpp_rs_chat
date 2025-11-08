@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Brain, FolderOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { ModelConfigModal } from './ModelConfigModal';
+import { ModelConfigModal } from './model-config';
 import type { SamplerConfig } from '../types';
 
 interface ModelSelectorProps {
