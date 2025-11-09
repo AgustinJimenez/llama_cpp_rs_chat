@@ -276,7 +276,7 @@ pub async fn handle_conversation_watch(
 
     loop {
         tokio::select! {
-            _ = tokio::time::sleep(tokio::time::Duration::from_secs(5)) => {
+            _ = tokio::time::sleep(tokio::time::Duration::from_millis(200)) => {
                 // Read file periodically
                 if let Ok(current_content) = fs::read_to_string(&file_path) {
                     if current_content != last_content {

@@ -110,10 +110,17 @@ test.describe('Model Loading and Chat Test', () => {
       const textButton = page.locator('button').filter({ hasText: 'Model Configurations' });
       await textButton.click();
     } else {
-      await configExpandButton.click();
+      // Check if already expanded first
+      const isExpanded = await page.locator('[data-testid="gpu-layers-slider"]').count() > 0;
+      console.log(`📊 Section already expanded: ${isExpanded}`);
+
+      if (!isExpanded) {
+        console.log('🔽 Clicking expand button...');
+        await configExpandButton.click();
+      }
     }
 
-    await page.waitForTimeout(500); // Wait for expansion animation
+    await page.waitForTimeout(1000); // Wait for expansion animation
 
     // Scroll down more to see GPU layers section
     await page.evaluate(() => {

@@ -7,12 +7,12 @@
     "build": "tsc && vite build",
     "build:rust": "cargo build --bin llama_chat_web",
     "preview": "vite preview",
-    "test": "npm run test:e2e",
-    "test:e2e": "docker compose down && TEST_MODE=true docker compose up -d && sleep 5 && playwright test && docker compose down && docker compose up -d",
-    "test:e2e-fast": "TEST_MODE=true playwright test",
+    "test": "playwright test",
+    "test:e2e": "playwright test",
     "test:ui": "playwright test --ui",
     "test:headed": "playwright test --headed",
-    "test:debug": "playwright test --debug"
+    "test:debug": "playwright test --debug",
+    "test:docker": "docker compose down && TEST_MODE=true docker compose up -d && sleep 5 && playwright test && docker compose down && docker compose up -d"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",

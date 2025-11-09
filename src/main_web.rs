@@ -1676,13 +1676,12 @@ async fn handle_conversation_watch(
 
     let _ = ws_sender.send(WsMessage::Text(initial_msg.to_string())).await;
 
-    // TEMPORARILY DISABLED: File watching causes Windows file locking issues that block generation
-    // Just wait for WebSocket close and send final update
-    eprintln!("[WS_WATCH] File watching DISABLED - will only send updates on request");
+    // File watching with periodic polling
+    eprintln!("[WS_WATCH] File watching via periodic polling (every 200ms)");
 
     loop {
         tokio::select! {
-            _ = tokio::time::sleep(tokio::time::Duration::from_secs(5)) => {
+            _ = tokio::time::sleep(tokio::time::Duration::from_millis(200)) => {
                 // Read file periodically but much less frequently
                 if let Ok(current_content) = fs::read_to_string(&file_path) {
                     if current_content != last_content {
@@ -2151,15 +2150,62 @@ async fn handle_request_impl(
         }
 
         (&Method::GET, path) if path.starts_with("/ws/conversation/watch/") => {
-            eprintln!("[CONV-WATCH] WebSocket file watcher DISABLED for testing");
+            // Extract conversation ID from path
+            let conversation_id = path.strip_prefix("/ws/conversation/watch/").unwrap_or("").to_string();
+            eprintln!("[CONV-WATCH] WebSocket file watcher request for conversation: {}", conversation_id);
 
-            // TEMPORARILY DISABLED: Return error to prevent WebSocket connection
-            // This is to test if the WebSocket is causing generation to block
+            // Check for WebSocket upgrade
+            let upgrade_header = req.headers().get("upgrade")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+
+            if upgrade_header != "websocket" {
+                return Ok(Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .body(Body::from("Expected WebSocket upgrade"))
+                    .unwrap());
+            }
+
+            // Get WebSocket key from request
+            let key = req.headers().get("sec-websocket-key")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+
+            // Generate accept key
+            let accept_key = {
+                use sha1::{Sha1, Digest};
+                use base64::{Engine as _, engine::general_purpose};
+                let mut hasher = Sha1::new();
+                hasher.update(key.as_bytes());
+                hasher.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+                let hash = hasher.finalize();
+                general_purpose::STANDARD.encode(hash)
+            };
+
+            // Clone state for the WebSocket handler
+            let llama_state_ws = llama_state.clone();
+
+            // Spawn WebSocket handler on the upgraded connection
+            tokio::spawn(async move {
+                match hyper::upgrade::on(req).await {
+                    Ok(upgraded) => {
+                        if let Err(e) = handle_conversation_watch(upgraded, conversation_id, llama_state_ws).await {
+                            eprintln!("[CONV-WATCH ERROR] {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[CONV-WATCH UPGRADE ERROR] {}", e);
+                    }
+                }
+            });
+
+            // Return 101 Switching Protocols
             Response::builder()
-                .status(StatusCode::SERVICE_UNAVAILABLE)
-                .header("content-type", "application/json")
-                .header("access-control-allow-origin", "*")
-                .body(Body::from(r#"{"error":"WebSocket file watcher temporarily disabled for testing"}"#))
+                .status(StatusCode::SWITCHING_PROTOCOLS)
+                .header("upgrade", "websocket")
+                .header("connection", "upgrade")
+                .header("sec-websocket-accept", accept_key)
+                .body(Body::empty())
                 .unwrap()
         }
 
