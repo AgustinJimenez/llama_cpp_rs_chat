@@ -68,7 +68,7 @@ impl Default for SamplerConfig {
         // Users can customize the system prompt via the UI if needed
         // Note: get_available_tools_json() can provide tool definitions when needed
         Self {
-            sampler_type: "Greedy".to_string(),
+            sampler_type: "Temperature".to_string(), // Use Temperature instead of Greedy
             temperature: 0.7,
             top_p: 0.95,
             top_k: 20,

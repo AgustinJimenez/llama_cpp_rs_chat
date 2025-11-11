@@ -224,8 +224,27 @@ pub async fn generate_llama_response(
     println!("Using context size: {} (user config: {:?}, model max: {:?})",
         context_size, config.context_size, state.model_context_length);
 
-    // Create sampler
-    let mut sampler = LlamaSampler::greedy();
+    // Create sampler based on configuration
+    let mut sampler = match config.sampler_type.as_str() {
+        "Temperature" => {
+            println!("Using Temperature sampler: temp={}", config.temperature);
+            LlamaSampler::temperature(config.temperature)
+        }
+        "Mirostat" => {
+            println!("Using Mirostat sampler: tau={}, eta={}", config.mirostat_tau, config.mirostat_eta);
+            LlamaSampler::mirostat(
+                None, // n_vocab
+                1234, // seed
+                config.mirostat_tau,
+                config.mirostat_eta,
+                100,  // m
+            )
+        }
+        "Greedy" | _ => {
+            println!("Using Greedy sampler (default)");
+            LlamaSampler::greedy()
+        }
+    };
 
     // Read conversation history from file and create chat prompt
     let conversation_content = {

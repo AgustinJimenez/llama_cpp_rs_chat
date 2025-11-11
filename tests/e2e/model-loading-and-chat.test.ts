@@ -2,6 +2,9 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Model Loading and Chat Test', () => {
   test('loads model using modal UI with GPU layers, says hello, and requests a code algorithm', async ({ page }) => {
+    // Increase test timeout for model loading and code generation
+    test.setTimeout(300000); // 5 minutes total timeout
+
     // Step 1: Navigate to the app and wait for it to load
     console.log('📱 Navigating to the app...');
     await page.goto('/', { waitUntil: 'networkidle' });
@@ -287,11 +290,11 @@ test.describe('Model Loading and Chat Test', () => {
     console.log('🔍 Messages container HTML:', messagesHtml.substring(0, 2000));
 
     const secondAssistantMessage = page.getByTestId('message-assistant').nth(1);
-    await expect(secondAssistantMessage).toBeVisible({ timeout: 60000 }); // 60 second timeout for response
+    await expect(secondAssistantMessage).toBeVisible({ timeout: 120000 }); // 120 second timeout for code generation
 
     // Verify the assistant response has content
     const secondAssistantContent = secondAssistantMessage.getByTestId('message-content');
-    await expect(secondAssistantContent).not.toBeEmpty();
+    await expect(secondAssistantContent).not.toBeEmpty({ timeout: 120000 });
 
     const secondResponseText = await secondAssistantContent.textContent();
     console.log('✅ Second response received (algorithm)');
