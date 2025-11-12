@@ -83,6 +83,153 @@ impl Default for SamplerConfig {
     }
 }
 
+// Model capabilities for tool calling compatibility
+#[derive(Debug, Clone)]
+pub struct ModelCapabilities {
+    pub native_file_tools: bool,     // Can use read_file, write_file, list_directory natively
+    pub bash_tool: bool,              // Can use bash tool
+    pub requires_translation: bool,   // Needs file tools translated to bash
+}
+
+impl Default for ModelCapabilities {
+    fn default() -> Self {
+        ModelCapabilities {
+            native_file_tools: true,
+            bash_tool: true,
+            requires_translation: false,
+        }
+    }
+}
+
+/// Determine model capabilities based on chat template type
+pub fn get_model_capabilities(chat_template: &str) -> ModelCapabilities {
+    match chat_template {
+        // Qwen/ChatML models refuse file tools due to safety training
+        // but accept bash commands - so we translate file ops to bash
+        "ChatML" => ModelCapabilities {
+            native_file_tools: false,
+            bash_tool: true,
+            requires_translation: true,
+        },
+
+        // Mistral/Devstral models support all tools natively
+        "Mistral" | "Devstral" => ModelCapabilities {
+            native_file_tools: true,
+            bash_tool: true,
+            requires_translation: false,
+        },
+
+        // Llama3 models - assume they work like Mistral (can be updated after testing)
+        "Llama3" => ModelCapabilities {
+            native_file_tools: true,
+            bash_tool: true,
+            requires_translation: false,
+        },
+
+        // Unknown models - default to safe assumption (use bash translation)
+        _ => ModelCapabilities {
+            native_file_tools: false,
+            bash_tool: true,
+            requires_translation: true,
+        },
+    }
+}
+
+/// Translate tool calls to bash commands for models that don't support native file tools
+pub fn translate_tool_for_model(
+    tool_name: &str,
+    arguments: &serde_json::Value,
+    capabilities: &ModelCapabilities,
+) -> (String, serde_json::Value) {
+    // If model doesn't support native file tools, translate to bash
+    if !capabilities.native_file_tools && capabilities.bash_tool {
+        match tool_name {
+            "read_file" => {
+                let path = arguments.get("path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+
+                let command = if cfg!(target_os = "windows") {
+                    // PowerShell: Use Get-Content (cat is an alias)
+                    // PowerShell handles Windows paths with backslashes correctly
+                    format!("cat \"{}\"", path)
+                } else {
+                    format!("cat \"{}\"", path)
+                };
+
+                eprintln!("[TOOL TRANSLATION] read_file → bash: {}", command);
+
+                (
+                    "bash".to_string(),
+                    serde_json::json!({"command": command}),
+                )
+            }
+
+            "write_file" => {
+                let path = arguments.get("path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let content = arguments.get("content")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+
+                let command = if cfg!(target_os = "windows") {
+                    // PowerShell: Use Set-Content or Out-File
+                    // Note: echo in PowerShell automatically writes to file with >
+                    format!("'{}' | Out-File -FilePath \"{}\" -Encoding UTF8", content, path)
+                } else {
+                    // Linux/Mac: echo 'content' > "file"
+                    format!("echo '{}' > \"{}\"", content, path)
+                };
+
+                eprintln!("[TOOL TRANSLATION] write_file → bash: {}", command);
+
+                (
+                    "bash".to_string(),
+                    serde_json::json!({"command": command}),
+                )
+            }
+
+            "list_directory" => {
+                let path = arguments.get("path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(".");
+                let recursive = arguments.get("recursive")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+
+                let command = if cfg!(target_os = "windows") {
+                    // PowerShell: Use Get-ChildItem (ls is an alias)
+                    if recursive {
+                        format!("ls -Recurse \"{}\"", path)
+                    } else {
+                        format!("ls \"{}\"", path)
+                    }
+                } else {
+                    if recursive {
+                        format!("ls -R \"{}\"", path)
+                    } else {
+                        format!("ls -la \"{}\"", path)
+                    }
+                };
+
+                eprintln!("[TOOL TRANSLATION] list_directory → bash: {}", command);
+
+                (
+                    "bash".to_string(),
+                    serde_json::json!({"command": command}),
+                )
+            }
+
+            // All other tools pass through unchanged
+            _ => (tool_name.to_string(), arguments.clone()),
+        }
+    } else {
+        // Model supports native tools - no translation needed
+        (tool_name.to_string(), arguments.clone())
+    }
+}
+
 // Token data with metadata for streaming
 #[derive(Serialize, Clone)]
 pub struct TokenData {

@@ -257,15 +257,15 @@ pub async fn generate_llama_response(
     let mut sampler = match config.sampler_type.as_str() {
         "Temperature" => {
             println!("Using Temperature sampler: temp={}", config.temperature);
-            LlamaSampler::temperature(config.temperature)
+            LlamaSampler::temp(config.temperature as f32)
         }
         "Mirostat" => {
             println!("Using Mirostat sampler: tau={}, eta={}", config.mirostat_tau, config.mirostat_eta);
             LlamaSampler::mirostat(
-                None, // n_vocab
+                0,    // n_vocab
                 1234, // seed
-                config.mirostat_tau,
-                config.mirostat_eta,
+                config.mirostat_tau as f32,
+                config.mirostat_eta as f32,
                 100,  // m
             )
         }

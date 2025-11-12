@@ -1,4 +1,6 @@
 // Simple web server version of LLaMA Chat (without Tauri)
+mod web;  // Declare web module for model capabilities and utilities
+
 use std::net::SocketAddr;
 use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
@@ -3424,11 +3426,35 @@ async fn handle_request_impl(
                 }
             };
 
-            // Execute tool based on name
-            let result = match request.tool_name.as_str() {
+            // Get current model's capabilities for tool translation
+            let (tool_name, tool_arguments) = {
+                // Access the shared state to get current chat template
+                let state_guard = llama_state.as_ref().expect("LLaMA state not available");
+                // Handle poisoned mutex by extracting the inner value
+                let state = state_guard.lock().unwrap_or_else(|poisoned| {
+                    eprintln!("[WARN] Mutex was poisoned, recovering...");
+                    poisoned.into_inner()
+                });
+                let chat_template = state.as_ref()
+                    .and_then(|s| s.chat_template_type.as_deref())
+                    .unwrap_or("Unknown");
+                let capabilities = web::models::get_model_capabilities(chat_template);
+
+                // Translate tool if model doesn't support it natively
+                web::models::translate_tool_for_model(
+                    &request.tool_name,
+                    &request.arguments,
+                    &capabilities,
+                )
+            };
+
+            eprintln!("[TOOL EXECUTE] Original: {} → Actual: {}", request.tool_name, tool_name);
+
+            // Execute tool based on (possibly translated) name
+            let result = match tool_name.as_str() {
                 "read_file" => {
                     // Extract file path from arguments
-                    let path = request.arguments.get("path")
+                    let path = tool_arguments.get("path")
                         .and_then(|v| v.as_str())
                         .unwrap_or("");
 
@@ -3460,10 +3486,10 @@ async fn handle_request_impl(
                 }
                 "write_file" => {
                     // Extract path and content from arguments
-                    let path = request.arguments.get("path")
+                    let path = tool_arguments.get("path")
                         .and_then(|v| v.as_str())
                         .unwrap_or("");
-                    let content = request.arguments.get("content")
+                    let content = tool_arguments.get("content")
                         .and_then(|v| v.as_str())
                         .unwrap_or("");
 
@@ -3496,10 +3522,10 @@ async fn handle_request_impl(
                 }
                 "list_directory" => {
                     // Extract path and recursive flag from arguments
-                    let path = request.arguments.get("path")
+                    let path = tool_arguments.get("path")
                         .and_then(|v| v.as_str())
                         .unwrap_or(".");
-                    let recursive = request.arguments.get("recursive")
+                    let recursive = tool_arguments.get("recursive")
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false);
 
@@ -3566,7 +3592,7 @@ async fn handle_request_impl(
                 }
                 "bash" | "shell" | "command" => {
                     // Extract command from arguments
-                    let command = request.arguments.get("command")
+                    let command = tool_arguments.get("command")
                         .and_then(|v| v.as_str())
                         .unwrap_or("");
 
@@ -3581,10 +3607,14 @@ async fn handle_request_impl(
 
                     // Execute command (with timeout for safety)
                     let output = if cfg!(target_os = "windows") {
-                        std::process::Command::new("cmd")
-                            .args(["/C", command])
+                        // Use PowerShell on Windows for better path and quoting handling
+                        // PowerShell handles backslashes and quotes much better than cmd.exe
+                        eprintln!("[BASH TOOL] Executing Windows command via PowerShell: {}", command);
+                        std::process::Command::new("powershell")
+                            .args(["-NoProfile", "-NonInteractive", "-Command", command])
                             .output()
                     } else {
+                        eprintln!("[BASH TOOL] Executing Unix command: sh -c {}", command);
                         std::process::Command::new("sh")
                             .arg("-c")
                             .arg(command)
