@@ -15,13 +15,12 @@ export const PresetSection: React.FC<PresetSectionProps> = ({
         <CardTitle className="text-sm">IBM Recommended Preset</CardTitle>
       </CardHeader>
       <CardContent>
-        <Button
-          variant="outline"
+        <button
           onClick={onApplyIBMPreset}
-          className="w-full"
+          className="flat-button bg-flat-red text-white w-full"
         >
           Apply IBM Settings (ChainFull, temp: 0.7, top_p: 0.95, top_k: 20)
-        </Button>
+        </button>
       </CardContent>
     </Card>
   );

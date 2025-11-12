@@ -150,12 +150,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         )}
         
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+          <button className="flat-button bg-muted px-6 py-2" onClick={onClose}>
             Cancel
-          </Button>
-          <Button onClick={handleSave} disabled={isLoading}>
+          </button>
+          <button className="flat-button bg-flat-red text-white px-6 py-2 disabled:opacity-50" onClick={handleSave} disabled={isLoading}>
             Save Configuration
-          </Button>
+          </button>
         </DialogFooter>
       </DialogContent>
       

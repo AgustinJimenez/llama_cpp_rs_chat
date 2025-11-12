@@ -29,15 +29,14 @@ export const ModelPathSection: React.FC<ModelPathSectionProps> = ({
             className="flex-1 px-3 py-2 text-sm border border-input rounded-md bg-background"
             readOnly
           />
-          <Button
+          <button
             type="button"
-            variant="outline"
             onClick={onBrowseClick}
-            className="flex items-center gap-2 px-3"
+            className="flat-button bg-flat-red text-white flex items-center gap-2 px-3"
           >
             <FolderOpen className="h-4 w-4" />
             Browse
-          </Button>
+          </button>
         </div>
         <p className="text-xs text-muted-foreground">
           Select a GGUF model file for LLaMA inference

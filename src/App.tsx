@@ -179,7 +179,7 @@ function App() {
               <>
                 {tokensUsed !== undefined && maxTokens !== undefined && (
                   <div className="mb-3 text-center text-sm font-medium text-muted-foreground">
-                    Context: <span className="font-mono px-2 py-1 bg-muted rounded">{tokensUsed}</span> / <span className="font-mono px-2 py-1 bg-muted rounded">{maxTokens}</span> tokens
+                    Context: <span className="font-mono px-2 py-1 bg-muted rounded text-foreground">{tokensUsed}</span> / <span className="font-mono px-2 py-1 bg-muted rounded text-foreground">{maxTokens}</span> tokens
                   </div>
                 )}
                 <MessageInput onSendMessage={sendMessage} disabled={isLoading} />
