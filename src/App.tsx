@@ -77,18 +77,18 @@ function App() {
       />
 
       {/* Main Content */}
-      <div 
-        className={`flex-1 p-4 transition-all duration-300 ${
+      <div
+        className={`flex-1 transition-all duration-300 ${
           isSidebarOpen ? 'md:ml-280' : 'md:ml-60'
         }`}
         style={{ marginLeft: isSidebarOpen ? '280px' : '60px' }}
       >
-        <Card className="flex flex-col h-full bg-card border shadow-2xl">
+        <div className="flex flex-col h-full flat-card">
           {/* Header */}
-          <div className="flex items-center justify-between p-6 border-b bg-gradient-to-r from-slate-700 to-slate-600 text-white rounded-t-lg" data-testid="chat-header">
+          <div className="flex items-center justify-between p-6 flat-header" data-testid="chat-header">
             <button
               onClick={toggleSidebar}
-              className="md:hidden p-2 text-white hover:bg-white/10 rounded-lg"
+              className="md:hidden p-2 hover:bg-muted rounded-lg"
               data-testid="mobile-sidebar-toggle"
             >
               ☰
@@ -96,7 +96,7 @@ function App() {
             <div className="flex-1 flex justify-center items-center">
               {modelStatus.loaded && (
                 <div className="flex items-center gap-3">
-                  <p className="text-lg font-semibold text-white">
+                  <p className="text-lg font-semibold">
                     {(() => {
                       const fullPath = modelStatus.model_path || '';
                       const fileName = fullPath.split(/[/\\]/).pop() || 'Model loaded';
@@ -104,16 +104,14 @@ function App() {
                       return fileName.replace(/\.gguf$/i, '');
                     })()}
                   </p>
-                  <Button
+                  <button
                     onClick={handleModelUnload}
                     disabled={isModelLoading}
-                    variant="outline"
-                    size="sm"
-                    className="bg-white/10 hover:bg-white/20 border-white/20 text-white"
+                    className="flat-button bg-destructive text-white px-4 py-2 disabled:opacity-50"
                     title="Unload model"
                   >
                     <Unplug className="h-4 w-4" />
-                  </Button>
+                  </button>
                 </div>
               )}
             </div>
@@ -121,9 +119,9 @@ function App() {
               <div className="flex items-center gap-4">
                 {/* WebSocket Debug Info */}
                 {isWsConnected && currentConversationId && (
-                  <div className="flex items-center gap-2 px-3 py-1.5 bg-green-500/20 border border-green-500/40 rounded-full">
-                    <Radio className="h-3.5 w-3.5 text-green-400 animate-pulse" />
-                    <span className="text-xs font-mono text-green-300" title={`Connected to: ${currentConversationId}`}>
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-flat-green rounded-full">
+                    <Radio className="h-3.5 w-3.5 text-white animate-pulse" />
+                    <span className="text-xs font-medium text-white" title={`Connected to: ${currentConversationId}`}>
                       {currentConversationId.length > 20
                         ? `...${currentConversationId.slice(-20)}`
                         : currentConversationId}
@@ -132,33 +130,29 @@ function App() {
                 )}
 
                 {/* View Mode Toggle */}
-                <div className="flex items-center">
-                  <Button
+                <div className="flex items-center gap-2 bg-muted rounded-lg p-1">
+                  <button
                     onClick={() => setViewMode('markdown')}
-                    variant="outline"
-                    size="sm"
-                    className={`${
+                    className={`px-4 py-2 font-medium text-sm transition-all rounded-md ${
                       viewMode === 'markdown'
-                        ? 'bg-white/20 border-white/40'
-                        : 'bg-white/10 border-white/20'
-                    } hover:bg-white/20 text-white rounded-l-full rounded-r-none border-r-0`}
+                        ? 'bg-flat-red text-white'
+                        : 'hover:bg-background'
+                    }`}
                     title="Markdown view"
                   >
                     Markdown
-                  </Button>
-                  <Button
+                  </button>
+                  <button
                     onClick={() => setViewMode('text')}
-                    variant="outline"
-                    size="sm"
-                    className={`${
+                    className={`px-4 py-2 font-medium text-sm transition-all rounded-md ${
                       viewMode === 'text'
-                        ? 'bg-white/20 border-white/40'
-                        : 'bg-white/10 border-white/20'
-                    } hover:bg-white/20 text-white rounded-r-full rounded-l-none`}
+                        ? 'bg-flat-red text-white'
+                        : 'hover:bg-background'
+                    }`}
                     title="Plain text view"
                   >
                     Plain Text
-                  </Button>
+                  </button>
                 </div>
               </div>
             )}
@@ -180,12 +174,12 @@ function App() {
           </div>
 
           {/* Input / Model Selection */}
-          <div className="border-t bg-muted/20 p-6" data-testid="input-container">
+          <div className="border-t border-border bg-card p-6" data-testid="input-container">
             {modelStatus.loaded ? (
               <>
                 {tokensUsed !== undefined && maxTokens !== undefined && (
-                  <div className="mb-3 text-center text-sm text-muted-foreground">
-                    Context: <span className="font-mono font-medium">{tokensUsed}</span> / <span className="font-mono font-medium">{maxTokens}</span> tokens
+                  <div className="mb-3 text-center text-sm font-medium text-muted-foreground">
+                    Context: <span className="font-mono px-2 py-1 bg-muted rounded">{tokensUsed}</span> / <span className="font-mono px-2 py-1 bg-muted rounded">{maxTokens}</span> tokens
                   </div>
                 )}
                 <MessageInput onSendMessage={sendMessage} disabled={isLoading} />
@@ -201,7 +195,7 @@ function App() {
               </div>
             )}
           </div>
-        </Card>
+        </div>
       </div>
 
       {/* Settings Modal */}
@@ -216,21 +210,39 @@ function App() {
         toastOptions={{
           duration: 3000,
           style: {
-            background: '#363636',
-            color: '#fff',
+            background: 'hsl(var(--card))',
+            color: 'hsl(var(--foreground))',
+            border: '1px solid hsl(var(--border))',
+            borderRadius: '0.5rem',
+            fontWeight: '500',
+            padding: '16px',
           },
           success: {
             duration: 3000,
+            style: {
+              background: 'hsl(var(--flat-green))',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '0.5rem',
+              fontWeight: '500',
+            },
             iconTheme: {
-              primary: '#10b981',
-              secondary: '#fff',
+              primary: '#fff',
+              secondary: 'hsl(var(--flat-green))',
             },
           },
           error: {
             duration: 5000,
+            style: {
+              background: 'hsl(var(--flat-red))',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '0.5rem',
+              fontWeight: '500',
+            },
             iconTheme: {
-              primary: '#ef4444',
-              secondary: '#fff',
+              primary: '#fff',
+              secondary: 'hsl(var(--flat-red))',
             },
           },
         }}

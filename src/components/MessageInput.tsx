@@ -49,29 +49,28 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   }, []);
 
   return (
-    <form onSubmit={handleSubmit} className="flex gap-3 items-end" data-testid="message-form">
+    <form onSubmit={handleSubmit} className="flex gap-3 items-start" data-testid="message-form">
       <div className="flex-1">
-        <Textarea
+        <textarea
           ref={textareaRef}
           value={message}
           onChange={handleTextareaChange}
           onKeyDown={handleKeyDown}
           placeholder="Type your message..."
           disabled={disabled}
-          className="min-h-[60px] max-h-[120px] resize-none"
+          className="flat-input w-full h-[60px] resize-none"
           rows={2}
           data-testid="message-input"
         />
       </div>
-      <Button 
-        type="submit" 
+      <button
+        type="submit"
         disabled={disabled || !message.trim()}
-        size="lg"
-        className="bg-gradient-to-r from-slate-600 to-slate-500 hover:from-slate-700 hover:to-slate-600 text-white border-0 px-6 h-[60px] min-w-[60px] flex items-center justify-center"
+        className="flat-button bg-flat-red text-white px-6 h-[60px] min-w-[60px] flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
         data-testid="send-button"
       >
-        <Send className="h-4 w-4" />
-      </Button>
+        <Send className="h-5 w-5" />
+      </button>
     </form>
   );
 };

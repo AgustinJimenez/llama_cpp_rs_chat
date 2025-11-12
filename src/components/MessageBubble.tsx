@@ -39,98 +39,97 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode 
         data-testid={`message-${message.role}`}
         data-message-id={message.id}
       >
-        <Card className="border-0 shadow-md max-w-[80%] bg-gradient-to-br from-slate-600 to-slate-500 text-white">
-          <CardContent className="p-3">
-            {viewMode === 'markdown' ? (
-              <div className="text-sm prose prose-invert prose-sm max-w-none" data-testid="message-content">
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  rehypePlugins={[rehypeHighlight]}
-                >
-                  {cleanContent}
-                </ReactMarkdown>
-              </div>
-            ) : (
-              <p className="text-sm whitespace-pre-wrap leading-relaxed" data-testid="message-content">
+        <div className="flat-message-user max-w-[80%] p-4">
+          {viewMode === 'markdown' ? (
+            <div className="text-sm prose prose-sm max-w-none prose-invert" data-testid="message-content">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeHighlight]}
+              >
                 {cleanContent}
-              </p>
-            )}
-          </CardContent>
-        </Card>
+              </ReactMarkdown>
+            </div>
+          ) : (
+            <p className="text-sm whitespace-pre-wrap leading-relaxed" data-testid="message-content">
+              {cleanContent}
+            </p>
+          )}
+        </div>
       </div>
     );
   }
 
-  // Assistant messages take full width with no card styling
+  // Assistant messages aligned to the left with max width
   return (
     <div
-      className="w-full space-y-2"
+      className="w-full flex justify-start space-y-2"
       data-testid={`message-${message.role}`}
       data-message-id={message.id}
     >
-      {/* Display tool calls if present */}
-      {toolCalls.length > 0 && (
-        <div className="space-y-2">
-          {toolCalls.map((toolCall) => (
-            <div
-              key={toolCall.id}
-              className="p-3 bg-blue-900/30 border border-blue-700/50 rounded-lg"
-            >
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-xs font-mono text-blue-300">🔧 Tool Call</span>
-                <span className="text-xs font-semibold text-blue-200">{toolCall.name}</span>
+      <div className="max-w-[80%] space-y-2">
+        {/* Display tool calls if present */}
+        {toolCalls.length > 0 && (
+          <div className="space-y-3">
+            {toolCalls.map((toolCall) => (
+              <div
+                key={toolCall.id}
+                className="p-3 bg-flat-purple rounded-lg"
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xs font-medium text-white">🔧 Tool Call</span>
+                  <span className="text-xs font-medium text-white">{toolCall.name}</span>
+                </div>
+                <pre className="text-xs text-white bg-black/20 p-3 rounded overflow-x-auto">
+                  {JSON.stringify(toolCall.arguments, null, 2)}
+                </pre>
               </div>
-              <pre className="text-xs text-blue-100 bg-blue-950/50 p-2 rounded overflow-x-auto">
-                {JSON.stringify(toolCall.arguments, null, 2)}
-              </pre>
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
 
-      {/* Display clean message content */}
-      {cleanContent && cleanContent.trim() && (
-        <>
+        {/* Display clean message content */}
+        {cleanContent && cleanContent.trim() && (
+          <div className="flat-message-assistant p-4">
           {viewMode === 'markdown' ? (
-            <div className="text-sm prose prose-slate prose-sm max-w-none prose-invert text-slate-200" data-testid="message-content">
+            <div className="text-sm prose prose-sm max-w-none dark:prose-invert" data-testid="message-content">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeHighlight]}
                 components={{
                   pre: ({ children }) => (
-                    <pre className="my-0 p-0">{children}</pre>
+                    <pre className="my-2 p-0">{children}</pre>
                   ),
                   code: ({ node, inline, className, children, ...props }: any) => {
                     return inline ? (
-                      <code className={`${className} bg-slate-700 text-slate-100 px-1.5 py-0.5 rounded`} {...props}>
+                      <code className={`${className} bg-muted px-2 py-1 rounded font-mono`} {...props}>
                         {children}
                       </code>
                     ) : (
-                      <code className={`${className} block bg-slate-800 text-slate-100 p-4 rounded-lg overflow-x-auto`} {...props}>
+                      <code className={`${className} block bg-gray-900 text-green-400 p-4 rounded-lg overflow-x-auto font-mono`} {...props}>
                         {children}
                       </code>
                     );
                   },
                   p: ({ children }) => (
-                    <p className="text-slate-200 my-2">{children}</p>
+                    <p className="my-2">{children}</p>
                   ),
                   h1: ({ children }) => (
-                    <h1 className="text-slate-100 font-bold text-xl my-2">{children}</h1>
+                    <h1 className="font-bold text-2xl my-3 border-b border-border pb-2">{children}</h1>
                   ),
                   h2: ({ children }) => (
-                    <h2 className="text-slate-100 font-bold text-lg my-2">{children}</h2>
+                    <h2 className="font-bold text-xl my-3 border-b border-border pb-2">{children}</h2>
                   ),
                   h3: ({ children }) => (
-                    <h3 className="text-slate-100 font-bold text-base my-2">{children}</h3>
+                    <h3 className="font-semibold text-lg my-2">{children}</h3>
                   ),
                   ul: ({ children }) => (
-                    <ul className="text-slate-200 list-disc ml-4 my-2">{children}</ul>
+                    <ul className="list-disc ml-4 my-2">{children}</ul>
                   ),
                   ol: ({ children }) => (
-                    <ol className="text-slate-200 list-decimal ml-4 my-2">{children}</ol>
+                    <ol className="list-decimal ml-4 my-2">{children}</ol>
                   ),
                   li: ({ children }) => (
-                    <li className="text-slate-200">{children}</li>
+                    <li>{children}</li>
                   ),
                 }}
               >
@@ -138,12 +137,13 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode 
               </ReactMarkdown>
             </div>
           ) : (
-            <p className="text-sm whitespace-pre-wrap leading-relaxed text-card-foreground" data-testid="message-content">
+            <p className="text-sm whitespace-pre-wrap leading-relaxed" data-testid="message-content">
               {cleanContent}
             </p>
           )}
-        </>
-      )}
+        </div>
+        )}
+      </div>
     </div>
   );
 };

@@ -5,48 +5,58 @@
 
 @layer base {
   :root {
-    --background: 240 10% 8%;
-    --foreground: 240 10% 95%;
-    --card: 240 10% 12%;
-    --card-foreground: 240 10% 95%;
-    --popover: 240 10% 12%;
-    --popover-foreground: 240 10% 95%;
-    --primary: 240 10% 90%;
-    --primary-foreground: 240 10% 10%;
-    --secondary: 240 10% 16%;
-    --secondary-foreground: 240 10% 90%;
-    --muted: 240 10% 16%;
-    --muted-foreground: 240 5% 65%;
-    --accent: 240 10% 20%;
-    --accent-foreground: 240 10% 90%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 240 10% 95%;
-    --border: 240 10% 20%;
-    --input: 240 10% 16%;
-    --ring: 240 10% 70%;
-    --radius: 0.5rem;
+    /* Flat Design - Clean & Minimal */
+    --background: 210 20% 98%;  /* Very light blue-gray */
+    --foreground: 222 47% 11%;  /* Dark blue-gray text */
+    --card: 0 0% 100%;          /* Pure white cards */
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 221 83% 53%;     /* Modern blue */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 40% 96%;   /* Light gray */
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 210 40% 96%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 84% 60%;   /* Red */
+    --destructive-foreground: 0 0% 100%;
+    --border: 214 32% 91%;      /* Light border */
+    --input: 214 32% 91%;
+    --ring: 221 83% 53%;
+    --radius: 0.5rem;           /* Subtle rounded corners */
+
+    /* Flat design specific colors */
+    --flat-blue: 221 83% 53%;
+    --flat-green: 142 71% 45%;
+    --flat-purple: 262 83% 58%;
+    --flat-orange: 27 98% 54%;
+    --flat-red: 0 84% 60%;
+    --flat-gray: 210 40% 96%;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
+    /* Dark mode flat design */
+    --background: 222 47% 11%;
     --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
+    --card: 217 33% 17%;
     --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
+    --popover: 217 33% 17%;
     --popover-foreground: 210 40% 98%;
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 84% 4.9%;
-    --secondary: 217.2 32.6% 17.5%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 217 33% 17%;
     --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
+    --muted: 215 28% 17%;
+    --muted-foreground: 218 11% 65%;
+    --accent: 217 33% 17%;
     --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 217 33% 23%;
+    --input: 217 33% 23%;
+    --ring: 217 91% 60%;
   }
 }
 
@@ -56,31 +66,94 @@
   }
   body {
     @apply text-foreground;
-    background: linear-gradient(135deg, hsl(var(--background)), hsl(240 10% 12%));
+    background: hsl(var(--background));
     min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", "Ubuntu", sans-serif;
+    font-weight: 400; /* Normal text for flat design */
   }
 }
 
-/* Custom loading animation */
-@keyframes pulse-dot {
-  0%, 80%, 100% { 
-    transform: scale(0);
-    opacity: 0.5;
+/* Flat Design Utilities */
+@layer components {
+  .flat-card {
+    @apply bg-card border-0;
+    box-shadow: none;
   }
-  40% { 
-    transform: scale(1);
+
+  .flat-button {
+    @apply font-medium px-6 py-3 rounded-lg border-0;
+    transition: all 0.2s ease;
+  }
+
+  .flat-button:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
+  }
+
+  .flat-button:active {
+    transform: translateY(0);
+  }
+
+  .flat-input {
+    @apply border border-input px-4 py-3 rounded-lg;
+    background: hsl(var(--card));
+  }
+
+  .flat-input:focus {
+    outline: none;
+    border-color: hsl(var(--primary));
+  }
+
+  .flat-message-user {
+    @apply rounded-2xl;
+    background: hsl(217 33% 24%);
+    color: hsl(var(--foreground));
+  }
+
+  .flat-message-assistant {
+    background: transparent;
+    color: hsl(var(--foreground));
+  }
+
+  .flat-header {
+    @apply border-b border-border;
+    background: hsl(var(--card));
+  }
+
+  .flat-sidebar {
+    @apply border-r border-border;
+    background: hsl(var(--card));
+  }
+}
+
+/* Flat design smooth pulse animation for loading indicator */
+@keyframes flat-pulse {
+  0%, 100% {
     opacity: 1;
   }
+  50% {
+    opacity: 0.4;
+  }
 }
 
-.loading-dot {
-  animation: pulse-dot 1.4s ease-in-out infinite both;
+.flat-pulse {
+  animation: flat-pulse 1.5s ease-in-out infinite;
 }
 
-.loading-dot:nth-child(1) { 
-  animation-delay: -0.32s; 
+/* Flat design scrollbar for chat messages */
+[data-testid="messages-container"]::-webkit-scrollbar {
+  width: 8px;
 }
 
-.loading-dot:nth-child(2) { 
-  animation-delay: -0.16s; 
+[data-testid="messages-container"]::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+[data-testid="messages-container"]::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.3);
+  border-radius: 4px;
+}
+
+[data-testid="messages-container"]::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.5);
 }

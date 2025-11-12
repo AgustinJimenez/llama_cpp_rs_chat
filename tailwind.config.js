@@ -52,6 +52,15 @@ module.exports = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        // Flat design colors
+        flat: {
+          blue: "hsl(var(--flat-blue))",
+          green: "hsl(var(--flat-green))",
+          purple: "hsl(var(--flat-purple))",
+          orange: "hsl(var(--flat-orange))",
+          red: "hsl(var(--flat-red))",
+          gray: "hsl(var(--flat-gray))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",

@@ -251,12 +251,12 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, onNewChat, onOpenSe
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={handleDeleteCancel}>
+            <button className="neo-button bg-white text-black px-6 py-2" onClick={handleDeleteCancel}>
               Cancel
-            </Button>
-            <Button variant="destructive" onClick={handleDeleteConfirm}>
+            </button>
+            <button className="neo-button bg-destructive text-white px-6 py-2" onClick={handleDeleteConfirm}>
               Delete
-            </Button>
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
