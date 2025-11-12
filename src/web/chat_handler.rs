@@ -11,6 +11,7 @@ use super::models::*;
 use super::config::load_config;
 use super::command::execute_command;
 use super::model_manager::load_model;
+use super::utils::get_available_tools_json;
 
 // Constants for LLaMA configuration
 const CONTEXT_SIZE: u32 = 32768;
@@ -68,12 +69,33 @@ pub fn apply_model_chat_template(conversation: &str, template_type: Option<&str>
             // Qwen/ChatML format: <|im_start|>role\ncontent<|im_end|>
             let mut p = String::new();
 
-            // Add system message
-            if let Some(sys_msg) = system_message {
-                p.push_str("<|im_start|>system\n");
-                p.push_str(&sys_msg);
-                p.push_str("<|im_end|>\n");
-            }
+            // Add system message with tool definitions in Hermes format for Qwen3
+            let mut system_content = system_message.unwrap_or_else(|| "You are a helpful AI assistant.".to_string());
+
+            // Inject tool definitions using Hermes-style format (CORRECT for Qwen3!)
+            system_content.push_str("\n\n# Tools\n");
+            system_content.push_str("You may call one or more functions to assist with the user query.\n\n");
+            system_content.push_str("You are provided with function signatures within <tools></tools> XML tags:\n");
+            system_content.push_str("<tools>\n");
+
+            // Get tools as JSON array (this is the correct format!)
+            let tools_json = get_available_tools_json();
+            system_content.push_str(&tools_json);
+
+            system_content.push_str("\n</tools>\n\n");
+            system_content.push_str("For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\n");
+            system_content.push_str("<tool_call>\n");
+            system_content.push_str("{\"name\": <function-name>, \"arguments\": <args-json-object>}\n");
+            system_content.push_str("</tool_call>\n");
+
+            p.push_str("<|im_start|>system\n");
+            p.push_str(&system_content);
+            p.push_str("<|im_end|>\n");
+
+            // DEBUG: Print the system prompt being sent to Qwen3
+            eprintln!("=== QWEN3 SYSTEM PROMPT ===");
+            eprintln!("{}", &system_content);
+            eprintln!("=== END SYSTEM PROMPT ===");
 
             // Add conversation history
             let turn_count = user_messages.len().max(assistant_messages.len());
@@ -106,6 +128,13 @@ pub fn apply_model_chat_template(conversation: &str, template_type: Option<&str>
                 p.push_str(&sys_msg);
                 p.push_str("[/SYSTEM_PROMPT]");
             }
+
+            // Inject tool definitions for Mistral-style models (Devstral, etc.)
+            // This enables the model to understand available tools and generate tool calls
+            let tools_json = get_available_tools_json();
+            p.push_str("[AVAILABLE_TOOLS]");
+            p.push_str(&tools_json);
+            p.push_str("[/AVAILABLE_TOOLS]");
 
             // Add conversation history
             let turn_count = user_messages.len().max(assistant_messages.len());

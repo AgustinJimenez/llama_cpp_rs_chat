@@ -3426,6 +3426,144 @@ async fn handle_request_impl(
 
             // Execute tool based on name
             let result = match request.tool_name.as_str() {
+                "read_file" => {
+                    // Extract file path from arguments
+                    let path = request.arguments.get("path")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+
+                    if path.is_empty() {
+                        return Ok(Response::builder()
+                            .status(StatusCode::BAD_REQUEST)
+                            .header("content-type", "application/json")
+                            .header("access-control-allow-origin", "*")
+                            .body(Body::from(r#"{"error":"File path is required"}"#))
+                            .unwrap());
+                    }
+
+                    // Read file
+                    match fs::read_to_string(path) {
+                        Ok(content) => {
+                            serde_json::json!({
+                                "success": true,
+                                "result": content,
+                                "path": path
+                            })
+                        }
+                        Err(e) => {
+                            serde_json::json!({
+                                "success": false,
+                                "error": format!("Failed to read file '{}': {}", path, e)
+                            })
+                        }
+                    }
+                }
+                "write_file" => {
+                    // Extract path and content from arguments
+                    let path = request.arguments.get("path")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let content = request.arguments.get("content")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+
+                    if path.is_empty() {
+                        return Ok(Response::builder()
+                            .status(StatusCode::BAD_REQUEST)
+                            .header("content-type", "application/json")
+                            .header("access-control-allow-origin", "*")
+                            .body(Body::from(r#"{"error":"File path is required"}"#))
+                            .unwrap());
+                    }
+
+                    // Write file
+                    match fs::write(path, content) {
+                        Ok(_) => {
+                            serde_json::json!({
+                                "success": true,
+                                "result": format!("Successfully wrote {} bytes to '{}'", content.len(), path),
+                                "path": path,
+                                "bytes_written": content.len()
+                            })
+                        }
+                        Err(e) => {
+                            serde_json::json!({
+                                "success": false,
+                                "error": format!("Failed to write file '{}': {}", path, e)
+                            })
+                        }
+                    }
+                }
+                "list_directory" => {
+                    // Extract path and recursive flag from arguments
+                    let path = request.arguments.get("path")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(".");
+                    let recursive = request.arguments.get("recursive")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+
+                    // List directory contents
+                    if recursive {
+                        // Recursive listing using walkdir
+                        use walkdir::WalkDir;
+                        let entries: Vec<String> = WalkDir::new(path)
+                            .into_iter()
+                            .filter_map(|e| e.ok())
+                            .map(|e| {
+                                let metadata = e.metadata().ok();
+                                let size = metadata.as_ref().and_then(|m| if m.is_file() { Some(m.len()) } else { None });
+                                let file_type = if e.file_type().is_dir() { "DIR" } else { "FILE" };
+                                format!("{:>10} {:>15} {}",
+                                    file_type,
+                                    size.map(|s| format!("{} bytes", s)).unwrap_or_else(|| "".to_string()),
+                                    e.path().display()
+                                )
+                            })
+                            .collect();
+
+                        serde_json::json!({
+                            "success": true,
+                            "result": entries.join("\n"),
+                            "path": path,
+                            "count": entries.len(),
+                            "recursive": true
+                        })
+                    } else {
+                        // Non-recursive listing
+                        match fs::read_dir(path) {
+                            Ok(entries) => {
+                                let items: Vec<String> = entries
+                                    .filter_map(|e| e.ok())
+                                    .map(|e| {
+                                        let metadata = e.metadata().ok();
+                                        let size = metadata.as_ref().and_then(|m| if m.is_file() { Some(m.len()) } else { None });
+                                        let file_type = if metadata.as_ref().map(|m| m.is_dir()).unwrap_or(false) { "DIR" } else { "FILE" };
+                                        format!("{:>10} {:>15} {}",
+                                            file_type,
+                                            size.map(|s| format!("{} bytes", s)).unwrap_or_else(|| "".to_string()),
+                                            e.file_name().to_string_lossy()
+                                        )
+                                    })
+                                    .collect();
+
+                                serde_json::json!({
+                                    "success": true,
+                                    "result": items.join("\n"),
+                                    "path": path,
+                                    "count": items.len(),
+                                    "recursive": false
+                                })
+                            }
+                            Err(e) => {
+                                serde_json::json!({
+                                    "success": false,
+                                    "error": format!("Failed to list directory '{}': {}", path, e)
+                                })
+                            }
+                        }
+                    }
+                }
                 "bash" | "shell" | "command" => {
                     // Extract command from arguments
                     let command = request.arguments.get("command")

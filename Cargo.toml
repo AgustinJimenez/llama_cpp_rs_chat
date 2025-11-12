@@ -44,6 +44,7 @@ urlencoding = "2.1"
 async-stream = "0.3"
 tokio-tungstenite = "0.21"
 futures-util = "0.3"
+walkdir = "2.5"  # For recursive directory listing
 
 # GGUF file parser for reading model metadata
 gguf-llms = "0.0.2"
