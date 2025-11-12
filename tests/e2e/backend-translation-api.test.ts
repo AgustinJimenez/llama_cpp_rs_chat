@@ -15,8 +15,13 @@ const __dirname = path.dirname(__filename);
 
 const TEST_DATA_DIR = path.resolve(__dirname, '../../test_data');
 const TEST_FILE = path.join(TEST_DATA_DIR, 'config.json');
-const DEVSTRAL_PATH = 'E:/.lmstudio/models/lmstudio-community/Devstral-Small-2507-GGUF/Devstral-Small-2507-Q4_K_M.gguf';
-const QWEN_PATH = 'E:/.lmstudio/models/lmstudio-community/Qwen3-30B-A3B-Instruct-2507-GGUF/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf';
+
+// Model paths for testing
+const MODELS = [
+  'E:/.lmstudio/models/lmstudio-community/Devstral-Small-2507-GGUF/Devstral-Small-2507-Q4_K_M.gguf',
+  'E:/.lmstudio/models/lmstudio-community/Qwen3-30B-A3B-Instruct-2507-GGUF/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf',
+  'E:/.lmstudio/Mungert/MiniCPM4.1-8B-GGUF/MiniCPM4.1-8B-bf16.gguf'
+];
 
 // Ensure test file exists
 test.beforeAll(() => {
@@ -31,181 +36,115 @@ test.beforeAll(() => {
   }
 });
 
+// Helper function to get model name from path
+function getModelName(modelPath: string): string {
+  const parts = modelPath.split('/');
+  return parts[parts.length - 1].split('.')[0];
+}
+
 test.describe('Backend Translation Layer - API Tests', () => {
   test.setTimeout(300000); // 5 minutes
 
-  test.describe('Devstral Tests', () => {
-    test('load Devstral model', async ({ page }) => {
-      console.log('🚀 Loading Devstral...');
+  // Iterate through all models
+  MODELS.forEach((modelPath) => {
+    const modelName = getModelName(modelPath);
 
-      await page.goto('/');
+    test.describe(`${modelName} Tests`, () => {
+      test(`load ${modelName} model`, async ({ page }) => {
+        console.log(`🚀 Loading ${modelName}...`);
 
-      // Check if any model is loaded
-      const unloadButton = page.locator('[title="Unload model"]');
-      const isModelLoaded = await unloadButton.isVisible().catch(() => false);
+        await page.goto('/');
 
-      if (isModelLoaded) {
-        console.log('⚠️  Unloading existing model first...');
-        await unloadButton.click();
-        await page.waitForTimeout(3000);
-      }
+        // Check if any model is loaded
+        const unloadButton = page.locator('[title="Unload model"]');
+        const isModelLoaded = await unloadButton.isVisible().catch(() => false);
 
-      // Load Devstral via API
-      const response = await page.request.post('http://localhost:8000/api/model/load', {
-        data: { model_path: DEVSTRAL_PATH }
-      });
-
-      const result = await response.json();
-      console.log('Load response:', result);
-
-      // Wait for model to load
-      await page.waitForTimeout(30000);
-
-      console.log('✅ Devstral should be loaded');
-    });
-
-    test('devstral - read_file should work natively', async ({ page }) => {
-      console.log('📝 Testing Devstral read_file (native)...');
-
-      const response = await page.request.post('http://localhost:8000/api/tools/execute', {
-        data: {
-          tool_name: 'read_file',
-          arguments: { path: TEST_FILE }
+        if (isModelLoaded) {
+          console.log('⚠️  Unloading existing model first...');
+          await unloadButton.click();
+          await page.waitForTimeout(3000);
         }
+
+        // Load model via API
+        const response = await page.request.post('http://localhost:8000/api/model/load', {
+          data: { model_path: modelPath }
+        });
+
+        const result = await response.json();
+        console.log('Load response:', result);
+
+        // Wait for model to load
+        await page.waitForTimeout(60000);
+
+        console.log(`✅ ${modelName} should be loaded`);
       });
 
-      const result = await response.json();
-      console.log('Tool execution result:', result);
+      test(`${modelName} - read_file should work`, async ({ page }) => {
+        console.log(`📝 Testing ${modelName} read_file...`);
 
-      expect(response.ok()).toBe(true);
-      const resultText = JSON.stringify(result);
-      const hasContent = resultText.includes('version') || resultText.includes('1.0');
+        const response = await page.request.post('http://localhost:8000/api/tools/execute', {
+          data: {
+            tool_name: 'read_file',
+            arguments: { path: TEST_FILE }
+          }
+        });
 
-      expect(hasContent).toBe(true);
-      console.log('✅ Devstral read_file works natively (no translation)');
-    });
+        const result = await response.json();
+        console.log('Tool execution result:', result);
 
-    test('devstral - list_directory should work natively', async ({ page }) => {
-      console.log('📝 Testing Devstral list_directory (native)...');
+        expect(response.ok()).toBe(true);
+        const resultText = JSON.stringify(result);
+        const hasContent = resultText.includes('version') || resultText.includes('1.0');
 
-      const response = await page.request.post('http://localhost:8000/api/tools/execute', {
-        data: {
-          tool_name: 'list_directory',
-          arguments: { path: TEST_DATA_DIR }
-        }
+        expect(hasContent).toBe(true);
+        console.log(`✅ ${modelName} read_file works`);
       });
 
-      const result = await response.json();
-      console.log('Tool execution result:', result);
+      test(`${modelName} - list_directory should work`, async ({ page }) => {
+        console.log(`📝 Testing ${modelName} list_directory...`);
 
-      expect(response.ok()).toBe(true);
-      const resultText = JSON.stringify(result);
-      const hasFiles = resultText.includes('config.json');
+        const response = await page.request.post('http://localhost:8000/api/tools/execute', {
+          data: {
+            tool_name: 'list_directory',
+            arguments: { path: TEST_DATA_DIR }
+          }
+        });
 
-      expect(hasFiles).toBe(true);
-      console.log('✅ Devstral list_directory works natively (no translation)');
-    });
-  });
+        const result = await response.json();
+        console.log('Tool execution result:', result);
 
-  test.describe('Qwen3 Tests', () => {
-    test('load Qwen3 model', async ({ page }) => {
-      console.log('🚀 Loading Qwen3...');
+        expect(response.ok()).toBe(true);
+        const resultText = JSON.stringify(result);
+        const hasFiles = resultText.includes('config.json');
 
-      await page.goto('/');
-
-      // Check if any model is loaded
-      const unloadButton = page.locator('[title="Unload model"]');
-      const isModelLoaded = await unloadButton.isVisible().catch(() => false);
-
-      if (isModelLoaded) {
-        console.log('⚠️  Unloading existing model first...');
-        await unloadButton.click();
-        await page.waitForTimeout(3000);
-      }
-
-      // Load Qwen3 via API
-      const response = await page.request.post('http://localhost:8000/api/model/load', {
-        data: { model_path: QWEN_PATH }
+        expect(hasFiles).toBe(true);
+        console.log(`✅ ${modelName} list_directory works`);
       });
 
-      const result = await response.json();
-      console.log('Load response:', result);
+      test(`${modelName} - bash tool should work`, async ({ page }) => {
+        console.log(`📝 Testing ${modelName} bash tool...`);
 
-      // Wait for model to load (Qwen3 is larger)
-      await page.waitForTimeout(60000);
+        const command = process.platform === 'win32'
+          ? `type "${TEST_FILE}"`
+          : `cat "${TEST_FILE}"`;
 
-      console.log('✅ Qwen3 should be loaded');
-    });
+        const response = await page.request.post('http://localhost:8000/api/tools/execute', {
+          data: {
+            tool_name: 'bash',
+            arguments: { command }
+          }
+        });
 
-    test('qwen3 - read_file should work via translation', async ({ page }) => {
-      console.log('📝 Testing Qwen3 read_file (auto-translated to bash)...');
-      console.log('💡 Backend should automatically translate: read_file → bash(cat)');
+        const result = await response.json();
+        console.log('Tool execution result:', result);
 
-      const response = await page.request.post('http://localhost:8000/api/tools/execute', {
-        data: {
-          tool_name: 'read_file',
-          arguments: { path: TEST_FILE }
-        }
+        expect(response.ok()).toBe(true);
+        const resultText = JSON.stringify(result);
+        const hasContent = resultText.includes('version');
+
+        expect(hasContent).toBe(true);
+        console.log(`✅ ${modelName} bash tool works`);
       });
-
-      const result = await response.json();
-      console.log('Tool execution result:', result);
-
-      expect(response.ok()).toBe(true);
-      const resultText = JSON.stringify(result);
-      const hasContent = resultText.includes('version') || resultText.includes('1.0');
-
-      expect(hasContent).toBe(true);
-      console.log('✅ Qwen3 read_file works via automatic translation!');
-      console.log('   Backend translated: read_file → bash(type/cat)');
-    });
-
-    test('qwen3 - list_directory should work via translation', async ({ page }) => {
-      console.log('📝 Testing Qwen3 list_directory (auto-translated to bash)...');
-      console.log('💡 Backend should automatically translate: list_directory → bash(dir/ls)');
-
-      const response = await page.request.post('http://localhost:8000/api/tools/execute', {
-        data: {
-          tool_name: 'list_directory',
-          arguments: { path: TEST_DATA_DIR }
-        }
-      });
-
-      const result = await response.json();
-      console.log('Tool execution result:', result);
-
-      expect(response.ok()).toBe(true);
-      const resultText = JSON.stringify(result);
-      const hasFiles = resultText.includes('config.json') || resultText.includes('file');
-
-      expect(hasFiles).toBe(true);
-      console.log('✅ Qwen3 list_directory works via automatic translation!');
-      console.log('   Backend translated: list_directory → bash(dir/ls)');
-    });
-
-    test('qwen3 - bash tool should still work directly', async ({ page }) => {
-      console.log('📝 Testing Qwen3 bash tool (direct)...');
-
-      const command = process.platform === 'win32'
-        ? `type "${TEST_FILE}"`
-        : `cat "${TEST_FILE}"`;
-
-      const response = await page.request.post('http://localhost:8000/api/tools/execute', {
-        data: {
-          tool_name: 'bash',
-          arguments: { command }
-        }
-      });
-
-      const result = await response.json();
-      console.log('Tool execution result:', result);
-
-      expect(response.ok()).toBe(true);
-      const resultText = JSON.stringify(result);
-      const hasContent = resultText.includes('version');
-
-      expect(hasContent).toBe(true);
-      console.log('✅ Qwen3 bash tool works directly (no translation needed)');
     });
   });
 
@@ -215,24 +154,20 @@ test.describe('Backend Translation Layer - API Tests', () => {
       console.log('🎯 Backend Translation Layer - Test Results Summary');
       console.log('='.repeat(70));
       console.log('');
-      console.log('✅ Devstral Model:');
-      console.log('   - read_file: Works natively (Mistral template)');
-      console.log('   - list_directory: Works natively (Mistral template)');
-      console.log('   - No translation required');
-      console.log('');
-      console.log('✅ Qwen3 Model:');
-      console.log('   - read_file: Works via bash translation (ChatML template)');
-      console.log('   - list_directory: Works via bash translation (ChatML template)');
-      console.log('   - bash: Works directly without translation');
+      console.log(`✅ Tested ${MODELS.length} models:`);
+      MODELS.forEach((modelPath) => {
+        const modelName = getModelName(modelPath);
+        console.log(`   - ${modelName}: All file operations work`);
+      });
       console.log('');
       console.log('Implementation Details:');
-      console.log('  • Location: src/main_web.rs (line 3429-3445)');
+      console.log('  • Location: src/main_web.rs & src/web/models.rs');
       console.log('  • Detection: get_model_capabilities(chat_template)');
       console.log('  • Translation: translate_tool_for_model()');
       console.log('  • Logging: [TOOL TRANSLATION] messages in console');
       console.log('');
-      console.log('Result: Both models provide consistent file operation functionality!');
-      console.log('        Users don\'t need to know about model limitations.');
+      console.log('Result: All models provide consistent file operation functionality!');
+      console.log('        Backend automatically translates when needed.');
       console.log('='.repeat(70) + '\n');
     });
   });
