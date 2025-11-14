@@ -32,7 +32,7 @@ export const ModelPathSection: React.FC<ModelPathSectionProps> = ({
           <button
             type="button"
             onClick={onBrowseClick}
-            className="flat-button bg-flat-red text-white flex items-center gap-2 px-3"
+            className="flat-button bg-primary text-white flex items-center gap-2 px-3"
           >
             <FolderOpen className="h-4 w-4" />
             Browse

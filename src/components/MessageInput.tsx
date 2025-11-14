@@ -66,7 +66,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
       <button
         type="submit"
         disabled={disabled || !message.trim()}
-        className="flat-button bg-flat-red text-white px-6 h-[60px] min-w-[60px] flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+        className="flat-button bg-primary text-white px-6 h-[60px] min-w-[60px] flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
         data-testid="send-button"
       >
         <Send className="h-5 w-5" />

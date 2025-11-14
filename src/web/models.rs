@@ -88,6 +88,7 @@ impl Default for SamplerConfig {
 pub struct ModelCapabilities {
     pub native_file_tools: bool,     // Can use read_file, write_file, list_directory natively
     pub bash_tool: bool,              // Can use bash tool
+    #[allow(dead_code)]
     pub requires_translation: bool,   // Needs file tools translated to bash
 }
 
@@ -321,6 +322,7 @@ pub struct LlamaState {
     pub current_model_path: Option<String>,
     pub model_context_length: Option<u32>,
     pub chat_template_type: Option<String>, // Store detected template type
+    pub gpu_layers: Option<u32>, // Number of GPU layers offloaded
     pub last_used: std::time::SystemTime,
 }
 

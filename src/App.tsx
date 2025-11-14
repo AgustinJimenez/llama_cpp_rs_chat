@@ -135,7 +135,7 @@ function App() {
                     onClick={() => setViewMode('markdown')}
                     className={`px-4 py-2 font-medium text-sm transition-all rounded-md ${
                       viewMode === 'markdown'
-                        ? 'bg-flat-red text-white'
+                        ? 'bg-primary text-white'
                         : 'hover:bg-background'
                     }`}
                     title="Markdown view"
@@ -146,7 +146,7 @@ function App() {
                     onClick={() => setViewMode('text')}
                     className={`px-4 py-2 font-medium text-sm transition-all rounded-md ${
                       viewMode === 'text'
-                        ? 'bg-flat-red text-white'
+                        ? 'bg-primary text-white'
                         : 'hover:bg-background'
                     }`}
                     title="Plain text view"

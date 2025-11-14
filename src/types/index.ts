@@ -62,6 +62,7 @@ export interface ModelMetadata {
   parameters: string;
   quantization: string;
   file_size: string;
+  file_size_gb?: number;  // File size in GB for calculations
   context_length: string;
   file_path: string;
   estimated_layers?: number;  // Estimated total layers based on model size
@@ -79,7 +80,19 @@ export interface ModelMetadata {
   file_type?: string;
   quantization_version?: string;
 
-  // Architecture details
+  // Architecture details (structured for memory calculations)
+  architecture_details?: {
+    block_count?: number;  // Total layer count
+    embedding_length?: number;  // Embedding dimension
+    feed_forward_length?: number;
+    attention_head_count?: number;
+    attention_head_count_kv?: number;  // KV heads for memory calculation
+    layer_norm_epsilon?: number;
+    rope_dimension_count?: number;
+    rope_freq_base?: number;
+  };
+
+  // Legacy architecture details (string format)
   embedding_length?: string;
   block_count?: string;  // Actual layer count
   feed_forward_length?: string;

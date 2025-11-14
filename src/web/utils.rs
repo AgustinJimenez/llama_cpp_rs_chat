@@ -4,7 +4,7 @@ use serde_json;
 pub fn get_available_tools_json() -> String {
     // Detect OS and provide appropriate command examples
     let os_name = std::env::consts::OS;
-    let (bash_description, bash_examples, read_examples, write_examples, list_examples) = match os_name {
+    let (bash_description, bash_examples, read_examples, _write_examples, list_examples) = match os_name {
         "windows" => (
             "Execute any Windows shell command. Use for system operations, running programs, searching, etc.",
             "echo Hello, dir /s *.rs, cd C:\\Users, tasklist",

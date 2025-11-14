@@ -63,7 +63,12 @@ async fn handle_request_impl(
 ) -> std::result::Result<Response<Body>, Infallible> {
     let response = match (req.method(), req.uri().path()) {
         (&Method::GET, "/health") => {
-            json_ok(r#"{"status":"ok","service":"llama-chat-web"}"#)
+            Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", "application/json")
+                .header("access-control-allow-origin", "*")
+                .body(Body::from(r#"{"status":"ok","service":"llama-chat-web"}"#))
+                .unwrap()
         }
         
         (&Method::POST, "/api/chat") => {

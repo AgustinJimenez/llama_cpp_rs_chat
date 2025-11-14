@@ -181,6 +181,42 @@ pub fn apply_model_chat_template(conversation: &str, template_type: Option<&str>
 
             p
         }
+        Some("Gemma") => {
+            // Gemma 3 format: <start_of_turn>role\ncontent<end_of_turn>\n
+            // Note: Gemma uses "model" instead of "assistant"
+            let mut p = String::new();
+
+            // Add system message as first user message prefix if present
+            let first_user_prefix = if let Some(sys_msg) = system_message {
+                format!("{}\n\n", sys_msg)
+            } else {
+                String::new()
+            };
+
+            // Add conversation history
+            let turn_count = user_messages.len().max(assistant_messages.len());
+            for i in 0..turn_count {
+                if i < user_messages.len() {
+                    p.push_str("<start_of_turn>user\n");
+                    // Add system prompt prefix to first user message
+                    if i == 0 && !first_user_prefix.is_empty() {
+                        p.push_str(&first_user_prefix);
+                    }
+                    p.push_str(&user_messages[i]);
+                    p.push_str("<end_of_turn>\n");
+                }
+                if i < assistant_messages.len() {
+                    p.push_str("<start_of_turn>model\n");
+                    p.push_str(&assistant_messages[i]);
+                    p.push_str("<end_of_turn>\n");
+                }
+            }
+
+            // Add generation prompt
+            p.push_str("<start_of_turn>model\n");
+
+            p
+        }
         Some(_) => {
             // Generic fallback - use ChatML-style
             let mut p = String::new();
@@ -246,12 +282,33 @@ pub async fn generate_llama_response(
     let model = state.model.as_ref().ok_or("No model loaded")?;
 
     // Get context size: prefer user config, fallback to model's context_length, then default
-    let context_size = config.context_size
+    let requested_context_size = config.context_size
         .or(state.model_context_length)
         .unwrap_or(CONTEXT_SIZE);
 
-    println!("Using context size: {} (user config: {:?}, model max: {:?})",
-        context_size, config.context_size, state.model_context_length);
+    // Validate context size against available VRAM and auto-reduce if needed
+    let (context_size, was_reduced) = crate::web::model_manager::calculate_safe_context_size(
+        model_path,
+        requested_context_size,
+        None, // Let it auto-detect VRAM
+        state.gpu_layers // Use actual GPU layers from loaded model
+    );
+
+    if was_reduced {
+        println!("⚠️  [VRAM WARNING] Requested context {} exceeded VRAM capacity", requested_context_size);
+        println!("⚠️  [VRAM WARNING] Automatically reduced to {} tokens to prevent crashes", context_size);
+
+        // Log warning to conversation file
+        let mut logger = conversation_logger.lock().map_err(|_| "Failed to lock conversation logger")?;
+        logger.log_message("SYSTEM", &format!("⚠️ Context Size Reduced"));
+        logger.log_message("SYSTEM", &format!("Requested: {} tokens, but this exceeds available VRAM", requested_context_size));
+        logger.log_message("SYSTEM", &format!("Auto-reduced to: {} tokens to prevent memory errors", context_size));
+        logger.log_message("SYSTEM", "");
+        drop(logger);
+    }
+
+    println!("Using context size: {} (requested: {}, model max: {:?})",
+        context_size, requested_context_size, state.model_context_length);
 
     // Create sampler based on configuration
     let mut sampler = match config.sampler_type.as_str() {

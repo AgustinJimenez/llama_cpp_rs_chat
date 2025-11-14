@@ -2,7 +2,6 @@ import React, { useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
-import { Card, CardContent } from '@/components/ui/card';
 import type { Message } from '../types';
 import { autoParseToolCalls, stripToolCalls } from '../utils/toolParser';
 import 'highlight.js/styles/github-dark.css';
@@ -14,6 +13,7 @@ interface MessageBubbleProps {
 
 export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode = 'text' }) => {
   const isUser = message.role === 'user';
+  const isSystem = message.role === 'system';
 
   // Parse tool calls from assistant messages
   const toolCalls = useMemo(() => {
@@ -30,6 +30,41 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode 
     }
     return message.content;
   }, [message.content, toolCalls.length]);
+
+  // Detect error messages (contain ❌ or "Error" or "Panic")
+  const isError = isSystem && (
+    message.content.includes('❌') ||
+    message.content.includes('Generation Crashed') ||
+    message.content.includes('Error')
+  );
+
+  // System messages (especially errors)
+  if (isSystem) {
+    return (
+      <div
+        className="w-full flex justify-center"
+        data-testid={`message-${message.role}`}
+        data-message-id={message.id}
+      >
+        <div className={`max-w-[90%] w-full p-4 rounded-lg ${
+          isError
+            ? 'bg-red-950 border-2 border-red-500'
+            : 'bg-yellow-950 border-2 border-yellow-500'
+        }`}>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-sm font-bold text-white">
+              {isError ? '❌ SYSTEM ERROR' : '⚠️ SYSTEM'}
+            </span>
+          </div>
+          <pre className={`text-sm whitespace-pre-wrap leading-relaxed ${
+            isError ? 'text-red-200' : 'text-yellow-200'
+          }`}>
+            {cleanContent}
+          </pre>
+        </div>
+      </div>
+    );
+  }
 
   if (isUser) {
     // User messages keep the card styling and right alignment

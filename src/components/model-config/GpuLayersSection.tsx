@@ -20,31 +20,6 @@ export const GpuLayersSection: React.FC<GpuLayersSectionProps> = ({
       </span>
     </div>
 
-    <div className="relative w-full h-8 rounded-md overflow-hidden border border-border bg-background">
-      <div className="absolute inset-0 flex">
-        <div
-          className="h-full bg-gradient-to-r from-green-600 to-green-500 transition-all duration-200"
-          style={{ width: `${((gpuLayers || 0) / maxLayers) * 100}%` }}
-        >
-          {(gpuLayers || 0) > 0 && (
-            <div className="h-full flex items-center justify-center text-xs font-semibold text-white">
-              GPU
-            </div>
-          )}
-        </div>
-        <div
-          className="h-full bg-gradient-to-r from-slate-300 to-slate-200 transition-all duration-200"
-          style={{ width: `${((maxLayers - (gpuLayers || 0)) / maxLayers) * 100}%` }}
-        >
-          {(maxLayers - (gpuLayers || 0)) > (maxLayers * 0.1) && (
-            <div className="h-full flex items-center justify-center text-xs font-semibold text-slate-700">
-              CPU
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-
     <Slider
       data-testid="gpu-layers-slider"
       value={[gpuLayers || 0]}

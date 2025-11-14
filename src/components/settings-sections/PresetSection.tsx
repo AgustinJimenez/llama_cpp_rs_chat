@@ -17,7 +17,7 @@ export const PresetSection: React.FC<PresetSectionProps> = ({
       <CardContent>
         <button
           onClick={onApplyIBMPreset}
-          className="flat-button bg-flat-red text-white w-full"
+          className="flat-button bg-primary text-white w-full"
         >
           Apply IBM Settings (ChainFull, temp: 0.7, top_p: 0.95, top_k: 20)
         </button>

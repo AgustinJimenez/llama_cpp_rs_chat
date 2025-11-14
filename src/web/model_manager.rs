@@ -1,5 +1,6 @@
 use std::fs;
 use std::io::BufReader;
+use std::process::Command;
 use gguf_llms::{GgufHeader, GgufReader, Value};
 use llama_cpp_2::{
     llama_backend::LlamaBackend,
@@ -7,6 +8,152 @@ use llama_cpp_2::{
 };
 
 use super::models::{ModelStatus, SharedLlamaState, LlamaState};
+
+// Helper function to detect available VRAM
+fn get_available_vram_gb() -> Option<f64> {
+    // Try nvidia-smi first
+    if let Ok(output) = Command::new("nvidia-smi")
+        .args(&["--query-gpu=memory.free", "--format=csv,noheader,nounits"])
+        .output()
+    {
+        if output.status.success() {
+            if let Ok(output_str) = String::from_utf8(output.stdout) {
+                if let Ok(vram_mb) = output_str.trim().parse::<f64>() {
+                    return Some(vram_mb / 1024.0); // Convert MB to GB
+                }
+            }
+        }
+    }
+
+    // Fallback: assume 22GB available (conservative estimate)
+    println!("[VRAM] Could not detect VRAM, assuming 22GB available");
+    Some(22.0)
+}
+
+// Helper function to calculate KV cache size in GB
+fn calculate_kv_cache_size_gb(
+    n_ctx: u32,
+    n_layers: u32,
+    n_kv_heads: u32,
+    head_dim: u32,
+) -> f64 {
+    // KV cache = tokens × layers × kv_heads × head_dim × 2 (key+value) × 2 bytes (fp16)
+    let bytes = n_ctx as f64 * n_layers as f64 * n_kv_heads as f64 * head_dim as f64 * 2.0 * 2.0;
+    bytes / (1024.0 * 1024.0 * 1024.0) // Convert to GB
+}
+
+// Helper function to calculate safe context size based on available VRAM
+pub fn calculate_safe_context_size(
+    model_path: &str,
+    requested_ctx: u32,
+    available_vram_gb: Option<f64>,
+    gpu_layers: Option<u32>,
+) -> (u32, bool) {
+    let available_vram = available_vram_gb.unwrap_or_else(|| {
+        get_available_vram_gb().unwrap_or(22.0)
+    });
+
+    // Read model metadata to get architecture details
+    let (n_layers, n_kv_heads, embedding_len) = if let Ok(file) = fs::File::open(model_path) {
+        let mut reader = BufReader::new(file);
+        if let Ok(header) = GgufHeader::parse(&mut reader) {
+            if let Ok(metadata) = GgufReader::read_metadata(&mut reader, header.n_kv) {
+                // Try to get layer count, kv heads, embedding length
+                let layers = metadata.get("gemma3.block_count")
+                    .or_else(|| metadata.get("llama.block_count"))
+                    .and_then(|v| match v {
+                        Value::Uint32(n) => Some(*n),
+                        _ => None,
+                    }).unwrap_or(48); // Default to 48 layers
+
+                let kv_heads = metadata.get("gemma3.attention.head_count_kv")
+                    .or_else(|| metadata.get("llama.attention.head_count_kv"))
+                    .and_then(|v| match v {
+                        Value::Uint32(n) => Some(*n),
+                        _ => None,
+                    }).unwrap_or(8); // Default to 8 KV heads
+
+                let emb_len = metadata.get("gemma3.embedding_length")
+                    .or_else(|| metadata.get("llama.embedding_length"))
+                    .and_then(|v| match v {
+                        Value::Uint32(n) => Some(*n),
+                        _ => None,
+                    }).unwrap_or(3840); // Default to 3840
+
+                (layers, kv_heads, emb_len)
+            } else {
+                (48, 8, 3840) // Defaults
+            }
+        } else {
+            (48, 8, 3840)
+        }
+    } else {
+        (48, 8, 3840)
+    };
+
+    // Calculate head dimension
+    let head_dim = embedding_len / (n_kv_heads * 2); // Rough estimate
+
+    // Estimate model size (rough: 12GB for 12B model)
+    let model_size_gb = if let Ok(metadata) = fs::metadata(model_path) {
+        metadata.len() as f64 / (1024.0 * 1024.0 * 1024.0)
+    } else {
+        12.0 // Default estimate
+    };
+
+    // Calculate GPU layers (auto-detect if not provided by user)
+    let gpu_layers_count = gpu_layers.unwrap_or_else(|| calculate_optimal_gpu_layers(model_path));
+
+    // Calculate what fraction of the model is on GPU
+    let gpu_fraction = (gpu_layers_count as f64) / (n_layers as f64);
+    let model_vram_usage = model_size_gb * gpu_fraction;
+
+    println!("[VRAM] GPU layers: {}/{} ({:.1}% of model)",
+             gpu_layers_count, n_layers, gpu_fraction * 100.0);
+    println!("[VRAM] Model VRAM usage: {:.2}GB ({:.1}% of {:.2}GB total)",
+             model_vram_usage, gpu_fraction * 100.0, model_size_gb);
+
+    // Available VRAM for KV cache = total - model_on_gpu - overhead
+    let vram_for_cache = (available_vram - model_vram_usage - 2.0).max(0.0);
+
+    println!("[VRAM] Available: {:.2}GB, Model: {:.2}GB, Available for KV cache: {:.2}GB",
+             available_vram, model_size_gb, vram_for_cache);
+
+    // Calculate KV cache size for requested context
+    let requested_cache_gb = calculate_kv_cache_size_gb(requested_ctx, n_layers, n_kv_heads, head_dim);
+
+    println!("[VRAM] Requested context: {} tokens, KV cache: {:.2}GB",
+             requested_ctx, requested_cache_gb);
+
+    if requested_cache_gb <= vram_for_cache {
+        // Requested context fits in VRAM
+        println!("[VRAM] ✓ Requested context size fits in available VRAM");
+        return (requested_ctx, false);
+    }
+
+    // Calculate safe context size
+    // max_tokens = vram_for_cache / (layers × kv_heads × head_dim × 4)
+    let bytes_per_token = n_layers as f64 * n_kv_heads as f64 * head_dim as f64 * 4.0;
+    let safe_tokens = ((vram_for_cache * 1024.0 * 1024.0 * 1024.0) / bytes_per_token) as u32;
+
+    // Round down to nearest power of 2 for cleaner values
+    let safe_ctx = if safe_tokens >= 32768 {
+        32768
+    } else if safe_tokens >= 16384 {
+        16384
+    } else if safe_tokens >= 8192 {
+        8192
+    } else if safe_tokens >= 4096 {
+        4096
+    } else {
+        2048
+    };
+
+    println!("[VRAM] ⚠️  Requested context ({}) exceeds VRAM capacity!", requested_ctx);
+    println!("[VRAM] ⚠️  Auto-reducing to safe context size: {} tokens", safe_ctx);
+
+    (safe_ctx, true) // Return safe context and flag that it was reduced
+}
 
 // Helper function to get model status
 pub fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
@@ -120,6 +267,7 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
             current_model_path: None,
             model_context_length: None,
             chat_template_type: None,
+            gpu_layers: None,
             last_used: std::time::SystemTime::now(),
         });
     }
@@ -190,6 +338,8 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
                                 Some("Mistral".to_string()) // Mistral format
                             } else if s.contains("<|start_header_id|>") {
                                 Some("Llama3".to_string()) // Llama 3 format
+                            } else if s.contains("<start_of_turn>") && s.contains("<end_of_turn>") {
+                                Some("Gemma".to_string()) // Gemma 3 format
                             } else {
                                 Some("Generic".to_string()) // Fallback
                             }
@@ -236,6 +386,7 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
     state.current_model_path = Some(model_path.to_string());
     state.model_context_length = model_context_length;
     state.chat_template_type = chat_template_type;
+    state.gpu_layers = Some(optimal_gpu_layers);
     state.last_used = std::time::SystemTime::now();
 
     Ok(())

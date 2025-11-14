@@ -61,7 +61,7 @@ export const ContextSizeSection: React.FC<ContextSizeSectionProps> = ({
               setContextSize(maxContext);
             }
           }}
-          className="text-xs bg-blue-50 dark:bg-blue-950 border-blue-300 dark:border-blue-700"
+          className="text-xs bg-muted hover:bg-muted/80"
         >
           Max ({parseInt(modelInfo.context_length.toString().replace(/,/g, '')).toLocaleString()})
         </Button>

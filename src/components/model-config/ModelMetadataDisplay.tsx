@@ -15,14 +15,16 @@ export const ModelMetadataDisplay: React.FC<ModelMetadataDisplayProps> = ({
   setIsExpanded
 }) => (
   <Card className="mt-3">
-    <CardHeader className="pb-3">
+    <CardHeader className="p-0">
       <button
-        className="flex items-center justify-between w-full text-left"
+        className={`flex items-center justify-between w-full text-left bg-primary text-white px-6 py-3 hover:opacity-90 transition-opacity ${
+          isExpanded ? 'rounded-t-lg' : 'rounded-lg'
+        }`}
         onClick={() => setIsExpanded(!isExpanded)}
         type="button"
       >
-        <CardTitle className="text-sm flex items-center gap-2">
-          {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+        <CardTitle className="text-sm flex items-center gap-2 text-white">
+          {isExpanded ? <ChevronDown className="h-5 w-5 text-white stroke-[3]" /> : <ChevronRight className="h-5 w-5 text-white stroke-[3]" />}
           Model Metadata
         </CardTitle>
       </button>
@@ -53,10 +55,10 @@ export const ModelMetadataDisplay: React.FC<ModelMetadataDisplayProps> = ({
               {modelInfo.version && <p><strong>Version:</strong> <span className="text-muted-foreground">{modelInfo.version}</span></p>}
               {modelInfo.license && <p><strong>License:</strong> <span className="text-muted-foreground">{modelInfo.license}</span></p>}
               {modelInfo.url && (
-                <p><strong>URL:</strong> <a href={modelInfo.url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline break-all">{modelInfo.url}</a></p>
+                <p><strong>URL:</strong> <a href={modelInfo.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline break-all">{modelInfo.url}</a></p>
               )}
               {modelInfo.repo_url && (
-                <p><strong>Repository:</strong> <a href={modelInfo.repo_url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline break-all">{modelInfo.repo_url}</a></p>
+                <p><strong>Repository:</strong> <a href={modelInfo.repo_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline break-all">{modelInfo.repo_url}</a></p>
               )}
             </div>
           )}
@@ -103,7 +105,7 @@ export const ModelMetadataDisplay: React.FC<ModelMetadataDisplayProps> = ({
                   .sort(([a], [b]) => a.localeCompare(b))
                   .map(([key, value]) => (
                     <p key={key} className="text-xs">
-                      <strong className="font-mono text-blue-600 dark:text-blue-400">{key}:</strong>{' '}
+                      <strong className="font-mono text-zinc-600 dark:text-zinc-400">{key}:</strong>{' '}
                       <span className="text-muted-foreground font-mono">
                         {typeof value === 'string'
                           ? value

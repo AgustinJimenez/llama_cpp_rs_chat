@@ -37,9 +37,29 @@ cargo build --bin llama_chat_web
 # Build CLI test binary (currently commented out in Cargo.toml)
 # cargo build --bin test
 
-# Run tests
+# Run Rust unit tests
 cargo test
 ```
+
+### Testing
+```bash
+# Run all E2E tests (requires backend running on port 8000)
+npm test
+
+# Run tests with Playwright UI
+npm run test:ui
+
+# Run tests in headed mode (see browser)
+npm run test:headed
+
+# Run tests with debugger
+npm run test:debug
+
+# Run tests in Docker environment
+npm run test:docker
+```
+
+**Note**: E2E tests use Playwright and require the web backend to be running. Tests use `mock` feature flag for consistent test results without requiring actual model files.
 
 ### CMake Configuration (Windows)
 This project requires CMake for building llama-cpp-2 with CUDA. On Windows, if CMake is not in PATH:
@@ -68,7 +88,7 @@ The project supports two execution modes:
 **Tauri Interface** (`lib.rs`, `main.rs`)
 - Tauri commands for model control
 - State management for conversations and chat engine
-- Mock implementation support via `mock` feature flag for testing
+- Mock implementation support via `mock` feature flag for testing (see Mock Implementation below)
 
 **Web Server Modules** (`src/web/`)
 Recent refactoring split `main_web.rs` into focused modules:
@@ -149,12 +169,13 @@ Located in `src/web/models.rs::SamplerConfig`:
 ## Important Notes
 
 ### Chat Templates
-The system supports three template formats:
-- **ChatML**: `<|im_start|>role\ncontent<|im_end|>`
-- **Mistral**: `[INST] content [/INST]`
-- **Llama3**: `<|start_header_id|>role<|end_header_id|>content<|eot_id|>`
+The system supports four template formats:
+- **ChatML**: `<|im_start|>role\ncontent<|im_end|>` (Qwen, OpenAI format)
+- **Mistral**: `[INST] content [/INST]` (Mistral, Devstral format)
+- **Llama3**: `<|start_header_id|>role<|end_header_id|>content<|eot_id|>` (Llama 3 format)
+- **Gemma**: `<start_of_turn>role\ncontent<end_of_turn>\n` (Gemma 3 format, uses "model" instead of "assistant")
 
-Auto-detected based on model metadata or file name patterns.
+Auto-detected based on model metadata (tokenizer.chat_template in GGUF) or file name patterns. Template detection happens in `model_manager.rs::load_model()` and formatting in `chat_handler.rs::apply_model_chat_template()`.
 
 ### Command Execution
 The AI can execute shell commands. Command parsing supports:
@@ -168,12 +189,102 @@ Two WebSocket endpoints:
 1. `/ws/chat` - Real-time token streaming during generation
 2. `/ws/conversations/:filename` - File change notifications for conversation updates
 
+### Tool Calling / Agentic System
+The application implements a full agentic tool calling system that allows models to execute shell commands:
+
+**Backend** (`src/web/utils.rs`, `src/web/command.rs`, `src/web/models.rs`):
+- Tool definitions exposed via `get_available_tools_json()`
+- `[AVAILABLE_TOOLS]...[/AVAILABLE_TOOLS]` injected into model prompt
+- `/api/tools/execute` endpoint for command execution
+- Supports bash/shell commands with quoted argument parsing
+- **Backend translation layer**: Automatically translates file operations (read_file, write_file, list_directory) to bash commands for models that don't support them natively (e.g., Qwen models)
+
+**Frontend** (`src/utils/toolParser.ts`, `src/hooks/useChat.ts`):
+- Universal parser supporting Mistral, Llama3, and Qwen tool call formats
+- Automatic agentic loop: model generates tool calls → executes → sends results back → model continues
+- Safety limit: MAX_TOOL_ITERATIONS = 5
+- Tool calls displayed with special UI styling in MessageBubble
+
+**Supported formats**:
+- Mistral: `[TOOL_CALLS]func_name[ARGS]{"arg": "value"}`
+- Llama3: `<function=name>{"arg": "value"}</function>`
+- Qwen: `<tool_call>{"name": "func", "arguments": {...}}</tool_call>`
+
+**Model capability detection**:
+The system automatically detects which tools each model supports based on chat template:
+- Mistral/Devstral: Native file tools (read_file, write_file, list_directory)
+- ChatML (Qwen): Bash only, file tools translated automatically
+- Llama3: Native file tools
+- Unknown: Default to bash translation (safe fallback)
+
+See `TOOL_CALLING.md` and `BACKEND_TRANSLATION_COMPLETE.md` for detailed implementation documentation.
+
+### Mock Implementation
+For E2E testing without requiring actual model files, the project includes a mock implementation:
+
+**How it works** (`src/chat_mock.rs`, `src/lib.rs`):
+- Activated via `mock` feature flag in Cargo.toml
+- Simulates model loading with fake metadata
+- Returns canned responses for chat completions
+- Allows testing UI, API, and tool calling without model files
+
+**Usage**:
+```bash
+# Build with mock feature for testing
+cargo build --features mock --bin llama_chat_web
+
+# E2E tests automatically use mock when TEST_MODE=true
+TEST_MODE=true cargo run --bin llama_chat_web
+```
+
+The mock implementation returns predictable responses making it ideal for automated testing.
+
 ### Recent Refactoring
-The codebase underwent major refactoring (2025-01-08):
+
+**Major Refactoring (2025-01-13)**: Eliminated duplicate code in `main_web.rs`
+- Removed 1,350 lines of duplicate structs and functions from `main_web.rs`
+- File size reduced from 3,730 lines → 2,045 lines (45% reduction)
+- All duplicates now imported from web modules via `use web::*`
+- Removed duplicates: SamplerConfig, TokenData, all request/response structs, load_config(), add_to_model_history(), get_model_status(), calculate_optimal_gpu_layers(), load_model(), unload_model(), ConversationLogger, parse_conversation_to_messages(), get_available_tools_json(), apply_model_chat_template(), generate_llama_response(), handle_websocket(), handle_conversation_watch()
+- Only unique code remains in main_web.rs: HTTP routing (handle_request_impl) and server initialization (main)
+
+**Previous Refactoring (2025-01-08)**:
 - Frontend: ModelConfigModal split from 1,205 lines → 9 files (~498 lines main)
 - Backend: 1,712 lines extracted from main_web.rs → 8 modules
 - Improved testability, maintainability, and modularity
 - All functionality preserved with zero breaking changes
+
+## Known Issues
+
+### Tokenization Crash in llama-cpp-2
+**Status**: Unresolved pre-existing library bug
+
+**Symptoms**:
+- Model stops generating mid-response when creating complex outputs (code, JSON, long text)
+- Backend thread panics silently with no error message
+- Conversation file shows in sidebar but doesn't exist on disk
+- Affects ALL models (Gemma, Devstral, Qwen, etc.)
+
+**Root Cause**:
+Tokenization panic in llama-cpp-2 library at line 617 during token generation. The crash occurs:
+1. Frontend optimistically creates conversation ID
+2. Backend starts tokenization and generation
+3. llama-cpp-2 panics during token processing
+4. Thread crashes before conversation file is written
+5. Frontend shows conversation ID but file never exists
+
+**Impact**:
+- JSON generation tests timeout (80s) in E2E suite
+- Code generation requests (e.g., "write me a login page using svelte") fail
+- Basic chat works but complex generations fail
+
+**Potential Fixes** (not implemented):
+1. Add error handling around tokenization calls
+2. Reduce context size to avoid memory issues
+3. Update llama-cpp-2 to newer version
+4. Replace llama-cpp-2 with alternative library (llama.cpp direct bindings)
+
+**Workaround**: Keep prompts simple and avoid requesting large code blocks or complex JSON outputs.
 
 ## Development Workflow
 
@@ -199,3 +310,32 @@ The codebase underwent major refactoring (2025-01-08):
 - **Conversations**: `assets/conversations/`
 - **Config**: Root directory (config.json for sampler settings)
 - **Tauri Config**: `tauri.conf.json`
+- **Tests**: `tests/e2e/` (Playwright E2E tests)
+- **Documentation**: Various `.md` files including `TOOL_CALLING.md`, `REFACTORING_SUMMARY.md`
+
+## HTTP API Endpoints
+
+The web backend (`src/main_web.rs`) runs on **port 8000** by default and exposes the following REST API:
+
+**Model Management**:
+- `POST /api/load` - Load GGUF model with configuration
+- `POST /api/unload` - Unload current model
+- `GET /api/status` - Get model status and metadata
+- `GET /api/conversations` - List all conversation files
+- `GET /api/conversations/:filename` - Get conversation content
+
+**Chat**:
+- `POST /api/chat` - Send message and get response (non-streaming)
+- `GET /api/chat/stream` - Server-sent events for streaming responses
+
+**Tools**:
+- `POST /api/tools/execute` - Execute tool (bash command)
+- `GET /api/tools/available` - Get available tools JSON schema
+
+**WebSocket**:
+- `/ws/chat` - WebSocket for real-time chat streaming
+- `/ws/conversations/:filename` - WebSocket for conversation file updates
+
+**Static**:
+- `GET /` - Serve frontend application
+- `GET /assets/*` - Serve static assets

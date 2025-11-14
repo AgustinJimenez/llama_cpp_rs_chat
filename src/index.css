@@ -12,7 +12,7 @@
     --card-foreground: 222 47% 11%;
     --popover: 0 0% 100%;
     --popover-foreground: 222 47% 11%;
-    --primary: 221 83% 53%;     /* Modern blue */
+    --primary: 27 98% 54%;      /* Orange accent */
     --primary-foreground: 0 0% 100%;
     --secondary: 210 40% 96%;   /* Light gray */
     --secondary-foreground: 222 47% 11%;
@@ -24,7 +24,7 @@
     --destructive-foreground: 0 0% 100%;
     --border: 214 32% 91%;      /* Light border */
     --input: 214 32% 91%;
-    --ring: 221 83% 53%;
+    --ring: 27 98% 54%;         /* Orange ring to match primary */
     --radius: 0.5rem;           /* Subtle rounded corners */
 
     /* Flat design specific colors */
@@ -44,7 +44,7 @@
     --card-foreground: 210 40% 98%;
     --popover: 217 33% 17%;
     --popover-foreground: 210 40% 98%;
-    --primary: 217 91% 60%;
+    --primary: 27 98% 54%;      /* Orange accent */
     --primary-foreground: 0 0% 100%;
     --secondary: 217 33% 17%;
     --secondary-foreground: 210 40% 98%;
@@ -56,7 +56,7 @@
     --destructive-foreground: 0 0% 100%;
     --border: 217 33% 23%;
     --input: 217 33% 23%;
-    --ring: 217 91% 60%;
+    --ring: 27 98% 54%;         /* Orange ring to match primary */
   }
 }
 
@@ -140,20 +140,25 @@
   animation: flat-pulse 1.5s ease-in-out infinite;
 }
 
-/* Flat design scrollbar for chat messages */
-[data-testid="messages-container"]::-webkit-scrollbar {
+/* Global scrollbar styling with primary color */
+*::-webkit-scrollbar {
   width: 8px;
+  height: 8px;
 }
 
-[data-testid="messages-container"]::-webkit-scrollbar-track {
+*::-webkit-scrollbar-track {
   background: transparent;
 }
 
-[data-testid="messages-container"]::-webkit-scrollbar-thumb {
-  background: hsl(var(--muted-foreground) / 0.3);
+*::-webkit-scrollbar-thumb {
+  background: hsl(var(--primary) / 0.4);
   border-radius: 4px;
 }
 
-[data-testid="messages-container"]::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.5);
+*::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--primary) / 0.6);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }

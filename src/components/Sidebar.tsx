@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Menu, ChevronLeft, Plus, Settings, RotateCcw, X } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import './Sidebar.css';
 
 interface ConversationFile {
   name: string;
@@ -27,8 +26,17 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, onNewChat, onOpenSe
 
   const fetchConversations = async () => {
     setLoading(true);
+
+    // Add timeout to prevent infinite loading
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
     try {
-      const response = await fetch('/api/conversations');
+      const response = await fetch('/api/conversations', {
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
       if (response.ok) {
         const data = await response.json();
         setConversations(data.conversations || []);
@@ -36,7 +44,12 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, onNewChat, onOpenSe
         console.error('Failed to fetch conversations');
       }
     } catch (error) {
-      console.error('Error fetching conversations:', error);
+      clearTimeout(timeoutId);
+      if (error.name === 'AbortError') {
+        console.error('Fetch timeout: conversations request took too long');
+      } else {
+        console.error('Error fetching conversations:', error);
+      }
     } finally {
       setLoading(false);
     }
@@ -111,48 +124,65 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, onNewChat, onOpenSe
     <>
       {/* Overlay for mobile */}
       {isOpen && (
-        <div 
-          className="sidebar-overlay" 
+        <div
+          className="fixed inset-0 bg-black/50 z-[999] md:hidden"
           onClick={onToggle}
           data-testid="sidebar-overlay"
         />
       )}
-      
+
       {/* Sidebar */}
-      <div 
-        className={`sidebar ${isOpen ? 'sidebar-open' : 'sidebar-closed'}`}
+      <div
+        className={`
+          fixed top-0 left-0 h-screen bg-card border-r border-border z-[1000] flex flex-col
+          transition-all duration-300 ease-in-out
+          ${isOpen ? 'w-[280px] translate-x-0' : 'w-[70px] translate-x-0 max-md:-translate-x-full max-md:w-[280px]'}
+        `}
         data-testid="sidebar"
       >
         {/* Header */}
-        <div className="sidebar-header">
+        <div className="flex items-center justify-center p-4 border-b border-border min-h-[60px]">
           <button
-            className={isOpen ? 'sidebar-toggle-btn' : 'sidebar-icon-btn'}
+            className={`
+              bg-primary border-none text-white cursor-pointer rounded-lg transition-all duration-200
+              flex items-center justify-center font-medium
+              hover:opacity-90 hover:-translate-y-px active:translate-y-0
+              ${isOpen ? 'w-full h-10 text-xl px-2' : 'w-12 h-12 flex-shrink-0 text-2xl'}
+            `}
             onClick={onToggle}
             data-testid="sidebar-toggle"
             aria-label={isOpen ? 'Close sidebar' : 'Open sidebar'}
           >
-{isOpen ? <ChevronLeft size={20} /> : <Menu size={24} />}
+            {isOpen ? <ChevronLeft size={20} /> : <Menu size={24} />}
           </button>
-          {isOpen && <h2 className="sidebar-title">LLaMA Chat</h2>}
+          {isOpen && <h2 className="ml-3 text-lg font-semibold m-0">LLaMA Chat</h2>}
         </div>
 
         {/* Action Buttons */}
         {isOpen && (
-          <div className="sidebar-actions">
-            <button 
-              className="sidebar-btn new-chat-btn"
+          <div className="p-4 flex flex-col gap-2 border-b border-border">
+            <button
+              className="
+                flex items-center gap-3 px-4 py-3 bg-primary text-white border-none rounded-lg
+                text-sm font-medium cursor-pointer transition-all duration-200 w-full text-left
+                hover:opacity-90 hover:-translate-y-px active:translate-y-0
+              "
               onClick={onNewChat}
               data-testid="new-chat-btn"
             >
-              <Plus size={16} />
+              <Plus size={16} className="flex-shrink-0" />
               New Chat
             </button>
-            <button 
-              className="sidebar-btn settings-btn"
+            <button
+              className="
+                flex items-center gap-3 px-4 py-3 bg-[hsl(217_33%_30%)] text-foreground border-none rounded-lg
+                text-sm font-medium cursor-pointer transition-all duration-200 w-full text-left
+                hover:bg-muted hover:-translate-y-px active:translate-y-0
+              "
               onClick={onOpenSettings}
               data-testid="settings-btn"
             >
-              <Settings size={16} />
+              <Settings size={16} className="flex-shrink-0" />
               Settings
             </button>
           </div>
@@ -160,45 +190,67 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, onNewChat, onOpenSe
 
         {/* Conversations List */}
         {isOpen && (
-          <div className="conversations-section">
-            <div className="conversations-header">
-              <h3>Recent Conversations</h3>
-              <button 
-                className="refresh-btn"
+          <div className="flex-1 overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-4 pt-4 pb-2">
+              <h3 className="m-0 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                Recent Conversations
+              </h3>
+              <button
+                className="
+                  bg-transparent border-none cursor-pointer p-1 rounded-md transition-all duration-200
+                  w-8 h-8 flex items-center justify-center text-muted-foreground
+                  hover:bg-muted active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed
+                "
                 onClick={fetchConversations}
                 disabled={loading}
                 data-testid="refresh-conversations"
                 aria-label="Refresh conversations"
               >
-                <RotateCcw size={16} className={loading ? 'animate-spin' : ''} />
+                <RotateCcw size={16} className={`flex-shrink-0 ${loading ? 'animate-spin' : ''}`} />
               </button>
             </div>
-            
-            <div className="conversations-list" data-testid="conversations-list">
+
+            <div
+              className="flex-1 overflow-y-auto px-4 pb-4 pt-2"
+              data-testid="conversations-list"
+            >
               {loading ? (
-                <div className="conversations-loading">Loading...</div>
+                <div className="text-center text-muted-foreground text-sm py-8 font-medium">
+                  Loading...
+                </div>
               ) : conversations.length === 0 ? (
-                <div className="conversations-empty">No conversations yet</div>
+                <div className="text-center text-muted-foreground text-sm py-8 font-medium">
+                  No conversations yet
+                </div>
               ) : (
                 conversations.map((conversation, index) => {
                   const isActive = currentConversationId === conversation.name;
                   return (
                     <div
                       key={conversation.name}
-                      className={`conversation-item ${isActive ? 'conversation-item-active' : ''}`}
+                      className={`
+                        p-3 mb-2 bg-transparent rounded-lg cursor-pointer transition-all duration-200
+                        border border-transparent flex items-start justify-between gap-2 relative
+                        hover:bg-muted hover:-translate-y-px
+                        ${isActive ? 'bg-primary/10 border-primary hover:bg-primary/15' : ''}
+                      `}
                       onClick={() => onLoadConversation(conversation.name)}
                       data-testid={`conversation-${index}`}
                     >
-                      <div className="conversation-content">
-                        <div className="conversation-title">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold mb-1 text-foreground">
                           Chat {formatTimestamp(conversation.timestamp)}
                         </div>
-                        <div className="conversation-filename">
+                        <div className="text-xs font-mono text-muted-foreground font-normal">
                           {conversation.name}
                         </div>
                       </div>
                       <button
-                        className="conversation-delete-btn"
+                        className="
+                          bg-destructive border-none text-white cursor-pointer p-1 rounded-md
+                          transition-all duration-200 flex items-center justify-center flex-shrink-0 font-medium
+                          hover:opacity-90 hover:scale-105 active:scale-95
+                        "
                         onClick={(e) => handleDeleteClick(e, conversation)}
                         aria-label="Delete conversation"
                         data-testid={`delete-conversation-${index}`}
@@ -215,22 +267,30 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, onNewChat, onOpenSe
 
         {/* Collapsed state indicator */}
         {!isOpen && (
-          <div className="sidebar-collapsed-content">
-            <button 
-              className="sidebar-icon-btn"
+          <div className="flex flex-col items-center gap-2 p-2">
+            <button
+              className="
+                w-12 h-12 flex-shrink-0 bg-primary border-none rounded-lg text-white text-xl
+                cursor-pointer flex items-center justify-center transition-all duration-200 font-medium
+                hover:opacity-90 hover:-translate-y-px active:translate-y-0
+              "
               onClick={onNewChat}
               data-testid="collapsed-new-chat"
               aria-label="New chat"
             >
-              <Plus size={20} />
+              <Plus size={20} className="flex-shrink-0" />
             </button>
-            <button 
-              className="sidebar-icon-btn"
+            <button
+              className="
+                w-12 h-12 flex-shrink-0 bg-primary border-none rounded-lg text-white text-xl
+                cursor-pointer flex items-center justify-center transition-all duration-200 font-medium
+                hover:opacity-90 hover:-translate-y-px active:translate-y-0
+              "
               onClick={onOpenSettings}
               data-testid="collapsed-settings"
               aria-label="Settings"
             >
-              <Settings size={20} />
+              <Settings size={20} className="flex-shrink-0" />
             </button>
           </div>
         )}
@@ -251,12 +311,12 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, onNewChat, onOpenSe
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <button className="neo-button bg-white text-black px-6 py-2" onClick={handleDeleteCancel}>
+            <Button variant="outline" onClick={handleDeleteCancel}>
               Cancel
-            </button>
-            <button className="neo-button bg-destructive text-white px-6 py-2" onClick={handleDeleteConfirm}>
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteConfirm}>
               Delete
-            </button>
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

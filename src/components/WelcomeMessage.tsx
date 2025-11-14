@@ -10,7 +10,7 @@ export const WelcomeMessage: React.FC<WelcomeMessageProps> = ({ modelLoaded, isM
   return (
     <div className="flex flex-col items-center justify-center py-16">
       <div className="text-center space-y-6">
-        <div className="w-20 h-20 bg-flat-red rounded-2xl flex items-center justify-center mx-auto">
+        <div className="w-20 h-20 bg-primary rounded-2xl flex items-center justify-center mx-auto">
           {isModelLoading ? (
             <Loader2 className="h-10 w-10 text-white animate-spin" />
           ) : (

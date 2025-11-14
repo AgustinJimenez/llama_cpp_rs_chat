@@ -21,6 +21,10 @@ import { SystemPromptSection } from './SystemPromptSection';
 import { GpuLayersSection } from './GpuLayersSection';
 import { SamplingParametersSection } from './SamplingParametersSection';
 import { PresetsSection } from './PresetsSection';
+import { MemoryVisualization } from './MemoryVisualization';
+
+// Import hooks
+import { useMemoryCalculation } from '@/hooks/useMemoryCalculation';
 
 interface ModelConfigModalProps {
   isOpen: boolean;
@@ -63,9 +67,20 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   const [maxLayers, setMaxLayers] = useState(99);  // Dynamic max layers based on model
   const [systemPromptMode, setSystemPromptMode] = useState<'default' | 'custom'>('default');
   const [customSystemPrompt, setCustomSystemPrompt] = useState('You are a helpful AI assistant.');
+  const [availableVramGb, _setAvailableVramGb] = useState(22.0); // Default: RTX 4090
+  const [availableRamGb, _setAvailableRamGb] = useState(32.0);   // Default: 32GB
 
   // Check if we're in Tauri environment
   const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+
+  // Calculate memory breakdown in real-time
+  const memoryBreakdown = useMemoryCalculation({
+    modelMetadata: modelInfo,
+    gpuLayers: config.gpu_layers || 0,
+    contextSize: contextSize,
+    availableVramGb,
+    availableRamGb,
+  });
 
   // Initialize model path from config when modal opens
   useEffect(() => {
@@ -185,16 +200,31 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
 
               // Automatically set model metadata
               console.log('[DEBUG] GGUF metadata received:', data.gguf_metadata);
+
+              // Parse file_size_gb from file_size string (e.g., "11.65 GB" → 11.65)
+              let fileSizeGb: number | undefined;
+              if (data.file_size && typeof data.file_size === 'string') {
+                const match = data.file_size.match(/([\d.]+)\s*GB/i);
+                if (match) {
+                  fileSizeGb = parseFloat(match[1]);
+                }
+              }
+
               setModelInfo({
                 name: data.name || trimmedPath.split(/[\\/]/).pop() || 'Unknown',
                 architecture: data.architecture || "Unknown",
                 parameters: data.parameters || "Unknown",
                 quantization: data.quantization || "Unknown",
                 file_size: data.file_size || "Unknown",
+                file_size_gb: fileSizeGb,
                 context_length: data.context_length || "Unknown",
                 file_path: trimmedPath,
                 estimated_layers: data.estimated_layers,
                 gguf_metadata: data.gguf_metadata,
+                // Extract architecture details if available
+                block_count: data.gguf_metadata?.['gemma3.block_count'] || data.gguf_metadata?.['llama.block_count'],
+                attention_head_count_kv: data.gguf_metadata?.['gemma3.attention.head_count_kv'] || data.gguf_metadata?.['llama.attention.head_count_kv'],
+                embedding_length: data.gguf_metadata?.['gemma3.embedding_length'] || data.gguf_metadata?.['llama.embedding_length'],
               });
 
               // Update max layers if available
@@ -416,15 +446,17 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
           {/* Configuration Options - Only show when model is valid */}
           {modelPath && fileExists === true && (
             <Card>
-              <CardHeader>
+              <CardHeader className="p-0">
                 <button
-                  className="flex items-center justify-between w-full text-left"
+                  className={`flex items-center justify-between w-full text-left bg-primary text-white px-6 py-3 hover:opacity-90 transition-opacity ${
+                    isConfigExpanded ? 'rounded-t-lg' : 'rounded-lg'
+                  }`}
                   onClick={() => setIsConfigExpanded(!isConfigExpanded)}
                   type="button"
                   data-testid="config-expand-button"
                 >
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    {isConfigExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                  <CardTitle className="text-sm flex items-center gap-2 text-white">
+                    {isConfigExpanded ? <ChevronDown className="h-5 w-5 text-white stroke-[3]" /> : <ChevronRight className="h-5 w-5 text-white stroke-[3]" />}
                     Model Configurations
                   </CardTitle>
                 </button>
@@ -450,6 +482,11 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                     onGpuLayersChange={(layers) => handleInputChange('gpu_layers', layers)}
                     maxLayers={maxLayers}
                   />
+
+                  {/* Memory Visualization - Real-time VRAM/RAM usage */}
+                  {modelInfo && (
+                    <MemoryVisualization memory={memoryBreakdown} />
+                  )}
 
                   <SamplingParametersSection
                     config={config}
