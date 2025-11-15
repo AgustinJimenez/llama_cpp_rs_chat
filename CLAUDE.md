@@ -6,6 +6,47 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A modern AI chat application built with Tauri, Rust, and llama-cpp-2. Features both native desktop app and web application with integrated shell command execution. Uses local LLM inference with GGUF models and supports CUDA GPU acceleration.
 
+## Recent Major Improvements
+
+### 2025-01-15 (Continued) - Markdown & UI Improvements
+- ✅ **Fixed conversation loading crash** - Removed `rehypeHighlight` dependency error
+- ✅ **Enhanced markdown rendering** with `react-syntax-highlighter`
+  - Dracula syntax highlighting theme for code blocks
+  - Complete markdown component support (headings, lists, bold, italic, blockquotes)
+  - Removed extra padding/background from code blocks for cleaner UI
+- ✅ **Added thinking model support** (Qwen3-8B and similar)
+  - Extracts and displays `<think>` tags separately in collapsible sections
+  - Content without thinking tags renders as clean markdown
+  - Thinking process shown with 💭 icon in blue highlighted box
+- ✅ **Added conversation loading E2E tests**
+  - `tests/e2e/conversation-loading.test.ts` - Full conversation workflow tests
+  - `tests/e2e/conversation-loading-simple.test.ts` - Basic loading verification
+
+### 2025-01-15 - Code Quality & Security
+- ✅ **Fixed critical command injection vulnerability** in `src/web/command.rs` with whitelist-based validation
+- ✅ **Eliminated duplicate function definitions** in `src/main_web.rs` (compilation error fix)
+- ✅ **Replaced 26 println! with proper file-based logging** (`logs/llama_chat.log`)
+- ✅ **Extracted 14 magic numbers to named constants** for better maintainability
+- ✅ **Improved error handling** - replaced `.unwrap()` with `.expect()` for better debugging
+
+### Architecture Refactoring
+- ✅ **Split main_web.rs**: 2,083 lines → 219 lines (89% reduction)
+  - Created 8 focused route handler modules in `src/web/routes/`
+  - Each route is now in its own file with clear responsibilities
+- ✅ **Split chat_handler.rs**: 647 lines → 4 lines (99% reduction)
+  - `src/web/chat/templates.rs` - Chat template formatting (244 lines)
+  - `src/web/chat/generation.rs` - Token generation logic (413 lines)
+  - Backward compatible via re-exports
+
+### Testing
+- ✅ **Added 42 comprehensive unit tests** (100% passing)
+  - 23 tests for command parsing (security-critical)
+  - 16 tests for VRAM/GPU calculations
+  - 3 tests for template parsing
+- ✅ **All 32 E2E tests passing** with 6 different models
+- ✅ **Added conversation loading E2E tests**
+- ✅ **Zero test duplicates**
+
 ## Build & Development Commands
 
 ### Web Development (Primary)
@@ -219,6 +260,36 @@ The system automatically detects which tools each model supports based on chat t
 
 See `TOOL_CALLING.md` and `BACKEND_TRANSLATION_COMPLETE.md` for detailed implementation documentation.
 
+### Markdown Rendering & Thinking Models
+
+**Markdown Support** (`src/components/MessageBubble.tsx`):
+- Uses `react-syntax-highlighter` with Dracula theme for code blocks
+- Full ReactMarkdown component set: headings (h1-h3), lists (ul/ol), bold, italic, blockquotes, code
+- Syntax highlighting for 180+ languages
+- Clean rendering with no extra padding or background on code blocks
+- Separate rendering for user and assistant messages
+
+**Thinking/Reasoning Model Support**:
+The UI automatically detects and handles thinking models (like Qwen3-8B) that output internal reasoning:
+- Extracts `<think>...</think>` tags from model responses
+- Displays thinking process in collapsible blue-highlighted section (💭 Thinking Process)
+- Main response shown separately without thinking tags
+- Uses HTML `<details>` element for expandable/collapsible UI
+- Thinking section collapsed by default to reduce visual clutter
+
+**Implementation details**:
+```typescript
+// Extract thinking content
+const thinkingContent = message.content.match(/<think>([\s\S]*?)<\/think>/);
+
+// Remove thinking tags from main content
+const contentWithoutThinking = cleanContent.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+```
+
+**Supported thinking models**:
+- Qwen3-8B (and larger variants)
+- Any model that outputs `<think>` tags for chain-of-thought reasoning
+
 ### Mock Implementation
 For E2E testing without requiring actual model files, the project includes a mock implementation:
 
@@ -253,6 +324,34 @@ The mock implementation returns predictable responses making it ideal for automa
 - Backend: 1,712 lines extracted from main_web.rs → 8 modules
 - Improved testability, maintainability, and modularity
 - All functionality preserved with zero breaking changes
+
+## Code Quality Best Practices
+
+### Security
+- ✅ **Command Whitelist**: All shell commands validated against `ALLOWED_COMMANDS` in `command.rs`
+- ✅ **No Arbitrary Execution**: Commands like `rm -rf`, `shutdown`, `format` are blocked
+- ✅ **Path Validation**: Filesystem-wide searches (`find /`, `find /usr`) are restricted
+
+### Constants & Configuration
+- ✅ **Named Constants**: All magic numbers extracted to constants (see `model_manager.rs`)
+  - `DEFAULT_VRAM_GB = 22.0` - VRAM fallback
+  - `VRAM_SAFETY_MARGIN_GB = 2.0` - System overhead
+  - `KV_CACHE_MULTIPLIER = 4.0` - Cache calculation
+  - Model size thresholds: `SMALL_MODEL_GB`, `MEDIUM_MODEL_GB`, etc.
+- ✅ **Logging**: Use `log_debug!`, `log_info!`, `log_warn!` instead of `println!`
+- ✅ **Error Handling**: Use `.expect("descriptive message")` instead of `.unwrap()`
+
+### Testing Strategy
+- **Unit Tests**: Test pure functions (parsing, calculations, validation)
+- **E2E Tests**: Test full user flows with real models
+- **Test Coverage**: Focus on security-critical and calculation-heavy code
+- **Integration Tests**: Already covered by E2E, don't duplicate in unit tests
+
+### Module Organization
+- Keep route handlers in `src/web/routes/` (one file per route group)
+- Keep business logic separate from HTTP routing
+- Use re-exports for backward compatibility when refactoring
+- Prefer small, focused modules (~200-400 lines) over monoliths
 
 ## Known Issues
 
@@ -292,25 +391,57 @@ Tokenization panic in llama-cpp-2 library at line 617 during token generation. T
 2. **Testing Web Changes**: `npm run dev` provides hot reload for frontend
 3. **Testing Desktop Changes**: `cargo tauri dev` rebuilds Rust code automatically
 4. **Model Testing**: Use CLI mode or web interface with local GGUF models
-5. **Debugging**: Use `RUST_LOG=debug` for detailed logging
+5. **Debugging**: Check `logs/llama_chat.log` for detailed backend logs with timestamps
+6. **Running Tests**:
+   - Unit tests: `cargo test --bin llama_chat_web` (42 tests)
+   - E2E tests: `npm run test` (requires backend running on port 8000)
+   - Single browser: `npx playwright test --project=chromium`
 
 ## Dependencies
 
+### Backend (Rust)
 - **Rust**: 1.70+ (uses 2021 edition)
-- **Node.js**: 16+ for frontend tooling
 - **CMake**: Required for llama-cpp-2 compilation
 - **CUDA** (optional): For GPU acceleration
 - **Tauri CLI**: For desktop app builds
+- `llama-cpp-2`: LLM inference engine
+- `hyper`: HTTP server
+- `tokio`: Async runtime
+- `serde_json`: JSON serialization
+- `chrono`: Timestamps for logging
+- `lazy_static`: Global logger instance
+
+### Frontend (Node.js)
+- **Node.js**: 16+ for tooling
+- `react` + `react-dom`: UI framework
+- `vite`: Build tool and dev server
+- `react-markdown`: Markdown rendering
+- `react-syntax-highlighter`: Code syntax highlighting with Dracula theme
+- `remark-gfm`: GitHub Flavored Markdown support
+- `@tailwindcss/typography`: Typography plugin for markdown prose
+- `lucide-react`: Icon library
+- `react-hot-toast`: Toast notifications
+- `playwright`: E2E testing framework
 
 ## File Locations
 
 - **Frontend**: `index.html`, `main.js`, `src/components/`
 - **Backend Core**: `src/lib.rs`, `src/main.rs`, `src/chat.rs`
-- **Web Server**: `src/main_web.rs`, `src/web/`
+- **Web Server**: `src/main_web.rs` (219 lines - just server setup + routing)
+- **Web Routes**: `src/web/routes/` (8 modular route handlers)
+  - `health.rs`, `chat.rs`, `config.rs`, `conversation.rs`
+  - `model.rs`, `files.rs`, `tools.rs`, `static_files.rs`
+- **Chat Logic**: `src/web/chat/` (split from chat_handler.rs)
+  - `templates.rs` - Chat template formatting (ChatML, Mistral, Llama3, Gemma)
+  - `generation.rs` - Token generation with sampling
+- **Other Web Modules**: `src/web/` (models, config, command, conversation, etc.)
 - **Conversations**: `assets/conversations/`
+- **Logs**: `logs/llama_chat.log` (file-based logging with timestamps)
 - **Config**: Root directory (config.json for sampler settings)
 - **Tauri Config**: `tauri.conf.json`
-- **Tests**: `tests/e2e/` (Playwright E2E tests)
+- **Tests**:
+  - `tests/e2e/` - Playwright E2E tests (32 tests, 6 models)
+  - Unit tests embedded in module files (42 tests total)
 - **Documentation**: Various `.md` files including `TOOL_CALLING.md`, `REFACTORING_SUMMARY.md`
 
 ## HTTP API Endpoints
