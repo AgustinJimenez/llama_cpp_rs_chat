@@ -7,4 +7,5 @@ pub mod conversation;
 pub mod model;
 pub mod files;
 pub mod tools;
+pub mod system;
 pub mod static_files;

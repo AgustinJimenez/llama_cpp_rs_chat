@@ -7,10 +7,10 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
+} from '../atoms/dialog';
+import { Button } from '../atoms/button';
 // Using regular div with overflow instead of ScrollArea
-import type { FileItem, BrowseFilesResponse } from '../types';
+import type { FileItem, BrowseFilesResponse } from '../../types';
 
 interface FileBrowserProps {
   isOpen: boolean;

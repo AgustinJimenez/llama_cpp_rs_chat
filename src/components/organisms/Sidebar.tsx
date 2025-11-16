@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Menu, ChevronLeft, Plus, Settings, RotateCcw, X } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../atoms/dialog';
+import { Button } from '../atoms/button';
 
 interface ConversationFile {
   name: string;

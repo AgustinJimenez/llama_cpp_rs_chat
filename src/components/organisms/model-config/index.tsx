@@ -8,16 +8,15 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+} from '../../atoms/dialog';
+import { Button } from '../../atoms/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../../atoms/card';
 import type { SamplerConfig, ModelMetadata } from '@/types';
 
 // Import extracted components
-import { ModelFileInput } from './ModelFileInput';
+import { ModelFileInput, ModelConfigSystemPrompt } from '../../molecules';
 import { ModelMetadataDisplay } from './ModelMetadataDisplay';
 import { ContextSizeSection } from './ContextSizeSection';
-import { SystemPromptSection } from './SystemPromptSection';
 import { GpuLayersSection } from './GpuLayersSection';
 import { SamplingParametersSection } from './SamplingParametersSection';
 import { PresetsSection } from './PresetsSection';
@@ -469,7 +468,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                     modelInfo={modelInfo}
                   />
 
-                  <SystemPromptSection
+                  <ModelConfigSystemPrompt
                     systemPromptMode={systemPromptMode}
                     setSystemPromptMode={setSystemPromptMode}
                     customSystemPrompt={customSystemPrompt}

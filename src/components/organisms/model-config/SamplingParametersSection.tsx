@@ -1,12 +1,12 @@
 import React from 'react';
-import { Slider } from '@/components/ui/slider';
+import { Slider } from '../../atoms/slider';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
+} from '../../atoms/select';
 import type { SamplerConfig, SamplerType } from '@/types';
 import { SAMPLER_OPTIONS, SAMPLER_DESCRIPTIONS } from './constants';
 

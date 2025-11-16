@@ -143,3 +143,5 @@ export interface ToolResult {
   result: string;
   error?: string;
 }
+
+export type ViewMode = 'text' | 'markdown';

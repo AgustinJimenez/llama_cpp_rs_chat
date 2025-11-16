@@ -3,8 +3,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { dracula } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import type { Message } from '../types';
-import { autoParseToolCalls, stripToolCalls } from '../utils/toolParser';
+import type { Message } from '../../types';
+import { autoParseToolCalls, stripToolCalls } from '../../utils/toolParser';
 
 interface MessageBubbleProps {
   message: Message;

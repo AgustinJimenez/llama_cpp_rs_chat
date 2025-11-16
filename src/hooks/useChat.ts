@@ -20,13 +20,28 @@ function parseConversationFile(content: string): Message[] {
       // Save previous message if it exists
       if (currentRole && currentContent.trim()) {
         const role = currentRole === 'USER' ? 'user' : currentRole === 'ASSISTANT' ? 'assistant' : 'system';
+        const content = currentContent.trim();
 
-        // Skip system messages in the UI
-        if (role !== 'system') {
+        // Skip system messages, tool results, and tool-only responses in the UI
+        const isToolResults = content.startsWith('[TOOL_RESULTS]');
+        // Check if message only contains tool calls (and optionally thinking tags)
+        const contentWithoutThinking = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+        const hasQwenToolCall = contentWithoutThinking.includes('<tool_call>');
+        const hasLlama3ToolCall = contentWithoutThinking.includes('<function=');
+        const hasMistralToolCall = contentWithoutThinking.includes('[TOOL_CALLS]');
+        const hasToolCall = hasQwenToolCall || hasLlama3ToolCall || hasMistralToolCall;
+        const contentWithoutTools = contentWithoutThinking
+          .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
+          .replace(/<function=[\s\S]*?<\/function>/g, '')
+          .replace(/\[TOOL_CALLS\][\s\S]*?\[\/ARGS\]/g, '')
+          .trim();
+        const isToolCallOnly = hasToolCall && !contentWithoutTools;
+
+        if (role !== 'system' && !isToolResults && !isToolCallOnly) {
           messages.push({
             id: crypto.randomUUID(),
             role: role as 'user' | 'assistant',
-            content: currentContent.trim(),
+            content: content,
             timestamp: Date.now(),
           });
         }
@@ -44,12 +59,28 @@ function parseConversationFile(content: string): Message[] {
   // Add the final message
   if (currentRole && currentContent.trim()) {
     const role = currentRole === 'USER' ? 'user' : currentRole === 'ASSISTANT' ? 'assistant' : 'system';
+    const content = currentContent.trim();
 
-    if (role !== 'system') {
+    // Skip system messages, tool results, and tool-only responses in the UI
+    const isToolResults = content.startsWith('[TOOL_RESULTS]');
+    // Check if message only contains tool calls (and optionally thinking tags)
+    const contentWithoutThinking = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    const hasQwenToolCall = contentWithoutThinking.includes('<tool_call>');
+    const hasLlama3ToolCall = contentWithoutThinking.includes('<function=');
+    const hasMistralToolCall = contentWithoutThinking.includes('[TOOL_CALLS]');
+    const hasToolCall = hasQwenToolCall || hasLlama3ToolCall || hasMistralToolCall;
+    const contentWithoutTools = contentWithoutThinking
+      .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
+      .replace(/<function=[\s\S]*?<\/function>/g, '')
+      .replace(/\[TOOL_CALLS\][\s\S]*?\[\/ARGS\]/g, '')
+      .trim();
+    const isToolCallOnly = hasToolCall && !contentWithoutTools;
+
+    if (role !== 'system' && !isToolResults && !isToolCallOnly) {
       messages.push({
         id: crypto.randomUUID(),
         role: role as 'user' | 'assistant',
-        content: currentContent.trim(),
+        content: content,
         timestamp: Date.now(),
       });
     }
@@ -96,6 +127,7 @@ export function useChat() {
   const [isWsConnected, setIsWsConnected] = useState(false);
   const toolIterationCount = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const lastProcessedMessageId = useRef<string | null>(null);
 
   // const addMessage = useCallback((message: Message) => {
   //   setMessages(prev => [...prev, message]);
@@ -107,8 +139,13 @@ export function useChat() {
   //   ));
   // }, []);
 
-  const sendMessage = useCallback(async (content: string) => {
-    if (isLoading || !content.trim()) return;
+  const sendMessage = useCallback(async (content: string, bypassLoadingCheck = false) => {
+    if (!bypassLoadingCheck && (isLoading || !content.trim())) {
+      return;
+    }
+    if (!content.trim()) {
+      return;
+    }
 
     // Abort any previous request
     if (abortControllerRef.current) {
@@ -143,50 +180,22 @@ export function useChat() {
       // The file watcher will update the UI in real-time
       const response = await TauriAPI.sendMessage(request);
 
-      console.log('[FRONTEND] Got response:', response);
-      console.log('[FRONTEND] Response conversation_id:', response.conversation_id);
-      console.log('[FRONTEND] Current conversation_id before update:', currentConversationId);
 
       // Update conversation ID if this is a new conversation
       if (!currentConversationId) {
-        console.log('[FRONTEND] Setting new conversation_id:', response.conversation_id);
         setCurrentConversationId(response.conversation_id);
-      } else {
-        console.log('[FRONTEND] Already have conversation_id, not updating');
       }
 
       // Update token counts
       setTokensUsed(response.tokens_used);
       setMaxTokens(response.max_tokens);
 
-      // Check if response contains tool calls
-      const toolCalls = autoParseToolCalls(response.message.content);
+      // Don't check for tool calls from HTTP response - it's empty
+      // Tool calls will be detected from WebSocket updates instead
+      // (see WebSocket onmessage handler below)
 
-      if (toolCalls.length > 0) {
-        // Execute tool calls
-        try {
-          toast.success(`Executing ${toolCalls.length} tool call(s)...`, { duration: 2000 });
-
-          const results = await Promise.all(toolCalls.map(executeTool));
-
-          // Format results for model
-          const formattedResults = results.map((result) =>
-            `[TOOL_RESULTS]${result}[/TOOL_RESULTS]`
-          ).join('\n');
-
-          // Continue generation with tool results (recursive call)
-          await sendMessage(formattedResults);
-        } catch (err) {
-          const errorMessage = err instanceof Error ? err.message : 'Tool execution failed';
-          toast.error(`Tool error: ${errorMessage}`, { duration: 5000 });
-          setIsLoading(false);
-        }
-      } else if (response.message.content.trim() !== '') {
-        // Only set loading false if we got actual content (not empty response)
-        // Empty response means generation is happening in background via WebSocket
-        setIsLoading(false);
-      }
-      // If content is empty, keep loading - WebSocket will handle the response
+      // Keep loading state active - WebSocket will update with actual content
+      // and detect tool calls when generation completes
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
@@ -233,10 +242,7 @@ export function useChat() {
 
   // Watch for file changes when viewing a conversation
   useEffect(() => {
-    console.log('[FRONTEND] useEffect triggered! currentConversationId:', currentConversationId);
-
     if (!currentConversationId) {
-      console.log('[FRONTEND] No conversation ID, skipping WebSocket');
       setIsWsConnected(false);
       return;
     }
@@ -245,13 +251,10 @@ export function useChat() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/conversation/watch/${currentConversationId}`;
 
-    console.log('[FRONTEND] Attempting to connect WebSocket to:', wsUrl);
-
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
       setIsWsConnected(true);
-      console.log('[FRONTEND] ✅ WebSocket connected successfully to conversation:', currentConversationId);
     };
 
     ws.onmessage = (event) => {
@@ -264,10 +267,55 @@ export function useChat() {
           const parsedMessages = parseConversationFile(content);
           setMessages(parsedMessages);
 
-          // Check if assistant has started responding (turn off loading spinner)
+          // Check if assistant has started responding
           const lastMessage = parsedMessages[parsedMessages.length - 1];
           if (lastMessage && lastMessage.role === 'assistant' && lastMessage.content.length > 0) {
-            setIsLoading(false);
+            // Check for tool calls in the assistant's message
+            const toolCalls = autoParseToolCalls(lastMessage.content);
+
+            if (toolCalls.length > 0) {
+              // Check if ALL tool calls are complete
+              // A tool call is complete if it has both opening and closing tags
+              const qwenComplete = (lastMessage.content.match(/<tool_call>/g) || []).length === (lastMessage.content.match(/<\/tool_call>/g) || []).length;
+              const llama3Complete = (lastMessage.content.match(/<function=/g) || []).length === (lastMessage.content.match(/<\/function>/g) || []).length;
+              const mistralComplete = (lastMessage.content.match(/\[TOOL_CALLS\]/g) || []).length === (lastMessage.content.match(/\[\/ARGS\]/g) || []).length;
+
+              const hasCompleteToolCall = qwenComplete || llama3Complete || mistralComplete;
+
+              if (hasCompleteToolCall && lastProcessedMessageId.current !== lastMessage.id) {
+                // Tool calls are complete and haven't been processed yet - execute them
+                lastProcessedMessageId.current = lastMessage.id;
+
+                toast.success(`Executing ${toolCalls.length} tool call(s)...`, { duration: 2000 });
+
+                // Execute tool calls
+                Promise.all(toolCalls.map(executeTool))
+                  .then((results) => {
+                    // Format results for model
+                    const formattedResults = results.map((result) =>
+                      `[TOOL_RESULTS]${result}[/TOOL_RESULTS]`
+                    ).join('\n');
+
+                    // Turn off loading before sending results
+                    setIsLoading(false);
+
+                    // Continue generation with tool results
+                    // Use setTimeout to ensure state update completes first
+                    setTimeout(() => {
+                      sendMessage(formattedResults, true); // bypass loading check for tool results
+                    }, 10);
+                  })
+                  .catch((err) => {
+                    const errorMessage = err instanceof Error ? err.message : 'Tool execution failed';
+                    toast.error(`Tool error: ${errorMessage}`, { duration: 5000 });
+                    setIsLoading(false);
+                  });
+              }
+              // If hasCompleteToolCall but already processed, do nothing (keep loading for next iteration)
+            } else {
+              // No tool calls - turn off loading spinner
+              setIsLoading(false);
+            }
           }
 
           // Update token counts if provided

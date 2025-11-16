@@ -1,6 +1,6 @@
 import React from 'react';
 import { AlertTriangle, Info } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '../../atoms/card';
 
 export interface MemoryBreakdown {
   // VRAM breakdown (GPU memory)

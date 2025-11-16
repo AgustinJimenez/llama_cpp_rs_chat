@@ -5,9 +5,9 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import type { SamplerType } from '../../types';
+} from '../../atoms/select';
+import { Card, CardContent, CardHeader, CardTitle } from '../../atoms/card';
+import type { SamplerType } from '../../../types';
 
 const SAMPLER_OPTIONS: SamplerType[] = [
   'Greedy',

@@ -1,6 +1,6 @@
 import React from 'react';
 import { FolderOpen } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '../../atoms/card';
 
 interface ModelPathSectionProps {
   modelPath: string;

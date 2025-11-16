@@ -1,5 +1,5 @@
 import React from 'react';
-import { Button } from '@/components/ui/button';
+import { Button } from '../../atoms/button';
 import type { SamplerConfig } from '@/types';
 
 export interface PresetsSectionProps {

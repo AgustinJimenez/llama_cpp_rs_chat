@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { MemoryBreakdown } from '@/components/model-config/MemoryVisualization';
+import type { MemoryBreakdown } from '@/components/organisms/model-config/MemoryVisualization';
 import type { ModelMetadata } from '@/types';
 
 interface MemoryCalculationParams {

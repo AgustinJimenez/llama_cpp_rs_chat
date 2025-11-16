@@ -1,6 +1,6 @@
 import React from 'react';
 import { Loader2, FolderOpen, Clock, CheckCircle, XCircle } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '../atoms/button';
 
 export interface ModelFileInputProps {
   modelPath: string;

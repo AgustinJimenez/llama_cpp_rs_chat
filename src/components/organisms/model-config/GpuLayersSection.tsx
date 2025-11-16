@@ -1,5 +1,5 @@
 import React from 'react';
-import { Slider } from '@/components/ui/slider';
+import { Slider } from '../../atoms/slider';
 
 export interface GpuLayersSectionProps {
   gpuLayers: number;

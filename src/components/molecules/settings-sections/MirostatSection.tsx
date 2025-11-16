@@ -1,6 +1,6 @@
 import React from 'react';
-import { Slider } from '@/components/ui/slider';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Slider } from '../../atoms/slider';
+import { Card, CardContent, CardHeader, CardTitle } from '../../atoms/card';
 
 interface MirostatSectionProps {
   tauValue: number;

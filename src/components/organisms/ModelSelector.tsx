@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Brain, FolderOpen } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '../atoms/button';
 import { ModelConfigModal } from './model-config';
-import type { SamplerConfig } from '../types';
+import type { SamplerConfig } from '../../types';
 
 interface ModelSelectorProps {
   onModelLoad: (modelPath: string, config: SamplerConfig) => void;

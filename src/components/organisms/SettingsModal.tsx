@@ -6,9 +6,9 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import { Card, CardContent } from '@/components/ui/card';
-import { useSettings } from '../hooks/useSettings';
+} from '../atoms/dialog';
+import { Card, CardContent } from '../atoms/card';
+import { useSettings } from '../../hooks/useSettings';
 import { FileBrowser } from './FileBrowser';
 import {
   ModelPathSection,
@@ -17,8 +17,8 @@ import {
   ParameterSliderSection,
   MirostatSection,
   PresetSection
-} from './settings-sections';
-import type { SamplerConfig } from '../types';
+} from '../molecules/settings-sections';
+import type { SamplerConfig } from '../../types';
 
 interface SettingsModalProps {
   isOpen: boolean;

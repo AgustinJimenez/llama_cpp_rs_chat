@@ -56,6 +56,11 @@ async fn handle_request_impl(
             web::routes::health::handle(state).await?
         }
 
+        // System monitoring
+        (&Method::GET, "/api/system/usage") => {
+            web::routes::system::handle_system_usage().await?
+        }
+
         // Chat endpoints
         (&Method::POST, "/api/chat") => {
             web::routes::chat::handle_post_chat(req, state).await?
