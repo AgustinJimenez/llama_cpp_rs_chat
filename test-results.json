@@ -122,174 +122,78 @@
   },
   "suites": [
     {
-      "title": "model-loading-and-chat.test.ts",
-      "file": "model-loading-and-chat.test.ts",
+      "title": "conversation-loading-simple.test.ts",
+      "file": "conversation-loading-simple.test.ts",
       "column": 0,
       "line": 0,
       "specs": [],
       "suites": [
         {
-          "title": "Model Loading and Chat Test",
-          "file": "model-loading-and-chat.test.ts",
-          "line": 3,
+          "title": "Conversation Loading - Simple Test",
+          "file": "conversation-loading-simple.test.ts",
+          "line": 6,
           "column": 6,
           "specs": [
             {
-              "title": "loads model using modal UI with GPU layers, says hello, and requests a code algorithm",
+              "title": "should load an existing conversation from sidebar without crashing",
               "ok": true,
               "tags": [],
               "tests": [
                 {
                   "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
+                  "annotations": [
+                    {
+                      "type": "skip",
+                      "location": {
+                        "file": "E:\\repo\\llama_cpp_rs_chat\\tests\\e2e\\conversation-loading-simple.test.ts",
+                        "line": 32,
+                        "column": 12
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
                   "projectId": "chromium",
                   "projectName": "chromium",
                   "results": [
                     {
                       "workerIndex": 0,
                       "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 28860,
+                      "status": "skipped",
+                      "duration": 624,
                       "errors": [],
                       "stdout": [
                         {
-                          "text": "📱 Navigating to the app...\n"
+                          "text": "✓ App loaded\n"
                         },
                         {
-                          "text": "✅ App loaded successfully\n"
+                          "text": "✓ Sidebar opened\n"
                         },
                         {
-                          "text": "🔧 No model loaded, opening model configuration modal...\n"
-                        },
-                        {
-                          "text": "✅ Model configuration modal opened\n"
-                        },
-                        {
-                          "text": "📝 Selecting model path: E:\\.lmstudio\\models\\lmstudio-community\\Devstral-Small-2507-GGUF\\Devstral-Small-2507-Q4_K_M.gguf\n"
-                        },
-                        {
-                          "text": "📋 Found model in history, clicking on it...\n"
-                        },
-                        {
-                          "text": "⏳ Waiting for file validation...\n"
-                        },
-                        {
-                          "text": "✅ Model file found and validated (file-found indicator visible)\n"
-                        },
-                        {
-                          "text": "🔽 Scrolling to configuration section...\n"
-                        },
-                        {
-                          "text": "🔽 Expanding model configuration section...\n"
-                        },
-                        {
-                          "text": "📊 Section already expanded: true\n"
-                        },
-                        {
-                          "text": "🎮 Setting GPU layers to maximum (all layers on GPU)...\n"
-                        },
-                        {
-                          "text": "📊 Model has null layers, setting all to GPU...\n"
-                        },
-                        {
-                          "text": "✅ GPU layers set to: 32 / 40\n"
-                        },
-                        {
-                          "text": "🔍 Verifying modal is still open...\n"
-                        },
-                        {
-                          "text": "✅ Modal confirmed open\n"
-                        },
-                        {
-                          "text": "📜 Scrolling to bottom to see Load Model button...\n"
-                        },
-                        {
-                          "text": "💾 Clicking Load Model button...\n"
-                        },
-                        {
-                          "text": "✅ Load Model button found and enabled, clicking now...\n"
-                        },
-                        {
-                          "text": "✅ Modal closed after clicking Load Model\n"
-                        },
-                        {
-                          "text": "⏳ Waiting for model to load (checking for Unload model button)...\n"
-                        },
-                        {
-                          "text": "✅ Model loaded successfully (Unload model button appeared)\n"
-                        },
-                        {
-                          "text": "💬 Sending first message: \"Hello\"\n"
-                        },
-                        {
-                          "text": "✅ First message sent: \"Hello\"\n"
-                        },
-                        {
-                          "text": "⏳ Waiting for first response...\n"
-                        },
-                        {
-                          "text": "✅ First response received: Hello! How can I assist you today?...\n"
-                        },
-                        {
-                          "text": "💬 Sending second message: \"Can you write a small algorithm to check if a number is prime?\"\n"
-                        },
-                        {
-                          "text": "✅ Second message sent: \"Can you write a small algorithm...\"\n"
-                        },
-                        {
-                          "text": "⏳ Waiting for second response (algorithm)...\n"
-                        },
-                        {
-                          "text": "🔍 Assistant message count: 1\n"
-                        },
-                        {
-                          "text": "🔍 Messages container HTML: <div class=\"flex w-full justify-end\" data-testid=\"message-user\" data-message-id=\"a344ef0e-c208-462d-93d1-bb0a7d573ed3\"><div class=\"rounded-lg border-0 shadow-md max-w-[80%] bg-gradient-to-br from-slate-600 to-slate-500 text-white\"><div class=\"p-3\"><div class=\"text-sm prose prose-invert prose-sm max-w-none\" data-testid=\"message-content\"><p>Hello</p></div></div></div></div><div class=\"w-full space-y-2\" data-testid=\"message-assistant\" data-message-id=\"cee9ef5a-64bf-4aa8-96e6-ff50bbb455e6\"><div class=\"text-sm prose prose-slate prose-sm max-w-none prose-invert text-slate-200\" data-testid=\"message-content\"><p class=\"text-slate-200 my-2\">Hello! How can I assist you today?</p></div></div><div class=\"flex w-full justify-end\" data-testid=\"message-user\" data-message-id=\"028e2ac4-bf34-445e-b88a-10889003d54d\"><div class=\"rounded-lg border-0 shadow-md max-w-[80%] bg-gradient-to-br from-slate-600 to-slate-500 text-white\"><div class=\"p-3\"><div class=\"text-sm prose prose-invert prose-sm max-w-none\" data-testid=\"message-content\"><p>Can you write a small algorithm to check if a number is prime?</p></div></div></div></div><div class=\"w-full\" data-testid=\"loading-indicator\"><div class=\"flex gap-1\"><div class=\"w-2 h-2 bg-slate-400 rounded-full animate-pulse\" data-testid=\"loading-dot-1\"></div><div class=\"w-2 h-2 bg-slate-400 rounded-full animate-pulse [animation-delay:200ms]\" data-testid=\"loading-dot-2\"></div><div class=\"w-2 h-2 bg-slate-400 rounded-full animate-pulse [animation-delay:400ms]\" data-testid=\"loading-dot-3\"></div></div></div><div></div>\n"
-                        },
-                        {
-                          "text": "✅ Second response received (algorithm)\n"
-                        },
-                        {
-                          "text": "✅ Response appears to contain code/algorithm content\n"
-                        },
-                        {
-                          "text": "🎉 Test completed successfully!\n"
-                        },
-                        {
-                          "text": "   - Opened model configuration modal ✅\n"
-                        },
-                        {
-                          "text": "   - Selected model file via UI ✅\n"
-                        },
-                        {
-                          "text": "   - Set GPU layers to maximum (all layers on GPU) ✅\n"
-                        },
-                        {
-                          "text": "   - Model loaded successfully ✅\n"
-                        },
-                        {
-                          "text": "   - First message: \"Hello\" ✅\n"
-                        },
-                        {
-                          "text": "   - Second message: Algorithm request ✅\n"
-                        },
-                        {
-                          "text": "   - Both responses received ✅\n"
+                          "text": "⚠️  No conversations found - test requires existing conversation\n"
                         }
                       ],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-11-09T01:26:59.801Z",
-                      "annotations": [],
+                      "startTime": "2025-11-15T19:09:23.268Z",
+                      "annotations": [
+                        {
+                          "type": "skip",
+                          "location": {
+                            "file": "E:\\repo\\llama_cpp_rs_chat\\tests\\e2e\\conversation-loading-simple.test.ts",
+                            "line": 32,
+                            "column": 12
+                          }
+                        }
+                      ],
                       "attachments": []
                     }
                   ],
-                  "status": "expected"
+                  "status": "skipped"
                 }
               ],
-              "id": "57acbae82133077a4f06-da14a8d35a47cf1b88ea",
-              "file": "model-loading-and-chat.test.ts",
-              "line": 4,
+              "id": "3d6b5102b69222a2dd22-1288ddb1bf0750f76a9c",
+              "file": "conversation-loading-simple.test.ts",
+              "line": 7,
               "column": 3
             }
           ]
@@ -299,10 +203,10 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2025-11-09T01:26:59.000Z",
-    "duration": 29815.476,
-    "expected": 1,
-    "skipped": 0,
+    "startTime": "2025-11-15T19:09:21.952Z",
+    "duration": 2075.311,
+    "expected": 0,
+    "skipped": 1,
     "unexpected": 0,
     "flaky": 0
   }

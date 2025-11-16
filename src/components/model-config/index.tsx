@@ -462,7 +462,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                 </button>
               </CardHeader>
               {isConfigExpanded && (
-                <CardContent className="space-y-4 pt-0">
+                <CardContent className="space-y-4 pt-6">
                   <ContextSizeSection
                     contextSize={contextSize}
                     setContextSize={setContextSize}

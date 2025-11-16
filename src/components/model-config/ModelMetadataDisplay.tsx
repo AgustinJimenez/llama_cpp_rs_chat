@@ -30,7 +30,7 @@ export const ModelMetadataDisplay: React.FC<ModelMetadataDisplayProps> = ({
       </button>
     </CardHeader>
     {isExpanded && (
-      <CardContent className="pt-0">
+      <CardContent className="pt-6">
         <div className="space-y-3 text-xs max-h-96 overflow-y-auto">
           {/* Basic Info */}
           <div className="space-y-1">

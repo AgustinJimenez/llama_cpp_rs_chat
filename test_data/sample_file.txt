@@ -1,5 +1,0 @@
-This is a sample file for testing the read_file tool.
-It contains multiple lines of text.
-Line 3: Testing reading capabilities.
-Line 4: The model should be able to read this entire file.
-Line 5: End of sample file.

@@ -45,7 +45,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, onNewChat, onOpenSe
       }
     } catch (error) {
       clearTimeout(timeoutId);
-      if (error.name === 'AbortError') {
+      if ((error as Error).name === 'AbortError') {
         console.error('Fetch timeout: conversations request took too long');
       } else {
         console.error('Error fetching conversations:', error);

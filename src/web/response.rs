@@ -18,24 +18,28 @@ pub fn json_ok(body: impl Into<Body>) -> Response<Body> {
 }
 
 /// Create a bad request error response (400)
+#[allow(dead_code)]
 pub fn bad_request(error_msg: &str) -> Response<Body> {
     let body = format!(r#"{{"error":"{}"}}"#, error_msg);
     json_response(StatusCode::BAD_REQUEST, body)
 }
 
 /// Create an internal server error response (500)
+#[allow(dead_code)]
 pub fn internal_error(error_msg: &str) -> Response<Body> {
     let body = format!(r#"{{"error":"{}"}}"#, error_msg);
     json_response(StatusCode::INTERNAL_SERVER_ERROR, body)
 }
 
 /// Create a not found error response (404)
+#[allow(dead_code)]
 pub fn not_found(error_msg: &str) -> Response<Body> {
     let body = format!(r#"{{"error":"{}"}}"#, error_msg);
     json_response(StatusCode::NOT_FOUND, body)
 }
 
 /// Create a CORS preflight response (OPTIONS)
+#[allow(dead_code)]
 pub fn cors_preflight() -> Response<Body> {
     Response::builder()
         .status(StatusCode::OK)
@@ -47,6 +51,7 @@ pub fn cors_preflight() -> Response<Body> {
 }
 
 /// Create an HTML response with CORS headers
+#[allow(dead_code)]
 pub fn html_response(status: StatusCode, body: impl Into<Body>) -> Response<Body> {
     Response::builder()
         .status(status)
@@ -57,6 +62,7 @@ pub fn html_response(status: StatusCode, body: impl Into<Body>) -> Response<Body
 }
 
 /// Create a text/plain response with CORS headers
+#[allow(dead_code)]
 pub fn text_response(status: StatusCode, body: impl Into<Body>) -> Response<Body> {
     Response::builder()
         .status(status)
@@ -67,6 +73,7 @@ pub fn text_response(status: StatusCode, body: impl Into<Body>) -> Response<Body
 }
 
 /// Create a Server-Sent Events response with CORS headers
+#[allow(dead_code)]
 pub fn sse_response(body: Body) -> Response<Body> {
     Response::builder()
         .status(StatusCode::OK)

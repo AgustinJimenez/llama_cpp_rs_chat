@@ -24,6 +24,16 @@ path = "src/main.rs"
 name = "llama_chat_web"
 path = "src/main_web.rs"
 
+# Temporary utility to check Gemma template
+[[bin]]
+name = "check_gemma_template"
+path = "check_gemma_template.rs"
+
+# Test binary for debugging model loading and tokenization
+[[bin]]
+name = "test_model"
+path = "src/test_model.rs"
+
 [dependencies]
 # Tauri framework  
 tauri = { version = "2.0", features = [] }
@@ -52,6 +62,10 @@ gguf-llms = "0.0.2"
 # WebSocket support
 sha1 = "0.10"
 base64 = "0.21"
+
+# Logging
+chrono = "0.4"
+lazy_static = "1.4"
 
 [features]
 default = []

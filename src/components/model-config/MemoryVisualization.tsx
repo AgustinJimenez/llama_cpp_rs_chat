@@ -118,7 +118,7 @@ export const MemoryVisualization: React.FC<MemoryVisualizationProps> = ({ memory
             {/* Overcommitted indicator */}
             {memory.vram.overcommitted && (
               <div className="absolute inset-0 bg-red-600/20 border-2 border-red-600 flex items-center justify-center">
-                <span className="text-xs text-red-600 font-bold">OVERCOMMITTED</span>
+                <span className="text-xs text-black font-bold">OVERCOMMITTED</span>
               </div>
             )}
           </div>
@@ -180,7 +180,7 @@ export const MemoryVisualization: React.FC<MemoryVisualizationProps> = ({ memory
             {/* Overcommitted indicator */}
             {memory.ram.overcommitted && (
               <div className="absolute inset-0 bg-red-600/20 border-2 border-red-600 flex items-center justify-center">
-                <span className="text-xs text-red-600 font-bold">OVERCOMMITTED</span>
+                <span className="text-xs text-black font-bold">OVERCOMMITTED</span>
               </div>
             )}
           </div>

@@ -5,20 +5,22 @@ pub mod config;
 pub mod command;
 pub mod conversation;
 pub mod model_manager;
-pub mod chat_handler;
+pub mod chat;  // New modular chat implementation
+pub mod chat_handler;  // Legacy re-exports for backward compatibility
 pub mod websocket;
 pub mod utils;
 pub mod response;
 pub mod request;
+pub mod logger;
+pub mod routes;
 
 // Re-export commonly used types
 pub use models::*;
-pub use config::*;
-// pub use command::*;  // Not used in main_web.rs
-pub use conversation::*;
-pub use model_manager::*;
-pub use chat_handler::*;
-pub use websocket::*;
-// pub use utils::*;  // Not used in main_web.rs
-pub use response::*;
-pub use request::*;
+// Removed unused re-exports to fix compiler warnings
+// pub use config::*;
+// pub use conversation::*;
+// pub use model_manager::*;
+// pub use chat_handler::*;
+// pub use websocket::*;
+// pub use response::*;
+// pub use request::*;

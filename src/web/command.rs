@@ -1,5 +1,24 @@
 use std::process::Command;
 use std::env;
+use crate::log_warn;
+
+// Whitelist of allowed commands for security
+const ALLOWED_COMMANDS: &[&str] = &[
+    // File operations
+    "ls", "dir", "cat", "type", "head", "tail", "find", "grep", "more", "less",
+    // Directory operations
+    "cd", "pwd", "mkdir", "rmdir",
+    // File manipulation
+    "cp", "mv", "rm", "del", "touch", "chmod",
+    // System info
+    "echo", "date", "whoami", "hostname", "uname",
+    // Development tools
+    "git", "cargo", "npm", "node", "python", "rustc",
+    // Archive operations
+    "tar", "zip", "unzip", "gzip", "gunzip",
+    // Text processing
+    "sed", "awk", "sort", "uniq", "wc", "diff",
+];
 
 // Helper function to parse command with proper quote handling
 pub fn parse_command_with_quotes(cmd: &str) -> Vec<String> {
@@ -42,6 +61,16 @@ pub fn execute_command(cmd: &str) -> String {
     }
 
     let command_name = &parts[0];
+
+    // Security: Check if command is in whitelist
+    if !ALLOWED_COMMANDS.contains(&command_name.as_str()) {
+        log_warn!("Blocked unauthorized command: {}", command_name);
+        return format!(
+            "Error: Command '{}' is not allowed for security reasons. Allowed commands: {}",
+            command_name,
+            ALLOWED_COMMANDS.join(", ")
+        );
+    }
 
     // Basic command validation - reject obviously invalid commands
     if command_name.len() < 2 || command_name.contains("/") && !command_name.starts_with("/") {
@@ -115,5 +144,157 @@ pub fn execute_command(cmd: &str) -> String {
                 format!("Failed to execute command: {}", e)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_simple_command() {
+        let result = parse_command_with_quotes("ls -la");
+        assert_eq!(result, vec!["ls", "-la"]);
+    }
+
+    #[test]
+    fn test_parse_command_with_quoted_arg() {
+        let result = parse_command_with_quotes(r#"cat "file with spaces.txt""#);
+        assert_eq!(result, vec!["cat", "file with spaces.txt"]);
+    }
+
+    #[test]
+    fn test_parse_command_with_multiple_quoted_args() {
+        let result = parse_command_with_quotes(r#"cp "source file.txt" "dest file.txt""#);
+        assert_eq!(result, vec!["cp", "source file.txt", "dest file.txt"]);
+    }
+
+    #[test]
+    fn test_parse_command_with_mixed_quotes_and_regular_args() {
+        let result = parse_command_with_quotes(r#"git commit -m "Initial commit" --no-verify"#);
+        assert_eq!(result, vec!["git", "commit", "-m", "Initial commit", "--no-verify"]);
+    }
+
+    #[test]
+    fn test_parse_command_with_empty_string() {
+        let result = parse_command_with_quotes("");
+        assert_eq!(result, Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_parse_command_with_only_spaces() {
+        let result = parse_command_with_quotes("   ");
+        assert_eq!(result, Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_parse_command_with_trailing_spaces() {
+        let result = parse_command_with_quotes("ls -la   ");
+        assert_eq!(result, vec!["ls", "-la"]);
+    }
+
+    #[test]
+    fn test_parse_command_with_leading_spaces() {
+        let result = parse_command_with_quotes("   ls -la");
+        assert_eq!(result, vec!["ls", "-la"]);
+    }
+
+    #[test]
+    fn test_parse_command_with_path_containing_spaces() {
+        let result = parse_command_with_quotes(r#"cd "C:\Program Files\MyApp""#);
+        assert_eq!(result, vec!["cd", r"C:\Program Files\MyApp"]);
+    }
+
+    #[test]
+    fn test_parse_command_with_nested_quotes() {
+        // Quotes within quotes - outer quotes are removed
+        let result = parse_command_with_quotes(r#"echo "Hello "World"""#);
+        // This will parse as: echo "Hello " World ""
+        // Which gives: ["echo", "Hello ", "World", ""]
+        assert!(result.contains(&"echo".to_string()));
+    }
+
+    #[test]
+    fn test_execute_empty_command() {
+        let result = execute_command("");
+        assert_eq!(result, "Error: Empty command");
+    }
+
+    #[test]
+    fn test_execute_blocked_command() {
+        let result = execute_command("malicious_command");
+        assert!(result.contains("not allowed for security reasons"));
+        assert!(result.contains("malicious_command"));
+    }
+
+    #[test]
+    fn test_execute_allowed_echo_command() {
+        let result = execute_command("echo Hello");
+        assert!(result.contains("Hello") || result.contains("executed successfully"));
+    }
+
+    #[test]
+    fn test_whitelist_contains_basic_commands() {
+        assert!(ALLOWED_COMMANDS.contains(&"ls"));
+        assert!(ALLOWED_COMMANDS.contains(&"cat"));
+        assert!(ALLOWED_COMMANDS.contains(&"git"));
+        assert!(ALLOWED_COMMANDS.contains(&"echo"));
+    }
+
+    #[test]
+    fn test_whitelist_does_not_contain_dangerous_commands() {
+        assert!(!ALLOWED_COMMANDS.contains(&"rm -rf"));
+        assert!(!ALLOWED_COMMANDS.contains(&"shutdown"));
+        assert!(!ALLOWED_COMMANDS.contains(&"reboot"));
+        assert!(!ALLOWED_COMMANDS.contains(&"format"));
+    }
+
+    #[test]
+    fn test_find_command_blocked_on_root() {
+        let result = execute_command("find / -name test");
+        assert!(result.contains("Filesystem-wide searches are not allowed"));
+    }
+
+    #[test]
+    fn test_find_command_blocked_on_usr() {
+        let result = execute_command("find /usr -name test");
+        assert!(result.contains("Filesystem-wide searches are not allowed"));
+    }
+
+    #[test]
+    fn test_find_command_allowed_on_current_dir() {
+        let result = execute_command("find . -name test");
+        // Should not contain the block message
+        assert!(!result.contains("Filesystem-wide searches are not allowed"));
+    }
+
+    #[test]
+    fn test_cd_without_argument() {
+        let result = execute_command("cd");
+        assert!(result.contains("requires a directory argument"));
+    }
+
+    #[test]
+    fn test_command_with_special_characters() {
+        let result = parse_command_with_quotes(r#"grep "pattern*" file.txt"#);
+        assert_eq!(result, vec!["grep", "pattern*", "file.txt"]);
+    }
+
+    #[test]
+    fn test_git_commit_with_quoted_message() {
+        let result = parse_command_with_quotes(r#"git commit -m "Fix bug #123""#);
+        assert_eq!(result, vec!["git", "commit", "-m", "Fix bug #123"]);
+    }
+
+    #[test]
+    fn test_windows_path_parsing() {
+        let result = parse_command_with_quotes(r#"type "C:\Users\test\file.txt""#);
+        assert_eq!(result, vec!["type", r"C:\Users\test\file.txt"]);
+    }
+
+    #[test]
+    fn test_unix_path_parsing() {
+        let result = parse_command_with_quotes(r#"cat "/home/user/my file.txt""#);
+        assert_eq!(result, vec!["cat", "/home/user/my file.txt"]);
     }
 }

@@ -5,11 +5,17 @@
   "top_k": 20,
   "mirostat_tau": 5.0,
   "mirostat_eta": 0.1,
-  "model_path": "E:\\.lmstudio\\models\\lmstudio-community\\Devstral-Small-2507-GGUF\\Devstral-Small-2507-Q4_K_M.gguf",
+  "model_path": "E:/.lmstudio/lmstudio-community/Qwen3-8B-GGUF/Qwen3-8B-Q8_0.gguf",
   "system_prompt": null,
-  "context_size": 131072,
+  "context_size": 32768,
   "stop_tokens": null,
   "model_history": [
+    "E:/.lmstudio/lmstudio-community/Qwen3-8B-GGUF/Qwen3-8B-Q8_0.gguf",
+    "E:/.lmstudio/models/lmstudio-community/Devstral-Small-2507-GGUF/Devstral-Small-2507-Q4_K_M.gguf",
+    "E:/.lmstudio/Mungert/MiniCPM4.1-8B-GGUF/MiniCPM4.1-8B-bf16.gguf",
+    "E:/.lmstudio/models/lmstudio-community/Qwen3-30B-A3B-Instruct-2507-GGUF/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf",
+    "E:/.lmstudio/lmstudio-community/gemma-3-12b-it-GGUF/gemma-3-12b-it-Q8_0.gguf",
+    "E:/.lmstudio/lmstudio-community/granite-4.0-h-tiny-GGUF/granite-4.0-h-tiny-Q8_0.gguf",
     "E:\\.lmstudio\\models\\lmstudio-community\\Devstral-Small-2507-GGUF\\Devstral-Small-2507-Q4_K_M.gguf",
     "E:\\.lmstudio\\models\\lmstudio-community\\Qwen3-30B-A3B-Instruct-2507-GGUF\\Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf"
   ]

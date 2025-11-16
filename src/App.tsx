@@ -1,7 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 import { Unplug, Radio } from 'lucide-react';
-import { Card } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Toaster, toast } from 'react-hot-toast';
 import { MessageBubble } from './components/MessageBubble';
 import { LoadingIndicator } from './components/LoadingIndicator';

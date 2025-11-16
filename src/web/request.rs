@@ -7,6 +7,7 @@ use super::response;
 
 /// Parse request body as JSON
 /// Returns the deserialized value or an error response
+#[allow(dead_code)]
 pub async fn parse_json<T: DeserializeOwned>(req: Request<Body>) -> Result<T, Response<Body>> {
     // Read body bytes
     let body_bytes = match hyper::body::to_bytes(req.into_body()).await {
@@ -29,6 +30,7 @@ pub async fn parse_json<T: DeserializeOwned>(req: Request<Body>) -> Result<T, Re
 
 /// Extract path parameter from URI path
 /// Example: extract_path_param("/api/conversations/chat123.txt", "/api/conversations/") => Some("chat123.txt")
+#[allow(dead_code)]
 pub fn extract_path_param<'a>(path: &'a str, prefix: &str) -> Option<&'a str> {
     if path.starts_with(prefix) {
         Some(&path[prefix.len()..])
@@ -39,6 +41,7 @@ pub fn extract_path_param<'a>(path: &'a str, prefix: &str) -> Option<&'a str> {
 
 /// Parse query string parameter
 /// Example: parse_query_param("?model=foo&temp=0.7", "temp") => Some("0.7")
+#[allow(dead_code)]
 pub fn parse_query_param<'a>(query: &'a str, key: &str) -> Option<&'a str> {
     for param in query.split('&') {
         if let Some((k, v)) = param.split_once('=') {

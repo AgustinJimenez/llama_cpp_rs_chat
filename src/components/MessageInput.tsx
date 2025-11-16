@@ -1,7 +1,5 @@
 import React, { useState, useCallback, KeyboardEvent, useEffect, useRef } from 'react';
 import { Send } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 
 interface MessageInputProps {
   onSendMessage: (message: string) => void;

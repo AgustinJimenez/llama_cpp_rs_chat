@@ -101,7 +101,8 @@ pub async fn handle_websocket(
 
                 // Get conversation ID to send back to client
                 let conversation_id = {
-                    let logger = conversation_logger.lock().unwrap();
+                    let logger = conversation_logger.lock()
+                        .expect("Conversation logger mutex poisoned");
                     logger.get_conversation_id()
                 };
                 eprintln!("[WS_CHAT] Conversation ID: {}", conversation_id);
