@@ -21,22 +21,27 @@ const mistralParser: ToolParser = {
     const toolCalls: ToolCall[] = [];
 
     // Regex to match [TOOL_CALLS]function_name[ARGS]{...}
-    const regex = /\[TOOL_CALLS\]([^\[]+)\[ARGS\](\{[^\}]*\})/g;
+    // Use [\s\S]*? to properly handle nested JSON
+    const regex = /\[TOOL_CALLS\]([^\[]+)\[ARGS\]([\s\S]*?)(?=\[TOOL_CALLS\]|$)/g;
     let match;
 
     while ((match = regex.exec(text)) !== null) {
       const functionName = match[1].trim();
-      const argsJson = match[2];
+      const argsText = match[2].trim();
+
+      // Extract JSON from the arguments text
+      const jsonMatch = argsText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) continue;
 
       try {
-        const args = JSON.parse(argsJson);
+        const args = JSON.parse(jsonMatch[0]);
         toolCalls.push({
           id: crypto.randomUUID(),
           name: functionName,
           arguments: args,
         });
       } catch (e) {
-        console.error('Failed to parse tool call arguments:', e, argsJson);
+        console.error('Failed to parse tool call arguments:', e, jsonMatch[0]);
       }
     }
 
@@ -57,12 +62,13 @@ const llama3Parser: ToolParser = {
     const toolCalls: ToolCall[] = [];
 
     // Regex to match <function=name>{...}</function>
-    const regex = /<function=([^>]+)>(\{[^\}]*\})<\/function>/g;
+    // Use [\s\S]*? to properly handle nested JSON
+    const regex = /<function=([^>]+)>([\s\S]*?)<\/function>/g;
     let match;
 
     while ((match = regex.exec(text)) !== null) {
       const functionName = match[1].trim();
-      const argsJson = match[2];
+      const argsJson = match[2].trim();
 
       try {
         const args = JSON.parse(argsJson);
@@ -92,12 +98,13 @@ const qwenParser: ToolParser = {
   parse(text: string): ToolCall[] {
     const toolCalls: ToolCall[] = [];
 
-    // Regex to match <tool_call>{...}</tool_call>
-    const regex = /<tool_call>(\{[^\}]*\})<\/tool_call>/g;
+    // Regex to match <tool_call>{...}</tool_call> with proper JSON handling
+    // Use [\s\S]*? for non-greedy match of any character including newlines
+    const regex = /<tool_call>([\s\S]*?)<\/tool_call>/g;
     let match;
 
     while ((match = regex.exec(text)) !== null) {
-      const callJson = match[1];
+      const callJson = match[1].trim();
 
       try {
         const call = JSON.parse(callJson);
