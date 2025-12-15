@@ -1,6 +1,5 @@
 use std::num::NonZeroU32;
 use tokio::sync::mpsc;
-use regex::Regex;
 use llama_cpp_2::{
     context::params::LlamaContextParams,
     llama_batch::LlamaBatch,
@@ -10,33 +9,18 @@ use llama_cpp_2::{
 
 use super::super::models::*;
 use super::super::config::load_config;
-use super::super::command::execute_command;
 use super::super::model_manager::load_model;
 use super::templates::apply_model_chat_template;
+use super::command_executor::{check_and_execute_command, inject_output_tokens, stream_command_output};
 use crate::{log_debug, log_info, log_warn};
 
 // Constants for LLaMA configuration
 const CONTEXT_SIZE: u32 = 32768;
 const MODEL_PATH: &str = "/app/models/lmstudio-community/granite-4.0-h-tiny-GGUF/granite-4.0-h-tiny-Q4_K_M.gguf";
 
-// Universal command execution tokens (avoids XML/HTML conflicts with || pipes)
-// Note: EXEC_OPEN is the "ideal" format, but we use regex for flexible detection
+// Command tokens for detection (used for checking if inside exec block)
 const EXEC_OPEN: &str = "<||SYSTEM.EXEC>";
 const EXEC_CLOSE: &str = "<SYSTEM.EXEC||>";
-const OUTPUT_OPEN: &str = "\n<||SYSTEM.OUTPUT>\n";
-const OUTPUT_CLOSE: &str = "\n<SYSTEM.OUTPUT||>\n";
-
-// Flexible regex pattern to match various model outputs:
-// - <||SYSTEM.EXEC>command<SYSTEM.EXEC||>  (ideal format)
-// - ||SYSTEM.EXEC>command<SYSTEM.EXEC||>   (missing opening <)
-// - [TOOL_CALLS]SYSTEM.EXEC>command<SYSTEM.EXEC||>  (model prefix, no pipes)
-// - [TOOL_CALLS]||SYSTEM.EXEC>command<SYSTEM.EXEC||>  (model prefix with pipes)
-// Simplified: just look for SYSTEM.EXEC> opening and <SYSTEM.EXEC closing
-lazy_static::lazy_static! {
-    static ref EXEC_PATTERN: Regex = Regex::new(
-        r"SYSTEM\.EXEC>(.+?)<SYSTEM\.EXEC\|{1,2}>"
-    ).unwrap();
-}
 
 /// Generate response from LLaMA model with streaming support.
 ///
@@ -49,11 +33,15 @@ pub async fn generate_llama_response(
     token_sender: Option<mpsc::UnboundedSender<TokenData>>,
     skip_user_logging: bool
 ) -> Result<(String, i32, i32), String> {
+    eprintln!("[GENERATION] generate_llama_response called, token_sender is {}",
+        if token_sender.is_some() { "Some" } else { "None" });
+
     // Get conversation ID for logging
     let conversation_id = {
         let logger = conversation_logger.lock().map_err(|_| "Failed to lock conversation logger")?;
         logger.get_conversation_id()
     };
+    eprintln!("[GENERATION] Conversation ID: {}", conversation_id);
 
     // Log user message to conversation file (unless already logged)
     if !skip_user_logging {
@@ -187,6 +175,9 @@ pub async fn generate_llama_response(
 
     log_info!(&conversation_id, "Context size: {}, Prompt tokens: {}, Max tokens to generate: {}",
              context_size, token_pos, max_total_tokens);
+
+    eprintln!("[GENERATION] About to start token generation loop. token_sender is {}",
+        if token_sender.is_some() { "SOME" } else { "NONE" });
 
     // Track position in response after last executed command to prevent re-matching
     let mut last_exec_scan_pos: usize = 0;
@@ -351,7 +342,20 @@ pub async fn generate_llama_response(
                     tokens_used: token_pos,
                     max_tokens: context_size as i32,
                 };
-                let _ = sender.send(token_data);
+                match sender.send(token_data) {
+                    Ok(()) => {
+                        if total_tokens_generated <= 5 || total_tokens_generated % 50 == 0 {
+                            eprintln!("[GENERATION] Token #{} sent via channel: {:?}", total_tokens_generated, token_str.chars().take(20).collect::<String>());
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[GENERATION] ERROR: Failed to send token #{} via channel: {}", total_tokens_generated, e);
+                    }
+                }
+            } else {
+                if total_tokens_generated == 1 {
+                    eprintln!("[GENERATION] WARNING: token_sender is None, tokens not being streamed!");
+                }
             }
 
             // Log token
@@ -361,144 +365,41 @@ pub async fn generate_llama_response(
             }
         }
 
-        // ============================================================
-        // NEW UNIVERSAL COMMAND EXECUTION SYSTEM
-        // Uses flexible regex to catch various model output formats:
-        // - <||SYSTEM.EXEC>command<SYSTEM.EXEC||>  (ideal)
-        // - ||SYSTEM.EXEC>command<SYSTEM.EXEC||>   (missing <)
-        // - [TOOL_CALLS]||SYSTEM.EXEC>command<SYSTEM.EXEC||>  (model prefix)
-        // Only scan NEW content since last command execution to prevent re-matching
-        // ============================================================
-        let response_to_scan = if last_exec_scan_pos < response.len() {
-            &response[last_exec_scan_pos..]
-        } else {
-            ""
-        };
-
-        if let Some(captures) = EXEC_PATTERN.captures(response_to_scan) {
-            // Extract the command from capture group 1
-            if let Some(command_match) = captures.get(1) {
-                let command_text = command_match.as_str();
-
-                log_info!(&conversation_id, "🔧 SYSTEM.EXEC detected: {}", command_text);
-
-                // Execute the command
-                let output = execute_command(command_text);
-                log_info!(&conversation_id, "📤 Command output length: {} chars", output.len());
-
-                // Format output block
-                let output_block = format!("{}{}{}", OUTPUT_OPEN, output.trim(), OUTPUT_CLOSE);
-
-                // 1. Log to conversation file (CRITICAL: prevents infinite loops)
-                {
-                    let mut logger = conversation_logger.lock().map_err(|_| "Failed to lock conversation logger")?;
-                    logger.log_token(&output_block);
-                }
-
-                // 2. Add to response string
-                response.push_str(&output_block);
-
-                // 3. Stream to frontend
-                if let Some(ref sender) = token_sender {
-                    let _ = sender.send(TokenData {
-                        token: output_block.clone(),
-                        tokens_used: token_pos,
-                        max_tokens: context_size as i32,
-                    });
-                }
-
-                // 4. Inject output tokens into LLM context (so it can continue with knowledge of output)
-                let output_tokens = model
-                    .str_to_token(&output_block, AddBos::Never)
-                    .map_err(|e| format!("Tokenization of command output failed: {}", e))?;
-
-                log_debug!(&conversation_id, "Injecting {} output tokens into context", output_tokens.len());
-
-                for token in output_tokens {
-                    batch.clear();
-                    batch
-                        .add(token, token_pos, &[0], true)
-                        .map_err(|e| format!("Batch add failed for command output: {}", e))?;
-
-                    context
-                        .decode(&mut batch)
-                        .map_err(|e| format!("Decode failed for command output: {}", e))?;
-
-                    token_pos += 1;
-                }
-
-                command_executed = true;
-                // CRITICAL: Reset stop condition so generation continues after command output
-                hit_stop_condition = false;
-                // Update scan position to end of response (past the injected output)
-                // This prevents re-matching the same command on next loop iteration
-                last_exec_scan_pos = response.len();
-                log_info!(&conversation_id, "✅ Command executed, output injected, scan position updated to {}", last_exec_scan_pos);
+        // Check for and execute any SYSTEM.EXEC commands in the response
+        if let Some(exec_result) = check_and_execute_command(
+            &response,
+            last_exec_scan_pos,
+            &conversation_id,
+            model,
+        )? {
+            // 1. Log to conversation file (CRITICAL: prevents infinite loops)
+            {
+                let mut logger = conversation_logger.lock().map_err(|_| "Failed to lock conversation logger")?;
+                logger.log_token(&exec_result.output_block);
             }
+
+            // 2. Add to response string
+            response.push_str(&exec_result.output_block);
+
+            // 3. Stream to frontend
+            stream_command_output(&exec_result.output_block, &token_sender, token_pos, context_size);
+
+            // 4. Inject output tokens into LLM context
+            inject_output_tokens(
+                &exec_result.output_tokens,
+                &mut batch,
+                &mut context,
+                &mut token_pos,
+                &conversation_id,
+            )?;
+
+            command_executed = true;
+            // CRITICAL: Reset stop condition so generation continues after command output
+            hit_stop_condition = false;
+            // Update scan position to end of response (past the injected output)
+            last_exec_scan_pos = response.len();
+            log_info!(&conversation_id, "✅ Command executed, output injected, scan position updated to {}", last_exec_scan_pos);
         }
-
-        // ============================================================
-        // OLD COMMAND SYSTEM (COMMENTED OUT)
-        // Was using <COMMAND>...</COMMAND> format
-        // ============================================================
-        /*
-        if response.contains("<COMMAND>") && response.contains("</COMMAND>") {
-            if let Some(start) = response.find("<COMMAND>") {
-                if let Some(end) = response.find("</COMMAND>") {
-                    if end > start {
-                        let command_text = &response[start + 9..end];
-                        log_debug!(&conversation_id, "Executing command: {}", command_text);
-
-                        let output = execute_command(command_text);
-                        log_debug!(&conversation_id, "Command output: {}", output);
-
-                        // Log command execution
-                        {
-                            let mut logger = conversation_logger.lock().map_err(|_| "Failed to lock conversation logger")?;
-                            logger.log_command_execution(command_text, &output);
-                        }
-
-                        // Replace command with output
-                        let before_command = &response[..start];
-                        let after_command = &response[end + 10..];
-                        let command_output_text = format!(
-                            "\n\n[COMMAND: {}]\n\n```\n{}\n```\n\n",
-                            command_text,
-                            output.trim()
-                        );
-
-                        response = format!("{}{}{}", before_command.trim(), command_output_text, after_command);
-
-                        // Log output
-                        {
-                            let mut logger = conversation_logger.lock().map_err(|_| "Failed to lock conversation logger")?;
-                            logger.log_token(&command_output_text);
-                        }
-
-                        // Feed command output to context
-                        let output_tokens = model
-                            .str_to_token(&command_output_text, AddBos::Never)
-                            .map_err(|e| format!("Tokenization of command output failed: {}", e))?;
-
-                        for token in output_tokens {
-                            batch.clear();
-                            batch
-                                .add(token, token_pos, &[0], true)
-                                .map_err(|e| format!("Batch add failed for command output: {}", e))?;
-
-                            context
-                                .decode(&mut batch)
-                                .map_err(|e| format!("Decode failed for command output: {}", e))?;
-
-                            token_pos += 1;
-                        }
-
-                        command_executed = true;
-                    }
-                }
-            }
-        }
-        */
 
         // Break conditions
         if hit_stop_condition || total_tokens_generated >= max_total_tokens {

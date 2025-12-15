@@ -5,6 +5,7 @@ pub mod config;
 pub mod command;
 pub mod conversation;
 pub mod model_manager;
+pub mod vram_calculator;  // GPU/VRAM calculations
 pub mod chat;  // New modular chat implementation
 pub mod chat_handler;  // Legacy re-exports for backward compatibility
 pub mod websocket;

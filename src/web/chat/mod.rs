@@ -3,9 +3,11 @@
 // This module contains the core chat functionality:
 // - templates.rs: Chat template formatting (ChatML, Mistral, Llama3, Gemma)
 // - generation.rs: Token generation with sampling and streaming
+// - command_executor.rs: Command detection and execution during generation
 
 mod templates;
 mod generation;
+mod command_executor;
 
 pub use templates::apply_model_chat_template;
 pub use templates::get_universal_system_prompt;
