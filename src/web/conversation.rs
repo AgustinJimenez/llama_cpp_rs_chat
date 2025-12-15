@@ -139,6 +139,7 @@ impl ConversationLogger {
             .to_string()
     }
 
+    #[allow(dead_code)]  // OLD system - kept for reference
     pub fn log_command_execution(&mut self, command: &str, output: &str) {
         let log_entry = format!("[COMMAND: {}]\n{}\n\n", command, output);
         self.content.push_str(&log_entry);

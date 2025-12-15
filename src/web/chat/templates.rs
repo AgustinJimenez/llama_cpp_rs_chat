@@ -1,10 +1,63 @@
-use super::super::utils::get_available_tools_json;
-use crate::{log_debug};
+// OLD: use super::super::utils::get_available_tools_json;
+use crate::log_debug;
+
+/// Get the universal system prompt for command execution.
+/// This prompt teaches ANY model how to use the <||SYSTEM.EXEC> tags.
+pub fn get_universal_system_prompt() -> String {
+    let os_name = std::env::consts::OS;
+    let cwd = std::env::current_dir()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| ".".to_string());
+
+    let shell = if os_name == "windows" { "cmd/powershell" } else { "bash" };
+
+    // OS-specific command examples
+    let (list_cmd, read_cmd, write_cmd) = if os_name == "windows" {
+        ("dir", "type filename.txt", "echo content > filename.txt")
+    } else {
+        ("ls -la", "cat filename.txt", "echo 'content' > filename.txt")
+    };
+
+    format!(r#"You are a helpful AI assistant with full system access.
+
+## CRITICAL: Command Execution Format
+
+To execute system commands, you MUST use EXACTLY this format (copy it exactly):
+
+<||SYSTEM.EXEC>command_here<SYSTEM.EXEC||>
+
+The format is: opening tag <||SYSTEM.EXEC> then command then closing tag <SYSTEM.EXEC||>
+
+IMPORTANT RULES:
+1. Use ONLY this exact format - do NOT use [TOOL_CALLS], <function>, <tool_call>, or any other format
+2. The opening tag MUST start with <|| (less-than, pipe, pipe)
+3. The closing tag MUST end with ||> (pipe, pipe, greater-than)
+4. Do NOT add any prefix before <||SYSTEM.EXEC>
+5. Do NOT modify or abbreviate the tags
+
+Examples (copy exactly):
+<||SYSTEM.EXEC>{list_cmd}<SYSTEM.EXEC||>
+<||SYSTEM.EXEC>{read_cmd}<SYSTEM.EXEC||>
+<||SYSTEM.EXEC>{write_cmd}<SYSTEM.EXEC||>
+
+After execution, the output will appear in:
+<||SYSTEM.OUTPUT>
+...output here...
+<SYSTEM.OUTPUT||>
+
+Wait for the output before continuing your response.
+
+## Current Environment
+- OS: {os_name}
+- Working Directory: {cwd}
+- Shell: {shell}
+"#, list_cmd=list_cmd, read_cmd=read_cmd, write_cmd=write_cmd, os_name=os_name, cwd=cwd, shell=shell)
+}
 
 /// Apply chat template formatting to conversation history.
 ///
 /// Parses conversation text and formats it according to the model's chat template type.
-/// Supports ChatML, Mistral, Llama3, and Gemma formats with automatic tool injection.
+/// Now uses universal SYSTEM.EXEC prompt for all models instead of model-specific tool injection.
 pub fn apply_model_chat_template(conversation: &str, template_type: Option<&str>) -> Result<String, String> {
     // Parse conversation into messages
     let mut system_message: Option<String> = None;
@@ -33,7 +86,7 @@ pub fn apply_model_chat_template(conversation: &str, template_type: Option<&str>
             current_role = line.trim_end_matches(":");
             current_content.clear();
         } else if !line.starts_with("[COMMAND:") {
-            // Skip command execution logs, add content
+            // Skip old command execution logs, add content
             if !line.trim().is_empty() {
                 current_content.push_str(line);
                 current_content.push('\n');
@@ -51,39 +104,30 @@ pub fn apply_model_chat_template(conversation: &str, template_type: Option<&str>
         }
     }
 
+    // Get the universal system prompt (same for ALL models)
+    let universal_prompt = get_universal_system_prompt();
+
+    // Combine user's system message (if any) with our universal prompt
+    let final_system_message = match system_message {
+        Some(user_sys) => format!("{}\n\n{}", user_sys, universal_prompt),
+        None => universal_prompt,
+    };
+
     // Construct prompt based on detected template type
     let prompt = match template_type {
         Some("ChatML") => {
             // Qwen/ChatML format: <|im_start|>role\ncontent<|im_end|>
             let mut p = String::new();
 
-            // Add system message with tool definitions in Hermes format for Qwen3
-            let mut system_content = system_message.unwrap_or_else(|| "You are a helpful AI assistant.".to_string());
-
-            // Inject tool definitions using Hermes-style format (CORRECT for Qwen3!)
-            system_content.push_str("\n\n# Tools\n");
-            system_content.push_str("You may call one or more functions to assist with the user query.\n\n");
-            system_content.push_str("You are provided with function signatures within <tools></tools> XML tags:\n");
-            system_content.push_str("<tools>\n");
-
-            // Get tools as JSON array (this is the correct format!)
-            let tools_json = get_available_tools_json();
-            system_content.push_str(&tools_json);
-
-            system_content.push_str("\n</tools>\n\n");
-            system_content.push_str("For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\n");
-            system_content.push_str("<tool_call>\n");
-            system_content.push_str("{\"name\": <function-name>, \"arguments\": <args-json-object>}\n");
-            system_content.push_str("</tool_call>\n");
-
+            // System message with universal SYSTEM.EXEC prompt
             p.push_str("<|im_start|>system\n");
-            p.push_str(&system_content);
+            p.push_str(&final_system_message);
             p.push_str("<|im_end|>\n");
 
-            // DEBUG: Print the system prompt being sent to Qwen3
-            log_debug!("=== QWEN3 SYSTEM PROMPT ===");
-            log_debug!("{}", &system_content);
-            log_debug!("=== END SYSTEM PROMPT ===");
+            // DEBUG: Print the system prompt
+            log_debug!("system", "=== CHATML SYSTEM PROMPT ===");
+            log_debug!("system", "{}", &final_system_message);
+            log_debug!("system", "=== END SYSTEM PROMPT ===");
 
             // Add conversation history
             let turn_count = user_messages.len().max(assistant_messages.len());
@@ -110,19 +154,16 @@ pub fn apply_model_chat_template(conversation: &str, template_type: Option<&str>
             let mut p = String::new();
             p.push_str("<s>");
 
-            // Add system prompt if present
-            if let Some(sys_msg) = system_message {
-                p.push_str("[SYSTEM_PROMPT]");
-                p.push_str(&sys_msg);
-                p.push_str("[/SYSTEM_PROMPT]");
-            }
+            // System prompt with universal SYSTEM.EXEC instructions
+            p.push_str("[SYSTEM_PROMPT]");
+            p.push_str(&final_system_message);
+            p.push_str("[/SYSTEM_PROMPT]");
 
-            // Inject tool definitions for Mistral-style models (Devstral, etc.)
-            // This enables the model to understand available tools and generate tool calls
-            let tools_json = get_available_tools_json();
-            p.push_str("[AVAILABLE_TOOLS]");
-            p.push_str(&tools_json);
-            p.push_str("[/AVAILABLE_TOOLS]");
+            // OLD: Tool injection commented out
+            // let tools_json = get_available_tools_json();
+            // p.push_str("[AVAILABLE_TOOLS]");
+            // p.push_str(&tools_json);
+            // p.push_str("[/AVAILABLE_TOOLS]");
 
             // Add conversation history
             let turn_count = user_messages.len().max(assistant_messages.len());
@@ -145,11 +186,10 @@ pub fn apply_model_chat_template(conversation: &str, template_type: Option<&str>
             let mut p = String::new();
             p.push_str("<|begin_of_text|>");
 
-            if let Some(sys_msg) = system_message {
-                p.push_str("<|start_header_id|>system<|end_header_id|>\n\n");
-                p.push_str(&sys_msg);
-                p.push_str("<|eot_id|>");
-            }
+            // System message with universal SYSTEM.EXEC prompt
+            p.push_str("<|start_header_id|>system<|end_header_id|>\n\n");
+            p.push_str(&final_system_message);
+            p.push_str("<|eot_id|>");
 
             let turn_count = user_messages.len().max(assistant_messages.len());
             for i in 0..turn_count {
@@ -174,12 +214,8 @@ pub fn apply_model_chat_template(conversation: &str, template_type: Option<&str>
             // Note: Gemma uses "model" instead of "assistant"
             let mut p = String::new();
 
-            // Add system message as first user message prefix if present
-            let first_user_prefix = if let Some(sys_msg) = system_message {
-                format!("{}\n\n", sys_msg)
-            } else {
-                String::new()
-            };
+            // Gemma doesn't have a system role, so prepend to first user message
+            let first_user_prefix = format!("{}\n\n", final_system_message);
 
             // Add conversation history
             let turn_count = user_messages.len().max(assistant_messages.len());
@@ -187,7 +223,7 @@ pub fn apply_model_chat_template(conversation: &str, template_type: Option<&str>
                 if i < user_messages.len() {
                     p.push_str("<start_of_turn>user\n");
                     // Add system prompt prefix to first user message
-                    if i == 0 && !first_user_prefix.is_empty() {
+                    if i == 0 {
                         p.push_str(&first_user_prefix);
                     }
                     p.push_str(&user_messages[i]);
@@ -206,14 +242,12 @@ pub fn apply_model_chat_template(conversation: &str, template_type: Option<&str>
             p
         }
         Some(_) => {
-            // Generic fallback - use ChatML-style
+            // Generic fallback
             let mut p = String::new();
 
-            if let Some(sys_msg) = system_message {
-                p.push_str("System: ");
-                p.push_str(&sys_msg);
-                p.push_str("\n\n");
-            }
+            p.push_str("System: ");
+            p.push_str(&final_system_message);
+            p.push_str("\n\n");
 
             let turn_count = user_messages.len().max(assistant_messages.len());
             for i in 0..turn_count {
@@ -236,9 +270,9 @@ pub fn apply_model_chat_template(conversation: &str, template_type: Option<&str>
     };
 
     // Debug: Print first 1000 chars of prompt
-    log_debug!("\nTemplate type: {:?}", template_type);
-    log_debug!("Constructed prompt (first 1000 chars):");
-    log_debug!("{}", &prompt.chars().take(1000).collect::<String>());
+    log_debug!("system", "\nTemplate type: {:?}", template_type);
+    log_debug!("system", "Constructed prompt (first 1000 chars):");
+    log_debug!("system", "{}", &prompt.chars().take(1000).collect::<String>());
 
     Ok(prompt)
 }
@@ -247,13 +281,28 @@ pub fn apply_model_chat_template(conversation: &str, template_type: Option<&str>
 mod tests {
     use super::*;
 
-    // Note: Full template formatting is tested in E2E tests with real models.
-    // These unit tests focus on basic parsing behavior.
+    #[test]
+    fn test_universal_system_prompt_contains_exec_tags() {
+        let prompt = get_universal_system_prompt();
+        assert!(prompt.contains("<||SYSTEM.EXEC>"));
+        assert!(prompt.contains("<SYSTEM.EXEC||>"));
+        assert!(prompt.contains("<||SYSTEM.OUTPUT>"));
+        assert!(prompt.contains("<SYSTEM.OUTPUT||>"));
+    }
+
+    #[test]
+    fn test_universal_system_prompt_contains_os_info() {
+        let prompt = get_universal_system_prompt();
+        // Should contain OS info
+        assert!(prompt.contains("OS:"));
+        assert!(prompt.contains("Working Directory:"));
+        assert!(prompt.contains("Shell:"));
+    }
 
     #[test]
     fn test_template_preserves_multiline_content() {
         let conversation = "USER:\nLine 1\nLine 2\nLine 3";
-        let result = apply_model_chat_template(conversation, Some("chatml")).unwrap();
+        let result = apply_model_chat_template(conversation, Some("ChatML")).unwrap();
 
         assert!(result.contains("Line 1"));
         assert!(result.contains("Line 2"));
@@ -263,19 +312,28 @@ mod tests {
     #[test]
     fn test_template_handles_empty_content() {
         let conversation = "USER:\n\n\nASSISTANT:\n";
-        let result = apply_model_chat_template(conversation, Some("chatml"));
+        let result = apply_model_chat_template(conversation, Some("ChatML"));
 
         // Should not error, should handle empty content gracefully
         assert!(result.is_ok());
     }
 
     #[test]
-    fn test_template_function_returns_string() {
-        // Basic smoke test - function should return Ok with any valid input
+    fn test_template_includes_universal_prompt() {
         let conversation = "USER:\nTest message";
-        let result = apply_model_chat_template(conversation, None);
+        let result = apply_model_chat_template(conversation, Some("ChatML")).unwrap();
 
-        assert!(result.is_ok());
-        assert!(!result.unwrap().is_empty());
+        // Should include the universal SYSTEM.EXEC tags
+        assert!(result.contains("<||SYSTEM.EXEC>"));
+    }
+
+    #[test]
+    fn test_all_templates_include_system_exec() {
+        let conversation = "USER:\nTest message";
+
+        for template in &["ChatML", "Mistral", "Llama3", "Gemma"] {
+            let result = apply_model_chat_template(conversation, Some(template)).unwrap();
+            assert!(result.contains("<||SYSTEM.EXEC>"), "Template {} should include SYSTEM.EXEC", template);
+        }
     }
 }

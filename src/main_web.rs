@@ -3,10 +3,13 @@ mod web;  // Declare web module for model capabilities and utilities
 
 // Import all types and functions from web modules
 use web::*;
+use web::database::{Database, SharedDatabase};
 
 use std::net::SocketAddr;
 use std::convert::Infallible;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+#[cfg(not(feature = "mock"))]
+use std::sync::Mutex;
 
 // HTTP server using hyper
 use hyper::service::{make_service_fn, service_fn};
@@ -23,15 +26,17 @@ use hyper::{Body, Method, Request, Response, Server, StatusCode};
 async fn handle_request(
     req: Request<Body>,
     llama_state: SharedLlamaState,
+    db: SharedDatabase,
 ) -> std::result::Result<Response<Body>, Infallible> {
-    handle_request_impl(req, Some(llama_state)).await
+    handle_request_impl(req, Some(llama_state), db).await
 }
 
 #[cfg(feature = "mock")]
 async fn handle_request(
     req: Request<Body>,
+    db: SharedDatabase,
 ) -> std::result::Result<Response<Body>, Infallible> {
-    handle_request_impl(req, None).await
+    handle_request_impl(req, None, db).await
 }
 
 async fn handle_request_impl(
@@ -40,6 +45,7 @@ async fn handle_request_impl(
     llama_state: Option<SharedLlamaState>,
     #[cfg(feature = "mock")]
     _llama_state: Option<()>,
+    db: SharedDatabase,
 ) -> std::result::Result<Response<Body>, Infallible> {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
@@ -63,19 +69,19 @@ async fn handle_request_impl(
 
         // Chat endpoints
         (&Method::POST, "/api/chat") => {
-            web::routes::chat::handle_post_chat(req, state).await?
+            web::routes::chat::handle_post_chat(req, state, db.clone()).await?
         }
 
         (&Method::POST, "/api/chat/stream") => {
-            web::routes::chat::handle_post_chat_stream(req, state).await?
+            web::routes::chat::handle_post_chat_stream(req, state, db.clone()).await?
         }
 
         (&Method::GET, "/ws/chat/stream") => {
-            web::routes::chat::handle_websocket_chat_stream(req, state).await?
+            web::routes::chat::handle_websocket_chat_stream(req, state, db.clone()).await?
         }
 
         (&Method::GET, path) if path.starts_with("/ws/conversation/watch/") => {
-            web::routes::chat::handle_conversation_watch_websocket(req, path, state).await?
+            web::routes::chat::handle_conversation_watch_websocket(req, path, state, db.clone()).await?
         }
 
         // Configuration endpoints
@@ -89,15 +95,15 @@ async fn handle_request_impl(
 
         // Conversation endpoints
         (&Method::GET, path) if path.starts_with("/api/conversation/") => {
-            web::routes::conversation::handle_get_conversation(path, state).await?
+            web::routes::conversation::handle_get_conversation(path, state, db.clone()).await?
         }
 
         (&Method::GET, "/api/conversations") => {
-            web::routes::conversation::handle_get_conversations(state).await?
+            web::routes::conversation::handle_get_conversations(state, db.clone()).await?
         }
 
         (&Method::DELETE, path) if path.starts_with("/api/conversations/") => {
-            web::routes::conversation::handle_delete_conversation(path, state).await?
+            web::routes::conversation::handle_delete_conversation(path, state, db.clone()).await?
         }
 
         // Model endpoints
@@ -167,30 +173,59 @@ async fn handle_request_impl(
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+    // Initialize SQLite database
+    let db: SharedDatabase = Arc::new(
+        Database::new("assets/llama_chat.db")
+            .expect("Failed to initialize SQLite database")
+    );
+    println!("📦 SQLite database initialized at assets/llama_chat.db");
+
+    // Run migrations for existing file-based data
+    match web::database::migration::migrate_existing_conversations(&db) {
+        Ok(count) if count > 0 => {
+            println!("📂 Migrated {} existing conversations to SQLite", count);
+        }
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("⚠️  Warning: Conversation migration failed: {}", e);
+        }
+    }
+
+    match web::database::migration::migrate_config(&db) {
+        Ok(true) => {
+            println!("⚙️  Migrated config.json to SQLite");
+        }
+        Ok(false) => {}
+        Err(e) => {
+            eprintln!("⚠️  Warning: Config migration failed: {}", e);
+        }
+    }
+
     // Create shared LLaMA state
     #[cfg(not(feature = "mock"))]
     let llama_state: SharedLlamaState = Arc::new(Mutex::new(None));
-
-    // Note: ConversationLogger will be created per chat request, not globally
 
     // Create HTTP service
     let make_svc = make_service_fn({
         #[cfg(not(feature = "mock"))]
         let llama_state = llama_state.clone();
+        let db = db.clone();
 
         move |_conn| {
             #[cfg(not(feature = "mock"))]
             let llama_state = llama_state.clone();
+            let db = db.clone();
 
             async move {
                 Ok::<_, Infallible>(service_fn(move |req| {
+                    let db = db.clone();
                     #[cfg(not(feature = "mock"))]
                     {
-                        handle_request(req, llama_state.clone())
+                        handle_request(req, llama_state.clone(), db)
                     }
                     #[cfg(feature = "mock")]
                     {
-                        handle_request(req)
+                        handle_request(req, db)
                     }
                 }))
             }

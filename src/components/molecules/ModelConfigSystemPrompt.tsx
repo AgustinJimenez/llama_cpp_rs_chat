@@ -2,9 +2,46 @@ import React from 'react';
 import { Button } from '../atoms/button';
 import type { ModelMetadata } from '@/types';
 
+export type SystemPromptMode = 'model' | 'system' | 'custom';
+
+// Agentic mode system prompt (mirrors backend's get_universal_system_prompt)
+const AGENTIC_SYSTEM_PROMPT = `You are a helpful AI assistant with full system access.
+
+## CRITICAL: Command Execution Format
+
+To execute system commands, you MUST use EXACTLY this format (copy it exactly):
+
+<||SYSTEM.EXEC>command_here<SYSTEM.EXEC||>
+
+The format is: opening tag <||SYSTEM.EXEC> then command then closing tag <SYSTEM.EXEC||>
+
+IMPORTANT RULES:
+1. Use ONLY this exact format - do NOT use [TOOL_CALLS], <function>, <tool_call>, or any other format
+2. The opening tag MUST start with <|| (less-than, pipe, pipe)
+3. The closing tag MUST end with ||> (pipe, pipe, greater-than)
+4. Do NOT add any prefix before <||SYSTEM.EXEC>
+5. Do NOT modify or abbreviate the tags
+
+Examples (copy exactly):
+<||SYSTEM.EXEC>dir<SYSTEM.EXEC||>
+<||SYSTEM.EXEC>type filename.txt<SYSTEM.EXEC||>
+<||SYSTEM.EXEC>echo content > filename.txt<SYSTEM.EXEC||>
+
+After execution, the output will appear in:
+<||SYSTEM.OUTPUT>
+...output here...
+<SYSTEM.OUTPUT||>
+
+Wait for the output before continuing your response.
+
+## Current Environment
+- OS: (detected at runtime)
+- Working Directory: (detected at runtime)
+- Shell: cmd/powershell or bash`;
+
 export interface SystemPromptSectionProps {
-  systemPromptMode: 'default' | 'custom';
-  setSystemPromptMode: (mode: 'default' | 'custom') => void;
+  systemPromptMode: SystemPromptMode;
+  setSystemPromptMode: (mode: SystemPromptMode) => void;
   customSystemPrompt: string;
   setCustomSystemPrompt: (prompt: string) => void;
   modelInfo: ModelMetadata | null;
@@ -23,47 +60,61 @@ export const SystemPromptSection: React.FC<SystemPromptSectionProps> = ({
     <div className="flex gap-2">
       <Button
         type="button"
-        variant={systemPromptMode === 'default' ? 'default' : 'outline'}
-        onClick={() => setSystemPromptMode('default')}
-        className="flex-1"
+        variant={systemPromptMode === 'model' ? 'default' : 'outline'}
+        onClick={() => setSystemPromptMode('model')}
+        className="flex-1 text-xs px-2"
       >
-        Use Model Default
+        Model Default
+      </Button>
+      <Button
+        type="button"
+        variant={systemPromptMode === 'system' ? 'default' : 'outline'}
+        onClick={() => setSystemPromptMode('system')}
+        className="flex-1 text-xs px-2"
+      >
+        Agentic Mode
       </Button>
       <Button
         type="button"
         variant={systemPromptMode === 'custom' ? 'default' : 'outline'}
         onClick={() => setSystemPromptMode('custom')}
-        className="flex-1"
+        className="flex-1 text-xs px-2"
       >
-        Custom Prompt
+        Custom
       </Button>
     </div>
 
-    {systemPromptMode === 'default' ? (
-      <div className="space-y-2">
-        <p className="text-xs text-muted-foreground">
-          Using the model's built-in default system prompt from chat template.
-        </p>
-        {modelInfo?.default_system_prompt && (
-          <div className="p-3 bg-muted rounded-md text-xs max-h-40 overflow-y-auto">
-            <pre className="whitespace-pre-wrap break-words text-muted-foreground">
-              {modelInfo.default_system_prompt}
-            </pre>
-          </div>
-        )}
-      </div>
-    ) : (
-      <div className="space-y-2">
-        <textarea
-          value={customSystemPrompt}
-          onChange={(e) => setCustomSystemPrompt(e.target.value)}
-          placeholder="Enter your custom system prompt..."
-          className="w-full px-3 py-2 text-sm border rounded-md bg-background min-h-[100px] resize-y"
-        />
-        <p className="text-xs text-muted-foreground">
-          Custom system prompt that will be used instead of the model's default.
-        </p>
-      </div>
-    )}
+    <div className="space-y-2">
+      <textarea
+        value={
+          systemPromptMode === 'model'
+            ? (modelInfo?.default_system_prompt || '(No default system prompt found in model)')
+            : systemPromptMode === 'system'
+              ? AGENTIC_SYSTEM_PROMPT
+              : customSystemPrompt
+        }
+        onChange={(e) => {
+          if (systemPromptMode === 'custom') {
+            setCustomSystemPrompt(e.target.value);
+          }
+        }}
+        disabled={systemPromptMode !== 'custom'}
+        placeholder={systemPromptMode === 'custom' ? 'Enter your custom system prompt...' : ''}
+        className={`w-full px-3 py-2 text-sm border rounded-md min-h-[100px] resize-y ${
+          systemPromptMode === 'custom'
+            ? 'bg-background'
+            : systemPromptMode === 'system'
+              ? 'border-blue-500/30 bg-blue-500/5 text-blue-300 cursor-not-allowed'
+              : 'bg-muted text-muted-foreground cursor-not-allowed opacity-70'
+        }`}
+      />
+      <p className="text-xs text-muted-foreground">
+        {systemPromptMode === 'model'
+          ? "Using the model's built-in default system prompt from GGUF chat template."
+          : systemPromptMode === 'system'
+            ? 'Agentic mode with command execution. The model can run system commands.'
+            : 'Custom system prompt that will be used instead of the model\'s default.'}
+      </p>
+    </div>
   </div>
 );

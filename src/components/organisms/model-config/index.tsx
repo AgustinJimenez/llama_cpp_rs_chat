@@ -64,7 +64,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   const [modelHistory, setModelHistory] = useState<string[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [maxLayers, setMaxLayers] = useState(99);  // Dynamic max layers based on model
-  const [systemPromptMode, setSystemPromptMode] = useState<'default' | 'custom'>('default');
+  const [systemPromptMode, setSystemPromptMode] = useState<'model' | 'system' | 'custom'>('system');
   const [customSystemPrompt, setCustomSystemPrompt] = useState('You are a helpful AI assistant.');
   const [availableVramGb, _setAvailableVramGb] = useState(22.0); // Default: RTX 4090
   const [availableRamGb, _setAvailableRamGb] = useState(32.0);   // Default: 32GB
@@ -220,6 +220,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                 file_path: trimmedPath,
                 estimated_layers: data.estimated_layers,
                 gguf_metadata: data.gguf_metadata,
+                default_system_prompt: data.default_system_prompt,
                 // Extract architecture details if available
                 block_count: data.gguf_metadata?.['gemma3.block_count'] || data.gguf_metadata?.['llama.block_count'],
                 attention_head_count_kv: data.gguf_metadata?.['gemma3.attention.head_count_kv'] || data.gguf_metadata?.['llama.attention.head_count_kv'],
@@ -304,10 +305,14 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     console.log('File exists:', fileExists);
 
     // Determine system prompt based on mode
+    // 'model' = null (use GGUF default), 'system' = '__AGENTIC__' (use universal prompt), 'custom' = user's prompt
     let systemPrompt: string | null = null;
-    if (systemPromptMode === 'default') {
+    if (systemPromptMode === 'model') {
       // Use null to let backend use model's default from chat template
       systemPrompt = null;
+    } else if (systemPromptMode === 'system') {
+      // Use special marker to tell backend to use universal agentic prompt
+      systemPrompt = '__AGENTIC__';
     } else {
       // Use custom prompt
       systemPrompt = customSystemPrompt;
@@ -317,8 +322,9 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
       ...config,
       model_path: modelPath,
       context_size: contextSize,
-      system_prompt: systemPrompt ?? undefined,
+      system_prompt: systemPrompt,  // null = model default, '__AGENTIC__' = agentic mode, string = custom
     };
+    console.log('[DEBUG] Saving config with system_prompt:', systemPrompt, 'mode:', systemPromptMode);
     onSave(finalConfig);
   };
 

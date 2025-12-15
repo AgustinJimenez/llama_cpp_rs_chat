@@ -22,7 +22,7 @@ export function ChatInputArea({
   onModelLoad,
 }: ChatInputAreaProps) {
   return (
-    <div className="border-t border-border bg-card px-6 pt-6 pb-3" data-testid="input-container">
+    <div className="border-t border-border bg-card px-4 pt-3 pb-2" data-testid="input-container">
       {modelLoaded ? (
         <MessageInput onSendMessage={onSendMessage} disabled={isLoading} />
       ) : (

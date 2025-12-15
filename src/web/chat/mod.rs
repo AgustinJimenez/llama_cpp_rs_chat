@@ -8,4 +8,5 @@ mod templates;
 mod generation;
 
 pub use templates::apply_model_chat_template;
+pub use templates::get_universal_system_prompt;
 pub use generation::generate_llama_response;

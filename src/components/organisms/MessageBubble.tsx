@@ -40,9 +40,40 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode 
     return thinkMatch ? thinkMatch[1].trim() : null;
   }, [message.content]);
 
-  // Get content without thinking tags
+  // Extract SYSTEM.EXEC blocks (command executions)
+  const systemExecBlocks = useMemo(() => {
+    const blocks: { command: string; output: string | null }[] = [];
+    const execRegex = /<\|\|SYSTEM\.EXEC>([\s\S]*?)<SYSTEM\.EXEC\|\|>/g;
+    const outputRegex = /<\|\|SYSTEM\.OUTPUT>([\s\S]*?)<SYSTEM\.OUTPUT\|\|>/g;
+
+    let match;
+    while ((match = execRegex.exec(message.content)) !== null) {
+      const command = match[1].trim();
+      blocks.push({ command, output: null });
+    }
+
+    // Match outputs to commands (they should appear in order)
+    let outputIndex = 0;
+    while ((match = outputRegex.exec(message.content)) !== null) {
+      if (outputIndex < blocks.length) {
+        blocks[outputIndex].output = match[1].trim();
+        outputIndex++;
+      }
+    }
+
+    return blocks;
+  }, [message.content]);
+
+  // Get content without thinking tags AND without SYSTEM.EXEC/OUTPUT tags
   const contentWithoutThinking = useMemo(() => {
-    return cleanContent.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    let content = cleanContent;
+    // Remove thinking tags
+    content = content.replace(/<think>[\s\S]*?<\/think>/g, '');
+    // Remove SYSTEM.EXEC blocks
+    content = content.replace(/<\|\|SYSTEM\.EXEC>[\s\S]*?<SYSTEM\.EXEC\|\|>/g, '');
+    // Remove SYSTEM.OUTPUT blocks
+    content = content.replace(/<\|\|SYSTEM\.OUTPUT>[\s\S]*?<SYSTEM\.OUTPUT\|\|>/g, '');
+    return content.trim();
   }, [cleanContent]);
 
   // Detect error messages (contain ❌ or "Error" or "Panic")
@@ -183,7 +214,44 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode 
           </details>
         )}
 
-        {/* Display tool calls if present */}
+        {/* Display SYSTEM.EXEC blocks (command executions) */}
+        {systemExecBlocks.length > 0 && (
+          <div className="space-y-3">
+            {systemExecBlocks.map((block, index) => (
+              <div
+                key={`exec-${index}`}
+                className="rounded-lg overflow-hidden border border-green-500/30"
+              >
+                {/* Command header */}
+                <div className="bg-green-950/70 px-3 py-2 flex items-center gap-2">
+                  <span className="text-green-400">⚡</span>
+                  <span className="text-xs font-medium text-green-300">Command Executed</span>
+                </div>
+                {/* Command content */}
+                <div className="bg-black/40 px-3 py-2">
+                  <code className="text-sm text-green-200 font-mono">
+                    {block.command}
+                  </code>
+                </div>
+                {/* Output (if present) */}
+                {block.output && (
+                  <>
+                    <div className="bg-gray-900/50 px-3 py-1 border-t border-green-500/20">
+                      <span className="text-xs text-gray-400">Output:</span>
+                    </div>
+                    <div className="bg-black/60 px-3 py-2 max-h-64 overflow-auto">
+                      <pre className="text-xs text-gray-300 font-mono whitespace-pre-wrap">
+                        {block.output}
+                      </pre>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Display tool calls if present (OLD system - kept for compatibility) */}
         {toolCalls.length > 0 && (
           <div className="space-y-3">
             {toolCalls.map((toolCall) => (
@@ -195,8 +263,42 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode 
                   <span className="text-xs font-medium text-white">🔧 Tool Call</span>
                   <span className="text-xs font-medium text-white">{toolCall.name}</span>
                 </div>
-                <pre className="text-xs text-white bg-black/20 p-3 rounded overflow-x-auto">
-                  {JSON.stringify(toolCall.arguments, null, 2)}
+                <pre className="text-xs text-white bg-black/20 p-3 rounded overflow-x-auto whitespace-pre-wrap">
+                  {(() => {
+                    // If arguments is already a string, display it
+                    if (typeof toolCall.arguments === 'string') {
+                      return toolCall.arguments;
+                    }
+
+                    // Format arguments manually to avoid re-escaping
+                    const lines: string[] = ['{'];
+                    const entries = Object.entries(toolCall.arguments);
+                    entries.forEach(([key, value], index) => {
+                      const isLast = index === entries.length - 1;
+
+                      if (typeof value === 'string') {
+                        // Unescape the string value for display
+                        const unescaped = value
+                          .replace(/\\n/g, '\n')
+                          .replace(/\\"/g, '"')
+                          .replace(/\\t/g, '\t')
+                          .replace(/\\\\/g, '\\');
+
+                        // For multiline content, display it nicely
+                        if (unescaped.includes('\n')) {
+                          lines.push(`  "${key}":`);
+                          lines.push(unescaped.split('\n').map(line => `    ${line}`).join('\n'));
+                        } else {
+                          lines.push(`  "${key}": "${unescaped}"${isLast ? '' : ','}`);
+                        }
+                      } else {
+                        lines.push(`  "${key}": ${JSON.stringify(value)}${isLast ? '' : ','}`);
+                      }
+                    });
+                    lines.push('}');
+
+                    return lines.join('\n');
+                  })()}
                 </pre>
               </div>
             ))}

@@ -8,10 +8,10 @@ use hyper::body::Bytes;
 
 use crate::web::{
     models::{ChatRequest, ChatResponse, ChatMessage, TokenData},
-    conversation::ConversationLogger,
-    config::load_config,
-    chat_handler::generate_llama_response,
+    database::{SharedDatabase, conversation::ConversationLogger},
+    chat_handler::{generate_llama_response, get_universal_system_prompt},
     websocket::{handle_websocket, handle_conversation_watch},
+    config::load_config,
 };
 
 #[cfg(not(feature = "mock"))]
@@ -39,6 +39,7 @@ pub async fn handle_post_chat(
     llama_state: SharedLlamaState,
     #[cfg(feature = "mock")]
     _llama_state: (),
+    db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     // Parse request body
     let body_bytes = match hyper::body::to_bytes(req.into_body()).await {
@@ -107,7 +108,7 @@ pub async fn handle_post_chat(
         // Create or load conversation logger
         let conversation_logger = if let Some(conversation_id) = &chat_request.conversation_id {
             // Load existing conversation
-            match ConversationLogger::from_existing(conversation_id) {
+            match ConversationLogger::from_existing(db.clone(), conversation_id) {
                 Ok(logger) => Arc::new(Mutex::new(logger)),
                 Err(e) => {
                     return Ok(Response::builder()
@@ -119,11 +120,32 @@ pub async fn handle_post_chat(
                 }
             }
         } else {
-            // Create new conversation
+            // Create new conversation - determine system prompt based on config
             let config = load_config();
-            let system_prompt = config.system_prompt.as_deref();
+            let system_prompt: Option<String> = match config.system_prompt.as_deref() {
+                // "__AGENTIC__" marker = use universal agentic prompt with command execution
+                Some("__AGENTIC__") => Some(get_universal_system_prompt()),
+                // Custom prompt = use as-is
+                Some(custom) => Some(custom.to_string()),
+                // None = use model's default system prompt from GGUF
+                None => {
+                    #[cfg(not(feature = "mock"))]
+                    {
+                        if let Ok(state_guard) = llama_state.lock() {
+                            state_guard.as_ref()
+                                .and_then(|s| s.model_default_system_prompt.clone())
+                        } else {
+                            None
+                        }
+                    }
+                    #[cfg(feature = "mock")]
+                    {
+                        None
+                    }
+                }
+            };
 
-            match ConversationLogger::new(system_prompt) {
+            match ConversationLogger::new(db.clone(), system_prompt.as_deref()) {
                 Ok(logger) => Arc::new(Mutex::new(logger)),
                 Err(e) => {
                     return Ok(Response::builder()
@@ -298,6 +320,7 @@ pub async fn handle_post_chat_stream(
     llama_state: SharedLlamaState,
     #[cfg(feature = "mock")]
     _llama_state: (),
+    db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     // Parse request body
     let body_bytes = match hyper::body::to_bytes(req.into_body()).await {
@@ -327,12 +350,11 @@ pub async fn handle_post_chat_stream(
 
     #[cfg(not(feature = "mock"))]
     {
-        // Load configuration to get system prompt
-        let config = load_config();
-        let system_prompt = config.system_prompt.as_deref();
+        // Create a new conversation logger with universal system prompt
+        let universal_prompt = get_universal_system_prompt();
 
         // Create a new conversation logger for this chat session
-        let conversation_logger = match ConversationLogger::new(system_prompt) {
+        let conversation_logger = match ConversationLogger::new(db.clone(), Some(&universal_prompt)) {
             Ok(logger) => Arc::new(Mutex::new(logger)),
             Err(e) => {
                 return Ok(Response::builder()
@@ -417,6 +439,7 @@ pub async fn handle_websocket_chat_stream(
     llama_state: SharedLlamaState,
     #[cfg(feature = "mock")]
     _llama_state: (),
+    db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     // Check if the request wants to upgrade to WebSocket
     let upgrade_header = req.headers().get("upgrade")
@@ -455,12 +478,13 @@ pub async fn handle_websocket_chat_stream(
     {
         // Clone state for the WebSocket handler
         let llama_state_ws = llama_state.clone();
+        let db_ws = db.clone();
 
         // Spawn WebSocket handler on the upgraded connection
         tokio::spawn(async move {
             match hyper::upgrade::on(req).await {
                 Ok(upgraded) => {
-                    if let Err(e) = handle_websocket(upgraded, Some(llama_state_ws)).await {
+                    if let Err(e) = handle_websocket(upgraded, Some(llama_state_ws), db_ws).await {
                         println!("[WEBSOCKET ERROR] {}", e);
                     }
                 }
@@ -475,6 +499,7 @@ pub async fn handle_websocket_chat_stream(
     {
         // For mock, just ignore the upgrade
         let _ = req;
+        let _ = db;
     }
 
     // Return 101 Switching Protocols response
@@ -494,6 +519,7 @@ pub async fn handle_conversation_watch_websocket(
     llama_state: SharedLlamaState,
     #[cfg(feature = "mock")]
     _llama_state: (),
+    db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     // Extract conversation ID from path
     let conversation_id = path.strip_prefix("/ws/conversation/watch/").unwrap_or("").to_string();
@@ -531,12 +557,13 @@ pub async fn handle_conversation_watch_websocket(
     {
         // Clone state for the WebSocket handler
         let llama_state_ws = llama_state.clone();
+        let db_ws = db.clone();
 
         // Spawn WebSocket handler on the upgraded connection
         tokio::spawn(async move {
             match hyper::upgrade::on(req).await {
                 Ok(upgraded) => {
-                    if let Err(e) = handle_conversation_watch(upgraded, conversation_id, Some(llama_state_ws)).await {
+                    if let Err(e) = handle_conversation_watch(upgraded, conversation_id, Some(llama_state_ws), db_ws).await {
                         eprintln!("[CONV-WATCH ERROR] {}", e);
                     }
                 }
@@ -552,6 +579,7 @@ pub async fn handle_conversation_watch_websocket(
         // For mock, just ignore the upgrade
         let _ = req;
         let _ = conversation_id;
+        let _ = db;
     }
 
     // Return 101 Switching Protocols

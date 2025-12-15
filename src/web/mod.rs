@@ -13,6 +13,7 @@ pub mod response;
 pub mod request;
 pub mod logger;
 pub mod routes;
+pub mod database;
 
 // Re-export commonly used types
 pub use models::*;

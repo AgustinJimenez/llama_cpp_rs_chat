@@ -1,0 +1,184 @@
+// Database schema definitions for LLaMA Chat
+
+use rusqlite::Connection;
+
+/// SQL statements to create all tables
+const CREATE_CONVERSATIONS_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS conversations (
+    id TEXT PRIMARY KEY,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    system_prompt TEXT,
+    title TEXT
+)
+"#;
+
+const CREATE_MESSAGES_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS messages (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    timestamp INTEGER NOT NULL,
+    sequence_order INTEGER NOT NULL,
+    is_streaming INTEGER DEFAULT 0,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+)
+"#;
+
+const CREATE_MESSAGES_INDEX: &str = r#"
+CREATE INDEX IF NOT EXISTS idx_messages_conversation
+ON messages(conversation_id, sequence_order)
+"#;
+
+const CREATE_STREAMING_BUFFER_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS streaming_buffer (
+    conversation_id TEXT PRIMARY KEY,
+    message_id TEXT NOT NULL,
+    partial_content TEXT NOT NULL,
+    tokens_used INTEGER DEFAULT 0,
+    max_tokens INTEGER DEFAULT 0,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+)
+"#;
+
+const CREATE_CONFIG_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS config (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    sampler_type TEXT DEFAULT 'Greedy',
+    temperature REAL DEFAULT 0.7,
+    top_p REAL DEFAULT 0.95,
+    top_k INTEGER DEFAULT 20,
+    mirostat_tau REAL DEFAULT 5.0,
+    mirostat_eta REAL DEFAULT 0.1,
+    model_path TEXT,
+    system_prompt TEXT,
+    context_size INTEGER DEFAULT 32768,
+    stop_tokens TEXT,
+    updated_at INTEGER NOT NULL
+)
+"#;
+
+const CREATE_MODEL_HISTORY_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS model_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    model_path TEXT UNIQUE NOT NULL,
+    last_used INTEGER NOT NULL,
+    display_order INTEGER NOT NULL
+)
+"#;
+
+const CREATE_LOGS_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id TEXT,
+    level TEXT NOT NULL,
+    message TEXT NOT NULL,
+    timestamp INTEGER NOT NULL,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
+)
+"#;
+
+const CREATE_LOGS_CONVERSATION_INDEX: &str = r#"
+CREATE INDEX IF NOT EXISTS idx_logs_conversation
+ON logs(conversation_id, timestamp)
+"#;
+
+const CREATE_LOGS_TIMESTAMP_INDEX: &str = r#"
+CREATE INDEX IF NOT EXISTS idx_logs_timestamp
+ON logs(timestamp)
+"#;
+
+/// Initialize the database schema (create all tables and indexes)
+pub fn initialize(conn: &Connection) -> Result<(), String> {
+    // Create tables in order (respecting foreign key constraints)
+    let statements = [
+        ("conversations", CREATE_CONVERSATIONS_TABLE),
+        ("messages", CREATE_MESSAGES_TABLE),
+        ("messages_index", CREATE_MESSAGES_INDEX),
+        ("streaming_buffer", CREATE_STREAMING_BUFFER_TABLE),
+        ("config", CREATE_CONFIG_TABLE),
+        ("model_history", CREATE_MODEL_HISTORY_TABLE),
+        ("logs", CREATE_LOGS_TABLE),
+        ("logs_conversation_index", CREATE_LOGS_CONVERSATION_INDEX),
+        ("logs_timestamp_index", CREATE_LOGS_TIMESTAMP_INDEX),
+    ];
+
+    for (name, sql) in statements.iter() {
+        conn.execute(sql, [])
+            .map_err(|e| format!("Failed to create {}: {}", name, e))?;
+    }
+
+    // Insert default config row if it doesn't exist
+    conn.execute(
+        "INSERT OR IGNORE INTO config (id, updated_at) VALUES (1, ?1)",
+        [super::current_timestamp_millis()],
+    )
+    .map_err(|e| format!("Failed to insert default config: {}", e))?;
+
+    Ok(())
+}
+
+/// Drop all tables (for testing/reset)
+#[allow(dead_code)]
+pub fn drop_all_tables(conn: &Connection) -> Result<(), String> {
+    let tables = [
+        "streaming_buffer",
+        "messages",
+        "logs",
+        "model_history",
+        "config",
+        "conversations",
+    ];
+
+    for table in tables.iter() {
+        conn.execute(&format!("DROP TABLE IF EXISTS {}", table), [])
+            .map_err(|e| format!("Failed to drop {}: {}", table, e))?;
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_initialize_schema() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute("PRAGMA foreign_keys = ON", []).unwrap();
+
+        let result = initialize(&conn);
+        assert!(result.is_ok(), "Schema initialization failed: {:?}", result);
+
+        // Verify tables exist
+        let tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        assert!(tables.contains(&"conversations".to_string()));
+        assert!(tables.contains(&"messages".to_string()));
+        assert!(tables.contains(&"config".to_string()));
+        assert!(tables.contains(&"logs".to_string()));
+        assert!(tables.contains(&"model_history".to_string()));
+        assert!(tables.contains(&"streaming_buffer".to_string()));
+    }
+
+    #[test]
+    fn test_default_config_inserted() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute("PRAGMA foreign_keys = ON", []).unwrap();
+        initialize(&conn).unwrap();
+
+        let count: i32 = conn
+            .query_row("SELECT COUNT(*) FROM config", [], |row| row.get(0))
+            .unwrap();
+
+        assert_eq!(count, 1);
+    }
+}

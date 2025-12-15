@@ -1,6 +1,5 @@
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::Ordering;
-use std::fs;
 use tokio::sync::mpsc;
 use hyper::upgrade::Upgraded;
 use tokio_tungstenite::tungstenite::protocol::Message as WsMessage;
@@ -9,9 +8,9 @@ use futures_util::{StreamExt, SinkExt};
 use llama_cpp_2::model::AddBos;
 
 use super::models::*;
+use super::database::{SharedDatabase, conversation::ConversationLogger};
+use super::chat_handler::{generate_llama_response, apply_model_chat_template, get_universal_system_prompt};
 use super::config::load_config;
-use super::conversation::ConversationLogger;
-use super::chat_handler::{generate_llama_response, apply_model_chat_template};
 
 // Import the global counter
 use std::sync::atomic::AtomicU32;
@@ -21,6 +20,7 @@ pub static ACTIVE_WS_CONNECTIONS: AtomicU32 = AtomicU32::new(0);
 pub async fn handle_websocket(
     upgraded: Upgraded,
     llama_state: Option<SharedLlamaState>,
+    db: SharedDatabase,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Convert the upgraded connection to a WebSocket stream
     let ws_stream = WebSocketStream::from_raw_socket(
@@ -53,16 +53,34 @@ pub async fn handle_websocket(
                     }
                 };
 
-                // Load configuration to get system prompt
+                // Determine system prompt based on config
                 let config = load_config();
-                let system_prompt = config.system_prompt.as_deref();
+                let system_prompt: Option<String> = match config.system_prompt.as_deref() {
+                    // "__AGENTIC__" marker = use universal agentic prompt with command execution
+                    Some("__AGENTIC__") => Some(get_universal_system_prompt()),
+                    // Custom prompt = use as-is
+                    Some(custom) => Some(custom.to_string()),
+                    // None = use model's default system prompt from GGUF
+                    None => {
+                        if let Some(ref state) = llama_state {
+                            if let Ok(state_guard) = state.lock() {
+                                state_guard.as_ref()
+                                    .and_then(|s| s.model_default_system_prompt.clone())
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }
+                };
 
                 // Create or load conversation logger based on conversation_id
                 let conversation_logger = match &chat_request.conversation_id {
                     Some(conv_id) => {
                         eprintln!("[WS_CHAT] Loading existing conversation: {}", conv_id);
                         // Load existing conversation
-                        match ConversationLogger::from_existing(conv_id) {
+                        match ConversationLogger::from_existing(db.clone(), conv_id) {
                             Ok(logger) => {
                                 eprintln!("[WS_CHAT] Successfully loaded conversation: {}", conv_id);
                                 Arc::new(Mutex::new(logger))
@@ -79,9 +97,9 @@ pub async fn handle_websocket(
                         }
                     }
                     None => {
-                        eprintln!("[WS_CHAT] Creating new conversation");
-                        // Create a new conversation
-                        match ConversationLogger::new(system_prompt) {
+                        eprintln!("[WS_CHAT] Creating new conversation with system prompt mode");
+                        // Create a new conversation with config-based system prompt
+                        match ConversationLogger::new(db.clone(), system_prompt.as_deref()) {
                             Ok(logger) => {
                                 eprintln!("[WS_CHAT] Successfully created new conversation");
                                 Arc::new(Mutex::new(logger))
@@ -200,11 +218,12 @@ pub async fn handle_websocket(
     Ok(())
 }
 
-// WebSocket handler for watching conversation file changes
+// WebSocket handler for watching conversation updates via broadcast channel
 pub async fn handle_conversation_watch(
     upgraded: Upgraded,
     conversation_id: String,
     llama_state: Option<SharedLlamaState>,
+    db: SharedDatabase,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let ws_stream = WebSocketStream::from_raw_socket(
         upgraded,
@@ -216,18 +235,19 @@ pub async fn handle_conversation_watch(
 
     let _ = ACTIVE_WS_CONNECTIONS.fetch_add(1, Ordering::SeqCst);
 
-    // Construct file path - handle .txt extension if already present
-    let file_path = if conversation_id.ends_with(".txt") {
-        format!("assets/conversations/{}", conversation_id)
-    } else {
-        format!("assets/conversations/{}.txt", conversation_id)
-    };
+    // Remove .txt extension if present for database lookup
+    let conv_id = conversation_id.trim_end_matches(".txt").to_string();
 
-    eprintln!("[WS_WATCH] Watching file: {}", file_path);
+    eprintln!("[WS_WATCH] Watching conversation: {}", conv_id);
 
-    // Read initial content
-    let mut last_content = fs::read_to_string(&file_path).unwrap_or_default();
-    eprintln!("[WS_WATCH] Initial content length: {}", last_content.len());
+    // Subscribe to streaming updates FIRST (before reading initial content)
+    // This prevents race conditions where generation completes before we subscribe
+    let mut streaming_rx = db.subscribe_streaming();
+    eprintln!("[WS_WATCH] Subscribed to streaming updates via broadcast channel");
+
+    // Read initial content from database (now safe - we won't miss broadcasts)
+    let initial_content = db.get_conversation_as_text(&conv_id).unwrap_or_default();
+    eprintln!("[WS_WATCH] Initial content length: {}", initial_content.len());
 
     // Calculate token counts for initial content
     let (tokens_used, max_tokens) = if let Some(ref state) = llama_state {
@@ -237,7 +257,7 @@ pub async fn handle_conversation_watch(
                     if let Some(context_size) = llama_state_inner.model_context_length {
                         // Apply chat template to get the prompt
                         let template_type = llama_state_inner.chat_template_type.as_deref();
-                        match apply_model_chat_template(&last_content, template_type) {
+                        match apply_model_chat_template(&initial_content, template_type) {
                             Ok(prompt) => {
                                 match model.str_to_token(&prompt, AddBos::Always) {
                                     Ok(tokens) => (Some(tokens.len() as i32), Some(context_size as i32)),
@@ -265,51 +285,95 @@ pub async fn handle_conversation_watch(
     // Send initial content with token info
     let initial_msg = serde_json::json!({
         "type": "update",
-        "content": last_content,
+        "content": initial_content,
         "tokens_used": tokens_used,
         "max_tokens": max_tokens
     });
 
     let _ = ws_sender.send(WsMessage::Text(initial_msg.to_string())).await;
 
-    // File watching with periodic polling
-    eprintln!("[WS_WATCH] File watching via periodic polling");
-
     loop {
         tokio::select! {
-            _ = tokio::time::sleep(tokio::time::Duration::from_millis(200)) => {
-                // Read file periodically
-                if let Ok(current_content) = fs::read_to_string(&file_path) {
-                    if current_content != last_content {
-                        eprintln!("[WS_WATCH] File changed! Length: {} -> {}", last_content.len(), current_content.len());
-                        last_content = current_content.clone();
+            // Receive streaming updates from broadcast channel
+            update_result = streaming_rx.recv() => {
+                match update_result {
+                    Ok(update) => {
+                        // Only process updates for this conversation
+                        if update.conversation_id == conv_id {
+                            eprintln!("[WS_WATCH] Received update for conversation: {} (complete: {})",
+                                conv_id, update.is_complete);
 
-                        let update_msg = serde_json::json!({
-                            "type": "update",
-                            "content": current_content,
-                            "tokens_used": null,
-                            "max_tokens": null
-                        });
+                            // Get full conversation content including new tokens
+                            let current_content = db.get_conversation_as_text(&conv_id).unwrap_or_default();
 
-                        eprintln!("[WS_WATCH] Sending update via WebSocket (content length: {})", current_content.len());
+                            // Calculate token counts
+                            let (tokens_used, max_tokens) = if let Some(ref state) = llama_state {
+                                if let Ok(state_lock) = state.lock() {
+                                    if let Some(ref llama_state_inner) = *state_lock {
+                                        if let Some(ref model) = llama_state_inner.model {
+                                            if let Some(context_size) = llama_state_inner.model_context_length {
+                                                let template_type = llama_state_inner.chat_template_type.as_deref();
+                                                match apply_model_chat_template(&current_content, template_type) {
+                                                    Ok(prompt) => {
+                                                        match model.str_to_token(&prompt, AddBos::Always) {
+                                                            Ok(tokens) => (Some(tokens.len() as i32), Some(context_size as i32)),
+                                                            Err(_) => (None, Some(context_size as i32))
+                                                        }
+                                                    },
+                                                    Err(_) => (None, Some(context_size as i32))
+                                                }
+                                            } else {
+                                                (None, None)
+                                            }
+                                        } else {
+                                            (None, None)
+                                        }
+                                    } else {
+                                        (None, None)
+                                    }
+                                } else {
+                                    (None, None)
+                                }
+                            } else {
+                                (None, None)
+                            };
 
-                        let send_result = tokio::time::timeout(
-                            tokio::time::Duration::from_millis(50),
-                            ws_sender.send(WsMessage::Text(update_msg.to_string()))
-                        ).await;
+                            let update_msg = serde_json::json!({
+                                "type": "update",
+                                "content": current_content,
+                                "tokens_used": tokens_used,
+                                "max_tokens": max_tokens
+                            });
 
-                        match send_result {
-                            Ok(Ok(_)) => {
-                                eprintln!("[WS_WATCH] Update sent successfully");
-                            }
-                            Ok(Err(_)) => {
-                                eprintln!("[WS_WATCH] Failed to send WebSocket message - connection closed");
-                                break;
-                            }
-                            Err(_) => {
-                                eprintln!("[WS_WATCH] WebSocket send timed out - skipping this update");
+                            eprintln!("[WS_WATCH] Sending update via WebSocket (content length: {}, tokens: {:?}/{})",
+                                current_content.len(), tokens_used, max_tokens.unwrap_or(0));
+
+                            let send_result = tokio::time::timeout(
+                                tokio::time::Duration::from_millis(50),
+                                ws_sender.send(WsMessage::Text(update_msg.to_string()))
+                            ).await;
+
+                            match send_result {
+                                Ok(Ok(_)) => {
+                                    eprintln!("[WS_WATCH] Update sent successfully");
+                                }
+                                Ok(Err(_)) => {
+                                    eprintln!("[WS_WATCH] Failed to send WebSocket message - connection closed");
+                                    break;
+                                }
+                                Err(_) => {
+                                    eprintln!("[WS_WATCH] WebSocket send timed out - skipping this update");
+                                }
                             }
                         }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        eprintln!("[WS_WATCH] Broadcast receiver lagged by {} messages", n);
+                        // Continue receiving - just missed some updates
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        eprintln!("[WS_WATCH] Broadcast channel closed");
+                        break;
                     }
                 }
             }

@@ -4,7 +4,8 @@ import { TauriAPI } from '../utils/tauri';
 import { autoParseToolCalls } from '../utils/toolParser';
 import type { Message, ChatRequest, ToolCall } from '../types';
 
-// const MAX_TOOL_ITERATIONS = 5; // Safety limit to prevent infinite loops
+const MAX_TOOL_ITERATIONS = 20; // Maximum tool calls per user message (safety limit)
+const LOOP_DETECTION_WINDOW = 3; // Detect loop if same call repeats this many times
 
 // Helper function to parse conversation file content
 function parseConversationFile(content: string): Message[] {
@@ -126,6 +127,7 @@ export function useChat() {
   const [maxTokens, setMaxTokens] = useState<number | undefined>(undefined);
   const [isWsConnected, setIsWsConnected] = useState(false);
   const toolIterationCount = useRef(0);
+  const toolCallHistory = useRef<string[]>([]); // Track recent tool calls for loop detection
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastProcessedMessageId = useRef<string | null>(null);
 
@@ -155,8 +157,16 @@ export function useChat() {
     // Create new AbortController for this request
     abortControllerRef.current = new AbortController();
 
-    // Reset tool iteration counter for new user message
-    toolIterationCount.current = 0;
+    // Reset tool iteration counter ONLY for NEW user messages
+    // Do NOT reset for tool results being sent back to model
+    const isToolResult = content.startsWith('[TOOL_RESULTS]');
+    if (!isToolResult) {
+      toolIterationCount.current = 0;
+      toolCallHistory.current = []; // Reset loop detection history
+      console.log('[FRONTEND] 🔄 Reset tool iteration counter and history for new user message');
+    } else {
+      console.log(`[FRONTEND] 🔧 Continuing tool iteration ${toolIterationCount.current}/${MAX_TOOL_ITERATIONS} with tool results`);
+    }
 
     const userMessage: Message = {
       id: crypto.randomUUID(),
@@ -166,7 +176,10 @@ export function useChat() {
     };
 
     // Add user message immediately for instant feedback
-    setMessages(prev => [...prev, userMessage]);
+    // BUT skip adding tool results to UI - they're only for the model
+    if (!isToolResult) {
+      setMessages(prev => [...prev, userMessage]);
+    }
     setIsLoading(true);
     setError(null);
 
@@ -264,29 +277,119 @@ export function useChat() {
         if (message.type === 'update') {
           // Parse the file content and update messages
           const content = message.content;
+
+          // Check for context size warnings in the conversation
+          if (content.includes('⚠️ Context Size Reduced') && content.includes('Auto-reduced to:')) {
+            const match = content.match(/Auto-reduced to: (\d+) tokens/);
+            if (match) {
+              const reducedSize = parseInt(match[1]);
+              if (reducedSize < 4096) {
+                toast.error(
+                  `⚠️ Context size critically low (${reducedSize} tokens)! Model may not work properly. Reduce GPU layers or use smaller model.`,
+                  { duration: 10000 }
+                );
+              } else {
+                toast(
+                  `⚠️ Context size reduced to ${reducedSize} tokens due to VRAM limits.`,
+                  { duration: 5000, icon: '⚠️' }
+                );
+              }
+            }
+          }
+
           const parsedMessages = parseConversationFile(content);
           setMessages(parsedMessages);
+
+          // Check for generation errors in the content
+          if (content.includes('⚠️ Generation Error:')) {
+            console.error('[FRONTEND] Generation error detected in conversation');
+            toast.error('Model generation failed. Try simplifying your request or reducing context size.', { duration: 7000 });
+            setIsLoading(false);
+            return;
+          }
 
           // Check if assistant has started responding
           const lastMessage = parsedMessages[parsedMessages.length - 1];
           if (lastMessage && lastMessage.role === 'assistant' && lastMessage.content.length > 0) {
             // Check for tool calls in the assistant's message
             const toolCalls = autoParseToolCalls(lastMessage.content);
+            console.log('[FRONTEND] 🔍 Detected', toolCalls.length, 'tool calls in message');
 
             if (toolCalls.length > 0) {
               // Check if ALL tool calls are complete
               // A tool call is complete if it has both opening and closing tags
               const qwenComplete = (lastMessage.content.match(/<tool_call>/g) || []).length === (lastMessage.content.match(/<\/tool_call>/g) || []).length;
               const llama3Complete = (lastMessage.content.match(/<function=/g) || []).length === (lastMessage.content.match(/<\/function>/g) || []).length;
-              const mistralComplete = (lastMessage.content.match(/\[TOOL_CALLS\]/g) || []).length === (lastMessage.content.match(/\[\/ARGS\]/g) || []).length;
+
+              // Mistral format has NO closing tag - tool call ends after JSON
+              // Format: [TOOL_CALLS]function_name[ARGS]{"arg": "value"}
+              // Check if the message contains [TOOL_CALLS] and valid JSON after [ARGS]
+              const hasMistralToolCall = lastMessage.content.includes('[TOOL_CALLS]');
+              let mistralComplete = false;
+              if (hasMistralToolCall) {
+                // Try to parse the tool call - if it succeeds, it's complete
+                try {
+                  const parsed = autoParseToolCalls(lastMessage.content);
+                  mistralComplete = parsed.length > 0;
+                  console.log('[FRONTEND] 🔧 Mistral tool call complete:', mistralComplete, '(parsed', parsed.length, 'calls)');
+                } catch {
+                  mistralComplete = false;
+                  console.log('[FRONTEND] ❌ Mistral tool call parse failed');
+                }
+              }
 
               const hasCompleteToolCall = qwenComplete || llama3Complete || mistralComplete;
+              console.log('[FRONTEND] ✅ Tool call completeness:', { qwenComplete, llama3Complete, mistralComplete, hasCompleteToolCall });
 
               if (hasCompleteToolCall && lastProcessedMessageId.current !== lastMessage.id) {
+                // Check if context size is critically low (indicates VRAM issues)
+                // Only check if we have a valid positive number that's below threshold
+                // Skip check if maxTokens is null/undefined (means we haven't received token counts yet)
+                if (typeof maxTokens === 'number' && maxTokens > 0 && maxTokens < 4096) {
+                  console.error(`[FRONTEND] ⚠️  Context size too small (${maxTokens} tokens) for reliable tool execution. Stopping.`);
+                  toast.error(
+                    `Context size is too small (${maxTokens} tokens) for tool calling. Please reduce GPU layers or unload the model.`,
+                    { duration: 10000 }
+                  );
+                  setIsLoading(false);
+                  return;
+                }
+
+                // Check iteration limit BEFORE executing tools
+                if (toolIterationCount.current >= MAX_TOOL_ITERATIONS) {
+                  console.warn(`[FRONTEND] ⚠️  MAX_TOOL_ITERATIONS (${MAX_TOOL_ITERATIONS}) reached. Stopping tool execution loop.`);
+                  toast.error(`Maximum tool iterations (${MAX_TOOL_ITERATIONS}) reached. Stopping to prevent infinite loop.`, { duration: 5000 });
+                  setIsLoading(false);
+                  return;
+                }
+
+                // Smart loop detection: Check if the same tool calls are repeating
+                const toolCallSignatures = toolCalls.map(tc => `${tc.name}(${JSON.stringify(tc.arguments)})`).join('|');
+                toolCallHistory.current.push(toolCallSignatures);
+
+                // Check for infinite loop pattern
+                if (toolCallHistory.current.length >= LOOP_DETECTION_WINDOW) {
+                  const recentCalls = toolCallHistory.current.slice(-LOOP_DETECTION_WINDOW);
+                  const allIdentical = recentCalls.every(call => call === recentCalls[0]);
+
+                  if (allIdentical) {
+                    console.error(`[FRONTEND] 🔁 INFINITE LOOP DETECTED: Same tool call repeated ${LOOP_DETECTION_WINDOW} times`);
+                    console.error(`[FRONTEND] Repeating call: ${recentCalls[0]}`);
+                    toast.error(`Infinite loop detected! The model is repeating the same tool call. Stopping.`, { duration: 7000 });
+                    setIsLoading(false);
+                    return;
+                  }
+                }
+
+                // Increment iteration counter
+                toolIterationCount.current += 1;
+                console.log(`[FRONTEND] 🔧 Tool iteration: ${toolIterationCount.current}/${MAX_TOOL_ITERATIONS}`);
+                console.log(`[FRONTEND] Tool call history (last ${Math.min(5, toolCallHistory.current.length)}):`, toolCallHistory.current.slice(-5));
+
                 // Tool calls are complete and haven't been processed yet - execute them
                 lastProcessedMessageId.current = lastMessage.id;
 
-                toast.success(`Executing ${toolCalls.length} tool call(s)...`, { duration: 2000 });
+                toast.success(`Executing ${toolCalls.length} tool call(s)... (iteration ${toolIterationCount.current}/${MAX_TOOL_ITERATIONS})`, { duration: 2000 });
 
                 // Execute tool calls
                 Promise.all(toolCalls.map(executeTool))

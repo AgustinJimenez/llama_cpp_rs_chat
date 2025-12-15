@@ -5,7 +5,7 @@ use llama_cpp_2::{
     model::LlamaModel,
 };
 
-use super::conversation::ConversationLogger;
+use super::database::conversation::ConversationLogger;
 
 // Configuration structure
 #[derive(Deserialize, Serialize, Clone)]
@@ -324,6 +324,7 @@ pub struct LlamaState {
     pub chat_template_type: Option<String>, // Store detected template type
     pub gpu_layers: Option<u32>, // Number of GPU layers offloaded
     pub last_used: std::time::SystemTime,
+    pub model_default_system_prompt: Option<String>, // Model's default system prompt from GGUF
 }
 
 pub type SharedLlamaState = Arc<Mutex<Option<LlamaState>>>;

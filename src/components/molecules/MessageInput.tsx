@@ -47,7 +47,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   }, []);
 
   return (
-    <form onSubmit={handleSubmit} className="flex gap-3 items-start" data-testid="message-form">
+    <form onSubmit={handleSubmit} className="flex gap-2 items-start" data-testid="message-form">
       <div className="flex-1">
         <textarea
           ref={textareaRef}

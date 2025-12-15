@@ -64,7 +64,7 @@ pub fn execute_command(cmd: &str) -> String {
 
     // Security: Check if command is in whitelist
     if !ALLOWED_COMMANDS.contains(&command_name.as_str()) {
-        log_warn!("Blocked unauthorized command: {}", command_name);
+        log_warn!("system", "Blocked unauthorized command: {}", command_name);
         return format!(
             "Error: Command '{}' is not allowed for security reasons. Allowed commands: {}",
             command_name,
@@ -107,10 +107,23 @@ pub fn execute_command(cmd: &str) -> String {
         }
     } else {
         // Normal command execution for non-cd commands
-        let mut command = Command::new(&parts[0]);
-        if parts.len() > 1 {
-            command.args(&parts[1..]);
-        }
+        // On Windows, use cmd.exe for built-in commands like type, dir, echo, etc.
+        let is_windows = cfg!(target_os = "windows");
+        let windows_builtins = ["type", "dir", "echo", "del", "copy", "move", "ren", "cls", "date", "time"];
+
+        let mut command = if is_windows && windows_builtins.contains(&command_name.as_str()) {
+            // Use cmd.exe /c for Windows built-in commands
+            let full_cmd = parts.join(" ");
+            let mut cmd = Command::new("cmd");
+            cmd.args(["/c", &full_cmd]);
+            cmd
+        } else {
+            let mut cmd = Command::new(&parts[0]);
+            if parts.len() > 1 {
+                cmd.args(&parts[1..]);
+            }
+            cmd
+        };
 
         match command.output() {
             Ok(output) => {

@@ -117,83 +117,373 @@
     "updateSnapshots": "missing",
     "updateSourceMethod": "patch",
     "version": "1.55.1",
-    "workers": 3,
+    "workers": 1,
     "webServer": null
   },
   "suites": [
     {
-      "title": "conversation-loading-simple.test.ts",
-      "file": "conversation-loading-simple.test.ts",
+      "title": "file-creation.test.ts",
+      "file": "file-creation.test.ts",
       "column": 0,
       "line": 0,
       "specs": [],
       "suites": [
         {
-          "title": "Conversation Loading - Simple Test",
-          "file": "conversation-loading-simple.test.ts",
-          "line": 6,
+          "title": "File Creation Tests",
+          "file": "file-creation.test.ts",
+          "line": 23,
           "column": 6,
           "specs": [
             {
-              "title": "should load an existing conversation from sidebar without crashing",
+              "title": "model should create a JSON file when asked",
               "ok": true,
               "tags": [],
               "tests": [
                 {
-                  "timeout": 30000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "E:\\repo\\llama_cpp_rs_chat\\tests\\e2e\\conversation-loading-simple.test.ts",
-                        "line": 32,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
+                  "timeout": 300000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
                   "projectId": "chromium",
                   "projectName": "chromium",
                   "results": [
                     {
                       "workerIndex": 0,
                       "parallelIndex": 0,
-                      "status": "skipped",
-                      "duration": 624,
+                      "status": "passed",
+                      "duration": 31834,
                       "errors": [],
                       "stdout": [
                         {
-                          "text": "✓ App loaded\n"
+                          "text": "🚀 Starting file creation test...\n"
                         },
                         {
-                          "text": "✓ Sidebar opened\n"
+                          "text": "✅ Model is loaded, proceeding with test...\n"
                         },
                         {
-                          "text": "⚠️  No conversations found - test requires existing conversation\n"
+                          "text": "📝 Sending message: \"Create a JSON file at E:\\\\repo\\\\llama_cpp_rs_chat\\\\test_data\\\\test_model_created.json with the follo...\"\n"
+                        },
+                        {
+                          "text": "⏳ Waiting for model to create file...\n"
+                        },
+                        {
+                          "text": "✅ Model responded\n"
+                        },
+                        {
+                          "text": "📄 Response preview: The JSON file has been successfully created at the specified location with the given content.\n"
+                        },
+                        {
+                          "text": "📁 File exists check: true\n"
+                        },
+                        {
+                          "text": "✅ File was successfully created!\n"
+                        },
+                        {
+                          "text": "📄 File content: {\n  \"test\": \"file_creation\",\n  \"status\": \"success\",\n  \"timestamp\": \"2025-01-16\",\n  \"data\": {\n    \"model\": \"test\",\n    \"capability\": \"write_file\"\n  }\n}\n"
+                        },
+                        {
+                          "text": "✅ File contains valid JSON\n"
+                        },
+                        {
+                          "text": "✅ File content matches expected structure\n"
+                        },
+                        {
+                          "text": "🎉 File creation test completed successfully!\n"
+                        },
+                        {
+                          "text": "🧹 Cleaned up test file\n"
                         }
                       ],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-11-15T19:09:23.268Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "E:\\repo\\llama_cpp_rs_chat\\tests\\e2e\\conversation-loading-simple.test.ts",
-                            "line": 32,
-                            "column": 12
-                          }
-                        }
-                      ],
+                      "startTime": "2025-11-23T14:22:54.740Z",
+                      "annotations": [],
                       "attachments": []
                     }
                   ],
-                  "status": "skipped"
+                  "status": "expected"
                 }
               ],
-              "id": "3d6b5102b69222a2dd22-1288ddb1bf0750f76a9c",
-              "file": "conversation-loading-simple.test.ts",
-              "line": 7,
+              "id": "950cf520c22157afef18-8ba405ec3e9658702209",
+              "file": "file-creation.test.ts",
+              "line": 41,
+              "column": 3
+            },
+            {
+              "title": "model should create a simple text file",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 300000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 31858,
+                      "errors": [],
+                      "stdout": [
+                        {
+                          "text": "🚀 Starting simple text file creation test...\n"
+                        },
+                        {
+                          "text": "📝 Sending message: \"Create a text file at E:\\\\repo\\\\llama_cpp_rs_chat\\\\test_data\\\\test_model_text.txt with the content: \"Hello from AI model! This file was created by the model.\"\"\n"
+                        },
+                        {
+                          "text": "⏳ Waiting for model to create text file...\n"
+                        },
+                        {
+                          "text": "📁 Text file exists: true\n"
+                        },
+                        {
+                          "text": "📄 File content: Hello from AI model! This file was created by the model.\n"
+                        },
+                        {
+                          "text": "✅ Text file created with correct content\n"
+                        },
+                        {
+                          "text": "🎉 Text file creation test completed!\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-11-23T14:23:26.653Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "950cf520c22157afef18-1c6b1ea0a17006297bde",
+              "file": "file-creation.test.ts",
+              "line": 145,
+              "column": 3
+            },
+            {
+              "title": "model should use write_file tool (not just bash echo)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 300000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 33900,
+                      "errors": [],
+                      "stdout": [
+                        {
+                          "text": "🚀 Testing write_file tool usage...\n"
+                        },
+                        {
+                          "text": "📝 Asking model to use write_file tool explicitly\n"
+                        },
+                        {
+                          "text": "⏳ Waiting for write_file tool execution...\n"
+                        },
+                        {
+                          "text": "📁 File exists: true\n"
+                        },
+                        {
+                          "text": "📄 File content: {\n  \"tool\": \"write_file\",\n  \"method\": \"direct\"\n}\n"
+                        },
+                        {
+                          "text": "✅ File created successfully (write_file or bash)\n"
+                        },
+                        {
+                          "text": "🎉 write_file tool test completed!\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-11-23T14:23:58.527Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "950cf520c22157afef18-a1b5a858d8ac47bfe1a2",
+              "file": "file-creation.test.ts",
+              "line": 213,
+              "column": 3
+            },
+            {
+              "title": "model should create a complete Node.js project structure",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 300000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 114028,
+                      "errors": [],
+                      "stdout": [
+                        {
+                          "text": "🚀 Starting Node.js project creation test...\n"
+                        },
+                        {
+                          "text": "📝 Asking model to create Node.js project...\n"
+                        },
+                        {
+                          "text": "⏳ Waiting for model to create project files...\n"
+                        },
+                        {
+                          "text": "📄 Response preview: I've created the Node.js project with the following files:\n\npackage.json with:\n{\n  \"name\": \"test-project\",\n  \"version\": \"1.0.0\",\n  \"description\": \"Test Node.js project\",\n  \"main\": \"index.js\",\n  \"scripts\": {\n    \"test\": \"echo \\\"Error: no test specified\\\" && exit 1\"\n  },\n  \"author\": \"\",\n  \"license\": \"\n"
+                        },
+                        {
+                          "text": "⏳ Waiting for file operations to complete...\n"
+                        },
+                        {
+                          "text": "📁 Project directory exists: true\n"
+                        },
+                        {
+                          "text": "  ✅ package.json: exists\n"
+                        },
+                        {
+                          "text": "  ✅ index.js: exists\n"
+                        },
+                        {
+                          "text": "  ✅ README.md: exists\n"
+                        },
+                        {
+                          "text": "\n📊 Files created: 3/3\n"
+                        },
+                        {
+                          "text": "📄 package.json content: \n"
+                        },
+                        {
+                          "text": "📄 index.js content: console.log(\"Hello World\");\n"
+                        },
+                        {
+                          "text": "  - Has code: true\n"
+                        },
+                        {
+                          "text": "📄 README.md preview: # Test Node.js Project\n\nThis is a test Node.js project created to demonstrate project setup.\n\n## Fea\n"
+                        },
+                        {
+                          "text": "  - Has content: 185 characters\n"
+                        },
+                        {
+                          "text": "✅ Node.js project structure validated!\n"
+                        },
+                        {
+                          "text": "🎉 Node.js project creation test completed!\n"
+                        },
+                        {
+                          "text": "🧹 Cleaned up project directory\n"
+                        }
+                      ],
+                      "stderr": [
+                        {
+                          "text": "⚠️  package.json is empty\n"
+                        }
+                      ],
+                      "retry": 0,
+                      "startTime": "2025-11-23T14:24:32.435Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "950cf520c22157afef18-5ad852baa761841e5cb9",
+              "file": "file-creation.test.ts",
+              "line": 287,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "File Creation Summary",
+          "file": "file-creation.test.ts",
+          "line": 452,
+          "column": 6,
+          "specs": [
+            {
+              "title": "display summary",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [
+                        {
+                          "text": "\n🎉 File Creation Test Summary:\n"
+                        },
+                        {
+                          "text": "=====================================\n"
+                        },
+                        {
+                          "text": "These tests verify the model can:\n"
+                        },
+                        {
+                          "text": "  ✅ Create JSON files with structured data\n"
+                        },
+                        {
+                          "text": "  ✅ Create simple text files\n"
+                        },
+                        {
+                          "text": "  ✅ Use write_file tool (or bash equivalent)\n"
+                        },
+                        {
+                          "text": "  ✅ Create complete project structures (Node.js)\n"
+                        },
+                        {
+                          "text": "  ✅ Actually write files to disk (verified with fs.existsSync)\n"
+                        },
+                        {
+                          "text": "=====================================\n"
+                        },
+                        {
+                          "text": "Note: Tests require a loaded model to run\n\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-11-23T14:26:26.471Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "950cf520c22157afef18-aa21526a4ccb4fd23106",
+              "file": "file-creation.test.ts",
+              "line": 453,
               "column": 3
             }
           ]
@@ -203,10 +493,10 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2025-11-15T19:09:21.952Z",
-    "duration": 2075.311,
-    "expected": 0,
-    "skipped": 1,
+    "startTime": "2025-11-23T14:22:53.561Z",
+    "duration": 212974.377,
+    "expected": 5,
+    "skipped": 0,
     "unexpected": 0,
     "flaky": 0
   }

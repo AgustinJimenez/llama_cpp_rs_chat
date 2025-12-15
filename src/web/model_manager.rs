@@ -12,9 +12,12 @@ use crate::{log_debug, log_info, log_warn};
 
 // Constants for VRAM calculations
 const DEFAULT_VRAM_GB: f64 = 22.0;  // Default VRAM assumption if detection fails
+#[allow(dead_code)]
 const VRAM_SAFETY_MARGIN_GB: f64 = 2.0;  // Reserve 2GB for system overhead
+#[allow(dead_code)]
 const MB_TO_GB: f64 = 1024.0;
 const BYTES_TO_GB: f64 = 1024.0 * 1024.0 * 1024.0;
+#[allow(dead_code)]
 const KV_CACHE_MULTIPLIER: f64 = 4.0;  // key + value, 2 bytes each (fp16)
 
 // Model size thresholds for layer estimation
@@ -30,6 +33,7 @@ const XLARGE_MODEL_LAYERS: u32 = 80;
 const MIN_VRAM_RATIO: f64 = 0.1;  // Minimum 10% VRAM required for GPU offloading
 
 // Helper function to detect available VRAM
+#[allow(dead_code)]
 fn get_available_vram_gb() -> Option<f64> {
     // Try nvidia-smi first
     if let Ok(output) = Command::new("nvidia-smi")
@@ -46,11 +50,12 @@ fn get_available_vram_gb() -> Option<f64> {
     }
 
     // Fallback: assume default VRAM available (conservative estimate)
-    log_info!("Could not detect VRAM, assuming {}GB available", DEFAULT_VRAM_GB);
+    log_info!("system", "Could not detect VRAM, assuming {}GB available", DEFAULT_VRAM_GB);
     Some(DEFAULT_VRAM_GB)
 }
 
 // Helper function to calculate KV cache size in GB
+#[allow(dead_code)]
 fn calculate_kv_cache_size_gb(
     n_ctx: u32,
     n_layers: u32,
@@ -63,6 +68,7 @@ fn calculate_kv_cache_size_gb(
 }
 
 // Helper function to calculate safe context size based on available VRAM
+#[allow(dead_code)]
 pub fn calculate_safe_context_size(
     model_path: &str,
     requested_ctx: u32,
@@ -128,26 +134,26 @@ pub fn calculate_safe_context_size(
     let gpu_fraction = (gpu_layers_count as f64) / (n_layers as f64);
     let model_vram_usage = model_size_gb * gpu_fraction;
 
-    log_info!("GPU layers: {}/{} ({:.1}% of model)",
+    log_info!("system", "GPU layers: {}/{} ({:.1}% of model)",
              gpu_layers_count, n_layers, gpu_fraction * 100.0);
-    log_info!("Model VRAM usage: {:.2}GB ({:.1}% of {:.2}GB total)",
+    log_info!("system", "Model VRAM usage: {:.2}GB ({:.1}% of {:.2}GB total)",
              model_vram_usage, gpu_fraction * 100.0, model_size_gb);
 
     // Available VRAM for KV cache = total - model_on_gpu - overhead
     let vram_for_cache = (available_vram - model_vram_usage - VRAM_SAFETY_MARGIN_GB).max(0.0);
 
-    log_info!("Available: {:.2}GB, Model: {:.2}GB, Available for KV cache: {:.2}GB",
+    log_info!("system", "Available: {:.2}GB, Model: {:.2}GB, Available for KV cache: {:.2}GB",
              available_vram, model_size_gb, vram_for_cache);
 
     // Calculate KV cache size for requested context
     let requested_cache_gb = calculate_kv_cache_size_gb(requested_ctx, n_layers, n_kv_heads, head_dim);
 
-    log_info!("Requested context: {} tokens, KV cache: {:.2}GB",
+    log_info!("system", "Requested context: {} tokens, KV cache: {:.2}GB",
              requested_ctx, requested_cache_gb);
 
     if requested_cache_gb <= vram_for_cache {
         // Requested context fits in VRAM
-        log_info!("✓ Requested context size fits in available VRAM");
+        log_info!("system", "✓ Requested context size fits in available VRAM");
         return (requested_ctx, false);
     }
 
@@ -169,8 +175,8 @@ pub fn calculate_safe_context_size(
         2048
     };
 
-    log_warn!("⚠️  Requested context ({}) exceeds VRAM capacity!", requested_ctx);
-    log_warn!("⚠️  Auto-reducing to safe context size: {} tokens", safe_ctx);
+    log_warn!("system", "⚠️  Requested context ({}) exceeds VRAM capacity!", requested_ctx);
+    log_warn!("system", "⚠️  Auto-reducing to safe context size: {} tokens", safe_ctx);
 
     (safe_ctx, true) // Return safe context and flag that it was reduced
 }
@@ -218,13 +224,13 @@ pub fn calculate_optimal_gpu_layers(model_path: &str) -> u32 {
     let model_size_bytes = match fs::metadata(model_path) {
         Ok(metadata) => metadata.len(),
         Err(_) => {
-            log_info!("Could not read model file size, defaulting to 32 layers");
+            log_info!("system", "Could not read model file size, defaulting to 32 layers");
             return 32;
         }
     };
 
     let model_size_gb = model_size_bytes as f64 / BYTES_TO_GB;
-    log_info!("Model file size: {:.2} GB", model_size_gb);
+    log_info!("system", "Model file size: {:.2} GB", model_size_gb);
 
     // Try to get available GPU VRAM
     // For NVIDIA GPUs, we can estimate based on typical model requirements
@@ -237,7 +243,7 @@ pub fn calculate_optimal_gpu_layers(model_path: &str) -> u32 {
     // Reserve ~2GB for system/context, leaving DEFAULT_VRAM_GB for model
     let available_vram_gb = DEFAULT_VRAM_GB;
 
-    log_info!("Estimated available VRAM: {:.2} GB", available_vram_gb);
+    log_info!("system", "Estimated available VRAM: {:.2} GB", available_vram_gb);
 
     // Calculate what percentage of the model fits in VRAM
     let vram_ratio = (available_vram_gb / model_size_gb).min(1.0);
@@ -259,9 +265,9 @@ pub fn calculate_optimal_gpu_layers(model_path: &str) -> u32 {
 
     let optimal_layers = (estimated_total_layers as f64 * vram_ratio).floor() as u32;
 
-    log_info!("Estimated total layers: {}", estimated_total_layers);
-    log_info!("VRAM utilization ratio: {:.1}%", vram_ratio * 100.0);
-    log_info!("Optimal GPU layers: {} ({}% of model)",
+    log_info!("system", "Estimated total layers: {}", estimated_total_layers);
+    log_info!("system", "VRAM utilization ratio: {:.1}%", vram_ratio * 100.0);
+    log_info!("system", "Optimal GPU layers: {} ({}% of model)",
              optimal_layers,
              (optimal_layers as f64 / estimated_total_layers as f64 * 100.0) as u32);
 
@@ -271,11 +277,11 @@ pub fn calculate_optimal_gpu_layers(model_path: &str) -> u32 {
 
 // Helper function to load a model
 pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Result<(), String> {
-    log_debug!("load_model called with path: {}", model_path);
+    log_debug!("system", "load_model called with path: {}", model_path);
 
     // Handle poisoned mutex by recovering from panic
     let mut state_guard = llama_state.lock().unwrap_or_else(|poisoned| {
-        log_debug!("Mutex was poisoned, recovering...");
+        log_debug!("system", "Mutex was poisoned, recovering...");
         poisoned.into_inner()
     });
 
@@ -290,6 +296,7 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
             chat_template_type: None,
             gpu_layers: None,
             last_used: std::time::SystemTime::now(),
+            model_default_system_prompt: None,
         });
     }
 
@@ -315,16 +322,16 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
     let model_params = LlamaModelParams::default()
         .with_n_gpu_layers(optimal_gpu_layers);
 
-    log_info!("Loading model from: {}", model_path);
-    log_info!("GPU layers configured: {} layers will be offloaded to GPU", optimal_gpu_layers);
+    log_info!("system", "Loading model from: {}", model_path);
+    log_info!("system", "GPU layers configured: {} layers will be offloaded to GPU", optimal_gpu_layers);
 
     let model = LlamaModel::load_from_file(&state.backend, model_path, &model_params)
         .map_err(|e| format!("Failed to load model: {}", e))?;
 
-    log_info!("Model loaded successfully!");
+    log_info!("system", "Model loaded successfully!");
 
-    // Read model's context length, token IDs, and chat template from GGUF metadata
-    let (model_context_length, bos_token_id, eos_token_id, chat_template_type) = if let Ok(file) = fs::File::open(model_path) {
+    // Read model's context length, token IDs, chat template, and default system prompt from GGUF metadata
+    let (model_context_length, bos_token_id, eos_token_id, chat_template_type, default_system_prompt) = if let Ok(file) = fs::File::open(model_path) {
         let mut reader = BufReader::new(file);
         if let Ok(header) = GgufHeader::parse(&mut reader) {
             if let Ok(metadata) = GgufReader::read_metadata(&mut reader, header.n_kv) {
@@ -369,39 +376,55 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
                         _ => None,
                     });
 
-                (ctx_len, bos_id, eos_id, template_type)
+                // Extract default system prompt from chat template if available
+                // Look for: {%- set default_system_message = '...' %} in the template
+                let default_prompt = metadata.get("tokenizer.chat_template")
+                    .and_then(|v| match v {
+                        Value::String(template) => {
+                            if let Some(start_idx) = template.find("set default_system_message = '") {
+                                let after_start = &template[start_idx + "set default_system_message = '".len()..];
+                                if let Some(end_idx) = after_start.find("' %}") {
+                                    return Some(after_start[..end_idx].to_string());
+                                }
+                            }
+                            None
+                        }
+                        _ => None,
+                    });
+
+                (ctx_len, bos_id, eos_id, template_type, default_prompt)
             } else {
-                (None, None, None, None)
+                (None, None, None, None, None)
             }
         } else {
-            (None, None, None, None)
+            (None, None, None, None, None)
         }
     } else {
-        (None, None, None, None)
+        (None, None, None, None, None)
     };
 
     if let Some(ctx_len) = model_context_length {
-        log_info!("Model context length from GGUF: {}", ctx_len);
+        log_info!("system", "Model context length from GGUF: {}", ctx_len);
     }
     if let Some(bos) = bos_token_id {
-        log_info!("Model BOS token ID from GGUF: {}", bos);
+        log_info!("system", "Model BOS token ID from GGUF: {}", bos);
     }
     if let Some(eos) = eos_token_id {
-        log_info!("Model EOS token ID from GGUF: {}", eos);
+        log_info!("system", "Model EOS token ID from GGUF: {}", eos);
 
         // Validate against what the model reports
         let model_eos = model.token_eos().0; // Extract underlying i32 from LlamaToken
         if eos != model_eos {
-            log_warn!("WARNING: GGUF EOS token ({}) doesn't match model.token_eos() ({})", eos, model_eos);
+            log_warn!("system", "WARNING: GGUF EOS token ({}) doesn't match model.token_eos() ({})", eos, model_eos);
         } else {
-            log_info!("✓ EOS token validation passed: GGUF and model agree on token {}", eos);
+            log_info!("system", "✓ EOS token validation passed: GGUF and model agree on token {}", eos);
         }
     }
 
     if let Some(ref template) = chat_template_type {
-        log_info!("Detected chat template type: {}", template);
+        log_info!("system", "Detected chat template type: {}", template);
     } else {
-        log_info!("No chat template detected, using Mistral format as default");
+        log_info!("system", "No chat template detected, using Mistral format as default");
     }
 
     state.model = Some(model);
@@ -410,6 +433,11 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
     state.chat_template_type = chat_template_type;
     state.gpu_layers = Some(optimal_gpu_layers);
     state.last_used = std::time::SystemTime::now();
+    state.model_default_system_prompt = default_system_prompt.clone();
+
+    if let Some(ref prompt) = default_system_prompt {
+        log_info!("system", "Model default system prompt found: {}...", &prompt.chars().take(50).collect::<String>());
+    }
 
     Ok(())
 }

@@ -43,8 +43,9 @@ A modern AI chat application built with Tauri, Rust, and llama-cpp-2. Features b
   - 23 tests for command parsing (security-critical)
   - 16 tests for VRAM/GPU calculations
   - 3 tests for template parsing
-- ✅ **All 32 E2E tests passing** with 6 different models
+- ✅ **All 35 E2E tests passing** with 6 different models
 - ✅ **Added conversation loading E2E tests**
+- ✅ **Added file creation E2E tests** - Verifies models can create files using write_file tool or bash
 - ✅ **Zero test duplicates**
 
 ## Build & Development Commands
@@ -57,6 +58,11 @@ npm run dev
 # Build frontend for production
 npm run build
 ```
+
+**IMPORTANT: Port Usage**
+- **Port 4000**: Vite dev server with hot reload - USE THIS FOR DEVELOPMENT
+- **Port 8000**: Rust backend directly (no hot reload for frontend)
+- When developing, always use http://localhost:4000 for the full experience with hot reload
 
 ### Desktop Development
 ```bash
@@ -352,6 +358,32 @@ The mock implementation returns predictable responses making it ideal for automa
 - Keep business logic separate from HTTP routing
 - Use re-exports for backward compatibility when refactoring
 - Prefer small, focused modules (~200-400 lines) over monoliths
+
+## Debugging
+
+### Log Files
+The application uses per-conversation logging stored in `logs/conversations/`:
+- Each conversation gets its own log file: `logs/conversations/chat_YYYY-MM-DD-HH-mm-ss-SSS.log`
+- Also a general `system.log` for system-wide events
+
+### How to Debug Issues
+1. **Clear logs before testing**: `rm -f logs/conversations/*.log`
+2. **Run the test scenario** in the web UI at http://localhost:4000
+3. **Check the latest log**: `ls -lt logs/conversations/ | head -3` then `cat logs/conversations/<latest>.log`
+
+### Key Log Messages to Look For
+- `=== TEMPLATE DEBUG ===` - Shows which chat template is being used
+- `=== FINAL PROMPT BEING SENT TO MODEL ===` - The exact prompt sent to LLM
+- `🔧 SYSTEM.EXEC detected:` - Command was detected and will be executed
+- `📤 Command output length:` - Command was executed successfully
+- `✅ Command executed, output injected` - Output was injected into context
+- `Stopping generation - EOS token detected` - Model finished generating
+- `hit_stop_condition: true/false` - Whether generation stopped due to stop tokens
+
+### Common Debug Scenarios
+- **Command not executed**: Check if `🔧 SYSTEM.EXEC detected` appears. If not, the regex didn't match the model's output format
+- **Model stops after command**: Check if `hit_stop_condition` was reset to `false` after command execution
+- **Wrong prompt format**: Check `=== FINAL PROMPT ===` to verify the system prompt is correct
 
 ## Known Issues
 
