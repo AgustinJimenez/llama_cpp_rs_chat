@@ -11,6 +11,11 @@ use crate::web::{
     database::{SharedDatabase, conversation::ConversationLogger},
     chat_handler::{generate_llama_response, get_universal_system_prompt},
     websocket::{handle_websocket, handle_conversation_watch},
+    websocket_utils::{
+        calculate_websocket_accept_key, is_websocket_upgrade,
+        get_websocket_key, build_websocket_upgrade_response,
+        build_json_error_response,
+    },
     config::load_config,
 };
 
@@ -442,37 +447,13 @@ pub async fn handle_websocket_chat_stream(
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     // Check if the request wants to upgrade to WebSocket
-    let upgrade_header = req.headers().get("upgrade")
-        .and_then(|v| v.to_str().ok())
-        .map(|v| v.to_lowercase());
-
-    if upgrade_header.as_deref() != Some("websocket") {
-        return Ok(Response::builder()
-            .status(StatusCode::BAD_REQUEST)
-            .header("content-type", "application/json")
-            .header("access-control-allow-origin", "*")
-            .body(Body::from(r#"{"error":"WebSocket upgrade required"}"#))
-            .unwrap());
+    if !is_websocket_upgrade(&req) {
+        return Ok(build_json_error_response(StatusCode::BAD_REQUEST, "WebSocket upgrade required"));
     }
 
-    // Extract the WebSocket key before moving req
-    let key = req.headers()
-        .get("sec-websocket-key")
-        .and_then(|k| k.to_str().ok())
-        .unwrap_or("")
-        .to_string();
-
-    // Calculate accept key using the WebSocket protocol
-    let accept_key = {
-        use sha1::{Digest, Sha1};
-        use base64::{Engine as _, engine::general_purpose};
-
-        let mut hasher = Sha1::new();
-        hasher.update(key.as_bytes());
-        hasher.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
-        let hash = hasher.finalize();
-        general_purpose::STANDARD.encode(hash)
-    };
+    // Extract the WebSocket key and calculate accept key
+    let key = get_websocket_key(&req).unwrap_or_default();
+    let accept_key = calculate_websocket_accept_key(&key);
 
     #[cfg(not(feature = "mock"))]
     {
@@ -503,13 +484,7 @@ pub async fn handle_websocket_chat_stream(
     }
 
     // Return 101 Switching Protocols response
-    Ok(Response::builder()
-        .status(StatusCode::SWITCHING_PROTOCOLS)
-        .header("upgrade", "websocket")
-        .header("connection", "upgrade")
-        .header("sec-websocket-accept", accept_key)
-        .body(Body::empty())
-        .unwrap())
+    Ok(build_websocket_upgrade_response(&accept_key))
 }
 
 pub async fn handle_conversation_watch_websocket(
@@ -526,32 +501,13 @@ pub async fn handle_conversation_watch_websocket(
     eprintln!("[CONV-WATCH] WebSocket file watcher request for conversation: {}", conversation_id);
 
     // Check for WebSocket upgrade
-    let upgrade_header = req.headers().get("upgrade")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-
-    if upgrade_header != "websocket" {
-        return Ok(Response::builder()
-            .status(StatusCode::BAD_REQUEST)
-            .body(Body::from("Expected WebSocket upgrade"))
-            .unwrap());
+    if !is_websocket_upgrade(&req) {
+        return Ok(build_json_error_response(StatusCode::BAD_REQUEST, "Expected WebSocket upgrade"));
     }
 
-    // Get WebSocket key from request
-    let key = req.headers().get("sec-websocket-key")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-
-    // Generate accept key
-    let accept_key = {
-        use sha1::{Sha1, Digest};
-        use base64::{Engine as _, engine::general_purpose};
-        let mut hasher = Sha1::new();
-        hasher.update(key.as_bytes());
-        hasher.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
-        let hash = hasher.finalize();
-        general_purpose::STANDARD.encode(hash)
-    };
+    // Get WebSocket key and calculate accept key
+    let key = get_websocket_key(&req).unwrap_or_default();
+    let accept_key = calculate_websocket_accept_key(&key);
 
     #[cfg(not(feature = "mock"))]
     {
@@ -583,11 +539,5 @@ pub async fn handle_conversation_watch_websocket(
     }
 
     // Return 101 Switching Protocols
-    Ok(Response::builder()
-        .status(StatusCode::SWITCHING_PROTOCOLS)
-        .header("upgrade", "websocket")
-        .header("connection", "upgrade")
-        .header("sec-websocket-accept", accept_key)
-        .body(Body::empty())
-        .unwrap())
+    Ok(build_websocket_upgrade_response(&accept_key))
 }

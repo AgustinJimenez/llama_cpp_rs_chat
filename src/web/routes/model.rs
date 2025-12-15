@@ -5,11 +5,15 @@ use std::convert::Infallible;
 use std::fs;
 use std::io::BufReader;
 use serde::Deserialize;
-use gguf_llms::{GgufHeader, GgufReader, Value};
+use gguf_llms::{GgufHeader, GgufReader};
 
 use crate::web::{
     models::{ModelLoadRequest, ModelResponse},
     config::{load_config, add_to_model_history},
+    gguf_utils::{
+        value_to_display_string,
+        detect_tool_format, extract_default_system_prompt, MetadataExtractor,
+    },
 };
 
 #[cfg(not(feature = "mock"))]
@@ -243,121 +247,60 @@ pub async fn handle_get_model_info(
 
         if let Ok(header) = GgufHeader::parse(&mut reader) {
             if let Ok(metadata) = GgufReader::read_metadata(&mut reader, header.n_kv) {
+                // Use shared MetadataExtractor for cleaner access
+                let extractor = MetadataExtractor::new(&metadata);
+
                 // Debug: Print all available metadata keys and values
                 println!("=== GGUF Metadata Found ===");
                 for (key, value) in metadata.iter() {
-                    let val_str = match value {
-                        Value::String(s) => format!("\"{}\"", s),
-                        Value::Uint8(n) => n.to_string(),
-                        Value::Uint16(n) => n.to_string(),
-                        Value::Uint32(n) => n.to_string(),
-                        Value::Uint64(n) => n.to_string(),
-                        Value::Int8(n) => n.to_string(),
-                        Value::Int16(n) => n.to_string(),
-                        Value::Int32(n) => n.to_string(),
-                        Value::Int64(n) => n.to_string(),
-                        Value::Float32(f) => f.to_string(),
-                        Value::Float64(f) => f.to_string(),
-                        Value::Bool(b) => b.to_string(),
-                        Value::Array(_, items) => format!("[Array with {} items]", items.len()),
-                    };
-                    println!("  {} = {}", key, val_str);
+                    println!("  {} = {}", key, value_to_display_string(value));
                 }
                 println!("================================");
 
-                // Helper to get metadata value as string
-                let get_meta_string = |key: &str| -> Option<String> {
-                    metadata.get(key).and_then(|v| match v {
-                        Value::String(s) => Some(s.clone()),
-                        Value::Uint8(n) => Some(n.to_string()),
-                        Value::Uint16(n) => Some(n.to_string()),
-                        Value::Uint32(n) => Some(n.to_string()),
-                        Value::Uint64(n) => Some(n.to_string()),
-                        Value::Int8(n) => Some(n.to_string()),
-                        Value::Int16(n) => Some(n.to_string()),
-                        Value::Int32(n) => Some(n.to_string()),
-                        Value::Int64(n) => Some(n.to_string()),
-                        Value::Float32(f) => Some(f.to_string()),
-                        Value::Float64(f) => Some(f.to_string()),
-                        Value::Bool(b) => Some(b.to_string()),
-                        _ => None,
-                    })
-                };
-
-                // Create a metadata object with all values
-                let mut all_metadata = serde_json::Map::new();
-                for (key, value) in metadata.iter() {
-                    let val_json = match value {
-                        Value::String(s) => serde_json::json!(s),
-                        Value::Uint8(n) => serde_json::json!(n),
-                        Value::Uint16(n) => serde_json::json!(n),
-                        Value::Uint32(n) => serde_json::json!(n),
-                        Value::Uint64(n) => serde_json::json!(n),
-                        Value::Int8(n) => serde_json::json!(n),
-                        Value::Int16(n) => serde_json::json!(n),
-                        Value::Int32(n) => serde_json::json!(n),
-                        Value::Int64(n) => serde_json::json!(n),
-                        Value::Float32(f) => serde_json::json!(f),
-                        Value::Float64(f) => serde_json::json!(f),
-                        Value::Bool(b) => serde_json::json!(b),
-                        Value::Array(_, _) => serde_json::json!("[Array]"),
-                    };
-                    all_metadata.insert(key.clone(), val_json);
-                }
-                model_info["gguf_metadata"] = serde_json::json!(all_metadata);
+                // Create a metadata object with all values using shared utility
+                model_info["gguf_metadata"] = serde_json::json!(extractor.to_json_map());
 
                 // Get architecture
-                let arch = get_meta_string("general.architecture")
+                let arch = extractor.get_string("general.architecture")
                     .unwrap_or_else(|| "llama".to_string());
 
                 // Update architecture
                 model_info["architecture"] = serde_json::json!(arch.clone());
 
-                // Detect tool calling format based on architecture and model name
-                let model_name = get_meta_string("general.name").unwrap_or_default().to_lowercase();
-                let tool_format = if arch.contains("mistral") || model_name.contains("mistral") || model_name.contains("devstral") {
-                    "mistral"
-                } else if arch.contains("llama") && (model_name.contains("llama-3") || model_name.contains("llama3")) {
-                    "llama3"
-                } else if arch.contains("qwen") || model_name.contains("qwen") {
-                    "qwen"
-                } else if arch.contains("llama") {
-                    // Older llama models don't support tools
-                    "unknown"
-                } else {
-                    "unknown"
-                };
+                // Detect tool calling format using shared utility
+                let model_name = extractor.get_string("general.name").unwrap_or_default();
+                let tool_format = detect_tool_format(&arch, &model_name);
                 model_info["tool_format"] = serde_json::json!(tool_format);
 
                 // Core model information
-                if let Some(val) = get_meta_string("general.name") {
+                if let Some(val) = extractor.get_string("general.name") {
                     model_info["general_name"] = serde_json::json!(val);
                 }
-                if let Some(val) = get_meta_string("general.author") {
+                if let Some(val) = extractor.get_string("general.author") {
                     model_info["author"] = serde_json::json!(val);
                 }
-                if let Some(val) = get_meta_string("general.version") {
+                if let Some(val) = extractor.get_string("general.version") {
                     model_info["version"] = serde_json::json!(val);
                 }
-                if let Some(val) = get_meta_string("general.organization") {
+                if let Some(val) = extractor.get_string("general.organization") {
                     model_info["organization"] = serde_json::json!(val);
                 }
-                if let Some(val) = get_meta_string("general.description") {
+                if let Some(val) = extractor.get_string("general.description") {
                     model_info["description"] = serde_json::json!(val);
                 }
-                if let Some(val) = get_meta_string("general.license") {
+                if let Some(val) = extractor.get_string("general.license") {
                     model_info["license"] = serde_json::json!(val);
                 }
-                if let Some(val) = get_meta_string("general.url") {
+                if let Some(val) = extractor.get_string("general.url") {
                     model_info["url"] = serde_json::json!(val);
                 }
-                if let Some(val) = get_meta_string("general.repo_url") {
+                if let Some(val) = extractor.get_string("general.repo_url") {
                     model_info["repo_url"] = serde_json::json!(val);
                 }
-                if let Some(val) = get_meta_string("general.file_type") {
+                if let Some(val) = extractor.get_string("general.file_type") {
                     model_info["file_type"] = serde_json::json!(val);
                 }
-                if let Some(val) = get_meta_string("general.quantization_version") {
+                if let Some(val) = extractor.get_string("general.quantization_version") {
                     model_info["quantization_version"] = serde_json::json!(val);
                 }
 
@@ -368,66 +311,61 @@ pub async fn handle_get_model_info(
                     "context_length".to_string(),
                 ];
                 for key in &context_keys {
-                    if let Some(val) = get_meta_string(key) {
+                    if let Some(val) = extractor.get_string(&key) {
                         model_info["context_length"] = serde_json::json!(val);
                         break;
                     }
                 }
 
-                // Architecture-specific fields
-                if let Some(val) = get_meta_string(&format!("{}.embedding_length", arch)) {
+                // Architecture-specific fields using extractor helper
+                if let Some(val) = extractor.get_arch_field(&arch, "embedding_length") {
                     model_info["embedding_length"] = serde_json::json!(val);
                 }
-                if let Some(val) = get_meta_string(&format!("{}.block_count", arch)) {
+                if let Some(val) = extractor.get_arch_field(&arch, "block_count") {
                     model_info["block_count"] = serde_json::json!(val.clone());
                     // Use actual block count for layers
                     if let Ok(block_count) = val.parse::<u32>() {
                         model_info["estimated_layers"] = serde_json::json!(block_count);
                     }
                 }
-                if let Some(val) = get_meta_string(&format!("{}.feed_forward_length", arch)) {
+                if let Some(val) = extractor.get_arch_field(&arch, "feed_forward_length") {
                     model_info["feed_forward_length"] = serde_json::json!(val);
                 }
-                if let Some(val) = get_meta_string(&format!("{}.attention.head_count", arch)) {
+                if let Some(val) = extractor.get_arch_field(&arch, "attention.head_count") {
                     model_info["attention_head_count"] = serde_json::json!(val);
                 }
-                if let Some(val) = get_meta_string(&format!("{}.attention.head_count_kv", arch)) {
+                if let Some(val) = extractor.get_arch_field(&arch, "attention.head_count_kv") {
                     model_info["attention_head_count_kv"] = serde_json::json!(val);
                 }
-                if let Some(val) = get_meta_string(&format!("{}.attention.layer_norm_rms_epsilon", arch)) {
+                if let Some(val) = extractor.get_arch_field(&arch, "attention.layer_norm_rms_epsilon") {
                     model_info["layer_norm_epsilon"] = serde_json::json!(val);
                 }
-                if let Some(val) = get_meta_string(&format!("{}.rope.dimension_count", arch)) {
+                if let Some(val) = extractor.get_arch_field(&arch, "rope.dimension_count") {
                     model_info["rope_dimension_count"] = serde_json::json!(val);
                 }
-                if let Some(val) = get_meta_string(&format!("{}.rope.freq_base", arch)) {
+                if let Some(val) = extractor.get_arch_field(&arch, "rope.freq_base") {
                     model_info["rope_freq_base"] = serde_json::json!(val);
                 }
 
                 // Tokenizer information
-                if let Some(val) = get_meta_string("tokenizer.ggml.model") {
+                if let Some(val) = extractor.get_string("tokenizer.ggml.model") {
                     model_info["tokenizer_model"] = serde_json::json!(val);
                 }
-                if let Some(val) = get_meta_string("tokenizer.ggml.bos_token_id") {
+                if let Some(val) = extractor.get_string("tokenizer.ggml.bos_token_id") {
                     model_info["bos_token_id"] = serde_json::json!(val);
                 }
-                if let Some(val) = get_meta_string("tokenizer.ggml.eos_token_id") {
+                if let Some(val) = extractor.get_string("tokenizer.ggml.eos_token_id") {
                     model_info["eos_token_id"] = serde_json::json!(val);
                 }
-                if let Some(val) = get_meta_string("tokenizer.ggml.padding_token_id") {
+                if let Some(val) = extractor.get_string("tokenizer.ggml.padding_token_id") {
                     model_info["padding_token_id"] = serde_json::json!(val);
                 }
-                if let Some(val) = get_meta_string("tokenizer.chat_template") {
-                    model_info["chat_template"] = serde_json::json!(val);
+                if let Some(val) = extractor.get_string("tokenizer.chat_template") {
+                    model_info["chat_template"] = serde_json::json!(val.clone());
 
-                    // Extract default system prompt from chat template
-                    // Look for: {%- set default_system_message = '...' %}
-                    if let Some(start_idx) = val.find("set default_system_message = '") {
-                        let after_start = &val[start_idx + "set default_system_message = '".len()..];
-                        if let Some(end_idx) = after_start.find("' %}") {
-                            let default_prompt = &after_start[..end_idx];
-                            model_info["default_system_prompt"] = serde_json::json!(default_prompt);
-                        }
+                    // Extract default system prompt using shared utility
+                    if let Some(prompt) = extract_default_system_prompt(&val) {
+                        model_info["default_system_prompt"] = serde_json::json!(prompt);
                     }
                 }
             }

@@ -13,7 +13,6 @@ export interface ModelFileInputProps {
   showHistory: boolean;
   setShowHistory: (show: boolean) => void;
   isTauri: boolean;
-  isLoadingInfo: boolean;
   handleBrowseFile: () => void;
 }
 
@@ -28,7 +27,6 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
   showHistory,
   setShowHistory,
   isTauri,
-  isLoadingInfo,
   handleBrowseFile
 }) => (
   <div className="space-y-2">
@@ -85,11 +83,11 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
         <Button
           type="button"
           onClick={handleBrowseFile}
-          disabled={isLoadingInfo}
+          disabled={isCheckingFile}
           variant="outline"
           className="flex items-center gap-2 px-3"
         >
-          {isLoadingInfo ? (
+          {isCheckingFile ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin" />
               Reading...

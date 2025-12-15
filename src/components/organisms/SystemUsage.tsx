@@ -69,7 +69,7 @@ export function SystemUsage({ expanded = false }: SystemUsageProps) {
   const gpuHistory = history.map(h => h.gpu);
   const ramHistory = history.map(h => h.ram);
 
-  const renderLargeGraph = (data: number[], color: string, label: string) => {
+  const renderLargeGraph = (data: number[], color: string, _label: string) => {
     if (data.length === 0) return null;
 
     const points = data.map((value, index) => {

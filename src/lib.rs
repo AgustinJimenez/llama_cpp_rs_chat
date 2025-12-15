@@ -413,9 +413,9 @@ pub async fn get_model_metadata(
         .to_string();
     
     // Try to read GGUF metadata from the file with extra safety
-    let (architecture, parameters, quantization, context_length) = 
+    let (architecture, parameters, quantization, context_length) =
         std::panic::catch_unwind(|| {
-            read_gguf_metadata(&model_path)
+            read_gguf_basic_metadata(&model_path)
         })
         .unwrap_or_else(|_| {
             Err("GGUF parsing panicked - corrupted file format".to_string())
@@ -437,215 +437,55 @@ pub async fn get_model_metadata(
     })
 }
 
-fn read_gguf_metadata(file_path: &str) -> Result<(String, String, String, String), String> {
+// GGUF metadata helper functions (using gguf_llms crate)
+// Note: Shared utilities available in web::gguf_utils for web server code
+
+fn read_gguf_basic_metadata(file_path: &str) -> Result<(String, String, String, String), String> {
     use std::fs::File;
-    use std::io::{BufReader, Read};
-    use std::collections::HashMap;
-    
-    // Safety limits to prevent massive memory allocations
-    const MAX_KEY_LENGTH: usize = 1024;        // Max 1KB for key names
-    const MAX_STRING_LENGTH: usize = 1024 * 1024; // Max 1MB for string values
-    const MAX_METADATA_COUNT: u64 = 10000;     // Max 10K metadata entries
-    
+    use std::io::BufReader;
+    use gguf_llms::{GgufHeader, GgufReader, Value};
+
     let file = File::open(file_path)
         .map_err(|e| format!("Failed to open file: {}", e))?;
-    
-    // Check file size for basic sanity
-    let file_size = file.metadata()
-        .map_err(|e| format!("Failed to read file metadata: {}", e))?
-        .len();
-    
-    if file_size < 24 {
-        return Err("File too small to be a valid GGUF file".to_string());
-    }
-    
-    if file_size > 100 * 1024 * 1024 * 1024 { // 100GB limit
-        return Err("File too large - safety limit exceeded".to_string());
-    }
-    
-    println!("Reading GGUF file: {} bytes", file_size);
-    
+
     let mut reader = BufReader::new(file);
-    
-    // Read GGUF magic number (4 bytes)
-    let mut magic = [0u8; 4];
-    reader.read_exact(&mut magic)
-        .map_err(|e| format!("Failed to read magic: {}", e))?;
-    
-    if &magic != b"GGUF" {
-        return Err("Not a valid GGUF file".to_string());
-    }
-    
-    // Read version (4 bytes, little endian)
-    let mut version_bytes = [0u8; 4];
-    reader.read_exact(&mut version_bytes)
-        .map_err(|e| format!("Failed to read version: {}", e))?;
-    let version = u32::from_le_bytes(version_bytes);
-    
-    if version < 2 {
-        return Err(format!("Unsupported GGUF version: {}", version));
-    }
-    
-    // Read tensor count (8 bytes, little endian)
-    let mut tensor_count_bytes = [0u8; 8];
-    reader.read_exact(&mut tensor_count_bytes)
-        .map_err(|e| format!("Failed to read tensor count: {}", e))?;
-    let _tensor_count = u64::from_le_bytes(tensor_count_bytes);
-    
-    // Read metadata count (8 bytes, little endian)
-    let mut metadata_count_bytes = [0u8; 8];
-    reader.read_exact(&mut metadata_count_bytes)
-        .map_err(|e| format!("Failed to read metadata count: {}", e))?;
-    let metadata_count = u64::from_le_bytes(metadata_count_bytes);
-    
-    // Safety check: prevent reading too many metadata entries
-    if metadata_count > MAX_METADATA_COUNT {
-        return Err(format!("Metadata count {} exceeds safety limit of {}", metadata_count, MAX_METADATA_COUNT));
-    }
-    
-    // Read metadata key-value pairs
-    let mut metadata = HashMap::new();
-    
-    for i in 0..metadata_count {
-        if i % 100 == 0 {
-            println!("Reading metadata entry {}/{}", i + 1, metadata_count);
-        }
-        // Read key length (8 bytes)
-        let mut key_len_bytes = [0u8; 8];
-        reader.read_exact(&mut key_len_bytes)
-            .map_err(|e| format!("Failed to read key length: {}", e))?;
-        let key_len = u64::from_le_bytes(key_len_bytes) as usize;
-        
-        // Safety check: prevent massive key allocation
-        if key_len > MAX_KEY_LENGTH {
-            return Err(format!("Key length {} exceeds safety limit of {}", key_len, MAX_KEY_LENGTH));
-        }
-        
-        // Read key
-        let mut key_bytes = vec![0u8; key_len];
-        reader.read_exact(&mut key_bytes)
-            .map_err(|e| format!("Failed to read key: {}", e))?;
-        let key = String::from_utf8(key_bytes)
-            .map_err(|e| format!("Invalid UTF-8 in key: {}", e))?;
-        
-        // Read value type (4 bytes)
-        let mut value_type_bytes = [0u8; 4];
-        reader.read_exact(&mut value_type_bytes)
-            .map_err(|e| format!("Failed to read value type: {}", e))?;
-        let value_type = u32::from_le_bytes(value_type_bytes);
-        
-        // Read value based on type
-        let value = match value_type {
-            8 => { // String
-                let mut str_len_bytes = [0u8; 8];
-                reader.read_exact(&mut str_len_bytes)
-                    .map_err(|e| format!("Failed to read string length: {}", e))?;
-                let str_len = u64::from_le_bytes(str_len_bytes) as usize;
-                
-                // Safety check: prevent massive string allocation
-                if str_len > MAX_STRING_LENGTH {
-                    return Err(format!("String length {} exceeds safety limit of {}", str_len, MAX_STRING_LENGTH));
-                }
-                
-                let mut str_bytes = vec![0u8; str_len];
-                reader.read_exact(&mut str_bytes)
-                    .map_err(|e| format!("Failed to read string: {}", e))?;
-                String::from_utf8(str_bytes)
-                    .map_err(|e| format!("Invalid UTF-8 in string: {}", e))?
-            },
-            0 => { // Uint8
-                let mut uint_bytes = [0u8; 1];
-                reader.read_exact(&mut uint_bytes)
-                    .map_err(|e| format!("Failed to read uint8: {}", e))?;
-                uint_bytes[0].to_string()
-            },
-            1 => { // Int8
-                let mut int_bytes = [0u8; 1];
-                reader.read_exact(&mut int_bytes)
-                    .map_err(|e| format!("Failed to read int8: {}", e))?;
-                (int_bytes[0] as i8).to_string()
-            },
-            2 => { // Uint16
-                let mut uint_bytes = [0u8; 2];
-                reader.read_exact(&mut uint_bytes)
-                    .map_err(|e| format!("Failed to read uint16: {}", e))?;
-                u16::from_le_bytes(uint_bytes).to_string()
-            },
-            3 => { // Int16
-                let mut int_bytes = [0u8; 2];
-                reader.read_exact(&mut int_bytes)
-                    .map_err(|e| format!("Failed to read int16: {}", e))?;
-                i16::from_le_bytes(int_bytes).to_string()
-            },
-            4 => { // Uint32
-                let mut uint_bytes = [0u8; 4];
-                reader.read_exact(&mut uint_bytes)
-                    .map_err(|e| format!("Failed to read uint32: {}", e))?;
-                u32::from_le_bytes(uint_bytes).to_string()
-            },
-            5 => { // Int32
-                let mut int_bytes = [0u8; 4];
-                reader.read_exact(&mut int_bytes)
-                    .map_err(|e| format!("Failed to read int32: {}", e))?;
-                i32::from_le_bytes(int_bytes).to_string()
-            },
-            6 => { // Uint64
-                let mut uint_bytes = [0u8; 8];
-                reader.read_exact(&mut uint_bytes)
-                    .map_err(|e| format!("Failed to read uint64: {}", e))?;
-                u64::from_le_bytes(uint_bytes).to_string()
-            },
-            7 => { // Int64
-                let mut int_bytes = [0u8; 8];
-                reader.read_exact(&mut int_bytes)
-                    .map_err(|e| format!("Failed to read int64: {}", e))?;
-                i64::from_le_bytes(int_bytes).to_string()
-            },
-            10 => { // Bool
-                let mut bool_bytes = [0u8; 1];
-                reader.read_exact(&mut bool_bytes)
-                    .map_err(|e| format!("Failed to read bool: {}", e))?;
-                (bool_bytes[0] != 0).to_string()
-            },
-            _ => {
-                // Skip unknown types by reading their length and data
-                println!("Skipping unknown value type: {}", value_type);
-                continue;
-            }
-        };
-        
-        metadata.insert(key, value);
-    }
-    
-    // Print all metadata keys and values for debugging
-    println!("=== GGUF Metadata Found ===");
-    for (key, value) in &metadata {
-        println!("  {}: {}", key, value);
-    }
-    println!("=== End of Metadata ===");
-    
-    // Safely extract specific metadata keys with fallbacks
-    let architecture = metadata.get("general.architecture")
-        .or_else(|| metadata.get("general.arch"))
-        .unwrap_or(&"Unknown".to_string())
-        .clone();
-    
-    let parameters = metadata.get("general.parameter_count")
-        .or_else(|| metadata.get("general.param_count"))
-        .map(|p| format_parameter_count(p))
+
+    let header = GgufHeader::parse(&mut reader)
+        .map_err(|e| format!("Failed to parse GGUF header: {}", e))?;
+
+    let metadata = GgufReader::read_metadata(&mut reader, header.n_kv)
+        .map_err(|e| format!("Failed to read GGUF metadata: {}", e))?;
+
+    // Helper to get metadata value as string
+    let get_string = |key: &str| -> Option<String> {
+        metadata.get(key).and_then(|v| match v {
+            Value::String(s) => Some(s.clone()),
+            Value::Uint32(n) => Some(n.to_string()),
+            Value::Uint64(n) => Some(n.to_string()),
+            Value::Int32(n) => Some(n.to_string()),
+            Value::Int64(n) => Some(n.to_string()),
+            _ => None,
+        })
+    };
+
+    let architecture = get_string("general.architecture")
+        .or_else(|| get_string("general.arch"))
         .unwrap_or_else(|| "Unknown".to_string());
-    
-    let quantization = metadata.get("general.quantization_version")
-        .or_else(|| metadata.get("general.file_type"))
-        .unwrap_or(&"Unknown".to_string())
-        .clone();
-    
-    let context_length = metadata.get("llama.context_length")
-        .or_else(|| metadata.get("general.context_length"))
-        .or_else(|| metadata.get("context_length"))
-        .unwrap_or(&"Unknown".to_string())
-        .clone();
-    
+
+    let parameters = get_string("general.parameter_count")
+        .or_else(|| get_string("general.param_count"))
+        .map(|p| format_parameter_count(&p))
+        .unwrap_or_else(|| "Unknown".to_string());
+
+    let quantization = get_string("general.quantization_version")
+        .or_else(|| get_string("general.file_type"))
+        .unwrap_or_else(|| "Unknown".to_string());
+
+    let context_length = get_string(&format!("{}.context_length", architecture))
+        .or_else(|| get_string("llama.context_length"))
+        .or_else(|| get_string("context_length"))
+        .unwrap_or_else(|| "Unknown".to_string());
+
     Ok((architecture, parameters, quantization, context_length))
 }
 
@@ -665,7 +505,7 @@ fn format_parameter_count(param_str: &str) -> String {
 
 fn parse_model_filename(filename: &str) -> (String, String, String) {
     let lower = filename.to_lowercase();
-    
+
     // Extract architecture
     let architecture = if lower.contains("llama") {
         "LLaMA"
@@ -675,58 +515,26 @@ fn parse_model_filename(filename: &str) -> (String, String, String) {
         "Qwen"
     } else if lower.contains("granite") {
         "Granite"
-    } else if lower.contains("codellama") {
-        "Code Llama"
+    } else if lower.contains("gemma") {
+        "Gemma"
     } else {
         "Unknown"
     }.to_string();
-    
+
     // Extract parameter count
-    let parameters = if lower.contains("70b") || lower.contains("72b") {
-        "70B"
-    } else if lower.contains("34b") {
-        "34B"
-    } else if lower.contains("20b") {
-        "20B"
-    } else if lower.contains("13b") || lower.contains("14b") {
-        "13B"
-    } else if lower.contains("11b") {
-        "11B"
-    } else if lower.contains("7b") || lower.contains("8b") {
-        "7B"
-    } else if lower.contains("3b") {
-        "3B"
-    } else if lower.contains("1b") {
-        "1B"
-    } else if lower.contains("0.5b") {
-        "0.5B"
-    } else {
-        "Unknown"
-    }.to_string();
-    
+    let parameters = ["70b", "34b", "13b", "8b", "7b", "3b", "1b"]
+        .iter()
+        .find(|p| lower.contains(*p))
+        .map(|p| p.to_uppercase())
+        .unwrap_or_else(|| "Unknown".to_string());
+
     // Extract quantization
-    let quantization = if lower.contains("q8_0") {
-        "Q8_0"
-    } else if lower.contains("q6_k") {
-        "Q6_K"
-    } else if lower.contains("q5_k_m") {
-        "Q5_K_M"
-    } else if lower.contains("q5_k_s") {
-        "Q5_K_S"
-    } else if lower.contains("q4_k_m") {
-        "Q4_K_M"
-    } else if lower.contains("q4_k_s") {
-        "Q4_K_S"
-    } else if lower.contains("q4_0") {
-        "Q4_0"
-    } else if lower.contains("q3_k_m") {
-        "Q3_K_M"
-    } else if lower.contains("q2_k") {
-        "Q2_K"
-    } else {
-        "Unknown"
-    }.to_string();
-    
+    let quantization = ["q8_0", "q6_k", "q5_k_m", "q4_k_m", "q4_k_s", "q4_0", "q3_k_m", "q2_k"]
+        .iter()
+        .find(|q| lower.contains(*q))
+        .map(|q| q.to_uppercase())
+        .unwrap_or_else(|| "Unknown".to_string());
+
     (architecture, parameters, quantization)
 }
 

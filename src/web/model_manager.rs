@@ -9,26 +9,8 @@ use llama_cpp_2::{
 use super::models::{ModelStatus, SharedLlamaState, LlamaState};
 use crate::{log_debug, log_info, log_warn};
 
-// Re-export VRAM functions for backward compatibility
-pub use super::vram_calculator::{
-    calculate_safe_context_size,
-    calculate_optimal_gpu_layers,
-    get_available_vram_gb,
-    calculate_kv_cache_size_gb,
-    DEFAULT_VRAM_GB,
-    VRAM_SAFETY_MARGIN_GB,
-    BYTES_TO_GB,
-    MB_TO_GB,
-    KV_CACHE_MULTIPLIER,
-    SMALL_MODEL_GB,
-    SMALL_MODEL_LAYERS,
-    MEDIUM_MODEL_GB,
-    MEDIUM_MODEL_LAYERS,
-    LARGE_MODEL_GB,
-    LARGE_MODEL_LAYERS,
-    XLARGE_MODEL_LAYERS,
-    MIN_VRAM_RATIO,
-};
+// Re-export VRAM functions for backward compatibility (used by other modules)
+pub use super::vram_calculator::calculate_optimal_gpu_layers;
 
 // Helper function to get model status
 pub fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {

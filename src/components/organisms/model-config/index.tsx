@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Brain, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
-import { invoke } from '@tauri-apps/api/core';
 import {
   Dialog,
   DialogContent,
@@ -11,7 +10,7 @@ import {
 } from '../../atoms/dialog';
 import { Button } from '../../atoms/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../atoms/card';
-import type { SamplerConfig, ModelMetadata } from '@/types';
+import type { SamplerConfig } from '@/types';
 
 // Import extracted components
 import { ModelFileInput, ModelConfigSystemPrompt } from '../../molecules';
@@ -24,6 +23,7 @@ import { MemoryVisualization } from './MemoryVisualization';
 
 // Import hooks
 import { useMemoryCalculation } from '@/hooks/useMemoryCalculation';
+import { useModelPathValidation } from '@/hooks/useModelPathValidation';
 
 interface ModelConfigModalProps {
   isOpen: boolean;
@@ -53,24 +53,28 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
 
   const [contextSize, setContextSize] = useState(32768);
   const [modelPath, setModelPath] = useState('');
-  const [modelInfo, setModelInfo] = useState<ModelMetadata | null>(null);
-  const [isLoadingInfo, setIsLoadingInfo] = useState(false);
   const [isMetadataExpanded, setIsMetadataExpanded] = useState(false);
   const [isConfigExpanded, setIsConfigExpanded] = useState(true);
-  const [fileExists, setFileExists] = useState<boolean | null>(null);
-  const [isCheckingFile, setIsCheckingFile] = useState(false);
-  const [directorySuggestions, setDirectorySuggestions] = useState<string[]>([]);
-  const [directoryError, setDirectoryError] = useState<string | null>(null);
   const [modelHistory, setModelHistory] = useState<string[]>([]);
   const [showHistory, setShowHistory] = useState(false);
-  const [maxLayers, setMaxLayers] = useState(99);  // Dynamic max layers based on model
   const [systemPromptMode, setSystemPromptMode] = useState<'model' | 'system' | 'custom'>('system');
   const [customSystemPrompt, setCustomSystemPrompt] = useState('You are a helpful AI assistant.');
   const [availableVramGb, _setAvailableVramGb] = useState(22.0); // Default: RTX 4090
   const [availableRamGb, _setAvailableRamGb] = useState(32.0);   // Default: 32GB
 
-  // Check if we're in Tauri environment
-  const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+  // Use model path validation hook for file checking and metadata fetching
+  const {
+    fileExists,
+    isCheckingFile,
+    directoryError,
+    directorySuggestions,
+    modelInfo,
+    maxLayers,
+    isTauri,
+  } = useModelPathValidation({
+    modelPath,
+    onPathChange: setModelPath,
+  });
 
   // Calculate memory breakdown in real-time
   const memoryBreakdown = useMemoryCalculation({
@@ -126,160 +130,6 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     }
   }, [modelInfo]);
 
-  // Helper function to save model path to history
-  const saveToHistory = async (path: string) => {
-    try {
-      await fetch('/api/model/history', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model_path: path }),
-      });
-    } catch (error) {
-      console.error('Failed to save model path to history:', error);
-    }
-  };
-
-  // Debounced file existence check
-  useEffect(() => {
-    if (!modelPath.trim()) {
-      setFileExists(null);
-      return;
-    }
-
-    const checkFileExists = async () => {
-      setIsCheckingFile(true);
-      try {
-        if (isTauri) {
-          // For Tauri, we can use the filesystem API
-          const { invoke } = await import('@tauri-apps/api/core');
-          try {
-            // Try to get metadata - if it succeeds, file exists
-            const metadata = await invoke<ModelMetadata>('get_model_metadata', { modelPath: modelPath });
-            setFileExists(true);
-
-            // Save to history when file is validated
-            await saveToHistory(modelPath);
-
-            // Automatically set all model metadata
-            console.log('[DEBUG] Tauri metadata received:', metadata);
-            console.log('[DEBUG] GGUF metadata:', metadata.gguf_metadata);
-            setModelInfo(metadata);
-
-            // Update max layers if available
-            if (metadata.estimated_layers) {
-              setMaxLayers(metadata.estimated_layers);
-            }
-          } catch (error) {
-            setFileExists(false);
-            setModelInfo(null);
-          }
-        } else {
-          // For web, make a GET request to check if file exists on server
-          try {
-            // Trim whitespace from path before encoding
-            const trimmedPath = modelPath.trim();
-            const encodedPath = encodeURIComponent(trimmedPath);
-            console.log('[DEBUG] Checking file existence for:', trimmedPath);
-            console.log('[DEBUG] Encoded path:', encodedPath);
-            console.log('[DEBUG] Request URL:', `/api/model/info?path=${encodedPath}`);
-
-            const response = await fetch(`/api/model/info?path=${encodedPath}`);
-            console.log('[DEBUG] Response status:', response.status, response.statusText);
-            console.log('[DEBUG] Response OK:', response.ok);
-
-            if (response.ok) {
-              const data = await response.json();
-              console.log('[DEBUG] File info:', data);
-              setFileExists(true);
-              setDirectoryError(null);
-              setDirectorySuggestions([]);
-
-              // Save to history when file is validated
-              await saveToHistory(trimmedPath);
-
-              // Automatically set model metadata
-              console.log('[DEBUG] GGUF metadata received:', data.gguf_metadata);
-
-              // Parse file_size_gb from file_size string (e.g., "11.65 GB" → 11.65)
-              let fileSizeGb: number | undefined;
-              if (data.file_size && typeof data.file_size === 'string') {
-                const match = data.file_size.match(/([\d.]+)\s*GB/i);
-                if (match) {
-                  fileSizeGb = parseFloat(match[1]);
-                }
-              }
-
-              setModelInfo({
-                name: data.name || trimmedPath.split(/[\\/]/).pop() || 'Unknown',
-                architecture: data.architecture || "Unknown",
-                parameters: data.parameters || "Unknown",
-                quantization: data.quantization || "Unknown",
-                file_size: data.file_size || "Unknown",
-                file_size_gb: fileSizeGb,
-                context_length: data.context_length || "Unknown",
-                file_path: trimmedPath,
-                estimated_layers: data.estimated_layers,
-                gguf_metadata: data.gguf_metadata,
-                default_system_prompt: data.default_system_prompt,
-                // Extract architecture details if available
-                block_count: data.gguf_metadata?.['gemma3.block_count'] || data.gguf_metadata?.['llama.block_count'],
-                attention_head_count_kv: data.gguf_metadata?.['gemma3.attention.head_count_kv'] || data.gguf_metadata?.['llama.attention.head_count_kv'],
-                embedding_length: data.gguf_metadata?.['gemma3.embedding_length'] || data.gguf_metadata?.['llama.embedding_length'],
-              });
-
-              // Update max layers if available
-              if (data.estimated_layers) {
-                setMaxLayers(data.estimated_layers);
-              }
-            } else {
-              // Check if it's a directory error with suggestions
-              const errorData = await response.json();
-              console.log('[DEBUG] Error response:', errorData);
-
-              if (errorData.is_directory && errorData.suggestions) {
-                console.log('[DEBUG] Directory detected with suggestions:', errorData.suggestions);
-                setDirectoryError(errorData.error);
-                setDirectorySuggestions(errorData.suggestions);
-                setFileExists(false);
-
-                // Auto-complete if there's only one .gguf file
-                if (errorData.suggestions.length === 1) {
-                  const autoPath = trimmedPath.endsWith('\\') || trimmedPath.endsWith('/')
-                    ? `${trimmedPath}${errorData.suggestions[0]}`
-                    : `${trimmedPath}\\${errorData.suggestions[0]}`;
-                  console.log('[DEBUG] Auto-completing with only suggestion:', autoPath);
-                  setModelPath(autoPath);
-                }
-              } else {
-                setFileExists(false);
-                setDirectoryError(null);
-                setDirectorySuggestions([]);
-                setModelInfo(null);
-              }
-            }
-          } catch (error) {
-            console.error('[DEBUG] Error checking file:', error);
-            setFileExists(false);
-            setDirectoryError(null);
-            setDirectorySuggestions([]);
-            setModelInfo(null);
-          }
-        }
-      } catch (error) {
-        setFileExists(false);
-        setModelInfo(null);
-      } finally {
-        setIsCheckingFile(false);
-      }
-    };
-
-    // Debounce the check by 500ms
-    const timeoutId = setTimeout(checkFileExists, 500);
-    return () => clearTimeout(timeoutId);
-  }, [modelPath, isTauri]);
-
-
-
   const handleInputChange = (field: keyof SamplerConfig, value: string | number) => {
     setConfig(prev => ({
       ...prev,
@@ -322,7 +172,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
       ...config,
       model_path: modelPath,
       context_size: contextSize,
-      system_prompt: systemPrompt,  // null = model default, '__AGENTIC__' = agentic mode, string = custom
+      system_prompt: systemPrompt ?? undefined,  // undefined = model default, '__AGENTIC__' = agentic mode, string = custom
     };
     console.log('[DEBUG] Saving config with system_prompt:', systemPrompt, 'mode:', systemPromptMode);
     onSave(finalConfig);
@@ -347,35 +197,9 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
       if (selected) {
         const filePath = Array.isArray(selected) ? selected[0] : selected;
         console.log('Selected file path:', filePath);
-
-        setIsLoadingInfo(true);
+        // Just set the path - the useModelPathValidation hook will handle
+        // file existence checking and metadata fetching automatically
         setModelPath(filePath);
-        setModelInfo(null);
-
-        try {
-          const metadata = await invoke<ModelMetadata>('get_model_metadata', { modelPath: filePath });
-          console.log('Received metadata object:', metadata);
-          setModelInfo(metadata);
-
-          // Update max layers if available
-          if (metadata.estimated_layers) {
-            setMaxLayers(metadata.estimated_layers);
-          }
-        } catch (error) {
-          console.error('Failed to get model metadata:', error);
-          const fileName = filePath.split(/[\\/]/).pop() || filePath;
-          setModelInfo({
-            name: fileName,
-            architecture: "Unknown",
-            parameters: "Unknown",
-            quantization: "Unknown",
-            file_size: "Unknown",
-            context_length: "Unknown",
-            file_path: filePath,
-          });
-        } finally {
-          setIsLoadingInfo(false);
-        }
       }
     } catch (error) {
       console.error('Error opening file dialog:', error);
@@ -423,11 +247,10 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                 showHistory={showHistory}
                 setShowHistory={setShowHistory}
                 isTauri={isTauri}
-                isLoadingInfo={isLoadingInfo}
                 handleBrowseFile={handleBrowseFile}
               />
 
-              {isLoadingInfo && (
+              {isCheckingFile && (
                 <Card className="mt-3">
                   <CardContent className="pt-4">
                     <div className="flex items-center gap-2">
@@ -520,13 +343,13 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
           <Button variant="outline" onClick={onClose} disabled={isLoading}>
             Cancel
           </Button>
-          <Button data-testid="load-model-button" onClick={handleSave} disabled={!modelPath.trim() || isLoadingInfo || isLoading}>
+          <Button data-testid="load-model-button" onClick={handleSave} disabled={!modelPath.trim() || isCheckingFile || isLoading}>
             {isLoading ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
                 Loading...
               </>
-            ) : isLoadingInfo ? (
+            ) : isCheckingFile ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
                 Reading file...
