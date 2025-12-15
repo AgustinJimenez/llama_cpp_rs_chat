@@ -1,4 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { flushSync } from 'react-dom';
+import { unstable_batchedUpdates } from 'react-dom';
 import { toast } from 'react-hot-toast';
 import { TauriAPI } from '../utils/tauri';
 import { autoParseToolCalls } from '../utils/toolParser';
@@ -118,6 +120,23 @@ async function executeTool(toolCall: ToolCall): Promise<string> {
   }
 }
 
+// Helper to get conversation ID from URL
+function getConversationFromUrl(): string | null {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('conversation');
+}
+
+// Helper to update URL with conversation ID
+function updateUrlWithConversation(conversationId: string | null) {
+  const url = new URL(window.location.href);
+  if (conversationId) {
+    url.searchParams.set('conversation', conversationId);
+  } else {
+    url.searchParams.delete('conversation');
+  }
+  window.history.replaceState({}, '', url.toString());
+}
+
 export function useChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
@@ -130,16 +149,11 @@ export function useChat() {
   const toolCallHistory = useRef<string[]>([]); // Track recent tool calls for loop detection
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastProcessedMessageId = useRef<string | null>(null);
+  const isStreamingRef = useRef(false); // Track if we're actively streaming tokens
+  const initialLoadDone = useRef(false); // Track if initial URL load was done
 
-  // const addMessage = useCallback((message: Message) => {
-  //   setMessages(prev => [...prev, message]);
-  // }, []);
-
-  // const updateMessage = useCallback((messageId: string, content: string) => {
-  //   setMessages(prev => prev.map(msg =>
-  //     msg.id === messageId ? { ...msg, content } : msg
-  //   ));
-  // }, []);
+  // Helper to process tool calls - defined as ref to avoid stale closures
+  const processToolCallsRef = useRef<((toolCalls: ToolCall[], lastMessage: Message) => void) | null>(null);
 
   const sendMessage = useCallback(async (content: string, bypassLoadingCheck = false) => {
     if (!bypassLoadingCheck && (isLoading || !content.trim())) {
@@ -183,40 +197,177 @@ export function useChat() {
     setIsLoading(true);
     setError(null);
 
+    // Create a placeholder assistant message that we'll stream into
+    const assistantMessageId = crypto.randomUUID();
+    const assistantMessage: Message = {
+      id: assistantMessageId,
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now(),
+    };
+
+    // Add empty assistant message to show streaming indicator
+    // IMPORTANT: Use flushSync to ensure state is committed before streaming starts
+    // Without this, the onToken callback may receive stale state where the assistant
+    // message doesn't exist yet, causing tokens to be silently discarded
+    flushSync(() => {
+      setMessages(prev => [...prev, assistantMessage]);
+    });
+
     try {
       const request: ChatRequest = {
         message: content.trim(),
         conversation_id: currentConversationId || undefined,
       };
 
-      // Use simple HTTP API instead of WebSocket streaming
-      // The file watcher will update the UI in real-time
-      const response = await TauriAPI.sendMessage(request);
+      // Mark streaming as active to prevent watcher from overwriting state
+      isStreamingRef.current = true;
+      console.log('[USECHAR] Streaming started, isStreamingRef = true');
 
+      // Use WebSocket streaming for real-time token updates
+      await TauriAPI.sendMessageStream(
+        request,
+        // onToken - called for each token generated
+        (token, tokenCount, maxTokenCount) => {
+          // Use flushSync to force immediate DOM update for streaming effect
+          flushSync(() => {
+            setMessages(prev => {
+              const lastMsg = prev[prev.length - 1];
+              if (lastMsg && lastMsg.id === assistantMessageId) {
+                return [
+                  ...prev.slice(0, -1),
+                  { ...lastMsg, content: lastMsg.content + token }
+                ];
+              }
+              return prev;
+            });
+          });
+          if (tokenCount !== undefined) setTokensUsed(tokenCount);
+          if (maxTokenCount !== undefined) setMaxTokens(maxTokenCount);
+        },
+        // onComplete - called when generation finishes
+        (_messageId, conversationId, tokenCount, maxTokenCount) => {
+          // Mark streaming as complete - allow watcher to update again
+          isStreamingRef.current = false;
+          console.log('[USECHAR] Streaming complete, isStreamingRef = false');
 
-      // Update conversation ID if this is a new conversation
-      if (!currentConversationId) {
-        setCurrentConversationId(response.conversation_id);
-      }
+          if (!currentConversationId) {
+            setCurrentConversationId(conversationId);
+          }
+          if (tokenCount !== undefined) setTokensUsed(tokenCount);
+          if (maxTokenCount !== undefined) setMaxTokens(maxTokenCount);
 
-      // Update token counts
-      setTokensUsed(response.tokens_used);
-      setMaxTokens(response.max_tokens);
-
-      // Don't check for tool calls from HTTP response - it's empty
-      // Tool calls will be detected from WebSocket updates instead
-      // (see WebSocket onmessage handler below)
-
-      // Keep loading state active - WebSocket will update with actual content
-      // and detect tool calls when generation completes
+          // Check for tool calls in the final message
+          setMessages(prev => {
+            const lastMsg = prev[prev.length - 1];
+            if (lastMsg && lastMsg.role === 'assistant' && lastMsg.content) {
+              const toolCalls = autoParseToolCalls(lastMsg.content);
+              if (toolCalls.length > 0 && processToolCallsRef.current) {
+                // Tool calls detected - process them
+                processToolCallsRef.current(toolCalls, lastMsg);
+              } else if (toolCalls.length === 0) {
+                // No tool calls - we're done
+                setIsLoading(false);
+              }
+            } else {
+              setIsLoading(false);
+            }
+            return prev;
+          });
+        },
+        // onError - called on any error
+        (errorMsg) => {
+          isStreamingRef.current = false;
+          console.log('[USECHAR] Streaming error, isStreamingRef = false');
+          setError(errorMsg);
+          toast.error(`Chat error: ${errorMsg}`, { duration: 5000 });
+          setIsLoading(false);
+        },
+        abortControllerRef.current?.signal
+      );
 
     } catch (err) {
+      isStreamingRef.current = false;
       const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
       setError(errorMessage);
       toast.error(`Chat error: ${errorMessage}`, { duration: 5000 });
       setIsLoading(false);
     }
   }, [isLoading, currentConversationId]);
+
+  // Assign processToolCalls function to ref (avoids stale closure issues)
+  useEffect(() => {
+    processToolCallsRef.current = (toolCalls: ToolCall[], lastMessage: Message) => {
+      // Check if context size is critically low
+      if (typeof maxTokens === 'number' && maxTokens > 0 && maxTokens < 4096) {
+        console.error(`[FRONTEND] ⚠️  Context size too small (${maxTokens} tokens) for reliable tool execution. Stopping.`);
+        toast.error(
+          `Context size is too small (${maxTokens} tokens) for tool calling. Please reduce GPU layers or unload the model.`,
+          { duration: 10000 }
+        );
+        setIsLoading(false);
+        return;
+      }
+
+      // Check iteration limit BEFORE executing tools
+      if (toolIterationCount.current >= MAX_TOOL_ITERATIONS) {
+        console.warn(`[FRONTEND] ⚠️  MAX_TOOL_ITERATIONS (${MAX_TOOL_ITERATIONS}) reached. Stopping tool execution loop.`);
+        toast.error(`Maximum tool iterations (${MAX_TOOL_ITERATIONS}) reached. Stopping to prevent infinite loop.`, { duration: 5000 });
+        setIsLoading(false);
+        return;
+      }
+
+      // Smart loop detection: Check if the same tool calls are repeating
+      const toolCallSignatures = toolCalls.map(tc => `${tc.name}(${JSON.stringify(tc.arguments)})`).join('|');
+      toolCallHistory.current.push(toolCallSignatures);
+
+      // Check for infinite loop pattern
+      if (toolCallHistory.current.length >= LOOP_DETECTION_WINDOW) {
+        const recentCalls = toolCallHistory.current.slice(-LOOP_DETECTION_WINDOW);
+        const allIdentical = recentCalls.every(call => call === recentCalls[0]);
+
+        if (allIdentical) {
+          console.error(`[FRONTEND] 🔁 INFINITE LOOP DETECTED: Same tool call repeated ${LOOP_DETECTION_WINDOW} times`);
+          console.error(`[FRONTEND] Repeating call: ${recentCalls[0]}`);
+          toast.error(`Infinite loop detected! The model is repeating the same tool call. Stopping.`, { duration: 7000 });
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      // Increment iteration counter
+      toolIterationCount.current += 1;
+      console.log(`[FRONTEND] 🔧 Tool iteration: ${toolIterationCount.current}/${MAX_TOOL_ITERATIONS}`);
+      console.log(`[FRONTEND] Tool call history (last ${Math.min(5, toolCallHistory.current.length)}):`, toolCallHistory.current.slice(-5));
+
+      // Mark message as processed
+      lastProcessedMessageId.current = lastMessage.id;
+
+      toast.success(`Executing ${toolCalls.length} tool call(s)... (iteration ${toolIterationCount.current}/${MAX_TOOL_ITERATIONS})`, { duration: 2000 });
+
+      // Execute tool calls
+      Promise.all(toolCalls.map(executeTool))
+        .then((results) => {
+          // Format results for model
+          const formattedResults = results.map((result) =>
+            `[TOOL_RESULTS]${result}[/TOOL_RESULTS]`
+          ).join('\n');
+
+          // Turn off loading before sending results
+          setIsLoading(false);
+
+          // Continue generation with tool results
+          setTimeout(() => {
+            sendMessage(formattedResults, true); // bypass loading check for tool results
+          }, 10);
+        })
+        .catch((err) => {
+          const errorMessage = err instanceof Error ? err.message : 'Tool execution failed';
+          toast.error(`Tool error: ${errorMessage}`, { duration: 5000 });
+          setIsLoading(false);
+        });
+    };
+  }, [sendMessage, maxTokens]);
 
   const clearMessages = useCallback(() => {
     setMessages([]);
@@ -275,6 +426,12 @@ export function useChat() {
         const message = JSON.parse(event.data);
 
         if (message.type === 'update') {
+          // Skip watcher updates during active streaming - streaming handles its own state
+          if (isStreamingRef.current) {
+            console.log('[WATCHER] Skipping update - streaming is active');
+            return;
+          }
+
           // Parse the file content and update messages
           const content = message.content;
 
@@ -299,6 +456,7 @@ export function useChat() {
 
           const parsedMessages = parseConversationFile(content);
           setMessages(parsedMessages);
+          console.log('[WATCHER] Updated messages from file, count:', parsedMessages.length);
 
           // Check for generation errors in the content
           if (content.includes('⚠️ Generation Error:')) {
@@ -450,6 +608,29 @@ export function useChat() {
       ws.close();
     };
   }, [currentConversationId]);
+
+  // Sync URL with current conversation ID
+  useEffect(() => {
+    // Skip URL update during initial load to prevent overwriting URL param
+    if (!initialLoadDone.current) return;
+    updateUrlWithConversation(currentConversationId);
+  }, [currentConversationId]);
+
+  // Load conversation from URL on initial mount
+  useEffect(() => {
+    if (initialLoadDone.current) return;
+    initialLoadDone.current = true;
+
+    const conversationFromUrl = getConversationFromUrl();
+    if (conversationFromUrl) {
+      console.log('[USECHAT] Loading conversation from URL:', conversationFromUrl);
+      // Ensure .txt extension for consistency with sidebar
+      const normalizedId = conversationFromUrl.endsWith('.txt')
+        ? conversationFromUrl
+        : `${conversationFromUrl}.txt`;
+      loadConversation(normalizedId);
+    }
+  }, [loadConversation]);
 
   return {
     messages,

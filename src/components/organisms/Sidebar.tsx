@@ -225,14 +225,20 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, onNewChat, onOpenSe
               ) : (
                 conversations.map((conversation, index) => {
                   const isActive = currentConversationId === conversation.name;
+                  // Debug: log comparison on first render
+                  if (index === 0 && currentConversationId) {
+                    console.log('[SIDEBAR] Comparing:', { currentConversationId, conversationName: conversation.name, isActive });
+                  }
                   return (
                     <div
                       key={conversation.name}
                       className={`
-                        p-3 mb-2 bg-transparent rounded-lg cursor-pointer transition-all duration-200
-                        border border-transparent flex items-start justify-between gap-2 relative
+                        p-3 mb-2 rounded-lg cursor-pointer transition-all duration-200
+                        flex items-start justify-between gap-2 relative
                         hover:bg-muted hover:-translate-y-px
-                        ${isActive ? 'bg-primary/10 border-primary hover:bg-primary/15' : ''}
+                        ${isActive
+                          ? 'bg-primary/30 border-2 border-primary'
+                          : 'bg-transparent border border-transparent'}
                       `}
                       onClick={() => onLoadConversation(conversation.name)}
                       data-testid={`conversation-${index}`}
