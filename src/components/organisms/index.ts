@@ -2,6 +2,7 @@
 export { MessageBubble } from './MessageBubble';
 export { ChatHeader } from './ChatHeader';
 export { default as Sidebar } from './Sidebar';
+export { RightSidebar } from './RightSidebar';
 export { SystemUsage } from './SystemUsage';
 export { ModelSelector } from './ModelSelector';
 export { SettingsModal } from './SettingsModal';

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
-import { ChatHeader, SettingsModal, Sidebar } from './components/organisms';
+import { ChatHeader, SettingsModal, Sidebar, RightSidebar } from './components/organisms';
 import { ChatInputArea, MessagesArea } from './components/templates';
 import { useChat } from './hooks/useChat';
 import { useModel } from './hooks/useModel';
@@ -8,9 +8,10 @@ import type { SamplerConfig, ViewMode } from './types';
 
 function App() {
   const { messages, isLoading, sendMessage, clearMessages, loadConversation, currentConversationId, tokensUsed, maxTokens, isWsConnected } = useChat();
-  const { status: modelStatus, isLoading: isModelLoading, error: modelError, loadModel, unloadModel } = useModel();
+  const { status: modelStatus, isLoading: isModelLoading, loadingAction, error: modelError, loadModel, unloadModel } = useModel();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('markdown');
 
   const handleNewConversation = () => {
@@ -19,6 +20,10 @@ function App() {
 
   const toggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen);
+  };
+
+  const toggleRightSidebar = () => {
+    setIsRightSidebarOpen(!isRightSidebarOpen);
   };
 
   const handleOpenSettings = () => {
@@ -59,10 +64,10 @@ function App() {
 
       {/* Main Content */}
       <div
-        className={`flex-1 transition-all duration-300 ${
-          isSidebarOpen ? 'md:ml-280' : 'md:ml-60'
-        }`}
-        style={{ marginLeft: isSidebarOpen ? '280px' : '60px' }}
+        className={`flex-1 transition-all duration-300`}
+        style={{
+          marginLeft: isSidebarOpen ? '280px' : '60px'
+        }}
       >
         <div className="flex flex-col h-full flat-card">
           {/* Header */}
@@ -77,9 +82,11 @@ function App() {
             isWsConnected={isWsConnected}
             currentConversationId={currentConversationId ?? undefined}
             viewMode={viewMode}
+            isRightSidebarOpen={isRightSidebarOpen}
             onToggleSidebar={toggleSidebar}
             onModelUnload={handleModelUnload}
             onViewModeChange={setViewMode}
+            onToggleRightSidebar={toggleRightSidebar}
           />
 
           {/* Messages */}
@@ -88,6 +95,7 @@ function App() {
             isLoading={isLoading}
             modelLoaded={modelStatus.loaded}
             isModelLoading={isModelLoading}
+            loadingAction={loadingAction}
             viewMode={viewMode}
           />
 
@@ -103,6 +111,12 @@ function App() {
           />
         </div>
       </div>
+
+      {/* Right Sidebar - System Monitor */}
+      <RightSidebar
+        isOpen={isRightSidebarOpen}
+        onClose={() => setIsRightSidebarOpen(false)}
+      />
 
       {/* Settings Modal */}
       <SettingsModal

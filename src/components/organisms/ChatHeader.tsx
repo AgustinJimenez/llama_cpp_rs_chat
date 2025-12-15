@@ -1,5 +1,4 @@
-import { Unplug, Radio } from 'lucide-react';
-import { SystemUsage } from './SystemUsage';
+import { Unplug, Radio, Activity } from 'lucide-react';
 import type { ViewMode } from '../../types';
 
 interface ChatHeaderProps {
@@ -13,9 +12,11 @@ interface ChatHeaderProps {
   isWsConnected: boolean;
   currentConversationId?: string;
   viewMode: ViewMode;
+  isRightSidebarOpen: boolean;
   onToggleSidebar: () => void;
   onModelUnload: () => void;
   onViewModeChange: (mode: ViewMode) => void;
+  onToggleRightSidebar: () => void;
 }
 
 export function ChatHeader({
@@ -28,9 +29,11 @@ export function ChatHeader({
   isWsConnected,
   currentConversationId,
   viewMode,
+  isRightSidebarOpen,
   onToggleSidebar,
   onModelUnload,
   onViewModeChange,
+  onToggleRightSidebar,
 }: ChatHeaderProps) {
   return (
     <div className="flex items-center justify-between px-6 py-3 flat-header" data-testid="chat-header">
@@ -42,8 +45,6 @@ export function ChatHeader({
         >
           ☰
         </button>
-        {/* System Usage Graphs - Left Side */}
-        {modelLoaded && <SystemUsage />}
       </div>
 
       <div className="flex-1 flex justify-center items-center gap-6">
@@ -125,6 +126,19 @@ export function ChatHeader({
               </button>
             </div>
           )}
+
+          {/* System Monitor Toggle Button */}
+          <button
+            onClick={onToggleRightSidebar}
+            className={`p-2 rounded-lg transition-all ${
+              isRightSidebarOpen
+                ? 'bg-primary text-white'
+                : 'bg-muted hover:bg-muted/80 border border-border'
+            }`}
+            title="Toggle system monitor"
+          >
+            <Activity className="h-5 w-5" />
+          </button>
         </div>
       )}
     </div>

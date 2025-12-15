@@ -1,12 +1,21 @@
 import React from 'react';
 import { MessageSquare, Loader2 } from 'lucide-react';
+import type { LoadingAction } from '../../hooks/useModel';
 
 interface WelcomeMessageProps {
   modelLoaded: boolean;
   isModelLoading?: boolean;
+  loadingAction?: LoadingAction;
 }
 
-export const WelcomeMessage: React.FC<WelcomeMessageProps> = ({ modelLoaded, isModelLoading = false }) => {
+export const WelcomeMessage: React.FC<WelcomeMessageProps> = ({ modelLoaded, isModelLoading = false, loadingAction }) => {
+  const getLoadingText = () => {
+    if (loadingAction === 'unloading') {
+      return "Unloading model...";
+    }
+    return "Loading model...";
+  };
+
   return (
     <div className="flex flex-col items-center justify-center py-16">
       <div className="text-center space-y-6">
@@ -21,7 +30,7 @@ export const WelcomeMessage: React.FC<WelcomeMessageProps> = ({ modelLoaded, isM
         <div className="space-y-2">
           <p className="text-foreground font-medium text-lg">
             {isModelLoading
-              ? "Loading model..."
+              ? getLoadingText()
               : modelLoaded
                 ? "Start a conversation with your AI assistant"
                 : "No model loaded"

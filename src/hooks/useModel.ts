@@ -17,6 +17,8 @@ interface ModelResponse {
   status?: ModelStatus;
 }
 
+export type LoadingAction = 'loading' | 'unloading' | null;
+
 export const useModel = () => {
   const [status, setStatus] = useState<ModelStatus>({
     loaded: false,
@@ -25,6 +27,7 @@ export const useModel = () => {
     memory_usage_mb: null,
   });
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingAction, setLoadingAction] = useState<LoadingAction>(null);
   const [error, setError] = useState<string | null>(null);
 
   const fetchStatus = useCallback(async () => {
@@ -54,6 +57,7 @@ export const useModel = () => {
 
   const loadModel = useCallback(async (modelPath: string, config?: SamplerConfig) => {
     setIsLoading(true);
+    setLoadingAction('loading');
     setError(null);
     
     try {
@@ -125,11 +129,13 @@ export const useModel = () => {
       return { success: false, message: errorMessage };
     } finally {
       setIsLoading(false);
+      setLoadingAction(null);
     }
   }, []);
 
   const unloadModel = useCallback(async () => {
     setIsLoading(true);
+    setLoadingAction('unloading');
     setError(null);
     
     try {
@@ -162,6 +168,7 @@ export const useModel = () => {
       return { success: false, message: errorMessage };
     } finally {
       setIsLoading(false);
+      setLoadingAction(null);
     }
   }, []);
 
@@ -173,6 +180,7 @@ export const useModel = () => {
   return {
     status,
     isLoading,
+    loadingAction,
     error,
     loadModel,
     unloadModel,
