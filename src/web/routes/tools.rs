@@ -4,8 +4,19 @@ use hyper::{Body, Request, Response, StatusCode};
 use std::convert::Infallible;
 use std::fs;
 
+use crate::web::{
+    request_parsing::parse_json_body,
+    response_helpers::{json_error, json_raw},
+};
+
 #[cfg(not(feature = "mock"))]
 use crate::web::models::SharedLlamaState;
+
+#[derive(serde::Deserialize)]
+struct ToolExecuteRequest {
+    tool_name: String,
+    arguments: serde_json::Value,
+}
 
 pub async fn handle_post_tools_execute(
     req: Request<Body>,
@@ -14,36 +25,10 @@ pub async fn handle_post_tools_execute(
     #[cfg(feature = "mock")]
     _llama_state: (),
 ) -> Result<Response<Body>, Infallible> {
-    // Parse request body
-    let body_bytes = match hyper::body::to_bytes(req.into_body()).await {
-        Ok(bytes) => bytes,
-        Err(_) => {
-            return Ok(Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .header("content-type", "application/json")
-                .header("access-control-allow-origin", "*")
-                .body(Body::from(r#"{"error":"Failed to read request body"}"#))
-                .unwrap());
-        }
-    };
-
-    #[derive(serde::Deserialize)]
-    struct ToolExecuteRequest {
-        tool_name: String,
-        arguments: serde_json::Value,
-    }
-
-    let request: ToolExecuteRequest = match serde_json::from_slice(&body_bytes) {
+    // Parse request body using helper
+    let request: ToolExecuteRequest = match parse_json_body(req.into_body()).await {
         Ok(req) => req,
-        Err(e) => {
-            println!("JSON parsing error: {}", e);
-            return Ok(Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .header("content-type", "application/json")
-                .header("access-control-allow-origin", "*")
-                .body(Body::from(r#"{"error":"Invalid JSON format"}"#))
-                .unwrap());
-        }
+        Err(error_response) => return Ok(error_response),
     };
 
     // Get current model's capabilities for tool translation
@@ -83,12 +68,7 @@ pub async fn handle_post_tools_execute(
                 .unwrap_or("");
 
             if path.is_empty() {
-                return Ok(Response::builder()
-                    .status(StatusCode::BAD_REQUEST)
-                    .header("content-type", "application/json")
-                    .header("access-control-allow-origin", "*")
-                    .body(Body::from(r#"{"error":"File path is required"}"#))
-                    .unwrap());
+                return Ok(json_error(StatusCode::BAD_REQUEST, "File path is required"));
             }
 
             // Read file
@@ -118,12 +98,7 @@ pub async fn handle_post_tools_execute(
                 .unwrap_or("");
 
             if path.is_empty() {
-                return Ok(Response::builder()
-                    .status(StatusCode::BAD_REQUEST)
-                    .header("content-type", "application/json")
-                    .header("access-control-allow-origin", "*")
-                    .body(Body::from(r#"{"error":"File path is required"}"#))
-                    .unwrap());
+                return Ok(json_error(StatusCode::BAD_REQUEST, "File path is required"));
             }
 
             // Write file
@@ -221,12 +196,7 @@ pub async fn handle_post_tools_execute(
                 .unwrap_or("");
 
             if command.is_empty() {
-                return Ok(Response::builder()
-                    .status(StatusCode::BAD_REQUEST)
-                    .header("content-type", "application/json")
-                    .header("access-control-allow-origin", "*")
-                    .body(Body::from(r#"{"error":"Command is required"}"#))
-                    .unwrap());
+                return Ok(json_error(StatusCode::BAD_REQUEST, "Command is required"));
             }
 
             // Execute command (with timeout for safety)
@@ -277,10 +247,5 @@ pub async fn handle_post_tools_execute(
         }
     };
 
-    Ok(Response::builder()
-        .status(StatusCode::OK)
-        .header("content-type", "application/json")
-        .header("access-control-allow-origin", "*")
-        .body(Body::from(result.to_string()))
-        .unwrap())
+    Ok(json_raw(StatusCode::OK, result.to_string()))
 }

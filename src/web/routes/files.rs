@@ -4,7 +4,10 @@ use hyper::{Body, Request, Response, StatusCode};
 use std::convert::Infallible;
 use std::fs;
 
-use crate::web::models::{FileItem, BrowseFilesResponse};
+use crate::web::{
+    models::{FileItem, BrowseFilesResponse},
+    response_helpers::{json_error, json_response, json_raw},
+};
 
 pub async fn handle_get_browse(
     req: Request<Body>,
@@ -34,12 +37,7 @@ pub async fn handle_get_browse(
     });
 
     if !is_allowed {
-        return Ok(Response::builder()
-            .status(StatusCode::FORBIDDEN)
-            .header("content-type", "application/json")
-            .header("access-control-allow-origin", "*")
-            .body(Body::from(r#"{"error":"Path not allowed"}"#))
-            .unwrap());
+        return Ok(json_error(StatusCode::FORBIDDEN, "Path not allowed"));
     }
 
     let mut files = Vec::new();
@@ -90,12 +88,7 @@ pub async fn handle_get_browse(
         }
         Err(e) => {
             eprintln!("Failed to read directory {}: {}", browse_path, e);
-            return Ok(Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .header("content-type", "application/json")
-                .header("access-control-allow-origin", "*")
-                .body(Body::from(r#"{"error":"Directory not found"}"#))
-                .unwrap());
+            return Ok(json_error(StatusCode::NOT_FOUND, "Directory not found"));
         }
     }
 
@@ -105,17 +98,7 @@ pub async fn handle_get_browse(
         parent_path,
     };
 
-    let response_json = match serde_json::to_string(&response) {
-        Ok(json) => json,
-        Err(_) => r#"{"files":[],"current_path":"/app/models"}"#.to_string(),
-    };
-
-    Ok(Response::builder()
-        .status(StatusCode::OK)
-        .header("content-type", "application/json")
-        .header("access-control-allow-origin", "*")
-        .body(Body::from(response_json))
-        .unwrap())
+    Ok(json_response(StatusCode::OK, &response))
 }
 
 pub async fn handle_post_upload(
@@ -137,12 +120,7 @@ pub async fn handle_post_upload(
     let body_bytes = match hyper::body::to_bytes(req.into_body()).await {
         Ok(bytes) => bytes,
         Err(_) => {
-            return Ok(Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .header("content-type", "application/json")
-                .header("access-control-allow-origin", "*")
-                .body(Body::from(r#"{"success":false,"message":"Failed to read request body"}"#))
-                .unwrap());
+            return Ok(json_error(StatusCode::BAD_REQUEST, "Failed to read request body"));
         }
     };
 
@@ -183,26 +161,10 @@ pub async fn handle_post_upload(
                 "message": "File uploaded successfully",
                 "file_path": file_path
             });
-
-            Ok(Response::builder()
-                .status(StatusCode::OK)
-                .header("content-type", "application/json")
-                .header("access-control-allow-origin", "*")
-                .body(Body::from(response.to_string()))
-                .unwrap())
+            Ok(json_raw(StatusCode::OK, response.to_string()))
         }
         Err(e) => {
-            let response = serde_json::json!({
-                "success": false,
-                "message": format!("Failed to save file: {}", e)
-            });
-
-            Ok(Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .header("content-type", "application/json")
-                .header("access-control-allow-origin", "*")
-                .body(Body::from(response.to_string()))
-                .unwrap())
+            Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Failed to save file: {}", e)))
         }
     }
 }

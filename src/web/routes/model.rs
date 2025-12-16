@@ -14,6 +14,7 @@ use crate::web::{
         value_to_display_string,
         detect_tool_format, extract_default_system_prompt, MetadataExtractor,
     },
+    filename_patterns::{detect_architecture, detect_parameters, detect_quantization},
 };
 
 #[cfg(not(feature = "mock"))]
@@ -172,50 +173,9 @@ pub async fn handle_get_model_info(
         .unwrap_or("unknown");
 
     // Try to extract model information from filename patterns
-    let mut architecture = "Unknown";
-    let mut parameters = "Unknown";
-    let mut quantization = "Unknown";
-
-    // Common GGUF naming patterns
-    if filename.contains("llama") || filename.contains("Llama") {
-        architecture = "LLaMA";
-    } else if filename.contains("mistral") || filename.contains("Mistral") {
-        architecture = "Mistral";
-    } else if filename.contains("qwen") || filename.contains("Qwen") {
-        architecture = "Qwen";
-    } else if filename.contains("phi") || filename.contains("Phi") {
-        architecture = "Phi";
-    }
-
-    // Extract parameter count
-    if filename.contains("7b") || filename.contains("7B") {
-        parameters = "7B";
-    } else if filename.contains("13b") || filename.contains("13B") {
-        parameters = "13B";
-    } else if filename.contains("70b") || filename.contains("70B") {
-        parameters = "70B";
-    } else if filename.contains("1.5b") || filename.contains("1.5B") {
-        parameters = "1.5B";
-    } else if filename.contains("3b") || filename.contains("3B") {
-        parameters = "3B";
-    }
-
-    // Extract quantization
-    if filename.contains("q4_0") || filename.contains("Q4_0") {
-        quantization = "Q4_0";
-    } else if filename.contains("q4_1") || filename.contains("Q4_1") {
-        quantization = "Q4_1";
-    } else if filename.contains("q5_0") || filename.contains("Q5_0") {
-        quantization = "Q5_0";
-    } else if filename.contains("q5_1") || filename.contains("Q5_1") {
-        quantization = "Q5_1";
-    } else if filename.contains("q8_0") || filename.contains("Q8_0") {
-        quantization = "Q8_0";
-    } else if filename.contains("f16") || filename.contains("F16") {
-        quantization = "F16";
-    } else if filename.contains("f32") || filename.contains("F32") {
-        quantization = "F32";
-    }
+    let architecture = detect_architecture(filename);
+    let parameters = detect_parameters(filename);
+    let quantization = detect_quantization(filename);
 
     // Estimate total layers based on model size
     let model_size_gb = file_size_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
