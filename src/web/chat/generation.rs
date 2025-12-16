@@ -12,15 +12,36 @@ use super::super::config::load_config;
 use super::super::model_manager::load_model;
 use super::templates::apply_model_chat_template;
 use super::command_executor::{check_and_execute_command, inject_output_tokens, stream_command_output};
-use crate::{log_debug, log_info, log_warn};
+use super::stop_conditions::check_stop_conditions;
+use crate::{log_debug, log_info, log_warn, sys_debug, sys_warn, sys_error};
 
 // Constants for LLaMA configuration
 const CONTEXT_SIZE: u32 = 32768;
 const MODEL_PATH: &str = "/app/models/lmstudio-community/granite-4.0-h-tiny-GGUF/granite-4.0-h-tiny-Q4_K_M.gguf";
 
-// Command tokens for detection (used for checking if inside exec block)
-const EXEC_OPEN: &str = "<||SYSTEM.EXEC>";
-const EXEC_CLOSE: &str = "<SYSTEM.EXEC||>";
+/// Create a sampler based on the configuration
+fn create_sampler(config: &SamplerConfig, conversation_id: &str) -> LlamaSampler {
+    match config.sampler_type.as_str() {
+        "Temperature" => {
+            log_info!(conversation_id, "Using Temperature sampler: temp={}", config.temperature);
+            LlamaSampler::temp(config.temperature as f32)
+        }
+        "Mirostat" => {
+            log_info!(conversation_id, "Using Mirostat sampler: tau={}, eta={}", config.mirostat_tau, config.mirostat_eta);
+            LlamaSampler::mirostat(
+                0,    // n_vocab
+                1234, // seed
+                config.mirostat_tau as f32,
+                config.mirostat_eta as f32,
+                100,  // m
+            )
+        }
+        "Greedy" | _ => {
+            log_info!(conversation_id, "Using Greedy sampler (default)");
+            LlamaSampler::greedy()
+        }
+    }
+}
 
 /// Generate response from LLaMA model with streaming support.
 ///
@@ -33,7 +54,7 @@ pub async fn generate_llama_response(
     token_sender: Option<mpsc::UnboundedSender<TokenData>>,
     skip_user_logging: bool
 ) -> Result<(String, i32, i32), String> {
-    eprintln!("[GENERATION] generate_llama_response called, token_sender is {}",
+    sys_debug!("[GENERATION] generate_llama_response called, token_sender is {}",
         if token_sender.is_some() { "Some" } else { "None" });
 
     // Get conversation ID for logging
@@ -41,7 +62,7 @@ pub async fn generate_llama_response(
         let logger = conversation_logger.lock().map_err(|_| "Failed to lock conversation logger")?;
         logger.get_conversation_id()
     };
-    eprintln!("[GENERATION] Conversation ID: {}", conversation_id);
+    sys_debug!("[GENERATION] Conversation ID: {}", conversation_id);
 
     // Log user message to conversation file (unless already logged)
     if !skip_user_logging {
@@ -52,7 +73,7 @@ pub async fn generate_llama_response(
     // Load configuration to get model path and context size
     let config = load_config();
     let model_path = config.model_path.as_deref().unwrap_or(MODEL_PATH);
-    let stop_tokens = config.stop_tokens.unwrap_or_else(get_common_stop_tokens);
+    let stop_tokens = config.stop_tokens.clone().unwrap_or_else(get_common_stop_tokens);
 
     // Ensure model is loaded
     load_model(llama_state.clone(), model_path).await?;
@@ -76,26 +97,7 @@ pub async fn generate_llama_response(
         context_size, state.model_context_length);
 
     // Create sampler based on configuration
-    let mut sampler = match config.sampler_type.as_str() {
-        "Temperature" => {
-            log_info!(&conversation_id, "Using Temperature sampler: temp={}", config.temperature);
-            LlamaSampler::temp(config.temperature as f32)
-        }
-        "Mirostat" => {
-            log_info!(&conversation_id, "Using Mirostat sampler: tau={}, eta={}", config.mirostat_tau, config.mirostat_eta);
-            LlamaSampler::mirostat(
-                0,    // n_vocab
-                1234, // seed
-                config.mirostat_tau as f32,
-                config.mirostat_eta as f32,
-                100,  // m
-            )
-        }
-        "Greedy" | _ => {
-            log_info!(&conversation_id, "Using Greedy sampler (default)");
-            LlamaSampler::greedy()
-        }
-    };
+    let mut sampler = create_sampler(&config, &conversation_id);
 
     // Read conversation history from file and create chat prompt
     let conversation_content = {
@@ -176,7 +178,7 @@ pub async fn generate_llama_response(
     log_info!(&conversation_id, "Context size: {}, Prompt tokens: {}, Max tokens to generate: {}",
              context_size, token_pos, max_total_tokens);
 
-    eprintln!("[GENERATION] About to start token generation loop. token_sender is {}",
+    sys_debug!("[GENERATION] About to start token generation loop. token_sender is {}",
         if token_sender.is_some() { "SOME" } else { "NONE" });
 
     // Track position in response after last executed command to prevent re-matching
@@ -251,72 +253,15 @@ pub async fn generate_llama_response(
                 log_debug!(&conversation_id, "Token #{}: Converted to string: {:?}", total_tokens_generated, token_str);
             }
 
-            // Check for stop sequences
-            let test_response = format!("{}{}", response, token_str);
-            let mut should_stop = false;
-            let mut partial_to_remove = 0;
-            // Check if we're inside a SYSTEM.EXEC block (don't stop until we get the closing tag)
-            // Use flexible detection: look for SYSTEM.EXEC> opening without closing tag
-            let has_exec_open = response.contains("SYSTEM.EXEC>") || response.contains(EXEC_OPEN);
-            let has_exec_close = response.contains(EXEC_CLOSE) || response.contains("<SYSTEM.EXEC|");
-            let in_exec_block = has_exec_open && !has_exec_close;
-
+            // Check for stop sequences using helper function
             if total_tokens_generated >= 145 && total_tokens_generated <= 155 {
                 log_debug!(&conversation_id, "Token #{}: Checking {} stop tokens...", total_tokens_generated, stop_tokens.len());
             }
 
-            for stop_token in &stop_tokens {
-                // Don't stop if we're inside an exec block - let it complete
-                if in_exec_block {
-                    continue;
-                }
+            let stop_result = check_stop_conditions(&response, &token_str, &stop_tokens);
 
-                if test_response.contains(stop_token) {
-                    log_debug!(&conversation_id, "Stopping generation due to stop token detected: '{}' at position {}", stop_token, total_tokens_generated);
-
-                    // OLD: Special case for </COMMAND>
-                    // if stop_token == "</COMMAND>" {
-                    //     response.push_str(&token_str);
-                    //     let mut logger = conversation_logger.lock().map_err(|_| "Failed to lock conversation logger")?;
-                    //     logger.log_token(&token_str);
-                    // }
-
-                    should_stop = true;
-                    break;
-                }
-
-                // Handle partial matches - skip if inside exec block
-                // OLD: if in_command_block && (stop_token.starts_with("</") || stop_token.starts_with("[/")) {
-                //     continue;
-                // }
-
-                // OLD: if stop_token == "</COMMAND>" {
-                //     continue;
-                // }
-
-                // Skip partial matching for "</s>" as it matches too many HTML/XML tags
-                if stop_token == "</s>" {
-                    continue;
-                }
-
-                if stop_token.len() > 2 {
-                    let trimmed = test_response.trim_end();
-                    for i in 2..stop_token.len() {
-                        if trimmed.ends_with(&stop_token[..i]) {
-                            if response.trim_end().ends_with(&stop_token[..i-token_str.len()]) && i > token_str.len() {
-                                partial_to_remove = i - token_str.len();
-                            }
-                            should_stop = true;
-                            break;
-                        }
-                    }
-                    if should_stop {
-                        break;
-                    }
-                }
-            }
-
-            if should_stop {
+            if stop_result.should_stop {
+                let partial_to_remove = stop_result.partial_to_remove;
                 if total_tokens_generated >= 145 && total_tokens_generated <= 155 {
                     log_debug!(&conversation_id, "Token #{}: Should stop = true, breaking loop", total_tokens_generated);
                 }
@@ -345,16 +290,16 @@ pub async fn generate_llama_response(
                 match sender.send(token_data) {
                     Ok(()) => {
                         if total_tokens_generated <= 5 || total_tokens_generated % 50 == 0 {
-                            eprintln!("[GENERATION] Token #{} sent via channel: {:?}", total_tokens_generated, token_str.chars().take(20).collect::<String>());
+                            sys_debug!("[GENERATION] Token #{} sent via channel: {:?}", total_tokens_generated, token_str.chars().take(20).collect::<String>());
                         }
                     }
                     Err(e) => {
-                        eprintln!("[GENERATION] ERROR: Failed to send token #{} via channel: {}", total_tokens_generated, e);
+                        sys_error!("[GENERATION] ERROR: Failed to send token #{} via channel: {}", total_tokens_generated, e);
                     }
                 }
             } else {
                 if total_tokens_generated == 1 {
-                    eprintln!("[GENERATION] WARNING: token_sender is None, tokens not being streamed!");
+                    sys_warn!("[GENERATION] WARNING: token_sender is None, tokens not being streamed!");
                 }
             }
 

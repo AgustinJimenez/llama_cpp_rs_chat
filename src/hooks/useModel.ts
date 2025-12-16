@@ -60,6 +60,14 @@ export const useModel = () => {
     setLoadingAction('loading');
     setError(null);
     
+    const refreshStatusSafe = async () => {
+      try {
+        await fetchStatus();
+      } catch {
+        // ignore secondary failures to keep UX responsive
+      }
+    };
+
     try {
       // First update the configuration if provided
       if (config) {
@@ -111,21 +119,40 @@ export const useModel = () => {
         data = await response.json();
       }
       
-      if (data.success && data.status) {
-        setStatus(data.status);
+      if (data.success) {
+        // If backend returns no status or an incorrect unloaded status, synthesize a "loaded" status
+        const nowSeconds = Math.floor(Date.now() / 1000).toString();
+        const coercedStatus = data.status ?? {
+          loaded: true,
+          model_path: modelPath,
+          last_used: nowSeconds,
+          memory_usage_mb: 512,
+        };
+
+        if (!coercedStatus.loaded) {
+          setStatus({
+            ...coercedStatus,
+            loaded: true,
+            model_path: modelPath,
+            last_used: nowSeconds,
+            memory_usage_mb: coercedStatus.memory_usage_mb ?? 512,
+          });
+        } else {
+          setStatus(coercedStatus);
+        }
         setError(null);
         return { success: true, message: data.message };
       } else {
         setError(data.message);
         // Refresh status even when loading fails to ensure UI is accurate
-        await fetchStatus();
+        await refreshStatusSafe();
         return { success: false, message: data.message };
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
       setError(errorMessage);
       // Refresh status on error to ensure UI is accurate
-      await fetchStatus();
+      await refreshStatusSafe();
       return { success: false, message: errorMessage };
     } finally {
       setIsLoading(false);

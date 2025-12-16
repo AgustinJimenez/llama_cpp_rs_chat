@@ -9,6 +9,9 @@ use crate::web::{
     response_helpers::{json_error, json_response, json_raw},
 };
 
+// Import logging macros
+use crate::sys_error;
+
 pub async fn handle_get_browse(
     req: Request<Body>,
     #[cfg(not(feature = "mock"))]
@@ -87,7 +90,7 @@ pub async fn handle_get_browse(
             });
         }
         Err(e) => {
-            eprintln!("Failed to read directory {}: {}", browse_path, e);
+            sys_error!("Failed to read directory {}: {}", browse_path, e);
             return Ok(json_error(StatusCode::NOT_FOUND, "Directory not found"));
         }
     }

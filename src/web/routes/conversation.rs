@@ -6,7 +6,11 @@ use std::convert::Infallible;
 use crate::web::{
     models::{ConversationFile, ConversationsResponse, ConversationContentResponse, ChatMessage},
     database::SharedDatabase,
+    response_helpers::{json_error, json_raw, serialize_with_fallback},
 };
+
+// Import logging macros
+use crate::{sys_info, sys_error};
 
 /// Parse conversation content (from database) to ChatMessage array
 fn parse_conversation_to_messages(content: &str) -> Vec<ChatMessage> {
@@ -71,25 +75,12 @@ pub async fn handle_get_conversation(
                 messages,
             };
 
-            let response_json = match serde_json::to_string(&response) {
-                Ok(json) => json,
-                Err(_) => r#"{"content":"","messages":[]}"#.to_string(),
-            };
+            let response_json = serialize_with_fallback(&response, r#"{"content":"","messages":[]}"#);
 
-            Ok(Response::builder()
-                .status(StatusCode::OK)
-                .header("content-type", "application/json")
-                .header("access-control-allow-origin", "*")
-                .body(Body::from(response_json))
-                .unwrap())
+            Ok(json_raw(StatusCode::OK, response_json))
         }
         Err(_) => {
-            Ok(Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .header("content-type", "application/json")
-                .header("access-control-allow-origin", "*")
-                .body(Body::from(r#"{"error":"Conversation not found"}"#))
-                .unwrap())
+            Ok(json_error(StatusCode::NOT_FOUND, "Conversation not found"))
         }
     }
 }
@@ -121,23 +112,15 @@ pub async fn handle_get_conversations(
             }
         }
         Err(e) => {
-            eprintln!("Failed to list conversations from database: {}", e);
+            sys_error!("Failed to list conversations from database: {}", e);
         }
     }
 
     // Conversations are already sorted by created_at DESC from database
     let response = ConversationsResponse { conversations };
-    let response_json = match serde_json::to_string(&response) {
-        Ok(json) => json,
-        Err(_) => r#"{"conversations":[]}"#.to_string(),
-    };
+    let response_json = serialize_with_fallback(&response, r#"{"conversations":[]}"#);
 
-    Ok(Response::builder()
-        .status(StatusCode::OK)
-        .header("content-type", "application/json")
-        .header("access-control-allow-origin", "*")
-        .body(Body::from(response_json))
-        .unwrap())
+    Ok(json_raw(StatusCode::OK, response_json))
 }
 
 pub async fn handle_delete_conversation(
@@ -153,22 +136,12 @@ pub async fn handle_delete_conversation(
 
     // Validate filename to prevent path traversal
     if filename.contains("..") || filename.contains("/") || filename.contains("\\") {
-        return Ok(Response::builder()
-            .status(StatusCode::BAD_REQUEST)
-            .header("content-type", "application/json")
-            .header("access-control-allow-origin", "*")
-            .body(Body::from(r#"{"error":"Invalid filename"}"#))
-            .unwrap());
+        return Ok(json_error(StatusCode::BAD_REQUEST, "Invalid filename"));
     }
 
     // Only allow deleting conversation files that start with "chat_"
     if !filename.starts_with("chat_") {
-        return Ok(Response::builder()
-            .status(StatusCode::BAD_REQUEST)
-            .header("content-type", "application/json")
-            .header("access-control-allow-origin", "*")
-            .body(Body::from(r#"{"error":"Invalid conversation file"}"#))
-            .unwrap());
+        return Ok(json_error(StatusCode::BAD_REQUEST, "Invalid conversation file"));
     }
 
     // Remove .txt extension if present for database lookup
@@ -176,22 +149,12 @@ pub async fn handle_delete_conversation(
 
     match db.delete_conversation(conversation_id) {
         Ok(_) => {
-            println!("Deleted conversation: {}", conversation_id);
-            Ok(Response::builder()
-                .status(StatusCode::OK)
-                .header("content-type", "application/json")
-                .header("access-control-allow-origin", "*")
-                .body(Body::from(r#"{"success":true}"#))
-                .unwrap())
+            sys_info!("Deleted conversation: {}", conversation_id);
+            Ok(json_raw(StatusCode::OK, r#"{"success":true}"#.to_string()))
         }
         Err(e) => {
-            eprintln!("Failed to delete conversation: {}", e);
-            Ok(Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .header("content-type", "application/json")
-                .header("access-control-allow-origin", "*")
-                .body(Body::from(r#"{"error":"Failed to delete conversation"}"#))
-                .unwrap())
+            sys_error!("Failed to delete conversation: {}", e);
+            Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to delete conversation"))
         }
     }
 }

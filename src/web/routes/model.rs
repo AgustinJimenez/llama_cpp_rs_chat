@@ -15,13 +15,53 @@ use crate::web::{
         detect_tool_format, extract_default_system_prompt, MetadataExtractor,
     },
     filename_patterns::{detect_architecture, detect_parameters, detect_quantization},
+    response_helpers::{json_error, json_raw, serialize_with_fallback},
+    request_parsing::parse_json_body,
 };
+
+// Import logging macros
+use crate::{sys_debug, sys_error};
 
 #[cfg(not(feature = "mock"))]
 use crate::web::{
     models::SharedLlamaState,
     model_manager::{load_model, unload_model, get_model_status},
 };
+
+// File size constants
+const BYTES_PER_GB: u64 = 1_073_741_824;
+const BYTES_PER_MB: u64 = 1_048_576;
+
+// Model size thresholds (in GB) for layer estimation
+const SMALL_MODEL_THRESHOLD_GB: f64 = 8.0;   // Models < 8GB (7B and below)
+const MEDIUM_MODEL_THRESHOLD_GB: f64 = 15.0; // Models 8-15GB (13B)
+const LARGE_MODEL_THRESHOLD_GB: f64 = 25.0;  // Models 15-25GB (30B)
+
+// Estimated layer counts for different model sizes
+const SMALL_MODEL_LAYERS: u32 = 36;   // 7B and below
+const MEDIUM_MODEL_LAYERS: u32 = 45;  // 13B
+const LARGE_MODEL_LAYERS: u32 = 60;   // 30B
+const XLARGE_MODEL_LAYERS: u32 = 80;  // 70B+
+
+/// Scan a directory for .gguf files and return their filenames
+fn scan_directory_for_gguf_files(path: &std::path::Path) -> Vec<String> {
+    let mut gguf_files = Vec::new();
+    if let Ok(entries) = fs::read_dir(path) {
+        for entry in entries.flatten() {
+            let entry_path = entry.path();
+            if entry_path.is_file() {
+                if let Some(ext) = entry_path.extension() {
+                    if ext.eq_ignore_ascii_case("gguf") {
+                        if let Some(filename) = entry_path.file_name().and_then(|n| n.to_str()) {
+                            gguf_files.push(filename.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    gguf_files
+}
 
 pub async fn handle_get_model_info(
     req: Request<Body>,
@@ -30,11 +70,11 @@ pub async fn handle_get_model_info(
     #[cfg(feature = "mock")]
     _llama_state: (),
 ) -> Result<Response<Body>, Infallible> {
-    println!("[DEBUG] /api/model/info endpoint hit");
+    sys_debug!("[DEBUG] /api/model/info endpoint hit");
 
     // Extract model path from query parameters
     let query = req.uri().query().unwrap_or("");
-    println!("[DEBUG] Query string: {}", query);
+    sys_debug!("[DEBUG] Query string: {}", query);
 
     let mut model_path = "";
 
@@ -43,63 +83,39 @@ pub async fn handle_get_model_info(
             if key == "path" {
                 // URL decode the path
                 model_path = value;
-                println!("[DEBUG] Found path parameter (encoded): {}", model_path);
+                sys_debug!("[DEBUG] Found path parameter (encoded): {}", model_path);
                 break;
             }
         }
     }
 
     if model_path.is_empty() {
-        println!("[DEBUG] ERROR: No path parameter provided");
-        return Ok(Response::builder()
-            .status(StatusCode::BAD_REQUEST)
-            .header("content-type", "application/json")
-            .header("access-control-allow-origin", "*")
-            .body(Body::from(r#"{"error":"Model path is required"}"#))
-            .unwrap());
+        sys_error!("[DEBUG] ERROR: No path parameter provided");
+        return Ok(json_error(StatusCode::BAD_REQUEST, "Model path is required"));
     }
 
     // URL decode the path properly
     let decoded_path = urlencoding::decode(model_path).unwrap_or(std::borrow::Cow::Borrowed(model_path));
-    println!("[DEBUG] Decoded path: {}", decoded_path);
+    sys_debug!("[DEBUG] Decoded path: {}", decoded_path);
 
     // Check if file exists
     let path_obj = std::path::Path::new(&*decoded_path);
     let exists = path_obj.exists();
-    println!("[DEBUG] File exists: {}", exists);
-    println!("[DEBUG] Path is file: {}", path_obj.is_file());
-    println!("[DEBUG] Path is dir: {}", path_obj.is_dir());
+    sys_debug!("[DEBUG] File exists: {}", exists);
+    sys_debug!("[DEBUG] Path is file: {}", path_obj.is_file());
+    sys_debug!("[DEBUG] Path is dir: {}", path_obj.is_dir());
 
     if !exists {
-        println!("[DEBUG] ERROR: File does not exist at path: {}", decoded_path);
-        return Ok(Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .header("content-type", "application/json")
-            .header("access-control-allow-origin", "*")
-            .body(Body::from(r#"{"error":"Model file not found"}"#))
-            .unwrap());
+        sys_error!("[DEBUG] ERROR: File does not exist at path: {}", decoded_path);
+        return Ok(json_error(StatusCode::NOT_FOUND, "Model file not found"));
     }
 
     // Check if path is a directory
     if path_obj.is_dir() {
-        println!("[DEBUG] Path is a directory, scanning for .gguf files...");
+        sys_debug!("[DEBUG] Path is a directory, scanning for .gguf files...");
 
         // Find all .gguf files in the directory
-        let mut gguf_files = Vec::new();
-        if let Ok(entries) = fs::read_dir(path_obj) {
-            for entry in entries.flatten() {
-                let entry_path = entry.path();
-                if entry_path.is_file() {
-                    if let Some(ext) = entry_path.extension() {
-                        if ext.eq_ignore_ascii_case("gguf") {
-                            if let Some(filename) = entry_path.file_name().and_then(|n| n.to_str()) {
-                                gguf_files.push(filename.to_string());
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        let gguf_files = scan_directory_for_gguf_files(path_obj);
 
         let response_json = if gguf_files.is_empty() {
             serde_json::json!({
@@ -115,54 +131,34 @@ pub async fn handle_get_model_info(
             })
         };
 
-        println!("[DEBUG] Returning directory error with {} suggestions", gguf_files.len());
-        return Ok(Response::builder()
-            .status(StatusCode::BAD_REQUEST)
-            .header("content-type", "application/json")
-            .header("access-control-allow-origin", "*")
-            .body(Body::from(response_json.to_string()))
-            .unwrap());
+        sys_debug!("[DEBUG] Returning directory error with {} suggestions", gguf_files.len());
+        return Ok(json_raw(StatusCode::BAD_REQUEST, response_json.to_string()));
     }
 
     // Check if file has .gguf extension
     if let Some(ext) = path_obj.extension() {
         if !ext.eq_ignore_ascii_case("gguf") {
-            println!("[DEBUG] ERROR: File is not a .gguf file");
-            return Ok(Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .header("content-type", "application/json")
-                .header("access-control-allow-origin", "*")
-                .body(Body::from(r#"{"error":"File must have .gguf extension"}"#))
-                .unwrap());
+            sys_error!("[DEBUG] ERROR: File is not a .gguf file");
+            return Ok(json_error(StatusCode::BAD_REQUEST, "File must have .gguf extension"));
         }
     } else {
-        println!("[DEBUG] ERROR: File has no extension");
-        return Ok(Response::builder()
-            .status(StatusCode::BAD_REQUEST)
-            .header("content-type", "application/json")
-            .header("access-control-allow-origin", "*")
-            .body(Body::from(r#"{"error":"File must have .gguf extension"}"#))
-            .unwrap());
+        sys_error!("[DEBUG] ERROR: File has no extension");
+        return Ok(json_error(StatusCode::BAD_REQUEST, "File must have .gguf extension"));
     }
 
     // Extract basic model information
     let file_metadata = match fs::metadata(&*decoded_path) {
         Ok(metadata) => metadata,
         Err(_) => {
-            return Ok(Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .header("content-type", "application/json")
-                .header("access-control-allow-origin", "*")
-                .body(Body::from(r#"{"error":"Failed to read file metadata"}"#))
-                .unwrap());
+            return Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to read file metadata"));
         }
     };
 
     let file_size_bytes = file_metadata.len();
-    let file_size = if file_size_bytes >= 1_073_741_824 {
-        format!("{:.1} GB", file_size_bytes as f64 / 1_073_741_824.0)
-    } else if file_size_bytes >= 1_048_576 {
-        format!("{:.1} MB", file_size_bytes as f64 / 1_048_576.0)
+    let file_size = if file_size_bytes >= BYTES_PER_GB {
+        format!("{:.1} GB", file_size_bytes as f64 / BYTES_PER_GB as f64)
+    } else if file_size_bytes >= BYTES_PER_MB {
+        format!("{:.1} MB", file_size_bytes as f64 / BYTES_PER_MB as f64)
     } else {
         format!("{} bytes", file_size_bytes)
     };
@@ -178,15 +174,15 @@ pub async fn handle_get_model_info(
     let quantization = detect_quantization(filename);
 
     // Estimate total layers based on model size
-    let model_size_gb = file_size_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
-    let estimated_total_layers = if model_size_gb < 8.0 {
-        36  // Small models (7B and below)
-    } else if model_size_gb < 15.0 {
-        45  // Medium models (13B)
-    } else if model_size_gb < 25.0 {
-        60  // Large models (30B)
+    let model_size_gb = file_size_bytes as f64 / BYTES_PER_GB as f64;
+    let estimated_total_layers = if model_size_gb < SMALL_MODEL_THRESHOLD_GB {
+        SMALL_MODEL_LAYERS
+    } else if model_size_gb < MEDIUM_MODEL_THRESHOLD_GB {
+        MEDIUM_MODEL_LAYERS
+    } else if model_size_gb < LARGE_MODEL_THRESHOLD_GB {
+        LARGE_MODEL_LAYERS
     } else {
-        80  // Very large models (70B+)
+        XLARGE_MODEL_LAYERS
     };
 
     // Build base model info
@@ -211,11 +207,11 @@ pub async fn handle_get_model_info(
                 let extractor = MetadataExtractor::new(&metadata);
 
                 // Debug: Print all available metadata keys and values
-                println!("=== GGUF Metadata Found ===");
+                sys_debug!("=== GGUF Metadata Found ===");
                 for (key, value) in metadata.iter() {
-                    println!("  {} = {}", key, value_to_display_string(value));
+                    sys_debug!("  {} = {}", key, value_to_display_string(value));
                 }
-                println!("================================");
+                sys_debug!("================================");
 
                 // Create a metadata object with all values using shared utility
                 model_info["gguf_metadata"] = serde_json::json!(extractor.to_json_map());
@@ -332,12 +328,7 @@ pub async fn handle_get_model_info(
         }
     }
 
-    Ok(Response::builder()
-        .status(StatusCode::OK)
-        .header("content-type", "application/json")
-        .header("access-control-allow-origin", "*")
-        .body(Body::from(model_info.to_string()))
-        .unwrap())
+    Ok(json_raw(StatusCode::OK, model_info.to_string()))
 }
 
 pub async fn handle_get_model_status(
@@ -349,27 +340,17 @@ pub async fn handle_get_model_status(
     #[cfg(not(feature = "mock"))]
     {
         let status = get_model_status(&llama_state);
-        let response_json = match serde_json::to_string(&status) {
-            Ok(json) => json,
-            Err(_) => r#"{"loaded":false,"model_path":null,"last_used":null,"memory_usage_mb":null}"#.to_string(),
-        };
+        let response_json = serialize_with_fallback(
+            &status,
+            r#"{"loaded":false,"model_path":null,"last_used":null,"memory_usage_mb":null}"#
+        );
 
-        Ok(Response::builder()
-            .status(StatusCode::OK)
-            .header("content-type", "application/json")
-            .header("access-control-allow-origin", "*")
-            .body(Body::from(response_json))
-            .unwrap())
+        Ok(json_raw(StatusCode::OK, response_json))
     }
 
     #[cfg(feature = "mock")]
     {
-        Ok(Response::builder()
-            .status(StatusCode::OK)
-            .header("content-type", "application/json")
-            .header("access-control-allow-origin", "*")
-            .body(Body::from(r#"{"loaded":false,"model_path":null,"last_used":null,"memory_usage_mb":null}"#))
-            .unwrap())
+        Ok(json_raw(StatusCode::OK, r#"{"loaded":false,"model_path":null,"last_used":null,"memory_usage_mb":null}"#.to_string()))
     }
 }
 
@@ -381,17 +362,9 @@ pub async fn handle_get_model_history(
 ) -> Result<Response<Body>, Infallible> {
     // Load config and return model history
     let config = load_config();
-    let response_json = match serde_json::to_string(&config.model_history) {
-        Ok(json) => json,
-        Err(_) => "[]".to_string(),
-    };
+    let response_json = serialize_with_fallback(&config.model_history, "[]");
 
-    Ok(Response::builder()
-        .status(StatusCode::OK)
-        .header("content-type", "application/json")
-        .header("access-control-allow-origin", "*")
-        .body(Body::from(response_json))
-        .unwrap())
+    Ok(json_raw(StatusCode::OK, response_json))
 }
 
 pub async fn handle_post_model_history(
@@ -401,47 +374,21 @@ pub async fn handle_post_model_history(
     #[cfg(feature = "mock")]
     _llama_state: (),
 ) -> Result<Response<Body>, Infallible> {
-    // Add a model path to history
-    let body_bytes = match hyper::body::to_bytes(req.into_body()).await {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            println!("[DEBUG] Failed to read request body: {}", e);
-            return Ok(Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .header("content-type", "application/json")
-                .header("access-control-allow-origin", "*")
-                .body(Body::from(r#"{"success":false,"message":"Failed to read request body"}"#))
-                .unwrap());
-        }
-    };
-
     #[derive(Deserialize)]
     struct AddHistoryRequest {
         model_path: String,
     }
 
-    let request: AddHistoryRequest = match serde_json::from_slice(&body_bytes) {
+    // Parse request body using helper
+    let request: AddHistoryRequest = match parse_json_body(req.into_body()).await {
         Ok(req) => req,
-        Err(e) => {
-            println!("[DEBUG] JSON parsing error: {}", e);
-            return Ok(Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .header("content-type", "application/json")
-                .header("access-control-allow-origin", "*")
-                .body(Body::from(r#"{"success":false,"message":"Invalid JSON format"}"#))
-                .unwrap());
-        }
+        Err(error_response) => return Ok(error_response),
     };
 
     // Add to history
     add_to_model_history(&request.model_path);
 
-    Ok(Response::builder()
-        .status(StatusCode::OK)
-        .header("content-type", "application/json")
-        .header("access-control-allow-origin", "*")
-        .body(Body::from(r#"{"success":true}"#))
-        .unwrap())
+    Ok(json_raw(StatusCode::OK, r#"{"success":true}"#.to_string()))
 }
 
 pub async fn handle_post_model_load(
@@ -451,38 +398,14 @@ pub async fn handle_post_model_load(
     #[cfg(feature = "mock")]
     _llama_state: (),
 ) -> Result<Response<Body>, Infallible> {
-    println!("[DEBUG] /api/model/load endpoint hit");
+    sys_debug!("[DEBUG] /api/model/load endpoint hit");
 
     #[cfg(not(feature = "mock"))]
     {
-        // Parse request body
-        let body_bytes = match hyper::body::to_bytes(req.into_body()).await {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                println!("[DEBUG] Failed to read request body: {}", e);
-                return Ok(Response::builder()
-                    .status(StatusCode::BAD_REQUEST)
-                    .header("content-type", "application/json")
-                    .header("access-control-allow-origin", "*")
-                    .body(Body::from(r#"{"success":false,"message":"Failed to read request body"}"#))
-                    .unwrap());
-            }
-        };
-
-        println!("[DEBUG] Request body: {}", String::from_utf8_lossy(&body_bytes));
-
-        let load_request: ModelLoadRequest = match serde_json::from_slice(&body_bytes) {
+        // Parse request body using helper
+        let load_request: ModelLoadRequest = match parse_json_body(req.into_body()).await {
             Ok(req) => req,
-            Err(e) => {
-                println!("[DEBUG] JSON parsing error in model/load: {}", e);
-                println!("[DEBUG] Raw body was: {}", String::from_utf8_lossy(&body_bytes));
-                return Ok(Response::builder()
-                    .status(StatusCode::BAD_REQUEST)
-                    .header("content-type", "application/json")
-                    .header("access-control-allow-origin", "*")
-                    .body(Body::from(r#"{"success":false,"message":"Invalid JSON format"}"#))
-                    .unwrap());
-            }
+            Err(error_response) => return Ok(error_response),
         };
 
         // Attempt to load the model
@@ -498,17 +421,12 @@ pub async fn handle_post_model_load(
                     status: Some(status),
                 };
 
-                let response_json = match serde_json::to_string(&response) {
-                    Ok(json) => json,
-                    Err(_) => r#"{"success":true,"message":"Model loaded successfully","status":null}"#.to_string(),
-                };
+                let response_json = serialize_with_fallback(
+                    &response,
+                    r#"{"success":true,"message":"Model loaded successfully","status":null}"#
+                );
 
-                Ok(Response::builder()
-                    .status(StatusCode::OK)
-                    .header("content-type", "application/json")
-                    .header("access-control-allow-origin", "*")
-                    .body(Body::from(response_json))
-                    .unwrap())
+                Ok(json_raw(StatusCode::OK, response_json))
             }
             Err(e) => {
                 let response = ModelResponse {
@@ -517,17 +435,12 @@ pub async fn handle_post_model_load(
                     status: None,
                 };
 
-                let response_json = match serde_json::to_string(&response) {
-                    Ok(json) => json,
-                    Err(_) => format!(r#"{{"success":false,"message":"Failed to load model: {}","status":null}}"#, e),
-                };
+                let response_json = serialize_with_fallback(
+                    &response,
+                    &format!(r#"{{"success":false,"message":"Failed to load model: {}","status":null}}"#, e)
+                );
 
-                Ok(Response::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .header("content-type", "application/json")
-                    .header("access-control-allow-origin", "*")
-                    .body(Body::from(response_json))
-                    .unwrap())
+                Ok(json_raw(StatusCode::INTERNAL_SERVER_ERROR, response_json))
             }
         }
     }
@@ -535,12 +448,7 @@ pub async fn handle_post_model_load(
     #[cfg(feature = "mock")]
     {
         let _ = req;
-        Ok(Response::builder()
-            .status(StatusCode::SERVICE_UNAVAILABLE)
-            .header("content-type", "application/json")
-            .header("access-control-allow-origin", "*")
-            .body(Body::from(r#"{"success":false,"message":"Model loading not available (mock feature enabled)"}"#))
-            .unwrap())
+        Ok(json_raw(StatusCode::SERVICE_UNAVAILABLE, r#"{"success":false,"message":"Model loading not available (mock feature enabled)"}"#.to_string()))
     }
 }
 
@@ -561,17 +469,12 @@ pub async fn handle_post_model_unload(
                     status: Some(status),
                 };
 
-                let response_json = match serde_json::to_string(&response) {
-                    Ok(json) => json,
-                    Err(_) => r#"{"success":true,"message":"Model unloaded successfully","status":null}"#.to_string(),
-                };
+                let response_json = serialize_with_fallback(
+                    &response,
+                    r#"{"success":true,"message":"Model unloaded successfully","status":null}"#
+                );
 
-                Ok(Response::builder()
-                    .status(StatusCode::OK)
-                    .header("content-type", "application/json")
-                    .header("access-control-allow-origin", "*")
-                    .body(Body::from(response_json))
-                    .unwrap())
+                Ok(json_raw(StatusCode::OK, response_json))
             }
             Err(e) => {
                 let response = ModelResponse {
@@ -580,28 +483,18 @@ pub async fn handle_post_model_unload(
                     status: None,
                 };
 
-                let response_json = match serde_json::to_string(&response) {
-                    Ok(json) => json,
-                    Err(_) => format!(r#"{{"success":false,"message":"Failed to unload model: {}","status":null}}"#, e),
-                };
+                let response_json = serialize_with_fallback(
+                    &response,
+                    &format!(r#"{{"success":false,"message":"Failed to unload model: {}","status":null}}"#, e)
+                );
 
-                Ok(Response::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .header("content-type", "application/json")
-                    .header("access-control-allow-origin", "*")
-                    .body(Body::from(response_json))
-                    .unwrap())
+                Ok(json_raw(StatusCode::INTERNAL_SERVER_ERROR, response_json))
             }
         }
     }
 
     #[cfg(feature = "mock")]
     {
-        Ok(Response::builder()
-            .status(StatusCode::SERVICE_UNAVAILABLE)
-            .header("content-type", "application/json")
-            .header("access-control-allow-origin", "*")
-            .body(Body::from(r#"{"success":false,"message":"Model unloading not available (mock feature enabled)"}"#))
-            .unwrap())
+        Ok(json_raw(StatusCode::SERVICE_UNAVAILABLE, r#"{"success":false,"message":"Model unloading not available (mock feature enabled)"}"#.to_string()))
     }
 }

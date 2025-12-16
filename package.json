@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"vite --host\" \"cargo build --bin llama_chat_web && cargo run --bin llama_chat_web\"",
+    "dev": "concurrently \"vite --host --port 4000\" \"cargo build --bin llama_chat_web && cargo run --bin llama_chat_web\"",
+    "dev:web": "concurrently \"vite --host --port 4000\" \"cargo build --bin llama_chat_web && cargo run --bin llama_chat_web\"",
     "build": "tsc && vite build",
     "build:rust": "cargo build --bin llama_chat_web",
     "preview": "vite preview",

@@ -1,3 +1,7 @@
+// VRAM and GPU layer calculation utilities
+// Note: Currently not integrated - GPU layer calculation is done in model_manager.rs
+#![allow(dead_code)]
+
 use std::fs;
 use std::io::BufReader;
 use std::process::Command;

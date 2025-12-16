@@ -1,7 +1,7 @@
 // Configuration database operations
 
 use rusqlite::params;
-use super::{Database, current_timestamp_millis};
+use super::{Database, current_timestamp_millis, db_error};
 
 /// Sampler configuration stored in database
 #[derive(Debug, Clone)]
@@ -105,7 +105,7 @@ impl Database {
                 current_timestamp_millis(),
             ],
         )
-        .map_err(|e| format!("Failed to save config: {}", e))?;
+        .map_err(db_error("save config"))?;
 
         Ok(())
     }
@@ -138,7 +138,7 @@ impl Database {
                 current_timestamp_millis(),
             ],
         )
-        .map_err(|e| format!("Failed to update config: {}", e))?;
+        .map_err(db_error("update config"))?;
 
         Ok(())
     }
@@ -153,28 +153,28 @@ impl Database {
             "DELETE FROM model_history WHERE model_path = ?1",
             [model_path],
         )
-        .map_err(|e| format!("Failed to delete from model history: {}", e))?;
+        .map_err(db_error("delete from model history"))?;
 
         // Shift all display_order values up
         conn.execute(
             "UPDATE model_history SET display_order = display_order + 1",
             [],
         )
-        .map_err(|e| format!("Failed to update model history order: {}", e))?;
+        .map_err(db_error("update model history order"))?;
 
         // Insert at position 0
         conn.execute(
             "INSERT INTO model_history (model_path, last_used, display_order) VALUES (?1, ?2, 0)",
             params![model_path, now],
         )
-        .map_err(|e| format!("Failed to insert into model history: {}", e))?;
+        .map_err(db_error("insert into model history"))?;
 
         // Keep only top 10
         conn.execute(
             "DELETE FROM model_history WHERE display_order >= 10",
             [],
         )
-        .map_err(|e| format!("Failed to trim model history: {}", e))?;
+        .map_err(db_error("trim model history"))?;
 
         Ok(())
     }
@@ -184,11 +184,11 @@ impl Database {
         let conn = self.connection();
         let mut stmt = conn
             .prepare("SELECT model_path FROM model_history ORDER BY display_order ASC")
-            .map_err(|e| format!("Failed to prepare model history query: {}", e))?;
+            .map_err(db_error("prepare model history query"))?;
 
         let paths = stmt
             .query_map([], |row| row.get(0))
-            .map_err(|e| format!("Failed to query model history: {}", e))?
+            .map_err(db_error("query model history"))?
             .filter_map(|r| r.ok())
             .collect();
 
@@ -209,7 +209,7 @@ impl Database {
             "INSERT INTO logs (conversation_id, level, message, timestamp) VALUES (?1, ?2, ?3, ?4)",
             params![conversation_id, level, message, now],
         )
-        .map_err(|e| format!("Failed to insert log: {}", e))?;
+        .map_err(db_error("insert log"))?;
 
         Ok(())
     }
@@ -222,7 +222,7 @@ impl Database {
                 "SELECT level, message, timestamp FROM logs
                  WHERE conversation_id = ?1 ORDER BY timestamp ASC",
             )
-            .map_err(|e| format!("Failed to prepare logs query: {}", e))?;
+            .map_err(db_error("prepare logs query"))?;
 
         let logs = stmt
             .query_map([conversation_id], |row| {
@@ -232,7 +232,7 @@ impl Database {
                     timestamp: row.get(2)?,
                 })
             })
-            .map_err(|e| format!("Failed to query logs: {}", e))?
+            .map_err(db_error("query logs"))?
             .filter_map(|r| r.ok())
             .collect();
 

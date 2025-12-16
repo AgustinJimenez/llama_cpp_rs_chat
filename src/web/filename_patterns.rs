@@ -2,6 +2,8 @@
 //
 // Uses lookup tables instead of long if-else chains for detecting
 // architecture, parameters, and quantization from GGUF filenames.
+// Note: Some utility functions kept for completeness
+#![allow(dead_code)]
 
 /// Architecture patterns: (pattern_to_match, display_name)
 const ARCHITECTURE_PATTERNS: &[(&str, &str)] = &[

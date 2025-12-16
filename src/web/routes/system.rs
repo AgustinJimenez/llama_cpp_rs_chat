@@ -3,6 +3,8 @@
 use hyper::{Body, Response, StatusCode};
 use std::convert::Infallible;
 
+use crate::web::response_helpers::json_raw;
+
 #[cfg(target_os = "windows")]
 use std::process::Command;
 
@@ -16,12 +18,7 @@ pub async fn handle_system_usage() -> Result<Response<Body>, Infallible> {
         "ram": ram_usage,
     });
 
-    Ok(Response::builder()
-        .status(StatusCode::OK)
-        .header("content-type", "application/json")
-        .header("access-control-allow-origin", "*")
-        .body(Body::from(serde_json::to_string(&response).unwrap()))
-        .unwrap())
+    Ok(json_raw(StatusCode::OK, serde_json::to_string(&response).unwrap()))
 }
 
 #[cfg(target_os = "windows")]

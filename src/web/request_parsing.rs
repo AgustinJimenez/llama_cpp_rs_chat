@@ -1,7 +1,12 @@
 // Request parsing utilities for HTTP handlers
+// Note: Some utility functions kept for completeness
+#![allow(dead_code)]
 
 use hyper::{Body, Response, StatusCode, Uri};
 use serde::de::DeserializeOwned;
+
+// Import logging macros
+use crate::{sys_debug, sys_error};
 
 /// Parse JSON request body into a typed structure.
 ///
@@ -32,7 +37,7 @@ pub async fn parse_json_body<T: DeserializeOwned>(body: Body) -> Result<T, Respo
     // Debug: log the received JSON for troubleshooting
     if let Ok(body_str) = std::str::from_utf8(&body_bytes) {
         if !body_str.is_empty() {
-            eprintln!("[REQUEST] Body: {}", body_str);
+            sys_debug!("[REQUEST] Body: {}", body_str);
         }
     }
 
@@ -40,7 +45,7 @@ pub async fn parse_json_body<T: DeserializeOwned>(body: Body) -> Result<T, Respo
     match serde_json::from_slice::<T>(&body_bytes) {
         Ok(parsed) => Ok(parsed),
         Err(e) => {
-            eprintln!("[REQUEST] JSON parsing error: {}", e);
+            sys_error!("[REQUEST] JSON parsing error: {}", e);
             Err(Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .header("content-type", "application/json")

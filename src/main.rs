@@ -5,6 +5,34 @@ use llama_cpp_chat::{AppState, ChatRequest, ChatResponse, Message, SamplerConfig
 use std::collections::HashMap;
 use tauri::State;
 
+// Logging
+use log::{info, warn, error, LevelFilter};
+use log4rs::append::rolling_file::RollingFileAppender;
+use log4rs::append::rolling_file::policy::compound::CompoundPolicy;
+use log4rs::append::rolling_file::policy::compound::trigger::size::SizeTrigger;
+use log4rs::append::rolling_file::policy::compound::roll::fixed_window::FixedWindowRoller;
+use log4rs::config::{Appender, Config, Root};
+use log4rs::encode::pattern::PatternEncoder;
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct LogEntry {
+    level: String,
+    message: String,
+}
+
+#[tauri::command]
+fn log_to_file(logs: Vec<LogEntry>) {
+    for log in logs {
+        match log.level.as_str() {
+            "info" => info!("[FRONTEND] {}", log.message),
+            "warn" => warn!("[FRONTEND] {}", log.message),
+            "error" => error!("[FRONTEND] {}", log.message),
+            _ => info!("[FRONTEND] {}", log.message),
+        }
+    }
+}
+
 // Tauri command wrappers
 #[tauri::command]
 async fn send_message(
@@ -68,7 +96,35 @@ async fn get_model_metadata(
     llama_cpp_chat::get_model_metadata(model_path).await
 }
 
+fn setup_logging() -> Result<(), Box<dyn std::error::Error>> {
+    let log_dir = "logs";
+    std::fs::create_dir_all(log_dir)?;
+    let log_path = format!("{}/frontend.log", log_dir);
+
+    let roller = FixedWindowRoller::builder()
+        .build("logs/frontend.{}.log.gz", 5)?;
+    let size_trigger = SizeTrigger::new(5 * 1024 * 1024); // 5 MB
+    let policy = CompoundPolicy::new(Box::new(size_trigger), Box::new(roller));
+
+    let file_appender = RollingFileAppender::builder()
+        .encoder(Box::new(PatternEncoder::new("{d(%Y-%m-%d %H:%M:%S)} - {l} - {m}{n}")))
+        .build(log_path, Box::new(policy))?;
+
+    let config = Config::builder()
+        .appender(Appender::builder().build("file", Box::new(file_appender)))
+        .build(Root::builder().appender("file").build(LevelFilter::Info))?;
+
+    log4rs::init_config(config)?;
+
+    Ok(())
+}
+
+
 fn main() {
+    if let Err(e) = setup_logging() {
+        eprintln!("Failed to set up logging: {}", e);
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -82,7 +138,8 @@ fn main() {
             get_model_status,
             load_model,
             unload_model,
-            get_model_metadata
+            get_model_metadata,
+            log_to_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -3,6 +3,8 @@
 use hyper::{Body, Response, StatusCode};
 use std::convert::Infallible;
 
+use crate::web::response_helpers::cors_preflight;
+
 pub async fn handle_index(
     #[cfg(not(feature = "mock"))]
     _llama_state: crate::web::models::SharedLlamaState,
@@ -88,11 +90,5 @@ pub async fn handle_options(
     #[cfg(feature = "mock")]
     _llama_state: (),
 ) -> Result<Response<Body>, Infallible> {
-    Ok(Response::builder()
-        .status(StatusCode::OK)
-        .header("access-control-allow-origin", "*")
-        .header("access-control-allow-methods", "GET, POST, DELETE, OPTIONS")
-        .header("access-control-allow-headers", "content-type")
-        .body(Body::empty())
-        .unwrap())
+    Ok(cors_preflight())
 }

@@ -1,8 +1,11 @@
 // Conversation and message database operations
 
 use rusqlite::params;
-use super::{Database, StreamingUpdate, current_timestamp_millis, current_timestamp_secs, generate_conversation_id};
+use super::{Database, StreamingUpdate, current_timestamp_millis, current_timestamp_secs, generate_conversation_id, db_error};
 use std::sync::Arc;
+
+// Import logging macros
+use crate::sys_error;
 
 /// Conversation metadata
 #[derive(Debug, Clone)]
@@ -38,7 +41,7 @@ impl Database {
              VALUES (?1, ?2, ?3, ?4, NULL)",
             params![id, now, now, system_prompt],
         )
-        .map_err(|e| format!("Failed to create conversation: {}", e))?;
+        .map_err(db_error("create conversation"))?;
 
         Ok(id)
     }
@@ -56,7 +59,7 @@ impl Database {
              VALUES (?1, ?2, ?3, ?4, NULL)",
             params![id, created_at, created_at, system_prompt],
         )
-        .map_err(|e| format!("Failed to create conversation: {}", e))?;
+        .map_err(db_error("create conversation"))?;
 
         Ok(())
     }
@@ -70,7 +73,7 @@ impl Database {
                 [id],
                 |row| row.get(0),
             )
-            .map_err(|e| format!("Failed to check conversation: {}", e))?;
+            .map_err(db_error("check conversation"))?;
 
         Ok(count > 0)
     }
@@ -108,7 +111,7 @@ impl Database {
                 "SELECT id, created_at, updated_at, system_prompt, title
                  FROM conversations ORDER BY created_at DESC",
             )
-            .map_err(|e| format!("Failed to prepare statement: {}", e))?;
+            .map_err(db_error("prepare statement"))?;
 
         let records = stmt
             .query_map([], |row| {
@@ -120,7 +123,7 @@ impl Database {
                     title: row.get(4)?,
                 })
             })
-            .map_err(|e| format!("Failed to query conversations: {}", e))?
+            .map_err(db_error("query conversations"))?
             .filter_map(|r| r.ok())
             .collect();
 
@@ -136,15 +139,15 @@ impl Database {
             "DELETE FROM streaming_buffer WHERE conversation_id = ?1",
             [id],
         )
-        .map_err(|e| format!("Failed to delete streaming buffer: {}", e))?;
+        .map_err(db_error("delete streaming buffer"))?;
 
         // Delete messages (should cascade but be explicit)
         conn.execute("DELETE FROM messages WHERE conversation_id = ?1", [id])
-            .map_err(|e| format!("Failed to delete messages: {}", e))?;
+            .map_err(db_error("delete messages"))?;
 
         // Delete conversation
         conn.execute("DELETE FROM conversations WHERE id = ?1", [id])
-            .map_err(|e| format!("Failed to delete conversation: {}", e))?;
+            .map_err(db_error("delete conversation"))?;
 
         Ok(())
     }
@@ -156,7 +159,7 @@ impl Database {
             "UPDATE conversations SET updated_at = ?1 WHERE id = ?2",
             params![current_timestamp_millis(), id],
         )
-        .map_err(|e| format!("Failed to update conversation timestamp: {}", e))?;
+        .map_err(db_error("update conversation timestamp"))?;
 
         Ok(())
     }
@@ -178,7 +181,7 @@ impl Database {
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)",
             params![message_id, conversation_id, role, content, timestamp as i64, sequence_order],
         )
-        .map_err(|e| format!("Failed to insert message: {}", e))?;
+        .map_err(db_error("insert message"))?;
 
         Ok(message_id)
     }
@@ -198,7 +201,7 @@ impl Database {
              VALUES (?1, ?2, 'assistant', '', ?3, ?4, 1)",
             params![message_id, conversation_id, timestamp as i64, sequence_order],
         )
-        .map_err(|e| format!("Failed to insert streaming message: {}", e))?;
+        .map_err(db_error("insert streaming message"))?;
 
         Ok(())
     }
@@ -218,7 +221,7 @@ impl Database {
              VALUES (?1, ?2, '', 0, 0, ?3)",
             params![conversation_id, message_id, now],
         )
-        .map_err(|e| format!("Failed to init streaming buffer: {}", e))?;
+        .map_err(db_error("init streaming buffer"))?;
 
         Ok(())
     }
@@ -240,7 +243,7 @@ impl Database {
              WHERE conversation_id = ?5",
             params![partial_content, tokens_used, max_tokens, now, conversation_id],
         )
-        .map_err(|e| format!("Failed to update streaming buffer: {}", e))?;
+        .map_err(db_error("update streaming buffer"))?;
 
         Ok(())
     }
@@ -253,7 +256,7 @@ impl Database {
             "UPDATE messages SET content = ?1, is_streaming = 0 WHERE id = ?2",
             params![content, message_id],
         )
-        .map_err(|e| format!("Failed to finalize streaming message: {}", e))?;
+        .map_err(db_error("finalize streaming message"))?;
 
         Ok(())
     }
@@ -266,7 +269,7 @@ impl Database {
             "DELETE FROM streaming_buffer WHERE conversation_id = ?1",
             [conversation_id],
         )
-        .map_err(|e| format!("Failed to delete streaming buffer: {}", e))?;
+        .map_err(db_error("delete streaming buffer"))?;
 
         Ok(())
     }
@@ -280,7 +283,7 @@ impl Database {
                 [conversation_id],
                 |row| row.get(0),
             )
-            .map_err(|e| format!("Failed to get message count: {}", e))?;
+            .map_err(db_error("get message count"))?;
 
         Ok(count)
     }
@@ -293,7 +296,7 @@ impl Database {
                 "SELECT id, conversation_id, role, content, timestamp, sequence_order, is_streaming
                  FROM messages WHERE conversation_id = ?1 ORDER BY sequence_order ASC",
             )
-            .map_err(|e| format!("Failed to prepare statement: {}", e))?;
+            .map_err(db_error("prepare statement"))?;
 
         let messages = stmt
             .query_map([conversation_id], |row| {
@@ -307,7 +310,7 @@ impl Database {
                     is_streaming: row.get::<_, i32>(6)? != 0,
                 })
             })
-            .map_err(|e| format!("Failed to query messages: {}", e))?
+            .map_err(db_error("query messages"))?
             .filter_map(|r| r.ok())
             .collect();
 
@@ -414,7 +417,7 @@ impl ConversationLogger {
             timestamp,
             self.sequence_counter,
         ) {
-            eprintln!("Failed to log message: {}", e);
+            sys_error!("Failed to log message: {}", e);
             return;
         }
 
@@ -436,13 +439,13 @@ impl ConversationLogger {
             timestamp,
             self.sequence_counter,
         ) {
-            eprintln!("Failed to start streaming message: {}", e);
+            sys_error!("Failed to start streaming message: {}", e);
             return;
         }
 
         // Initialize streaming buffer
         if let Err(e) = self.db.init_streaming_buffer(&self.conversation_id, &message_id) {
-            eprintln!("Failed to init streaming buffer: {}", e);
+            sys_error!("Failed to init streaming buffer: {}", e);
         }
 
         self.current_message_id = Some(message_id);
@@ -462,7 +465,7 @@ impl ConversationLogger {
                 0, // tokens_used updated separately
                 0, // max_tokens updated separately
             ) {
-                eprintln!("Failed to update streaming buffer: {}", e);
+                sys_error!("Failed to update streaming buffer: {}", e);
             }
 
             // Broadcast to WebSocket subscribers
@@ -481,12 +484,12 @@ impl ConversationLogger {
         if let Some(ref msg_id) = self.current_message_id {
             // Update the message with final content
             if let Err(e) = self.db.finalize_streaming_message(msg_id, &self.accumulated_content) {
-                eprintln!("Failed to finalize streaming message: {}", e);
+                sys_error!("Failed to finalize streaming message: {}", e);
             }
 
             // Clean up streaming buffer
             if let Err(e) = self.db.delete_streaming_buffer(&self.conversation_id) {
-                eprintln!("Failed to clean streaming buffer: {}", e);
+                sys_error!("Failed to clean streaming buffer: {}", e);
             }
 
             // Broadcast completion

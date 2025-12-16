@@ -18,6 +18,12 @@ export default defineConfig({
         target: 'http://localhost:8000',
         changeOrigin: true,
         ws: true, // Enable WebSocket proxying
+        configure: (proxy) => {
+          // Disable buffering for real-time streaming
+          proxy.on('proxyReqWs', (proxyReq) => {
+            proxyReq.setHeader('Connection', 'Upgrade');
+          });
+        },
       },
     },
   },

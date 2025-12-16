@@ -2,6 +2,8 @@
 //
 // This module provides shared WebSocket helpers to avoid duplication
 // across routes/chat.rs and other WebSocket-related code.
+// Note: Some utility functions kept for completeness
+#![allow(dead_code)]
 
 use hyper::{Body, Request, Response, StatusCode};
 use sha1::{Digest, Sha1};

@@ -3,7 +3,11 @@
 use hyper::{Body, Request, Response};
 use serde::de::DeserializeOwned;
 
-use super::response;
+use super::response_helpers::json_error;
+use hyper::StatusCode;
+
+// Import logging macros
+use crate::sys_error;
 
 /// Parse request body as JSON
 /// Returns the deserialized value or an error response
@@ -13,8 +17,8 @@ pub async fn parse_json<T: DeserializeOwned>(req: Request<Body>) -> Result<T, Re
     let body_bytes = match hyper::body::to_bytes(req.into_body()).await {
         Ok(bytes) => bytes,
         Err(e) => {
-            eprintln!("[ERROR] Failed to read request body: {}", e);
-            return Err(response::bad_request("Failed to read request body"));
+            sys_error!("[ERROR] Failed to read request body: {}", e);
+            return Err(json_error(StatusCode::BAD_REQUEST, "Failed to read request body"));
         }
     };
 
@@ -22,8 +26,8 @@ pub async fn parse_json<T: DeserializeOwned>(req: Request<Body>) -> Result<T, Re
     match serde_json::from_slice(&body_bytes) {
         Ok(value) => Ok(value),
         Err(e) => {
-            eprintln!("[ERROR] JSON parsing error: {}", e);
-            Err(response::bad_request("Invalid JSON format"))
+            sys_error!("[ERROR] JSON parsing error: {}", e);
+            Err(json_error(StatusCode::BAD_REQUEST, "Invalid JSON format"))
         }
     }
 }

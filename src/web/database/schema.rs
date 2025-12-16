@@ -1,6 +1,7 @@
 // Database schema definitions for LLaMA Chat
 
 use rusqlite::Connection;
+use super::db_error;
 
 /// SQL statements to create all tables
 const CREATE_CONVERSATIONS_TABLE: &str = r#"
@@ -107,7 +108,7 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
 
     for (name, sql) in statements.iter() {
         conn.execute(sql, [])
-            .map_err(|e| format!("Failed to create {}: {}", name, e))?;
+            .map_err(db_error(&format!("create {}", name)))?;
     }
 
     // Insert default config row if it doesn't exist
@@ -115,7 +116,7 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         "INSERT OR IGNORE INTO config (id, updated_at) VALUES (1, ?1)",
         [super::current_timestamp_millis()],
     )
-    .map_err(|e| format!("Failed to insert default config: {}", e))?;
+    .map_err(db_error("insert default config"))?;
 
     Ok(())
 }
@@ -134,7 +135,7 @@ pub fn drop_all_tables(conn: &Connection) -> Result<(), String> {
 
     for table in tables.iter() {
         conn.execute(&format!("DROP TABLE IF EXISTS {}", table), [])
-            .map_err(|e| format!("Failed to drop {}: {}", table, e))?;
+            .map_err(db_error(&format!("drop {}", table)))?;
     }
 
     Ok(())

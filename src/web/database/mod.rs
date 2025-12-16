@@ -1,6 +1,7 @@
 // SQLite database module for LLaMA Chat
 // Replaces file-based storage with SQLite for conversations, config, and logs
-// Note: Module not yet integrated - will show dead_code warnings until integration
+// Note: ConversationLogger IS integrated and actively used. Other parts (config, migration) not yet fully integrated.
+#![allow(dead_code)]
 
 pub mod schema;
 pub mod conversation;
@@ -31,15 +32,22 @@ pub struct Database {
 /// Shared database type for passing across async boundaries
 pub type SharedDatabase = Arc<Database>;
 
+/// Helper function to create standardized database error messages
+///
+/// Usage: `.map_err(db_error("create conversation"))?`
+pub fn db_error(context: &str) -> impl Fn(rusqlite::Error) -> String + '_ {
+    move |e| format!("Failed to {}: {}", context, e)
+}
+
 impl Database {
     /// Create a new database connection and initialize schema
     pub fn new(db_path: &str) -> Result<Self, String> {
         let conn = Connection::open(db_path)
-            .map_err(|e| format!("Failed to open database: {}", e))?;
+            .map_err(db_error("open database"))?;
 
         // Enable foreign keys
         conn.execute("PRAGMA foreign_keys = ON", [])
-            .map_err(|e| format!("Failed to enable foreign keys: {}", e))?;
+            .map_err(db_error("enable foreign keys"))?;
 
         // Initialize schema
         schema::initialize(&conn)?;

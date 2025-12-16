@@ -2,6 +2,8 @@
 //
 // This module provides a clean interface for reading GGUF file metadata
 // using the gguf_llms crate.
+// Note: Some utility functions kept for completeness
+#![allow(dead_code)]
 
 use std::fs::File;
 use std::io::BufReader;

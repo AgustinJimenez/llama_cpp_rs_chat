@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import { toast } from 'react-hot-toast';
-import { TauriAPI } from '../utils/tauri';
+import { createChatTransport, type ChatTransport } from '../utils/chatTransport';
 import { autoParseToolCalls } from '../utils/toolParser';
 import { useConversationUrl } from './useConversationUrl';
 import { useToolExecution } from './useToolExecution';
@@ -28,6 +28,7 @@ export function useChat() {
   // Refs for streaming state
   const abortControllerRef = useRef<AbortController | null>(null);
   const isStreamingRef = useRef(false);
+  const transportRef = useRef<ChatTransport>(createChatTransport());
 
   // Clear all messages and reset state
   const clearMessages = useCallback(() => {
@@ -128,59 +129,58 @@ export function useChat() {
       console.log('[useChat] Streaming started');
 
       // Stream response via WebSocket
-      await TauriAPI.sendMessageStream(
+      await transportRef.current.streamMessage(
         request,
-        // onToken
-        (token, tokenCount, maxTokenCount) => {
-          flushSync(() => {
+        {
+          onToken: (token, tokenCount, maxTokenCount) => {
+            flushSync(() => {
+              setMessages(prev => {
+                const lastMsg = prev[prev.length - 1];
+                if (lastMsg && lastMsg.id === assistantMessageId) {
+                  return [
+                    ...prev.slice(0, -1),
+                    { ...lastMsg, content: lastMsg.content + token }
+                  ];
+                }
+                return prev;
+              });
+            });
+            if (tokenCount !== undefined) setTokensUsed(tokenCount);
+            if (maxTokenCount !== undefined) setMaxTokens(maxTokenCount);
+          },
+          onComplete: (_messageId, conversationId, tokenCount, maxTokenCount) => {
+            isStreamingRef.current = false;
+            console.log('[useChat] Streaming complete');
+
+            if (!currentConversationId) {
+              setCurrentConversationId(conversationId);
+            }
+            if (tokenCount !== undefined) setTokensUsed(tokenCount);
+            if (maxTokenCount !== undefined) setMaxTokens(maxTokenCount);
+
+            // Check for tool calls in final message
             setMessages(prev => {
               const lastMsg = prev[prev.length - 1];
-              if (lastMsg && lastMsg.id === assistantMessageId) {
-                return [
-                  ...prev.slice(0, -1),
-                  { ...lastMsg, content: lastMsg.content + token }
-                ];
-              }
-              return prev;
-            });
-          });
-          if (tokenCount !== undefined) setTokensUsed(tokenCount);
-          if (maxTokenCount !== undefined) setMaxTokens(maxTokenCount);
-        },
-        // onComplete
-        (_messageId, conversationId, tokenCount, maxTokenCount) => {
-          isStreamingRef.current = false;
-          console.log('[useChat] Streaming complete');
-
-          if (!currentConversationId) {
-            setCurrentConversationId(conversationId);
-          }
-          if (tokenCount !== undefined) setTokensUsed(tokenCount);
-          if (maxTokenCount !== undefined) setMaxTokens(maxTokenCount);
-
-          // Check for tool calls in final message
-          setMessages(prev => {
-            const lastMsg = prev[prev.length - 1];
-            if (lastMsg && lastMsg.role === 'assistant' && lastMsg.content) {
-              const toolCalls = autoParseToolCalls(lastMsg.content);
-              if (toolCalls.length > 0) {
-                toolExecution.processToolCalls(toolCalls, lastMsg);
+              if (lastMsg && lastMsg.role === 'assistant' && lastMsg.content) {
+                const toolCalls = autoParseToolCalls(lastMsg.content);
+                if (toolCalls.length > 0) {
+                  toolExecution.processToolCalls(toolCalls, lastMsg);
+                } else {
+                  setIsLoading(false);
+                }
               } else {
                 setIsLoading(false);
               }
-            } else {
-              setIsLoading(false);
-            }
-            return prev;
-          });
-        },
-        // onError
-        (errorMsg) => {
-          isStreamingRef.current = false;
-          console.log('[useChat] Streaming error');
-          setError(errorMsg);
-          toast.error(`Chat error: ${errorMsg}`, { duration: 5000 });
-          setIsLoading(false);
+              return prev;
+            });
+          },
+          onError: (errorMsg) => {
+            isStreamingRef.current = false;
+            console.log('[useChat] Streaming error');
+            setError(errorMsg);
+            toast.error(`Chat error: ${errorMsg}`, { duration: 5000 });
+            setIsLoading(false);
+          },
         },
         abortControllerRef.current?.signal
       );

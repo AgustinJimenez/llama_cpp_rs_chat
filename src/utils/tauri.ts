@@ -1,11 +1,12 @@
 import type { ChatRequest, ChatResponse, SamplerConfig, Message } from '../types';
 
 // Check if we're running in Tauri or web environment
-const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+export const isTauriEnv = (): boolean =>
+  typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
 export class TauriAPI {
   static async sendMessage(request: ChatRequest): Promise<ChatResponse> {
-    if (isTauri) {
+    if (isTauriEnv()) {
       // Use Tauri invoke for desktop app
       const { invoke } = await import('@tauri-apps/api/core');
       return await invoke('send_message', { request });
@@ -28,7 +29,7 @@ export class TauriAPI {
   }
 
   static async getConversations(): Promise<Record<string, Message[]>> {
-    if (isTauri) {
+    if (isTauriEnv()) {
       const { invoke } = await import('@tauri-apps/api/core');
       return await invoke('get_conversations');
     } else {
@@ -38,7 +39,7 @@ export class TauriAPI {
   }
 
   static async getConversation(conversationId: string): Promise<Message[]> {
-    if (isTauri) {
+    if (isTauriEnv()) {
       const { invoke } = await import('@tauri-apps/api/core');
       return await invoke('get_conversation', { conversationId });
     } else {
@@ -48,7 +49,7 @@ export class TauriAPI {
   }
 
   static async getSamplerConfig(): Promise<SamplerConfig> {
-    if (isTauri) {
+    if (isTauriEnv()) {
       const { invoke } = await import('@tauri-apps/api/core');
       return await invoke('get_sampler_config');
     } else {
@@ -62,7 +63,7 @@ export class TauriAPI {
   }
 
   static async updateSamplerConfig(config: SamplerConfig): Promise<void> {
-    if (isTauri) {
+    if (isTauriEnv()) {
       const { invoke } = await import('@tauri-apps/api/core');
       return await invoke('update_sampler_config', { config });
     } else {
@@ -79,89 +80,5 @@ export class TauriAPI {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
     }
-  }
-
-  static async sendMessageStream(
-    request: ChatRequest,
-    onToken: (token: string, tokensUsed?: number, maxTokens?: number) => void,
-    onComplete: (messageId: string, conversationId: string, tokensUsed?: number, maxTokens?: number) => void,
-    onError: (error: string) => void,
-    abortSignal?: AbortSignal
-  ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      // Determine WebSocket URL based on current protocol
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/ws/chat/stream`;
-
-      const ws = new WebSocket(wsUrl);
-      let lastTokensUsed: number | undefined = undefined;
-      let lastMaxTokens: number | undefined = undefined;
-      let isCompleted = false;
-
-      // Handle abort signal
-      if (abortSignal) {
-        abortSignal.addEventListener('abort', () => {
-          ws.close();
-          resolve();
-        });
-      }
-
-      ws.onopen = () => {
-        ws.send(JSON.stringify(request));
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data);
-
-          if (message.type === 'token') {
-            // Update token counts
-            if (message.tokens_used !== undefined) {
-              lastTokensUsed = message.tokens_used;
-            }
-            if (message.max_tokens !== undefined) {
-              lastMaxTokens = message.max_tokens;
-            }
-            onToken(message.token, message.tokens_used, message.max_tokens);
-          } else if (message.type === 'done') {
-            isCompleted = true;
-            // Use conversation_id from server response, fallback to request or generate new UUID
-            const conversationId = message.conversation_id || request.conversation_id || crypto.randomUUID();
-            onComplete(crypto.randomUUID(), conversationId, lastTokensUsed, lastMaxTokens);
-            ws.close();
-            resolve();
-          } else if (message.type === 'error') {
-            console.error('[FRONTEND] Stream error:', message.error);
-            onError(message.error || 'Unknown error');
-            ws.close();
-            reject(new Error(message.error || 'Unknown error'));
-          }
-        } catch (e) {
-          console.error('[FRONTEND] Failed to parse WebSocket message:', e);
-          onError('Failed to parse server message');
-          ws.close();
-          reject(e);
-        }
-      };
-
-      ws.onerror = (error) => {
-        console.error('[FRONTEND] WebSocket error:', error);
-        if (!isCompleted) {
-          onError('WebSocket connection error');
-          reject(new Error('WebSocket connection error'));
-        }
-      };
-
-      ws.onclose = (event) => {
-        if (!isCompleted && event.code !== 1000) {
-          // Abnormal closure
-          onError(`Connection closed unexpectedly: ${event.reason || 'Unknown reason'}`);
-          reject(new Error('Connection closed unexpectedly'));
-        } else if (!isCompleted) {
-          // Normal closure but not completed
-          resolve();
-        }
-      };
-    });
   }
 }

@@ -39,7 +39,8 @@ impl Logger {
     pub fn log(&self, conversation_id: &str, level: &str, message: &str) {
         // Create or get the file for this conversation
         if let Err(e) = self.get_or_create_file(conversation_id) {
-            eprintln!("Failed to create log file for {}: {}", conversation_id, e);
+            // Can't use logging macros here as this IS the logger - use eprintln as fallback
+            eprintln!("LOGGER ERROR: Failed to create log file for {}: {}", conversation_id, e);
             return;
         }
 
@@ -103,5 +104,34 @@ macro_rules! log_warn {
 macro_rules! log_error {
     ($conv_id:expr, $($arg:tt)*) => {
         $crate::web::logger::LOGGER.error($conv_id, &format!($($arg)*));
+    };
+}
+
+// System-level logging macros (for logs without conversation context)
+#[macro_export]
+macro_rules! sys_debug {
+    ($($arg:tt)*) => {
+        $crate::web::logger::LOGGER.debug("system", &format!($($arg)*));
+    };
+}
+
+#[macro_export]
+macro_rules! sys_info {
+    ($($arg:tt)*) => {
+        $crate::web::logger::LOGGER.info("system", &format!($($arg)*));
+    };
+}
+
+#[macro_export]
+macro_rules! sys_warn {
+    ($($arg:tt)*) => {
+        $crate::web::logger::LOGGER.warn("system", &format!($($arg)*));
+    };
+}
+
+#[macro_export]
+macro_rules! sys_error {
+    ($($arg:tt)*) => {
+        $crate::web::logger::LOGGER.error("system", &format!($($arg)*));
     };
 }

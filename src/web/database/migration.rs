@@ -5,6 +5,9 @@ use std::path::Path;
 use super::Database;
 use super::config::DbSamplerConfig;
 
+// Import logging macro
+use crate::sys_warn;
+
 /// Migrate existing conversation files to SQLite
 pub fn migrate_existing_conversations(db: &Database) -> Result<u32, String> {
     let conversations_dir = Path::new("assets/conversations");
@@ -29,7 +32,7 @@ pub fn migrate_existing_conversations(db: &Database) -> Result<u32, String> {
                     // Check if already migrated
                     if !db.conversation_exists(&conv_id)? {
                         if let Err(e) = migrate_single_conversation(db, &path, &conv_id) {
-                            eprintln!("Warning: Failed to migrate {}: {}", conv_id, e);
+                            sys_warn!("Warning: Failed to migrate {}: {}", conv_id, e);
                             continue;
                         }
                         migrated_count += 1;

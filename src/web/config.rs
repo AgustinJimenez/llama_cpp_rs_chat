@@ -1,6 +1,14 @@
 use std::fs;
 use super::models::SamplerConfig;
 
+#[cfg(not(feature = "mock"))]
+use super::models::SharedLlamaState;
+
+use super::chat_handler::get_universal_system_prompt;
+
+// Import logging macro
+use crate::sys_warn;
+
 // Helper function to load configuration
 pub fn load_config() -> SamplerConfig {
     let config_path = "assets/config.json";
@@ -9,7 +17,7 @@ pub fn load_config() -> SamplerConfig {
             match serde_json::from_str::<SamplerConfig>(&content) {
                 Ok(config) => config,
                 Err(e) => {
-                    eprintln!("Failed to parse config file: {}, using defaults", e);
+                    sys_warn!("Failed to parse config file: {}, using defaults", e);
                     SamplerConfig::default()
                 }
             }
@@ -18,6 +26,47 @@ pub fn load_config() -> SamplerConfig {
             // Config file doesn't exist, use defaults
             SamplerConfig::default()
         }
+    }
+}
+
+/// Get the resolved system prompt based on config and model state
+///
+/// This helper resolves the system prompt in the following priority:
+/// 1. If config has "__AGENTIC__" marker, use universal agentic prompt
+/// 2. If config has custom prompt, use it
+/// 3. Otherwise, try to get model's default system prompt from GGUF metadata
+#[cfg(not(feature = "mock"))]
+pub fn get_resolved_system_prompt(llama_state: &Option<SharedLlamaState>) -> Option<String> {
+    let config = load_config();
+    match config.system_prompt.as_deref() {
+        // "__AGENTIC__" marker = use universal agentic prompt with command execution
+        Some("__AGENTIC__") => Some(get_universal_system_prompt()),
+        // Custom prompt = use as-is
+        Some(custom) => Some(custom.to_string()),
+        // None = use model's default system prompt from GGUF
+        None => {
+            if let Some(ref state) = llama_state {
+                if let Ok(state_guard) = state.lock() {
+                    state_guard.as_ref()
+                        .and_then(|s| s.model_default_system_prompt.clone())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+    }
+}
+
+/// Mock version for testing
+#[cfg(feature = "mock")]
+pub fn get_resolved_system_prompt(_llama_state: &Option<()>) -> Option<String> {
+    let config = load_config();
+    match config.system_prompt.as_deref() {
+        Some("__AGENTIC__") => Some(get_universal_system_prompt()),
+        Some(custom) => Some(custom.to_string()),
+        None => None,
     }
 }
 

@@ -9,6 +9,9 @@ use crate::web::{
     response_helpers::{json_error, json_raw},
 };
 
+// Import logging macros
+use crate::{sys_debug, sys_warn};
+
 #[cfg(not(feature = "mock"))]
 use crate::web::models::SharedLlamaState;
 
@@ -38,7 +41,7 @@ pub async fn handle_post_tools_execute(
         let state_guard = llama_state;
         // Handle poisoned mutex by extracting the inner value
         let state = state_guard.lock().unwrap_or_else(|poisoned| {
-            eprintln!("[WARN] Mutex was poisoned, recovering...");
+            sys_warn!("[WARN] Mutex was poisoned, recovering...");
             poisoned.into_inner()
         });
         let chat_template = state.as_ref()
@@ -57,7 +60,7 @@ pub async fn handle_post_tools_execute(
     #[cfg(feature = "mock")]
     let (tool_name, tool_arguments) = (request.tool_name.clone(), request.arguments.clone());
 
-    eprintln!("[TOOL EXECUTE] Original: {} → Actual: {}", request.tool_name, tool_name);
+    sys_debug!("[TOOL EXECUTE] Original: {} → Actual: {}", request.tool_name, tool_name);
 
     // Execute tool based on (possibly translated) name
     let result = match tool_name.as_str() {
@@ -203,12 +206,12 @@ pub async fn handle_post_tools_execute(
             let output = if cfg!(target_os = "windows") {
                 // Use PowerShell on Windows for better path and quoting handling
                 // PowerShell handles backslashes and quotes much better than cmd.exe
-                eprintln!("[BASH TOOL] Executing Windows command via PowerShell: {}", command);
+                sys_debug!("[BASH TOOL] Executing Windows command via PowerShell: {}", command);
                 std::process::Command::new("powershell")
                     .args(["-NoProfile", "-NonInteractive", "-Command", command])
                     .output()
             } else {
-                eprintln!("[BASH TOOL] Executing Unix command: sh -c {}", command);
+                sys_debug!("[BASH TOOL] Executing Unix command: sh -c {}", command);
                 std::process::Command::new("sh")
                     .arg("-c")
                     .arg(command)

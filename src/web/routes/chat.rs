@@ -16,8 +16,13 @@ use crate::web::{
         get_websocket_key, build_websocket_upgrade_response,
         build_json_error_response,
     },
-    config::load_config,
+    request_parsing::parse_json_body,
+    response_helpers::{json_error, json_response},
+    config::get_resolved_system_prompt,
 };
+
+// Import logging macros
+use crate::{sys_debug, sys_info, sys_warn, sys_error};
 
 #[cfg(not(feature = "mock"))]
 use crate::web::models::SharedLlamaState;
@@ -46,35 +51,10 @@ pub async fn handle_post_chat(
     _llama_state: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
-    // Parse request body
-    let body_bytes = match hyper::body::to_bytes(req.into_body()).await {
-        Ok(bytes) => bytes,
-        Err(_) => {
-            return Ok(Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .header("content-type", "application/json")
-                .header("access-control-allow-origin", "*")
-                .body(Body::from(r#"{"error":"Failed to read request body"}"#))
-                .unwrap());
-        }
-    };
-
-    // Debug: log the received JSON
-    if let Ok(body_str) = std::str::from_utf8(&body_bytes) {
-        println!("Received request body: {}", body_str);
-    }
-
-    let chat_request: ChatRequest = match serde_json::from_slice(&body_bytes) {
+    // Parse request body using helper
+    let chat_request: ChatRequest = match parse_json_body(req.into_body()).await {
         Ok(req) => req,
-        Err(e) => {
-            println!("JSON parsing error: {}", e);
-            return Ok(Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .header("content-type", "application/json")
-                .header("access-control-allow-origin", "*")
-                .body(Body::from(r#"{"error":"Invalid JSON format"}"#))
-                .unwrap());
-        }
+        Err(error_response) => return Ok(error_response),
     };
 
     #[cfg(not(feature = "mock"))]
@@ -102,12 +82,7 @@ pub async fn handle_post_chat(
                 max_tokens: None,
             };
 
-            return Ok(Response::builder()
-                .status(StatusCode::OK)
-                .header("content-type", "application/json")
-                .header("access-control-allow-origin", "*")
-                .body(Body::from(serde_json::to_string(&response).unwrap()))
-                .unwrap());
+            return Ok(json_response(StatusCode::OK, &response));
         }
 
         // Create or load conversation logger
@@ -116,49 +91,21 @@ pub async fn handle_post_chat(
             match ConversationLogger::from_existing(db.clone(), conversation_id) {
                 Ok(logger) => Arc::new(Mutex::new(logger)),
                 Err(e) => {
-                    return Ok(Response::builder()
-                        .status(StatusCode::INTERNAL_SERVER_ERROR)
-                        .header("content-type", "application/json")
-                        .header("access-control-allow-origin", "*")
-                        .body(Body::from(format!(r#"{{"error":"Failed to load conversation: {}"}}"#, e)))
-                        .unwrap());
+                    return Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Failed to load conversation: {}", e)));
                 }
             }
         } else {
             // Create new conversation - determine system prompt based on config
-            let config = load_config();
-            let system_prompt: Option<String> = match config.system_prompt.as_deref() {
-                // "__AGENTIC__" marker = use universal agentic prompt with command execution
-                Some("__AGENTIC__") => Some(get_universal_system_prompt()),
-                // Custom prompt = use as-is
-                Some(custom) => Some(custom.to_string()),
-                // None = use model's default system prompt from GGUF
-                None => {
-                    #[cfg(not(feature = "mock"))]
-                    {
-                        if let Ok(state_guard) = llama_state.lock() {
-                            state_guard.as_ref()
-                                .and_then(|s| s.model_default_system_prompt.clone())
-                        } else {
-                            None
-                        }
-                    }
-                    #[cfg(feature = "mock")]
-                    {
-                        None
-                    }
-                }
-            };
+            #[cfg(not(feature = "mock"))]
+            let system_prompt = get_resolved_system_prompt(&Some(llama_state.clone()));
+
+            #[cfg(feature = "mock")]
+            let system_prompt = get_resolved_system_prompt(&None);
 
             match ConversationLogger::new(db.clone(), system_prompt.as_deref()) {
                 Ok(logger) => Arc::new(Mutex::new(logger)),
                 Err(e) => {
-                    return Ok(Response::builder()
-                        .status(StatusCode::INTERNAL_SERVER_ERROR)
-                        .header("content-type", "application/json")
-                        .header("access-control-allow-origin", "*")
-                        .body(Body::from(format!(r#"{{"error":"Failed to create conversation logger: {}"}}"#, e)))
-                        .unwrap());
+                    return Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Failed to create conversation logger: {}", e)));
                 }
             }
         };
@@ -180,14 +127,14 @@ pub async fn handle_post_chat(
         let conversation_logger_clone = conversation_logger.clone();
         let llama_state_clone = llama_state.clone();
         let conv_id_for_log = conversation_id.clone();
-        eprintln!("[{}] [API_CHAT] Spawning background generation task for conversation: {}",
+        sys_info!("[{}] [API_CHAT] Spawning background generation task for conversation: {}",
             timestamp_now(), conv_id_for_log);
         // Use std::thread instead of tokio::spawn to avoid deadlocks
         // Generation is CPU-bound and doesn't need async runtime
         std::thread::spawn(move || {
-            eprintln!("[{}] [BACKGROUND_GEN] Thread started for: {}",
+            sys_debug!("[{}] [BACKGROUND_GEN] Thread started for: {}",
                 timestamp_now(), conv_id_for_log);
-            eprintln!("[{}] [BACKGROUND_GEN] Calling generate_llama_response...",
+            sys_debug!("[{}] [BACKGROUND_GEN] Calling generate_llama_response...",
                 timestamp_now());
 
             // Clone state for use in panic handler (needs to outlive the closure)
@@ -207,11 +154,11 @@ pub async fn handle_post_chat(
                     // Generation completed or returned error
                     match result {
                         Ok((_content, tokens, max_tok)) => {
-                            eprintln!("[{}] [BACKGROUND_GEN] Generation completed: {} tokens / {} max",
+                            sys_info!("[{}] [BACKGROUND_GEN] Generation completed: {} tokens / {} max",
                                 timestamp_now(), tokens, max_tok);
                         },
                         Err(err) => {
-                            eprintln!("[{}] [BACKGROUND_GEN] Generation failed: {}",
+                            sys_error!("[{}] [BACKGROUND_GEN] Generation failed: {}",
                                 timestamp_now(), err);
 
                             // Write error to conversation file so it's visible to user
@@ -235,7 +182,7 @@ pub async fn handle_post_chat(
                         "Unknown panic".to_string()
                     };
 
-                    eprintln!("[{}] [BACKGROUND_GEN] PANIC CAUGHT: {}",
+                    sys_error!("[{}] [BACKGROUND_GEN] PANIC CAUGHT: {}",
                         timestamp_now(), panic_msg);
 
                     // Write panic to conversation file
@@ -254,18 +201,18 @@ pub async fn handle_post_chat(
                     drop(logger); // Release lock before unloading model
 
                     // Automatically unload the model to prevent further crashes
-                    eprintln!("[{}] [BACKGROUND_GEN] Auto-unloading model after panic...",
+                    sys_warn!("[{}] [BACKGROUND_GEN] Auto-unloading model after panic...",
                         timestamp_now());
 
                     // Unload model asynchronously
                     let rt = tokio::runtime::Runtime::new().unwrap();
                     match rt.block_on(unload_model(state_for_unload)) {
                         Ok(_) => {
-                            eprintln!("[{}] [BACKGROUND_GEN] Model unloaded successfully",
+                            sys_info!("[{}] [BACKGROUND_GEN] Model unloaded successfully",
                                 timestamp_now());
                         }
                         Err(e) => {
-                            eprintln!("[{}] [BACKGROUND_GEN] Failed to unload model: {}",
+                            sys_error!("[{}] [BACKGROUND_GEN] Failed to unload model: {}",
                                 timestamp_now(), e);
                         }
                     }
@@ -289,33 +236,23 @@ pub async fn handle_post_chat(
             max_tokens: None,   // Will be updated via WebSocket
         };
 
-        let response_json = match serde_json::to_string(&chat_response) {
-            Ok(json) => json,
-            Err(_) => r#"{"error":"Failed to serialize response"}"#.to_string(),
-        };
-
-        Ok(Response::builder()
-            .status(StatusCode::OK)
-            .header("content-type", "application/json")
-            .header("access-control-allow-origin", "*")
-            .header("access-control-allow-methods", "GET, POST, OPTIONS")
-            .header("access-control-allow-headers", "content-type")
-            .body(Body::from(response_json))
-            .unwrap())
+        Ok(json_response(StatusCode::OK, &chat_response))
     }
 
     #[cfg(feature = "mock")]
     {
-        // Fallback mock response when using mock feature
-        let mock_response = r#"{"message":{"id":"test","role":"assistant","content":"LLaMA integration not available (mock feature enabled)","timestamp":1234567890},"conversation_id":"test-conversation"}"#;
-        Ok(Response::builder()
-            .status(StatusCode::OK)
-            .header("content-type", "application/json")
-            .header("access-control-allow-origin", "*")
-            .header("access-control-allow-methods", "GET, POST, OPTIONS")
-            .header("access-control-allow-headers", "content-type")
-            .body(Body::from(mock_response))
-            .unwrap())
+        let mock_response = ChatResponse {
+            message: ChatMessage {
+                id: "test".to_string(),
+                role: "assistant".to_string(),
+                content: "LLaMA integration not available (mock feature enabled)".to_string(),
+                timestamp: 1234567890,
+            },
+            conversation_id: "test-conversation".to_string(),
+            tokens_used: None,
+            max_tokens: None,
+        };
+        Ok(json_response(StatusCode::OK, &mock_response))
     }
 }
 
@@ -327,30 +264,10 @@ pub async fn handle_post_chat_stream(
     _llama_state: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
-    // Parse request body
-    let body_bytes = match hyper::body::to_bytes(req.into_body()).await {
-        Ok(bytes) => bytes,
-        Err(_) => {
-            return Ok(Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .header("content-type", "application/json")
-                .header("access-control-allow-origin", "*")
-                .body(Body::from(r#"{"error":"Failed to read request body"}"#))
-                .unwrap());
-        }
-    };
-
-    let chat_request: ChatRequest = match serde_json::from_slice(&body_bytes) {
+    // Parse request body using helper
+    let chat_request: ChatRequest = match parse_json_body(req.into_body()).await {
         Ok(req) => req,
-        Err(e) => {
-            println!("JSON parsing error: {}", e);
-            return Ok(Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .header("content-type", "application/json")
-                .header("access-control-allow-origin", "*")
-                .body(Body::from(r#"{"error":"Invalid JSON format"}"#))
-                .unwrap());
-        }
+        Err(error_response) => return Ok(error_response),
     };
 
     #[cfg(not(feature = "mock"))]
@@ -362,12 +279,7 @@ pub async fn handle_post_chat_stream(
         let conversation_logger = match ConversationLogger::new(db.clone(), Some(&universal_prompt)) {
             Ok(logger) => Arc::new(Mutex::new(logger)),
             Err(e) => {
-                return Ok(Response::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .header("content-type", "application/json")
-                    .header("access-control-allow-origin", "*")
-                    .body(Body::from(format!(r#"{{"error":"Failed to create conversation logger: {}"}}"#, e)))
-                    .unwrap());
+                return Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Failed to create conversation logger: {}", e)));
             }
         };
 
@@ -380,10 +292,10 @@ pub async fn handle_post_chat_stream(
         tokio::spawn(async move {
             match generate_llama_response(&message, state_clone, conversation_logger, Some(tx), false).await {
                 Ok((_content, tokens, max)) => {
-                    println!("[DEBUG] Generation completed successfully: {} tokens used, {} max", tokens, max);
+                    sys_debug!("[DEBUG] Generation completed successfully: {} tokens used, {} max", tokens, max);
                 }
                 Err(e) => {
-                    println!("[ERROR] Generation failed: {}", e);
+                    sys_error!("[ERROR] Generation failed: {}", e);
                 }
             }
         });
@@ -429,12 +341,7 @@ pub async fn handle_post_chat_stream(
 
     #[cfg(feature = "mock")]
     {
-        Ok(Response::builder()
-            .status(StatusCode::OK)
-            .header("content-type", "application/json")
-            .header("access-control-allow-origin", "*")
-            .body(Body::from(r#"{"error":"Streaming not available (mock feature enabled)"}"#))
-            .unwrap())
+        Ok(json_raw(StatusCode::OK, r#"{"error":"Streaming not available (mock feature enabled)"}"#.to_string()))
     }
 }
 
@@ -466,11 +373,11 @@ pub async fn handle_websocket_chat_stream(
             match hyper::upgrade::on(req).await {
                 Ok(upgraded) => {
                     if let Err(e) = handle_websocket(upgraded, Some(llama_state_ws), db_ws).await {
-                        println!("[WEBSOCKET ERROR] {}", e);
+                        sys_error!("[WEBSOCKET ERROR] {}", e);
                     }
                 }
                 Err(e) => {
-                    println!("[WEBSOCKET UPGRADE ERROR] {}", e);
+                    sys_error!("[WEBSOCKET UPGRADE ERROR] {}", e);
                 }
             }
         });
@@ -498,7 +405,7 @@ pub async fn handle_conversation_watch_websocket(
 ) -> Result<Response<Body>, Infallible> {
     // Extract conversation ID from path
     let conversation_id = path.strip_prefix("/ws/conversation/watch/").unwrap_or("").to_string();
-    eprintln!("[CONV-WATCH] WebSocket file watcher request for conversation: {}", conversation_id);
+    sys_info!("[CONV-WATCH] WebSocket file watcher request for conversation: {}", conversation_id);
 
     // Check for WebSocket upgrade
     if !is_websocket_upgrade(&req) {
@@ -520,11 +427,11 @@ pub async fn handle_conversation_watch_websocket(
             match hyper::upgrade::on(req).await {
                 Ok(upgraded) => {
                     if let Err(e) = handle_conversation_watch(upgraded, conversation_id, Some(llama_state_ws), db_ws).await {
-                        eprintln!("[CONV-WATCH ERROR] {}", e);
+                        sys_error!("[CONV-WATCH ERROR] {}", e);
                     }
                 }
                 Err(e) => {
-                    eprintln!("[CONV-WATCH UPGRADE ERROR] {}", e);
+                    sys_error!("[CONV-WATCH UPGRADE ERROR] {}", e);
                 }
             }
         });

@@ -7,6 +7,9 @@ use llama_cpp_2::{
 
 use super::database::conversation::ConversationLogger;
 
+// Import logging macros
+use crate::sys_debug;
+
 // Configuration structure
 #[derive(Deserialize, Serialize, Clone)]
 pub struct SamplerConfig {
@@ -158,7 +161,7 @@ pub fn translate_tool_for_model(
                     format!("cat \"{}\"", path)
                 };
 
-                eprintln!("[TOOL TRANSLATION] read_file → bash: {}", command);
+                sys_debug!("[TOOL TRANSLATION] read_file → bash: {}", command);
 
                 (
                     "bash".to_string(),
@@ -183,7 +186,7 @@ pub fn translate_tool_for_model(
                     format!("echo '{}' > \"{}\"", content, path)
                 };
 
-                eprintln!("[TOOL TRANSLATION] write_file → bash: {}", command);
+                sys_debug!("[TOOL TRANSLATION] write_file → bash: {}", command);
 
                 (
                     "bash".to_string(),
@@ -214,7 +217,7 @@ pub fn translate_tool_for_model(
                     }
                 };
 
-                eprintln!("[TOOL TRANSLATION] list_directory → bash: {}", command);
+                sys_debug!("[TOOL TRANSLATION] list_directory → bash: {}", command);
 
                 (
                     "bash".to_string(),

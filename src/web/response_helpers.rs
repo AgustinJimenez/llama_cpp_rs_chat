@@ -1,4 +1,6 @@
 // HTTP response helper functions to reduce duplication across route handlers
+// Note: Some helper functions kept for completeness
+#![allow(dead_code)]
 
 use hyper::{Body, Response, StatusCode};
 use serde::Serialize;
@@ -8,15 +10,24 @@ const CORS_ORIGIN: &str = "*";
 const CORS_METHODS: &str = "GET, POST, PUT, DELETE, OPTIONS";
 const CORS_HEADERS: &str = "content-type, authorization";
 
-/// Build a JSON response with CORS headers
-pub fn json_response<T: Serialize>(status: StatusCode, body: &T) -> Response<Body> {
-    let json = serde_json::to_string(body).unwrap_or_else(|_| r#"{"error":"Serialization failed"}"#.to_string());
-    Response::builder()
-        .status(status)
-        .header("content-type", "application/json")
+/// Apply CORS headers to a response builder
+fn with_cors(builder: hyper::http::response::Builder) -> hyper::http::response::Builder {
+    builder
         .header("access-control-allow-origin", CORS_ORIGIN)
         .header("access-control-allow-methods", CORS_METHODS)
         .header("access-control-allow-headers", CORS_HEADERS)
+}
+
+/// Serialize a value to JSON with a fallback string on error
+pub fn serialize_with_fallback<T: Serialize>(value: &T, fallback: &str) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| fallback.to_string())
+}
+
+/// Build a JSON response with CORS headers
+pub fn json_response<T: Serialize>(status: StatusCode, body: &T) -> Response<Body> {
+    let json = serialize_with_fallback(body, r#"{"error":"Serialization failed"}"#);
+    with_cors(Response::builder().status(status))
+        .header("content-type", "application/json")
         .body(Body::from(json))
         .unwrap()
 }
@@ -24,12 +35,8 @@ pub fn json_response<T: Serialize>(status: StatusCode, body: &T) -> Response<Bod
 /// Build a JSON error response
 pub fn json_error(status: StatusCode, message: &str) -> Response<Body> {
     let json = format!(r#"{{"error":"{}"}}"#, message.replace('"', "\\\""));
-    Response::builder()
-        .status(status)
+    with_cors(Response::builder().status(status))
         .header("content-type", "application/json")
-        .header("access-control-allow-origin", CORS_ORIGIN)
-        .header("access-control-allow-methods", CORS_METHODS)
-        .header("access-control-allow-headers", CORS_HEADERS)
         .body(Body::from(json))
         .unwrap()
 }
@@ -37,35 +44,23 @@ pub fn json_error(status: StatusCode, message: &str) -> Response<Body> {
 /// Build a JSON success response
 pub fn json_success(message: &str) -> Response<Body> {
     let json = format!(r#"{{"success":true,"message":"{}"}}"#, message.replace('"', "\\\""));
-    Response::builder()
-        .status(StatusCode::OK)
+    with_cors(Response::builder().status(StatusCode::OK))
         .header("content-type", "application/json")
-        .header("access-control-allow-origin", CORS_ORIGIN)
-        .header("access-control-allow-methods", CORS_METHODS)
-        .header("access-control-allow-headers", CORS_HEADERS)
         .body(Body::from(json))
         .unwrap()
 }
 
 /// Build a raw JSON string response
 pub fn json_raw(status: StatusCode, json: String) -> Response<Body> {
-    Response::builder()
-        .status(status)
+    with_cors(Response::builder().status(status))
         .header("content-type", "application/json")
-        .header("access-control-allow-origin", CORS_ORIGIN)
-        .header("access-control-allow-methods", CORS_METHODS)
-        .header("access-control-allow-headers", CORS_HEADERS)
         .body(Body::from(json))
         .unwrap()
 }
 
 /// Build an empty response with CORS headers
 pub fn empty_response(status: StatusCode) -> Response<Body> {
-    Response::builder()
-        .status(status)
-        .header("access-control-allow-origin", CORS_ORIGIN)
-        .header("access-control-allow-methods", CORS_METHODS)
-        .header("access-control-allow-headers", CORS_HEADERS)
+    with_cors(Response::builder().status(status))
         .body(Body::empty())
         .unwrap()
 }
@@ -73,6 +68,31 @@ pub fn empty_response(status: StatusCode) -> Response<Body> {
 /// CORS preflight response
 pub fn cors_preflight() -> Response<Body> {
     empty_response(StatusCode::OK)
+}
+
+/// Build an HTML response with CORS headers
+pub fn html_response(status: StatusCode, body: impl Into<Body>) -> Response<Body> {
+    with_cors(Response::builder().status(status))
+        .header("content-type", "text/html")
+        .body(body.into())
+        .unwrap()
+}
+
+/// Build a text/plain response with CORS headers
+pub fn text_response(status: StatusCode, body: impl Into<Body>) -> Response<Body> {
+    with_cors(Response::builder().status(status))
+        .header("content-type", "text/plain")
+        .body(body.into())
+        .unwrap()
+}
+
+/// Build a Server-Sent Events response with CORS headers
+pub fn sse_response(body: Body) -> Response<Body> {
+    with_cors(Response::builder().status(StatusCode::OK))
+        .header("content-type", "text/event-stream")
+        .header("cache-control", "no-cache")
+        .body(body)
+        .unwrap()
 }
 
 #[cfg(test)]

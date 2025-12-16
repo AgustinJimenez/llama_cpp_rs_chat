@@ -65,6 +65,8 @@ sha1 = "0.10"
 base64 = "0.21"
 
 # Logging
+log = "0.4"
+log4rs = "1.2"
 chrono = "0.4"
 lazy_static = "1.4"
 

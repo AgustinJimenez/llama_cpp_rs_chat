@@ -2,11 +2,33 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Quick Start for Development
+
+**Default development mode (with hot reload):**
+```bash
+npm run dev
+```
+- Access app at **http://localhost:4000** (Vite dev server with hot reload)
+- Backend API runs on http://localhost:8000
+- Frontend changes reload automatically
+
 ## Project Overview
 
 A modern AI chat application built with Tauri, Rust, and llama-cpp-2. Features both native desktop app and web application with integrated shell command execution. Uses local LLM inference with GGUF models and supports CUDA GPU acceleration.
 
 ## Recent Major Improvements
+
+### 2025-12-16 - Code Cleanup & Development Environment
+- ✅ **Removed old file-based conversation logging** (`src/web/conversation.rs`)
+  - SQLite-based logging (`src/web/database/conversation.rs`) is now the only implementation
+  - All conversations stored in `assets/llama_chat.db`
+- ✅ **Fixed all compiler warnings** (31 warnings → 0 code warnings)
+  - Added `#![allow(dead_code)]` to utility modules not yet fully integrated
+  - Removed unused imports and cleaned up module declarations
+- ✅ **Documented default development mode** in CLAUDE.md
+  - `npm run dev` starts both Vite (port 4000) and Rust backend (port 8000)
+  - Frontend hot reload via Vite dev server
+  - Always use http://localhost:4000 for development
 
 ### 2025-01-15 (Continued) - Markdown & UI Improvements
 - ✅ **Fixed conversation loading crash** - Removed `rehypeHighlight` dependency error
@@ -50,19 +72,38 @@ A modern AI chat application built with Tauri, Rust, and llama-cpp-2. Features b
 
 ## Build & Development Commands
 
-### Web Development (Primary)
-```bash
-# Start web app (Vite frontend + Rust backend)
-npm run dev
+### Web Development (Primary) - DEFAULT MODE
 
-# Build frontend for production
-npm run build
+**IMPORTANT: Always use this for development:**
+```bash
+npm run dev
 ```
 
-**IMPORTANT: Port Usage**
-- **Port 4000**: Vite dev server with hot reload - USE THIS FOR DEVELOPMENT
-- **Port 8000**: Rust backend directly (no hot reload for frontend)
-- When developing, always use http://localhost:4000 for the full experience with hot reload
+This command starts BOTH servers concurrently:
+1. **Vite dev server** on **http://localhost:4000** (with hot reload)
+2. **Rust backend** on **http://localhost:8000**
+
+**How it works:**
+- Vite proxies `/api` and `/ws` requests to the Rust backend (configured in `vite.config.ts`)
+- Frontend changes hot reload automatically
+- **Always access the app at http://localhost:4000 during development**
+- Port 8000 serves the backend API only (no frontend, no hot reload)
+
+**Alternative commands:**
+```bash
+# Build frontend for production
+npm run build
+
+# Manually start Vite only (if backend already running)
+npx vite --host --port 4000
+
+# Manually start backend only (if Vite already running)
+cargo run --bin llama_chat_web
+```
+
+**Port Summary:**
+- **Port 4000**: Vite dev server - **USE THIS FOR DEVELOPMENT** ✅
+- **Port 8000**: Rust backend API only (no frontend)
 
 ### Desktop Development
 ```bash

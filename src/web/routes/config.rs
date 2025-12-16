@@ -7,6 +7,8 @@ use std::fs;
 use crate::web::{
     models::SamplerConfig,
     config::load_config,
+    response_helpers::{json_error, json_raw},
+    request_parsing::parse_json_body,
 };
 
 pub async fn handle_get_config(
@@ -20,20 +22,10 @@ pub async fn handle_get_config(
 
     match serde_json::to_string(&config) {
         Ok(config_json) => {
-            Ok(Response::builder()
-                .status(StatusCode::OK)
-                .header("content-type", "application/json")
-                .header("access-control-allow-origin", "*")
-                .body(Body::from(config_json))
-                .unwrap())
+            Ok(json_raw(StatusCode::OK, config_json))
         }
         Err(_) => {
-            Ok(Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .header("content-type", "application/json")
-                .header("access-control-allow-origin", "*")
-                .body(Body::from(r#"{"error":"Failed to serialize configuration"}"#))
-                .unwrap())
+            Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to serialize configuration"))
         }
     }
 }
@@ -45,30 +37,10 @@ pub async fn handle_post_config(
     #[cfg(feature = "mock")]
     _llama_state: (),
 ) -> Result<Response<Body>, Infallible> {
-    // Parse request body for configuration update
-    let body_bytes = match hyper::body::to_bytes(req.into_body()).await {
-        Ok(bytes) => bytes,
-        Err(_) => {
-            return Ok(Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .header("content-type", "application/json")
-                .header("access-control-allow-origin", "*")
-                .body(Body::from(r#"{"error":"Failed to read request body"}"#))
-                .unwrap());
-        }
-    };
-
-    // Parse incoming config
-    let incoming_config: SamplerConfig = match serde_json::from_slice(&body_bytes) {
+    // Parse request body using helper
+    let incoming_config: SamplerConfig = match parse_json_body(req.into_body()).await {
         Ok(config) => config,
-        Err(_) => {
-            return Ok(Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .header("content-type", "application/json")
-                .header("access-control-allow-origin", "*")
-                .body(Body::from(r#"{"error":"Invalid JSON format"}"#))
-                .unwrap());
-        }
+        Err(error_response) => return Ok(error_response),
     };
 
     // Load existing config to preserve model_history
@@ -90,30 +62,15 @@ pub async fn handle_post_config(
     // Save merged configuration to file
     let config_path = "assets/config.json";
     if let Err(_) = fs::create_dir_all("assets") {
-        return Ok(Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .header("content-type", "application/json")
-            .header("access-control-allow-origin", "*")
-            .body(Body::from(r#"{"error":"Failed to create config directory"}"#))
-            .unwrap());
+        return Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to create config directory"));
     }
 
     match fs::write(config_path, serde_json::to_string_pretty(&existing_config).unwrap_or_default()) {
         Ok(_) => {
-            Ok(Response::builder()
-                .status(StatusCode::OK)
-                .header("content-type", "application/json")
-                .header("access-control-allow-origin", "*")
-                .body(Body::from(r#"{"success":true}"#))
-                .unwrap())
+            Ok(json_raw(StatusCode::OK, r#"{"success":true}"#.to_string()))
         }
         Err(_) => {
-            Ok(Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .header("content-type", "application/json")
-                .header("access-control-allow-origin", "*")
-                .body(Body::from(r#"{"error":"Failed to save configuration"}"#))
-                .unwrap())
+            Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to save configuration"))
         }
     }
 }
