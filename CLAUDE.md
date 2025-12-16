@@ -23,7 +23,8 @@ A modern AI chat application built with Tauri, Rust, and llama-cpp-2. Features b
   - SQLite-based logging (`src/web/database/conversation.rs`) is now the only implementation
   - All conversations stored in `assets/llama_chat.db`
 - ✅ **Fixed all compiler warnings** (31 warnings → 0 code warnings)
-  - Added `#![allow(dead_code)]` to utility modules not yet fully integrated
+  - Marked unused helper functions with `#[allow(dead_code)]`
+  - Note: `vram_calculator.rs` IS integrated - used by `model_manager.rs` for GPU layer calculation
   - Removed unused imports and cleaned up module declarations
 - ✅ **Documented default development mode** in CLAUDE.md
   - `npm run dev` starts both Vite (port 4000) and Rust backend (port 8000)

@@ -1,6 +1,5 @@
 // VRAM and GPU layer calculation utilities
-// Note: Currently not integrated - GPU layer calculation is done in model_manager.rs
-#![allow(dead_code)]
+// Used by model_manager.rs for automatic GPU layer calculation
 
 use std::fs;
 use std::io::BufReader;
@@ -11,9 +10,12 @@ use crate::{log_info, log_warn};
 
 // Constants for VRAM calculations
 pub const DEFAULT_VRAM_GB: f64 = 22.0;  // Default VRAM assumption if detection fails
+#[allow(dead_code)]
 pub const VRAM_SAFETY_MARGIN_GB: f64 = 2.0;  // Reserve 2GB for system overhead
+#[allow(dead_code)]
 pub const MB_TO_GB: f64 = 1024.0;
 pub const BYTES_TO_GB: f64 = 1024.0 * 1024.0 * 1024.0;
+#[allow(dead_code)]
 pub const KV_CACHE_MULTIPLIER: f64 = 4.0;  // key + value, 2 bytes each (fp16)
 
 // Model size thresholds for layer estimation
@@ -30,6 +32,7 @@ pub const MIN_VRAM_RATIO: f64 = 0.1;  // Minimum 10% VRAM required for GPU offlo
 
 /// Detect available VRAM using nvidia-smi.
 /// Returns the available VRAM in GB, or DEFAULT_VRAM_GB if detection fails.
+#[allow(dead_code)]
 pub fn get_available_vram_gb() -> Option<f64> {
     // Try nvidia-smi first
     if let Ok(output) = Command::new("nvidia-smi")
@@ -51,6 +54,7 @@ pub fn get_available_vram_gb() -> Option<f64> {
 }
 
 /// Calculate KV cache size in GB for given model parameters.
+#[allow(dead_code)]
 pub fn calculate_kv_cache_size_gb(
     n_ctx: u32,
     n_layers: u32,
@@ -121,6 +125,7 @@ pub fn calculate_optimal_gpu_layers(model_path: &str) -> u32 {
 
 /// Calculate safe context size based on available VRAM and model parameters.
 /// Returns (safe_context_size, was_reduced).
+#[allow(dead_code)]
 pub fn calculate_safe_context_size(
     model_path: &str,
     requested_ctx: u32,
