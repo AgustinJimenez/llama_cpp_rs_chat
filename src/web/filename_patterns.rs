@@ -2,8 +2,6 @@
 //
 // Uses lookup tables instead of long if-else chains for detecting
 // architecture, parameters, and quantization from GGUF filenames.
-// Note: Some utility functions kept for completeness
-#![allow(dead_code)]
 
 /// Architecture patterns: (pattern_to_match, display_name)
 const ARCHITECTURE_PATTERNS: &[(&str, &str)] = &[
@@ -151,6 +149,9 @@ pub struct FilenameMetadata {
     pub quantization: &'static str,
 }
 
+/// Extract all metadata from filename in one call
+/// TODO: Use for batch processing of model files
+#[allow(dead_code)]
 pub fn extract_metadata_from_filename(filename: &str) -> FilenameMetadata {
     FilenameMetadata {
         architecture: detect_architecture(filename),

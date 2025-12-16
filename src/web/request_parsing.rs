@@ -1,6 +1,4 @@
 // Request parsing utilities for HTTP handlers
-// Note: Some utility functions kept for completeness
-#![allow(dead_code)]
 
 use hyper::{Body, Response, StatusCode, Uri};
 use serde::de::DeserializeOwned;
@@ -66,6 +64,9 @@ pub async fn parse_json_body<T: DeserializeOwned>(body: Body) -> Result<T, Respo
 /// // For URI: /api/model/info?path=/models/llama.gguf
 /// let model_path = get_query_param(req.uri(), "path");
 /// ```
+/// Extract query parameter from URI
+/// TODO: Use for pagination, filtering, or search parameters
+#[allow(dead_code)]
 pub fn get_query_param(uri: &Uri, key: &str) -> Option<String> {
     let query = uri.query()?;
 

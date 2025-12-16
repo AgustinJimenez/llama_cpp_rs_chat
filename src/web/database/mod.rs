@@ -1,6 +1,11 @@
 // SQLite database module for LLaMA Chat
 // Replaces file-based storage with SQLite for conversations, config, and logs
-// Note: ConversationLogger IS integrated and actively used. Other parts (config, migration) not yet fully integrated.
+//
+// Integration status:
+// - conversation::ConversationLogger - INTEGRATED and actively used
+// - config - TODO: Integrate for persisting sampler configuration
+// - migration - TODO: Integrate for one-time migration from file-based storage
+// - schema - Database schema definitions
 #![allow(dead_code)]
 
 pub mod schema;

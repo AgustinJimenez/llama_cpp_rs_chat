@@ -2,8 +2,6 @@
 //
 // This module provides shared WebSocket helpers to avoid duplication
 // across routes/chat.rs and other WebSocket-related code.
-// Note: Some utility functions kept for completeness
-#![allow(dead_code)]
 
 use hyper::{Body, Request, Response, StatusCode};
 use sha1::{Digest, Sha1};
@@ -62,6 +60,9 @@ pub fn build_json_error_response(status: StatusCode, message: &str) -> Response<
 }
 
 /// Build a successful JSON response with CORS headers
+/// Build a JSON response (non-WebSocket)
+/// TODO: Use for HTTP fallback when WebSocket unavailable
+#[allow(dead_code)]
 pub fn build_json_response(json: &str) -> Response<Body> {
     Response::builder()
         .status(StatusCode::OK)

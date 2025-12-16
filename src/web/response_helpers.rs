@@ -1,6 +1,4 @@
 // HTTP response helper functions to reduce duplication across route handlers
-// Note: Some helper functions kept for completeness
-#![allow(dead_code)]
 
 use hyper::{Body, Response, StatusCode};
 use serde::Serialize;
@@ -42,6 +40,8 @@ pub fn json_error(status: StatusCode, message: &str) -> Response<Body> {
 }
 
 /// Build a JSON success response
+/// TODO: Use this for standardized success responses instead of json_raw
+#[allow(dead_code)]
 pub fn json_success(message: &str) -> Response<Body> {
     let json = format!(r#"{{"success":true,"message":"{}"}}"#, message.replace('"', "\\\""));
     with_cors(Response::builder().status(StatusCode::OK))
@@ -71,6 +71,8 @@ pub fn cors_preflight() -> Response<Body> {
 }
 
 /// Build an HTML response with CORS headers
+/// TODO: Use for serving custom HTML error pages
+#[allow(dead_code)]
 pub fn html_response(status: StatusCode, body: impl Into<Body>) -> Response<Body> {
     with_cors(Response::builder().status(status))
         .header("content-type", "text/html")
@@ -79,6 +81,8 @@ pub fn html_response(status: StatusCode, body: impl Into<Body>) -> Response<Body
 }
 
 /// Build a text/plain response with CORS headers
+/// TODO: Use for plain text responses (logs, debug output)
+#[allow(dead_code)]
 pub fn text_response(status: StatusCode, body: impl Into<Body>) -> Response<Body> {
     with_cors(Response::builder().status(status))
         .header("content-type", "text/plain")
@@ -87,6 +91,8 @@ pub fn text_response(status: StatusCode, body: impl Into<Body>) -> Response<Body
 }
 
 /// Build a Server-Sent Events response with CORS headers
+/// TODO: Use for SSE streaming endpoints (alternative to WebSocket)
+#[allow(dead_code)]
 pub fn sse_response(body: Body) -> Response<Body> {
     with_cors(Response::builder().status(StatusCode::OK))
         .header("content-type", "text/event-stream")

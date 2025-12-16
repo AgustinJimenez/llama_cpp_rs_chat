@@ -2,8 +2,6 @@
 //
 // This module provides a clean interface for reading GGUF file metadata
 // using the gguf_llms crate.
-// Note: Some utility functions kept for completeness
-#![allow(dead_code)]
 
 use std::fs::File;
 use std::io::BufReader;
@@ -11,6 +9,8 @@ use std::collections::HashMap;
 use gguf_llms::{GgufHeader, GgufReader, Value};
 
 /// Basic model metadata extracted from GGUF file
+/// TODO: Use for caching model metadata to avoid repeated GGUF file reads
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct GgufBasicMetadata {
     pub architecture: String,
@@ -77,6 +77,8 @@ pub fn value_to_display_string(value: &Value) -> String {
 }
 
 /// Format parameter count to human-readable string (e.g., "7B", "13B")
+/// TODO: Use in UI to display model sizes in human-readable format
+#[allow(dead_code)]
 pub fn format_parameter_count(param_str: &str) -> String {
     if let Ok(count) = param_str.parse::<u64>() {
         if count >= 1_000_000_000 {
@@ -93,6 +95,8 @@ pub fn format_parameter_count(param_str: &str) -> String {
 
 /// Read GGUF metadata from a file using gguf_llms crate.
 /// Returns the raw metadata HashMap for full access.
+/// TODO: Use for API endpoint that returns full model metadata
+#[allow(dead_code)]
 pub fn read_gguf_metadata_raw(file_path: &str) -> Result<HashMap<String, Value>, String> {
     let file = File::open(file_path)
         .map_err(|e| format!("Failed to open file: {}", e))?;
@@ -110,6 +114,8 @@ pub fn read_gguf_metadata_raw(file_path: &str) -> Result<HashMap<String, Value>,
 
 /// Read basic metadata from GGUF file (architecture, parameters, quantization, context_length).
 /// This is a convenience function for simple use cases.
+/// TODO: Use for quick model info display without full metadata extraction
+#[allow(dead_code)]
 pub fn read_gguf_basic_metadata(file_path: &str) -> Result<GgufBasicMetadata, String> {
     let metadata = read_gguf_metadata_raw(file_path)?;
 
@@ -182,6 +188,8 @@ pub fn detect_tool_format(architecture: &str, model_name: &str) -> &'static str 
 
 /// Parse model filename to extract architecture, parameters, and quantization.
 /// This is a fallback when GGUF metadata parsing fails.
+/// TODO: Use as fallback when GGUF file cannot be read
+#[allow(dead_code)]
 pub fn parse_model_filename(filename: &str) -> (String, String, String) {
     let lower = filename.to_lowercase();
 
