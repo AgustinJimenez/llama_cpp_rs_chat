@@ -1,5 +1,10 @@
 // VRAM and GPU layer calculation utilities
 // Used by model_manager.rs for automatic GPU layer calculation
+//
+// Future enhancements planned:
+// - Dynamic VRAM detection using nvidia-smi (get_available_vram_gb)
+// - Accurate KV cache size calculation (calculate_kv_cache_size_gb)
+// - Automatic context size reduction when VRAM limited (calculate_safe_context_size)
 
 use std::fs;
 use std::io::BufReader;
@@ -32,6 +37,9 @@ pub const MIN_VRAM_RATIO: f64 = 0.1;  // Minimum 10% VRAM required for GPU offlo
 
 /// Detect available VRAM using nvidia-smi.
 /// Returns the available VRAM in GB, or DEFAULT_VRAM_GB if detection fails.
+///
+/// TODO: Integrate with model_manager.rs for dynamic VRAM detection
+/// instead of using DEFAULT_VRAM_GB constant.
 #[allow(dead_code)]
 pub fn get_available_vram_gb() -> Option<f64> {
     // Try nvidia-smi first
@@ -54,6 +62,9 @@ pub fn get_available_vram_gb() -> Option<f64> {
 }
 
 /// Calculate KV cache size in GB for given model parameters.
+///
+/// TODO: Use this for accurate KV cache estimation when loading models
+/// to better predict memory requirements.
 #[allow(dead_code)]
 pub fn calculate_kv_cache_size_gb(
     n_ctx: u32,
@@ -125,6 +136,9 @@ pub fn calculate_optimal_gpu_layers(model_path: &str) -> u32 {
 
 /// Calculate safe context size based on available VRAM and model parameters.
 /// Returns (safe_context_size, was_reduced).
+///
+/// TODO: Integrate with model_manager.rs to automatically reduce context size
+/// when user requests exceed available VRAM capacity.
 #[allow(dead_code)]
 pub fn calculate_safe_context_size(
     model_path: &str,
