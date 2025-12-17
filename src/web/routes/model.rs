@@ -6,6 +6,7 @@ use serde::Deserialize;
 use std::convert::Infallible;
 use std::fs;
 use std::io::BufReader;
+use std::sync::{Mutex as StdMutex, OnceLock, TryLockError};
 use tokio::task::spawn_blocking;
 
 use crate::web::{
@@ -43,6 +44,12 @@ const SMALL_MODEL_LAYERS: u32 = 36; // 7B and below
 const MEDIUM_MODEL_LAYERS: u32 = 45; // 13B
 const LARGE_MODEL_LAYERS: u32 = 60; // 30B
 const XLARGE_MODEL_LAYERS: u32 = 80; // 70B+
+
+static MODEL_STATUS_CACHE_JSON: OnceLock<StdMutex<String>> = OnceLock::new();
+
+fn default_model_status_json() -> String {
+    r#"{"loaded":false,"model_path":null,"last_used":null,"memory_usage_mb":null}"#.to_string()
+}
 
 /// Scan a directory for .gguf files and return their filenames
 fn scan_directory_for_gguf_files(path: &std::path::Path) -> Vec<String> {
@@ -369,11 +376,54 @@ pub async fn handle_get_model_status(
 ) -> Result<Response<Body>, Infallible> {
     #[cfg(not(feature = "mock"))]
     {
-        let status = get_model_status(&llama_state);
-        let response_json = serialize_with_fallback(
-            &status,
-            r#"{"loaded":false,"model_path":null,"last_used":null,"memory_usage_mb":null}"#,
-        );
+        // Avoid blocking/hanging the status endpoint if the model mutex is held by a long operation.
+        // Return the last known-good status (cached) when the mutex would block.
+        let cache = MODEL_STATUS_CACHE_JSON.get_or_init(|| StdMutex::new(default_model_status_json()));
+
+        let guard = match llama_state.try_lock() {
+            Ok(guard) => Some(guard),
+            Err(TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner()),
+            Err(TryLockError::WouldBlock) => None,
+        };
+
+        let response_json = if let Some(state_guard) = guard {
+            // Compute status using the already-held guard instead of taking a second lock.
+            let status = match state_guard.as_ref() {
+                Some(state) => {
+                    let loaded = state.model.is_some();
+                    let model_path = state.current_model_path.clone();
+                    let last_used = state
+                        .last_used
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .ok()
+                        .map(|d| d.as_secs().to_string());
+
+                    crate::web::models::ModelStatus {
+                        loaded,
+                        model_path,
+                        last_used,
+                        memory_usage_mb: if loaded { Some(512) } else { None },
+                    }
+                }
+                None => crate::web::models::ModelStatus {
+                    loaded: false,
+                    model_path: None,
+                    last_used: None,
+                    memory_usage_mb: None,
+                },
+            };
+
+            let json = serialize_with_fallback(&status, &default_model_status_json());
+            if let Ok(mut cached) = cache.lock() {
+                *cached = json.clone();
+            }
+            json
+        } else {
+            cache
+                .lock()
+                .map(|g| g.clone())
+                .unwrap_or_else(|_| default_model_status_json())
+        };
 
         Ok(json_raw(StatusCode::OK, response_json))
     }
@@ -382,8 +432,7 @@ pub async fn handle_get_model_status(
     {
         Ok(json_raw(
             StatusCode::OK,
-            r#"{"loaded":false,"model_path":null,"last_used":null,"memory_usage_mb":null}"#
-                .to_string(),
+            default_model_status_json(),
         ))
     }
 }

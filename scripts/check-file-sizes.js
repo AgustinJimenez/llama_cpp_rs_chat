@@ -3,8 +3,8 @@
 // - 5MB limit for source-like paths
 // - 100MB hard cap for any checked file
 
-const fs = require('fs');
-const path = require('path');
+import fs from 'node:fs';
+import path from 'node:path';
 
 const ROOT = process.cwd();
 const SOFT_LIMIT = 5 * 1024 * 1024; // 5MB

@@ -31,7 +31,6 @@ export const useModel = () => {
   const [loadingAction, setLoadingAction] = useState<LoadingAction>(null);
   const [error, setError] = useState<string | null>(null);
   const [hasStatusError, setHasStatusError] = useState(false);
-  const [attemptedHardUnload, setAttemptedHardUnload] = useState(false);
 
   const hardUnload = useCallback(async () => {
     try {
@@ -44,8 +43,6 @@ export const useModel = () => {
       });
     } catch (err) {
       console.warn('Hard unload failed', err);
-    } finally {
-      setAttemptedHardUnload(true);
     }
   }, []);
 
@@ -69,20 +66,14 @@ export const useModel = () => {
         } else {
           setError('Failed to fetch model status');
           setHasStatusError(true);
-          if (!attemptedHardUnload) {
-            await hardUnload();
-          }
         }
       }
     } catch (err) {
       setError('Network error while fetching model status');
       console.error('Model status fetch error:', err);
       setHasStatusError(true);
-      if (!attemptedHardUnload) {
-        await hardUnload();
-      }
     }
-  }, [attemptedHardUnload, hardUnload]);
+  }, []);
 
   const loadModel = useCallback(async (modelPath: string, config?: SamplerConfig) => {
     setIsLoading(true);

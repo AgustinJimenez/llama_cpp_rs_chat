@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { autoParseToolCalls } from '../utils/toolParser';
 import { parseConversationFile } from '../utils/conversationParser';
@@ -20,6 +20,7 @@ interface UseConversationWatcherOptions {
 
 const WS_RECONNECT_BASE_MS = 500;
 const WS_RECONNECT_MAX_MS = 5000;
+const WS_STUCK_STREAMING_POLL_MS = 15_000;
 
 function getNextDelay(attempt: number): number {
   const exp = WS_RECONNECT_BASE_MS * Math.pow(2, attempt);
@@ -43,11 +44,57 @@ export function useConversationWatcher({
   shouldStopExecution,
 }: UseConversationWatcherOptions) {
   const [isWsConnected, setIsWsConnected] = useState(false);
+  const lastWsUpdateAtRef = useRef<number>(Date.now());
 
   // Fallback: re-fetch conversation if WS is disconnected but a conversation is active
   useEffect(() => {
+    const shouldPollConversation = () => {
+      if (!currentConversationId) {
+        return false;
+      }
+
+      if (!isWsConnected) {
+        return true;
+      }
+
+      if (!isStreamingRef.current) {
+        return false;
+      }
+
+      return Date.now() - lastWsUpdateAtRef.current >= WS_STUCK_STREAMING_POLL_MS;
+    };
+
+    const reconcileUiStateFromMessages = async (parsedMessages: Message[]) => {
+      const lastMessage = parsedMessages[parsedMessages.length - 1];
+      if (!lastMessage || lastMessage.role !== 'assistant') {
+        return;
+      }
+
+      const toolCalls = autoParseToolCalls(lastMessage.content);
+      if (toolCalls.length > 0) {
+        const hasComplete = areToolCallsComplete(lastMessage.content, toolCalls);
+        if (hasComplete && shouldStopExecution(toolCalls)) {
+          isStreamingRef.current = false;
+          setIsLoading(false);
+          return;
+        }
+
+        if (hasComplete && !isMessageProcessed(lastMessage.id) && !shouldStopExecution(toolCalls)) {
+          await processToolCalls(toolCalls, lastMessage);
+        }
+
+        setIsLoading(!hasComplete);
+        return;
+      }
+
+      if (lastMessage.content.trim().length > 0) {
+        isStreamingRef.current = false;
+        setIsLoading(false);
+      }
+    };
+
     const fetchConversation = async () => {
-      if (!currentConversationId || isWsConnected) {
+      if (!shouldPollConversation()) {
         return;
       }
       try {
@@ -61,7 +108,9 @@ export function useConversationWatcher({
         }
         const data = await response.json();
         if (data.messages) {
-          setMessages(data.messages);
+          const parsedMessages: Message[] = data.messages;
+          setMessages(parsedMessages);
+          await reconcileUiStateFromMessages(parsedMessages);
         }
       } catch (err) {
         logToastWarning('useConversationWatcher.poll', 'Conversation poll failed', err);
@@ -70,7 +119,16 @@ export function useConversationWatcher({
 
     const interval = setInterval(fetchConversation, 5000);
     return () => clearInterval(interval);
-  }, [currentConversationId, isWsConnected, setMessages]);
+  }, [
+    currentConversationId,
+    isWsConnected,
+    isStreamingRef,
+    processToolCalls,
+    isMessageProcessed,
+    setIsLoading,
+    setMessages,
+    shouldStopExecution,
+  ]);
 
   useEffect(() => {
     if (!currentConversationId) {
@@ -93,10 +151,12 @@ export function useConversationWatcher({
       ws.onopen = () => {
         attempt = 0;
         setIsWsConnected(true);
+        lastWsUpdateAtRef.current = Date.now();
       };
 
       ws.onmessage = (event) => {
         try {
+          lastWsUpdateAtRef.current = Date.now();
           const message = JSON.parse(event.data);
 
           if (message.type === 'update') {
