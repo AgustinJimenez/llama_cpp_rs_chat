@@ -5,10 +5,12 @@ import { ChatInputArea, MessagesArea } from './components/templates';
 import { useChat } from './hooks/useChat';
 import { useModel } from './hooks/useModel';
 import type { SamplerConfig, ViewMode } from './types';
+import { logToastError } from './utils/toastLogger';
 
+// eslint-disable-next-line max-lines-per-function
 function App() {
   const { messages, isLoading, sendMessage, clearMessages, loadConversation, currentConversationId, tokensUsed, maxTokens, isWsConnected } = useChat();
-  const { status: modelStatus, isLoading: isModelLoading, loadingAction, error: modelError, loadModel, unloadModel } = useModel();
+  const { status: modelStatus, isLoading: isModelLoading, loadingAction, error: modelError, hasStatusError, loadModel, unloadModel, hardUnload } = useModel();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
@@ -35,7 +37,9 @@ function App() {
     if (result.success) {
       toast.success('Model loaded successfully!');
     } else {
-      toast.error(`Failed to load model: ${result.message}`, { duration: 5000 });
+      const display = `Failed to load model: ${result.message}`;
+      logToastError('App.handleModelLoad', display);
+      toast.error(display, { duration: 5000 });
     }
   };
 
@@ -46,8 +50,16 @@ function App() {
       // Clear any existing conversation when model is unloaded
       clearMessages();
     } else {
-      toast.error(`Failed to unload model: ${result.message}`, { duration: 5000 });
+      const display = `Failed to unload model: ${result.message}`;
+      logToastError('App.handleModelUnload', display);
+      toast.error(display, { duration: 5000 });
     }
+  };
+
+  const handleForceUnload = async () => {
+    await hardUnload();
+    toast('Force-unloaded backend to free memory', { icon: '🧹' });
+    clearMessages();
   };
 
   return (
@@ -85,6 +97,8 @@ function App() {
             isRightSidebarOpen={isRightSidebarOpen}
             onToggleSidebar={toggleSidebar}
             onModelUnload={handleModelUnload}
+            onForceUnload={handleForceUnload}
+            hasStatusError={hasStatusError}
             onViewModeChange={setViewMode}
             onToggleRightSidebar={toggleRightSidebar}
           />
@@ -106,6 +120,8 @@ function App() {
             isModelLoading={isModelLoading}
             modelError={modelError}
             isLoading={isLoading}
+            isWsConnected={isWsConnected}
+            currentConversationId={currentConversationId}
             onSendMessage={sendMessage}
             onModelLoad={handleModelLoad}
           />

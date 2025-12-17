@@ -2,17 +2,16 @@
 
 use hyper::{Body, Response, StatusCode};
 use std::convert::Infallible;
+use tokio::fs;
 
 use crate::web::response_helpers::cors_preflight;
 
 pub async fn handle_index(
-    #[cfg(not(feature = "mock"))]
-    _llama_state: crate::web::models::SharedLlamaState,
-    #[cfg(feature = "mock")]
-    _llama_state: (),
+    #[cfg(not(feature = "mock"))] _llama_state: crate::web::models::SharedLlamaState,
+    #[cfg(feature = "mock")] _llama_state: (),
 ) -> Result<Response<Body>, Infallible> {
     // Serve the main index.html from the built frontend
-    match std::fs::read_to_string("./dist/index.html") {
+    match fs::read_to_string("./dist/index.html").await {
         Ok(content) => Ok(Response::builder()
             .status(StatusCode::OK)
             .header("content-type", "text/html")
@@ -45,14 +44,12 @@ pub async fn handle_index(
 
 pub async fn handle_static_asset(
     path: &str,
-    #[cfg(not(feature = "mock"))]
-    _llama_state: crate::web::models::SharedLlamaState,
-    #[cfg(feature = "mock")]
-    _llama_state: (),
+    #[cfg(not(feature = "mock"))] _llama_state: crate::web::models::SharedLlamaState,
+    #[cfg(feature = "mock")] _llama_state: (),
 ) -> Result<Response<Body>, Infallible> {
     // Serve static assets (JS, CSS, etc.)
     let file_path = format!("./dist{}", path);
-    match std::fs::read(&file_path) {
+    match fs::read(&file_path).await {
         Ok(content) => {
             let content_type = if path.ends_with(".js") {
                 "application/javascript"
@@ -64,6 +61,14 @@ pub async fn handle_static_asset(
                 "image/jpeg"
             } else if path.ends_with(".svg") {
                 "image/svg+xml"
+            } else if path.ends_with(".json") {
+                "application/json"
+            } else if path.ends_with(".wasm") {
+                "application/wasm"
+            } else if path.ends_with(".html") || path.ends_with(".htm") {
+                "text/html"
+            } else if path.ends_with(".txt") {
+                "text/plain"
             } else {
                 "application/octet-stream"
             };
@@ -75,20 +80,16 @@ pub async fn handle_static_asset(
                 .body(Body::from(content))
                 .unwrap())
         }
-        Err(_) => {
-            Ok(Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .body(Body::from("Asset not found"))
-                .unwrap())
-        }
+        Err(_) => Ok(Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::from("Asset not found"))
+            .unwrap()),
     }
 }
 
 pub async fn handle_options(
-    #[cfg(not(feature = "mock"))]
-    _llama_state: crate::web::models::SharedLlamaState,
-    #[cfg(feature = "mock")]
-    _llama_state: (),
+    #[cfg(not(feature = "mock"))] _llama_state: crate::web::models::SharedLlamaState,
+    #[cfg(feature = "mock")] _llama_state: (),
 ) -> Result<Response<Body>, Infallible> {
     Ok(cors_preflight())
 }

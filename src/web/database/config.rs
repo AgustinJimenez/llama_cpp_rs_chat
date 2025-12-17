@@ -1,7 +1,7 @@
 // Configuration database operations
 
+use super::{current_timestamp_millis, db_error, Database};
 use rusqlite::params;
-use super::{Database, current_timestamp_millis, db_error};
 
 /// Sampler configuration stored in database
 #[derive(Debug, Clone)]
@@ -50,11 +50,12 @@ impl Database {
                 [],
                 |row| {
                     let stop_tokens_json: Option<String> = row.get(9)?;
-                    let stop_tokens = stop_tokens_json
-                        .and_then(|j| serde_json::from_str(&j).ok());
+                    let stop_tokens = stop_tokens_json.and_then(|j| serde_json::from_str(&j).ok());
 
                     Ok(DbSamplerConfig {
-                        sampler_type: row.get::<_, Option<String>>(0)?.unwrap_or_else(|| "Greedy".to_string()),
+                        sampler_type: row
+                            .get::<_, Option<String>>(0)?
+                            .unwrap_or_else(|| "Greedy".to_string()),
                         temperature: row.get::<_, Option<f64>>(1)?.unwrap_or(0.7),
                         top_p: row.get::<_, Option<f64>>(2)?.unwrap_or(0.95),
                         top_k: row.get::<_, Option<u32>>(3)?.unwrap_or(20),
@@ -170,11 +171,8 @@ impl Database {
         .map_err(db_error("insert into model history"))?;
 
         // Keep only top 10
-        conn.execute(
-            "DELETE FROM model_history WHERE display_order >= 10",
-            [],
-        )
-        .map_err(db_error("trim model history"))?;
+        conn.execute("DELETE FROM model_history WHERE display_order >= 10", [])
+            .map_err(db_error("trim model history"))?;
 
         Ok(())
     }
@@ -215,7 +213,10 @@ impl Database {
     }
 
     /// Get logs for a conversation
-    pub fn get_logs_for_conversation(&self, conversation_id: &str) -> Result<Vec<LogEntry>, String> {
+    pub fn get_logs_for_conversation(
+        &self,
+        conversation_id: &str,
+    ) -> Result<Vec<LogEntry>, String> {
         let conn = self.connection();
         let mut stmt = conn
             .prepare(
@@ -319,7 +320,8 @@ mod tests {
 
         // Add 15 models
         for i in 0..15 {
-            db.add_to_model_history(&format!("/model{}.gguf", i)).unwrap();
+            db.add_to_model_history(&format!("/model{}.gguf", i))
+                .unwrap();
         }
 
         let history = db.get_model_history().unwrap();
@@ -332,8 +334,10 @@ mod tests {
         let db = create_test_db();
         let conv_id = db.create_conversation(None).unwrap();
 
-        db.insert_log(Some(&conv_id), "INFO", "Test message 1").unwrap();
-        db.insert_log(Some(&conv_id), "DEBUG", "Test message 2").unwrap();
+        db.insert_log(Some(&conv_id), "INFO", "Test message 1")
+            .unwrap();
+        db.insert_log(Some(&conv_id), "DEBUG", "Test message 2")
+            .unwrap();
 
         let logs = db.get_logs_for_conversation(&conv_id).unwrap();
         assert_eq!(logs.len(), 2);

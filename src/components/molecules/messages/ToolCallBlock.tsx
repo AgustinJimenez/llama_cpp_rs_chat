@@ -8,7 +8,7 @@ interface ToolCallBlockProps {
 /**
  * Format tool call arguments for display.
  */
-function formatToolArguments(args: Record<string, any> | string): string {
+function formatToolArguments(args: Record<string, unknown> | string): string {
   if (typeof args === 'string') {
     return args;
   }

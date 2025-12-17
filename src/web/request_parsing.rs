@@ -74,9 +74,7 @@ pub fn get_query_param(uri: &Uri, key: &str) -> Option<String> {
         if let Some((param_key, param_value)) = param.split_once('=') {
             if param_key == key {
                 // URL decode the value
-                return urlencoding::decode(param_value)
-                    .ok()
-                    .map(|s| s.to_string());
+                return urlencoding::decode(param_value).ok().map(|s| s.to_string());
             }
         }
     }
@@ -97,8 +95,13 @@ mod tests {
 
     #[test]
     fn test_get_query_param_url_encoded() {
-        let uri: Uri = "/api/test?path=%2Fhome%2Fuser%2Fmodel.gguf".parse().unwrap();
-        assert_eq!(get_query_param(&uri, "path"), Some("/home/user/model.gguf".to_string()));
+        let uri: Uri = "/api/test?path=%2Fhome%2Fuser%2Fmodel.gguf"
+            .parse()
+            .unwrap();
+        assert_eq!(
+            get_query_param(&uri, "path"),
+            Some("/home/user/model.gguf".to_string())
+        );
     }
 
     #[test]
@@ -130,6 +133,9 @@ mod tests {
     #[test]
     fn test_get_query_param_spaces() {
         let uri: Uri = "/api/test?message=hello%20world".parse().unwrap();
-        assert_eq!(get_query_param(&uri, "message"), Some("hello world".to_string()));
+        assert_eq!(
+            get_query_param(&uri, "message"),
+            Some("hello world".to_string())
+        );
     }
 }

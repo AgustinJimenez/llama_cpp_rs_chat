@@ -24,7 +24,7 @@ export const SystemPromptSection: React.FC<SystemPromptSectionProps> = ({
           rows={4}
         />
         <p className="text-xs text-muted-foreground">
-          This prompt will be added at the beginning of every new conversation to set the AI's behavior and context.
+          This prompt will be added at the beginning of every new conversation to set the AI&#39;s behavior and context.
         </p>
       </CardContent>
     </Card>

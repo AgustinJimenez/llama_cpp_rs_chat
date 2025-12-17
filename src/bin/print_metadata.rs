@@ -1,6 +1,6 @@
+use gguf_llms::{GgufHeader, GgufReader, Value};
 use std::fs;
 use std::io::BufReader;
-use gguf_llms::{GgufHeader, GgufReader, Value};
 
 fn main() {
     let model_path = "E:/.lmstudio/lmstudio-community/gemma-3-12b-it-GGUF/gemma-3-12b-it-Q8_0.gguf";
@@ -39,7 +39,10 @@ fn main() {
     println!("-----------------------------------------------------------------");
 
     // Context length - try both llama and gemma3 prefixes
-    if let Some(v) = metadata.get("gemma3.context_length").or_else(|| metadata.get("llama.context_length")) {
+    if let Some(v) = metadata
+        .get("gemma3.context_length")
+        .or_else(|| metadata.get("llama.context_length"))
+    {
         match v {
             Value::Uint32(n) => println!("  context_length: {} tokens", n),
             Value::Uint64(n) => println!("  context_length: {} tokens", n),
@@ -48,17 +51,26 @@ fn main() {
     }
 
     // Embedding length
-    if let Some(v) = metadata.get("gemma3.embedding_length").or_else(|| metadata.get("llama.embedding_length")) {
+    if let Some(v) = metadata
+        .get("gemma3.embedding_length")
+        .or_else(|| metadata.get("llama.embedding_length"))
+    {
         println!("  embedding_length: {:?}", v);
     }
 
     // Block count (layers)
-    if let Some(v) = metadata.get("gemma3.block_count").or_else(|| metadata.get("llama.block_count")) {
+    if let Some(v) = metadata
+        .get("gemma3.block_count")
+        .or_else(|| metadata.get("llama.block_count"))
+    {
         println!("  block_count (layers): {:?}", v);
     }
 
     // Feed forward length
-    if let Some(v) = metadata.get("gemma3.feed_forward_length").or_else(|| metadata.get("llama.feed_forward_length")) {
+    if let Some(v) = metadata
+        .get("gemma3.feed_forward_length")
+        .or_else(|| metadata.get("llama.feed_forward_length"))
+    {
         println!("  feed_forward_length: {:?}", v);
     }
 
@@ -82,24 +94,42 @@ fn main() {
     println!("-----------------------------------------------------------------");
 
     // RoPE settings (affect context extension)
-    if let Some(v) = metadata.get("gemma3.rope.freq_base").or_else(|| metadata.get("llama.rope.freq_base")) {
+    if let Some(v) = metadata
+        .get("gemma3.rope.freq_base")
+        .or_else(|| metadata.get("llama.rope.freq_base"))
+    {
         println!("  rope.freq_base: {:?}", v);
     }
-    if let Some(v) = metadata.get("gemma3.rope.dimension_count").or_else(|| metadata.get("llama.rope.dimension_count")) {
+    if let Some(v) = metadata
+        .get("gemma3.rope.dimension_count")
+        .or_else(|| metadata.get("llama.rope.dimension_count"))
+    {
         println!("  rope.dimension_count: {:?}", v);
     }
-    if let Some(v) = metadata.get("gemma3.rope.scaling.type").or_else(|| metadata.get("llama.rope.scaling.type")) {
+    if let Some(v) = metadata
+        .get("gemma3.rope.scaling.type")
+        .or_else(|| metadata.get("llama.rope.scaling.type"))
+    {
         println!("  rope.scaling.type: {:?}", v);
     }
-    if let Some(v) = metadata.get("gemma3.rope.scaling.factor").or_else(|| metadata.get("llama.rope.scaling.factor")) {
+    if let Some(v) = metadata
+        .get("gemma3.rope.scaling.factor")
+        .or_else(|| metadata.get("llama.rope.scaling.factor"))
+    {
         println!("  rope.scaling.factor: {:?}", v);
     }
 
     // Attention
-    if let Some(v) = metadata.get("gemma3.attention.head_count").or_else(|| metadata.get("llama.attention.head_count")) {
+    if let Some(v) = metadata
+        .get("gemma3.attention.head_count")
+        .or_else(|| metadata.get("llama.attention.head_count"))
+    {
         println!("  attention.head_count: {:?}", v);
     }
-    if let Some(v) = metadata.get("gemma3.attention.head_count_kv").or_else(|| metadata.get("llama.attention.head_count_kv")) {
+    if let Some(v) = metadata
+        .get("gemma3.attention.head_count_kv")
+        .or_else(|| metadata.get("llama.attention.head_count_kv"))
+    {
         println!("  attention.head_count_kv: {:?}", v);
     }
     if let Some(v) = metadata.get("gemma3.attention.sliding_window") {
@@ -112,7 +142,8 @@ fn main() {
 
     if let Some(Value::String(template)) = metadata.get("tokenizer.chat_template") {
         // Detect template type
-        let template_type = if template.contains("<|im_start|>") && template.contains("<|im_end|>") {
+        let template_type = if template.contains("<|im_start|>") && template.contains("<|im_end|>")
+        {
             "ChatML (Qwen, OpenAI)"
         } else if template.contains("[INST]") && template.contains("[/INST]") {
             "Mistral"

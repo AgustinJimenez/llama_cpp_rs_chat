@@ -15,6 +15,11 @@
 node_modules/
 dist/
 
+# Playwright artifacts
+test-results/
+playwright-report/
+test-results.json
+
 # Log files and runtime data
 error_log
 *.log

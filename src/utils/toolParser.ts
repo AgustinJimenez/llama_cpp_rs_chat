@@ -22,7 +22,7 @@ const mistralParser: ToolParser = {
 
     // Regex to match [TOOL_CALLS]function_name[ARGS]{...}
     // Use [\s\S]*? to properly handle nested JSON
-    const regex = /\[TOOL_CALLS\]([^\[]+)\[ARGS\]([\s\S]*?)(?=\[TOOL_CALLS\]|$)/g;
+    const regex = /\[TOOL_CALLS\]([[][^[]+)\[ARGS\]([\s\S]*?)(?=\[TOOL_CALLS\]|$)/g;
     let match;
 
     while ((match = regex.exec(text)) !== null) {
@@ -171,8 +171,8 @@ export function autoParseToolCalls(text: string): ToolCall[] {
  */
 export function stripToolCalls(text: string): string {
   return text
-    .replace(/\[TOOL_CALLS\][^\[]+\[ARGS\]\{[^\}]*\}/g, '') // Mistral
-    .replace(/<function=[^>]+>\{[^\}]*\}<\/function>/g, '') // Llama3
-    .replace(/<tool_call>\{[^\}]*\}<\/tool_call>/g, '') // Qwen
+    .replace(/\[TOOL_CALLS\][[][^[]+\[ARGS\]\{[^}]*\}/g, '') // Mistral
+    .replace(/<function=[^>]+>\{[^}]*\}<\/function>/g, '') // Llama3
+    .replace(/<tool_call>\{[^}]*\}<\/tool_call>/g, '') // Qwen
     .trim();
 }

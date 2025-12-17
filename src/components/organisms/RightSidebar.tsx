@@ -38,7 +38,7 @@ export function RightSidebar({ isOpen, onClose }: RightSidebarProps) {
 
         {/* Content */}
         <div className="p-4">
-          <SystemUsage expanded />
+          <SystemUsage expanded active={isOpen} />
         </div>
       </div>
     </>

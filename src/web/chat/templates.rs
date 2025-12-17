@@ -9,16 +9,25 @@ pub fn get_universal_system_prompt() -> String {
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| ".".to_string());
 
-    let shell = if os_name == "windows" { "cmd/powershell" } else { "bash" };
+    let shell = if os_name == "windows" {
+        "cmd/powershell"
+    } else {
+        "bash"
+    };
 
     // OS-specific command examples
     let (list_cmd, read_cmd, write_cmd) = if os_name == "windows" {
         ("dir", "type filename.txt", "echo content > filename.txt")
     } else {
-        ("ls -la", "cat filename.txt", "echo 'content' > filename.txt")
+        (
+            "ls -la",
+            "cat filename.txt",
+            "echo 'content' > filename.txt",
+        )
     };
 
-    format!(r#"You are a helpful AI assistant with full system access.
+    format!(
+        r#"You are a helpful AI assistant with full system access.
 
 ## CRITICAL: Command Execution Format
 
@@ -51,14 +60,24 @@ Wait for the output before continuing your response.
 - OS: {os_name}
 - Working Directory: {cwd}
 - Shell: {shell}
-"#, list_cmd=list_cmd, read_cmd=read_cmd, write_cmd=write_cmd, os_name=os_name, cwd=cwd, shell=shell)
+"#,
+        list_cmd = list_cmd,
+        read_cmd = read_cmd,
+        write_cmd = write_cmd,
+        os_name = os_name,
+        cwd = cwd,
+        shell = shell
+    )
 }
 
 /// Apply chat template formatting to conversation history.
 ///
 /// Parses conversation text and formats it according to the model's chat template type.
 /// Now uses universal SYSTEM.EXEC prompt for all models instead of model-specific tool injection.
-pub fn apply_model_chat_template(conversation: &str, template_type: Option<&str>) -> Result<String, String> {
+pub fn apply_model_chat_template(
+    conversation: &str,
+    template_type: Option<&str>,
+) -> Result<String, String> {
     // Parse conversation into messages
     let mut system_message: Option<String> = None;
     let mut user_messages = Vec::new();
@@ -272,7 +291,11 @@ pub fn apply_model_chat_template(conversation: &str, template_type: Option<&str>
     // Debug: Print first 1000 chars of prompt
     log_debug!("system", "\nTemplate type: {:?}", template_type);
     log_debug!("system", "Constructed prompt (first 1000 chars):");
-    log_debug!("system", "{}", &prompt.chars().take(1000).collect::<String>());
+    log_debug!(
+        "system",
+        "{}",
+        &prompt.chars().take(1000).collect::<String>()
+    );
 
     Ok(prompt)
 }
@@ -333,7 +356,11 @@ mod tests {
 
         for template in &["ChatML", "Mistral", "Llama3", "Gemma"] {
             let result = apply_model_chat_template(conversation, Some(template)).unwrap();
-            assert!(result.contains("<||SYSTEM.EXEC>"), "Template {} should include SYSTEM.EXEC", template);
+            assert!(
+                result.contains("<||SYSTEM.EXEC>"),
+                "Template {} should include SYSTEM.EXEC",
+                template
+            );
         }
     }
 }

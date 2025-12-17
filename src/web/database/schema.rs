@@ -1,7 +1,7 @@
 // Database schema definitions for LLaMA Chat
 
-use rusqlite::Connection;
 use super::db_error;
+use rusqlite::Connection;
 
 /// SQL statements to create all tables
 const CREATE_CONVERSATIONS_TABLE: &str = r#"

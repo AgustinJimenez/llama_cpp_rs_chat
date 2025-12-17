@@ -4,7 +4,6 @@
 use std::env;
 use std::num::NonZeroU32;
 
-
 use llama_cpp_2::{
     context::params::LlamaContextParams,
     llama_backend::LlamaBackend,
@@ -51,9 +50,10 @@ impl SamplerType {
 
 // Configuration constants with environment variable support
 pub fn get_model_path() -> String {
-    env::var("MODEL_PATH").unwrap_or_else(|_| 
-        "/app/models/lmstudio-community/granite-4.0-h-tiny-GGUF/granite-4.0-h-tiny-Q4_K_M.gguf".to_string()
-    )
+    env::var("MODEL_PATH").unwrap_or_else(|_| {
+        "/app/models/lmstudio-community/granite-4.0-h-tiny-GGUF/granite-4.0-h-tiny-Q4_K_M.gguf"
+            .to_string()
+    })
 }
 
 pub fn get_context_size() -> u32 {
@@ -89,13 +89,11 @@ impl Default for ChatConfig {
     }
 }
 
-
 pub struct ChatEngine {
     backend: LlamaBackend,
     model: LlamaModel,
     config: ChatConfig,
 }
-
 
 impl ChatEngine {
     pub fn new(config: ChatConfig) -> Result<Self, String> {
@@ -122,7 +120,10 @@ impl ChatEngine {
                 LlamaSampler::greedy()
             }
             SamplerType::Temperature => {
-                println!("Using temperature sampler (temp: {})", self.config.temperature);
+                println!(
+                    "Using temperature sampler (temp: {})",
+                    self.config.temperature
+                );
                 LlamaSampler::temp(self.config.temperature)
             }
             SamplerType::Mirostat => {
@@ -133,11 +134,17 @@ impl ChatEngine {
                 LlamaSampler::mirostat_v2(0, self.config.mirostat_tau, self.config.mirostat_eta)
             }
             SamplerType::TopP => {
-                println!("Using top_p sampler (p: {}) - NOTE: may crash with current model", self.config.top_p);
+                println!(
+                    "Using top_p sampler (p: {}) - NOTE: may crash with current model",
+                    self.config.top_p
+                );
                 LlamaSampler::greedy() // Fallback for now
             }
             SamplerType::TopK => {
-                println!("Using top_k sampler (k: {}) - NOTE: may crash with current model", self.config.top_k);
+                println!(
+                    "Using top_k sampler (k: {}) - NOTE: may crash with current model",
+                    self.config.top_k
+                );
                 LlamaSampler::greedy() // Fallback for now
             }
             SamplerType::Typical => {
@@ -200,7 +207,7 @@ impl ChatEngine {
     async fn generate_llama_response(&self, user_message: &str) -> Result<String, String> {
         // Create sampler for this generation
         let mut sampler = self.create_sampler();
-        
+
         // Use proper Granite chat format with dynamic OS detection
         let system_prompt = get_system_prompt();
         let prompt = format!(
@@ -209,7 +216,8 @@ impl ChatEngine {
         );
 
         // Tokenize
-        let tokens = self.model
+        let tokens = self
+            .model
             .str_to_token(&prompt, AddBos::Never)
             .map_err(|e| format!("Tokenization failed: {}", e))?;
 
@@ -217,14 +225,15 @@ impl ChatEngine {
         let context_size = get_context_size();
         let n_ctx = NonZeroU32::new(context_size).unwrap();
         let ctx_params = LlamaContextParams::default().with_n_ctx(Some(n_ctx));
-        let mut context = self.model
+        let mut context = self
+            .model
             .new_context(&self.backend, ctx_params)
             .map_err(|e| format!("Context creation failed: {}", e))?;
 
         // Prepare batch with larger size to handle big contexts
         let batch_size = std::cmp::min(tokens.len() + 1000, 4096);
         let mut batch = LlamaBatch::new(batch_size, 1);
-        
+
         for (i, &token) in tokens.iter().enumerate() {
             let is_last = i == tokens.len() - 1;
             batch
@@ -252,7 +261,8 @@ impl ChatEngine {
             }
 
             // Convert token to string
-            let token_str = self.model
+            let token_str = self
+                .model
                 .token_to_str(next_token, Special::Tokenize)
                 .map_err(|e| format!("Token conversion failed: {}", e))?;
 

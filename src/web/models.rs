@@ -1,9 +1,6 @@
+use llama_cpp_2::{llama_backend::LlamaBackend, model::LlamaModel};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
-use llama_cpp_2::{
-    llama_backend::LlamaBackend,
-    model::LlamaModel,
-};
 
 use super::database::conversation::ConversationLogger;
 
@@ -30,38 +27,13 @@ pub struct SamplerConfig {
 // Common stop tokens for different model providers
 pub fn get_common_stop_tokens() -> Vec<String> {
     vec![
-        // Custom command tag - stop AFTER the command is complete
-        "</COMMAND>".to_string(),
-
-        // LLaMA 3+ tokens
+        // Generic end-of-sequence tokens (model specific)
         "<|end_of_text|>".to_string(),
         "<|eot_id|>".to_string(),
-        "<|start_header_id|>".to_string(),
-        "<|end_header_id|>".to_string(),
-
-        // Qwen tokens
-        "<|im_start|>".to_string(),
         "<|im_end|>".to_string(),
         "<|endoftext|>".to_string(),
-
-        // Mistral/Mixtral tokens
-        "[INST]".to_string(),
-        "[/INST]".to_string(),
         "</s>".to_string(),
-
-        // Phi tokens
-        "<|user|>".to_string(),
-        "<|assistant|>".to_string(),
-        "<|end|>".to_string(),
-        "<|system|>".to_string(),
-
-        // Gemma tokens
-        "<start_of_turn>".to_string(),
         "<end_of_turn>".to_string(),
-
-        // Generic role tokens
-        "<|start_of_role|>".to_string(),
-        "<|end_of_role|>".to_string(),
     ]
 }
 
@@ -89,10 +61,10 @@ impl Default for SamplerConfig {
 // Model capabilities for tool calling compatibility
 #[derive(Debug, Clone)]
 pub struct ModelCapabilities {
-    pub native_file_tools: bool,     // Can use read_file, write_file, list_directory natively
-    pub bash_tool: bool,              // Can use bash tool
+    pub native_file_tools: bool, // Can use read_file, write_file, list_directory natively
+    pub bash_tool: bool,         // Can use bash tool
     #[allow(dead_code)]
-    pub requires_translation: bool,   // Needs file tools translated to bash
+    pub requires_translation: bool, // Needs file tools translated to bash
 }
 
 impl Default for ModelCapabilities {
@@ -149,9 +121,7 @@ pub fn translate_tool_for_model(
     if !capabilities.native_file_tools && capabilities.bash_tool {
         match tool_name {
             "read_file" => {
-                let path = arguments.get("path")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let path = arguments.get("path").and_then(|v| v.as_str()).unwrap_or("");
 
                 let command = if cfg!(target_os = "windows") {
                     // PowerShell: Use Get-Content (cat is an alias)
@@ -163,24 +133,23 @@ pub fn translate_tool_for_model(
 
                 sys_debug!("[TOOL TRANSLATION] read_file → bash: {}", command);
 
-                (
-                    "bash".to_string(),
-                    serde_json::json!({"command": command}),
-                )
+                ("bash".to_string(), serde_json::json!({"command": command}))
             }
 
             "write_file" => {
-                let path = arguments.get("path")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let content = arguments.get("content")
+                let path = arguments.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                let content = arguments
+                    .get("content")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
 
                 let command = if cfg!(target_os = "windows") {
                     // PowerShell: Use Set-Content or Out-File
                     // Note: echo in PowerShell automatically writes to file with >
-                    format!("'{}' | Out-File -FilePath \"{}\" -Encoding UTF8", content, path)
+                    format!(
+                        "'{}' | Out-File -FilePath \"{}\" -Encoding UTF8",
+                        content, path
+                    )
                 } else {
                     // Linux/Mac: echo 'content' > "file"
                     format!("echo '{}' > \"{}\"", content, path)
@@ -188,17 +157,16 @@ pub fn translate_tool_for_model(
 
                 sys_debug!("[TOOL TRANSLATION] write_file → bash: {}", command);
 
-                (
-                    "bash".to_string(),
-                    serde_json::json!({"command": command}),
-                )
+                ("bash".to_string(), serde_json::json!({"command": command}))
             }
 
             "list_directory" => {
-                let path = arguments.get("path")
+                let path = arguments
+                    .get("path")
                     .and_then(|v| v.as_str())
                     .unwrap_or(".");
-                let recursive = arguments.get("recursive")
+                let recursive = arguments
+                    .get("recursive")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
 
@@ -219,10 +187,7 @@ pub fn translate_tool_for_model(
 
                 sys_debug!("[TOOL TRANSLATION] list_directory → bash: {}", command);
 
-                (
-                    "bash".to_string(),
-                    serde_json::json!({"command": command}),
-                )
+                ("bash".to_string(), serde_json::json!({"command": command}))
             }
 
             // All other tools pass through unchanged
@@ -325,7 +290,7 @@ pub struct LlamaState {
     pub current_model_path: Option<String>,
     pub model_context_length: Option<u32>,
     pub chat_template_type: Option<String>, // Store detected template type
-    pub gpu_layers: Option<u32>, // Number of GPU layers offloaded
+    pub gpu_layers: Option<u32>,            // Number of GPU layers offloaded
     pub last_used: std::time::SystemTime,
     pub model_default_system_prompt: Option<String>, // Model's default system prompt from GGUF
 }

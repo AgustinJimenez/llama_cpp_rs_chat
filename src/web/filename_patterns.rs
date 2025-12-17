@@ -167,7 +167,10 @@ mod tests {
     #[test]
     fn test_detect_architecture() {
         assert_eq!(detect_architecture("llama-2-7b-chat.gguf"), "LLaMA");
-        assert_eq!(detect_architecture("Mistral-7B-Instruct-v0.2.gguf"), "Mistral");
+        assert_eq!(
+            detect_architecture("Mistral-7B-Instruct-v0.2.gguf"),
+            "Mistral"
+        );
         assert_eq!(detect_architecture("Qwen2.5-7B-Instruct.gguf"), "Qwen");
         assert_eq!(detect_architecture("gemma-2-9b-it.gguf"), "Gemma");
         assert_eq!(detect_architecture("unknown-model.gguf"), "Unknown");

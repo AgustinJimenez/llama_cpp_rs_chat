@@ -1,22 +1,17 @@
-use std::process::Command;
-use std::env;
 use crate::log_warn;
+use std::env;
+use std::process::Command;
 
 // Whitelist of allowed commands for security
 const ALLOWED_COMMANDS: &[&str] = &[
     // File operations
     "ls", "dir", "cat", "type", "head", "tail", "find", "grep", "more", "less",
     // Directory operations
-    "cd", "pwd", "mkdir", "rmdir",
-    // File manipulation
-    "cp", "mv", "rm", "del", "touch", "chmod",
-    // System info
-    "echo", "date", "whoami", "hostname", "uname",
-    // Development tools
-    "git", "cargo", "npm", "node", "python", "rustc",
-    // Archive operations
-    "tar", "zip", "unzip", "gzip", "gunzip",
-    // Text processing
+    "cd", "pwd", "mkdir", "rmdir", // File manipulation
+    "cp", "mv", "rm", "del", "touch", "chmod", // System info
+    "echo", "date", "whoami", "hostname", "uname", // Development tools
+    "git", "cargo", "npm", "node", "python", "rustc", // Archive operations
+    "tar", "zip", "unzip", "gzip", "gunzip", // Text processing
     "sed", "awk", "sort", "uniq", "wc", "diff",
 ];
 
@@ -109,7 +104,9 @@ pub fn execute_command(cmd: &str) -> String {
         // Normal command execution for non-cd commands
         // On Windows, use cmd.exe for built-in commands like type, dir, echo, etc.
         let is_windows = cfg!(target_os = "windows");
-        let windows_builtins = ["type", "dir", "echo", "del", "copy", "move", "ren", "cls", "date", "time"];
+        let windows_builtins = [
+            "type", "dir", "echo", "del", "copy", "move", "ren", "cls", "date", "time",
+        ];
 
         let mut command = if is_windows && windows_builtins.contains(&command_name.as_str()) {
             // Use cmd.exe /c for Windows built-in commands
@@ -185,7 +182,10 @@ mod tests {
     #[test]
     fn test_parse_command_with_mixed_quotes_and_regular_args() {
         let result = parse_command_with_quotes(r#"git commit -m "Initial commit" --no-verify"#);
-        assert_eq!(result, vec!["git", "commit", "-m", "Initial commit", "--no-verify"]);
+        assert_eq!(
+            result,
+            vec!["git", "commit", "-m", "Initial commit", "--no-verify"]
+        );
     }
 
     #[test]

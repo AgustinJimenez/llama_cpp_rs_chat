@@ -6,22 +6,22 @@
 // - Accurate KV cache size calculation (calculate_kv_cache_size_gb)
 // - Automatic context size reduction when VRAM limited (calculate_safe_context_size)
 
+use gguf_llms::{GgufHeader, GgufReader, Value};
 use std::fs;
 use std::io::BufReader;
 use std::process::Command;
-use gguf_llms::{GgufHeader, GgufReader, Value};
 
 use crate::{log_info, log_warn};
 
 // Constants for VRAM calculations
-pub const DEFAULT_VRAM_GB: f64 = 22.0;  // Default VRAM assumption if detection fails
+pub const DEFAULT_VRAM_GB: f64 = 22.0; // Default VRAM assumption if detection fails
 #[allow(dead_code)]
-pub const VRAM_SAFETY_MARGIN_GB: f64 = 2.0;  // Reserve 2GB for system overhead
+pub const VRAM_SAFETY_MARGIN_GB: f64 = 2.0; // Reserve 2GB for system overhead
 #[allow(dead_code)]
 pub const MB_TO_GB: f64 = 1024.0;
 pub const BYTES_TO_GB: f64 = 1024.0 * 1024.0 * 1024.0;
 #[allow(dead_code)]
-pub const KV_CACHE_MULTIPLIER: f64 = 4.0;  // key + value, 2 bytes each (fp16)
+pub const KV_CACHE_MULTIPLIER: f64 = 4.0; // key + value, 2 bytes each (fp16)
 
 // Model size thresholds for layer estimation
 pub const SMALL_MODEL_GB: f64 = 8.0;
@@ -33,7 +33,7 @@ pub const LARGE_MODEL_LAYERS: u32 = 60;
 pub const XLARGE_MODEL_LAYERS: u32 = 80;
 
 // VRAM utilization threshold
-pub const MIN_VRAM_RATIO: f64 = 0.1;  // Minimum 10% VRAM required for GPU offloading
+pub const MIN_VRAM_RATIO: f64 = 0.1; // Minimum 10% VRAM required for GPU offloading
 
 /// Detect available VRAM using nvidia-smi.
 /// Returns the available VRAM in GB, or DEFAULT_VRAM_GB if detection fails.
@@ -57,7 +57,11 @@ pub fn get_available_vram_gb() -> Option<f64> {
     }
 
     // Fallback: assume default VRAM available (conservative estimate)
-    log_info!("system", "Could not detect VRAM, assuming {}GB available", DEFAULT_VRAM_GB);
+    log_info!(
+        "system",
+        "Could not detect VRAM, assuming {}GB available",
+        DEFAULT_VRAM_GB
+    );
     Some(DEFAULT_VRAM_GB)
 }
 
@@ -73,7 +77,8 @@ pub fn calculate_kv_cache_size_gb(
     head_dim: u32,
 ) -> f64 {
     // KV cache = tokens × layers × kv_heads × head_dim × 4 (key+value, 2 bytes each for fp16)
-    let bytes = n_ctx as f64 * n_layers as f64 * n_kv_heads as f64 * head_dim as f64 * KV_CACHE_MULTIPLIER;
+    let bytes =
+        n_ctx as f64 * n_layers as f64 * n_kv_heads as f64 * head_dim as f64 * KV_CACHE_MULTIPLIER;
     bytes / BYTES_TO_GB // Convert to GB
 }
 
@@ -83,7 +88,10 @@ pub fn calculate_optimal_gpu_layers(model_path: &str) -> u32 {
     let model_size_bytes = match fs::metadata(model_path) {
         Ok(metadata) => metadata.len(),
         Err(_) => {
-            log_info!("system", "Could not read model file size, defaulting to 32 layers");
+            log_info!(
+                "system",
+                "Could not read model file size, defaulting to 32 layers"
+            );
             return 32;
         }
     };
@@ -102,7 +110,11 @@ pub fn calculate_optimal_gpu_layers(model_path: &str) -> u32 {
     // Reserve ~2GB for system/context, leaving DEFAULT_VRAM_GB for model
     let available_vram_gb = DEFAULT_VRAM_GB;
 
-    log_info!("system", "Estimated available VRAM: {:.2} GB", available_vram_gb);
+    log_info!(
+        "system",
+        "Estimated available VRAM: {:.2} GB",
+        available_vram_gb
+    );
 
     // Calculate what percentage of the model fits in VRAM
     let vram_ratio = (available_vram_gb / model_size_gb).min(1.0);
@@ -124,11 +136,22 @@ pub fn calculate_optimal_gpu_layers(model_path: &str) -> u32 {
 
     let optimal_layers = (estimated_total_layers as f64 * vram_ratio).floor() as u32;
 
-    log_info!("system", "Estimated total layers: {}", estimated_total_layers);
-    log_info!("system", "VRAM utilization ratio: {:.1}%", vram_ratio * 100.0);
-    log_info!("system", "Optimal GPU layers: {} ({}% of model)",
-             optimal_layers,
-             (optimal_layers as f64 / estimated_total_layers as f64 * 100.0) as u32);
+    log_info!(
+        "system",
+        "Estimated total layers: {}",
+        estimated_total_layers
+    );
+    log_info!(
+        "system",
+        "VRAM utilization ratio: {:.1}%",
+        vram_ratio * 100.0
+    );
+    log_info!(
+        "system",
+        "Optimal GPU layers: {} ({}% of model)",
+        optimal_layers,
+        (optimal_layers as f64 / estimated_total_layers as f64 * 100.0) as u32
+    );
 
     // Ensure at least 1 layer on GPU if model is small enough
     optimal_layers.max(if vram_ratio > MIN_VRAM_RATIO { 1 } else { 0 })
@@ -146,9 +169,8 @@ pub fn calculate_safe_context_size(
     available_vram_gb: Option<f64>,
     gpu_layers: Option<u32>,
 ) -> (u32, bool) {
-    let available_vram = available_vram_gb.unwrap_or_else(|| {
-        get_available_vram_gb().unwrap_or(DEFAULT_VRAM_GB)
-    });
+    let available_vram =
+        available_vram_gb.unwrap_or_else(|| get_available_vram_gb().unwrap_or(DEFAULT_VRAM_GB));
 
     // Read model metadata to get architecture details
     let (n_layers, n_kv_heads, embedding_len) = if let Ok(file) = fs::File::open(model_path) {
@@ -156,26 +178,32 @@ pub fn calculate_safe_context_size(
         if let Ok(header) = GgufHeader::parse(&mut reader) {
             if let Ok(metadata) = GgufReader::read_metadata(&mut reader, header.n_kv) {
                 // Try to get layer count, kv heads, embedding length
-                let layers = metadata.get("gemma3.block_count")
+                let layers = metadata
+                    .get("gemma3.block_count")
                     .or_else(|| metadata.get("llama.block_count"))
                     .and_then(|v| match v {
                         Value::Uint32(n) => Some(*n),
                         _ => None,
-                    }).unwrap_or(48); // Default to 48 layers
+                    })
+                    .unwrap_or(48); // Default to 48 layers
 
-                let kv_heads = metadata.get("gemma3.attention.head_count_kv")
+                let kv_heads = metadata
+                    .get("gemma3.attention.head_count_kv")
                     .or_else(|| metadata.get("llama.attention.head_count_kv"))
                     .and_then(|v| match v {
                         Value::Uint32(n) => Some(*n),
                         _ => None,
-                    }).unwrap_or(8); // Default to 8 KV heads
+                    })
+                    .unwrap_or(8); // Default to 8 KV heads
 
-                let emb_len = metadata.get("gemma3.embedding_length")
+                let emb_len = metadata
+                    .get("gemma3.embedding_length")
                     .or_else(|| metadata.get("llama.embedding_length"))
                     .and_then(|v| match v {
                         Value::Uint32(n) => Some(*n),
                         _ => None,
-                    }).unwrap_or(3840); // Default to 3840
+                    })
+                    .unwrap_or(3840); // Default to 3840
 
                 (layers, kv_heads, emb_len)
             } else {
@@ -205,22 +233,42 @@ pub fn calculate_safe_context_size(
     let gpu_fraction = (gpu_layers_count as f64) / (n_layers as f64);
     let model_vram_usage = model_size_gb * gpu_fraction;
 
-    log_info!("system", "GPU layers: {}/{} ({:.1}% of model)",
-             gpu_layers_count, n_layers, gpu_fraction * 100.0);
-    log_info!("system", "Model VRAM usage: {:.2}GB ({:.1}% of {:.2}GB total)",
-             model_vram_usage, gpu_fraction * 100.0, model_size_gb);
+    log_info!(
+        "system",
+        "GPU layers: {}/{} ({:.1}% of model)",
+        gpu_layers_count,
+        n_layers,
+        gpu_fraction * 100.0
+    );
+    log_info!(
+        "system",
+        "Model VRAM usage: {:.2}GB ({:.1}% of {:.2}GB total)",
+        model_vram_usage,
+        gpu_fraction * 100.0,
+        model_size_gb
+    );
 
     // Available VRAM for KV cache = total - model_on_gpu - overhead
     let vram_for_cache = (available_vram - model_vram_usage - VRAM_SAFETY_MARGIN_GB).max(0.0);
 
-    log_info!("system", "Available: {:.2}GB, Model: {:.2}GB, Available for KV cache: {:.2}GB",
-             available_vram, model_size_gb, vram_for_cache);
+    log_info!(
+        "system",
+        "Available: {:.2}GB, Model: {:.2}GB, Available for KV cache: {:.2}GB",
+        available_vram,
+        model_size_gb,
+        vram_for_cache
+    );
 
     // Calculate KV cache size for requested context
-    let requested_cache_gb = calculate_kv_cache_size_gb(requested_ctx, n_layers, n_kv_heads, head_dim);
+    let requested_cache_gb =
+        calculate_kv_cache_size_gb(requested_ctx, n_layers, n_kv_heads, head_dim);
 
-    log_info!("system", "Requested context: {} tokens, KV cache: {:.2}GB",
-             requested_ctx, requested_cache_gb);
+    log_info!(
+        "system",
+        "Requested context: {} tokens, KV cache: {:.2}GB",
+        requested_ctx,
+        requested_cache_gb
+    );
 
     if requested_cache_gb <= vram_for_cache {
         // Requested context fits in VRAM
@@ -230,7 +278,8 @@ pub fn calculate_safe_context_size(
 
     // Calculate safe context size
     // max_tokens = vram_for_cache / (layers × kv_heads × head_dim × 4)
-    let bytes_per_token = n_layers as f64 * n_kv_heads as f64 * head_dim as f64 * KV_CACHE_MULTIPLIER;
+    let bytes_per_token =
+        n_layers as f64 * n_kv_heads as f64 * head_dim as f64 * KV_CACHE_MULTIPLIER;
     let safe_tokens = ((vram_for_cache * BYTES_TO_GB) / bytes_per_token) as u32;
 
     // Round down to nearest power of 2 for cleaner values
@@ -246,8 +295,16 @@ pub fn calculate_safe_context_size(
         2048
     };
 
-    log_warn!("system", "⚠️  Requested context ({}) exceeds VRAM capacity!", requested_ctx);
-    log_warn!("system", "⚠️  Auto-reducing to safe context size: {} tokens", safe_ctx);
+    log_warn!(
+        "system",
+        "⚠️  Requested context ({}) exceeds VRAM capacity!",
+        requested_ctx
+    );
+    log_warn!(
+        "system",
+        "⚠️  Auto-reducing to safe context size: {} tokens",
+        safe_ctx
+    );
 
     (safe_ctx, true) // Return safe context and flag that it was reduced
 }

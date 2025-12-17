@@ -1,9 +1,9 @@
 // Migration from file-based storage to SQLite
 
+use super::config::DbSamplerConfig;
+use super::Database;
 use std::fs;
 use std::path::Path;
-use super::Database;
-use super::config::DbSamplerConfig;
 
 // Import logging macro
 use crate::sys_warn;
@@ -51,8 +51,8 @@ fn migrate_single_conversation(
     file_path: &Path,
     conv_id: &str,
 ) -> Result<(), String> {
-    let content = fs::read_to_string(file_path)
-        .map_err(|e| format!("Failed to read file: {}", e))?;
+    let content =
+        fs::read_to_string(file_path).map_err(|e| format!("Failed to read file: {}", e))?;
 
     // Parse timestamp from conversation ID: chat_YYYY-MM-DD-HH-mm-ss-SSS
     let created_at = parse_timestamp_from_id(conv_id).unwrap_or_else(|| {
@@ -101,10 +101,7 @@ fn migrate_single_conversation(
 /// Parse conversation ID timestamp: chat_YYYY-MM-DD-HH-mm-ss-SSS
 fn parse_timestamp_from_id(conv_id: &str) -> Option<i64> {
     // Format: chat_2025-01-15-14-30-45-123
-    let parts: Vec<&str> = conv_id
-        .trim_start_matches("chat_")
-        .split('-')
-        .collect();
+    let parts: Vec<&str> = conv_id.trim_start_matches("chat_").split('-').collect();
 
     if parts.len() < 7 {
         return None;
@@ -227,7 +224,9 @@ pub fn migrate_config(db: &Database) -> Result<bool, String> {
 
     // Convert to DbSamplerConfig
     let db_config = DbSamplerConfig {
-        sampler_type: json_config.sampler_type.unwrap_or_else(|| "Greedy".to_string()),
+        sampler_type: json_config
+            .sampler_type
+            .unwrap_or_else(|| "Greedy".to_string()),
         temperature: json_config.temperature.unwrap_or(0.7),
         top_p: json_config.top_p.unwrap_or(0.95),
         top_k: json_config.top_k.unwrap_or(20),

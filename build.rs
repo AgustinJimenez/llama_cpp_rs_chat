@@ -1,43 +1,46 @@
-use std::process::Command;
 use std::env;
+use std::process::Command;
 
 fn main() {
     // Always try to set up CMAKE path if available, even before checking features
     setup_cmake_environment();
-    
+
     // Check if we're building with real LLaMA (which requires CMake)
-    let real_llama = env::var("CARGO_FEATURE_DOCKER").is_ok() && !env::var("CARGO_FEATURE_MOCK").is_ok();
-    
+    let real_llama =
+        env::var("CARGO_FEATURE_DOCKER").is_ok() && !env::var("CARGO_FEATURE_MOCK").is_ok();
+
     if real_llama {
         // Check if CMake is available
         if !is_cmake_available() {
             print_cmake_installation_help();
-            eprintln!("
+            eprintln!(
+                "
 FOR E2E TESTING ONLY:
 To run tests with mock implementation:
 1. Run: cargo test --features mock --no-default-features
-");
+"
+            );
             panic!("CMake is required but not found. Please install CMake and ensure it's in your PATH.");
         } else {
             println!("cargo:warning=CMake found, proceeding with LLaMA compilation...");
         }
     }
-    
+
     tauri_build::build()
 }
 
 fn setup_cmake_environment() {
     // Try to find and set CMAKE environment variable early
-    let cmake_paths = [
-        "cmake",
-        "C:\\Program Files\\CMake\\bin\\cmake.exe",
-    ];
+    let cmake_paths = ["cmake", "C:\\Program Files\\CMake\\bin\\cmake.exe"];
 
     for path in &cmake_paths {
         if let Ok(output) = Command::new(path).arg("--version").output() {
             if output.status.success() {
                 println!("cargo:rustc-env=CMAKE={}", path);
-                println!("cargo:warning=Setting CMAKE environment variable to: {}", path);
+                println!(
+                    "cargo:warning=Setting CMAKE environment variable to: {}",
+                    path
+                );
                 env::set_var("CMAKE", path);
 
                 // Also add the bin directory to PATH if it's not "cmake" (system-wide)
@@ -84,7 +87,8 @@ fn is_cmake_available() -> bool {
 }
 
 fn print_cmake_installation_help() {
-    eprintln!("
+    eprintln!(
+        "
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║                                CMAKE REQUIRED                                ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
@@ -113,7 +117,8 @@ fn print_cmake_installation_help() {
 ║                                                                              ║
 ║ After installation, verify with: cmake --version                            ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
-");
+"
+    );
 
     // On Windows, try to show a message box as well
     #[cfg(target_os = "windows")]
@@ -128,7 +133,8 @@ fn show_windows_message_box() {
     let _ = Command::new("powershell")
         .arg("-NoProfile")
         .arg("-Command")
-        .arg(r#"
+        .arg(
+            r#"
             Add-Type -AssemblyName System.Windows.Forms
             $result = [System.Windows.Forms.MessageBox]::Show(
                 "CMake is required to build this project but was not found in your PATH.`n`n" +
@@ -141,6 +147,7 @@ fn show_windows_message_box() {
                 [System.Windows.Forms.MessageBoxButtons]::OK,
                 [System.Windows.Forms.MessageBoxIcon]::Warning
             )
-        "#)
+        "#,
+        )
         .output();
 }

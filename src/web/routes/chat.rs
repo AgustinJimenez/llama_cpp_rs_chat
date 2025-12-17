@@ -1,28 +1,28 @@
 // Chat route handlers
-
+use hyper::body::Bytes;
 use hyper::{Body, Request, Response, StatusCode};
+use serde_json::json;
 use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
-use hyper::body::Bytes;
+use tokio::task::spawn_blocking;
 
 use crate::web::{
-    models::{ChatRequest, ChatResponse, ChatMessage, TokenData},
-    database::{SharedDatabase, conversation::ConversationLogger},
     chat_handler::{generate_llama_response, get_universal_system_prompt},
-    websocket::{handle_websocket, handle_conversation_watch},
-    websocket_utils::{
-        calculate_websocket_accept_key, is_websocket_upgrade,
-        get_websocket_key, build_websocket_upgrade_response,
-        build_json_error_response,
-    },
+    config::get_resolved_system_prompt,
+    database::{conversation::ConversationLogger, SharedDatabase},
+    models::{ChatMessage, ChatRequest, ChatResponse, TokenData},
     request_parsing::parse_json_body,
     response_helpers::{json_error, json_response},
-    config::get_resolved_system_prompt,
+    websocket::{handle_conversation_watch, handle_websocket},
+    websocket_utils::{
+        build_json_error_response, build_websocket_upgrade_response,
+        calculate_websocket_accept_key, get_websocket_key, is_websocket_upgrade,
+    },
 };
 
 // Import logging macros
-use crate::{sys_debug, sys_info, sys_warn, sys_error};
+use crate::{sys_debug, sys_error, sys_info, sys_warn};
 
 #[cfg(not(feature = "mock"))]
 use crate::web::models::SharedLlamaState;
@@ -45,10 +45,8 @@ fn timestamp_now() -> String {
 
 pub async fn handle_post_chat(
     req: Request<Body>,
-    #[cfg(not(feature = "mock"))]
-    llama_state: SharedLlamaState,
-    #[cfg(feature = "mock")]
-    _llama_state: (),
+    #[cfg(not(feature = "mock"))] llama_state: SharedLlamaState,
+    #[cfg(feature = "mock")] _llama_state: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     // Parse request body using helper
@@ -77,7 +75,9 @@ pub async fn handle_post_chat(
                         .unwrap_or_default()
                         .as_secs(),
                 },
-                conversation_id: chat_request.conversation_id.unwrap_or_else(|| format!("{}", uuid::Uuid::new_v4())),
+                conversation_id: chat_request
+                    .conversation_id
+                    .unwrap_or_else(|| format!("{}", uuid::Uuid::new_v4())),
                 tokens_used: None,
                 max_tokens: None,
             };
@@ -91,7 +91,10 @@ pub async fn handle_post_chat(
             match ConversationLogger::from_existing(db.clone(), conversation_id) {
                 Ok(logger) => Arc::new(Mutex::new(logger)),
                 Err(e) => {
-                    return Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Failed to load conversation: {}", e)));
+                    return Ok(json_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        &format!("Failed to load conversation: {}", e),
+                    ));
                 }
             }
         } else {
@@ -105,7 +108,10 @@ pub async fn handle_post_chat(
             match ConversationLogger::new(db.clone(), system_prompt.as_deref()) {
                 Ok(logger) => Arc::new(Mutex::new(logger)),
                 Err(e) => {
-                    return Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Failed to create conversation logger: {}", e)));
+                    return Ok(json_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        &format!("Failed to create conversation logger: {}", e),
+                    ));
                 }
             }
         };
@@ -127,26 +133,36 @@ pub async fn handle_post_chat(
         let conversation_logger_clone = conversation_logger.clone();
         let llama_state_clone = llama_state.clone();
         let conv_id_for_log = conversation_id.clone();
-        sys_info!("[{}] [API_CHAT] Spawning background generation task for conversation: {}",
-            timestamp_now(), conv_id_for_log);
-        // Use std::thread instead of tokio::spawn to avoid deadlocks
-        // Generation is CPU-bound and doesn't need async runtime
-        std::thread::spawn(move || {
-            sys_debug!("[{}] [BACKGROUND_GEN] Thread started for: {}",
-                timestamp_now(), conv_id_for_log);
-            sys_debug!("[{}] [BACKGROUND_GEN] Calling generate_llama_response...",
-                timestamp_now());
+        let rt_handle = tokio::runtime::Handle::current();
+        sys_info!(
+            "[{}] [API_CHAT] Spawning background generation task for conversation: {}",
+            timestamp_now(),
+            conv_id_for_log
+        );
+        // Use spawn_blocking to keep heavy work off the core runtime threads
+        spawn_blocking(move || {
+            sys_debug!(
+                "[{}] [BACKGROUND_GEN] Thread started for: {}",
+                timestamp_now(),
+                conv_id_for_log
+            );
+            sys_debug!(
+                "[{}] [BACKGROUND_GEN] Calling generate_llama_response...",
+                timestamp_now()
+            );
 
             // Clone state for use in panic handler (needs to outlive the closure)
             let state_for_unload = llama_state_clone.clone();
 
-                // Wrap generation in panic handler to catch tokenization crashes
+            // Wrap generation in panic handler to catch tokenization crashes
             let panic_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                // Create a new tokio runtime for this thread
-                let rt = tokio::runtime::Runtime::new().unwrap();
-                rt.block_on(
-                    generate_llama_response(&message_clone, llama_state_clone.clone(), conversation_logger_clone.clone(), None, true)
-                )
+                rt_handle.block_on(generate_llama_response(
+                    &message_clone,
+                    llama_state_clone.clone(),
+                    conversation_logger_clone.clone(),
+                    None,
+                    true,
+                ))
             }));
 
             match panic_result {
@@ -154,24 +170,37 @@ pub async fn handle_post_chat(
                     // Generation completed or returned error
                     match result {
                         Ok((_content, tokens, max_tok)) => {
-                            sys_info!("[{}] [BACKGROUND_GEN] Generation completed: {} tokens / {} max",
-                                timestamp_now(), tokens, max_tok);
-                        },
+                            sys_info!(
+                                "[{}] [BACKGROUND_GEN] Generation completed: {} tokens / {} max",
+                                timestamp_now(),
+                                tokens,
+                                max_tok
+                            );
+                        }
                         Err(err) => {
-                            sys_error!("[{}] [BACKGROUND_GEN] Generation failed: {}",
-                                timestamp_now(), err);
+                            sys_error!(
+                                "[{}] [BACKGROUND_GEN] Generation failed: {}",
+                                timestamp_now(),
+                                err
+                            );
 
                             // Write error to conversation file so it's visible to user
                             let mut logger = conversation_logger_clone.lock().unwrap();
                             logger.log_message("SYSTEM", &format!("⚠️ Generation Error: {}", err));
                             logger.log_message("SYSTEM", "The model encountered an error during generation. This may be due to:");
-                            logger.log_message("SYSTEM", "  - Complex output (large code blocks, JSON)");
+                            logger.log_message(
+                                "SYSTEM",
+                                "  - Complex output (large code blocks, JSON)",
+                            );
                             logger.log_message("SYSTEM", "  - Context size limitations");
                             logger.log_message("SYSTEM", "  - Model tokenization issues");
-                            logger.log_message("SYSTEM", "Try simplifying your request or reducing context size.");
+                            logger.log_message(
+                                "SYSTEM",
+                                "Try simplifying your request or reducing context size.",
+                            );
                         }
                     }
-                },
+                }
                 Err(panic_err) => {
                     // Tokenization panic caught!
                     let panic_msg = if let Some(s) = panic_err.downcast_ref::<String>() {
@@ -182,38 +211,57 @@ pub async fn handle_post_chat(
                         "Unknown panic".to_string()
                     };
 
-                    sys_error!("[{}] [BACKGROUND_GEN] PANIC CAUGHT: {}",
-                        timestamp_now(), panic_msg);
+                    sys_error!(
+                        "[{}] [BACKGROUND_GEN] PANIC CAUGHT: {}",
+                        timestamp_now(),
+                        panic_msg
+                    );
 
                     // Write panic to conversation file
                     let mut logger = conversation_logger_clone.lock().unwrap();
                     logger.log_message("SYSTEM", "❌ Generation Crashed (Tokenization Panic)");
                     logger.log_message("SYSTEM", &format!("Panic message: {}", panic_msg));
                     logger.log_message("SYSTEM", "");
-                    logger.log_message("SYSTEM", "This is a known issue with the llama-cpp-2 library.");
-                    logger.log_message("SYSTEM", "The model has been automatically unloaded for safety.");
+                    logger.log_message(
+                        "SYSTEM",
+                        "This is a known issue with the llama-cpp-2 library.",
+                    );
+                    logger.log_message(
+                        "SYSTEM",
+                        "The model has been automatically unloaded for safety.",
+                    );
                     logger.log_message("SYSTEM", "");
                     logger.log_message("SYSTEM", "Please try:");
                     logger.log_message("SYSTEM", "  - Reload the model");
                     logger.log_message("SYSTEM", "  - Use a simpler, shorter prompt");
                     logger.log_message("SYSTEM", "  - Reduce context size in model settings");
-                    logger.log_message("SYSTEM", "  - Avoid requests for large code blocks or complex JSON");
+                    logger.log_message(
+                        "SYSTEM",
+                        "  - Avoid requests for large code blocks or complex JSON",
+                    );
                     drop(logger); // Release lock before unloading model
 
                     // Automatically unload the model to prevent further crashes
-                    sys_warn!("[{}] [BACKGROUND_GEN] Auto-unloading model after panic...",
-                        timestamp_now());
+                    sys_warn!(
+                        "[{}] [BACKGROUND_GEN] Auto-unloading model after panic...",
+                        timestamp_now()
+                    );
 
                     // Unload model asynchronously
                     let rt = tokio::runtime::Runtime::new().unwrap();
                     match rt.block_on(unload_model(state_for_unload)) {
                         Ok(_) => {
-                            sys_info!("[{}] [BACKGROUND_GEN] Model unloaded successfully",
-                                timestamp_now());
+                            sys_info!(
+                                "[{}] [BACKGROUND_GEN] Model unloaded successfully",
+                                timestamp_now()
+                            );
                         }
                         Err(e) => {
-                            sys_error!("[{}] [BACKGROUND_GEN] Failed to unload model: {}",
-                                timestamp_now(), e);
+                            sys_error!(
+                                "[{}] [BACKGROUND_GEN] Failed to unload model: {}",
+                                timestamp_now(),
+                                e
+                            );
                         }
                     }
                 }
@@ -232,8 +280,8 @@ pub async fn handle_post_chat(
                     .as_secs(),
             },
             conversation_id,
-            tokens_used: None,  // Will be updated via WebSocket
-            max_tokens: None,   // Will be updated via WebSocket
+            tokens_used: None, // Will be updated via WebSocket
+            max_tokens: None,  // Will be updated via WebSocket
         };
 
         Ok(json_response(StatusCode::OK, &chat_response))
@@ -258,10 +306,8 @@ pub async fn handle_post_chat(
 
 pub async fn handle_post_chat_stream(
     req: Request<Body>,
-    #[cfg(not(feature = "mock"))]
-    llama_state: SharedLlamaState,
-    #[cfg(feature = "mock")]
-    _llama_state: (),
+    #[cfg(not(feature = "mock"))] llama_state: SharedLlamaState,
+    #[cfg(feature = "mock")] _llama_state: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     // Parse request body using helper
@@ -276,26 +322,45 @@ pub async fn handle_post_chat_stream(
         let universal_prompt = get_universal_system_prompt();
 
         // Create a new conversation logger for this chat session
-        let conversation_logger = match ConversationLogger::new(db.clone(), Some(&universal_prompt)) {
+        let conversation_logger = match ConversationLogger::new(db.clone(), Some(&universal_prompt))
+        {
             Ok(logger) => Arc::new(Mutex::new(logger)),
             Err(e) => {
-                return Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Failed to create conversation logger: {}", e)));
+                return Ok(json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &format!("Failed to create conversation logger: {}", e),
+                ));
             }
         };
 
         // Create channel for streaming tokens
         let (tx, mut rx) = mpsc::unbounded_channel::<TokenData>();
+        let (err_tx, mut err_rx) = mpsc::unbounded_channel::<String>();
 
         // Spawn generation task
         let message = chat_request.message.clone();
         let state_clone = llama_state.clone();
+        let err_tx_clone = err_tx.clone();
         tokio::spawn(async move {
-            match generate_llama_response(&message, state_clone, conversation_logger, Some(tx), false).await {
+            match generate_llama_response(
+                &message,
+                state_clone,
+                conversation_logger,
+                Some(tx),
+                false,
+            )
+            .await
+            {
                 Ok((_content, tokens, max)) => {
-                    sys_debug!("[DEBUG] Generation completed successfully: {} tokens used, {} max", tokens, max);
+                    sys_debug!(
+                        "[DEBUG] Generation completed successfully: {} tokens used, {} max",
+                        tokens,
+                        max
+                    );
                 }
                 Err(e) => {
                     sys_error!("[ERROR] Generation failed: {}", e);
+                    let _ = err_tx_clone.send(e.to_string());
                 }
             }
         });
@@ -305,9 +370,10 @@ pub async fn handle_post_chat_stream(
 
         // Spawn task to send tokens through the channel
         tokio::spawn(async move {
+            let mut error_sent = false;
             loop {
-                match rx.recv().await {
-                    Some(token_data) => {
+                tokio::select! {
+                    Some(token_data) = rx.recv() => {
                         // Send TokenData as JSON
                         let json = serde_json::to_string(&token_data).unwrap_or_else(|_| r#"{"token":"","tokens_used":0,"max_tokens":0}"#.to_string());
                         let event = format!("data: {}\n\n", json);
@@ -318,14 +384,22 @@ pub async fn handle_post_chat_stream(
                             break;
                         }
                     }
-                    None => {
+                    Some(err_msg) = err_rx.recv() => {
+                        let error_event = format!("event: error\ndata: {}\n\n", json!({ "error": err_msg }));
+                        let _ = sender.send_data(Bytes::from(error_event)).await;
+                        error_sent = true;
+                        break;
+                    }
+                    else => {
                         // Channel closed, generation complete
                         break;
                     }
                 }
             }
-            // Send done event
-            let _ = sender.send_data(Bytes::from("data: [DONE]\n\n")).await;
+            // Send done event unless an error was sent
+            if !error_sent {
+                let _ = sender.send_data(Bytes::from("data: [DONE]\n\n")).await;
+            }
         });
 
         Ok(Response::builder()
@@ -334,28 +408,32 @@ pub async fn handle_post_chat_stream(
             .header("cache-control", "no-cache")
             .header("access-control-allow-origin", "*")
             .header("connection", "keep-alive")
-            .header("x-accel-buffering", "no")  // Disable nginx buffering
+            .header("x-accel-buffering", "no") // Disable nginx buffering
             .body(body)
             .unwrap())
     }
 
     #[cfg(feature = "mock")]
     {
-        Ok(json_raw(StatusCode::OK, r#"{"error":"Streaming not available (mock feature enabled)"}"#.to_string()))
+        Ok(json_raw(
+            StatusCode::OK,
+            r#"{"error":"Streaming not available (mock feature enabled)"}"#.to_string(),
+        ))
     }
 }
 
 pub async fn handle_websocket_chat_stream(
     req: Request<Body>,
-    #[cfg(not(feature = "mock"))]
-    llama_state: SharedLlamaState,
-    #[cfg(feature = "mock")]
-    _llama_state: (),
+    #[cfg(not(feature = "mock"))] llama_state: SharedLlamaState,
+    #[cfg(feature = "mock")] _llama_state: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     // Check if the request wants to upgrade to WebSocket
     if !is_websocket_upgrade(&req) {
-        return Ok(build_json_error_response(StatusCode::BAD_REQUEST, "WebSocket upgrade required"));
+        return Ok(build_json_error_response(
+            StatusCode::BAD_REQUEST,
+            "WebSocket upgrade required",
+        ));
     }
 
     // Extract the WebSocket key and calculate accept key
@@ -397,19 +475,26 @@ pub async fn handle_websocket_chat_stream(
 pub async fn handle_conversation_watch_websocket(
     req: Request<Body>,
     path: &str,
-    #[cfg(not(feature = "mock"))]
-    llama_state: SharedLlamaState,
-    #[cfg(feature = "mock")]
-    _llama_state: (),
+    #[cfg(not(feature = "mock"))] llama_state: SharedLlamaState,
+    #[cfg(feature = "mock")] _llama_state: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     // Extract conversation ID from path
-    let conversation_id = path.strip_prefix("/ws/conversation/watch/").unwrap_or("").to_string();
-    sys_info!("[CONV-WATCH] WebSocket file watcher request for conversation: {}", conversation_id);
+    let conversation_id = path
+        .strip_prefix("/ws/conversation/watch/")
+        .unwrap_or("")
+        .to_string();
+    sys_info!(
+        "[CONV-WATCH] WebSocket file watcher request for conversation: {}",
+        conversation_id
+    );
 
     // Check for WebSocket upgrade
     if !is_websocket_upgrade(&req) {
-        return Ok(build_json_error_response(StatusCode::BAD_REQUEST, "Expected WebSocket upgrade"));
+        return Ok(build_json_error_response(
+            StatusCode::BAD_REQUEST,
+            "Expected WebSocket upgrade",
+        ));
     }
 
     // Get WebSocket key and calculate accept key
@@ -426,7 +511,14 @@ pub async fn handle_conversation_watch_websocket(
         tokio::spawn(async move {
             match hyper::upgrade::on(req).await {
                 Ok(upgraded) => {
-                    if let Err(e) = handle_conversation_watch(upgraded, conversation_id, Some(llama_state_ws), db_ws).await {
+                    if let Err(e) = handle_conversation_watch(
+                        upgraded,
+                        conversation_id,
+                        Some(llama_state_ws),
+                        db_ws,
+                    )
+                    .await
+                    {
                         sys_error!("[CONV-WATCH ERROR] {}", e);
                     }
                 }

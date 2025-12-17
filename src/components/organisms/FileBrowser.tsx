@@ -20,6 +20,7 @@ interface FileBrowserProps {
   title?: string;
 }
 
+// eslint-disable-next-line max-lines-per-function
 export const FileBrowser: React.FC<FileBrowserProps> = ({ 
   isOpen, 
   onClose, 
@@ -41,7 +42,12 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
     try {
       const response = await fetch(`/api/browse?path=${encodeURIComponent(path)}`);
       if (!response.ok) {
-        throw new Error('Failed to browse files');
+        const msg = response.status === 403
+          ? 'Access to this path is not allowed'
+          : response.status === 404
+            ? 'Directory not found'
+            : 'Failed to browse files';
+        throw new Error(msg);
       }
       
       const data: BrowseFilesResponse = await response.json();

@@ -1,19 +1,19 @@
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::Ordering;
-use tokio::sync::mpsc;
+use futures_util::{SinkExt, StreamExt};
 use hyper::upgrade::Upgraded;
+use llama_cpp_2::model::AddBos;
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::protocol::Message as WsMessage;
 use tokio_tungstenite::WebSocketStream;
-use futures_util::{StreamExt, SinkExt};
-use llama_cpp_2::model::AddBos;
 
-use super::models::*;
-use super::database::{SharedDatabase, conversation::ConversationLogger};
-use super::chat_handler::{generate_llama_response, apply_model_chat_template};
+use super::chat_handler::{apply_model_chat_template, generate_llama_response};
 use super::config::get_resolved_system_prompt;
+use super::database::{conversation::ConversationLogger, SharedDatabase};
+use super::models::*;
 
 // Import logging macros
-use crate::{sys_debug, sys_info, sys_warn, sys_error};
+use crate::{sys_debug, sys_error, sys_info, sys_warn};
 
 // Import the global counter
 use std::sync::atomic::AtomicU32;
@@ -33,13 +33,13 @@ fn calculate_tokens_for_content(
                         // Apply chat template to get the prompt
                         let template_type = llama_state_inner.chat_template_type.as_deref();
                         match apply_model_chat_template(content, template_type) {
-                            Ok(prompt) => {
-                                match model.str_to_token(&prompt, AddBos::Always) {
-                                    Ok(tokens) => return (Some(tokens.len() as i32), Some(context_size as i32)),
-                                    Err(_) => return (None, Some(context_size as i32))
+                            Ok(prompt) => match model.str_to_token(&prompt, AddBos::Always) {
+                                Ok(tokens) => {
+                                    return (Some(tokens.len() as i32), Some(context_size as i32))
                                 }
+                                Err(_) => return (None, Some(context_size as i32)),
                             },
-                            Err(_) => return (None, Some(context_size as i32))
+                            Err(_) => return (None, Some(context_size as i32)),
                         }
                     }
                 }
@@ -60,7 +60,8 @@ pub async fn handle_websocket(
         upgraded,
         tokio_tungstenite::tungstenite::protocol::Role::Server,
         None,
-    ).await;
+    )
+    .await;
 
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
 
@@ -71,7 +72,10 @@ pub async fn handle_websocket(
     while let Some(msg) = ws_receiver.next().await {
         match msg {
             Ok(WsMessage::Text(text)) => {
-                sys_debug!("[WS_CHAT] Received message: {}", text.chars().take(100).collect::<String>());
+                sys_debug!(
+                    "[WS_CHAT] Received message: {}",
+                    text.chars().take(100).collect::<String>()
+                );
 
                 // Parse the chat request
                 let chat_request: ChatRequest = match serde_json::from_str(&text) {
@@ -96,16 +100,20 @@ pub async fn handle_websocket(
                         // Load existing conversation
                         match ConversationLogger::from_existing(db.clone(), conv_id) {
                             Ok(logger) => {
-                                sys_info!("[WS_CHAT] Successfully loaded conversation: {}", conv_id);
+                                sys_info!(
+                                    "[WS_CHAT] Successfully loaded conversation: {}",
+                                    conv_id
+                                );
                                 Arc::new(Mutex::new(logger))
-                            },
+                            }
                             Err(e) => {
                                 sys_error!("[WS_CHAT] Failed to load conversation: {}", e);
                                 let error_msg = serde_json::json!({
                                     "type": "error",
                                     "error": format!("Failed to load conversation: {}", e)
                                 });
-                                let _ = ws_sender.send(WsMessage::Text(error_msg.to_string())).await;
+                                let _ =
+                                    ws_sender.send(WsMessage::Text(error_msg.to_string())).await;
                                 break;
                             }
                         }
@@ -117,14 +125,15 @@ pub async fn handle_websocket(
                             Ok(logger) => {
                                 sys_info!("[WS_CHAT] Successfully created new conversation");
                                 Arc::new(Mutex::new(logger))
-                            },
+                            }
                             Err(e) => {
                                 sys_error!("[WS_CHAT] Failed to create conversation: {}", e);
                                 let error_msg = serde_json::json!({
                                     "type": "error",
                                     "error": format!("Failed to create conversation logger: {}", e)
                                 });
-                                let _ = ws_sender.send(WsMessage::Text(error_msg.to_string())).await;
+                                let _ =
+                                    ws_sender.send(WsMessage::Text(error_msg.to_string())).await;
                                 break;
                             }
                         }
@@ -133,7 +142,8 @@ pub async fn handle_websocket(
 
                 // Get conversation ID to send back to client
                 let conversation_id = {
-                    let logger = conversation_logger.lock()
+                    let logger = conversation_logger
+                        .lock()
                         .expect("Conversation logger mutex poisoned");
                     logger.get_conversation_id()
                 };
@@ -152,9 +162,22 @@ pub async fn handle_websocket(
                     sys_debug!("[WS_CHAT] Generation task started");
                     if let Some(state) = state_clone {
                         sys_debug!("[WS_CHAT] State is Some, calling generate_llama_response...");
-                        match generate_llama_response(&message, state, conversation_logger, Some(tx), false).await {
+                        match generate_llama_response(
+                            &message,
+                            state,
+                            conversation_logger,
+                            Some(tx),
+                            false,
+                        )
+                        .await
+                        {
                             Ok((content, tokens, max)) => {
-                                sys_info!("[WS_CHAT] Generation SUCCESS: {} chars, {} tokens, max {}", content.len(), tokens, max);
+                                sys_info!(
+                                    "[WS_CHAT] Generation SUCCESS: {} chars, {} tokens, max {}",
+                                    content.len(),
+                                    tokens,
+                                    max
+                                );
                             }
                             Err(e) => {
                                 sys_error!("[WS_CHAT] Generation FAILED with error: {}", e);
@@ -253,7 +276,8 @@ pub async fn handle_conversation_watch(
         upgraded,
         tokio_tungstenite::tungstenite::protocol::Role::Server,
         None,
-    ).await;
+    )
+    .await;
 
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
 
@@ -271,7 +295,10 @@ pub async fn handle_conversation_watch(
 
     // Read initial content from database (now safe - we won't miss broadcasts)
     let initial_content = db.get_conversation_as_text(&conv_id).unwrap_or_default();
-    sys_debug!("[WS_WATCH] Initial content length: {}", initial_content.len());
+    sys_debug!(
+        "[WS_WATCH] Initial content length: {}",
+        initial_content.len()
+    );
 
     // Calculate token counts for initial content
     let (tokens_used, max_tokens) = calculate_tokens_for_content(&initial_content, &llama_state);
@@ -284,7 +311,9 @@ pub async fn handle_conversation_watch(
         "max_tokens": max_tokens
     });
 
-    let _ = ws_sender.send(WsMessage::Text(initial_msg.to_string())).await;
+    let _ = ws_sender
+        .send(WsMessage::Text(initial_msg.to_string()))
+        .await;
 
     loop {
         tokio::select! {

@@ -1,12 +1,15 @@
 // File operation route handlers
 
+use futures_util::StreamExt;
 use hyper::{Body, Request, Response, StatusCode};
 use std::convert::Infallible;
-use std::fs;
+use std::path::{Path, PathBuf};
+use tokio::fs;
+use tokio::io::AsyncWriteExt;
 
 use crate::web::{
-    models::{FileItem, BrowseFilesResponse},
-    response_helpers::{json_error, json_response, json_raw},
+    models::{BrowseFilesResponse, FileItem},
+    response_helpers::{json_error, json_raw, json_response},
 };
 
 // Import logging macros
@@ -14,10 +17,8 @@ use crate::sys_error;
 
 pub async fn handle_get_browse(
     req: Request<Body>,
-    #[cfg(not(feature = "mock"))]
-    _llama_state: crate::web::models::SharedLlamaState,
-    #[cfg(feature = "mock")]
-    _llama_state: (),
+    #[cfg(not(feature = "mock"))] _llama_state: crate::web::models::SharedLlamaState,
+    #[cfg(feature = "mock")] _llama_state: (),
 ) -> Result<Response<Body>, Infallible> {
     // Parse query parameters for path
     let query = req.uri().query().unwrap_or("");
@@ -35,9 +36,9 @@ pub async fn handle_get_browse(
 
     // Security: ensure path is within allowed directories
     let allowed_paths = ["/app/models", "/app"];
-    let is_allowed = allowed_paths.iter().any(|&allowed| {
-        browse_path.starts_with(allowed)
-    });
+    let is_allowed = allowed_paths
+        .iter()
+        .any(|&allowed| browse_path.starts_with(allowed));
 
     if !is_allowed {
         return Ok(json_error(StatusCode::FORBIDDEN, "Path not allowed"));
@@ -54,46 +55,41 @@ pub async fn handle_get_browse(
         None
     };
 
-    match fs::read_dir(browse_path) {
-        Ok(entries) => {
-            for entry in entries {
-                if let Ok(entry) = entry {
-                    let path = entry.path();
-                    if let (Some(name), Some(path_str)) = (
-                        path.file_name().and_then(|n| n.to_str()),
-                        path.to_str()
-                    ) {
-                        let is_directory = path.is_dir();
-                        let size = if !is_directory {
-                            entry.metadata().ok().map(|m| m.len())
-                        } else {
-                            None
-                        };
-
-                        files.push(FileItem {
-                            name: name.to_string(),
-                            path: path_str.to_string(),
-                            is_directory,
-                            size,
-                        });
-                    }
-                }
-            }
-
-            // Sort: directories first, then files, both alphabetically
-            files.sort_by(|a, b| {
-                match (a.is_directory, b.is_directory) {
-                    (true, false) => std::cmp::Ordering::Less,
-                    (false, true) => std::cmp::Ordering::Greater,
-                    _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-                }
-            });
-        }
+    let mut dir = match fs::read_dir(browse_path).await {
+        Ok(d) => d,
         Err(e) => {
             sys_error!("Failed to read directory {}: {}", browse_path, e);
             return Ok(json_error(StatusCode::NOT_FOUND, "Directory not found"));
         }
+    };
+
+    while let Ok(Some(entry)) = dir.next_entry().await {
+        let path = entry.path();
+        if let (Some(name), Some(path_str)) =
+            (path.file_name().and_then(|n| n.to_str()), path.to_str())
+        {
+            let is_directory = path.is_dir();
+            let size = if !is_directory {
+                entry.metadata().await.ok().map(|m| m.len())
+            } else {
+                None
+            };
+
+            files.push(FileItem {
+                name: name.to_string(),
+                path: path_str.to_string(),
+                is_directory,
+                size,
+            });
+        }
     }
+
+    // Sort: directories first, then files, both alphabetically
+    files.sort_by(|a, b| match (a.is_directory, b.is_directory) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+    });
 
     let response = BrowseFilesResponse {
         files,
@@ -106,28 +102,25 @@ pub async fn handle_get_browse(
 
 pub async fn handle_post_upload(
     req: Request<Body>,
-    #[cfg(not(feature = "mock"))]
-    _llama_state: crate::web::models::SharedLlamaState,
-    #[cfg(feature = "mock")]
-    _llama_state: (),
+    #[cfg(not(feature = "mock"))] _llama_state: crate::web::models::SharedLlamaState,
+    #[cfg(feature = "mock")] _llama_state: (),
 ) -> Result<Response<Body>, Infallible> {
     // Extract headers before consuming the request body
-    let content_disposition = req.headers().get("content-disposition")
+    let content_disposition = req
+        .headers()
+        .get("content-disposition")
         .and_then(|h| h.to_str().ok())
         .unwrap_or("")
         .to_string();
 
     let query = req.uri().query().unwrap_or("").to_string();
 
-    // Handle file upload
-    let body_bytes = match hyper::body::to_bytes(req.into_body()).await {
-        Ok(bytes) => bytes,
-        Err(_) => {
-            return Ok(json_error(StatusCode::BAD_REQUEST, "Failed to read request body"));
-        }
-    };
+    // Handle file upload with a size guard and streaming write
+    const MAX_UPLOAD_BYTES: usize = 100 * 1024 * 1024; // 100MB
+    let mut body = req.into_body();
+    let mut total_bytes: usize = 0;
 
-    let filename = if content_disposition.contains("filename=") {
+    let raw_filename = if content_disposition.contains("filename=") {
         content_disposition
             .split("filename=")
             .nth(1)
@@ -148,26 +141,61 @@ pub async fn handle_post_upload(
         filename
     };
 
+    // Sanitize filename to prevent path traversal
+    let sanitized_name = Path::new(raw_filename)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("uploaded_model.gguf");
+
     // Ensure the filename ends with .gguf
-    let filename = if filename.ends_with(".gguf") {
-        filename.to_string()
+    let filename = if sanitized_name.ends_with(".gguf") {
+        sanitized_name.to_string()
     } else {
-        format!("{}.gguf", filename)
+        format!("{}.gguf", sanitized_name)
     };
 
-    // Save file to models directory
-    let file_path = format!("/app/models/{}", filename);
-    match fs::write(&file_path, &body_bytes) {
-        Ok(_) => {
+    // Build destination path safely under /app/models
+    let mut dest = PathBuf::from("/app/models");
+    dest.push(&filename);
+
+    // Save file to models directory (streaming)
+    match fs::File::create(&dest).await {
+        Ok(mut file) => {
+            while let Some(chunk) = body.next().await {
+                let chunk = match chunk {
+                    Ok(c) => c,
+                    Err(_) => {
+                        return Ok(json_error(
+                            StatusCode::BAD_REQUEST,
+                            "Failed to read upload chunk",
+                        ))
+                    }
+                };
+                total_bytes = total_bytes.saturating_add(chunk.len());
+                if total_bytes > MAX_UPLOAD_BYTES {
+                    return Ok(json_error(
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        "Uploaded file too large",
+                    ));
+                }
+                if let Err(e) = file.write_all(&chunk).await {
+                    return Ok(json_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        &format!("Failed to save file: {}", e),
+                    ));
+                }
+            }
+
             let response = serde_json::json!({
                 "success": true,
                 "message": "File uploaded successfully",
-                "file_path": file_path
+                "file_path": dest.to_string_lossy()
             });
             Ok(json_raw(StatusCode::OK, response.to_string()))
         }
-        Err(e) => {
-            Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Failed to save file: {}", e)))
-        }
+        Err(e) => Ok(json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to save file: {}", e),
+        )),
     }
 }

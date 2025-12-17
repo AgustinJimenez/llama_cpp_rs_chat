@@ -18,7 +18,10 @@ pub async fn parse_json<T: DeserializeOwned>(req: Request<Body>) -> Result<T, Re
         Ok(bytes) => bytes,
         Err(e) => {
             sys_error!("[ERROR] Failed to read request body: {}", e);
-            return Err(json_error(StatusCode::BAD_REQUEST, "Failed to read request body"));
+            return Err(json_error(
+                StatusCode::BAD_REQUEST,
+                "Failed to read request body",
+            ));
         }
     };
 

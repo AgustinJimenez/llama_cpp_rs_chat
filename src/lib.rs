@@ -1,19 +1,19 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::State;
-use serde::{Deserialize, Serialize};
 
 // Re-export the chat logic - use real implementation by default
 #[cfg(not(feature = "mock"))]
 pub mod chat;
 #[cfg(not(feature = "mock"))]
-use chat::{ChatEngine, ChatConfig, SamplerType};
+use chat::{ChatConfig, ChatEngine, SamplerType};
 
 // Use mock implementation only when explicitly enabled (for E2E tests)
 #[cfg(feature = "mock")]
 pub mod chat_mock;
 #[cfg(feature = "mock")]
-use chat_mock::{ChatEngine, ChatConfig, SamplerType};
+use chat_mock::{ChatConfig, ChatEngine, SamplerType};
 
 // Application state
 pub struct AppState {
@@ -57,13 +57,13 @@ pub struct ChatResponse {
 pub struct SamplerConfig {
     pub sampler_type: String,
     pub temperature: f32,
-    pub top_p: f32, 
+    pub top_p: f32,
     pub top_k: u32,
     pub mirostat_tau: f32,
     pub mirostat_eta: f32,
     pub model_path: Option<String>,
     pub system_prompt: Option<String>,
-    pub gpu_layers: Option<u32>,  // Number of layers to offload to GPU
+    pub gpu_layers: Option<u32>, // Number of layers to offload to GPU
 }
 
 // Model management types
@@ -126,9 +126,9 @@ To run a command, use this exact format:
             top_k: 20,
             mirostat_tau: 5.0,
             mirostat_eta: 0.1,
-            model_path: None,  // No default model path - user must select one
+            model_path: None, // No default model path - user must select one
             system_prompt: Some(default_system_prompt.trim().to_string()),
-            gpu_layers: Some(32),  // Default to 32 layers for RTX 4090
+            gpu_layers: Some(32), // Default to 32 layers for RTX 4090
         }
     }
 }
@@ -138,10 +138,10 @@ pub async fn send_message(
     request: ChatRequest,
     state: State<'_, AppState>,
 ) -> Result<ChatResponse, String> {
-    let conversation_id = request.conversation_id.unwrap_or_else(|| {
-        uuid::Uuid::new_v4().to_string()
-    });
-    
+    let conversation_id = request
+        .conversation_id
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
     // Create user message
     let user_message = Message {
         id: uuid::Uuid::new_v4().to_string(),
@@ -152,20 +152,22 @@ pub async fn send_message(
             .unwrap()
             .as_secs(),
     };
-    
+
     // Add to conversation history
     {
         let mut conversations = state.conversations.lock().unwrap();
-        let conversation = conversations.entry(conversation_id.clone()).or_insert_with(Vec::new);
+        let conversation = conversations
+            .entry(conversation_id.clone())
+            .or_insert_with(Vec::new);
         conversation.push(user_message.clone());
     }
-    
+
     // Get current config by cloning to avoid holding locks
     let current_config = {
         let config_guard = state.sampler_config.lock().unwrap();
         config_guard.clone()
     };
-    
+
     // Create a chat engine for this request using the current config
     let chat_config = ChatConfig {
         sampler_type: SamplerType::from_string(&current_config.sampler_type),
@@ -182,23 +184,26 @@ pub async fn send_message(
     // Note: ChatEngine::new uses MODEL_PATH environment variable
     let ai_response_content = if let Some(_model_path) = &current_config.model_path {
         match ChatEngine::new(chat_config) {
-            Ok(engine) => {
-                engine.generate_response(&request.message).await
-                    .unwrap_or_else(|e| format!("Error generating response: {}", e))
-            }
+            Ok(engine) => engine
+                .generate_response(&request.message)
+                .await
+                .unwrap_or_else(|e| format!("Error generating response: {}", e)),
             Err(e) => {
                 // Clear invalid model path from config when model fails to load
                 {
                     let mut config_guard = state.sampler_config.lock().unwrap();
                     config_guard.model_path = None;
                 }
-                format!("Model failed to load (path cleared): {}. Please load a valid model.", e)
+                format!(
+                    "Model failed to load (path cleared): {}. Please load a valid model.",
+                    e
+                )
             }
         }
     } else {
         "No model loaded. Please load a model first.".to_string()
     };
-    
+
     let ai_message = Message {
         id: uuid::Uuid::new_v4().to_string(),
         role: "assistant".to_string(),
@@ -208,14 +213,14 @@ pub async fn send_message(
             .unwrap()
             .as_secs(),
     };
-    
+
     // Add AI response to conversation
     {
         let mut conversations = state.conversations.lock().unwrap();
         let conversation = conversations.get_mut(&conversation_id).unwrap();
         conversation.push(ai_message.clone());
     }
-    
+
     Ok(ChatResponse {
         message: ai_message,
         conversation_id,
@@ -234,7 +239,10 @@ pub async fn get_conversation(
     state: State<'_, AppState>,
 ) -> Result<Vec<Message>, String> {
     let conversations = state.conversations.lock().unwrap();
-    Ok(conversations.get(&conversation_id).cloned().unwrap_or_default())
+    Ok(conversations
+        .get(&conversation_id)
+        .cloned()
+        .unwrap_or_default())
 }
 
 pub async fn get_sampler_config() -> Result<SamplerConfig, String> {
@@ -243,9 +251,7 @@ pub async fn get_sampler_config() -> Result<SamplerConfig, String> {
     Ok(SamplerConfig::default())
 }
 
-pub async fn update_sampler_config(
-    config: SamplerConfig,
-) -> Result<(), String> {
+pub async fn update_sampler_config(config: SamplerConfig) -> Result<(), String> {
     // Store the updated configuration
     // Note: This will require reinitializing the chat engine with new config
     println!("Updated sampler config: {:?}", config);
@@ -255,20 +261,22 @@ pub async fn update_sampler_config(
 }
 
 // Model management functions
-pub async fn get_model_status(
-    state: State<'_, AppState>,
-) -> Result<ModelStatus, String> {
+pub async fn get_model_status(state: State<'_, AppState>) -> Result<ModelStatus, String> {
     // Check if the model is loaded
     let chat_engine = state.chat_engine.lock().unwrap();
     let config = state.sampler_config.lock().unwrap();
-    
+
     let status = ModelStatus {
         loaded: chat_engine.is_some(),
         model_path: config.model_path.clone(),
         last_used: None, // Could track this if needed
-        memory_usage_mb: if chat_engine.is_some() { Some(512) } else { None }, // Estimate
+        memory_usage_mb: if chat_engine.is_some() {
+            Some(512)
+        } else {
+            None
+        }, // Estimate
     };
-    
+
     Ok(status)
 }
 
@@ -281,7 +289,7 @@ pub async fn load_model(
         let mut config = state.sampler_config.lock().unwrap();
         config.model_path = Some(request.model_path.clone());
     }
-    
+
     // Try to actually load the model to verify it works (real implementation)
     #[cfg(not(feature = "mock"))]
     {
@@ -309,7 +317,7 @@ pub async fn load_model(
                 // Failed to load model, clear the path
                 let mut config = state.sampler_config.lock().unwrap();
                 config.model_path = None;
-                
+
                 Ok(ModelResponse {
                     success: false,
                     message: format!("Failed to load model: {}", e),
@@ -318,7 +326,7 @@ pub async fn load_model(
             }
         }
     }
-    
+
     // Mock implementation for E2E tests
     #[cfg(feature = "mock")]
     {
@@ -331,10 +339,13 @@ pub async fn load_model(
                     last_used: None,
                     memory_usage_mb: Some(512),
                 };
-                
+
                 Ok(ModelResponse {
                     success: true,
-                    message: format!("Model loaded successfully from {} (mock mode)", request.model_path),
+                    message: format!(
+                        "Model loaded successfully from {} (mock mode)",
+                        request.model_path
+                    ),
                     status: Some(status),
                 })
             }
@@ -342,7 +353,7 @@ pub async fn load_model(
                 // Mock validation failed (e.g., file doesn't exist)
                 let mut config = state.sampler_config.lock().unwrap();
                 config.model_path = None;
-                
+
                 Ok(ModelResponse {
                     success: false,
                     message: format!("Failed to load model: {}", e),
@@ -353,22 +364,20 @@ pub async fn load_model(
     }
 }
 
-pub async fn unload_model(
-    state: State<'_, AppState>,
-) -> Result<ModelResponse, String> {
+pub async fn unload_model(state: State<'_, AppState>) -> Result<ModelResponse, String> {
     // Clear the chat engine
     {
         let mut chat_engine = state.chat_engine.lock().unwrap();
         *chat_engine = None;
     }
-    
+
     let status = ModelStatus {
         loaded: false,
         model_path: None,
         last_used: None,
         memory_usage_mb: None,
     };
-    
+
     Ok(ModelResponse {
         success: true,
         message: "Model unloaded successfully".to_string(),
@@ -388,15 +397,13 @@ pub struct ModelMetadata {
     pub file_path: String,
 }
 
-pub async fn get_model_metadata(
-    model_path: String,
-) -> Result<ModelMetadata, String> {
+pub async fn get_model_metadata(model_path: String) -> Result<ModelMetadata, String> {
     use std::fs;
-    
+
     // Get basic file info
-    let file_metadata = fs::metadata(&model_path)
-        .map_err(|e| format!("Failed to read file metadata: {}", e))?;
-    
+    let file_metadata =
+        fs::metadata(&model_path).map_err(|e| format!("Failed to read file metadata: {}", e))?;
+
     let file_size = file_metadata.len();
     let file_size_str = if file_size > 1024 * 1024 * 1024 {
         format!("{:.1} GB", file_size as f64 / (1024.0 * 1024.0 * 1024.0))
@@ -405,27 +412,26 @@ pub async fn get_model_metadata(
     } else {
         format!("{} bytes", file_size)
     };
-    
+
     let file_name = std::path::Path::new(&model_path)
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("Unknown")
         .to_string();
-    
+
     // Try to read GGUF metadata from the file with extra safety
     let (architecture, parameters, quantization, context_length) =
-        std::panic::catch_unwind(|| {
-            read_gguf_basic_metadata(&model_path)
-        })
-        .unwrap_or_else(|_| {
-            Err("GGUF parsing panicked - corrupted file format".to_string())
-        })
-        .unwrap_or_else(|e| {
-            println!("Failed to read GGUF metadata: {}, falling back to filename parsing", e);
-            let (arch, params, quant) = parse_model_filename(&file_name);
-            (arch, params, quant, "Unknown".to_string())
-        });
-    
+        std::panic::catch_unwind(|| read_gguf_basic_metadata(&model_path))
+            .unwrap_or_else(|_| Err("GGUF parsing panicked - corrupted file format".to_string()))
+            .unwrap_or_else(|e| {
+                println!(
+                    "Failed to read GGUF metadata: {}, falling back to filename parsing",
+                    e
+                );
+                let (arch, params, quant) = parse_model_filename(&file_name);
+                (arch, params, quant, "Unknown".to_string())
+            });
+
     Ok(ModelMetadata {
         name: file_name,
         architecture,
@@ -441,12 +447,11 @@ pub async fn get_model_metadata(
 // Note: Shared utilities available in web::gguf_utils for web server code
 
 fn read_gguf_basic_metadata(file_path: &str) -> Result<(String, String, String, String), String> {
+    use gguf_llms::{GgufHeader, GgufReader, Value};
     use std::fs::File;
     use std::io::BufReader;
-    use gguf_llms::{GgufHeader, GgufReader, Value};
 
-    let file = File::open(file_path)
-        .map_err(|e| format!("Failed to open file: {}", e))?;
+    let file = File::open(file_path).map_err(|e| format!("Failed to open file: {}", e))?;
 
     let mut reader = BufReader::new(file);
 
@@ -519,7 +524,8 @@ fn parse_model_filename(filename: &str) -> (String, String, String) {
         "Gemma"
     } else {
         "Unknown"
-    }.to_string();
+    }
+    .to_string();
 
     // Extract parameter count
     let parameters = ["70b", "34b", "13b", "8b", "7b", "3b", "1b"]
@@ -529,11 +535,13 @@ fn parse_model_filename(filename: &str) -> (String, String, String) {
         .unwrap_or_else(|| "Unknown".to_string());
 
     // Extract quantization
-    let quantization = ["q8_0", "q6_k", "q5_k_m", "q4_k_m", "q4_k_s", "q4_0", "q3_k_m", "q2_k"]
-        .iter()
-        .find(|q| lower.contains(*q))
-        .map(|q| q.to_uppercase())
-        .unwrap_or_else(|| "Unknown".to_string());
+    let quantization = [
+        "q8_0", "q6_k", "q5_k_m", "q4_k_m", "q4_k_s", "q4_0", "q3_k_m", "q2_k",
+    ]
+    .iter()
+    .find(|q| lower.contains(*q))
+    .map(|q| q.to_uppercase())
+    .unwrap_or_else(|| "Unknown".to_string());
 
     (architecture, parameters, quantization)
 }

@@ -4,13 +4,13 @@ use hyper::{Body, Response, StatusCode};
 use std::convert::Infallible;
 
 use crate::web::{
-    models::{ConversationFile, ConversationsResponse, ConversationContentResponse, ChatMessage},
     database::SharedDatabase,
+    models::{ChatMessage, ConversationContentResponse, ConversationFile, ConversationsResponse},
     response_helpers::{json_error, json_raw, serialize_with_fallback},
 };
 
 // Import logging macros
-use crate::{sys_info, sys_error};
+use crate::{sys_error, sys_info};
 
 /// Parse conversation content (from database) to ChatMessage array
 fn parse_conversation_to_messages(content: &str) -> Vec<ChatMessage> {
@@ -55,10 +55,8 @@ fn parse_conversation_to_messages(content: &str) -> Vec<ChatMessage> {
 
 pub async fn handle_get_conversation(
     path: &str,
-    #[cfg(not(feature = "mock"))]
-    _llama_state: crate::web::models::SharedLlamaState,
-    #[cfg(feature = "mock")]
-    _llama_state: (),
+    #[cfg(not(feature = "mock"))] _llama_state: crate::web::models::SharedLlamaState,
+    #[cfg(feature = "mock")] _llama_state: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     // Extract filename from path: /api/conversation/{filename}
@@ -75,21 +73,18 @@ pub async fn handle_get_conversation(
                 messages,
             };
 
-            let response_json = serialize_with_fallback(&response, r#"{"content":"","messages":[]}"#);
+            let response_json =
+                serialize_with_fallback(&response, r#"{"content":"","messages":[]}"#);
 
             Ok(json_raw(StatusCode::OK, response_json))
         }
-        Err(_) => {
-            Ok(json_error(StatusCode::NOT_FOUND, "Conversation not found"))
-        }
+        Err(_) => Ok(json_error(StatusCode::NOT_FOUND, "Conversation not found")),
     }
 }
 
 pub async fn handle_get_conversations(
-    #[cfg(not(feature = "mock"))]
-    _llama_state: crate::web::models::SharedLlamaState,
-    #[cfg(feature = "mock")]
-    _llama_state: (),
+    #[cfg(not(feature = "mock"))] _llama_state: crate::web::models::SharedLlamaState,
+    #[cfg(feature = "mock")] _llama_state: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     // Fetch conversations from database
@@ -99,13 +94,14 @@ pub async fn handle_get_conversations(
         Ok(records) => {
             for record in records {
                 // Extract timestamp from conversation ID (chat_YYYY-MM-DD-HH-mm-ss-SSS)
-                let timestamp_part = record.id
+                let timestamp_part = record
+                    .id
                     .strip_prefix("chat_")
                     .unwrap_or(&record.id)
                     .to_string();
 
                 conversations.push(ConversationFile {
-                    name: format!("{}.txt", record.id),  // Keep .txt extension for API compatibility
+                    name: format!("{}.txt", record.id), // Keep .txt extension for API compatibility
                     display_name: format!("Chat {}", timestamp_part),
                     timestamp: timestamp_part,
                 });
@@ -125,10 +121,8 @@ pub async fn handle_get_conversations(
 
 pub async fn handle_delete_conversation(
     path: &str,
-    #[cfg(not(feature = "mock"))]
-    _llama_state: crate::web::models::SharedLlamaState,
-    #[cfg(feature = "mock")]
-    _llama_state: (),
+    #[cfg(not(feature = "mock"))] _llama_state: crate::web::models::SharedLlamaState,
+    #[cfg(feature = "mock")] _llama_state: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     // Extract filename from path
@@ -141,7 +135,10 @@ pub async fn handle_delete_conversation(
 
     // Only allow deleting conversation files that start with "chat_"
     if !filename.starts_with("chat_") {
-        return Ok(json_error(StatusCode::BAD_REQUEST, "Invalid conversation file"));
+        return Ok(json_error(
+            StatusCode::BAD_REQUEST,
+            "Invalid conversation file",
+        ));
     }
 
     // Remove .txt extension if present for database lookup
@@ -154,7 +151,10 @@ pub async fn handle_delete_conversation(
         }
         Err(e) => {
             sys_error!("Failed to delete conversation: {}", e);
-            Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to delete conversation"))
+            Ok(json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to delete conversation",
+            ))
         }
     }
 }

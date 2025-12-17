@@ -43,7 +43,10 @@ pub fn json_error(status: StatusCode, message: &str) -> Response<Body> {
 /// TODO: Use this for standardized success responses instead of json_raw
 #[allow(dead_code)]
 pub fn json_success(message: &str) -> Response<Body> {
-    let json = format!(r#"{{"success":true,"message":"{}"}}"#, message.replace('"', "\\\""));
+    let json = format!(
+        r#"{{"success":true,"message":"{}"}}"#,
+        message.replace('"', "\\\"")
+    );
     with_cors(Response::builder().status(StatusCode::OK))
         .header("content-type", "application/json")
         .body(Body::from(json))

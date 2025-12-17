@@ -3,9 +3,9 @@
 // This module provides shared WebSocket helpers to avoid duplication
 // across routes/chat.rs and other WebSocket-related code.
 
+use base64::{engine::general_purpose, Engine as _};
 use hyper::{Body, Request, Response, StatusCode};
 use sha1::{Digest, Sha1};
-use base64::{Engine as _, engine::general_purpose};
 
 /// Calculate the WebSocket accept key per RFC 6455
 ///
@@ -101,7 +101,10 @@ mod tests {
         let response = build_json_response(r#"{"test": "value"}"#);
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
-            response.headers().get("access-control-allow-origin").unwrap(),
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .unwrap(),
             "*"
         );
     }

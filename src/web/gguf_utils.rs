@@ -3,10 +3,10 @@
 // This module provides a clean interface for reading GGUF file metadata
 // using the gguf_llms crate.
 
+use gguf_llms::{GgufHeader, GgufReader, Value};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
-use std::collections::HashMap;
-use gguf_llms::{GgufHeader, GgufReader, Value};
 
 /// Basic model metadata extracted from GGUF file
 /// TODO: Use for caching model metadata to avoid repeated GGUF file reads
@@ -98,8 +98,7 @@ pub fn format_parameter_count(param_str: &str) -> String {
 /// TODO: Use for API endpoint that returns full model metadata
 #[allow(dead_code)]
 pub fn read_gguf_metadata_raw(file_path: &str) -> Result<HashMap<String, Value>, String> {
-    let file = File::open(file_path)
-        .map_err(|e| format!("Failed to open file: {}", e))?;
+    let file = File::open(file_path).map_err(|e| format!("Failed to open file: {}", e))?;
 
     let mut reader = BufReader::new(file);
 
@@ -120,9 +119,7 @@ pub fn read_gguf_basic_metadata(file_path: &str) -> Result<GgufBasicMetadata, St
     let metadata = read_gguf_metadata_raw(file_path)?;
 
     // Helper closure to get metadata value as string
-    let get_string = |key: &str| -> Option<String> {
-        metadata.get(key).and_then(value_to_string)
-    };
+    let get_string = |key: &str| -> Option<String> { metadata.get(key).and_then(value_to_string) };
 
     // Get architecture
     let architecture = get_string("general.architecture")
@@ -172,9 +169,14 @@ pub fn detect_tool_format(architecture: &str, model_name: &str) -> &'static str 
     let arch_lower = architecture.to_lowercase();
     let name_lower = model_name.to_lowercase();
 
-    if arch_lower.contains("mistral") || name_lower.contains("mistral") || name_lower.contains("devstral") {
+    if arch_lower.contains("mistral")
+        || name_lower.contains("mistral")
+        || name_lower.contains("devstral")
+    {
         "mistral"
-    } else if arch_lower.contains("llama") && (name_lower.contains("llama-3") || name_lower.contains("llama3")) {
+    } else if arch_lower.contains("llama")
+        && (name_lower.contains("llama-3") || name_lower.contains("llama3"))
+    {
         "llama3"
     } else if arch_lower.contains("qwen") || name_lower.contains("qwen") {
         "qwen"
@@ -216,7 +218,8 @@ pub fn parse_model_filename(filename: &str) -> (String, String, String) {
         "DeepSeek"
     } else {
         "Unknown"
-    }.to_string();
+    }
+    .to_string();
 
     // Extract parameters (look for patterns like 7B, 13B, 70B)
     let parameters = extract_param_count(&lower);
@@ -230,10 +233,9 @@ pub fn parse_model_filename(filename: &str) -> (String, String, String) {
 fn extract_param_count(filename: &str) -> String {
     // Common patterns: 7b, 13b, 70b, 7B, 13B, etc.
     let patterns = [
-        "405b", "236b", "180b", "141b", "123b", "110b", "90b", "80b", "72b", "70b",
-        "65b", "46b", "40b", "35b", "34b", "32b", "30b", "27b", "22b", "20b", "14b",
-        "13b", "12b", "11b", "8b", "7b", "6b", "4b", "3b", "2b", "1b",
-        "0.5b", "1.8b", "2.8b", "3.8b", "4.5b",
+        "405b", "236b", "180b", "141b", "123b", "110b", "90b", "80b", "72b", "70b", "65b", "46b",
+        "40b", "35b", "34b", "32b", "30b", "27b", "22b", "20b", "14b", "13b", "12b", "11b", "8b",
+        "7b", "6b", "4b", "3b", "2b", "1b", "0.5b", "1.8b", "2.8b", "3.8b", "4.5b",
     ];
 
     for pattern in patterns {
@@ -248,9 +250,8 @@ fn extract_param_count(filename: &str) -> String {
 fn extract_quantization(filename: &str) -> String {
     // Common quantization patterns
     let patterns = [
-        "q8_0", "q6_k", "q5_k_m", "q5_k_s", "q5_1", "q5_0",
-        "q4_k_m", "q4_k_s", "q4_1", "q4_0", "q3_k_m", "q3_k_s",
-        "q2_k", "iq4_xs", "iq3_xxs", "iq2_xxs", "f16", "f32", "bf16",
+        "q8_0", "q6_k", "q5_k_m", "q5_k_s", "q5_1", "q5_0", "q4_k_m", "q4_k_s", "q4_1", "q4_0",
+        "q3_k_m", "q3_k_s", "q2_k", "iq4_xs", "iq3_xxs", "iq2_xxs", "f16", "f32", "bf16",
     ];
 
     for pattern in patterns {
@@ -360,7 +361,8 @@ mod tests {
 
     #[test]
     fn test_extract_default_system_prompt() {
-        let template = "{%- set default_system_message = 'You are a helpful assistant.' %} rest of template";
+        let template =
+            "{%- set default_system_message = 'You are a helpful assistant.' %} rest of template";
         assert_eq!(
             extract_default_system_prompt(template),
             Some("You are a helpful assistant.".to_string())

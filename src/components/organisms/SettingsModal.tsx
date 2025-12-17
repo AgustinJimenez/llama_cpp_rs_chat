@@ -5,11 +5,13 @@ import {
   DialogContent,
   DialogFooter,
   DialogHeader,
+  DialogDescription,
   DialogTitle,
 } from '../atoms/dialog';
 import { Card, CardContent } from '../atoms/card';
 import { useSettings } from '../../hooks/useSettings';
 import { FileBrowser } from './FileBrowser';
+import { toast } from 'react-hot-toast';
 import {
   ModelPathSection,
   SystemPromptSection,
@@ -25,6 +27,7 @@ interface SettingsModalProps {
   onClose: () => void;
 }
 
+// eslint-disable-next-line max-lines-per-function
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const { config, isLoading, error, updateConfig } = useSettings();
   const [localConfig, setLocalConfig] = useState<SamplerConfig | null>(null);
@@ -36,8 +39,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     }
   }, [config]);
 
+  const validateConfig = (cfg: SamplerConfig): string | null => {
+    if (cfg.temperature < 0 || cfg.temperature > 2) return 'Temperature must be between 0.0 and 2.0';
+    if (cfg.top_p < 0 || cfg.top_p > 1) return 'Top P must be between 0.0 and 1.0';
+    if (cfg.top_k < 0) return 'Top K must be non-negative';
+    if ((cfg.context_size ?? 0) <= 0) return 'Context size must be positive';
+    return null;
+  };
+
   const handleSave = async () => {
     if (localConfig) {
+      const validationError = validateConfig(localConfig);
+      if (validationError) {
+        toast.error(validationError, { duration: 4000 });
+        return;
+      }
       await updateConfig(localConfig);
       onClose();
     }
@@ -60,6 +76,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             <SettingsIcon className="h-5 w-5" />
             Configuration
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            Application configuration settings
+          </DialogDescription>
         </DialogHeader>
         
         {isLoading && (

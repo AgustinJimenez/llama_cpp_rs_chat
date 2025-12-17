@@ -8,10 +8,10 @@
 // - schema - Database schema definitions
 #![allow(dead_code)]
 
-pub mod schema;
-pub mod conversation;
 pub mod config;
+pub mod conversation;
 pub mod migration;
+pub mod schema;
 
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
@@ -47,8 +47,7 @@ pub fn db_error(context: &str) -> impl Fn(rusqlite::Error) -> String + '_ {
 impl Database {
     /// Create a new database connection and initialize schema
     pub fn new(db_path: &str) -> Result<Self, String> {
-        let conn = Connection::open(db_path)
-            .map_err(db_error("open database"))?;
+        let conn = Connection::open(db_path).map_err(db_error("open database"))?;
 
         // Enable foreign keys
         conn.execute("PRAGMA foreign_keys = ON", [])

@@ -9,6 +9,7 @@ export interface ModelMetadataDisplayProps {
   setIsExpanded: (expanded: boolean) => void;
 }
 
+// eslint-disable-next-line complexity
 export const ModelMetadataDisplay: React.FC<ModelMetadataDisplayProps> = ({
   modelInfo,
   isExpanded,

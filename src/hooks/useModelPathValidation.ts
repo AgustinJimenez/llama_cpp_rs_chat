@@ -40,6 +40,7 @@ interface UseModelPathValidationResult {
  * - Auto-completion when only one .gguf file is found
  * - Saving validated paths to history
  */
+// eslint-disable-next-line max-lines-per-function, complexity
 export const useModelPathValidation = ({
   modelPath,
   onPathChange,
@@ -75,6 +76,7 @@ export const useModelPathValidation = ({
       return;
     }
 
+    // eslint-disable-next-line complexity
     const checkFileExists = async () => {
       setIsCheckingFile(true);
       try {

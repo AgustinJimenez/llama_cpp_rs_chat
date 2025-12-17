@@ -19,6 +19,7 @@ interface ModelResponse {
 
 export type LoadingAction = 'loading' | 'unloading' | null;
 
+// eslint-disable-next-line max-lines-per-function
 export const useModel = () => {
   const [status, setStatus] = useState<ModelStatus>({
     loaded: false,
@@ -29,6 +30,24 @@ export const useModel = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [loadingAction, setLoadingAction] = useState<LoadingAction>(null);
   const [error, setError] = useState<string | null>(null);
+  const [hasStatusError, setHasStatusError] = useState(false);
+  const [attemptedHardUnload, setAttemptedHardUnload] = useState(false);
+
+  const hardUnload = useCallback(async () => {
+    try {
+      await fetch('/api/model/unload', { method: 'POST' });
+      setStatus({
+        loaded: false,
+        model_path: null,
+        last_used: null,
+        memory_usage_mb: null,
+      });
+    } catch (err) {
+      console.warn('Hard unload failed', err);
+    } finally {
+      setAttemptedHardUnload(true);
+    }
+  }, []);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -38,6 +57,7 @@ export const useModel = () => {
         const data = await invoke('get_model_status');
         setStatus(data as ModelStatus);
         setError(null);
+        setHasStatusError(false);
       } else {
         // Use HTTP API for web version
         const response = await fetch('/api/model/status');
@@ -45,15 +65,24 @@ export const useModel = () => {
           const data = await response.json();
           setStatus(data);
           setError(null);
+          setHasStatusError(false);
         } else {
           setError('Failed to fetch model status');
+          setHasStatusError(true);
+          if (!attemptedHardUnload) {
+            await hardUnload();
+          }
         }
       }
     } catch (err) {
       setError('Network error while fetching model status');
       console.error('Model status fetch error:', err);
+      setHasStatusError(true);
+      if (!attemptedHardUnload) {
+        await hardUnload();
+      }
     }
-  }, []);
+  }, [attemptedHardUnload, hardUnload]);
 
   const loadModel = useCallback(async (modelPath: string, config?: SamplerConfig) => {
     setIsLoading(true);
@@ -141,9 +170,11 @@ export const useModel = () => {
           setStatus(coercedStatus);
         }
         setError(null);
+        setHasStatusError(false);
         return { success: true, message: data.message };
       } else {
         setError(data.message);
+        setHasStatusError(true);
         // Refresh status even when loading fails to ensure UI is accurate
         await refreshStatusSafe();
         return { success: false, message: data.message };
@@ -151,6 +182,7 @@ export const useModel = () => {
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
       setError(errorMessage);
+      setHasStatusError(true);
       // Refresh status on error to ensure UI is accurate
       await refreshStatusSafe();
       return { success: false, message: errorMessage };
@@ -158,7 +190,7 @@ export const useModel = () => {
       setIsLoading(false);
       setLoadingAction(null);
     }
-  }, []);
+  }, [fetchStatus]);
 
   const unloadModel = useCallback(async () => {
     setIsLoading(true);
@@ -182,14 +214,17 @@ export const useModel = () => {
       if (data.success && data.status) {
         setStatus(data.status);
         setError(null);
+        setHasStatusError(false);
         return { success: true, message: data.message };
       } else {
         setError(data.message);
+        setHasStatusError(true);
         return { success: false, message: data.message };
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
       setError(errorMessage);
+      setHasStatusError(true);
       // Refresh status on error to ensure UI is accurate
       await fetchStatus();
       return { success: false, message: errorMessage };
@@ -197,7 +232,7 @@ export const useModel = () => {
       setIsLoading(false);
       setLoadingAction(null);
     }
-  }, []);
+  }, [fetchStatus]);
 
   // Fetch status on mount
   useEffect(() => {
@@ -209,8 +244,10 @@ export const useModel = () => {
     isLoading,
     loadingAction,
     error,
+    hasStatusError,
     loadModel,
     unloadModel,
+    hardUnload,
     refreshStatus: fetchStatus,
   };
 };

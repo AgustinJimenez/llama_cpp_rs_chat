@@ -50,8 +50,12 @@ export function useMessageParsing(message: Message): ParsedMessage {
   // Extract SYSTEM.EXEC blocks (command executions)
   const systemExecBlocks = useMemo(() => {
     const blocks: SystemExecBlock[] = [];
-    const execRegex = /<\|\|SYSTEM\.EXEC>([\s\S]*?)<SYSTEM\.EXEC\|\|>/g;
-    const outputRegex = /<\|\|SYSTEM\.OUTPUT>([\s\S]*?)<SYSTEM\.OUTPUT\|\|>/g;
+    // Accept both canonical tags (<||SYSTEM.EXEC>...<SYSTEM.EXEC||>)
+    // and the common malformed variant (SYSTEM.EXEC>...<SYSTEM.EXEC||>) sometimes emitted by models.
+    // Also tolerate a stray [TOOL_CALLS] prefix before SYSTEM.EXEC.
+    const execRegex =
+      /(?:\[TOOL_CALLS\]\s*)?(?:<\|\|)?SYSTEM\.EXEC>([\s\S]*?)<SYSTEM\.EXEC\|\|>/g;
+    const outputRegex = /(?:<\|\|)?SYSTEM\.OUTPUT>([\s\S]*?)<SYSTEM\.OUTPUT\|\|>/g;
 
     let match;
     while ((match = execRegex.exec(message.content)) !== null) {
@@ -74,8 +78,11 @@ export function useMessageParsing(message: Message): ParsedMessage {
   const contentWithoutThinking = useMemo(() => {
     let content = cleanContent;
     content = content.replace(/<think>[\s\S]*?<\/think>/g, '');
-    content = content.replace(/<\|\|SYSTEM\.EXEC>[\s\S]*?<SYSTEM\.EXEC\|\|>/g, '');
-    content = content.replace(/<\|\|SYSTEM\.OUTPUT>[\s\S]*?<SYSTEM\.OUTPUT\|\|>/g, '');
+    content = content.replace(
+      /(?:\[TOOL_CALLS\]\s*)?(?:<\|\|)?SYSTEM\.EXEC>[\s\S]*?<SYSTEM\.EXEC\|\|>/g,
+      ''
+    );
+    content = content.replace(/(?:<\|\|)?SYSTEM\.OUTPUT>[\s\S]*?<SYSTEM\.OUTPUT\|\|>/g, '');
     return content.trim();
   }, [cleanContent]);
 

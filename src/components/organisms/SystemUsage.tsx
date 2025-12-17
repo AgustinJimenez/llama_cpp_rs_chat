@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface UsageData {
   cpu: number;
@@ -8,16 +8,28 @@ interface UsageData {
 
 interface SystemUsageProps {
   expanded?: boolean;
+  active?: boolean;
 }
 
-export function SystemUsage({ expanded = false }: SystemUsageProps) {
+// eslint-disable-next-line max-lines-per-function
+export function SystemUsage({ expanded = false, active = true }: SystemUsageProps) {
   const [usage, setUsage] = useState<UsageData>({ cpu: 0, gpu: 0, ram: 0 });
   const [history, setHistory] = useState<UsageData[]>([]);
+  const isFetchingRef = useRef(false);
 
   useEffect(() => {
+    if (!active) {
+      return undefined;
+    }
+
     const fetchUsage = async () => {
+      if (isFetchingRef.current) return;
+      isFetchingRef.current = true;
+
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 2000);
       try {
-        const response = await fetch('/api/system/usage');
+        const response = await fetch('/api/system/usage', { signal: controller.signal });
         if (response.ok) {
           const data = await response.json();
           setUsage(data);
@@ -29,18 +41,26 @@ export function SystemUsage({ expanded = false }: SystemUsageProps) {
           });
         }
       } catch (error) {
-        console.error('Failed to fetch system usage:', error);
+        const isAbort =
+          error instanceof DOMException &&
+          (error.name === 'AbortError' || error.message.toLowerCase().includes('aborted'));
+        if (!isAbort) {
+          console.error('Failed to fetch system usage:', error);
+        }
+      } finally {
+        window.clearTimeout(timeoutId);
+        isFetchingRef.current = false;
       }
     };
 
     // Fetch immediately
     fetchUsage();
 
-    // Then poll every 500ms for smooth real-time updates
-    const interval = setInterval(fetchUsage, 500);
+    // Then poll every 3s to avoid piling requests
+    const interval = setInterval(fetchUsage, 3000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [active]);
 
   const renderMiniGraph = (data: number[], color: string) => {
     if (data.length === 0) return null;

@@ -18,6 +18,7 @@ interface SidebarProps {
   currentConversationId?: string | null;
 }
 
+// eslint-disable-next-line max-lines-per-function
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, onNewChat, onOpenSettings, onLoadConversation, currentConversationId }) => {
   const [conversations, setConversations] = useState<ConversationFile[]>([]);
   const [loading, setLoading] = useState(false);
@@ -309,12 +310,12 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, onNewChat, onOpenSe
             <DialogTitle>Delete Conversation</DialogTitle>
             <DialogDescription>
               Are you sure you want to delete this conversation? This action cannot be undone.
-              {conversationToDelete && (
-                <div className="mt-2 text-sm font-medium">
-                  {conversationToDelete.name}
-                </div>
-              )}
             </DialogDescription>
+            {conversationToDelete && (
+              <div className="mt-2 text-sm font-medium">
+                {conversationToDelete.name}
+              </div>
+            )}
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={handleDeleteCancel}>

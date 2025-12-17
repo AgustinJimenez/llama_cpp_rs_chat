@@ -6,11 +6,11 @@
 // - command_executor.rs: Command detection and execution during generation
 // - stop_conditions.rs: Stop condition checking logic
 
-mod templates;
-mod generation;
 mod command_executor;
+mod generation;
 mod stop_conditions;
+mod templates;
 
+pub use generation::generate_llama_response;
 pub use templates::apply_model_chat_template;
 pub use templates::get_universal_system_prompt;
-pub use generation::generate_llama_response;

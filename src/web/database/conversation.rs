@@ -1,7 +1,10 @@
 // Conversation and message database operations
 
+use super::{
+    current_timestamp_millis, current_timestamp_secs, db_error, generate_conversation_id, Database,
+    StreamingUpdate,
+};
 use rusqlite::params;
-use super::{Database, StreamingUpdate, current_timestamp_millis, current_timestamp_secs, generate_conversation_id, db_error};
 use std::sync::Arc;
 
 // Import logging macros
@@ -241,7 +244,13 @@ impl Database {
             "UPDATE streaming_buffer
              SET partial_content = ?1, tokens_used = ?2, max_tokens = ?3, updated_at = ?4
              WHERE conversation_id = ?5",
-            params![partial_content, tokens_used, max_tokens, now, conversation_id],
+            params![
+                partial_content,
+                tokens_used,
+                max_tokens,
+                now,
+                conversation_id
+            ],
         )
         .map_err(db_error("update streaming buffer"))?;
 
@@ -249,7 +258,11 @@ impl Database {
     }
 
     /// Finalize a streaming message (copy content, clear is_streaming flag)
-    pub fn finalize_streaming_message(&self, message_id: &str, content: &str) -> Result<(), String> {
+    pub fn finalize_streaming_message(
+        &self,
+        message_id: &str,
+        content: &str,
+    ) -> Result<(), String> {
         let conn = self.connection();
 
         conn.execute(
@@ -444,7 +457,10 @@ impl ConversationLogger {
         }
 
         // Initialize streaming buffer
-        if let Err(e) = self.db.init_streaming_buffer(&self.conversation_id, &message_id) {
+        if let Err(e) = self
+            .db
+            .init_streaming_buffer(&self.conversation_id, &message_id)
+        {
             sys_error!("Failed to init streaming buffer: {}", e);
         }
 
@@ -483,7 +499,10 @@ impl ConversationLogger {
     pub fn finish_assistant_message(&mut self) {
         if let Some(ref msg_id) = self.current_message_id {
             // Update the message with final content
-            if let Err(e) = self.db.finalize_streaming_message(msg_id, &self.accumulated_content) {
+            if let Err(e) = self
+                .db
+                .finalize_streaming_message(msg_id, &self.accumulated_content)
+            {
                 sys_error!("Failed to finalize streaming message: {}", e);
             }
 
@@ -551,8 +570,10 @@ mod tests {
         let db = create_test_db();
         let conv_id = db.create_conversation(None).unwrap();
 
-        db.insert_message(&conv_id, "user", "Hello", 1234567890, 0).unwrap();
-        db.insert_message(&conv_id, "assistant", "Hi there!", 1234567891, 1).unwrap();
+        db.insert_message(&conv_id, "user", "Hello", 1234567890, 0)
+            .unwrap();
+        db.insert_message(&conv_id, "assistant", "Hi there!", 1234567891, 1)
+            .unwrap();
 
         let messages = db.get_messages(&conv_id).unwrap();
         assert_eq!(messages.len(), 2);

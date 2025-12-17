@@ -1,16 +1,17 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use llama_cpp_chat::{AppState, ChatRequest, ChatResponse, Message, SamplerConfig, ModelStatus, ModelLoadRequest, ModelResponse, ModelMetadata};
+use chrono::Local;
+use llama_cpp_chat::{
+    AppState, ChatRequest, ChatResponse, Message, ModelLoadRequest, ModelMetadata, ModelResponse,
+    ModelStatus, SamplerConfig,
+};
 use std::collections::HashMap;
 use tauri::State;
 
 // Logging
-use log::{info, warn, error, LevelFilter};
-use log4rs::append::rolling_file::RollingFileAppender;
-use log4rs::append::rolling_file::policy::compound::CompoundPolicy;
-use log4rs::append::rolling_file::policy::compound::trigger::size::SizeTrigger;
-use log4rs::append::rolling_file::policy::compound::roll::fixed_window::FixedWindowRoller;
+use log::{error, info, warn, LevelFilter};
+use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use serde::Deserialize;
@@ -68,9 +69,7 @@ async fn update_sampler_config(config: SamplerConfig) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn get_model_status(
-    state: State<'_, AppState>,
-) -> Result<ModelStatus, String> {
+async fn get_model_status(state: State<'_, AppState>) -> Result<ModelStatus, String> {
     llama_cpp_chat::get_model_status(state).await
 }
 
@@ -83,32 +82,26 @@ async fn load_model(
 }
 
 #[tauri::command]
-async fn unload_model(
-    state: State<'_, AppState>,
-) -> Result<ModelResponse, String> {
+async fn unload_model(state: State<'_, AppState>) -> Result<ModelResponse, String> {
     llama_cpp_chat::unload_model(state).await
 }
 
 #[tauri::command]
-async fn get_model_metadata(
-    model_path: String,
-) -> Result<ModelMetadata, String> {
+async fn get_model_metadata(model_path: String) -> Result<ModelMetadata, String> {
     llama_cpp_chat::get_model_metadata(model_path).await
 }
 
 fn setup_logging() -> Result<(), Box<dyn std::error::Error>> {
     let log_dir = "logs";
     std::fs::create_dir_all(log_dir)?;
-    let log_path = format!("{}/frontend.log", log_dir);
+    let timestamp = Local::now().format("%Y-%m-%d-%H_%M").to_string();
+    let log_path = format!("{}/{}.log", log_dir, timestamp);
 
-    let roller = FixedWindowRoller::builder()
-        .build("logs/frontend.{}.log.gz", 5)?;
-    let size_trigger = SizeTrigger::new(5 * 1024 * 1024); // 5 MB
-    let policy = CompoundPolicy::new(Box::new(size_trigger), Box::new(roller));
-
-    let file_appender = RollingFileAppender::builder()
-        .encoder(Box::new(PatternEncoder::new("{d(%Y-%m-%d %H:%M:%S)} - {l} - {m}{n}")))
-        .build(log_path, Box::new(policy))?;
+    let file_appender = FileAppender::builder()
+        .encoder(Box::new(PatternEncoder::new(
+            "{d(%Y-%m-%d %H:%M:%S)} - {l} - {m}{n}",
+        )))
+        .build(log_path)?;
 
     let config = Config::builder()
         .appender(Appender::builder().build("file", Box::new(file_appender)))
@@ -118,7 +111,6 @@ fn setup_logging() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-
 
 fn main() {
     if let Err(e) = setup_logging() {

@@ -111,7 +111,7 @@ export interface ModelMetadata {
   default_system_prompt?: string;  // Extracted from chat_template
 
   // All GGUF metadata (raw key-value pairs)
-  gguf_metadata?: Record<string, any>;
+  gguf_metadata?: Record<string, string | number | boolean | null | undefined>;
 }
 
 // Tool calling types
@@ -122,7 +122,7 @@ export interface ToolParameter {
   type: 'string' | 'number' | 'boolean' | 'object' | 'array';
   description: string;
   required: boolean;
-  default?: any;
+  default?: string | number | boolean | null;
 }
 
 export interface ToolDefinition {
@@ -134,7 +134,7 @@ export interface ToolDefinition {
 export interface ToolCall {
   id: string;
   name: string;
-  arguments: Record<string, any>;
+  arguments: Record<string, unknown>;
 }
 
 export interface ToolResult {

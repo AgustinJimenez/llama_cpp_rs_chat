@@ -16,6 +16,7 @@ export interface ModelFileInputProps {
   handleBrowseFile: () => void;
 }
 
+// eslint-disable-next-line max-lines-per-function, complexity
 export const ModelFileInput: React.FC<ModelFileInputProps> = ({
   modelPath,
   setModelPath,

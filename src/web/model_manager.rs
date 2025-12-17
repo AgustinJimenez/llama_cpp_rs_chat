@@ -1,12 +1,12 @@
-use std::fs;
-use std::io::BufReader;
 use gguf_llms::{GgufHeader, GgufReader, Value};
 use llama_cpp_2::{
     llama_backend::LlamaBackend,
     model::{params::LlamaModelParams, LlamaModel},
 };
+use std::fs;
+use std::io::BufReader;
 
-use super::models::{ModelStatus, SharedLlamaState, LlamaState};
+use super::models::{LlamaState, ModelStatus, SharedLlamaState};
 use crate::{log_debug, log_info, log_warn};
 
 // Re-export VRAM functions for backward compatibility (used by other modules)
@@ -20,7 +20,8 @@ pub fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
                 Some(state) => {
                     let loaded = state.model.is_some();
                     let model_path = state.current_model_path.clone();
-                    let last_used = state.last_used
+                    let last_used = state
+                        .last_used
                         .duration_since(std::time::UNIX_EPOCH)
                         .ok()
                         .map(|d| d.as_secs().to_string());
@@ -37,7 +38,7 @@ pub fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
                     model_path: None,
                     last_used: None,
                     memory_usage_mb: None,
-                }
+                },
             }
         }
         Err(_) => ModelStatus {
@@ -45,7 +46,7 @@ pub fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
             model_path: None,
             last_used: None,
             memory_usage_mb: None,
-        }
+        },
     }
 }
 
@@ -74,7 +75,8 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
         });
     }
 
-    let state = state_guard.as_mut()
+    let state = state_guard
+        .as_mut()
         .expect("Model state should be initialized");
 
     // Check if model is already loaded
@@ -93,11 +95,14 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
     let optimal_gpu_layers = calculate_optimal_gpu_layers(model_path);
 
     // Load new model with calculated GPU acceleration
-    let model_params = LlamaModelParams::default()
-        .with_n_gpu_layers(optimal_gpu_layers);
+    let model_params = LlamaModelParams::default().with_n_gpu_layers(optimal_gpu_layers);
 
     log_info!("system", "Loading model from: {}", model_path);
-    log_info!("system", "GPU layers configured: {} layers will be offloaded to GPU", optimal_gpu_layers);
+    log_info!(
+        "system",
+        "GPU layers configured: {} layers will be offloaded to GPU",
+        optimal_gpu_layers
+    );
 
     let model = LlamaModel::load_from_file(&state.backend, model_path, &model_params)
         .map_err(|e| format!("Failed to load model: {}", e))?;
@@ -105,25 +110,32 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
     log_info!("system", "Model loaded successfully!");
 
     // Read model's context length, token IDs, chat template, and default system prompt from GGUF metadata
-    let (model_context_length, bos_token_id, eos_token_id, chat_template_type, default_system_prompt) = if let Ok(file) = fs::File::open(model_path) {
+    let (
+        model_context_length,
+        bos_token_id,
+        eos_token_id,
+        chat_template_type,
+        default_system_prompt,
+    ) = if let Ok(file) = fs::File::open(model_path) {
         let mut reader = BufReader::new(file);
         if let Ok(header) = GgufHeader::parse(&mut reader) {
             if let Ok(metadata) = GgufReader::read_metadata(&mut reader, header.n_kv) {
-                let ctx_len = metadata.get("llama.context_length")
-                    .and_then(|v| match v {
-                        Value::Uint32(n) => Some(*n),
-                        Value::Uint64(n) => Some(*n as u32),
-                        _ => None,
-                    });
+                let ctx_len = metadata.get("llama.context_length").and_then(|v| match v {
+                    Value::Uint32(n) => Some(*n),
+                    Value::Uint64(n) => Some(*n as u32),
+                    _ => None,
+                });
 
-                let bos_id = metadata.get("tokenizer.ggml.bos_token_id")
+                let bos_id = metadata
+                    .get("tokenizer.ggml.bos_token_id")
                     .and_then(|v| match v {
                         Value::Uint32(n) => Some(*n as i32),
                         Value::Int32(n) => Some(*n),
                         _ => None,
                     });
 
-                let eos_id = metadata.get("tokenizer.ggml.eos_token_id")
+                let eos_id = metadata
+                    .get("tokenizer.ggml.eos_token_id")
                     .and_then(|v| match v {
                         Value::Uint32(n) => Some(*n as i32),
                         Value::Int32(n) => Some(*n),
@@ -131,7 +143,8 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
                     });
 
                 // Detect chat template type
-                let template_type = metadata.get("tokenizer.chat_template")
+                let template_type = metadata
+                    .get("tokenizer.chat_template")
                     .and_then(|v| match v {
                         Value::String(s) => {
                             // Detect template type based on template content
@@ -152,19 +165,24 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
 
                 // Extract default system prompt from chat template if available
                 // Look for: {%- set default_system_message = '...' %} in the template
-                let default_prompt = metadata.get("tokenizer.chat_template")
-                    .and_then(|v| match v {
-                        Value::String(template) => {
-                            if let Some(start_idx) = template.find("set default_system_message = '") {
-                                let after_start = &template[start_idx + "set default_system_message = '".len()..];
-                                if let Some(end_idx) = after_start.find("' %}") {
-                                    return Some(after_start[..end_idx].to_string());
+                let default_prompt =
+                    metadata
+                        .get("tokenizer.chat_template")
+                        .and_then(|v| match v {
+                            Value::String(template) => {
+                                if let Some(start_idx) =
+                                    template.find("set default_system_message = '")
+                                {
+                                    let after_start = &template
+                                        [start_idx + "set default_system_message = '".len()..];
+                                    if let Some(end_idx) = after_start.find("' %}") {
+                                        return Some(after_start[..end_idx].to_string());
+                                    }
                                 }
+                                None
                             }
-                            None
-                        }
-                        _ => None,
-                    });
+                            _ => None,
+                        });
 
                 (ctx_len, bos_id, eos_id, template_type, default_prompt)
             } else {
@@ -189,16 +207,28 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
         // Validate against what the model reports
         let model_eos = model.token_eos().0; // Extract underlying i32 from LlamaToken
         if eos != model_eos {
-            log_warn!("system", "WARNING: GGUF EOS token ({}) doesn't match model.token_eos() ({})", eos, model_eos);
+            log_warn!(
+                "system",
+                "WARNING: GGUF EOS token ({}) doesn't match model.token_eos() ({})",
+                eos,
+                model_eos
+            );
         } else {
-            log_info!("system", "✓ EOS token validation passed: GGUF and model agree on token {}", eos);
+            log_info!(
+                "system",
+                "✓ EOS token validation passed: GGUF and model agree on token {}",
+                eos
+            );
         }
     }
 
     if let Some(ref template) = chat_template_type {
         log_info!("system", "Detected chat template type: {}", template);
     } else {
-        log_info!("system", "No chat template detected, using Mistral format as default");
+        log_info!(
+            "system",
+            "No chat template detected, using Mistral format as default"
+        );
     }
 
     state.model = Some(model);
@@ -210,7 +240,11 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
     state.model_default_system_prompt = default_system_prompt.clone();
 
     if let Some(ref prompt) = default_system_prompt {
-        log_info!("system", "Model default system prompt found: {}...", &prompt.chars().take(50).collect::<String>());
+        log_info!(
+            "system",
+            "Model default system prompt found: {}...",
+            &prompt.chars().take(50).collect::<String>()
+        );
     }
 
     Ok(())
@@ -218,11 +252,23 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
 
 // Helper function to unload the current model
 pub async fn unload_model(llama_state: SharedLlamaState) -> Result<(), String> {
-    let mut state_guard = llama_state.lock().map_err(|_| "Failed to lock LLaMA state")?;
+    let mut state_guard = llama_state
+        .lock()
+        .map_err(|_| "Failed to lock LLaMA state")?;
 
-    if let Some(state) = state_guard.as_mut() {
-        state.model = None;
-        state.current_model_path = None;
+    // Drop the entire backend + model to guarantee memory is released.
+    // This is safe because load_model() will reinitialize the backend on demand.
+    if state_guard.is_some() {
+        log_info!(
+            "system",
+            "Unloading model and tearing down backend to free memory"
+        );
+        *state_guard = None;
+    } else {
+        log_debug!(
+            "system",
+            "Unload requested but no backend/model was initialized"
+        );
     }
 
     Ok(())

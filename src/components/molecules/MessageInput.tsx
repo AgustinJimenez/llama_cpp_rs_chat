@@ -4,11 +4,13 @@ import { Send } from 'lucide-react';
 interface MessageInputProps {
   onSendMessage: (message: string) => void;
   disabled?: boolean;
+  disabledReason?: string;
 }
 
 export const MessageInput: React.FC<MessageInputProps> = ({ 
   onSendMessage, 
-  disabled = false 
+  disabled = false,
+  disabledReason,
 }) => {
   const [message, setMessage] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -59,6 +61,8 @@ export const MessageInput: React.FC<MessageInputProps> = ({
           className="flat-input w-full h-[60px] resize-none"
           rows={2}
           data-testid="message-input"
+          aria-disabled={disabled}
+          aria-label={disabled && disabledReason ? disabledReason : 'Message input'}
         />
       </div>
       <button
@@ -66,6 +70,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
         disabled={disabled || !message.trim()}
         className="flat-button bg-primary text-white px-6 h-[60px] min-w-[60px] flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
         data-testid="send-button"
+        title={disabled && disabledReason ? disabledReason : undefined}
       >
         <Send className="h-5 w-5" />
       </button>

@@ -1,7 +1,7 @@
+use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::sync::Mutex;
-use std::collections::HashMap;
 
 pub struct Logger {
     files: Mutex<HashMap<String, File>>,
@@ -40,7 +40,10 @@ impl Logger {
         // Create or get the file for this conversation
         if let Err(e) = self.get_or_create_file(conversation_id) {
             // Can't use logging macros here as this IS the logger - use eprintln as fallback
-            eprintln!("LOGGER ERROR: Failed to create log file for {}: {}", conversation_id, e);
+            eprintln!(
+                "LOGGER ERROR: Failed to create log file for {}: {}",
+                conversation_id, e
+            );
             return;
         }
 

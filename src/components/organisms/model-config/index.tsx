@@ -6,11 +6,13 @@ import {
   DialogContent,
   DialogFooter,
   DialogHeader,
+  DialogDescription,
   DialogTitle,
 } from '../../atoms/dialog';
 import { Button } from '../../atoms/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../atoms/card';
 import type { SamplerConfig } from '@/types';
+import { toast } from 'react-hot-toast';
 
 // Import extracted components
 import { ModelFileInput, ModelConfigSystemPrompt } from '../../molecules';
@@ -33,6 +35,7 @@ interface ModelConfigModalProps {
   initialModelPath?: string;
 }
 
+// eslint-disable-next-line max-lines-per-function, complexity
 export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   isOpen,
   onClose,
@@ -90,7 +93,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     if (isOpen && initialModelPath && !modelPath) {
       setModelPath(initialModelPath);
     }
-  }, [isOpen, initialModelPath]);
+  }, [isOpen, initialModelPath, modelPath]);
 
   // Fetch model history when modal opens
   useEffect(() => {
@@ -139,12 +142,29 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
 
   const handleSave = () => {
     if (!modelPath.trim()) {
-      alert('Please select a model file or enter a model path.');
+      toast.error('Please select a model file or enter a model path.');
       return;
     }
 
     if (fileExists === false) {
-      alert('The specified file does not exist or is not accessible. Please check the path and try again.');
+      toast.error('The specified file does not exist or is not accessible.');
+      return;
+    }
+
+    if (config.temperature < 0 || config.temperature > 2) {
+      toast.error('Temperature must be between 0.0 and 2.0');
+      return;
+    }
+    if (config.top_p < 0 || config.top_p > 1) {
+      toast.error('Top P must be between 0.0 and 1.0');
+      return;
+    }
+    if ((config.top_k as number) < 0) {
+      toast.error('Top K must be non-negative');
+      return;
+    }
+    if (contextSize <= 0) {
+      toast.error('Context size must be positive');
       return;
     }
 
@@ -222,11 +242,9 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
             <Brain className="h-5 w-5" />
             Load Model
           </DialogTitle>
-          {modelPath && (
-            <p className="text-sm text-muted-foreground">
-              Model: {getModelFileName()}
-            </p>
-          )}
+          <DialogDescription className="text-sm text-muted-foreground">
+            {modelPath ? `Model: ${getModelFileName()}` : 'Select a model file to load'}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">

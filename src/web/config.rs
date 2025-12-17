@@ -1,7 +1,10 @@
-use std::fs;
 use super::models::SamplerConfig;
+use std::fs;
 
 #[cfg(not(feature = "mock"))]
+use super::models::SharedLlamaState;
+
+#[cfg(feature = "mock")]
 use super::models::SharedLlamaState;
 
 use super::chat_handler::get_universal_system_prompt;
@@ -13,15 +16,13 @@ use crate::sys_warn;
 pub fn load_config() -> SamplerConfig {
     let config_path = "assets/config.json";
     match fs::read_to_string(config_path) {
-        Ok(content) => {
-            match serde_json::from_str::<SamplerConfig>(&content) {
-                Ok(config) => config,
-                Err(e) => {
-                    sys_warn!("Failed to parse config file: {}, using defaults", e);
-                    SamplerConfig::default()
-                }
+        Ok(content) => match serde_json::from_str::<SamplerConfig>(&content) {
+            Ok(config) => config,
+            Err(e) => {
+                sys_warn!("Failed to parse config file: {}, using defaults", e);
+                SamplerConfig::default()
             }
-        }
+        },
         Err(_) => {
             // Config file doesn't exist, use defaults
             SamplerConfig::default()
@@ -47,7 +48,8 @@ pub fn get_resolved_system_prompt(llama_state: &Option<SharedLlamaState>) -> Opt
         None => {
             if let Some(ref state) = llama_state {
                 if let Ok(state_guard) = state.lock() {
-                    state_guard.as_ref()
+                    state_guard
+                        .as_ref()
                         .and_then(|s| s.model_default_system_prompt.clone())
                 } else {
                     None
@@ -61,7 +63,7 @@ pub fn get_resolved_system_prompt(llama_state: &Option<SharedLlamaState>) -> Opt
 
 /// Mock version for testing
 #[cfg(feature = "mock")]
-pub fn get_resolved_system_prompt(_llama_state: &Option<()>) -> Option<String> {
+pub fn get_resolved_system_prompt(_llama_state: &Option<SharedLlamaState>) -> Option<String> {
     let config = load_config();
     match config.system_prompt.as_deref() {
         Some("__AGENTIC__") => Some(get_universal_system_prompt()),

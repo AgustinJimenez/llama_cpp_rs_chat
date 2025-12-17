@@ -15,10 +15,13 @@ interface ChatHeaderProps {
   isRightSidebarOpen: boolean;
   onToggleSidebar: () => void;
   onModelUnload: () => void;
+  onForceUnload: () => void;
+  hasStatusError: boolean;
   onViewModeChange: (mode: ViewMode) => void;
   onToggleRightSidebar: () => void;
 }
 
+// eslint-disable-next-line max-lines-per-function
 export function ChatHeader({
   modelLoaded,
   modelPath,
@@ -32,6 +35,8 @@ export function ChatHeader({
   isRightSidebarOpen,
   onToggleSidebar,
   onModelUnload,
+  onForceUnload,
+  hasStatusError,
   onViewModeChange,
   onToggleRightSidebar,
 }: ChatHeaderProps) {
@@ -48,29 +53,38 @@ export function ChatHeader({
       </div>
 
       <div className="flex-1 flex justify-center items-center gap-6">
-        {modelLoaded && (
-          <>
-            {/* Model Name and Unload Button */}
-            <div className="flex items-center gap-3">
-              <p className="text-lg font-semibold">
-                {(() => {
-                  const fullPath = modelPath || '';
-                  const fileName = fullPath.split(/[/\\]/).pop() || 'Model loaded';
-                  // Remove .gguf extension if present
-                  return fileName.replace(/\.gguf$/i, '');
-                })()}
-              </p>
-              <button
-                onClick={onModelUnload}
-                disabled={isModelLoading}
-                className="flat-button bg-destructive text-white px-4 py-2 disabled:opacity-50"
-                title="Unload model"
-              >
-                <Unplug className="h-4 w-4" />
-              </button>
-            </div>
-          </>
-        )}
+        {modelLoaded ? (
+          <div className="flex items-center gap-3">
+            <p className="text-lg font-semibold">
+              {(() => {
+                const fullPath = modelPath || '';
+                const fileName = fullPath.split(/[/\\]/).pop() || 'Model loaded';
+                // Remove .gguf extension if present
+                return fileName.replace(/\.gguf$/i, '');
+              })()}
+            </p>
+            <button
+              onClick={onModelUnload}
+              disabled={isModelLoading}
+              className="flat-button bg-destructive text-white px-4 py-2 disabled:opacity-50"
+              title="Unload model"
+            >
+              <Unplug className="h-4 w-4" />
+            </button>
+          </div>
+        ) : hasStatusError ? (
+          <div className="flex items-center gap-3">
+            <p className="text-sm font-semibold text-destructive">Model status unknown</p>
+            <button
+              onClick={onForceUnload}
+              disabled={isModelLoading}
+              className="flat-button bg-destructive text-white px-4 py-2 disabled:opacity-50"
+              title="Force unload backend"
+            >
+              <Unplug className="h-4 w-4" />
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {/* Right section - always show if model loaded and we have data */}
@@ -88,7 +102,7 @@ export function ChatHeader({
           )}
 
           {/* WebSocket Connection Status */}
-          {isWsConnected && currentConversationId && (
+          {isWsConnected && currentConversationId ? (
             <div className="flex items-center gap-2 px-3 py-1.5 bg-flat-green rounded-full">
               <Radio className="h-3.5 w-3.5 text-white animate-pulse" />
               <span className="text-xs font-medium text-white" title={`Connected to: ${currentConversationId}`}>
@@ -97,7 +111,14 @@ export function ChatHeader({
                   : currentConversationId}
               </span>
             </div>
-          )}
+          ) : currentConversationId ? (
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-flat-red rounded-full">
+              <Unplug className="h-3.5 w-3.5 text-white" />
+              <span className="text-xs font-medium text-white" title="WebSocket disconnected">
+                Disconnected
+              </span>
+            </div>
+          ) : null}
 
           {/* View Mode Toggle - only show when there are messages */}
           {messagesLength > 0 && (

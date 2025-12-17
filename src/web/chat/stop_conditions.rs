@@ -7,6 +7,8 @@ pub struct StopConditionResult {
     pub should_stop: bool,
     /// Number of characters to remove from the end of the response (for partial matches)
     pub partial_to_remove: usize,
+    /// Stop token that triggered the stop (for debugging/telemetry)
+    pub matched_token: Option<String>,
 }
 
 impl StopConditionResult {
@@ -14,20 +16,23 @@ impl StopConditionResult {
         Self {
             should_stop: false,
             partial_to_remove: 0,
+            matched_token: None,
         }
     }
 
-    pub fn stop_now() -> Self {
+    pub fn stop_now(matched: String) -> Self {
         Self {
             should_stop: true,
             partial_to_remove: 0,
+            matched_token: Some(matched),
         }
     }
 
-    pub fn stop_with_removal(chars_to_remove: usize) -> Self {
+    pub fn stop_with_removal(chars_to_remove: usize, matched: String) -> Self {
         Self {
             should_stop: true,
             partial_to_remove: chars_to_remove,
+            matched_token: Some(matched),
         }
     }
 }
@@ -64,14 +69,18 @@ pub fn check_stop_conditions(
     let in_exec_block = is_inside_exec_block(response);
 
     for stop_token in stop_tokens {
+        if stop_token.is_empty() {
+            continue;
+        }
+
         // Skip stop token checking if inside exec block
         if in_exec_block {
             continue;
         }
 
-        // Check for exact match
-        if test_response.contains(stop_token) {
-            return StopConditionResult::stop_now();
+        // Check for exact match at the end to avoid false positives in the middle of responses
+        if test_response.trim_end().ends_with(stop_token) {
+            return StopConditionResult::stop_now(stop_token.clone());
         }
 
         // Handle partial matches
@@ -83,17 +92,28 @@ pub fn check_stop_conditions(
         // Check for partial matches at the end of the response
         if stop_token.len() > 2 {
             let trimmed = test_response.trim_end();
-            for i in 2..stop_token.len() {
-                if trimmed.ends_with(&stop_token[..i]) {
-                    // Check if this partial match existed before the new token
-                    // If so, we need to remove the partial from previous tokens
-                    if response.trim_end().ends_with(&stop_token[..i - new_token.len()])
-                        && i > new_token.len() {
-                        let partial_to_remove = i - new_token.len();
-                        return StopConditionResult::stop_with_removal(partial_to_remove);
-                    }
-                    return StopConditionResult::stop_now();
+            let max_prefix = stop_token.len().min(trimmed.len());
+            for i in 2..=max_prefix {
+                let prefix = &stop_token[..i];
+                if !trimmed.ends_with(prefix) {
+                    continue;
                 }
+
+                // If the partial match spans previous tokens, remove the portion that was already present
+                if i > new_token.len()
+                    && response
+                        .trim_end()
+                        .ends_with(&stop_token[..i - new_token.len()])
+                {
+                    let partial_to_remove = i - new_token.len();
+                    return StopConditionResult::stop_with_removal(
+                        partial_to_remove,
+                        stop_token.clone(),
+                    );
+                }
+
+                // Partial match detected at the end
+                return StopConditionResult::stop_now(stop_token.clone());
             }
         }
     }
@@ -114,6 +134,7 @@ mod tests {
         let result = check_stop_conditions(response, new_token, &stop_tokens);
         assert!(result.should_stop);
         assert_eq!(result.partial_to_remove, 0);
+        assert_eq!(result.matched_token.as_deref(), Some("</ASSISTANT>"));
     }
 
     #[test]
@@ -124,6 +145,7 @@ mod tests {
 
         let result = check_stop_conditions(response, new_token, &stop_tokens);
         assert!(!result.should_stop);
+        assert!(result.matched_token.is_none());
     }
 
     #[test]
@@ -135,6 +157,7 @@ mod tests {
         // Should not stop because we're inside exec block (no closing tag yet)
         let result = check_stop_conditions(response, new_token, &stop_tokens);
         assert!(!result.should_stop);
+        assert!(result.matched_token.is_none());
     }
 
     #[test]
@@ -146,5 +169,6 @@ mod tests {
         // Should stop because exec block is closed
         let result = check_stop_conditions(response, new_token, &stop_tokens);
         assert!(result.should_stop);
+        assert_eq!(result.matched_token.as_deref(), Some("</ASSISTANT>"));
     }
 }

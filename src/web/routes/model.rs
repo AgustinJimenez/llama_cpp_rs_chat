@@ -1,22 +1,23 @@
 // Model route handlers
 
+use gguf_llms::{GgufHeader, GgufReader};
 use hyper::{Body, Request, Response, StatusCode};
+use serde::Deserialize;
 use std::convert::Infallible;
 use std::fs;
 use std::io::BufReader;
-use serde::Deserialize;
-use gguf_llms::{GgufHeader, GgufReader};
+use tokio::task::spawn_blocking;
 
 use crate::web::{
-    models::{ModelLoadRequest, ModelResponse},
-    config::{load_config, add_to_model_history},
-    gguf_utils::{
-        value_to_display_string,
-        detect_tool_format, extract_default_system_prompt, MetadataExtractor,
-    },
+    config::{add_to_model_history, load_config},
     filename_patterns::{detect_architecture, detect_parameters, detect_quantization},
-    response_helpers::{json_error, json_raw, serialize_with_fallback},
+    gguf_utils::{
+        detect_tool_format, extract_default_system_prompt, value_to_display_string,
+        MetadataExtractor,
+    },
+    models::{ModelLoadRequest, ModelResponse},
     request_parsing::parse_json_body,
+    response_helpers::{json_error, json_raw, serialize_with_fallback},
 };
 
 // Import logging macros
@@ -24,8 +25,8 @@ use crate::{sys_debug, sys_error};
 
 #[cfg(not(feature = "mock"))]
 use crate::web::{
+    model_manager::{get_model_status, load_model, unload_model},
     models::SharedLlamaState,
-    model_manager::{load_model, unload_model, get_model_status},
 };
 
 // File size constants
@@ -33,15 +34,15 @@ const BYTES_PER_GB: u64 = 1_073_741_824;
 const BYTES_PER_MB: u64 = 1_048_576;
 
 // Model size thresholds (in GB) for layer estimation
-const SMALL_MODEL_THRESHOLD_GB: f64 = 8.0;   // Models < 8GB (7B and below)
+const SMALL_MODEL_THRESHOLD_GB: f64 = 8.0; // Models < 8GB (7B and below)
 const MEDIUM_MODEL_THRESHOLD_GB: f64 = 15.0; // Models 8-15GB (13B)
-const LARGE_MODEL_THRESHOLD_GB: f64 = 25.0;  // Models 15-25GB (30B)
+const LARGE_MODEL_THRESHOLD_GB: f64 = 25.0; // Models 15-25GB (30B)
 
 // Estimated layer counts for different model sizes
-const SMALL_MODEL_LAYERS: u32 = 36;   // 7B and below
-const MEDIUM_MODEL_LAYERS: u32 = 45;  // 13B
-const LARGE_MODEL_LAYERS: u32 = 60;   // 30B
-const XLARGE_MODEL_LAYERS: u32 = 80;  // 70B+
+const SMALL_MODEL_LAYERS: u32 = 36; // 7B and below
+const MEDIUM_MODEL_LAYERS: u32 = 45; // 13B
+const LARGE_MODEL_LAYERS: u32 = 60; // 30B
+const XLARGE_MODEL_LAYERS: u32 = 80; // 70B+
 
 /// Scan a directory for .gguf files and return their filenames
 fn scan_directory_for_gguf_files(path: &std::path::Path) -> Vec<String> {
@@ -65,10 +66,8 @@ fn scan_directory_for_gguf_files(path: &std::path::Path) -> Vec<String> {
 
 pub async fn handle_get_model_info(
     req: Request<Body>,
-    #[cfg(not(feature = "mock"))]
-    _llama_state: SharedLlamaState,
-    #[cfg(feature = "mock")]
-    _llama_state: (),
+    #[cfg(not(feature = "mock"))] _llama_state: SharedLlamaState,
+    #[cfg(feature = "mock")] _llama_state: (),
 ) -> Result<Response<Body>, Infallible> {
     sys_debug!("[DEBUG] /api/model/info endpoint hit");
 
@@ -91,11 +90,15 @@ pub async fn handle_get_model_info(
 
     if model_path.is_empty() {
         sys_error!("[DEBUG] ERROR: No path parameter provided");
-        return Ok(json_error(StatusCode::BAD_REQUEST, "Model path is required"));
+        return Ok(json_error(
+            StatusCode::BAD_REQUEST,
+            "Model path is required",
+        ));
     }
 
     // URL decode the path properly
-    let decoded_path = urlencoding::decode(model_path).unwrap_or(std::borrow::Cow::Borrowed(model_path));
+    let decoded_path =
+        urlencoding::decode(model_path).unwrap_or(std::borrow::Cow::Borrowed(model_path));
     sys_debug!("[DEBUG] Decoded path: {}", decoded_path);
 
     // Check if file exists
@@ -106,7 +109,10 @@ pub async fn handle_get_model_info(
     sys_debug!("[DEBUG] Path is dir: {}", path_obj.is_dir());
 
     if !exists {
-        sys_error!("[DEBUG] ERROR: File does not exist at path: {}", decoded_path);
+        sys_error!(
+            "[DEBUG] ERROR: File does not exist at path: {}",
+            decoded_path
+        );
         return Ok(json_error(StatusCode::NOT_FOUND, "Model file not found"));
     }
 
@@ -114,8 +120,11 @@ pub async fn handle_get_model_info(
     if path_obj.is_dir() {
         sys_debug!("[DEBUG] Path is a directory, scanning for .gguf files...");
 
-        // Find all .gguf files in the directory
-        let gguf_files = scan_directory_for_gguf_files(path_obj);
+        // Find all .gguf files in the directory (off the async runtime)
+        let dir_path = path_obj.to_path_buf();
+        let gguf_files = spawn_blocking(move || scan_directory_for_gguf_files(&dir_path))
+            .await
+            .unwrap_or_else(|_| Vec::new());
 
         let response_json = if gguf_files.is_empty() {
             serde_json::json!({
@@ -131,7 +140,10 @@ pub async fn handle_get_model_info(
             })
         };
 
-        sys_debug!("[DEBUG] Returning directory error with {} suggestions", gguf_files.len());
+        sys_debug!(
+            "[DEBUG] Returning directory error with {} suggestions",
+            gguf_files.len()
+        );
         return Ok(json_raw(StatusCode::BAD_REQUEST, response_json.to_string()));
     }
 
@@ -139,18 +151,28 @@ pub async fn handle_get_model_info(
     if let Some(ext) = path_obj.extension() {
         if !ext.eq_ignore_ascii_case("gguf") {
             sys_error!("[DEBUG] ERROR: File is not a .gguf file");
-            return Ok(json_error(StatusCode::BAD_REQUEST, "File must have .gguf extension"));
+            return Ok(json_error(
+                StatusCode::BAD_REQUEST,
+                "File must have .gguf extension",
+            ));
         }
     } else {
         sys_error!("[DEBUG] ERROR: File has no extension");
-        return Ok(json_error(StatusCode::BAD_REQUEST, "File must have .gguf extension"));
+        return Ok(json_error(
+            StatusCode::BAD_REQUEST,
+            "File must have .gguf extension",
+        ));
     }
 
     // Extract basic model information
-    let file_metadata = match fs::metadata(&*decoded_path) {
-        Ok(metadata) => metadata,
-        Err(_) => {
-            return Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to read file metadata"));
+    let metadata_path = decoded_path.to_string();
+    let file_metadata = match spawn_blocking(move || fs::metadata(&metadata_path)).await {
+        Ok(Ok(metadata)) => metadata,
+        Ok(Err(_)) | Err(_) => {
+            return Ok(json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to read file metadata",
+            ));
         }
     };
 
@@ -198,132 +220,142 @@ pub async fn handle_get_model_info(
     });
 
     // Try to parse GGUF metadata
-    if let Ok(file) = fs::File::open(&*decoded_path) {
-        let mut reader = BufReader::new(file);
+    let metadata_path = decoded_path.to_string();
+    let metadata_result = spawn_blocking(
+        move || -> Result<_, Box<dyn std::error::Error + Send + Sync>> {
+            let file = fs::File::open(&metadata_path)?;
+            let mut reader = BufReader::new(file);
+            let header = GgufHeader::parse(&mut reader)?;
+            let metadata = GgufReader::read_metadata(&mut reader, header.n_kv)?;
+            Ok(metadata)
+        },
+    )
+    .await;
 
-        if let Ok(header) = GgufHeader::parse(&mut reader) {
-            if let Ok(metadata) = GgufReader::read_metadata(&mut reader, header.n_kv) {
-                // Use shared MetadataExtractor for cleaner access
-                let extractor = MetadataExtractor::new(&metadata);
+    if let Ok(Ok(metadata)) = metadata_result {
+        // Use shared MetadataExtractor for cleaner access
+        let extractor = MetadataExtractor::new(&metadata);
 
-                // Debug: Print all available metadata keys and values
-                sys_debug!("=== GGUF Metadata Found ===");
-                for (key, value) in metadata.iter() {
-                    sys_debug!("  {} = {}", key, value_to_display_string(value));
-                }
-                sys_debug!("================================");
+        let log_metadata = std::env::var("GGUF_DEBUG").unwrap_or_default() == "1";
+        if log_metadata {
+            // Debug: Print all available metadata keys and values
+            sys_debug!("=== GGUF Metadata Found ===");
+            for (key, value) in metadata.iter() {
+                sys_debug!("  {} = {}", key, value_to_display_string(value));
+            }
+            sys_debug!("================================");
+        }
 
-                // Create a metadata object with all values using shared utility
-                model_info["gguf_metadata"] = serde_json::json!(extractor.to_json_map());
+        // Create a metadata object with all values using shared utility
+        model_info["gguf_metadata"] = serde_json::json!(extractor.to_json_map());
 
-                // Get architecture
-                let arch = extractor.get_string("general.architecture")
-                    .unwrap_or_else(|| "llama".to_string());
+        // Get architecture
+        let arch = extractor
+            .get_string("general.architecture")
+            .unwrap_or_else(|| "llama".to_string());
 
-                // Update architecture
-                model_info["architecture"] = serde_json::json!(arch.clone());
+        // Update architecture
+        model_info["architecture"] = serde_json::json!(arch.clone());
 
-                // Detect tool calling format using shared utility
-                let model_name = extractor.get_string("general.name").unwrap_or_default();
-                let tool_format = detect_tool_format(&arch, &model_name);
-                model_info["tool_format"] = serde_json::json!(tool_format);
+        // Detect tool calling format using shared utility
+        let model_name = extractor.get_string("general.name").unwrap_or_default();
+        let tool_format = detect_tool_format(&arch, &model_name);
+        model_info["tool_format"] = serde_json::json!(tool_format);
 
-                // Core model information
-                if let Some(val) = extractor.get_string("general.name") {
-                    model_info["general_name"] = serde_json::json!(val);
-                }
-                if let Some(val) = extractor.get_string("general.author") {
-                    model_info["author"] = serde_json::json!(val);
-                }
-                if let Some(val) = extractor.get_string("general.version") {
-                    model_info["version"] = serde_json::json!(val);
-                }
-                if let Some(val) = extractor.get_string("general.organization") {
-                    model_info["organization"] = serde_json::json!(val);
-                }
-                if let Some(val) = extractor.get_string("general.description") {
-                    model_info["description"] = serde_json::json!(val);
-                }
-                if let Some(val) = extractor.get_string("general.license") {
-                    model_info["license"] = serde_json::json!(val);
-                }
-                if let Some(val) = extractor.get_string("general.url") {
-                    model_info["url"] = serde_json::json!(val);
-                }
-                if let Some(val) = extractor.get_string("general.repo_url") {
-                    model_info["repo_url"] = serde_json::json!(val);
-                }
-                if let Some(val) = extractor.get_string("general.file_type") {
-                    model_info["file_type"] = serde_json::json!(val);
-                }
-                if let Some(val) = extractor.get_string("general.quantization_version") {
-                    model_info["quantization_version"] = serde_json::json!(val);
-                }
+        // Core model information
+        if let Some(val) = extractor.get_string("general.name") {
+            model_info["general_name"] = serde_json::json!(val);
+        }
+        if let Some(val) = extractor.get_string("general.author") {
+            model_info["author"] = serde_json::json!(val);
+        }
+        if let Some(val) = extractor.get_string("general.version") {
+            model_info["version"] = serde_json::json!(val);
+        }
+        if let Some(val) = extractor.get_string("general.organization") {
+            model_info["organization"] = serde_json::json!(val);
+        }
+        if let Some(val) = extractor.get_string("general.description") {
+            model_info["description"] = serde_json::json!(val);
+        }
+        if let Some(val) = extractor.get_string("general.license") {
+            model_info["license"] = serde_json::json!(val);
+        }
+        if let Some(val) = extractor.get_string("general.url") {
+            model_info["url"] = serde_json::json!(val);
+        }
+        if let Some(val) = extractor.get_string("general.repo_url") {
+            model_info["repo_url"] = serde_json::json!(val);
+        }
+        if let Some(val) = extractor.get_string("general.file_type") {
+            model_info["file_type"] = serde_json::json!(val);
+        }
+        if let Some(val) = extractor.get_string("general.quantization_version") {
+            model_info["quantization_version"] = serde_json::json!(val);
+        }
 
-                // Context length - try multiple keys
-                let context_keys = vec![
-                    format!("{}.context_length", arch),
-                    "llama.context_length".to_string(),
-                    "context_length".to_string(),
-                ];
-                for key in &context_keys {
-                    if let Some(val) = extractor.get_string(&key) {
-                        model_info["context_length"] = serde_json::json!(val);
-                        break;
-                    }
-                }
+        // Context length - try multiple keys
+        let context_keys = vec![
+            format!("{}.context_length", arch),
+            "llama.context_length".to_string(),
+            "context_length".to_string(),
+        ];
+        for key in &context_keys {
+            if let Some(val) = extractor.get_string(&key) {
+                model_info["context_length"] = serde_json::json!(val);
+                break;
+            }
+        }
 
-                // Architecture-specific fields using extractor helper
-                if let Some(val) = extractor.get_arch_field(&arch, "embedding_length") {
-                    model_info["embedding_length"] = serde_json::json!(val);
-                }
-                if let Some(val) = extractor.get_arch_field(&arch, "block_count") {
-                    model_info["block_count"] = serde_json::json!(val.clone());
-                    // Use actual block count for layers
-                    if let Ok(block_count) = val.parse::<u32>() {
-                        model_info["estimated_layers"] = serde_json::json!(block_count);
-                    }
-                }
-                if let Some(val) = extractor.get_arch_field(&arch, "feed_forward_length") {
-                    model_info["feed_forward_length"] = serde_json::json!(val);
-                }
-                if let Some(val) = extractor.get_arch_field(&arch, "attention.head_count") {
-                    model_info["attention_head_count"] = serde_json::json!(val);
-                }
-                if let Some(val) = extractor.get_arch_field(&arch, "attention.head_count_kv") {
-                    model_info["attention_head_count_kv"] = serde_json::json!(val);
-                }
-                if let Some(val) = extractor.get_arch_field(&arch, "attention.layer_norm_rms_epsilon") {
-                    model_info["layer_norm_epsilon"] = serde_json::json!(val);
-                }
-                if let Some(val) = extractor.get_arch_field(&arch, "rope.dimension_count") {
-                    model_info["rope_dimension_count"] = serde_json::json!(val);
-                }
-                if let Some(val) = extractor.get_arch_field(&arch, "rope.freq_base") {
-                    model_info["rope_freq_base"] = serde_json::json!(val);
-                }
+        // Architecture-specific fields using extractor helper
+        if let Some(val) = extractor.get_arch_field(&arch, "embedding_length") {
+            model_info["embedding_length"] = serde_json::json!(val);
+        }
+        if let Some(val) = extractor.get_arch_field(&arch, "block_count") {
+            model_info["block_count"] = serde_json::json!(val.clone());
+            // Use actual block count for layers
+            if let Ok(block_count) = val.parse::<u32>() {
+                model_info["estimated_layers"] = serde_json::json!(block_count);
+            }
+        }
+        if let Some(val) = extractor.get_arch_field(&arch, "feed_forward_length") {
+            model_info["feed_forward_length"] = serde_json::json!(val);
+        }
+        if let Some(val) = extractor.get_arch_field(&arch, "attention.head_count") {
+            model_info["attention_head_count"] = serde_json::json!(val);
+        }
+        if let Some(val) = extractor.get_arch_field(&arch, "attention.head_count_kv") {
+            model_info["attention_head_count_kv"] = serde_json::json!(val);
+        }
+        if let Some(val) = extractor.get_arch_field(&arch, "attention.layer_norm_rms_epsilon") {
+            model_info["layer_norm_epsilon"] = serde_json::json!(val);
+        }
+        if let Some(val) = extractor.get_arch_field(&arch, "rope.dimension_count") {
+            model_info["rope_dimension_count"] = serde_json::json!(val);
+        }
+        if let Some(val) = extractor.get_arch_field(&arch, "rope.freq_base") {
+            model_info["rope_freq_base"] = serde_json::json!(val);
+        }
 
-                // Tokenizer information
-                if let Some(val) = extractor.get_string("tokenizer.ggml.model") {
-                    model_info["tokenizer_model"] = serde_json::json!(val);
-                }
-                if let Some(val) = extractor.get_string("tokenizer.ggml.bos_token_id") {
-                    model_info["bos_token_id"] = serde_json::json!(val);
-                }
-                if let Some(val) = extractor.get_string("tokenizer.ggml.eos_token_id") {
-                    model_info["eos_token_id"] = serde_json::json!(val);
-                }
-                if let Some(val) = extractor.get_string("tokenizer.ggml.padding_token_id") {
-                    model_info["padding_token_id"] = serde_json::json!(val);
-                }
-                if let Some(val) = extractor.get_string("tokenizer.chat_template") {
-                    model_info["chat_template"] = serde_json::json!(val.clone());
+        // Tokenizer information
+        if let Some(val) = extractor.get_string("tokenizer.ggml.model") {
+            model_info["tokenizer_model"] = serde_json::json!(val);
+        }
+        if let Some(val) = extractor.get_string("tokenizer.ggml.bos_token_id") {
+            model_info["bos_token_id"] = serde_json::json!(val);
+        }
+        if let Some(val) = extractor.get_string("tokenizer.ggml.eos_token_id") {
+            model_info["eos_token_id"] = serde_json::json!(val);
+        }
+        if let Some(val) = extractor.get_string("tokenizer.ggml.padding_token_id") {
+            model_info["padding_token_id"] = serde_json::json!(val);
+        }
+        if let Some(val) = extractor.get_string("tokenizer.chat_template") {
+            model_info["chat_template"] = serde_json::json!(val.clone());
 
-                    // Extract default system prompt using shared utility
-                    if let Some(prompt) = extract_default_system_prompt(&val) {
-                        model_info["default_system_prompt"] = serde_json::json!(prompt);
-                    }
-                }
+            // Extract default system prompt using shared utility
+            if let Some(prompt) = extract_default_system_prompt(&val) {
+                model_info["default_system_prompt"] = serde_json::json!(prompt);
             }
         }
     }
@@ -332,17 +364,15 @@ pub async fn handle_get_model_info(
 }
 
 pub async fn handle_get_model_status(
-    #[cfg(not(feature = "mock"))]
-    llama_state: SharedLlamaState,
-    #[cfg(feature = "mock")]
-    _llama_state: (),
+    #[cfg(not(feature = "mock"))] llama_state: SharedLlamaState,
+    #[cfg(feature = "mock")] _llama_state: (),
 ) -> Result<Response<Body>, Infallible> {
     #[cfg(not(feature = "mock"))]
     {
         let status = get_model_status(&llama_state);
         let response_json = serialize_with_fallback(
             &status,
-            r#"{"loaded":false,"model_path":null,"last_used":null,"memory_usage_mb":null}"#
+            r#"{"loaded":false,"model_path":null,"last_used":null,"memory_usage_mb":null}"#,
         );
 
         Ok(json_raw(StatusCode::OK, response_json))
@@ -350,15 +380,17 @@ pub async fn handle_get_model_status(
 
     #[cfg(feature = "mock")]
     {
-        Ok(json_raw(StatusCode::OK, r#"{"loaded":false,"model_path":null,"last_used":null,"memory_usage_mb":null}"#.to_string()))
+        Ok(json_raw(
+            StatusCode::OK,
+            r#"{"loaded":false,"model_path":null,"last_used":null,"memory_usage_mb":null}"#
+                .to_string(),
+        ))
     }
 }
 
 pub async fn handle_get_model_history(
-    #[cfg(not(feature = "mock"))]
-    _llama_state: SharedLlamaState,
-    #[cfg(feature = "mock")]
-    _llama_state: (),
+    #[cfg(not(feature = "mock"))] _llama_state: SharedLlamaState,
+    #[cfg(feature = "mock")] _llama_state: (),
 ) -> Result<Response<Body>, Infallible> {
     // Load config and return model history
     let config = load_config();
@@ -369,10 +401,8 @@ pub async fn handle_get_model_history(
 
 pub async fn handle_post_model_history(
     req: Request<Body>,
-    #[cfg(not(feature = "mock"))]
-    _llama_state: SharedLlamaState,
-    #[cfg(feature = "mock")]
-    _llama_state: (),
+    #[cfg(not(feature = "mock"))] _llama_state: SharedLlamaState,
+    #[cfg(feature = "mock")] _llama_state: (),
 ) -> Result<Response<Body>, Infallible> {
     #[derive(Deserialize)]
     struct AddHistoryRequest {
@@ -393,10 +423,8 @@ pub async fn handle_post_model_history(
 
 pub async fn handle_post_model_load(
     req: Request<Body>,
-    #[cfg(not(feature = "mock"))]
-    llama_state: SharedLlamaState,
-    #[cfg(feature = "mock")]
-    _llama_state: (),
+    #[cfg(not(feature = "mock"))] llama_state: SharedLlamaState,
+    #[cfg(feature = "mock")] _llama_state: (),
 ) -> Result<Response<Body>, Infallible> {
     sys_debug!("[DEBUG] /api/model/load endpoint hit");
 
@@ -423,7 +451,7 @@ pub async fn handle_post_model_load(
 
                 let response_json = serialize_with_fallback(
                     &response,
-                    r#"{"success":true,"message":"Model loaded successfully","status":null}"#
+                    r#"{"success":true,"message":"Model loaded successfully","status":null}"#,
                 );
 
                 Ok(json_raw(StatusCode::OK, response_json))
@@ -437,7 +465,10 @@ pub async fn handle_post_model_load(
 
                 let response_json = serialize_with_fallback(
                     &response,
-                    &format!(r#"{{"success":false,"message":"Failed to load model: {}","status":null}}"#, e)
+                    &format!(
+                        r#"{{"success":false,"message":"Failed to load model: {}","status":null}}"#,
+                        e
+                    ),
                 );
 
                 Ok(json_raw(StatusCode::INTERNAL_SERVER_ERROR, response_json))
@@ -448,15 +479,17 @@ pub async fn handle_post_model_load(
     #[cfg(feature = "mock")]
     {
         let _ = req;
-        Ok(json_raw(StatusCode::SERVICE_UNAVAILABLE, r#"{"success":false,"message":"Model loading not available (mock feature enabled)"}"#.to_string()))
+        Ok(json_raw(
+            StatusCode::SERVICE_UNAVAILABLE,
+            r#"{"success":false,"message":"Model loading not available (mock feature enabled)"}"#
+                .to_string(),
+        ))
     }
 }
 
 pub async fn handle_post_model_unload(
-    #[cfg(not(feature = "mock"))]
-    llama_state: SharedLlamaState,
-    #[cfg(feature = "mock")]
-    _llama_state: (),
+    #[cfg(not(feature = "mock"))] llama_state: SharedLlamaState,
+    #[cfg(feature = "mock")] _llama_state: (),
 ) -> Result<Response<Body>, Infallible> {
     #[cfg(not(feature = "mock"))]
     {
@@ -471,7 +504,7 @@ pub async fn handle_post_model_unload(
 
                 let response_json = serialize_with_fallback(
                     &response,
-                    r#"{"success":true,"message":"Model unloaded successfully","status":null}"#
+                    r#"{"success":true,"message":"Model unloaded successfully","status":null}"#,
                 );
 
                 Ok(json_raw(StatusCode::OK, response_json))
@@ -485,7 +518,10 @@ pub async fn handle_post_model_unload(
 
                 let response_json = serialize_with_fallback(
                     &response,
-                    &format!(r#"{{"success":false,"message":"Failed to unload model: {}","status":null}}"#, e)
+                    &format!(
+                        r#"{{"success":false,"message":"Failed to unload model: {}","status":null}}"#,
+                        e
+                    ),
                 );
 
                 Ok(json_raw(StatusCode::INTERNAL_SERVER_ERROR, response_json))
@@ -495,6 +531,10 @@ pub async fn handle_post_model_unload(
 
     #[cfg(feature = "mock")]
     {
-        Ok(json_raw(StatusCode::SERVICE_UNAVAILABLE, r#"{"success":false,"message":"Model unloading not available (mock feature enabled)"}"#.to_string()))
+        Ok(json_raw(
+            StatusCode::SERVICE_UNAVAILABLE,
+            r#"{"success":false,"message":"Model unloading not available (mock feature enabled)"}"#
+                .to_string(),
+        ))
     }
 }

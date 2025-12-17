@@ -25,6 +25,7 @@ interface MemoryVisualizationProps {
   memory: MemoryBreakdown;
 }
 
+// eslint-disable-next-line max-lines-per-function, complexity
 export const MemoryVisualization: React.FC<MemoryVisualizationProps> = ({ memory }) => {
   // Calculate percentages for VRAM
   const vramUsed = memory.vram.modelGpu + memory.vram.kvCache + memory.vram.overhead;

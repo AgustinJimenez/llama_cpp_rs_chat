@@ -3,6 +3,7 @@ import { toast } from 'react-hot-toast';
 import { autoParseToolCalls } from '../utils/toolParser';
 import { parseConversationFile } from '../utils/conversationParser';
 import { areToolCallsComplete } from './useToolExecution';
+import { logToastError, logToastWarning } from '../utils/toastLogger';
 import type { Message, ToolCall } from '../types';
 
 interface UseConversationWatcherOptions {
@@ -17,10 +18,19 @@ interface UseConversationWatcherOptions {
   shouldStopExecution: (toolCalls: ToolCall[]) => boolean;
 }
 
+const WS_RECONNECT_BASE_MS = 500;
+const WS_RECONNECT_MAX_MS = 5000;
+
+function getNextDelay(attempt: number): number {
+  const exp = WS_RECONNECT_BASE_MS * Math.pow(2, attempt);
+  return Math.min(exp, WS_RECONNECT_MAX_MS);
+}
+
 /**
  * Hook to watch conversation updates via WebSocket.
  * Handles real-time updates, tool call detection, and context warnings.
  */
+// eslint-disable-next-line max-lines-per-function
 export function useConversationWatcher({
   currentConversationId,
   isStreamingRef,
@@ -34,49 +44,95 @@ export function useConversationWatcher({
 }: UseConversationWatcherOptions) {
   const [isWsConnected, setIsWsConnected] = useState(false);
 
+  // Fallback: re-fetch conversation if WS is disconnected but a conversation is active
+  useEffect(() => {
+    const fetchConversation = async () => {
+      if (!currentConversationId || isWsConnected) {
+        return;
+      }
+      try {
+        const response = await fetch(`/api/conversation/${currentConversationId}`);
+        if (!response.ok) {
+          logToastWarning(
+            'useConversationWatcher.poll',
+            `Failed to refetch conversation (${response.status})`
+          );
+          return;
+        }
+        const data = await response.json();
+        if (data.messages) {
+          setMessages(data.messages);
+        }
+      } catch (err) {
+        logToastWarning('useConversationWatcher.poll', 'Conversation poll failed', err);
+      }
+    };
+
+    const interval = setInterval(fetchConversation, 5000);
+    return () => clearInterval(interval);
+  }, [currentConversationId, isWsConnected, setMessages]);
+
   useEffect(() => {
     if (!currentConversationId) {
       setIsWsConnected(false);
       return;
     }
 
+    let attempt = 0;
+    let shouldReconnect = true;
+
     // Determine WebSocket URL based on current protocol
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/conversation/watch/${currentConversationId}`;
 
-    const ws = new WebSocket(wsUrl);
+    let ws: WebSocket | null = null;
 
-    ws.onopen = () => {
-      setIsWsConnected(true);
+    const connect = () => {
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        attempt = 0;
+        setIsWsConnected(true);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+
+          if (message.type === 'update') {
+            handleUpdate(message);
+          }
+        } catch (e) {
+          console.error('[ConversationWatcher] Failed to parse update:', e);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('[ConversationWatcher] WebSocket ERROR:', error);
+        setIsWsConnected(false);
+      };
+
+      ws.onclose = (event) => {
+        setIsWsConnected(false);
+        console.log('[ConversationWatcher] WebSocket closed:', event.code, event.reason);
+        if (shouldReconnect) {
+          const delay = getNextDelay(attempt);
+          attempt += 1;
+          setTimeout(connect, delay);
+        }
+      };
     };
 
-    ws.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
+    connect();
 
-        if (message.type === 'update') {
-          handleUpdate(message);
-        }
-      } catch (e) {
-        console.error('[ConversationWatcher] Failed to parse update:', e);
+    return () => {
+      shouldReconnect = false;
+      if (ws) {
+        ws.close();
       }
     };
 
-    ws.onerror = (error) => {
-      console.error('[ConversationWatcher] WebSocket ERROR:', error);
-      setIsWsConnected(false);
-    };
-
-    ws.onclose = (event) => {
-      setIsWsConnected(false);
-      console.log('[ConversationWatcher] WebSocket closed:', event.code, event.reason);
-    };
-
-    return () => {
-      ws.close();
-    };
-
-    function handleUpdate(message: any) {
+    function handleUpdate(message: { type?: string; content?: string; tokens_used?: number; max_tokens?: number }) {
       // Skip updates during active streaming
       if (isStreamingRef.current) {
         console.log('[ConversationWatcher] Skipping update - streaming is active');
@@ -84,6 +140,9 @@ export function useConversationWatcher({
       }
 
       const content = message.content;
+      if (!content) {
+        return;
+      }
 
       // Check for context size warnings
       handleContextWarnings(content);
@@ -96,7 +155,9 @@ export function useConversationWatcher({
       // Check for generation errors
       if (content.includes('⚠️ Generation Error:')) {
         console.error('[ConversationWatcher] Generation error detected');
-        toast.error('Model generation failed. Try simplifying your request or reducing context size.', { duration: 7000 });
+        const display = 'Model generation failed. Try simplifying your request or reducing context size.';
+        logToastError('useConversationWatcher.handleUpdate', display);
+        toast.error(display, { duration: 7000 });
         setIsLoading(false);
         return;
       }
@@ -119,12 +180,13 @@ export function useConversationWatcher({
         if (match) {
           const reducedSize = parseInt(match[1]);
           if (reducedSize < 4096) {
-            toast.error(
-              `⚠️ Context size critically low (${reducedSize} tokens)! Model may not work properly.`,
-              { duration: 10000 }
-            );
+            const display = `⚠️ Context size critically low (${reducedSize} tokens)! Model may not work properly.`;
+            logToastWarning('useConversationWatcher.context', display);
+            toast.error(display, { duration: 10000 });
           } else {
-            toast(`⚠️ Context size reduced to ${reducedSize} tokens due to VRAM limits.`, {
+            const display = `⚠️ Context size reduced to ${reducedSize} tokens due to VRAM limits.`;
+            logToastWarning('useConversationWatcher.context', display);
+            toast(display, {
               duration: 5000,
               icon: '⚠️',
             });

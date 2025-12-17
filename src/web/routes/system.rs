@@ -4,12 +4,47 @@ use hyper::{Body, Response, StatusCode};
 use std::convert::Infallible;
 
 use crate::web::response_helpers::json_raw;
+use crate::{sys_debug, sys_warn};
 
 #[cfg(target_os = "windows")]
 use std::process::Command;
+#[cfg(target_os = "windows")]
+use std::sync::Mutex;
+#[cfg(target_os = "windows")]
+use std::time::{Duration, Instant};
+#[cfg(target_os = "windows")]
+use tokio::task::spawn_blocking;
+#[cfg(target_os = "windows")]
+use tokio::time::timeout;
 
 pub async fn handle_system_usage() -> Result<Response<Body>, Infallible> {
     // Get system usage using Windows-native commands
+    #[cfg(target_os = "windows")]
+    let (cpu_usage, ram_usage, gpu_usage) = {
+        let started = Instant::now();
+        let result = timeout(
+            Duration::from_millis(1500),
+            spawn_blocking(|| get_windows_system_usage()),
+        )
+        .await;
+
+        match result {
+            Ok(Ok(values)) => values,
+            Ok(Err(join_err)) => {
+                sys_warn!("[SYSTEM USAGE] spawn_blocking failed: {}", join_err);
+                get_cached_windows_system_usage()
+            }
+            Err(_) => {
+                sys_warn!(
+                    "[SYSTEM USAGE] Timed out after {:?}, returning cached values",
+                    started.elapsed()
+                );
+                get_cached_windows_system_usage()
+            }
+        }
+    };
+
+    #[cfg(not(target_os = "windows"))]
     let (cpu_usage, ram_usage, gpu_usage) = get_windows_system_usage();
 
     let response = serde_json::json!({
@@ -18,18 +53,26 @@ pub async fn handle_system_usage() -> Result<Response<Body>, Infallible> {
         "ram": ram_usage,
     });
 
-    Ok(json_raw(StatusCode::OK, serde_json::to_string(&response).unwrap()))
+    Ok(json_raw(
+        StatusCode::OK,
+        serde_json::to_string(&response).unwrap(),
+    ))
+}
+
+#[cfg(target_os = "windows")]
+lazy_static::lazy_static! {
+    static ref LAST_USAGE: Mutex<(Instant, f32, f32, f32)> =
+        Mutex::new((Instant::now(), 0.0, 0.0, 0.0));
+}
+
+#[cfg(target_os = "windows")]
+fn get_cached_windows_system_usage() -> (f32, f32, f32) {
+    let last = LAST_USAGE.lock().unwrap();
+    (last.1, last.2, last.3)
 }
 
 #[cfg(target_os = "windows")]
 fn get_windows_system_usage() -> (f32, f32, f32) {
-    use std::sync::Mutex;
-    use std::time::{Duration, Instant};
-
-    lazy_static::lazy_static! {
-        static ref LAST_USAGE: Mutex<(Instant, f32, f32, f32)> = Mutex::new((Instant::now(), 0.0, 0.0, 0.0));
-    }
-
     // Cache for 500ms to allow smooth real-time updates
     let mut last = LAST_USAGE.lock().unwrap();
     if last.0.elapsed() < Duration::from_millis(500) {
@@ -47,6 +90,12 @@ fn get_windows_system_usage() -> (f32, f32, f32) {
         .output();
 
     let cpu_usage = if let Ok(output) = cpu_output {
+        if !output.status.success() {
+            sys_debug!(
+                "[SYSTEM USAGE] CPU command failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
         String::from_utf8_lossy(&output.stdout)
             .trim()
             .parse::<f32>()
@@ -66,6 +115,12 @@ fn get_windows_system_usage() -> (f32, f32, f32) {
         .output();
 
     let ram_usage = if let Ok(output) = ram_output {
+        if !output.status.success() {
+            sys_debug!(
+                "[SYSTEM USAGE] RAM command failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
         String::from_utf8_lossy(&output.stdout)
             .trim()
             .parse::<f32>()
@@ -78,11 +133,17 @@ fn get_windows_system_usage() -> (f32, f32, f32) {
     let gpu_output = Command::new("nvidia-smi")
         .args(&[
             "--query-gpu=utilization.gpu",
-            "--format=csv,noheader,nounits"
+            "--format=csv,noheader,nounits",
         ])
         .output();
 
     let gpu_usage = if let Ok(output) = gpu_output {
+        if !output.status.success() {
+            sys_debug!(
+                "[SYSTEM USAGE] GPU command failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
         String::from_utf8_lossy(&output.stdout)
             .lines()
             .next()

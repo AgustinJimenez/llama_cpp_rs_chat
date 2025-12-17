@@ -1,12 +1,9 @@
+use llama_cpp_2::{llama_batch::LlamaBatch, model::AddBos};
 use regex::Regex;
 use tokio::sync::mpsc;
-use llama_cpp_2::{
-    llama_batch::LlamaBatch,
-    model::AddBos,
-};
 
-use super::super::models::*;
 use super::super::command::execute_command;
+use super::super::models::*;
 use crate::log_info;
 
 // Command execution tokens
@@ -59,7 +56,11 @@ pub fn check_and_execute_command(
 
     // Execute the command
     let output = execute_command(command_text);
-    log_info!(conversation_id, "📤 Command output length: {} chars", output.len());
+    log_info!(
+        conversation_id,
+        "📤 Command output length: {} chars",
+        output.len()
+    );
 
     // Format output block
     let output_block = format!("{}{}{}", OUTPUT_OPEN, output.trim(), OUTPUT_CLOSE);
@@ -84,19 +85,34 @@ pub fn inject_output_tokens(
     conversation_id: &str,
 ) -> Result<(), String> {
     use crate::log_debug;
-    log_debug!(conversation_id, "Injecting {} output tokens into context", tokens.len());
+    log_debug!(
+        conversation_id,
+        "Injecting {} output tokens into context",
+        tokens.len()
+    );
 
-    for &token in tokens {
+    // Decode in chunks for performance (single-token decode is extremely slow for large outputs)
+    const INJECT_CHUNK_SIZE: usize = 512;
+    for chunk in tokens.chunks(INJECT_CHUNK_SIZE) {
         batch.clear();
-        batch
-            .add(llama_cpp_2::token::LlamaToken(token), *token_pos, &[0], true)
-            .map_err(|e| format!("Batch add failed for command output: {}", e))?;
+
+        for (idx, &token) in chunk.iter().enumerate() {
+            let is_last = idx == chunk.len() - 1;
+            batch
+                .add(
+                    llama_cpp_2::token::LlamaToken(token),
+                    *token_pos + (idx as i32),
+                    &[0],
+                    is_last,
+                )
+                .map_err(|e| format!("Batch add failed for command output: {}", e))?;
+        }
 
         context
             .decode(batch)
             .map_err(|e| format!("Decode failed for command output: {}", e))?;
 
-        *token_pos += 1;
+        *token_pos += chunk.len() as i32;
     }
 
     Ok(())

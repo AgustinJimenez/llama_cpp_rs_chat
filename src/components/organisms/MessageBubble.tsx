@@ -1,5 +1,5 @@
 import React from 'react';
-import type { Message } from '../../types';
+import type { Message, ToolCall } from '../../types';
 import { useMessageParsing } from '../../hooks/useMessageParsing';
 import { MarkdownContent } from '../molecules/MarkdownContent';
 import { ThinkingBlock, CommandExecBlock, ToolCallBlock } from '../molecules/messages';
@@ -78,7 +78,7 @@ const AssistantMessage: React.FC<{
   viewMode: 'text' | 'markdown';
   thinkingContent: string | null;
   systemExecBlocks: { command: string; output: string | null }[];
-  toolCalls: any[];
+  toolCalls: ToolCall[];
   contentWithoutThinking: string;
 }> = ({
   message,
