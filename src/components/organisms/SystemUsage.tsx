@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Loader2 } from 'lucide-react';
 
 interface UsageData {
   cpu: number;
@@ -15,6 +16,7 @@ interface SystemUsageProps {
 export function SystemUsage({ expanded = false, active = true }: SystemUsageProps) {
   const [usage, setUsage] = useState<UsageData>({ cpu: 0, gpu: 0, ram: 0 });
   const [history, setHistory] = useState<UsageData[]>([]);
+  const [hasData, setHasData] = useState(false);
   const isFetchingRef = useRef(false);
 
   useEffect(() => {
@@ -33,6 +35,7 @@ export function SystemUsage({ expanded = false, active = true }: SystemUsageProp
         if (response.ok) {
           const data = await response.json();
           setUsage(data);
+          setHasData(true);
 
           // Keep last 20 data points for mini graph
           setHistory(prev => {
@@ -127,6 +130,14 @@ export function SystemUsage({ expanded = false, active = true }: SystemUsageProp
 
   // Expanded view for sidebar
   if (expanded) {
+    if (!hasData) {
+      return (
+        <div className="flex items-center justify-center gap-2 h-32 text-muted-foreground">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span className="text-sm">Loading system usage...</span>
+        </div>
+      );
+    }
     return (
       <div className="space-y-6">
         {/* CPU */}
@@ -166,6 +177,14 @@ export function SystemUsage({ expanded = false, active = true }: SystemUsageProp
   }
 
   // Compact view for header
+  if (!hasData) {
+    return (
+      <div className="flex items-center gap-2 px-3 py-2 bg-muted rounded-xl border border-border text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        <span className="text-xs font-medium">Loading</span>
+      </div>
+    );
+  }
   return (
     <div className="flex items-center gap-3 px-3 py-2 bg-muted rounded-xl border border-border">
       {/* CPU Usage */}

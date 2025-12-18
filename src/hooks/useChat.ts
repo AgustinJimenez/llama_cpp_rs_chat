@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import { toast } from 'react-hot-toast';
 import { createChatTransport, type ChatTransport } from '../utils/chatTransport';
@@ -7,6 +7,7 @@ import { useConversationUrl } from './useConversationUrl';
 import { useToolExecution } from './useToolExecution';
 import { useConversationWatcher } from './useConversationWatcher';
 import { logToastError } from '../utils/toastLogger';
+import { parseConversationFile } from '../utils/conversationParser';
 import type { Message, ChatRequest } from '../types';
 
 function isAbortErrorMessage(message: string): boolean {
@@ -26,19 +27,12 @@ function canSendMessage(opts: {
   content: string;
   bypassLoadingCheck: boolean;
   isLoading: boolean;
-  wsConnected: boolean;
-  currentConversationId: string | null;
 }) {
-  const { content, bypassLoadingCheck, isLoading, wsConnected, currentConversationId } = opts;
+  const { content, bypassLoadingCheck, isLoading } = opts;
   if (!bypassLoadingCheck && (isLoading || !content.trim())) {
     return false;
   }
   if (!content.trim()) {
-    return false;
-  }
-  if (!wsConnected && currentConversationId) {
-    toast.error('Cannot send message: WebSocket disconnected', { duration: 4000 });
-    logToastError('useChat.sendMessage', 'Cannot send message: WebSocket disconnected');
     return false;
   }
   return true;
@@ -61,6 +55,7 @@ export function useChat() {
   const [error, setError] = useState<string | null>(null);
   const [tokensUsed, setTokensUsed] = useState<number | undefined>(undefined);
   const [maxTokens, setMaxTokens] = useState<number | undefined>(undefined);
+  const messagesRef = useRef<Message[]>([]);
 
   // Refs for streaming state
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -77,6 +72,10 @@ export function useChat() {
     setMaxTokens(undefined);
   }, []);
 
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
   // Load a conversation from the backend
   const loadConversation = useCallback(async (filename: string) => {
     setIsLoading(true);
@@ -91,8 +90,14 @@ export function useChat() {
       }
 
       const data = await response.json();
-      if (data.messages) {
-        setMessages(data.messages);
+      if (data.content) {
+        setMessages(parseConversationFile(data.content));
+        setCurrentConversationId(filename);
+      } else if (data.messages) {
+        const filtered = (data.messages as Message[]).filter(
+          msg => msg.role !== 'system' && !msg.content.startsWith('[TOOL_RESULTS]')
+        );
+        setMessages(filtered);
         setCurrentConversationId(filename);
       }
     } catch (err) {
@@ -106,9 +111,8 @@ export function useChat() {
     }
   }, []);
 
-  const wsConnectedRef = useRef(false);
-  const [wsConnectedState, setWsConnectedState] = useState(false);
   const toolExecutionRef = useRef<ReturnType<typeof useToolExecution> | null>(null);
+  const hasLoggedFirstTokenRef = useRef(false);
 
   const runStream = useCallback(async (params: {
     request: ChatRequest;
@@ -116,23 +120,26 @@ export function useChat() {
     streamSeq: number;
   }) => {
     const { request, assistantMessageId, streamSeq } = params;
+    hasLoggedFirstTokenRef.current = false;
 
     await transportRef.current.streamMessage(
       request,
       {
         onToken: (token, tokenCount, maxTokenCount) => {
           if (streamSeqRef.current !== streamSeq) return;
-          flushSync(() => {
-            setMessages(prev => {
-              const lastMsg = prev[prev.length - 1];
-              if (lastMsg && lastMsg.id === assistantMessageId) {
-                return [
-                  ...prev.slice(0, -1),
-                  { ...lastMsg, content: lastMsg.content + token }
-                ];
-              }
-              return prev;
-            });
+          if (!hasLoggedFirstTokenRef.current) {
+            hasLoggedFirstTokenRef.current = true;
+            console.log('[useChat] First token received');
+          }
+          setMessages(prev => {
+            const lastMsg = prev[prev.length - 1];
+            if (lastMsg && lastMsg.id === assistantMessageId) {
+              return [
+                ...prev.slice(0, -1),
+                { ...lastMsg, content: lastMsg.content + token },
+              ];
+            }
+            return prev.map(msg => (msg.id === assistantMessageId ? { ...msg, content: msg.content + token } : msg));
           });
           if (tokenCount !== undefined) setTokensUsed(tokenCount);
           if (maxTokenCount !== undefined) setMaxTokens(maxTokenCount);
@@ -148,6 +155,7 @@ export function useChat() {
           if (tokenCount !== undefined) setTokensUsed(tokenCount);
           if (maxTokenCount !== undefined) setMaxTokens(maxTokenCount);
 
+          setIsLoading(false);
           setMessages(prev => {
             const lastMsg = prev[prev.length - 1];
             if (lastMsg && lastMsg.role === 'assistant' && lastMsg.content) {
@@ -156,7 +164,6 @@ export function useChat() {
                 toolExecutionRef.current?.processToolCalls(toolCalls, lastMsg);
               }
             }
-            setIsLoading(false);
             return prev;
           });
         },
@@ -189,8 +196,6 @@ export function useChat() {
       content,
       bypassLoadingCheck,
       isLoading,
-      wsConnected: wsConnectedRef.current,
-      currentConversationId,
     })) {
       return;
     }
@@ -285,9 +290,10 @@ export function useChat() {
   });
 
   // Conversation watcher hook (WebSocket updates)
-  const { isWsConnected } = useConversationWatcher({
+  useConversationWatcher({
     currentConversationId,
     isStreamingRef,
+    currentMessagesRef: messagesRef,
     setMessages,
     setTokensUsed,
     setMaxTokens,
@@ -296,10 +302,6 @@ export function useChat() {
     isMessageProcessed: toolExecution.isMessageProcessed,
     shouldStopExecution: toolExecution.shouldStopExecution,
   });
-  wsConnectedRef.current = isWsConnected;
-  if (wsConnectedState !== isWsConnected) {
-    setWsConnectedState(isWsConnected);
-  }
 
   return {
     messages,
@@ -311,6 +313,5 @@ export function useChat() {
     currentConversationId,
     tokensUsed,
     maxTokens,
-    isWsConnected: wsConnectedState,
   };
 }

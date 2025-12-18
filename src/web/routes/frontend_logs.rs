@@ -15,6 +15,8 @@ struct FrontendLogBatch {
 struct FrontendLogEntry {
     level: String,
     message: String,
+    #[serde(default)]
+    timestamp: Option<String>,
 }
 
 fn sanitize_level(level: &str) -> &str {
@@ -89,11 +91,15 @@ pub async fn handle_post_frontend_logs(req: Request<Body>) -> Result<Response<Bo
         }
     };
 
-    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
     for entry in batch.logs {
         let level = sanitize_level(&entry.level);
         let msg = truncate_message(entry.message);
-        let line = format!("[{}] [{}] {}\n", now, level, msg.replace('\n', "\\n"));
+        let ts = entry
+            .timestamp
+            .as_deref()
+            .map(str::to_string)
+            .unwrap_or_else(|| chrono::Local::now().to_rfc3339());
+        let line = format!("[{}] [{}] {}\n", ts, level, msg.replace('\n', "\\n"));
         if let Err(e) = file.write_all(line.as_bytes()) {
             sys_warn!("[FRONTEND LOGS] Write failed: {}", e);
             return Ok(json_error(

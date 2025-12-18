@@ -5,7 +5,7 @@ type LogLevel = 'info' | 'warn' | 'error';
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
 // A debounced function to send logs in batches.
-const logQueue: { level: LogLevel; message: string }[] = [];
+const logQueue: { level: LogLevel; message: string; timestamp: string }[] = [];
 let debounceTimer: number | null = null;
 
 function sendLogs() {
@@ -42,7 +42,7 @@ function queueLog(level: LogLevel, args: unknown[]) {
         }
     }).join(' ');
 
-    logQueue.push({ level, message });
+    logQueue.push({ level, message, timestamp: new Date().toISOString() });
 
     if (!debounceTimer) {
         debounceTimer = window.setTimeout(sendLogs, 500); // Send logs every 500ms

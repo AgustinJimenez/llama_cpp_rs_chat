@@ -3,6 +3,7 @@ export interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: number;
+  isSystemPrompt?: boolean;
 }
 
 export interface ChatRequest {

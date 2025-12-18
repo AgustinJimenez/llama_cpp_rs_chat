@@ -1,4 +1,4 @@
-import { Unplug, Radio, Activity } from 'lucide-react';
+import { Unplug, Activity } from 'lucide-react';
 import type { ViewMode } from '../../types';
 
 interface ChatHeaderProps {
@@ -9,8 +9,6 @@ interface ChatHeaderProps {
   messagesLength: number;
   tokensUsed?: number;
   maxTokens?: number;
-  isWsConnected: boolean;
-  currentConversationId?: string;
   viewMode: ViewMode;
   isRightSidebarOpen: boolean;
   onToggleSidebar: () => void;
@@ -29,8 +27,6 @@ export function ChatHeader({
   messagesLength,
   tokensUsed,
   maxTokens,
-  isWsConnected,
-  currentConversationId,
   viewMode,
   isRightSidebarOpen,
   onToggleSidebar,
@@ -102,24 +98,6 @@ export function ChatHeader({
           )}
 
           {/* WebSocket Connection Status */}
-          {isWsConnected && currentConversationId ? (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-flat-green rounded-full">
-              <Radio className="h-3.5 w-3.5 text-white animate-pulse" />
-              <span className="text-xs font-medium text-white" title={`Connected to: ${currentConversationId}`}>
-                {currentConversationId.length > 20
-                  ? `...${currentConversationId.slice(-20)}`
-                  : currentConversationId}
-              </span>
-            </div>
-          ) : currentConversationId ? (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-flat-red rounded-full">
-              <Unplug className="h-3.5 w-3.5 text-white" />
-              <span className="text-xs font-medium text-white" title="WebSocket disconnected">
-                Disconnected
-              </span>
-            </div>
-          ) : null}
-
           {/* View Mode Toggle - only show when there are messages */}
           {messagesLength > 0 && (
             <div className="flex items-center gap-2 bg-muted rounded-lg p-1">

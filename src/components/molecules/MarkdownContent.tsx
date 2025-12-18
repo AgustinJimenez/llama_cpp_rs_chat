@@ -42,6 +42,7 @@ const CodeBlock = ({ inline, className, children }: CodeBlockProps) => {
 export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, testId }) => {
   const components: Components = {
     code: CodeBlock,
+    pre: ({ children }) => <div className="my-2">{children}</div>,
     p: ({ children }) => <p className="my-2">{children}</p>,
     h1: ({ children }) => (
       <h1 className="font-bold text-2xl my-3 border-b border-border pb-2">{children}</h1>

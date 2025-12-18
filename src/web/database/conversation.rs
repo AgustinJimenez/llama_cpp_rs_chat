@@ -6,6 +6,7 @@ use super::{
 };
 use rusqlite::params;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 // Import logging macros
 use crate::sys_error;
@@ -337,12 +338,15 @@ impl Database {
 
         let mut text = String::new();
 
-        // Add system prompt if present
+        // Add system prompt if present and not already stored as a system message.
+        let has_system_message = messages.iter().any(|msg| msg.role == "system");
         if let Some(ref conv) = conv {
             if let Some(ref prompt) = conv.system_prompt {
-                text.push_str("SYSTEM:\n");
-                text.push_str(prompt);
-                text.push_str("\n\n");
+                if !has_system_message {
+                    text.push_str("SYSTEM:\n");
+                    text.push_str(prompt);
+                    text.push_str("\n\n");
+                }
             }
         }
 
@@ -373,7 +377,12 @@ pub struct ConversationLogger {
     current_message_id: Option<String>,
     accumulated_content: String,
     sequence_counter: i32,
+    last_broadcast_at: Option<Instant>,
+    last_broadcast_len: usize,
 }
+
+const STREAM_BROADCAST_MIN_INTERVAL: Duration = Duration::from_millis(200);
+const STREAM_BROADCAST_MIN_CHARS: usize = 64;
 
 impl ConversationLogger {
     /// Create a new conversation
@@ -395,6 +404,8 @@ impl ConversationLogger {
             current_message_id: None,
             accumulated_content: String::new(),
             sequence_counter,
+            last_broadcast_at: None,
+            last_broadcast_len: 0,
         })
     }
 
@@ -415,6 +426,8 @@ impl ConversationLogger {
             current_message_id: None,
             accumulated_content: String::new(),
             sequence_counter,
+            last_broadcast_at: None,
+            last_broadcast_len: 0,
         })
     }
 
@@ -467,6 +480,8 @@ impl ConversationLogger {
         self.current_message_id = Some(message_id);
         self.accumulated_content.clear();
         self.sequence_counter += 1;
+        self.last_broadcast_at = None;
+        self.last_broadcast_len = 0;
     }
 
     /// Append a token to the current streaming message
@@ -484,14 +499,29 @@ impl ConversationLogger {
                 sys_error!("Failed to update streaming buffer: {}", e);
             }
 
-            // Broadcast to WebSocket subscribers
-            self.db.broadcast_streaming_update(StreamingUpdate {
-                conversation_id: self.conversation_id.clone(),
-                partial_content: self.accumulated_content.clone(),
-                tokens_used: 0,
-                max_tokens: 0,
-                is_complete: false,
-            });
+            // Broadcast to WebSocket subscribers with throttling to avoid disconnects.
+            let now = Instant::now();
+            let len = self.accumulated_content.len();
+            let should_broadcast = match self.last_broadcast_at {
+                None => true,
+                Some(last_at) => {
+                    let elapsed = now.duration_since(last_at);
+                    elapsed >= STREAM_BROADCAST_MIN_INTERVAL
+                        && len.saturating_sub(self.last_broadcast_len) >= STREAM_BROADCAST_MIN_CHARS
+                }
+            };
+
+            if should_broadcast {
+                self.last_broadcast_at = Some(now);
+                self.last_broadcast_len = len;
+                self.db.broadcast_streaming_update(StreamingUpdate {
+                    conversation_id: self.conversation_id.clone(),
+                    partial_content: self.accumulated_content.clone(),
+                    tokens_used: 0,
+                    max_tokens: 0,
+                    is_complete: false,
+                });
+            }
         }
     }
 
@@ -512,6 +542,8 @@ impl ConversationLogger {
             }
 
             // Broadcast completion
+            self.last_broadcast_at = Some(Instant::now());
+            self.last_broadcast_len = self.accumulated_content.len();
             self.db.broadcast_streaming_update(StreamingUpdate {
                 conversation_id: self.conversation_id.clone(),
                 partial_content: self.accumulated_content.clone(),

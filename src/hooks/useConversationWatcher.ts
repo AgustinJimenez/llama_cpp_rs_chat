@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { toast } from 'react-hot-toast';
 import { autoParseToolCalls } from '../utils/toolParser';
 import { parseConversationFile } from '../utils/conversationParser';
@@ -9,6 +9,7 @@ import type { Message, ToolCall } from '../types';
 interface UseConversationWatcherOptions {
   currentConversationId: string | null;
   isStreamingRef: React.MutableRefObject<boolean>;
+  currentMessagesRef: React.MutableRefObject<Message[]>;
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   setTokensUsed: React.Dispatch<React.SetStateAction<number | undefined>>;
   setMaxTokens: React.Dispatch<React.SetStateAction<number | undefined>>;
@@ -35,6 +36,7 @@ function getNextDelay(attempt: number): number {
 export function useConversationWatcher({
   currentConversationId,
   isStreamingRef,
+  currentMessagesRef,
   setMessages,
   setTokensUsed,
   setMaxTokens,
@@ -43,18 +45,15 @@ export function useConversationWatcher({
   isMessageProcessed,
   shouldStopExecution,
 }: UseConversationWatcherOptions) {
-  const [isWsConnected, setIsWsConnected] = useState(false);
   const lastWsUpdateAtRef = useRef<number>(Date.now());
+  const lastPolledAssistantContentRef = useRef<string>('');
+  const stablePollsRef = useRef(0);
 
   // Fallback: re-fetch conversation if WS is disconnected but a conversation is active
   useEffect(() => {
     const shouldPollConversation = () => {
       if (!currentConversationId) {
         return false;
-      }
-
-      if (!isWsConnected) {
-        return true;
       }
 
       if (!isStreamingRef.current) {
@@ -107,10 +106,67 @@ export function useConversationWatcher({
           return;
         }
         const data = await response.json();
-        if (data.messages) {
+        if (data.content) {
+          const parsedMessages = parseConversationFile(data.content);
+          let nextMessages = parsedMessages;
+          const localMessages = currentMessagesRef.current;
+          if (isStreamingRef.current && localMessages.length > 0) {
+            const localLast = localMessages[localMessages.length - 1];
+            const incomingLast = parsedMessages[parsedMessages.length - 1];
+            if (localLast?.role === 'assistant') {
+              const incomingAssistant = incomingLast?.role === 'assistant' ? incomingLast : null;
+              const incomingLength = incomingAssistant?.content.length ?? 0;
+              if (incomingLength < localLast.content.length || parsedMessages.length < localMessages.length) {
+                nextMessages = localMessages;
+              }
+            } else if (parsedMessages.length < localMessages.length) {
+              nextMessages = localMessages;
+            }
+          }
+          setMessages(nextMessages);
+
+          if (isStreamingRef.current) {
+            const lastMessage = nextMessages[nextMessages.length - 1];
+            const assistantContent = lastMessage?.role === 'assistant' ? lastMessage.content : '';
+            if (!assistantContent) {
+              return;
+            }
+
+            if (assistantContent === lastPolledAssistantContentRef.current) {
+              stablePollsRef.current += 1;
+            } else {
+              stablePollsRef.current = 0;
+              lastPolledAssistantContentRef.current = assistantContent;
+            }
+
+            if (stablePollsRef.current < 1) {
+              return;
+            }
+          } else {
+            stablePollsRef.current = 0;
+            lastPolledAssistantContentRef.current = '';
+          }
+
+          await reconcileUiStateFromMessages(nextMessages);
+        } else if (data.messages) {
           const parsedMessages: Message[] = data.messages;
-          setMessages(parsedMessages);
-          await reconcileUiStateFromMessages(parsedMessages);
+          let nextMessages = parsedMessages;
+          const localMessages = currentMessagesRef.current;
+          if (isStreamingRef.current && localMessages.length > 0) {
+            const localLast = localMessages[localMessages.length - 1];
+            const incomingLast = parsedMessages[parsedMessages.length - 1];
+            if (localLast?.role === 'assistant') {
+              const incomingAssistant = incomingLast?.role === 'assistant' ? incomingLast : null;
+              const incomingLength = incomingAssistant?.content.length ?? 0;
+              if (incomingLength < localLast.content.length || parsedMessages.length < localMessages.length) {
+                nextMessages = localMessages;
+              }
+            } else if (parsedMessages.length < localMessages.length) {
+              nextMessages = localMessages;
+            }
+          }
+          setMessages(nextMessages);
+          await reconcileUiStateFromMessages(nextMessages);
         }
       } catch (err) {
         logToastWarning('useConversationWatcher.poll', 'Conversation poll failed', err);
@@ -121,8 +177,8 @@ export function useConversationWatcher({
     return () => clearInterval(interval);
   }, [
     currentConversationId,
-    isWsConnected,
     isStreamingRef,
+    currentMessagesRef,
     processToolCalls,
     isMessageProcessed,
     setIsLoading,
@@ -132,7 +188,6 @@ export function useConversationWatcher({
 
   useEffect(() => {
     if (!currentConversationId) {
-      setIsWsConnected(false);
       return;
     }
 
@@ -150,7 +205,6 @@ export function useConversationWatcher({
 
       ws.onopen = () => {
         attempt = 0;
-        setIsWsConnected(true);
         lastWsUpdateAtRef.current = Date.now();
       };
 
@@ -169,11 +223,9 @@ export function useConversationWatcher({
 
       ws.onerror = (error) => {
         console.error('[ConversationWatcher] WebSocket ERROR:', error);
-        setIsWsConnected(false);
       };
 
       ws.onclose = (event) => {
-        setIsWsConnected(false);
         console.log('[ConversationWatcher] WebSocket closed:', event.code, event.reason);
         if (shouldReconnect) {
           const delay = getNextDelay(attempt);
@@ -291,5 +343,5 @@ export function useConversationWatcher({
     shouldStopExecution,
   ]);
 
-  return { isWsConnected };
+  return {};
 }

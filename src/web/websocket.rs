@@ -1,9 +1,11 @@
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{stream::SplitSink, SinkExt, StreamExt};
 use hyper::upgrade::Upgraded;
 use llama_cpp_2::model::AddBos;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
+use tokio::task::spawn_blocking;
+use tokio::time::{Duration, Instant};
 use tokio_tungstenite::tungstenite::protocol::Message as WsMessage;
 use tokio_tungstenite::WebSocketStream;
 
@@ -18,6 +20,66 @@ use crate::{sys_debug, sys_error, sys_info, sys_warn};
 // Import the global counter
 use std::sync::atomic::AtomicU32;
 pub static ACTIVE_WS_CONNECTIONS: AtomicU32 = AtomicU32::new(0);
+
+const WS_TOKEN_FLUSH_INTERVAL: Duration = Duration::from_millis(40);
+const WS_TOKEN_FLUSH_MAX_CHARS: usize = 1024;
+
+struct WsStreamDebug {
+    enabled: bool,
+    last_log: Instant,
+    chunks_sent: u64,
+    chars_sent: usize,
+}
+
+async fn flush_pending_tokens(
+    ws_sender: &mut SplitSink<WebSocketStream<Upgraded>, WsMessage>,
+    pending_tokens: &mut String,
+    pending_tokens_used: &mut Option<i32>,
+    pending_max_tokens: &mut Option<i32>,
+    next_flush: &mut Instant,
+    debug: &mut WsStreamDebug,
+) -> Result<(), ()> {
+    if pending_tokens.is_empty() {
+        *next_flush = Instant::now() + WS_TOKEN_FLUSH_INTERVAL;
+        return Ok(());
+    }
+
+    let token_chunk = std::mem::take(pending_tokens);
+    let tokens_used = pending_tokens_used.take();
+    let max_tokens = pending_max_tokens.take();
+
+    debug.chunks_sent = debug.chunks_sent.saturating_add(1);
+    debug.chars_sent = debug.chars_sent.saturating_add(token_chunk.len());
+    if debug.enabled && debug.last_log.elapsed() >= Duration::from_secs(1) {
+        sys_debug!(
+            "[WS_CHAT] Stream stats: {} chunks, {} chars sent (last 1s+)",
+            debug.chunks_sent,
+            debug.chars_sent
+        );
+        debug.last_log = Instant::now();
+        debug.chunks_sent = 0;
+        debug.chars_sent = 0;
+    }
+
+    let json = serde_json::json!({
+        "type": "token",
+        "token": token_chunk,
+        "tokens_used": tokens_used,
+        "max_tokens": max_tokens
+    });
+
+    *next_flush = Instant::now() + WS_TOKEN_FLUSH_INTERVAL;
+
+    if ws_sender
+        .send(WsMessage::Text(json.to_string()))
+        .await
+        .is_err()
+    {
+        return Err(());
+    }
+    let _ = ws_sender.flush().await;
+    Ok(())
+}
 
 /// Calculate token counts for conversation content
 /// Returns (tokens_used, max_tokens) tuple where both values are Option<i32>
@@ -158,19 +220,22 @@ pub async fn handle_websocket(
 
                 let state_clone = llama_state.clone();
                 sys_debug!("[WS_CHAT] Spawning generation task");
-                tokio::spawn(async move {
-                    sys_debug!("[WS_CHAT] Generation task started");
+                let conversation_logger_clone = conversation_logger.clone();
+                let rt_handle = tokio::runtime::Handle::current();
+                // Run generation on a blocking thread so the WS sender isn't starved.
+                // This prevents tokens from being buffered until the model finishes.
+                spawn_blocking(move || {
+                    sys_debug!("[WS_CHAT] Generation blocking task started");
                     if let Some(state) = state_clone {
                         sys_debug!("[WS_CHAT] State is Some, calling generate_llama_response...");
-                        match generate_llama_response(
+                        let result = rt_handle.block_on(generate_llama_response(
                             &message,
                             state,
-                            conversation_logger,
+                            conversation_logger_clone,
                             Some(tx),
                             false,
-                        )
-                        .await
-                        {
+                        ));
+                        match result {
                             Ok((content, tokens, max)) => {
                                 sys_info!(
                                     "[WS_CHAT] Generation SUCCESS: {} chars, {} tokens, max {}",
@@ -190,31 +255,51 @@ pub async fn handle_websocket(
                 });
 
                 // Stream tokens through WebSocket
+                let mut pending_tokens = String::new();
+                let mut pending_tokens_used: Option<i32> = None;
+                let mut pending_max_tokens: Option<i32> = None;
+                let mut next_flush = Instant::now() + WS_TOKEN_FLUSH_INTERVAL;
+                let mut debug = WsStreamDebug {
+                    enabled: std::env::var("LLAMA_CHAT_WS_STREAM_DEBUG").ok().as_deref() == Some("1"),
+                    last_log: Instant::now(),
+                    chunks_sent: 0,
+                    chars_sent: 0,
+                };
+
                 loop {
                     tokio::select! {
                         // Receive tokens from the generation task
                         token_result = rx.recv() => {
                             match token_result {
                                 Some(token_data) => {
-                                    // Send token as JSON
-                                    let json = serde_json::json!({
-                                        "type": "token",
-                                        "token": token_data.token,
-                                        "tokens_used": token_data.tokens_used,
-                                        "max_tokens": token_data.max_tokens
-                                    });
+                                    pending_tokens.push_str(&token_data.token);
+                                    pending_tokens_used = Some(token_data.tokens_used);
+                                    pending_max_tokens = Some(token_data.max_tokens);
 
-                                    if let Err(_e) = ws_sender.send(WsMessage::Text(json.to_string())).await {
-                                        break;
-                                    }
-                                    // Flush to ensure message is sent immediately (prevent buffering)
-                                    if let Err(_e) = ws_sender.flush().await {
-                                        break;
+                                    if pending_tokens.len() >= WS_TOKEN_FLUSH_MAX_CHARS {
+                                        if flush_pending_tokens(
+                                            &mut ws_sender,
+                                            &mut pending_tokens,
+                                            &mut pending_tokens_used,
+                                            &mut pending_max_tokens,
+                                            &mut next_flush,
+                                            &mut debug,
+                                        ).await.is_err() {
+                                            break;
+                                        }
                                     }
                                 }
                                 None => {
                                     // Channel closed, generation complete
                                     sys_info!("[WS_CHAT] Generation complete, sending done message");
+                                    let _ = flush_pending_tokens(
+                                        &mut ws_sender,
+                                        &mut pending_tokens,
+                                        &mut pending_tokens_used,
+                                        &mut pending_max_tokens,
+                                        &mut next_flush,
+                                        &mut debug,
+                                    ).await;
                                     let done_msg = serde_json::json!({
                                         "type": "done",
                                         "conversation_id": conversation_id
@@ -225,10 +310,30 @@ pub async fn handle_websocket(
                                 }
                             }
                         }
+                        _ = tokio::time::sleep_until(next_flush), if !pending_tokens.is_empty() => {
+                            if flush_pending_tokens(
+                                &mut ws_sender,
+                                &mut pending_tokens,
+                                &mut pending_tokens_used,
+                                &mut pending_max_tokens,
+                                &mut next_flush,
+                                &mut debug,
+                            ).await.is_err() {
+                                break;
+                            }
+                        }
                         // Handle client disconnection or close messages
                         ws_msg = ws_receiver.next() => {
                             match ws_msg {
                                 Some(Ok(WsMessage::Close(_))) | None => {
+                                    let _ = flush_pending_tokens(
+                                        &mut ws_sender,
+                                        &mut pending_tokens,
+                                        &mut pending_tokens_used,
+                                        &mut pending_max_tokens,
+                                        &mut next_flush,
+                                        &mut debug,
+                                    ).await;
                                     break;
                                 }
                                 Some(Ok(WsMessage::Ping(data))) => {
@@ -315,6 +420,9 @@ pub async fn handle_conversation_watch(
         .send(WsMessage::Text(initial_msg.to_string()))
         .await;
 
+    let mut last_sent_len = initial_content.len();
+    let mut last_sent_at = Instant::now();
+
     loop {
         tokio::select! {
             // Receive streaming updates from broadcast channel
@@ -328,6 +436,20 @@ pub async fn handle_conversation_watch(
 
                             // Get full conversation content including new tokens
                             let current_content = db.get_conversation_as_text(&conv_id).unwrap_or_default();
+                            let current_len = current_content.len();
+                            let now = Instant::now();
+
+                            // Avoid spamming identical or too-frequent updates; always send final update.
+                            if !update.is_complete {
+                                if current_len == last_sent_len {
+                                    continue;
+                                }
+                                if now.duration_since(last_sent_at) < Duration::from_millis(200) {
+                                    continue;
+                                }
+                            }
+                            last_sent_len = current_len;
+                            last_sent_at = now;
 
                             // Calculate token counts
                             let (tokens_used, max_tokens) = calculate_tokens_for_content(&current_content, &llama_state);

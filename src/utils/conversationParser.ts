@@ -9,6 +9,8 @@ export function parseConversationFile(content: string): Message[] {
   const messages: Message[] = [];
   let currentRole = '';
   let currentContent = '';
+  let hasSystemPrompt = false;
+  let systemPromptContent = '';
 
   for (const line of content.split('\n')) {
     if (
@@ -17,8 +19,17 @@ export function parseConversationFile(content: string): Message[] {
     ) {
       // Save previous message if it exists
       if (currentRole && currentContent.trim()) {
-        const message = createMessageIfValid(currentRole, currentContent.trim());
+        const message = createMessageIfValid(
+          currentRole,
+          currentContent.trim(),
+          hasSystemPrompt,
+          systemPromptContent
+        );
         if (message) {
+          if (message.role === 'system' && message.isSystemPrompt) {
+            hasSystemPrompt = true;
+            systemPromptContent = message.content;
+          }
           messages.push(message);
         }
       }
@@ -34,8 +45,17 @@ export function parseConversationFile(content: string): Message[] {
 
   // Add the final message
   if (currentRole && currentContent.trim()) {
-    const message = createMessageIfValid(currentRole, currentContent.trim());
+    const message = createMessageIfValid(
+      currentRole,
+      currentContent.trim(),
+      hasSystemPrompt,
+      systemPromptContent
+    );
     if (message) {
+      if (message.role === 'system' && message.isSystemPrompt) {
+        hasSystemPrompt = true;
+        systemPromptContent = message.content;
+      }
       messages.push(message);
     }
   }
@@ -46,11 +66,29 @@ export function parseConversationFile(content: string): Message[] {
 /**
  * Create a message if it passes validation (not system, not tool-only, etc.)
  */
-function createMessageIfValid(currentRole: string, content: string): Message | null {
+function createMessageIfValid(
+  currentRole: string,
+  content: string,
+  hasSystemPrompt: boolean,
+  systemPromptContent: string
+): Message | null {
   const role = currentRole === 'USER' ? 'user' : currentRole === 'ASSISTANT' ? 'assistant' : 'system';
 
-  // Skip system messages and tool results
-  if (role === 'system') return null;
+  // Always allow system messages; mark the first as the system prompt.
+  if (role === 'system') {
+    if (hasSystemPrompt && content === systemPromptContent) {
+      return null;
+    }
+    return {
+      id: crypto.randomUUID(),
+      role: 'system',
+      content,
+      timestamp: Date.now(),
+      isSystemPrompt: !hasSystemPrompt,
+    };
+  }
+
+  // Skip tool results
   if (content.startsWith('[TOOL_RESULTS]')) return null;
 
   // Check if message only contains tool calls (and optionally thinking tags)

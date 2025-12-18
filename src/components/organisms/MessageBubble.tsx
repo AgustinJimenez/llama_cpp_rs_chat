@@ -46,6 +46,29 @@ const SystemMessage: React.FC<{ message: Message; cleanContent: string; isError:
 );
 
 /**
+ * Collapsed system prompt display.
+ */
+const SystemPromptMessage: React.FC<{ message: Message; cleanContent: string }> = ({
+  message,
+  cleanContent,
+}) => (
+  <div
+    className="w-full flex justify-center"
+    data-testid={`message-${message.role}`}
+    data-message-id={message.id}
+  >
+    <details className="max-w-[90%] w-full bg-muted border border-border rounded-lg p-3">
+      <summary className="text-sm font-semibold cursor-pointer select-none">
+        System prompt
+      </summary>
+      <pre className="text-sm whitespace-pre-wrap leading-relaxed text-muted-foreground mt-2">
+        {cleanContent}
+      </pre>
+    </details>
+  </div>
+);
+
+/**
  * User message component.
  */
 const UserMessage: React.FC<{
@@ -134,6 +157,9 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode 
 
   // System messages
   if (message.role === 'system') {
+    if (message.isSystemPrompt) {
+      return <SystemPromptMessage message={message} cleanContent={cleanContent} />;
+    }
     return <SystemMessage message={message} cleanContent={cleanContent} isError={isError} />;
   }
 

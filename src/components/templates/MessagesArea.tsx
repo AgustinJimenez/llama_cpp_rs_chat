@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { LoadingIndicator, WelcomeMessage } from '../atoms';
 import { MessageBubble } from '../organisms';
 import type { Message, ViewMode } from '../../types';
@@ -21,18 +21,54 @@ export function MessagesArea({
   loadingAction,
   viewMode,
 }: MessagesAreaProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const lastScrollAtRef = useRef<number>(0);
+  const scrollRafRef = useRef<number | null>(null);
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  const scrollToBottom = (behavior: ScrollBehavior) => {
+    messagesEndRef.current?.scrollIntoView({ behavior });
   };
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, isLoading]);
+    const now = Date.now();
+    const behavior: ScrollBehavior = isLoading ? 'auto' : 'smooth';
+
+    // Avoid scheduling expensive smooth scrolls for every token while streaming.
+    if (isLoading && now - lastScrollAtRef.current < 200) {
+      return;
+    }
+    lastScrollAtRef.current = now;
+
+    if (scrollRafRef.current !== null) {
+      cancelAnimationFrame(scrollRafRef.current);
+    }
+
+    scrollRafRef.current = requestAnimationFrame(() => {
+      if (shouldAutoScroll) {
+        scrollToBottom(behavior);
+      }
+      scrollRafRef.current = null;
+    });
+  }, [messages, isLoading, shouldAutoScroll]);
+
+  const handleScroll = () => {
+    const container = containerRef.current;
+    if (!container) return;
+    const threshold = 120;
+    const isNearBottom =
+      container.scrollTop + container.clientHeight >= container.scrollHeight - threshold;
+    setShouldAutoScroll(isNearBottom);
+  };
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 space-y-4" data-testid="messages-container">
+    <div
+      ref={containerRef}
+      className="flex-1 overflow-y-auto p-6 space-y-4"
+      data-testid="messages-container"
+      onScroll={handleScroll}
+    >
       {messages.length === 0 ? (
         <WelcomeMessage modelLoaded={modelLoaded} isModelLoading={isModelLoading} loadingAction={loadingAction} />
       ) : (

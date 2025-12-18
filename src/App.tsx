@@ -9,7 +9,7 @@ import { logToastError } from './utils/toastLogger';
 
 // eslint-disable-next-line max-lines-per-function
 function App() {
-  const { messages, isLoading, sendMessage, clearMessages, loadConversation, currentConversationId, tokensUsed, maxTokens, isWsConnected } = useChat();
+  const { messages, isLoading, sendMessage, clearMessages, loadConversation, currentConversationId, tokensUsed, maxTokens } = useChat();
   const { status: modelStatus, isLoading: isModelLoading, loadingAction, error: modelError, hasStatusError, loadModel, unloadModel, hardUnload } = useModel();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -91,8 +91,6 @@ function App() {
             messagesLength={messages.length}
             tokensUsed={tokensUsed}
             maxTokens={maxTokens}
-            isWsConnected={isWsConnected}
-            currentConversationId={currentConversationId ?? undefined}
             viewMode={viewMode}
             isRightSidebarOpen={isRightSidebarOpen}
             onToggleSidebar={toggleSidebar}
@@ -120,8 +118,6 @@ function App() {
             isModelLoading={isModelLoading}
             modelError={modelError}
             isLoading={isLoading}
-            isWsConnected={isWsConnected}
-            currentConversationId={currentConversationId}
             onSendMessage={sendMessage}
             onModelLoad={handleModelLoad}
           />
