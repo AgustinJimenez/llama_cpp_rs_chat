@@ -7,6 +7,23 @@ use super::database::conversation::ConversationLogger;
 // Import logging macros
 use crate::sys_debug;
 
+/// System prompt type selection
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum SystemPromptType {
+    /// Use model's native Jinja2 chat template
+    Default,
+    /// Use custom curated prompts
+    Custom,
+    /// User-defined manual prompt
+    UserDefined,
+}
+
+impl Default for SystemPromptType {
+    fn default() -> Self {
+        SystemPromptType::Default
+    }
+}
+
 // Configuration structure
 #[derive(Deserialize, Serialize, Clone)]
 pub struct SamplerConfig {
@@ -18,6 +35,8 @@ pub struct SamplerConfig {
     pub mirostat_eta: f64,
     pub model_path: Option<String>,
     pub system_prompt: Option<String>,
+    #[serde(default)]
+    pub system_prompt_type: SystemPromptType,
     pub context_size: Option<u32>,
     pub stop_tokens: Option<Vec<String>>,
     #[serde(default)]
@@ -51,6 +70,7 @@ impl Default for SamplerConfig {
             mirostat_eta: 0.1,
             model_path: Some("/app/models/lmstudio-community/granite-4.0-h-tiny-GGUF/granite-4.0-h-tiny-Q4_K_M.gguf".to_string()),
             system_prompt: None,
+            system_prompt_type: SystemPromptType::default(),
             context_size: Some(32768),
             stop_tokens: Some(get_common_stop_tokens()),
             model_history: Vec::new(),
@@ -290,6 +310,7 @@ pub struct LlamaState {
     pub current_model_path: Option<String>,
     pub model_context_length: Option<u32>,
     pub chat_template_type: Option<String>, // Store detected template type
+    pub chat_template_string: Option<String>, // Store full Jinja2 template from model
     pub gpu_layers: Option<u32>,            // Number of GPU layers offloaded
     pub last_used: std::time::SystemTime,
     pub model_default_system_prompt: Option<String>, // Model's default system prompt from GGUF

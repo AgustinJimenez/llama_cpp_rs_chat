@@ -2,7 +2,13 @@ AGENTS GUIDE
 
 This is the short canonical reference for agents (Claude Code, OpenAI Agents, etc.) working in this repo. Use this to remember key development steps across sessions.
 
-Default development: run "npm run dev" from the repo root. This starts Vite on port 4000 with hot reload and the Rust backend on port 8000. Always access the app via http://localhost:4000 during development. Port 8000 serves only the backend API.
+Default development: 
+- Web app: "npm run dev:auto" (automatic GPU detection) or "npm run dev" (CPU-only)
+- Desktop app: "npm run dev:auto:desktop" (automatic GPU detection) or "npm run tauri:dev" (CPU-only)
+
+Web app runs Vite on port 4000 with Rust backend on port 8000. Access via http://localhost:4000. Desktop app opens native window.
+
+GPU acceleration: "npm run dev:auto" (web) or "npm run dev:auto:desktop" automatically detect the best setup (Metal on macOS, CUDA on Windows, CPU fallback). Manual options: "npm run dev:metal"/"npm run tauri:dev:metal", "npm run dev:cuda"/"npm run tauri:dev:cuda".
 
 Frontend alternatives: "npm run build" for production build. If the backend is already running, start Vite only with "npx vite --host --port 4000".
 

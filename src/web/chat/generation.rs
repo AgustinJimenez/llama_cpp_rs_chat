@@ -14,7 +14,7 @@ use super::command_executor::{
     check_and_execute_command, inject_output_tokens, stream_command_output,
 };
 use super::stop_conditions::check_stop_conditions;
-use super::templates::apply_model_chat_template;
+use super::templates::apply_system_prompt_by_type;
 use crate::{log_debug, log_info, log_warn, sys_debug, sys_error, sys_warn};
 
 // Constants for LLaMA configuration
@@ -144,16 +144,26 @@ pub async fn generate_llama_response(
             .unwrap_or_else(|_| logger.get_full_conversation())
     };
 
-    // Convert conversation to chat format using model's chat template
+    // Convert conversation to chat format using the new 3-system prompt approach
     let template_type = state.chat_template_type.clone();
+    let chat_template_string = state.chat_template_string.clone();
     log_info!(&conversation_id, "=== TEMPLATE DEBUG ===");
     log_info!(&conversation_id, "Template type: {:?}", template_type);
+    log_info!(&conversation_id, "System prompt type: {:?}", config.system_prompt_type);
     log_info!(
         &conversation_id,
         "Conversation content:\n{}",
         conversation_content
     );
-    let prompt = apply_model_chat_template(&conversation_content, template_type.as_deref())?;
+    
+    // Use the new 3-system prompt dispatcher
+    let prompt = apply_system_prompt_by_type(
+        &conversation_content,
+        config.system_prompt_type.clone(),
+        template_type.as_deref(),
+        chat_template_string.as_deref(),
+        config.system_prompt.as_deref(),
+    )?;
     log_info!(&conversation_id, "=== FINAL PROMPT BEING SENT TO MODEL ===");
     log_info!(&conversation_id, "{}", prompt);
     log_info!(

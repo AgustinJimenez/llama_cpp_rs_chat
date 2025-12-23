@@ -25,4 +25,4 @@ export INCLUDE="$INCLUDE;C:\\Program Files (x86)\\Windows Kits\\10\\Include\\10.
 export INCLUDE="$INCLUDE;C:\\Program Files (x86)\\Windows Kits\\10\\Include\\10.0.26100.0\\shared"
 
 echo "Starting development servers with CMake and CUDA support"
-npm run dev:web
+npm run dev:cuda

@@ -1,11 +1,19 @@
-# CUDA Setup Guide
+# GPU Acceleration Setup Guide
 
-## Current Status
+## Overview
 
-✅ CUDA Toolkit 12.8 is installed
-✅ nvcc (CUDA compiler) is working
-❌ Visual Studio CUDA integration is missing
-❌ MSVC compiler not in PATH
+This project supports **multi-platform GPU acceleration** with automatic platform detection:
+
+- **macOS**: Metal acceleration (Apple GPU/Neural Engine)
+- **Windows**: CUDA acceleration (NVIDIA GPUs) 
+- **Linux**: CPU-only (with optional CUDA)
+
+## Current Status (Updated)
+
+✅ **macOS**: Metal GPU acceleration available (`npm run dev:metal`)
+✅ **Windows**: Conditional CUDA support available (`npm run dev:cuda`) 
+✅ **All Platforms**: CPU-only fallback (`npm run dev`)
+✅ **Dynamic feature selection**: No manual Cargo.toml editing required
 
 ## The Problem
 
@@ -63,20 +71,48 @@ Or use the provided script:
 build_cuda.bat
 ```
 
-## Solution 3: Enable CUDA Feature in Cargo.toml
+## Solution 3: Use the New Conditional CUDA System
 
-Once Visual Studio is properly set up, enable CUDA:
+The project now has built-in conditional CUDA support. **No manual Cargo.toml editing required!**
 
-1. Edit `Cargo.toml`:
-   ```toml
-   llama-cpp-2 = { version = "0.1.122", optional = true, features = ["cuda"] }
-   ```
+### For macOS Metal acceleration (Apple Silicon/Intel Mac):
+```bash
+# Use Metal GPU acceleration 
+npm run dev:metal
+# Or use the script:
+./dev_metal.sh
+# Or directly:
+cargo build --features metal --bin llama_chat_web
+```
 
-2. Clean and rebuild:
-   ```cmd
-   cargo clean
-   cargo build --bin llama_chat_web --features docker --release
-   ```
+### For CPU-only (any platform):
+```bash
+# Default behavior - CPU mode
+npm run dev
+# Or directly:
+cargo build --bin llama_chat_web
+```
+
+### For CUDA on Windows (when CUDA Toolkit + Visual Studio are installed):
+```cmd
+# Use the CUDA development script
+dev_cuda.bat
+# Or via npm:
+npm run dev:cuda
+# Or directly:
+cargo build --features cuda --bin llama_chat_web
+```
+
+### Available Build Commands:
+- `npm run dev` - CPU mode (default, works everywhere)
+- `npm run dev:metal` - Metal mode (macOS with GPU acceleration)
+- `npm run dev:cuda` - CUDA mode (Windows with CUDA setup)
+- `npm run build:rust` - CPU mode build
+- `npm run build:metal` - Metal mode build (macOS)
+- `npm run build:cuda` - CUDA mode build (Windows)
+- `./dev_metal.sh` - macOS Metal development script
+- `build_cuda.bat` - Windows CUDA build script
+- `dev_cuda.bat` - Windows CUDA development script
 
 ## Verify CUDA Setup
 
@@ -92,8 +128,10 @@ where cl.exe
 # Check CMake
 cmake --version
 
-# Try building
-cargo build --bin llama_chat_web --features docker
+# Try building with CUDA
+npm run build:cuda
+# Or:
+cargo build --features cuda --bin llama_chat_web
 ```
 
 ## Current Workaround (CPU Mode)

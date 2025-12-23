@@ -16,7 +16,7 @@ echo CMake added to PATH
 
 echo.
 echo Building with CUDA support...
-cargo build --bin llama_chat_web %*
+cargo build --features cuda --bin llama_chat_web %*
 
 if errorlevel 1 (
     echo.

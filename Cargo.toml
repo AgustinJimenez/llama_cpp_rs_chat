@@ -44,8 +44,8 @@ serde_json = "1.0"
 tokio = { version = "1.0", features = ["full"] }
 regex = "1.10"
 
-# LLaMA dependencies - with CUDA GPU acceleration
-llama-cpp-2 = { version = "0.1.122", features = ["cuda"] }
+# LLaMA dependencies - with conditional CUDA GPU acceleration
+llama-cpp-2 = { version = "0.1.122", features = [] }
 anyhow = "1.0"
 uuid = { version = "1.0", features = ["v4"] }
 
@@ -70,6 +70,9 @@ log4rs = "1.2"
 chrono = "0.4"
 lazy_static = "1.4"
 
+# Jinja2 template engine for chat templates
+minijinja = "2.3"
+
 # SQLite database
 rusqlite = { version = "0.30", features = ["bundled"] }
 
@@ -80,6 +83,8 @@ rusqlite = { version = "0.30", features = ["bundled"] }
 [features]
 default = []
 mock = []  # Mock implementation for E2E tests
+cuda = ["llama-cpp-2/cuda"]  # CUDA support feature
+metal = ["llama-cpp-2/metal"]  # Metal support feature for macOS
 
 [build-dependencies]
 tauri-build = { version = "2.0", features = [] }

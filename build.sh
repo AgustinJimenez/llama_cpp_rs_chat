@@ -26,4 +26,4 @@ export INCLUDE="$INCLUDE;C:\\Program Files (x86)\\Windows Kits\\10\\Include\\10.
 
 echo "Building with CMake from: $CMAKE"
 echo "Using Visual Studio Community 2022 with CUDA support"
-cargo build --bin llama_chat_web "$@"
+cargo build --features cuda --bin llama_chat_web "$@"

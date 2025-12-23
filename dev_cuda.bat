@@ -14,4 +14,4 @@ REM Add CMake to PATH
 set "PATH=%PATH%;C:\Program Files\CMake\bin"
 
 echo Starting development server with CUDA support...
-npm run dev:web
+npm run dev:cuda

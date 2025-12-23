@@ -1,5 +1,7 @@
 // OLD: use super::super::utils::get_available_tools_json;
 use crate::log_debug;
+use super::jinja_templates::{apply_native_chat_template, parse_conversation_to_messages, get_available_tools};
+use super::super::models::SystemPromptType;
 
 /// Get the universal system prompt for command execution.
 /// This prompt teaches ANY model how to use the <||SYSTEM.EXEC> tags.
@@ -68,6 +70,135 @@ Wait for the output before continuing your response.
         cwd = cwd,
         shell = shell
     )
+}
+
+/// Apply system prompt based on the selected type
+/// 
+/// This is the main function that handles all 3 system prompt types:
+/// - Default: Use model's native Jinja2 chat template  
+/// - Custom: Use our curated universal system prompt
+/// - UserDefined: Use user-provided system prompt
+pub fn apply_system_prompt_by_type(
+    conversation: &str,
+    prompt_type: SystemPromptType,
+    template_type: Option<&str>,
+    chat_template_string: Option<&str>,
+    user_system_prompt: Option<&str>,
+) -> Result<String, String> {
+    match prompt_type {
+        SystemPromptType::Default => {
+            // Try to use model's native Jinja2 template first
+            if let Some(template) = chat_template_string {
+                log_debug!("templates", "Using native Jinja2 chat template");
+                
+                let messages = parse_conversation_to_messages(conversation);
+                let tools = Some(get_available_tools());
+                
+                match apply_native_chat_template(
+                    template, 
+                    messages, 
+                    tools, 
+                    None, // documents
+                    true  // add_generation_prompt
+                ) {
+                    Ok(result) => return Ok(result),
+                    Err(e) => {
+                        log_debug!("templates", "Jinja2 template failed: {}, falling back to custom logic", e);
+                        // Fall back to custom implementation
+                    }
+                }
+            }
+            
+            // Fallback to your existing custom template logic
+            log_debug!("templates", "Using fallback custom template logic");
+            apply_model_chat_template(conversation, template_type)
+        }
+        
+        SystemPromptType::Custom => {
+            // Use your curated universal system prompt
+            log_debug!("templates", "Using custom universal system prompt");
+            apply_model_chat_template(conversation, template_type)
+        }
+        
+        SystemPromptType::UserDefined => {
+            // Use user-provided system prompt
+            log_debug!("templates", "Using user-defined system prompt");
+            if let Some(user_prompt) = user_system_prompt {
+                apply_user_defined_template(conversation, user_prompt)
+            } else {
+                // Fallback if no user prompt provided
+                apply_model_chat_template(conversation, template_type)
+            }
+        }
+    }
+}
+
+/// Apply user-defined system prompt
+fn apply_user_defined_template(conversation: &str, user_system_prompt: &str) -> Result<String, String> {
+    // Parse conversation into messages  
+    let system_message: Option<String> = Some(user_system_prompt.to_string());
+    let mut user_messages = Vec::new();
+    let mut assistant_messages = Vec::new();
+    let mut current_role = "";
+    let mut current_content = String::new();
+
+    for line in conversation.lines() {
+        if line.ends_with(":")
+            && (line.starts_with("SYSTEM:")
+                || line.starts_with("USER:")
+                || line.starts_with("ASSISTANT:"))
+        {
+            // Save previous role's content
+            if !current_role.is_empty() && !current_content.trim().is_empty() {
+                match current_role {
+                    "SYSTEM" => {
+                        // Override with user-defined prompt instead
+                    }
+                    "USER" => user_messages.push(current_content.trim().to_string()),
+                    "ASSISTANT" => assistant_messages.push(current_content.trim().to_string()),
+                    _ => {}
+                }
+            }
+
+            current_role = line.trim_end_matches(':');
+            current_content.clear();
+        } else if !current_role.is_empty() {
+            if !current_content.is_empty() {
+                current_content.push('\n');
+            }
+            current_content.push_str(line);
+        }
+    }
+
+    // Add final message
+    if !current_role.is_empty() && !current_content.trim().is_empty() {
+        match current_role {
+            "USER" => user_messages.push(current_content.trim().to_string()),
+            "ASSISTANT" => assistant_messages.push(current_content.trim().to_string()),
+            _ => {}
+        }
+    }
+
+    // Format using simple template with user's system prompt
+    let mut formatted = String::new();
+    
+    if let Some(sys_msg) = system_message {
+        formatted.push_str(&format!("<|start_of_role|>system<|end_of_role|>{}<|end_of_text|>\n", sys_msg));
+    }
+
+    // Interleave user and assistant messages
+    let max_len = user_messages.len().max(assistant_messages.len());
+    for i in 0..max_len {
+        if i < user_messages.len() {
+            formatted.push_str(&format!("<|start_of_role|>user<|end_of_role|>{}<|end_of_text|>\n", user_messages[i]));
+        }
+        if i < assistant_messages.len() {
+            formatted.push_str(&format!("<|start_of_role|>assistant<|end_of_role|>{}<|end_of_text|>\n", assistant_messages[i]));
+        }
+    }
+
+    formatted.push_str("<|start_of_role|>assistant<|end_of_role|>");
+    Ok(formatted)
 }
 
 /// Apply chat template formatting to conversation history.

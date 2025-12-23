@@ -69,6 +69,7 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
             current_model_path: None,
             model_context_length: None,
             chat_template_type: None,
+            chat_template_string: None,
             gpu_layers: None,
             last_used: std::time::SystemTime::now(),
             model_default_system_prompt: None,
@@ -115,6 +116,7 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
         bos_token_id,
         eos_token_id,
         chat_template_type,
+        chat_template_string,
         default_system_prompt,
     ) = if let Ok(file) = fs::File::open(model_path) {
         let mut reader = BufReader::new(file);
@@ -142,26 +144,27 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
                         _ => None,
                     });
 
-                // Detect chat template type
-                let template_type = metadata
+                // Extract full chat template string and detect type
+                let (template_type, template_string) = metadata
                     .get("tokenizer.chat_template")
-                    .and_then(|v| match v {
+                    .map(|v| match v {
                         Value::String(s) => {
-                            // Detect template type based on template content
-                            if s.contains("<|im_start|>") && s.contains("<|im_end|>") {
-                                Some("ChatML".to_string()) // Qwen, OpenAI format
+                            let template_type = if s.contains("<|im_start|>") && s.contains("<|im_end|>") {
+                                "ChatML".to_string() // Qwen, OpenAI format
                             } else if s.contains("[INST]") && s.contains("[/INST]") {
-                                Some("Mistral".to_string()) // Mistral format
+                                "Mistral".to_string() // Mistral format
                             } else if s.contains("<|start_header_id|>") {
-                                Some("Llama3".to_string()) // Llama 3 format
+                                "Llama3".to_string() // Llama 3 format
                             } else if s.contains("<start_of_turn>") && s.contains("<end_of_turn>") {
-                                Some("Gemma".to_string()) // Gemma 3 format
+                                "Gemma".to_string() // Gemma 3 format
                             } else {
-                                Some("Generic".to_string()) // Fallback
-                            }
+                                "Generic".to_string() // Fallback
+                            };
+                            (Some(template_type), Some(s.clone()))
                         }
-                        _ => None,
-                    });
+                        _ => (None, None),
+                    })
+                    .unwrap_or((None, None));
 
                 // Extract default system prompt from chat template if available
                 // Look for: {%- set default_system_message = '...' %} in the template
@@ -184,15 +187,15 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
                             _ => None,
                         });
 
-                (ctx_len, bos_id, eos_id, template_type, default_prompt)
+                (ctx_len, bos_id, eos_id, template_type, template_string, default_prompt)
             } else {
-                (None, None, None, None, None)
+                (None, None, None, None, None, None)
             }
         } else {
-            (None, None, None, None, None)
+            (None, None, None, None, None, None)
         }
     } else {
-        (None, None, None, None, None)
+        (None, None, None, None, None, None)
     };
 
     if let Some(ctx_len) = model_context_length {
@@ -235,6 +238,7 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
     state.current_model_path = Some(model_path.to_string());
     state.model_context_length = model_context_length;
     state.chat_template_type = chat_template_type;
+    state.chat_template_string = chat_template_string;
     state.gpu_layers = Some(optimal_gpu_layers);
     state.last_used = std::time::SystemTime::now();
     state.model_default_system_prompt = default_system_prompt.clone();
