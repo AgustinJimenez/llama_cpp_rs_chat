@@ -1,4 +1,5 @@
 import React from 'react';
+import { Slider } from '../../atoms/slider';
 import {
   Select,
   SelectContent,
@@ -44,15 +45,17 @@ export const SamplingParametersSection: React.FC<SamplingParametersSectionProps>
 
     {/* Temperature */}
     <div className="space-y-2">
-      <label className="text-sm font-medium">Temperature</label>
-      <input
-        type="number"
-        value={config.temperature}
-        onChange={(e) => onConfigChange('temperature', parseFloat(e.target.value) || 0)}
-        min={0}
+      <div className="flex justify-between items-center">
+        <label className="text-sm font-medium">Temperature</label>
+        <span className="text-sm font-mono text-muted-foreground">{config.temperature.toFixed(2)}</span>
+      </div>
+      <Slider
+        value={[config.temperature]}
+        onValueChange={([value]) => onConfigChange('temperature', value)}
         max={2}
+        min={0}
         step={0.1}
-        className="w-full px-3 py-2 bg-background border border-input rounded-md text-sm"
+        className="w-full"
       />
       <p className="text-xs text-muted-foreground">
         Higher values make output more random, lower values more focused
@@ -61,15 +64,17 @@ export const SamplingParametersSection: React.FC<SamplingParametersSectionProps>
 
     {/* Top P */}
     <div className="space-y-2">
-      <label className="text-sm font-medium">Top P (Nucleus)</label>
-      <input
-        type="number"
-        value={config.top_p}
-        onChange={(e) => onConfigChange('top_p', parseFloat(e.target.value) || 0)}
-        min={0}
+      <div className="flex justify-between items-center">
+        <label className="text-sm font-medium">Top P (Nucleus)</label>
+        <span className="text-sm font-mono text-muted-foreground">{config.top_p.toFixed(2)}</span>
+      </div>
+      <Slider
+        value={[config.top_p]}
+        onValueChange={([value]) => onConfigChange('top_p', value)}
         max={1}
+        min={0}
         step={0.05}
-        className="w-full px-3 py-2 bg-background border border-input rounded-md text-sm"
+        className="w-full"
       />
       <p className="text-xs text-muted-foreground">
         Only consider tokens that make up the top P probability mass
@@ -78,67 +83,52 @@ export const SamplingParametersSection: React.FC<SamplingParametersSectionProps>
 
     {/* Top K */}
     <div className="space-y-2">
-      <label className="text-sm font-medium">Top K</label>
-      <input
-        type="number"
-        value={config.top_k}
-        onChange={(e) => onConfigChange('top_k', parseInt(e.target.value) || 1)}
-        min={1}
+      <div className="flex justify-between items-center">
+        <label className="text-sm font-medium">Top K</label>
+        <span className="text-sm font-mono text-muted-foreground">{config.top_k}</span>
+      </div>
+      <Slider
+        value={[config.top_k]}
+        onValueChange={([value]) => onConfigChange('top_k', Math.round(value))}
         max={100}
+        min={1}
         step={1}
-        className="w-full px-3 py-2 bg-background border border-input rounded-md text-sm"
+        className="w-full"
       />
       <p className="text-xs text-muted-foreground">
         Consider only the top K most likely tokens
       </p>
     </div>
 
-    {/* Min P */}
-    <div className="space-y-2">
-      <label className="text-sm font-medium">Min P</label>
-      <input
-        type="number"
-        value={config.min_p ?? ''}
-        onChange={(e) => {
-          const value = e.target.value === '' ? undefined : parseFloat(e.target.value);
-          onConfigChange('min_p', value);
-        }}
-        placeholder="0.01 (recommended for deepseek2)"
-        min={0}
-        max={1}
-        step={0.001}
-        className="w-full px-3 py-2 bg-background border border-input rounded-md text-sm"
-      />
-      <p className="text-xs text-muted-foreground">
-        Minimum probability threshold (critical for deepseek2 models)
-      </p>
-    </div>
-
     {/* Mirostat Parameters */}
     <div className="grid grid-cols-2 gap-4">
       <div className="space-y-2">
-        <label className="text-sm font-medium">Mirostat Tau</label>
-        <input
-          type="number"
-          value={config.mirostat_tau}
-          onChange={(e) => onConfigChange('mirostat_tau', parseFloat(e.target.value) || 0)}
-          min={0}
+        <div className="flex justify-between items-center">
+          <label className="text-sm font-medium">Mirostat Tau</label>
+          <span className="text-sm font-mono text-muted-foreground">{config.mirostat_tau.toFixed(1)}</span>
+        </div>
+        <Slider
+          value={[config.mirostat_tau]}
+          onValueChange={([value]) => onConfigChange('mirostat_tau', value)}
           max={10}
+          min={0}
           step={0.1}
-          className="w-full px-3 py-2 bg-background border border-input rounded-md text-sm"
+          className="w-full"
         />
       </div>
 
       <div className="space-y-2">
-        <label className="text-sm font-medium">Mirostat Eta</label>
-        <input
-          type="number"
-          value={config.mirostat_eta}
-          onChange={(e) => onConfigChange('mirostat_eta', parseFloat(e.target.value) || 0)}
-          min={0}
+        <div className="flex justify-between items-center">
+          <label className="text-sm font-medium">Mirostat Eta</label>
+          <span className="text-sm font-mono text-muted-foreground">{config.mirostat_eta.toFixed(2)}</span>
+        </div>
+        <Slider
+          value={[config.mirostat_eta]}
+          onValueChange={([value]) => onConfigChange('mirostat_eta', value)}
           max={1}
+          min={0}
           step={0.01}
-          className="w-full px-3 py-2 bg-background border border-input rounded-md text-sm"
+          className="w-full"
         />
       </div>
     </div>

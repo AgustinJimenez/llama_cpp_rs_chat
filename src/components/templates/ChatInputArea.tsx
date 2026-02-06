@@ -10,7 +10,6 @@ interface ChatInputAreaProps {
   isLoading: boolean;
   onSendMessage: (message: string) => void;
   onModelLoad: (modelPath: string, config: SamplerConfig) => void;
-  onStopGeneration?: () => void;
 }
 
 export function ChatInputArea({
@@ -21,7 +20,6 @@ export function ChatInputArea({
   isLoading,
   onSendMessage,
   onModelLoad,
-  onStopGeneration,
 }: ChatInputAreaProps) {
   return (
     <div className="border-t border-border bg-card px-4 pt-3 pb-2" data-testid="input-container">
@@ -29,7 +27,6 @@ export function ChatInputArea({
         <MessageInput
           onSendMessage={onSendMessage}
           disabled={isLoading}
-          onStopGeneration={onStopGeneration}
         />
       ) : (
         <div className="flex justify-center">

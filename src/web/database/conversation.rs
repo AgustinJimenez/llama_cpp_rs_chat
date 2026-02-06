@@ -579,22 +579,6 @@ impl ConversationLogger {
             .get_conversation_as_text(&self.conversation_id)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
     }
-
-    /// Log a system message (e.g., interruption notifications)
-    pub fn log_system_message(&mut self, message: &str) {
-        let timestamp = current_timestamp_secs();
-        self.sequence_counter += 1;
-
-        if let Err(e) = self.db.insert_message(
-            &self.conversation_id,
-            "system",
-            message,
-            timestamp,
-            self.sequence_counter,
-        ) {
-            eprintln!("[ConversationLogger] Failed to log system message: {}", e);
-        }
-    }
 }
 
 #[cfg(test)]

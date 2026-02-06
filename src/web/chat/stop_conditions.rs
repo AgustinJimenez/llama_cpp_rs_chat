@@ -38,30 +38,14 @@ impl StopConditionResult {
 }
 
 /// Check if we're inside a SYSTEM.EXEC block
-/// Returns true if there's an unclosed opening tag at the end of the response
-///
-/// This properly handles multiple exec blocks by finding the LAST occurrence
-/// of opening and closing tags, not just checking if they exist anywhere.
+/// Returns true if there's an opening tag without a closing tag
 fn is_inside_exec_block(response: &str) -> bool {
-    // Look for patterns that indicate an exec block opening
-    // Accept variations: <||SYSTEM.EXEC>, ||SYSTEM.EXEC>, SYSTEM.EXEC>
-    let exec_open_pattern = "SYSTEM.EXEC>";
-    let exec_close_pattern = "<SYSTEM.EXEC||>";
+    const EXEC_OPEN: &str = "<||SYSTEM.EXEC>";
+    const EXEC_CLOSE: &str = "<SYSTEM.EXEC||>";
 
-    // Find the LAST occurrence of opening tag
-    let last_open_pos = response.rfind(exec_open_pattern);
-
-    // Find the LAST occurrence of closing tag
-    let last_close_pos = response.rfind(exec_close_pattern);
-
-    // We're inside a block if:
-    // 1. There's an opening tag AND
-    // 2. Either there's NO closing tag, OR the last opening is AFTER the last closing
-    match (last_open_pos, last_close_pos) {
-        (Some(open), Some(close)) => open > close, // Opening after closing = inside block
-        (Some(_), None) => true,                    // Opening but no closing = inside block
-        (None, _) => false,                         // No opening = not inside block
-    }
+    let has_exec_open = response.contains("SYSTEM.EXEC>") || response.contains(EXEC_OPEN);
+    let has_exec_close = response.contains(EXEC_CLOSE) || response.contains("<SYSTEM.EXEC|");
+    has_exec_open && !has_exec_close
 }
 
 /// Check if the response should stop based on stop tokens

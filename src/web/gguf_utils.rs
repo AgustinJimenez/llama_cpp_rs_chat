@@ -153,46 +153,14 @@ pub fn read_gguf_basic_metadata(file_path: &str) -> Result<GgufBasicMetadata, St
 }
 
 /// Extract default system prompt from chat template if present.
-/// Handles multiple common patterns used by different models.
 pub fn extract_default_system_prompt(chat_template: &str) -> Option<String> {
-    // Pattern 1: {%- set default_system_message = '...' %}
+    // Look for: {%- set default_system_message = '...' %}
     if let Some(start_idx) = chat_template.find("set default_system_message = '") {
         let after_start = &chat_template[start_idx + "set default_system_message = '".len()..];
         if let Some(end_idx) = after_start.find("' %}") {
             return Some(after_start[..end_idx].to_string());
         }
     }
-
-    // Pattern 2: {%- set default_system_message = "..." %}
-    if let Some(start_idx) = chat_template.find("set default_system_message = \"") {
-        let after_start = &chat_template[start_idx + "set default_system_message = \"".len()..];
-        if let Some(end_idx) = after_start.find("\" %}") {
-            return Some(after_start[..end_idx].to_string());
-        }
-    }
-
-    // Pattern 3: {%- set system_message = '...' %}
-    if let Some(start_idx) = chat_template.find("set system_message = '") {
-        let after_start = &chat_template[start_idx + "set system_message = '".len()..];
-        if let Some(end_idx) = after_start.find("' %}") {
-            return Some(after_start[..end_idx].to_string());
-        }
-    }
-
-    // Pattern 4: {%- set system_message = "..." %}
-    if let Some(start_idx) = chat_template.find("set system_message = \"") {
-        let after_start = &chat_template[start_idx + "set system_message = \"".len()..];
-        if let Some(end_idx) = after_start.find("\" %}") {
-            return Some(after_start[..end_idx].to_string());
-        }
-    }
-
-    // If no specific pattern found, just return the full chat template
-    // This allows users to see the chat template structure even if we can't extract a clean prompt
-    if !chat_template.trim().is_empty() {
-        return Some(chat_template.to_string());
-    }
-
     None
 }
 
@@ -212,9 +180,6 @@ pub fn detect_tool_format(architecture: &str, model_name: &str) -> &'static str 
         "llama3"
     } else if arch_lower.contains("qwen") || name_lower.contains("qwen") {
         "qwen"
-    } else if arch_lower.contains("granite") || name_lower.contains("granite") {
-        // Granite models use XML-style tool calling with <tool_call> and <tool_response>
-        "granite"
     } else if arch_lower.contains("llama") {
         // Older llama models don't support tools
         "unknown"
@@ -314,7 +279,6 @@ impl<'a> MetadataExtractor<'a> {
     }
 
     /// Get a metadata value as serde_json::Value
-    #[allow(dead_code)]
     pub fn get_json(&self, key: &str) -> Option<serde_json::Value> {
         self.metadata.get(key).map(value_to_json)
     }

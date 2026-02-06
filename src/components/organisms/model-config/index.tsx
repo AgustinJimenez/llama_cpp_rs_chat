@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Brain, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
 import {
@@ -20,6 +20,7 @@ import { ModelMetadataDisplay } from './ModelMetadataDisplay';
 import { ContextSizeSection } from './ContextSizeSection';
 import { GpuLayersSection } from './GpuLayersSection';
 import { SamplingParametersSection } from './SamplingParametersSection';
+import { PresetsSection } from './PresetsSection';
 import { MemoryVisualization } from './MemoryVisualization';
 
 // Import hooks
@@ -64,9 +65,6 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   const [availableVramGb, _setAvailableVramGb] = useState(22.0); // Default: RTX 4090
   const [availableRamGb, _setAvailableRamGb] = useState(32.0);   // Default: 32GB
 
-  // Track which file path we've already applied parameters for (to prevent duplicate toasts)
-  const lastAppliedPathRef = useRef<string | null>(null);
-
   // Use model path validation hook for file checking and metadata fetching
   const {
     fileExists,
@@ -94,11 +92,6 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   useEffect(() => {
     if (isOpen && initialModelPath && !modelPath) {
       setModelPath(initialModelPath);
-    }
-    // Reset the last applied path ref when modal opens so parameters can be reapplied
-    if (isOpen) {
-      console.log('[ModelConfig] Modal opened, resetting lastAppliedPathRef');
-      lastAppliedPathRef.current = null;
     }
   }, [isOpen, initialModelPath, modelPath]);
 
@@ -139,283 +132,6 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
       }
     }
   }, [modelInfo]);
-
-  // Apply recommended sampling parameters from GGUF metadata or architecture-based defaults
-  useEffect(() => {
-    console.log('[ModelConfig] useEffect triggered for parameter application');
-    console.log('[ModelConfig] modelInfo.file_path:', modelInfo?.file_path);
-    console.log('[ModelConfig] lastAppliedPathRef.current:', lastAppliedPathRef.current);
-
-    if (!modelInfo?.file_path) {
-      console.log('[ModelConfig] No file_path, exiting early');
-      return;
-    }
-
-    // Skip if we've already applied parameters for this file path
-    if (lastAppliedPathRef.current === modelInfo.file_path) {
-      console.log('[ModelConfig] Already applied parameters for this path, skipping');
-      return;
-    }
-
-    console.log('[ModelConfig] Proceeding to apply parameters for:', modelInfo.file_path);
-
-    const metadata = modelInfo.gguf_metadata || {};
-    const arch = modelInfo.architecture?.toLowerCase() || '';
-
-    // Helper to get metadata value with fallbacks
-    const getMetadataValue = (keys: string[]): number | undefined => {
-      for (const key of keys) {
-        const value = metadata[key];
-        if (typeof value === 'number' && !isNaN(value)) {
-          return value;
-        }
-      }
-      return undefined;
-    };
-
-    // Extract sampling parameters from metadata
-    // Try architecture-specific keys first, then generic keys
-    const temperature = getMetadataValue([
-      'general.sampling.temp',         // Common format (e.g., GLM4, Qwen)
-      'general.sampling.temperature',
-      `${arch}.temperature`,
-      'temperature',
-      'sampling.temperature',
-      'recommended.temperature'
-    ]);
-
-    const topP = getMetadataValue([
-      'general.sampling.top_p',        // Common format
-      `${arch}.top_p`,
-      'top_p',
-      'sampling.top_p',
-      'recommended.top_p'
-    ]);
-
-    const topK = getMetadataValue([
-      'general.sampling.top_k',        // Common format
-      `${arch}.top_k`,
-      'top_k',
-      'sampling.top_k',
-      'recommended.top_k'
-    ]);
-
-    // Architecture-based defaults (if no metadata values found)
-    // These are community-recommended values for different model families
-    // NOTE: GGUF files don't store sampling configs - we use official documentation
-    const getArchitectureDefaults = () => {
-      const archLower = arch.toLowerCase();
-      const nameLower = (modelInfo.name || '').toLowerCase();
-
-      // Devstral models (Mistral's coding-specific model)
-      // Uses very low temperature (0.15) for deterministic code generation
-      if (nameLower.includes('devstral')) {
-        return {
-          temperature: 0.15,
-          top_p: 0.95,
-          top_k: 64,
-          min_p: 0.01,
-          forceOverride: true
-        };
-      }
-
-      // Ministral 3 models - variant-specific configs
-      if (nameLower.includes('ministral')) {
-        if (nameLower.includes('reasoning')) {
-          // Reasoning variant: higher temp for diverse reasoning outputs
-          return { temperature: 0.7, top_p: 0.95, top_k: 40, forceOverride: true };
-        } else if (nameLower.includes('instruct')) {
-          // Instruct variant: very low temp for production use
-          return { temperature: 0.1, top_p: 0.95, top_k: 40, forceOverride: true };
-        }
-      }
-
-      // Qwen3 models - variant-specific configs
-      if (archLower.includes('qwen')) {
-        if (nameLower.includes('thinking')) {
-          // Thinking mode: temp=0.6, DO NOT use greedy decoding
-          return { temperature: 0.6, top_p: 0.95, top_k: 20, min_p: 0, forceOverride: true };
-        } else if (nameLower.includes('coder') || nameLower.includes('instruct')) {
-          // Instruct/Coder: standard Qwen3 settings
-          return { temperature: 0.7, top_p: 0.8, top_k: 20, min_p: 0 };
-        }
-        // Generic Qwen
-        return { temperature: 0.7, top_p: 0.8, top_k: 20, min_p: 0 };
-      }
-
-      // Gemma 3 models - official Google recommendations
-      if (archLower.includes('gemma')) {
-        return {
-          temperature: 1.0,
-          top_p: 0.95,
-          top_k: 64,
-          min_p: 0,
-          forceOverride: true
-        };
-      }
-
-      // Granite 4 models (IBM)
-      if (archLower.includes('granite')) {
-        return {
-          temperature: 0.6,
-          top_p: 0.9,
-          top_k: 50,
-          min_p: 0.01
-        };
-      }
-
-      // DeepSeek2 models (GLM-4.7-Flash)
-      // CRITICAL: These values MUST override metadata to prevent infinite loops
-      if (archLower.includes('deepseek2')) {
-        return {
-          temperature: 0.7,
-          top_p: 0.95,
-          top_k: 50,
-          min_p: 0.01,
-          context_size: 16384,  // Recommended 16K, NOT the metadata's 202K
-          forceOverride: true
-        };
-      }
-
-      // Llama models (Llama 2, 3, etc.)
-      if (archLower.includes('llama')) {
-        return { temperature: 0.7, top_p: 0.9, top_k: 40 };
-      }
-
-      // Mistral models (generic fallback)
-      if (archLower.includes('mistral')) {
-        return { temperature: 0.7, top_p: 0.95, top_k: 50 };
-      }
-
-      // Phi models
-      if (archLower.includes('phi')) {
-        return { temperature: 0.7, top_p: 0.95, top_k: 40 };
-      }
-
-      // Default fallback
-      return null;
-    };
-
-    const archDefaults = getArchitectureDefaults();
-
-    // Calculate updates first
-    const updates: Partial<SamplerConfig> = {};
-
-    // For deepseek2, FORCE architecture defaults to override problematic metadata values
-    // Otherwise, prefer metadata values and fall back to architecture defaults
-    const forceOverride = (archDefaults as any)?.forceOverride === true;
-    const finalTemp = forceOverride ? (archDefaults?.temperature ?? temperature) : (temperature ?? archDefaults?.temperature);
-    const finalTopP = forceOverride ? (archDefaults?.top_p ?? topP) : (topP ?? archDefaults?.top_p);
-    const finalTopK = forceOverride ? (archDefaults?.top_k ?? topK) : (topK ?? archDefaults?.top_k);
-    const finalMinP = (archDefaults as any)?.min_p;
-    const finalContextSize = (archDefaults as any)?.context_size;
-
-    if (finalTemp !== undefined && finalTemp >= 0 && finalTemp <= 2) {
-      updates.temperature = finalTemp;
-      const source = forceOverride ? '(architecture default - OVERRIDING metadata)' : (temperature !== undefined ? '(from metadata)' : '(architecture default)');
-      console.log('[ModelConfig] Applying temperature:', finalTemp, source);
-    }
-
-    if (finalTopP !== undefined && finalTopP >= 0 && finalTopP <= 1) {
-      updates.top_p = finalTopP;
-      const source = forceOverride ? '(architecture default - OVERRIDING metadata)' : (topP !== undefined ? '(from metadata)' : '(architecture default)');
-      console.log('[ModelConfig] Applying top_p:', finalTopP, source);
-    }
-
-    if (finalTopK !== undefined && finalTopK >= 0) {
-      updates.top_k = finalTopK;
-      const source = forceOverride ? '(architecture default - OVERRIDING metadata)' : (topK !== undefined ? '(from metadata)' : '(architecture default)');
-      console.log('[ModelConfig] Applying top_k:', finalTopK, source);
-    }
-
-    // Apply min_p if specified (critical for deepseek2)
-    if (finalMinP !== undefined && finalMinP >= 0 && finalMinP <= 1) {
-      updates.min_p = finalMinP;
-      console.log('[ModelConfig] Applying min_p:', finalMinP, '(architecture default - CRITICAL for deepseek2)');
-    }
-
-    // Apply context_size if specified (overrides metadata for deepseek2)
-    if (finalContextSize !== undefined && finalContextSize > 0) {
-      updates.context_size = finalContextSize;
-      console.log('[ModelConfig] Applying context_size:', finalContextSize, '(architecture default - recommended for deepseek2)');
-    }
-
-    // Infer appropriate sampler type based on which parameters are present
-    // This provides intelligent defaults for the sampling strategy
-    const inferSamplerType = (): string | undefined => {
-      const hasTemp = finalTemp !== undefined && finalTemp > 0;
-      const hasTopP = finalTopP !== undefined && finalTopP < 1.0;
-      const hasTopK = finalTopK !== undefined && finalTopK > 0;
-
-      // If all three sampling parameters are present, use ChainFull for comprehensive sampling
-      if (hasTemp && hasTopP && hasTopK) {
-        console.log('[ModelConfig] Inferred sampler type: ChainFull (temp + top_p + top_k)');
-        return 'ChainFull';
-      }
-
-      // If temperature and top_p are present, use ChainTempTopP
-      if (hasTemp && hasTopP) {
-        console.log('[ModelConfig] Inferred sampler type: ChainTempTopP (temp + top_p)');
-        return 'ChainTempTopP';
-      }
-
-      // If temperature and top_k are present, use ChainTempTopK
-      if (hasTemp && hasTopK) {
-        console.log('[ModelConfig] Inferred sampler type: ChainTempTopK (temp + top_k)');
-        return 'ChainTempTopK';
-      }
-
-      // If only temperature is present, use Temperature sampling
-      if (hasTemp) {
-        console.log('[ModelConfig] Inferred sampler type: Temperature (temp only)');
-        return 'Temperature';
-      }
-
-      // If temperature is 0 or not present, use Greedy (deterministic)
-      if (finalTemp !== undefined && finalTemp === 0) {
-        console.log('[ModelConfig] Inferred sampler type: Greedy (temp = 0)');
-        return 'Greedy';
-      }
-
-      // No inference possible
-      return undefined;
-    };
-
-    const inferredSamplerType = inferSamplerType();
-    if (inferredSamplerType) {
-      updates.sampler_type = inferredSamplerType;
-    }
-
-    // Only update and notify if we found parameters
-    if (Object.keys(updates).length > 0) {
-      const hasMetadata = temperature !== undefined || topP !== undefined || topK !== undefined;
-      const paramCount = Object.keys(updates).filter(k => k !== 'sampler_type').length;
-      const hasSamplerType = updates.sampler_type !== undefined;
-
-      let message = hasMetadata
-        ? `Applied ${paramCount} parameter(s) from model metadata`
-        : `Applied ${arch} architecture defaults`;
-
-      if (hasSamplerType) {
-        message += ` + ${updates.sampler_type} sampler`;
-      }
-
-      console.log('[ModelConfig] Showing toast with message:', message);
-      console.log('[ModelConfig] Marking path as applied:', modelInfo.file_path);
-
-      // Mark this file path as already processed
-      lastAppliedPathRef.current = modelInfo.file_path;
-
-      // Apply the updates to state
-      setConfig(prev => ({ ...prev, ...updates }));
-
-      // Show toast AFTER state update, not during
-      toast.success(message, { duration: 3000 });
-    } else {
-      console.log('[ModelConfig] No updates to apply');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modelInfo?.file_path]); // Only re-run when the model file path changes
 
   const handleInputChange = (field: keyof SamplerConfig, value: string | number) => {
     setConfig(prev => ({
@@ -621,6 +337,10 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                   <SamplingParametersSection
                     config={config}
                     onConfigChange={handleInputChange}
+                  />
+
+                  <PresetsSection
+                    onApplyPreset={(preset) => setConfig(prev => ({ ...prev, ...preset }))}
                   />
                 </CardContent>
               )}

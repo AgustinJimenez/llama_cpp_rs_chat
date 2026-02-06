@@ -1,15 +1,9 @@
 use gguf_llms::{GgufHeader, GgufReader, Value};
-use std::env;
 use std::fs;
 use std::io::BufReader;
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    let model_path = if args.len() > 1 {
-        &args[1]
-    } else {
-        "E:/.lmstudio/lmstudio-community/gemma-3-12b-it-GGUF/gemma-3-12b-it-Q8_0.gguf"
-    };
+    let model_path = "E:/.lmstudio/lmstudio-community/gemma-3-12b-it-GGUF/gemma-3-12b-it-Q8_0.gguf";
 
     println!("=================================================================");
     println!("Reading GGUF metadata from: {}", model_path);
@@ -44,15 +38,10 @@ fn main() {
     println!("📊 CONTEXT & SIZE INFORMATION:");
     println!("-----------------------------------------------------------------");
 
-    // Context length - try all known architecture prefixes
+    // Context length - try both llama and gemma3 prefixes
     if let Some(v) = metadata
-        .get("llama.context_length")
-        .or_else(|| metadata.get("gemma3.context_length"))
-        .or_else(|| metadata.get("deepseek2.context_length"))
-        .or_else(|| metadata.get("qwen3moe.context_length"))
-        .or_else(|| metadata.get("mistral3.context_length"))
-        .or_else(|| metadata.get("granitehybrid.context_length"))
-        .or_else(|| metadata.get("nemotron_h_moe.context_length"))
+        .get("gemma3.context_length")
+        .or_else(|| metadata.get("llama.context_length"))
     {
         match v {
             Value::Uint32(n) => println!("  context_length: {} tokens", n),
@@ -98,12 +87,6 @@ fn main() {
     }
     if let Some(v) = metadata.get("tokenizer.ggml.model") {
         println!("  tokenizer.ggml.model: {:?}", v);
-    }
-    if let Some(v) = metadata.get("tokenizer.ggml.eom_token_id") {
-        println!("  tokenizer.ggml.eom_token_id: {:?}", v);
-    }
-    if let Some(v) = metadata.get("tokenizer.ggml.eot_token_id") {
-        println!("  tokenizer.ggml.eot_token_id: {:?}", v);
     }
 
     println!();
@@ -173,32 +156,15 @@ fn main() {
         };
 
         println!("  Detected type: {}", template_type);
-        println!("\n  FULL TEMPLATE:");
-        println!("  {}", "=".repeat(60));
-        println!("{}", template);
-        println!("  {}", "=".repeat(60));
+        println!("  Template preview (first 200 chars):");
+        let preview = if template.len() > 200 {
+            format!("{}...", &template[..200])
+        } else {
+            template.clone()
+        };
+        println!("    {}", preview.replace("\n", "\n    "));
     } else {
         println!("  No chat template found");
-    }
-
-    println!();
-    println!("⚙️ SAMPLING CONFIGURATION:");
-    println!("-----------------------------------------------------------------");
-
-    // Print all sampling-related metadata
-    let sampling_keys: Vec<&String> = metadata
-        .keys()
-        .filter(|k| k.contains("sampling"))
-        .collect();
-
-    if sampling_keys.is_empty() {
-        println!("  No sampling configuration found in metadata");
-    } else {
-        for key in sampling_keys {
-            if let Some(value) = metadata.get(key) {
-                println!("  {}: {:?}", key, value);
-            }
-        }
     }
 
     println!();

@@ -34,26 +34,7 @@ export const useModel = () => {
 
   const hardUnload = useCallback(async () => {
     try {
-      console.log('[useModel] Force-resetting model state');
-
-      // Create an AbortController with timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-
-      // Use the new force-reset endpoint instead of regular unload
-      const response = await fetch('/api/model/force-reset', {
-        method: 'POST',
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-
-      if (response.ok) {
-        console.log('[useModel] Force-reset successful');
-      } else {
-        console.warn('[useModel] Force-reset returned error:', await response.text());
-      }
-
-      // Always set status to unloaded after force-reset
+      await fetch('/api/model/unload', { method: 'POST' });
       setStatus({
         loaded: false,
         model_path: null,
@@ -61,14 +42,7 @@ export const useModel = () => {
         memory_usage_mb: null,
       });
     } catch (err) {
-      console.warn('[useModel] Force-reset failed:', err);
-      // Even if it fails, set status to unloaded to allow user to retry
-      setStatus({
-        loaded: false,
-        model_path: null,
-        last_used: null,
-        memory_usage_mb: null,
-      });
+      console.warn('Hard unload failed', err);
     }
   }, []);
 
@@ -213,27 +187,21 @@ export const useModel = () => {
     setIsLoading(true);
     setLoadingAction('unloading');
     setError(null);
-
+    
     try {
-      // Create an AbortController with timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-
       let data: ModelResponse;
       if (isTauri) {
         // Use Tauri invoke for desktop app
         const { invoke } = await import('@tauri-apps/api/core');
         data = await invoke('unload_model') as ModelResponse;
       } else {
-        // Use HTTP API for web version with timeout
+        // Use HTTP API for web version
         const response = await fetch('/api/model/unload', {
           method: 'POST',
-          signal: controller.signal,
         });
-        clearTimeout(timeoutId);
         data = await response.json();
       }
-
+      
       if (data.success && data.status) {
         setStatus(data.status);
         setError(null);
@@ -245,14 +213,7 @@ export const useModel = () => {
         return { success: false, message: data.message };
       }
     } catch (err) {
-      let errorMessage = 'Unknown error occurred';
-      if (err instanceof Error) {
-        if (err.name === 'AbortError') {
-          errorMessage = 'Unload operation timed out. The model may still be processing. Please wait a moment and check the status.';
-        } else {
-          errorMessage = err.message;
-        }
-      }
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
       setError(errorMessage);
       setHasStatusError(true);
       // Refresh status on error to ensure UI is accurate
@@ -264,20 +225,9 @@ export const useModel = () => {
     }
   }, [fetchStatus]);
 
-  // Fetch status on mount and poll periodically
+  // Fetch status on mount
   useEffect(() => {
-    // Initial fetch
     fetchStatus();
-
-    // Poll status every 2 seconds to keep UI in sync with backend
-    const intervalId = setInterval(() => {
-      fetchStatus();
-    }, 2000);
-
-    // Cleanup interval on unmount
-    return () => {
-      clearInterval(intervalId);
-    };
   }, [fetchStatus]);
 
   return {

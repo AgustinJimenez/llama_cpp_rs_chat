@@ -61,7 +61,6 @@ export function useChat() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const isStreamingRef = useRef(false);
   const streamSeqRef = useRef(0);
-  const isAbortingRef = useRef(false);
   const transportRef = useRef<ChatTransport>(createChatTransport());
 
   // Clear all messages and reset state
@@ -207,9 +206,6 @@ export function useChat() {
     }
     abortControllerRef.current = new AbortController();
 
-    // Reset abort flag for new generation
-    isAbortingRef.current = false;
-
     // Check if this is a tool result (not a new user message)
     const isToolResult = content.startsWith('[TOOL_RESULTS]');
     if (!isToolResult) {
@@ -307,38 +303,6 @@ export function useChat() {
     shouldStopExecution: toolExecution.shouldStopExecution,
   });
 
-  // Stop current generation/streaming
-  const stopGeneration = useCallback(async () => {
-    // Prevent duplicate abort requests
-    if (isAbortingRef.current) {
-      console.log('[useChat] Abort already in progress, ignoring duplicate request');
-      return;
-    }
-
-    console.log('[useChat] Stop generation requested');
-    isAbortingRef.current = true;
-
-    // Always call backend API to stop generation (even if frontend controller is gone)
-    try {
-      await fetch('/api/generation/abort', { method: 'POST' });
-      console.log('[useChat] Backend abort request sent');
-    } catch (err) {
-      console.error('[useChat] Failed to abort generation on backend:', err);
-    }
-
-    // Abort the frontend fetch request if it exists
-    if (abortControllerRef.current) {
-      console.log('[useChat] Aborting frontend fetch');
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-    }
-
-    // Always reset streaming state and loading flag
-    isStreamingRef.current = false;
-    setIsLoading(false);
-    isAbortingRef.current = false;
-  }, []);
-
   return {
     messages,
     isLoading,
@@ -349,6 +313,5 @@ export function useChat() {
     currentConversationId,
     tokensUsed,
     maxTokens,
-    stopGeneration,
   };
 }

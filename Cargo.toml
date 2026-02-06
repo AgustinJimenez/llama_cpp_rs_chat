@@ -76,6 +76,12 @@ minijinja = "2.3"
 # SQLite database
 rusqlite = { version = "0.30", features = ["bundled"] }
 
+# HTTP client for web fetching (ureq: lightweight, blocking, rustls for TLS)
+ureq = { version = "2.9", default-features = false, features = ["tls"] }
+
+# HTML to text conversion
+html2text = "0.12"
+
 # System monitoring (optional - requires rebuild)
 # sysinfo = "0.30"
 # nvml-wrapper = { version = "0.9", optional = true }

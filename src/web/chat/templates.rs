@@ -58,6 +58,18 @@ After execution, the output will appear in:
 
 Wait for the output before continuing your response.
 
+## Web Browsing
+
+You can fetch web pages to read their content. Use this to find download URLs, read documentation, or investigate errors:
+
+<||SYSTEM.EXEC>curl "http://localhost:8000/api/tools/web-fetch?url=https://example.com"<SYSTEM.EXEC||>
+
+This returns the page content as clean text (HTML is stripped). Use this to:
+- Find correct download URLs instead of guessing
+- Read documentation and installation instructions
+- Search for solutions to errors
+- Verify URLs before downloading from them
+
 ## Current Environment
 - OS: {os_name}
 - Working Directory: {cwd}

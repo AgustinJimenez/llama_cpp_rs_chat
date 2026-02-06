@@ -1,13 +1,11 @@
-import { Unplug, Activity, Loader2 } from 'lucide-react';
+import { Unplug, Activity } from 'lucide-react';
 import type { ViewMode } from '../../types';
-import type { LoadingAction } from '../../hooks/useModel';
 
 interface ChatHeaderProps {
   isSidebarOpen: boolean;
   modelLoaded: boolean;
   modelPath?: string;
   isModelLoading: boolean;
-  loadingAction: LoadingAction;
   messagesLength: number;
   tokensUsed?: number;
   maxTokens?: number;
@@ -26,7 +24,6 @@ export function ChatHeader({
   modelLoaded,
   modelPath,
   isModelLoading,
-  loadingAction,
   messagesLength,
   tokensUsed,
   maxTokens,
@@ -65,17 +62,10 @@ export function ChatHeader({
             <button
               onClick={onModelUnload}
               disabled={isModelLoading}
-              className="flat-button bg-destructive text-white px-4 py-2 disabled:opacity-50 flex items-center gap-2"
-              title={loadingAction === 'unloading' ? 'Unloading model...' : 'Unload model'}
+              className="flat-button bg-destructive text-white px-4 py-2 disabled:opacity-50"
+              title="Unload model"
             >
-              {loadingAction === 'unloading' ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Unloading...</span>
-                </>
-              ) : (
-                <Unplug className="h-4 w-4" />
-              )}
+              <Unplug className="h-4 w-4" />
             </button>
           </div>
         ) : hasStatusError ? (
@@ -84,38 +74,33 @@ export function ChatHeader({
             <button
               onClick={onForceUnload}
               disabled={isModelLoading}
-              className="flat-button bg-destructive text-white px-4 py-2 disabled:opacity-50 flex items-center gap-2"
-              title={loadingAction === 'unloading' ? 'Force unloading...' : 'Force unload backend'}
+              className="flat-button bg-destructive text-white px-4 py-2 disabled:opacity-50"
+              title="Force unload backend"
             >
-              {loadingAction === 'unloading' ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Unloading...</span>
-                </>
-              ) : (
-                <Unplug className="h-4 w-4" />
-              )}
+              <Unplug className="h-4 w-4" />
             </button>
           </div>
         ) : null}
       </div>
 
-      {/* Right section */}
-      <div className="flex items-center gap-4">
-        {/* Context/Tokens Display - show when model loaded and we have token data */}
-        {modelLoaded && tokensUsed !== undefined && maxTokens !== undefined && (
-          <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-            <span>Context:</span>
-            <span className="font-mono px-2 py-1 bg-muted rounded text-foreground">{tokensUsed}</span>
-            <span>/</span>
-            <span className="font-mono px-2 py-1 bg-muted rounded text-foreground">{maxTokens}</span>
-            <span>tokens</span>
-          </div>
-        )}
+      {/* Right section - always show if model loaded and we have data */}
+      {modelLoaded && (
+        <div className="flex items-center gap-4">
+          {/* Context/Tokens Display - show when we have token data */}
+          {tokensUsed !== undefined && maxTokens !== undefined && (
+            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+              <span>Context:</span>
+              <span className="font-mono px-2 py-1 bg-muted rounded text-foreground">{tokensUsed}</span>
+              <span>/</span>
+              <span className="font-mono px-2 py-1 bg-muted rounded text-foreground">{maxTokens}</span>
+              <span>tokens</span>
+            </div>
+          )}
 
-        {/* View Mode Toggle - show whenever there are messages (even if no model loaded) */}
-        {messagesLength > 0 && (
-          <div className="flex items-center gap-2 bg-muted rounded-lg p-1">
+          {/* WebSocket Connection Status */}
+          {/* View Mode Toggle - only show when there are messages */}
+          {messagesLength > 0 && (
+            <div className="flex items-center gap-2 bg-muted rounded-lg p-1">
               <button
                 onClick={() => onViewModeChange('markdown')}
                 className={`px-4 py-2 font-medium text-sm transition-all rounded-md ${
@@ -141,8 +126,7 @@ export function ChatHeader({
             </div>
           )}
 
-        {/* System Monitor Toggle Button - only show when model is loaded */}
-        {modelLoaded && (
+          {/* System Monitor Toggle Button */}
           <button
             onClick={onToggleRightSidebar}
             className={`p-2 rounded-lg transition-all ${
@@ -154,8 +138,8 @@ export function ChatHeader({
           >
             <Activity className="h-5 w-5" />
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

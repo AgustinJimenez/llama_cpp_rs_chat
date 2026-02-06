@@ -66,7 +66,7 @@ pub async fn handle_get_conversation(
     let conversation_id = filename.trim_end_matches(".txt");
 
     match db.get_conversation_as_text(conversation_id) {
-        Ok(content) if !content.trim().is_empty() => {
+        Ok(content) => {
             let messages = parse_conversation_to_messages(&content);
             let response = ConversationContentResponse {
                 content: content.clone(),
@@ -78,7 +78,7 @@ pub async fn handle_get_conversation(
 
             Ok(json_raw(StatusCode::OK, response_json))
         }
-        _ => Ok(json_error(StatusCode::NOT_FOUND, "Conversation not found")),
+        Err(_) => Ok(json_error(StatusCode::NOT_FOUND, "Conversation not found")),
     }
 }
 

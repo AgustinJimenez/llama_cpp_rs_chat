@@ -43,7 +43,7 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, testI
   const components: Components = {
     code: CodeBlock,
     pre: ({ children }) => <div className="my-2">{children}</div>,
-    p: ({ children }) => <p className="my-3">{children}</p>,
+    p: ({ children }) => <p className="my-2">{children}</p>,
     h1: ({ children }) => (
       <h1 className="font-bold text-2xl my-3 border-b border-border pb-2">{children}</h1>
     ),
@@ -53,8 +53,8 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, testI
     h3: ({ children }) => (
       <h3 className="font-semibold text-lg my-2">{children}</h3>
     ),
-    ul: ({ children }) => <ul className="list-disc ml-4 my-3">{children}</ul>,
-    ol: ({ children }) => <ol className="list-decimal ml-4 my-3">{children}</ol>,
+    ul: ({ children }) => <ul className="list-disc ml-4 my-2">{children}</ul>,
+    ol: ({ children }) => <ol className="list-decimal ml-4 my-2">{children}</ol>,
     li: ({ children }) => <li>{children}</li>,
     strong: ({ children }) => <strong className="font-bold">{children}</strong>,
     em: ({ children }) => <em className="italic">{children}</em>,

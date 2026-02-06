@@ -2,13 +2,14 @@
 
 use hyper::{Body, Request, Response, StatusCode};
 use std::convert::Infallible;
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use tokio::fs;
 use tokio::task::spawn_blocking;
 use tokio::time::{timeout, Duration};
 
 use crate::web::{
-    request_parsing::parse_json_body,
+    request_parsing::{get_query_param, parse_json_body},
     response_helpers::{json_error, json_raw},
 };
 
@@ -41,6 +42,85 @@ async fn canonicalize_allowed(path: &str) -> Result<PathBuf, String> {
     }
 
     Err("Path not allowed".to_string())
+}
+
+const FETCH_TIMEOUT_SECS: u64 = 15;
+const MAX_RESPONSE_BYTES: usize = 100_000; // 100KB max download
+const MAX_TEXT_CHARS: usize = 10_000; // 10K chars returned to model by default
+
+/// Fetch a URL and return its content as plain text (HTML stripped).
+fn fetch_url_as_text(url: &str, max_chars: usize) -> serde_json::Value {
+    sys_debug!("[WEB_FETCH] Fetching URL: {}", url);
+
+    let agent = ureq::AgentBuilder::new()
+        .timeout_read(std::time::Duration::from_secs(FETCH_TIMEOUT_SECS))
+        .timeout_connect(std::time::Duration::from_secs(10))
+        .user_agent("Mozilla/5.0 (compatible; LlamaChat/1.0)")
+        .build();
+
+    let response = match agent.get(url).call() {
+        Ok(r) => r,
+        Err(ureq::Error::Status(code, resp)) => {
+            // HTTP error status (4xx, 5xx)
+            let body = resp.into_string().unwrap_or_default();
+            return serde_json::json!({
+                "success": false,
+                "error": format!("HTTP {} for URL '{}'", code, url),
+                "url": url,
+                "status_code": code,
+                "body_preview": &body[..body.len().min(500)]
+            });
+        }
+        Err(e) => {
+            return serde_json::json!({
+                "success": false,
+                "error": format!("Failed to fetch URL '{}': {}", url, e),
+                "url": url
+            });
+        }
+    };
+
+    let status = response.status();
+    let content_type = response
+        .header("content-type")
+        .unwrap_or("")
+        .to_string();
+
+    // Read body with size limit
+    let mut body_buf = Vec::with_capacity(MAX_RESPONSE_BYTES);
+    let mut reader = response.into_reader().take(MAX_RESPONSE_BYTES as u64);
+    if let Err(e) = reader.read_to_end(&mut body_buf) {
+        return serde_json::json!({
+            "success": false,
+            "error": format!("Failed to read response body: {}", e),
+            "url": url
+        });
+    }
+
+    let body_str = String::from_utf8_lossy(&body_buf).to_string();
+
+    // Convert HTML to plain text if content looks like HTML
+    let text = if content_type.contains("text/html") || body_str.trim_start().starts_with('<') {
+        html2text::from_read(body_str.as_bytes(), 120)
+    } else {
+        body_str
+    };
+
+    // Truncate to max_chars
+    let truncated = if text.len() > max_chars {
+        let cut = &text[..max_chars];
+        format!("{}...\n[TRUNCATED - showing first {} of {} chars]", cut, max_chars, text.len())
+    } else {
+        text.clone()
+    };
+
+    serde_json::json!({
+        "success": true,
+        "result": truncated,
+        "url": url,
+        "status_code": status,
+        "content_length": text.len()
+    })
 }
 
 pub async fn handle_post_tools_execute(
@@ -342,12 +422,79 @@ pub async fn handle_post_tools_execute(
                 }
             }
         }
+        "web_fetch" => {
+            let url = tool_arguments
+                .get("url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            if url.is_empty() {
+                return Ok(json_error(StatusCode::BAD_REQUEST, "URL is required"));
+            }
+
+            let max_chars = tool_arguments
+                .get("max_length")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as usize)
+                .unwrap_or(MAX_TEXT_CHARS);
+
+            let url_owned = url.to_string();
+            match timeout(
+                Duration::from_secs(FETCH_TIMEOUT_SECS + 5),
+                spawn_blocking(move || fetch_url_as_text(&url_owned, max_chars)),
+            )
+            .await
+            {
+                Ok(Ok(result)) => result,
+                Ok(Err(e)) => serde_json::json!({
+                    "success": false,
+                    "error": format!("Web fetch task failed: {}", e)
+                }),
+                Err(_) => serde_json::json!({
+                    "success": false,
+                    "error": format!("Web fetch timed out after {}s", FETCH_TIMEOUT_SECS)
+                }),
+            }
+        }
         _ => {
             serde_json::json!({
                 "success": false,
                 "error": format!("Unknown tool: {}", request.tool_name)
             })
         }
+    };
+
+    Ok(json_raw(StatusCode::OK, result.to_string()))
+}
+
+/// Standalone GET endpoint: /api/tools/web-fetch?url=https://example.com&max_length=10000
+pub async fn handle_get_web_fetch(
+    req: Request<Body>,
+) -> Result<Response<Body>, Infallible> {
+    let url = match get_query_param(req.uri(), "url") {
+        Some(u) if !u.is_empty() => u,
+        _ => return Ok(json_error(StatusCode::BAD_REQUEST, "Missing 'url' query parameter")),
+    };
+
+    let max_chars = get_query_param(req.uri(), "max_length")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(MAX_TEXT_CHARS);
+
+    let result = match timeout(
+        Duration::from_secs(FETCH_TIMEOUT_SECS + 5),
+        spawn_blocking(move || fetch_url_as_text(&url, max_chars)),
+    )
+    .await
+    {
+        Ok(Ok(result)) => result,
+        Ok(Err(e)) => serde_json::json!({
+            "success": false,
+            "error": format!("Web fetch task failed: {}", e)
+        }),
+        Err(_) => serde_json::json!({
+            "success": false,
+            "error": format!("Web fetch timed out after {}s", FETCH_TIMEOUT_SECS)
+        }),
     };
 
     Ok(json_raw(StatusCode::OK, result.to_string()))

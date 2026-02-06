@@ -60,18 +60,7 @@ export function useConversationUrl({
     if (conversationFromUrl) {
       console.log('[useConversationUrl] Loading conversation from URL:', conversationFromUrl);
       const normalizedId = normalizeConversationId(conversationFromUrl);
-
-      // Check if conversation exists before loading; redirect to / if not found
-      fetch(`/api/conversation/${normalizedId}`).then(response => {
-        if (response.ok) {
-          loadConversation(normalizedId);
-        } else {
-          console.warn('[useConversationUrl] Conversation not found, redirecting:', normalizedId);
-          window.location.replace('/');
-        }
-      }).catch(() => {
-        window.location.replace('/');
-      });
+      loadConversation(normalizedId);
     }
   }, [loadConversation]);
 }

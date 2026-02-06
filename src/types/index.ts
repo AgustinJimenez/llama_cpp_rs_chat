@@ -23,7 +23,6 @@ export interface SamplerConfig {
   temperature: number;
   top_p: number;
   top_k: number;
-  min_p?: number;  // Minimum probability threshold (critical for deepseek2)
   mirostat_tau: number;
   mirostat_eta: number;
   model_path?: string;
