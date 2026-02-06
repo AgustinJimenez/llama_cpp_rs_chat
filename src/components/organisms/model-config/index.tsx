@@ -27,6 +27,9 @@ import { MemoryVisualization } from './MemoryVisualization';
 import { useMemoryCalculation } from '@/hooks/useMemoryCalculation';
 import { useModelPathValidation } from '@/hooks/useModelPathValidation';
 
+// Import model presets for auto-configuration
+import { findPresetByName, DEFAULT_PRESET } from '@/config/modelPresets';
+
 interface ModelConfigModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -132,6 +135,38 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
       }
     }
   }, [modelInfo]);
+
+  // Auto-apply recommended sampling parameters when model info loads
+  useEffect(() => {
+    if (!modelInfo) return;
+
+    // First try GGUF embedded params, then preset lookup, then default
+    let preset: Partial<SamplerConfig> | null = null;
+
+    // Check for GGUF embedded params
+    if (modelInfo.recommended_params && Object.keys(modelInfo.recommended_params).length > 0) {
+      preset = modelInfo.recommended_params;
+    }
+
+    // Fallback to preset lookup by model name
+    if (!preset) {
+      preset = findPresetByName(modelInfo.general_name || '');
+    }
+
+    // Final fallback to default
+    if (!preset) {
+      preset = DEFAULT_PRESET;
+    }
+
+    // Apply the preset
+    setConfig(prev => ({
+      ...prev,
+      ...preset,
+      model_path: prev.model_path, // Keep the model path
+    }));
+
+    console.log('[ModelConfig] Auto-applied preset for:', modelInfo.general_name, preset);
+  }, [modelInfo?.general_name, modelInfo?.recommended_params]);
 
   const handleInputChange = (field: keyof SamplerConfig, value: string | number) => {
     setConfig(prev => ({
@@ -340,6 +375,8 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                   />
 
                   <PresetsSection
+                    generalName={modelInfo?.general_name}
+                    recommendedParams={modelInfo?.recommended_params}
                     onApplyPreset={(preset) => setConfig(prev => ({ ...prev, ...preset }))}
                   />
                 </CardContent>

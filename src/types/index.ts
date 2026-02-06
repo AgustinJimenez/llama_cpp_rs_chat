@@ -81,6 +81,15 @@ export interface ModelMetadata {
   file_type?: string;
   quantization_version?: string;
 
+  // Recommended sampling parameters (from GGUF general.sampling.*)
+  recommended_params?: {
+    temperature?: number;
+    top_p?: number;
+    top_k?: number;
+    min_p?: number;
+    repetition_penalty?: number;
+  };
+
   // Architecture details (structured for memory calculations)
   architecture_details?: {
     block_count?: number;  // Total layer count

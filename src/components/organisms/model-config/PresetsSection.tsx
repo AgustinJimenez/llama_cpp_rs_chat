@@ -1,64 +1,83 @@
 import React from 'react';
 import { Button } from '../../atoms/button';
 import type { SamplerConfig } from '@/types';
+import { DEFAULT_PRESET, findPresetByName, type ModelPreset } from '@/config/modelPresets';
 
 export interface PresetsSectionProps {
+  generalName?: string; // From GGUF general.name
+  recommendedParams?: Partial<SamplerConfig>; // From GGUF general.sampling.*
   onApplyPreset: (preset: Partial<SamplerConfig>) => void;
 }
 
-export const PresetsSection: React.FC<PresetsSectionProps> = ({ onApplyPreset }) => (
-  <div className="space-y-2">
-    <label className="text-sm font-medium">Quick Presets</label>
-    <div className="grid grid-cols-2 gap-2">
-      <Button
-        variant="outline"
-        onClick={() => onApplyPreset({
-          sampler_type: 'ChainFull',
-          temperature: 0.7,
-          top_p: 0.95,
-          top_k: 20,
-          gpu_layers: 32,
-        })}
-        className="text-xs"
-      >
-        IBM Recommended
-      </Button>
-      <Button
-        variant="outline"
-        onClick={() => onApplyPreset({
-          sampler_type: 'Greedy',
-          temperature: 0.1,
-          top_p: 0.1,
-          top_k: 1,
-        })}
-        className="text-xs"
-      >
-        Conservative
-      </Button>
-      <Button
-        variant="outline"
-        onClick={() => onApplyPreset({
-          sampler_type: 'Temperature',
-          temperature: 1.2,
-          top_p: 0.8,
-          top_k: 50,
-        })}
-        className="text-xs"
-      >
-        Creative
-      </Button>
-      <Button
-        variant="outline"
-        onClick={() => onApplyPreset({
-          sampler_type: 'Temperature',
-          temperature: 0.7,
-          top_p: 0.95,
-          top_k: 20,
-        })}
-        className="text-xs"
-      >
-        Balanced
-      </Button>
+export const PresetsSection: React.FC<PresetsSectionProps> = ({
+  generalName,
+  recommendedParams,
+  onApplyPreset
+}) => {
+  // Determine the best preset to show
+  const getModelPreset = (): ModelPreset | null => {
+    // First, use GGUF embedded params if available
+    if (recommendedParams && Object.keys(recommendedParams).length > 0) {
+      return recommendedParams;
+    }
+    // Then try to find a preset by model name
+    if (generalName) {
+      return findPresetByName(generalName);
+    }
+    return null;
+  };
+
+  const modelPreset = getModelPreset();
+  const hasModelPreset = modelPreset !== null;
+
+  return (
+    <div className="space-y-2">
+      <label className="text-sm font-medium">Quick Presets</label>
+      <div className="grid grid-cols-2 gap-2">
+        {/* Model-specific preset (if available) */}
+        {hasModelPreset && (
+          <Button
+            variant="default"
+            onClick={() => onApplyPreset({
+              ...DEFAULT_PRESET,
+              ...modelPreset,
+            })}
+            className="text-xs col-span-2 bg-orange-600 hover:bg-orange-700"
+          >
+            Apply Recommended for Model
+          </Button>
+        )}
+
+        {/* Fallback default */}
+        <Button
+          variant="outline"
+          onClick={() => onApplyPreset(DEFAULT_PRESET)}
+          className="text-xs"
+        >
+          Default (Balanced)
+        </Button>
+
+        {/* Greedy for deterministic output */}
+        <Button
+          variant="outline"
+          onClick={() => onApplyPreset({
+            sampler_type: 'Greedy',
+            temperature: 0.0,
+            top_p: 1.0,
+            top_k: 1,
+          })}
+          className="text-xs"
+        >
+          Greedy (Deterministic)
+        </Button>
+      </div>
+
+      {generalName && (
+        <p className="text-xs text-muted-foreground mt-2">
+          Model: {generalName}
+          {hasModelPreset && " (preset available)"}
+        </p>
+      )}
     </div>
-  </div>
-);
+  );
+};

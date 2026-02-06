@@ -365,6 +365,28 @@ pub async fn handle_get_model_info(
                 model_info["default_system_prompt"] = serde_json::json!(prompt);
             }
         }
+
+        // GGUF embedded sampling parameters (if present)
+        // These are the model creator's recommended defaults
+        let mut recommended_params = serde_json::Map::new();
+        if let Some(val) = extractor.get_json("general.sampling.temp") {
+            recommended_params.insert("temperature".to_string(), val);
+        }
+        if let Some(val) = extractor.get_json("general.sampling.top_p") {
+            recommended_params.insert("top_p".to_string(), val);
+        }
+        if let Some(val) = extractor.get_json("general.sampling.top_k") {
+            recommended_params.insert("top_k".to_string(), val);
+        }
+        if let Some(val) = extractor.get_json("general.sampling.min_p") {
+            recommended_params.insert("min_p".to_string(), val);
+        }
+        if let Some(val) = extractor.get_json("general.sampling.repetition_penalty") {
+            recommended_params.insert("repetition_penalty".to_string(), val);
+        }
+        if !recommended_params.is_empty() {
+            model_info["recommended_params"] = serde_json::json!(recommended_params);
+        }
     }
 
     Ok(json_raw(StatusCode::OK, model_info.to_string()))

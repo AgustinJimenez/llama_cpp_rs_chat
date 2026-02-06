@@ -6,6 +6,517 @@ Parameters sourced from official model cards on HuggingFace and vendor documenta
 
 ---
 
+## Model Inventory
+
+**Location:** `E:\.lmstudio\`
+
+| # | Model | Arch | Params | Quant | Size | Doc |
+|---|-------|------|--------|-------|------|-----|
+| 1 | Qwen3-Coder-Next | qwen3next | 80B | Q4_K_M | 48.49 GB | ✓ |
+| 2 | GLM-4.7-Flash | deepseek2 | 30B | Q4_K_M | 18.13 GB | ✓ |
+| 3 | Nemotron-3-Nano-30B-A3B | nemotron | 30B-A3B | Q4_K_M | 24.52 GB | ✓ |
+| 4 | Devstral-Small-2-2512 | mistral3 | 24B | Q6_K | 20.22 GB | ✓ |
+| 5 | rnj-1-instruct | gemma3 | 8.3B | Q8_0 | 8.84 GB | ✓ |
+| 6 | Ministral-3-14B-Reasoning | mistral3 | 14B | Q8_0 | 15.24 GB | ✓ |
+| 7 | MiniCPM4.1-8B | minicpm | 8B | BF16 | 16.37 GB | ✓ |
+| 8 | Magistral-Small-2509 | llama | 24B | Q6_K | 20.22 GB | ✓ |
+| 9 | granite-4.0-h-tiny | granitehybrid | 7B | Q4_K_M | 4.23 GB | ✓ |
+| 10 | gpt-oss-20b | gpt-oss | 20B | MXFP4 | 12.11 GB | ✓ |
+| 11 | Qwen3-8B | qwen3 | 8B | Q8_0 | 8.71 GB | ✓ |
+| 12 | gemma-3-12b-it | gemma3 | 12B | Q8_0 | 13.36 GB | ✓ |
+| 13 | Qwen3-Coder-30B-A3B-1M | qwen3moe | 30B-A3B | Q4_K_S | 17.46 GB | ✓ |
+| 14 | Qwen3-Coder-30B-A3B-1M-UD | qwen3moe | 30B-A3B | Q8_K_XL | 35.99 GB | ✓ |
+| 15 | Qwen3-30B-A3B-2507 | qwen3moe | 30B-A3B | Q4_K_M | 18.56 GB | ✓ |
+| 16 | Devstral-Small-2507 | llama | 24B | Q4_K_M | 14.33 GB | ✓ |
+
+*Last updated: 2026-02-06*
+
+---
+
+## Qwen3-Coder-Next (Alibaba)
+
+**File:** `lmstudio-community/Qwen3-Coder-Next-GGUF/Qwen3-Coder-Next-Q4_K_M.gguf`
+
+| Property | Value |
+|----------|-------|
+| Creator | Alibaba Qwen Team |
+| Architecture | qwen3next (Hybrid Mamba-Transformer) |
+| Total Parameters | 80B |
+| Active Parameters | 3B (MoE) |
+| Quantization | Q4_K_M |
+| Context Window | 262,144 tokens (256K) |
+| Chat Template | ChatML (`<\|im_start\|>...<\|im_end\|>`) |
+| Thinking Mode | Non-thinking only |
+
+### Official Sampling Parameters (HuggingFace)
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| temperature | 1.0 | Official recommendation |
+| top_p | 0.95 | Official recommendation |
+| top_k | 40 | Official recommendation |
+
+### GGUF Embedded Parameters
+
+| Parameter | Value |
+|-----------|-------|
+| temperature | 1.0 |
+| top_p | 0.95 |
+| top_k | 40 |
+| context_length | 262144 |
+
+### Notes
+- Hybrid Mamba-Transformer architecture with SSM (State Space Model) components.
+- Despite 80B total parameters, only 3B are activated per token (very efficient).
+- Optimized for agentic coding tasks with tool-calling capabilities.
+- Non-thinking mode only (no `<think>` blocks).
+- If OOM, reduce context to 32K.
+
+### Sources
+- https://huggingface.co/Qwen/Qwen3-Coder-Next
+
+---
+
+## GLM-4.7-Flash (Zai/THUDM)
+
+**File:** `lmstudio-community/GLM-4.7-Flash-GGUF/GLM-4.7-Flash-Q4_K_M.gguf`
+
+| Property | Value |
+|----------|-------|
+| Creator | Zai / THUDM |
+| Architecture | deepseek2 (MLA attention) |
+| Total Parameters | 30B |
+| Quantization | Q4_K_M |
+| Context Window | 202,752 tokens (~200K) |
+| Chat Template | Custom GLM (`[gMASK]<sop>`) |
+
+### Official Sampling Parameters (HuggingFace)
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| temperature | 1.0 | Default; use 0.7 for SWE tasks, 0 for agentic |
+| top_p | 0.95 | Default; use 1.0 for SWE tasks |
+| max_new_tokens | 131072 | Default generation limit |
+
+### GGUF Embedded Parameters
+
+| Parameter | Value |
+|-----------|-------|
+| temperature | 1.0 |
+| context_length | 202752 |
+
+### Notes
+- Uses DeepSeek2-style MLA (Multi-head Latent Attention) architecture.
+- For agentic tasks, use temperature=0 with "Preserved Thinking mode".
+- Has tool calling support via `<tools>` XML tags.
+- Supports vLLM and SGLang frameworks.
+
+### Sources
+- https://huggingface.co/zai-org/GLM-4.7-Flash
+
+---
+
+## Nemotron-3-Nano-30B-A3B (NVIDIA)
+
+**File:** `lmstudio-community/NVIDIA-Nemotron-3-Nano-30B-A3B-GGUF/NVIDIA-Nemotron-3-Nano-30B-A3B-Q4_K_M.gguf`
+
+| Property | Value |
+|----------|-------|
+| Creator | NVIDIA |
+| Architecture | nemotron_h_moe (Hybrid Mamba-MoE) |
+| Total Parameters | 30B |
+| Active Parameters | 3B (MoE) |
+| Quantization | Q4_K_M |
+| Context Window | 1,048,576 tokens (1M) |
+| Chat Template | ChatML (`<\|im_start\|>...<\|im_end\|>`) |
+| Thinking Mode | Supports `enable_thinking=True` |
+
+### Official Sampling Parameters (NVIDIA)
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| temperature | 1.0 | For reasoning tasks with thinking |
+| top_p | 1.0 | For reasoning tasks |
+| temperature | 0.6 | For tool calling / standard chat |
+| top_p | 0.95 | For tool calling / standard chat |
+
+### GGUF Embedded Parameters
+
+| Parameter | Value |
+|-----------|-------|
+| temperature | 1.0 |
+| top_p | 1.0 |
+| context_length | 1048576 |
+
+### Notes
+- Hybrid Mamba-MoE architecture with SSM components.
+- Only 3B parameters activated per token (very efficient).
+- Native 1M context window.
+- Use `enable_thinking=True` for reasoning tasks (temperature=1.0).
+- Use `enable_thinking=False` for standard chat to reduce latency.
+
+### Sources
+- https://build.nvidia.com/nvidia/nemotron-3-nano-30b-a3b/modelcard
+
+---
+
+## Devstral-Small-2-24B-Instruct-2512 (Mistral)
+
+**File:** `lmstudio-community/Devstral-Small-2-24B-Instruct-2512-GGUF/Devstral-Small-2-24B-Instruct-2512-Q6_K.gguf`
+
+| Property | Value |
+|----------|-------|
+| Creator | Mistral AI |
+| Architecture | mistral3 (dense transformer) |
+| Total Parameters | 24B |
+| Quantization | Q6_K |
+| Context Window | 393,216 tokens (384K) |
+| Chat Template | Mistral (`[INST]...[/INST]`) |
+| Vision | Yes (multimodal) |
+
+### Official Sampling Parameters (Mistral)
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| temperature | 0.15 | Low temp for deterministic agentic tasks |
+
+### GGUF Embedded Parameters
+
+| Parameter | Value |
+|-----------|-------|
+| context_length | 393216 |
+
+### Notes
+- Vision-capable model (can analyze images).
+- Runs on single RTX 4090 or 32GB Mac.
+- Optimized for agentic coding tasks.
+- Requires vLLM with `--tool-call-parser mistral --enable-auto-tool-choice`.
+- Uses YaRN rope scaling for extended context.
+
+### Sources
+- https://huggingface.co/mistralai/Devstral-Small-2-24B-Instruct-2512
+
+---
+
+## rnj-1-instruct (EssentialAI)
+
+**File:** `lmstudio-community/rnj-1-instruct-GGUF/rnj-1-instruct-Q8_0.gguf`
+
+| Property | Value |
+|----------|-------|
+| Creator | EssentialAI |
+| Architecture | gemma3 |
+| Total Parameters | 8.3B |
+| Quantization | Q8_0 |
+| Context Window | 32,768 tokens (32K, extendable to 128K) |
+| Chat Template | Llama3-style |
+
+### Official Sampling Parameters (EssentialAI)
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| temperature | 0.0 - 0.2 | Avoid higher temps |
+| top_p | 0.95 | From examples |
+
+### GGUF Embedded Parameters
+
+| Parameter | Value |
+|-----------|-------|
+| temperature | 0.2 |
+| context_length | 32768 |
+
+### Notes
+- Strong code inclination - tends to write code even for non-code tasks.
+- **Always use a system prompt** (e.g., "You are a helpful assistant.")
+- Omitting system prompt causes truncated outputs.
+- Uses YaRN rope scaling (factor 4.0) for context extension.
+- Trained on 32K, can extrapolate to 128K.
+
+### Sources
+- https://huggingface.co/EssentialAI/rnj-1-instruct
+
+---
+
+## Ministral-3-14B-Reasoning-2512 (Mistral)
+
+**File:** `lmstudio-community/Ministral-3-14B-Reasoning-2512-GGUF/Ministral-3-14B-Reasoning-2512-Q8_0.gguf`
+
+| Property | Value |
+|----------|-------|
+| Creator | Mistral AI |
+| Architecture | mistral3 (dense transformer) |
+| Total Parameters | 14B |
+| Quantization | Q8_0 |
+| Context Window | 262,144 tokens (256K) |
+| Chat Template | Mistral with reasoning |
+| Vision | Yes (multimodal) |
+
+### Official Sampling Parameters (Mistral)
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| temperature | 1.0 | Recommended; experiment with alternatives |
+| top_p | 0.95 | From examples |
+
+### GGUF Embedded Parameters
+
+| Parameter | Value |
+|-----------|-------|
+| context_length | 262144 |
+
+### Notes
+- Built-in reasoning/thinking mode via chat template.
+- Vision-capable (maintain ~1:1 aspect ratio for images).
+- Keep reasoning traces in multi-turn context.
+- Fits in 32GB VRAM (BF16) or <24GB with quantization.
+- Uses YaRN rope scaling for extended context.
+
+### Sources
+- https://huggingface.co/mistralai/Ministral-3-14B-Reasoning-2512
+
+---
+
+## MiniCPM4.1-8B (OpenBMB)
+
+**File:** `Mungert/MiniCPM4.1-8B-GGUF/MiniCPM4.1-8B-bf16.gguf`
+
+| Property | Value |
+|----------|-------|
+| Creator | OpenBMB |
+| Architecture | minicpm |
+| Total Parameters | 8B |
+| Quantization | BF16 |
+| Context Window | 65,536 tokens (64K, extendable to 128K) |
+| Chat Template | ChatML (`<\|im_start\|>...<\|im_end\|>`) |
+
+### Official Sampling Parameters (OpenBMB)
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| temperature | 0.7 | Recommended |
+| top_p | 0.7 | Recommended |
+| repetition_penalty | 1.02 | Optional |
+| max_tokens | 1024 | Standard limit |
+
+### GGUF Embedded Parameters
+
+| Parameter | Value |
+|-----------|-------|
+| context_length | 65536 |
+
+### Notes
+- Native 32K context, extendable to 128K with LongRoPE.
+- Supports InfLLM v2 sparse attention for long sequences.
+- Dense attention threshold at 8K tokens.
+- Use `add_special_tokens=True` with vLLM chat API.
+
+### Sources
+- https://huggingface.co/openbmb/MiniCPM4-8B
+
+---
+
+## Magistral-Small-2509 (Mistral)
+
+**File:** `lmstudio-community/Magistral-Small-2509-GGUF/Magistral-Small-2509-Q6_K.gguf`
+
+| Property | Value |
+|----------|-------|
+| Creator | Mistral AI |
+| Architecture | llama (dense transformer) |
+| Total Parameters | 24B |
+| Quantization | Q6_K |
+| Context Window | 131,072 tokens (128K) |
+| Chat Template | Mistral with `[THINK]` reasoning |
+| Vision | Yes (up to 10 images) |
+
+### Official Sampling Parameters (Mistral)
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| temperature | 0.7 | Recommended |
+| top_p | 0.95 | Recommended |
+| max_tokens | 131072 | Full context |
+
+### GGUF Embedded Parameters
+
+| Parameter | Value |
+|-----------|-------|
+| context_length | 131072 |
+
+### Notes
+- Uses `[THINK]...[/THINK]` tokens for reasoning (special tokens, not strings).
+- Vision-capable (max 10 images per prompt).
+- Performance may degrade past 40K tokens but still works.
+- Always include system prompt for best results.
+
+### Sources
+- https://huggingface.co/mistralai/Magistral-Small-2509
+
+---
+
+## granite-4.0-h-tiny (IBM)
+
+**File:** `lmstudio-community/granite-4.0-h-tiny-GGUF/granite-4.0-h-tiny-Q4_K_M.gguf`
+
+| Property | Value |
+|----------|-------|
+| Creator | IBM |
+| Architecture | granitehybrid (Hybrid MoE + SSM) |
+| Total Parameters | 7B |
+| Active Parameters | 1B (MoE) |
+| Quantization | Q4_K_M |
+| Context Window | 1,048,576 tokens (1M) |
+| Chat Template | Custom Granite |
+
+### Official Sampling Parameters (IBM)
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| temperature | 0.0 | Best for standard inference |
+| top_p | 1.0 | With temperature=0 |
+| top_k | 0 | With temperature=0 |
+
+### GGUF Embedded Parameters
+
+| Parameter | Value |
+|-----------|-------|
+| context_length | 1048576 |
+
+### Notes
+- Hybrid MoE + SSM architecture (only 1B active params).
+- Native 1M context window.
+- Validated up to 128K tokens in practice.
+- Multilingual: 12 languages.
+- Use temperature=0 for deterministic results.
+
+### Sources
+- https://www.ibm.com/granite/docs/models/granite
+
+---
+
+## gpt-oss-20b (OpenAI)
+
+**File:** `lmstudio-community/gpt-oss-20b-GGUF/gpt-oss-20b-MXFP4.gguf`
+
+| Property | Value |
+|----------|-------|
+| Creator | OpenAI |
+| Architecture | gpt-oss (MoE) |
+| Total Parameters | 21B |
+| Active Parameters | 3.6B (MoE) |
+| Quantization | MXFP4 |
+| Context Window | 131,072 tokens (128K) |
+| Chat Template | Harmony format |
+
+### Official Sampling Parameters (OpenAI)
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| - | - | Not explicitly documented |
+
+### GGUF Embedded Parameters
+
+| Parameter | Value |
+|-----------|-------|
+| context_length | 131072 |
+
+### Notes
+- **Must use Harmony response format** (won't work otherwise).
+- Configurable reasoning effort via system prompt:
+  - `"Reasoning: low"` - Fast responses
+  - `"Reasoning: medium"` - Balanced
+  - `"Reasoning: high"` - Deep analysis
+- Fits in 16GB VRAM with MXFP4 quantization.
+- Has sliding window attention.
+- Supports browser and Python built-in tools.
+
+### Sources
+- https://huggingface.co/openai/gpt-oss-20b
+
+---
+
+## Qwen3-8B (Alibaba)
+
+**File:** `lmstudio-community/Qwen3-8B-GGUF/Qwen3-8B-Q8_0.gguf`
+
+| Property | Value |
+|----------|-------|
+| Creator | Alibaba Qwen Team |
+| Architecture | qwen3 (dense transformer) |
+| Total Parameters | 8B |
+| Quantization | Q8_0 |
+| Context Window | 32,768 tokens (32K, extendable to 128K) |
+| Chat Template | ChatML (`<\|im_start\|>...<\|im_end\|>`) |
+| Thinking Mode | Supports `enable_thinking=True/False` |
+
+### Official Sampling Parameters (Qwen)
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| temperature | 0.6 | Thinking mode |
+| top_p | 0.95 | Thinking mode |
+| top_k | 20 | Both modes |
+| min_p | 0 | Both modes |
+| temperature | 0.7 | Non-thinking mode |
+| top_p | 0.8 | Non-thinking mode |
+
+### GGUF Embedded Parameters
+
+| Parameter | Value |
+|-----------|-------|
+| context_length | 32768 |
+
+### Notes
+- **DO NOT use greedy decoding** in thinking mode (causes repetitions).
+- For multi-turn: exclude `<think>` content from history.
+- Native 32K context, extendable to 128K with YaRN.
+- YaRN may impact short text performance.
+
+### Sources
+- https://huggingface.co/Qwen/Qwen3-8B
+
+---
+
+## gemma-3-12b-it (Google)
+
+**File:** `lmstudio-community/gemma-3-12b-it-GGUF/gemma-3-12b-it-Q8_0.gguf`
+
+| Property | Value |
+|----------|-------|
+| Creator | Google |
+| Architecture | gemma3 |
+| Total Parameters | 12B |
+| Quantization | Q8_0 |
+| Context Window | 131,072 tokens (128K) |
+| Chat Template | Gemma (`<start_of_turn>...<end_of_turn>`) |
+| Vision | Yes (multimodal) |
+
+### Official Sampling Parameters (Google)
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| do_sample | False | Examples use deterministic |
+| max_new_tokens | 8192 | Max output length |
+
+### GGUF Embedded Parameters
+
+| Parameter | Value |
+|-----------|-------|
+| context_length | 131072 |
+| sliding_window | 1024 |
+
+### Notes
+- Vision-capable (images at 896x896, encoded to 256 tokens each).
+- Uses sliding window attention (1024 tokens).
+- Linear rope scaling (factor 8.0) for 128K context.
+- Use `torch.bfloat16` for GPU inference.
+- Refer to [Gemma 3 Technical Report](https://goo.gle/Gemma3Report) for detailed params.
+
+### Sources
+- https://huggingface.co/google/gemma-3-12b-it
+
+---
+
 ## Devstral-Small-2507 (Mistral)
 
 **File:** `lmstudio-community/Devstral-Small-2507-GGUF/Devstral-Small-2507-Q4_K_M.gguf`

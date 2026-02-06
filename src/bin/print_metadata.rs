@@ -1,9 +1,15 @@
 use gguf_llms::{GgufHeader, GgufReader, Value};
+use std::env;
 use std::fs;
 use std::io::BufReader;
 
 fn main() {
-    let model_path = "E:/.lmstudio/lmstudio-community/gemma-3-12b-it-GGUF/gemma-3-12b-it-Q8_0.gguf";
+    let args: Vec<String> = env::args().collect();
+    let model_path = if args.len() > 1 {
+        &args[1]
+    } else {
+        "E:/.lmstudio/models/lmstudio-community/Devstral-Small-2507-GGUF/Devstral-Small-2507-Q4_K_M.gguf"
+    };
 
     println!("=================================================================");
     println!("Reading GGUF metadata from: {}", model_path);
@@ -168,17 +174,48 @@ fn main() {
     }
 
     println!();
-    println!("🎯 GENERAL MODEL INFO:");
+    println!("🎯 GENERAL MODEL INFO (all general.* keys):");
     println!("-----------------------------------------------------------------");
 
-    if let Some(v) = metadata.get("general.architecture") {
-        println!("  general.architecture: {:?}", v);
+    // Print all general.* keys sorted
+    let mut general_keys: Vec<_> = metadata.keys()
+        .filter(|k| k.starts_with("general."))
+        .collect();
+    general_keys.sort();
+
+    for key in general_keys {
+        if let Some(v) = metadata.get(key) {
+            println!("  {}: {:?}", key, v);
+        }
     }
-    if let Some(v) = metadata.get("general.name") {
-        println!("  general.name: {:?}", v);
+
+    println!();
+    println!("⚙️ GGUF SAMPLING PARAMETERS:");
+    println!("-----------------------------------------------------------------");
+
+    if let Some(v) = metadata.get("general.sampling.temp") {
+        println!("  temperature: {:?}", v);
     }
-    if let Some(v) = metadata.get("general.file_type") {
-        println!("  general.file_type: {:?}", v);
+    if let Some(v) = metadata.get("general.sampling.top_p") {
+        println!("  top_p: {:?}", v);
+    }
+    if let Some(v) = metadata.get("general.sampling.top_k") {
+        println!("  top_k: {:?}", v);
+    }
+    if let Some(v) = metadata.get("general.sampling.min_p") {
+        println!("  min_p: {:?}", v);
+    }
+    if let Some(v) = metadata.get("general.sampling.repetition_penalty") {
+        println!("  repetition_penalty: {:?}", v);
+    }
+
+    // Get architecture-specific context length
+    let arch = metadata.get("general.architecture")
+        .and_then(|v| if let Value::String(s) = v { Some(s.clone()) } else { None })
+        .unwrap_or_else(|| "llama".to_string());
+
+    if let Some(v) = metadata.get(&format!("{}.context_length", arch)) {
+        println!("  context_length: {:?}", v);
     }
 
     println!();
