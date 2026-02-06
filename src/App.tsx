@@ -9,7 +9,7 @@ import { logToastError } from './utils/toastLogger';
 
 // eslint-disable-next-line max-lines-per-function
 function App() {
-  const { messages, isLoading, sendMessage, clearMessages, loadConversation, currentConversationId, tokensUsed, maxTokens } = useChat();
+  const { messages, isLoading, sendMessage, clearMessages, loadConversation, currentConversationId, tokensUsed, maxTokens, stopGeneration } = useChat();
   const { status: modelStatus, isLoading: isModelLoading, loadingAction, error: modelError, hasStatusError, loadModel, unloadModel, hardUnload } = useModel();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -44,22 +44,52 @@ function App() {
   };
 
   const handleModelUnload = async () => {
+    // Stop any active generation before unloading
+    stopGeneration();
+
+    // Show immediate feedback that unloading has started
+    const loadingToast = toast.loading('Unloading model... (may take a moment if generation is active)');
+
     const result = await unloadModel();
+
+    // Dismiss the loading toast
+    toast.dismiss(loadingToast);
+
     if (result.success) {
-      toast.success('Model unloaded successfully');
+      toast.success('Model unloaded successfully. Memory will be reclaimed by the OS as needed.', {
+        duration: 5000,
+      });
       // Clear any existing conversation when model is unloaded
       clearMessages();
     } else {
-      const display = `Failed to unload model: ${result.message}`;
+      const display = result.message.includes('timed out')
+        ? result.message
+        : `Failed to unload model: ${result.message}`;
       logToastError('App.handleModelUnload', display);
-      toast.error(display, { duration: 5000 });
+      toast.error(display, { duration: result.message.includes('timed out') ? 8000 : 5000 });
     }
   };
 
   const handleForceUnload = async () => {
-    await hardUnload();
-    toast('Force-unloaded backend to free memory', { icon: '🧹' });
-    clearMessages();
+    // Stop any active generation before force unloading
+    stopGeneration();
+
+    // Show immediate feedback
+    const loadingToast = toast.loading('Force unloading model... (may take a moment if generation is active)');
+
+    try {
+      await hardUnload();
+      // Dismiss the loading toast
+      toast.dismiss(loadingToast);
+      toast.success('Force-unloaded backend to free memory');
+      clearMessages();
+    } catch (err) {
+      // Dismiss the loading toast
+      toast.dismiss(loadingToast);
+      // Even on error, we've done our best to force unload
+      toast('Force unload attempted - memory may be freed', { icon: '⚠️', duration: 6000 });
+      clearMessages();
+    }
   };
 
   return (
@@ -88,6 +118,7 @@ function App() {
             modelLoaded={modelStatus.loaded}
             modelPath={modelStatus.model_path ?? undefined}
             isModelLoading={isModelLoading}
+            loadingAction={loadingAction}
             messagesLength={messages.length}
             tokensUsed={tokensUsed}
             maxTokens={maxTokens}
@@ -120,6 +151,7 @@ function App() {
             isLoading={isLoading}
             onSendMessage={sendMessage}
             onModelLoad={handleModelLoad}
+            onStopGeneration={stopGeneration}
           />
         </div>
       </div>

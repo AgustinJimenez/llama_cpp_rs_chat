@@ -119,6 +119,7 @@ pub fn inject_output_tokens(
 }
 
 /// Stream command output to frontend via token sender.
+/// Command outputs are sent with flush_immediately=true to avoid buffering delays.
 pub fn stream_command_output(
     output_block: &str,
     token_sender: &Option<mpsc::UnboundedSender<TokenData>>,
@@ -130,6 +131,7 @@ pub fn stream_command_output(
             token: output_block.to_string(),
             tokens_used: token_pos,
             max_tokens: context_size as i32,
+            flush_immediately: true,
         });
     }
 }

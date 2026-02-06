@@ -1,16 +1,18 @@
 import React, { useState, useCallback, KeyboardEvent, useEffect, useRef } from 'react';
-import { Send } from 'lucide-react';
+import { Send, Square } from 'lucide-react';
 
 interface MessageInputProps {
   onSendMessage: (message: string) => void;
   disabled?: boolean;
   disabledReason?: string;
+  onStopGeneration?: () => void;
 }
 
-export const MessageInput: React.FC<MessageInputProps> = ({ 
-  onSendMessage, 
+export const MessageInput: React.FC<MessageInputProps> = ({
+  onSendMessage,
   disabled = false,
   disabledReason,
+  onStopGeneration,
 }) => {
   const [message, setMessage] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -65,15 +67,27 @@ export const MessageInput: React.FC<MessageInputProps> = ({
           aria-label={disabled && disabledReason ? disabledReason : 'Message input'}
         />
       </div>
-      <button
-        type="submit"
-        disabled={disabled || !message.trim()}
-        className="flat-button bg-primary text-white px-6 h-[60px] min-w-[60px] flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-        data-testid="send-button"
-        title={disabled && disabledReason ? disabledReason : undefined}
-      >
-        <Send className="h-5 w-5" />
-      </button>
+      {disabled && onStopGeneration ? (
+        <button
+          type="button"
+          onClick={onStopGeneration}
+          className="flat-button bg-destructive text-white px-6 h-[60px] min-w-[60px] flex items-center justify-center hover:bg-destructive/90 active:scale-95"
+          data-testid="stop-button"
+          title="Stop generation"
+        >
+          <Square className="h-5 w-5" fill="currentColor" />
+        </button>
+      ) : (
+        <button
+          type="submit"
+          disabled={disabled || !message.trim()}
+          className="flat-button bg-primary text-white px-6 h-[60px] min-w-[60px] flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+          data-testid="send-button"
+          title={disabled && disabledReason ? disabledReason : undefined}
+        >
+          <Send className="h-5 w-5" />
+        </button>
+      )}
     </form>
   );
 };

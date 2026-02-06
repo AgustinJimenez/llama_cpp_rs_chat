@@ -24,4 +24,6 @@ CMake on Windows: set CMAKE environment variable to your cmake.exe path if not i
 
 Tool calling: tool schema is exposed via /api/tools/available and execution via /api/tools/execute. Models see available tools injected into prompts. Safety limit MAX_TOOL_ITERATIONS = 5 on the frontend agent loop.
 
+Conversations: stored in SQLite at assets/llama_chat.db. List via GET /api/conversations. In the UI, open the sidebar (hamburger menu, top-left) to browse and load past conversations.
+
 Common gotchas to remember: use port 4000 for the UI (not 8000), keep backend running for Playwright tests, and prefer existing modules rather than duplicating code when editing web routes or chat logic.

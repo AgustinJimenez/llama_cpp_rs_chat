@@ -51,12 +51,7 @@ pub async fn handle_post_config(
             "top_p must be between 0.0 and 1.0",
         ));
     }
-    if incoming_config.top_k < 0 {
-        return Ok(json_error(
-            StatusCode::BAD_REQUEST,
-            "top_k must be non-negative",
-        ));
-    }
+    // top_k is u32, so it's always non-negative by type
     if incoming_config.context_size.unwrap_or(0) <= 0 {
         return Ok(json_error(
             StatusCode::BAD_REQUEST,
@@ -72,11 +67,13 @@ pub async fn handle_post_config(
     existing_config.temperature = incoming_config.temperature;
     existing_config.top_p = incoming_config.top_p;
     existing_config.top_k = incoming_config.top_k;
+    existing_config.min_p = incoming_config.min_p;
     existing_config.mirostat_tau = incoming_config.mirostat_tau;
     existing_config.mirostat_eta = incoming_config.mirostat_eta;
     existing_config.model_path = incoming_config.model_path;
     existing_config.system_prompt = incoming_config.system_prompt;
     existing_config.context_size = incoming_config.context_size;
+    existing_config.max_tokens = incoming_config.max_tokens;
     existing_config.stop_tokens = incoming_config.stop_tokens;
     // Note: model_history is NOT updated from incoming config
 

@@ -87,6 +87,9 @@ fn calculate_tokens_for_content(
     content: &str,
     llama_state: &Option<SharedLlamaState>,
 ) -> (Option<i32>, Option<i32>) {
+    // Load config to get system prompt mode
+    let config = super::config::load_config();
+
     if let Some(ref state) = llama_state {
         if let Ok(state_lock) = state.lock() {
             if let Some(ref llama_state_inner) = *state_lock {
@@ -94,7 +97,12 @@ fn calculate_tokens_for_content(
                     if let Some(context_size) = llama_state_inner.model_context_length {
                         // Apply chat template to get the prompt
                         let template_type = llama_state_inner.chat_template_type.as_deref();
-                        match apply_model_chat_template(content, template_type) {
+                        match apply_model_chat_template(
+                            content,
+                            template_type,
+                            Some(model),
+                            config.system_prompt.as_deref(),
+                        ) {
                             Ok(prompt) => match model.str_to_token(&prompt, AddBos::Always) {
                                 Ok(tokens) => {
                                     return (Some(tokens.len() as i32), Some(context_size as i32))
@@ -272,11 +280,13 @@ pub async fn handle_websocket(
                         token_result = rx.recv() => {
                             match token_result {
                                 Some(token_data) => {
+                                    let should_flush_immediately = token_data.flush_immediately;
                                     pending_tokens.push_str(&token_data.token);
                                     pending_tokens_used = Some(token_data.tokens_used);
                                     pending_max_tokens = Some(token_data.max_tokens);
 
-                                    if pending_tokens.len() >= WS_TOKEN_FLUSH_MAX_CHARS {
+                                    // Flush immediately if requested (e.g., command outputs) or if buffer is full
+                                    if should_flush_immediately || pending_tokens.len() >= WS_TOKEN_FLUSH_MAX_CHARS {
                                         if flush_pending_tokens(
                                             &mut ws_sender,
                                             &mut pending_tokens,

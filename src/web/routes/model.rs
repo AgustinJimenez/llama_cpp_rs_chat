@@ -536,6 +536,106 @@ pub async fn handle_post_model_load(
     }
 }
 
+/// Force-reset the model state - use when normal unload fails
+/// This will abort any running generation and forcefully drop the state
+pub async fn handle_post_model_force_reset(
+    #[cfg(not(feature = "mock"))] llama_state: SharedLlamaState,
+    #[cfg(feature = "mock")] _llama_state: (),
+) -> Result<Response<Body>, Infallible> {
+    #[cfg(not(feature = "mock"))]
+    {
+        sys_debug!("[FORCE_RESET] Force reset requested");
+
+        // Set abort flag if state exists
+        if let Ok(state_guard) = llama_state.lock() {
+            if let Some(ref state) = *state_guard {
+                state.abort_generation.store(true, std::sync::atomic::Ordering::Relaxed);
+                sys_debug!("[FORCE_RESET] Abort flag set");
+            }
+        }
+
+        // Give it 1 second to abort gracefully
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+        // Force-drop the entire state using spawn_blocking for safety
+        let state_clone = llama_state.clone();
+        let result = spawn_blocking(move || {
+            match state_clone.lock() {
+                Ok(mut state_guard) => {
+                    if state_guard.is_some() {
+                        sys_debug!("[FORCE_RESET] Dropping entire state forcefully");
+                        let old_state = state_guard.take();
+                        drop(old_state);
+                        sys_debug!("[FORCE_RESET] State dropped successfully");
+                        Ok(())
+                    } else {
+                        sys_debug!("[FORCE_RESET] No state to drop");
+                        Ok(())
+                    }
+                }
+                Err(e) => {
+                    sys_error!("[FORCE_RESET] Failed to lock state: {}", e);
+                    Err(format!("Failed to lock state: {}", e))
+                }
+            }
+        })
+        .await;
+
+        match result {
+            Ok(Ok(_)) => {
+                let status = get_model_status(&llama_state);
+                let response = ModelResponse {
+                    success: true,
+                    message: "Model force-reset successful - state cleared".to_string(),
+                    status: Some(status),
+                };
+
+                let response_json = serialize_with_fallback(
+                    &response,
+                    r#"{"success":true,"message":"Model force-reset successful","status":null}"#,
+                );
+
+                Ok(json_raw(StatusCode::OK, response_json))
+            }
+            Ok(Err(e)) => {
+                sys_error!("[FORCE_RESET] Force reset failed: {}", e);
+                let response = ModelResponse {
+                    success: false,
+                    message: format!("Force reset failed: {}", e),
+                    status: None,
+                };
+
+                let response_json = serialize_with_fallback(
+                    &response,
+                    r#"{"success":false,"message":"Force reset failed"}"#,
+                );
+
+                Ok(json_raw(StatusCode::INTERNAL_SERVER_ERROR, response_json))
+            }
+            Err(e) => {
+                sys_error!("[FORCE_RESET] Force reset task panicked: {:?}", e);
+                let response = ModelResponse {
+                    success: false,
+                    message: format!("Force reset task failed: {:?}", e),
+                    status: None,
+                };
+
+                let response_json = serialize_with_fallback(
+                    &response,
+                    r#"{"success":false,"message":"Force reset task failed"}"#,
+                );
+
+                Ok(json_raw(StatusCode::INTERNAL_SERVER_ERROR, response_json))
+            }
+        }
+    }
+
+    #[cfg(feature = "mock")]
+    {
+        Ok(json_raw(StatusCode::OK, r#"{"success":true}"#.to_string()))
+    }
+}
+
 pub async fn handle_post_model_unload(
     #[cfg(not(feature = "mock"))] llama_state: SharedLlamaState,
     #[cfg(feature = "mock")] _llama_state: (),
@@ -583,6 +683,51 @@ pub async fn handle_post_model_unload(
         Ok(json_raw(
             StatusCode::SERVICE_UNAVAILABLE,
             r#"{"success":false,"message":"Model unloading not available (mock feature enabled)"}"#
+                .to_string(),
+        ))
+    }
+}
+
+// Handler for aborting generation
+pub async fn handle_post_generation_abort(
+    #[cfg(not(feature = "mock"))] llama_state: SharedLlamaState,
+    #[cfg(feature = "mock")] _llama_state: (),
+) -> Result<Response<Body>, Infallible> {
+    #[cfg(not(feature = "mock"))]
+    {
+        match llama_state.lock() {
+            Ok(state_guard) => {
+                if let Some(ref state) = *state_guard {
+                    // Set abort flag to true
+                    state.abort_generation.store(true, std::sync::atomic::Ordering::Relaxed);
+                    sys_debug!("[ABORT] Generation abort requested");
+
+                    Ok(json_raw(
+                        StatusCode::OK,
+                        r#"{"success":true,"message":"Generation abort requested"}"#.to_string(),
+                    ))
+                } else {
+                    Ok(json_raw(
+                        StatusCode::BAD_REQUEST,
+                        r#"{"success":false,"message":"No model loaded"}"#.to_string(),
+                    ))
+                }
+            }
+            Err(e) => {
+                sys_error!("[ABORT] Failed to lock state: {}", e);
+                Ok(json_raw(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    r#"{"success":false,"message":"Failed to access model state"}"#.to_string(),
+                ))
+            }
+        }
+    }
+
+    #[cfg(feature = "mock")]
+    {
+        Ok(json_raw(
+            StatusCode::SERVICE_UNAVAILABLE,
+            r#"{"success":false,"message":"Generation abort not available (mock feature enabled)"}"#
                 .to_string(),
         ))
     }

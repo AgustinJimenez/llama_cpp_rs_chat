@@ -128,6 +128,14 @@ async fn handle_request_impl(
             web::routes::model::handle_post_model_unload(state).await?
         }
 
+        (&Method::POST, "/api/model/force-reset") => {
+            web::routes::model::handle_post_model_force_reset(state).await?
+        }
+
+        (&Method::POST, "/api/generation/abort") => {
+            web::routes::model::handle_post_generation_abort(state).await?
+        }
+
         // File operations
         (&Method::GET, "/api/browse") => web::routes::files::handle_get_browse(req, state).await?,
 
@@ -143,17 +151,17 @@ async fn handle_request_impl(
         // CORS preflight
         (&Method::OPTIONS, _) => web::routes::static_files::handle_options(state).await?,
 
-        // Static file serving
-        (&Method::GET, "/") => web::routes::static_files::handle_index(state).await?,
-
-        (&Method::GET, path)
-            if path.starts_with("/assets/")
-                || path.ends_with(".svg")
-                || path.ends_with(".ico")
-                || path.ends_with(".png") =>
-        {
-            web::routes::static_files::handle_static_asset(path, state).await?
-        }
+        // Static file serving - DISABLED (use port 4000 for frontend with hot reload)
+        // (&Method::GET, "/") => web::routes::static_files::handle_index(state).await?,
+        //
+        // (&Method::GET, path)
+        //     if path.starts_with("/assets/")
+        //         || path.ends_with(".svg")
+        //         || path.ends_with(".ico")
+        //         || path.ends_with(".png") =>
+        // {
+        //     web::routes::static_files::handle_static_asset(path, state).await?
+        // }
 
         // 404 Not Found
         _ => Response::builder()
@@ -227,7 +235,19 @@ async fn main() -> std::io::Result<()> {
 
     // Start server
     let addr = SocketAddr::from(([0, 0, 0, 0], 8000));
-    let server = Server::bind(&addr).serve(make_svc);
+
+    println!("🦙 Binding to port 8000...");
+    let server = match Server::try_bind(&addr) {
+        Ok(builder) => {
+            println!("✅ Successfully bound to {}", addr);
+            builder.serve(make_svc)
+        }
+        Err(e) => {
+            eprintln!("❌ Failed to bind to {}: {}", addr, e);
+            eprintln!("   Port 8000 might be in use by another process");
+            return Err(std::io::Error::new(std::io::ErrorKind::AddrInUse, e));
+        }
+    };
 
     println!("🦙 LLaMA Chat Web Server starting on http://{}", addr);
     println!("Available endpoints:");
@@ -240,15 +260,23 @@ async fn main() -> std::io::Result<()> {
     println!("  POST /api/model/history    - Add model path to history");
     println!("  POST /api/model/load       - Load a specific model");
     println!("  POST /api/model/unload     - Unload current model");
+    println!("  POST /api/model/force-reset - Force-reset model state (use if unload fails)");
     println!("  POST /api/upload           - Upload model file");
     println!("  GET  /api/conversations    - List conversation files");
     println!("  POST /api/tools/execute    - Execute tool calls");
     println!("  GET  /api/browse           - Browse model files");
     println!("  GET  /                     - Web interface");
+    println!("\n✅ Server is now listening and ready to accept connections!");
+    println!("   Press Ctrl+C to stop\n");
 
-    server
-        .await
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-
-    Ok(())
+    match server.await {
+        Ok(_) => {
+            println!("Server shut down gracefully");
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("❌ Server error: {}", e);
+            Err(std::io::Error::new(std::io::ErrorKind::Other, e))
+        }
+    }
 }

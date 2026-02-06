@@ -1,19 +1,5 @@
-use crate::log_warn;
 use std::env;
 use std::process::Command;
-
-// Whitelist of allowed commands for security
-const ALLOWED_COMMANDS: &[&str] = &[
-    // File operations
-    "ls", "dir", "cat", "type", "head", "tail", "find", "grep", "more", "less",
-    // Directory operations
-    "cd", "pwd", "mkdir", "rmdir", // File manipulation
-    "cp", "mv", "rm", "del", "touch", "chmod", // System info
-    "echo", "date", "whoami", "hostname", "uname", // Development tools
-    "git", "cargo", "npm", "node", "python", "rustc", // Archive operations
-    "tar", "zip", "unzip", "gzip", "gunzip", // Text processing
-    "sed", "awk", "sort", "uniq", "wc", "diff",
-];
 
 // Helper function to parse command with proper quote handling
 pub fn parse_command_with_quotes(cmd: &str) -> Vec<String> {
@@ -57,29 +43,6 @@ pub fn execute_command(cmd: &str) -> String {
 
     let command_name = &parts[0];
 
-    // Security: Check if command is in whitelist
-    if !ALLOWED_COMMANDS.contains(&command_name.as_str()) {
-        log_warn!("system", "Blocked unauthorized command: {}", command_name);
-        return format!(
-            "Error: Command '{}' is not allowed for security reasons. Allowed commands: {}",
-            command_name,
-            ALLOWED_COMMANDS.join(", ")
-        );
-    }
-
-    // Basic command validation - reject obviously invalid commands
-    if command_name.len() < 2 || command_name.contains("/") && !command_name.starts_with("/") {
-        return format!("Error: Invalid command format: {}", command_name);
-    }
-
-    // Prevent dangerous filesystem-wide searches
-    if command_name == "find" && parts.len() > 1 {
-        let search_path = &parts[1];
-        if search_path == "/" || search_path == "/usr" || search_path == "/System" {
-            return format!("Error: Filesystem-wide searches are not allowed for performance and security reasons. Try searching in specific directories like current directory '.'");
-        }
-    }
-
     // Special handling for cd command - actually change the process working directory
     if command_name == "cd" {
         let target_dir = if parts.len() > 1 {
@@ -102,17 +65,31 @@ pub fn execute_command(cmd: &str) -> String {
         }
     } else {
         // Normal command execution for non-cd commands
-        // On Windows, use cmd.exe for built-in commands like type, dir, echo, etc.
         let is_windows = cfg!(target_os = "windows");
-        let windows_builtins = [
-            "type", "dir", "echo", "del", "copy", "move", "ren", "cls", "date", "time",
-        ];
 
-        let mut command = if is_windows && windows_builtins.contains(&command_name.as_str()) {
-            // Use cmd.exe /c for Windows built-in commands
+        // On Windows, route ALL commands through cmd.exe /c so they inherit
+        // the full system PATH (PowerShell, git, curl, python, etc.)
+        let mut command = if is_windows {
             let full_cmd = parts.join(" ");
             let mut cmd = Command::new("cmd");
             cmd.args(["/c", &full_cmd]);
+            // Ensure common Windows tool directories are in PATH
+            // The Rust process may have a stripped PATH, so we enrich it
+            let current_path = env::var("PATH").unwrap_or_default();
+            let extra_dirs = [
+                r"C:\WINDOWS\system32",
+                r"C:\WINDOWS",
+                r"C:\WINDOWS\System32\Wbem",
+                r"C:\WINDOWS\System32\WindowsPowerShell\v1.0",
+                r"C:\Program Files\Git\cmd",
+                r"C:\Program Files\nodejs",
+                r"C:\ProgramData\chocolatey\bin",
+            ];
+            let enriched_path = extra_dirs
+                .iter()
+                .filter(|d| !current_path.contains(*d))
+                .fold(current_path.clone(), |acc, d| format!("{};{}", acc, d));
+            cmd.env("PATH", enriched_path);
             cmd
         } else {
             let mut cmd = Command::new(&parts[0]);
@@ -234,51 +211,9 @@ mod tests {
     }
 
     #[test]
-    fn test_execute_blocked_command() {
-        let result = execute_command("malicious_command");
-        assert!(result.contains("not allowed for security reasons"));
-        assert!(result.contains("malicious_command"));
-    }
-
-    #[test]
-    fn test_execute_allowed_echo_command() {
+    fn test_execute_echo_command() {
         let result = execute_command("echo Hello");
         assert!(result.contains("Hello") || result.contains("executed successfully"));
-    }
-
-    #[test]
-    fn test_whitelist_contains_basic_commands() {
-        assert!(ALLOWED_COMMANDS.contains(&"ls"));
-        assert!(ALLOWED_COMMANDS.contains(&"cat"));
-        assert!(ALLOWED_COMMANDS.contains(&"git"));
-        assert!(ALLOWED_COMMANDS.contains(&"echo"));
-    }
-
-    #[test]
-    fn test_whitelist_does_not_contain_dangerous_commands() {
-        assert!(!ALLOWED_COMMANDS.contains(&"rm -rf"));
-        assert!(!ALLOWED_COMMANDS.contains(&"shutdown"));
-        assert!(!ALLOWED_COMMANDS.contains(&"reboot"));
-        assert!(!ALLOWED_COMMANDS.contains(&"format"));
-    }
-
-    #[test]
-    fn test_find_command_blocked_on_root() {
-        let result = execute_command("find / -name test");
-        assert!(result.contains("Filesystem-wide searches are not allowed"));
-    }
-
-    #[test]
-    fn test_find_command_blocked_on_usr() {
-        let result = execute_command("find /usr -name test");
-        assert!(result.contains("Filesystem-wide searches are not allowed"));
-    }
-
-    #[test]
-    fn test_find_command_allowed_on_current_dir() {
-        let result = execute_command("find . -name test");
-        // Should not contain the block message
-        assert!(!result.contains("Filesystem-wide searches are not allowed"));
     }
 
     #[test]

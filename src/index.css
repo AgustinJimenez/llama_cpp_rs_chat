@@ -162,3 +162,9 @@
 *::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* Fix: Remove decorative backticks from inline code elements added by prose plugin */
+.prose code::before,
+.prose code::after {
+  content: '' !important;
+}

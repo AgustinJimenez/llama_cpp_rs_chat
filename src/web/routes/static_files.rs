@@ -6,6 +6,7 @@ use tokio::fs;
 
 use crate::web::response_helpers::cors_preflight;
 
+#[allow(dead_code)]
 pub async fn handle_index(
     #[cfg(not(feature = "mock"))] _llama_state: crate::web::models::SharedLlamaState,
     #[cfg(feature = "mock")] _llama_state: (),
@@ -42,6 +43,7 @@ pub async fn handle_index(
     }
 }
 
+#[allow(dead_code)]
 pub async fn handle_static_asset(
     path: &str,
     #[cfg(not(feature = "mock"))] _llama_state: crate::web::models::SharedLlamaState,

@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Button } from '../atoms/button';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import type { ModelMetadata } from '@/types';
 
 export type SystemPromptMode = 'model' | 'system' | 'custom';
@@ -53,68 +54,86 @@ export const SystemPromptSection: React.FC<SystemPromptSectionProps> = ({
   customSystemPrompt,
   setCustomSystemPrompt,
   modelInfo
-}) => (
-  <div className="space-y-3 pt-2 border-t">
-    <label className="text-sm font-medium">System Prompt</label>
+}) => {
+  const [isCollapsed, setIsCollapsed] = useState(true);
 
-    <div className="flex gap-2">
-      <Button
-        type="button"
-        variant={systemPromptMode === 'model' ? 'default' : 'outline'}
-        onClick={() => setSystemPromptMode('model')}
-        className="flex-1 text-xs px-2"
-      >
-        Model Default
-      </Button>
-      <Button
-        type="button"
-        variant={systemPromptMode === 'system' ? 'default' : 'outline'}
-        onClick={() => setSystemPromptMode('system')}
-        className="flex-1 text-xs px-2"
-      >
-        Agentic Mode
-      </Button>
-      <Button
-        type="button"
-        variant={systemPromptMode === 'custom' ? 'default' : 'outline'}
-        onClick={() => setSystemPromptMode('custom')}
-        className="flex-1 text-xs px-2"
-      >
-        Custom
-      </Button>
-    </div>
+  return (
+    <div className="space-y-3 pt-2 border-t">
+      <label className="text-sm font-medium">System Prompt</label>
 
-    <div className="space-y-2">
-      <textarea
-        value={
-          systemPromptMode === 'model'
-            ? (modelInfo?.default_system_prompt || '(No default system prompt found in model)')
-            : systemPromptMode === 'system'
-              ? AGENTIC_SYSTEM_PROMPT
-              : customSystemPrompt
-        }
-        onChange={(e) => {
-          if (systemPromptMode === 'custom') {
-            setCustomSystemPrompt(e.target.value);
-          }
-        }}
-        disabled={systemPromptMode !== 'custom'}
-        placeholder={systemPromptMode === 'custom' ? 'Enter your custom system prompt...' : ''}
-        className={`w-full px-3 py-2 text-sm border rounded-md min-h-[100px] resize-y ${
-          systemPromptMode === 'custom'
-            ? 'bg-background'
-            : systemPromptMode === 'system'
-              ? 'border-blue-500/30 bg-blue-500/5 text-blue-300 cursor-not-allowed'
-              : 'bg-muted text-muted-foreground cursor-not-allowed opacity-70'
-        }`}
-      />
-      <p className="text-xs text-muted-foreground">
-        {systemPromptMode === 'model'
-          ? "Using the model's built-in default system prompt from GGUF chat template."
-          : systemPromptMode === 'system'
-            ? 'Agentic mode with command execution. The model can run system commands.'
-            : 'Custom system prompt that will be used instead of the model\'s default.'}
-      </p>
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          variant={systemPromptMode === 'model' ? 'default' : 'outline'}
+          onClick={() => setSystemPromptMode('model')}
+          className="flex-1 text-xs px-2"
+        >
+          Model Default
+        </Button>
+        <Button
+          type="button"
+          variant={systemPromptMode === 'system' ? 'default' : 'outline'}
+          onClick={() => setSystemPromptMode('system')}
+          className="flex-1 text-xs px-2"
+        >
+          Agentic Mode
+        </Button>
+        <Button
+          type="button"
+          variant={systemPromptMode === 'custom' ? 'default' : 'outline'}
+          onClick={() => setSystemPromptMode('custom')}
+          className="flex-1 text-xs px-2"
+        >
+          Custom
+        </Button>
+      </div>
+
+      <div className="space-y-2">
+        <button
+          type="button"
+          onClick={() => setIsCollapsed(!isCollapsed)}
+          className="w-full flex items-center justify-between text-sm text-muted-foreground hover:opacity-70 transition-opacity py-2 px-3 rounded-md border border-border bg-muted/30"
+        >
+          <span>
+            {systemPromptMode === 'model'
+              ? "Using the model's built-in default system prompt from GGUF chat template."
+              : systemPromptMode === 'system'
+                ? 'Agentic mode with command execution. The model can run system commands.'
+                : 'Custom system prompt that will be used instead of the model\'s default.'}
+          </span>
+          {isCollapsed ? (
+            <ChevronDown className="h-4 w-4 flex-shrink-0 ml-2" />
+          ) : (
+            <ChevronUp className="h-4 w-4 flex-shrink-0 ml-2" />
+          )}
+        </button>
+
+        {!isCollapsed && (
+          <textarea
+            value={
+              systemPromptMode === 'model'
+                ? (modelInfo?.default_system_prompt || '(No default system prompt found in model)')
+                : systemPromptMode === 'system'
+                  ? AGENTIC_SYSTEM_PROMPT
+                  : customSystemPrompt
+            }
+            onChange={(e) => {
+              if (systemPromptMode === 'custom') {
+                setCustomSystemPrompt(e.target.value);
+              }
+            }}
+            disabled={systemPromptMode !== 'custom'}
+            placeholder={systemPromptMode === 'custom' ? 'Enter your custom system prompt...' : ''}
+            className={`w-full px-3 py-2 text-sm border-2 rounded-md min-h-[400px] resize-y ${
+              systemPromptMode === 'custom'
+                ? 'bg-background border-primary/50 focus:border-primary'
+                : systemPromptMode === 'system'
+                  ? 'border-blue-500/50 bg-blue-500/5 text-blue-300 cursor-not-allowed'
+                  : 'bg-muted text-muted-foreground cursor-not-allowed opacity-70 border-border'
+            }`}
+          />
+        )}
+      </div>
     </div>
-  </div>
-);
+  );
+};
