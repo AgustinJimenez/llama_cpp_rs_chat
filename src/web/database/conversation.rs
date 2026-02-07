@@ -379,6 +379,10 @@ pub struct ConversationLogger {
     sequence_counter: i32,
     last_broadcast_at: Option<Instant>,
     last_broadcast_len: usize,
+    /// Latest token position from generation (avoids re-tokenization in watchers)
+    current_tokens_used: i32,
+    /// Context size from generation (avoids re-tokenization in watchers)
+    current_max_tokens: i32,
 }
 
 const STREAM_BROADCAST_MIN_INTERVAL: Duration = Duration::from_millis(200);
@@ -406,6 +410,8 @@ impl ConversationLogger {
             sequence_counter,
             last_broadcast_at: None,
             last_broadcast_len: 0,
+            current_tokens_used: 0,
+            current_max_tokens: 0,
         })
     }
 
@@ -428,6 +434,8 @@ impl ConversationLogger {
             sequence_counter,
             last_broadcast_at: None,
             last_broadcast_len: 0,
+            current_tokens_used: 0,
+            current_max_tokens: 0,
         })
     }
 
@@ -484,6 +492,12 @@ impl ConversationLogger {
         self.last_broadcast_len = 0;
     }
 
+    /// Update token counts from the generation loop (call before log_token)
+    pub fn set_token_counts(&mut self, tokens_used: i32, max_tokens: i32) {
+        self.current_tokens_used = tokens_used;
+        self.current_max_tokens = max_tokens;
+    }
+
     /// Append a token to the current streaming message
     pub fn log_token(&mut self, token: &str) {
         self.accumulated_content.push_str(token);
@@ -517,8 +531,8 @@ impl ConversationLogger {
                 self.db.broadcast_streaming_update(StreamingUpdate {
                     conversation_id: self.conversation_id.clone(),
                     partial_content: self.accumulated_content.clone(),
-                    tokens_used: 0,
-                    max_tokens: 0,
+                    tokens_used: self.current_tokens_used,
+                    max_tokens: self.current_max_tokens,
                     is_complete: false,
                 });
             }
@@ -547,8 +561,8 @@ impl ConversationLogger {
             self.db.broadcast_streaming_update(StreamingUpdate {
                 conversation_id: self.conversation_id.clone(),
                 partial_content: self.accumulated_content.clone(),
-                tokens_used: 0,
-                max_tokens: 0,
+                tokens_used: self.current_tokens_used,
+                max_tokens: self.current_max_tokens,
                 is_complete: true,
             });
         }

@@ -559,11 +559,12 @@ pub async fn generate_llama_response(
                 );
             }
 
-            // Log token
+            // Log token (with current token counts for WebSocket watchers)
             {
                 let mut logger = conversation_logger
                     .lock()
                     .map_err(|_| "Failed to lock conversation logger")?;
+                logger.set_token_counts(token_pos, context_size as i32);
                 logger.log_token(&token_str);
             }
         }

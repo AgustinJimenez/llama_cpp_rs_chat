@@ -452,8 +452,9 @@ pub async fn handle_conversation_watch(
                             last_sent_len = current_len;
                             last_sent_at = now;
 
-                            // Calculate token counts
-                            let (tokens_used, max_tokens) = calculate_tokens_for_content(&current_content, &llama_state);
+                            // Use token counts from the broadcast (set by generation loop)
+                            let tokens_used = if update.tokens_used > 0 { Some(update.tokens_used) } else { None };
+                            let max_tokens = if update.max_tokens > 0 { Some(update.max_tokens) } else { None };
 
                             let update_msg = serde_json::json!({
                                 "type": "update",
