@@ -4,7 +4,11 @@
   "windows": ["*"],
   "permissions": [
     "core:default",
-    "core:window:default", 
-    "dialog:allow-open"
+    "core:window:default",
+    "dialog:allow-open",
+    "window-state:default",
+    "notification:default",
+    "clipboard-manager:default",
+    "opener:default"
   ]
 }

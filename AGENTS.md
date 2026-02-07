@@ -46,4 +46,6 @@ Frontend (src/): Atomic design — atoms/ (Button, Dialog, etc.), molecules/ (Me
 
 Model auto-configuration: When loading a GGUF model, gguf_utils.rs extracts general.sampling.* keys for optimal parameters. Fallback presets in src/config/modelPresets.ts keyed by general.name. Priority: GGUF embedded params -> preset lookup -> defaults.
 
+Out-of-process worker: The model runs in a child process (`llama_chat_web.exe --worker`) spawned by the web server. Communication is JSON Lines over stdin/stdout pipes. Key files: `src/web/worker/` — `ipc_types.rs` (protocol types), `worker_main.rs` (child entry point, 3-thread design), `worker_bridge.rs` (server-side `WorkerBridge` abstraction replacing `SharedLlamaState + GenerationQueue`), `process_manager.rs` (spawn/kill/restart). `SharedWorkerBridge = Arc<WorkerBridge>` is passed to all route handlers. Force-unload (`POST /api/model/hard-unload`) kills the child process so the OS reclaims ALL VRAM/RAM, then auto-restarts a fresh worker. The worker's `run_generation` uses a single-threaded tokio runtime — token forwarding uses a real OS thread (not tokio::spawn) because the generation loop has no yield points.
+
 Linting: "cargo clippy --bin llama_chat_web --features cuda" for Rust. "npm run lint" for frontend ESLint. Both should report zero warnings on clean code.

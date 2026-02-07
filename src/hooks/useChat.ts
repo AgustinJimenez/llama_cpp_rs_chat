@@ -7,6 +7,7 @@ import { useConversationUrl } from './useConversationUrl';
 import { useToolExecution } from './useToolExecution';
 import { useConversationWatcher } from './useConversationWatcher';
 import { logToastError } from '../utils/toastLogger';
+import { notifyIfUnfocused } from '../utils/tauri';
 import { parseConversationFile } from '../utils/conversationParser';
 import type { Message, ChatRequest } from '../types';
 
@@ -148,6 +149,7 @@ export function useChat() {
           if (streamSeqRef.current !== streamSeq) return;
           isStreamingRef.current = false;
           console.log('[useChat] Streaming complete');
+          notifyIfUnfocused('Generation complete', 'Your AI response is ready.');
 
           if (!currentConversationId) {
             setCurrentConversationId(conversationId);

@@ -374,7 +374,7 @@ fn run_generation(
         .await;
 
         // Drop the sender so the forward thread sees Disconnected
-        drop(result.as_ref().ok()); // ensure token_sender is dropped (moved into generate)
+        let _ = result.as_ref().ok(); // ensure token_sender is dropped (moved into generate)
 
         // Wait for forwarding thread to finish
         let _ = forward_thread.join();

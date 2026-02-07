@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import type { Message, ToolCall } from '../../types';
 import type { MessageSegment } from '../../hooks/useMessageParsing';
 import { useMessageParsing } from '../../hooks/useMessageParsing';
 import { MarkdownContent } from '../molecules/MarkdownContent';
 import { ThinkingBlock, CommandExecBlock, ToolCallBlock } from '../molecules/messages';
+import { isTauriEnv } from '../../utils/tauri';
 
 interface MessageBubbleProps {
   message: Message;
@@ -95,6 +96,44 @@ const UserMessage: React.FC<{
 );
 
 /**
+ * Copy button for assistant messages.
+ * Uses Tauri clipboard plugin in desktop, falls back to navigator.clipboard in web.
+ */
+const CopyButton: React.FC<{ text: string }> = ({ text }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(async () => {
+    try {
+      if (isTauriEnv()) {
+        const { writeText } = await import('@tauri-apps/plugin-clipboard-manager');
+        await writeText(text);
+      } else {
+        await navigator.clipboard.writeText(text);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback: try navigator.clipboard
+      try {
+        await navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch { /* ignore */ }
+    }
+  }, [text]);
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="opacity-0 group-hover:opacity-100 transition-opacity text-xs text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded hover:bg-muted"
+      title="Copy response"
+    >
+      {copied ? 'Copied!' : 'Copy'}
+    </button>
+  );
+};
+
+/**
  * Assistant message component with thinking, tool calls, and command blocks
  * rendered in chronological order.
  */
@@ -104,15 +143,17 @@ const AssistantMessage: React.FC<{
   thinkingContent: string | null;
   segments: MessageSegment[];
   toolCalls: ToolCall[];
+  cleanContent: string;
 }> = ({
   message,
   viewMode,
   thinkingContent,
   segments,
   toolCalls,
+  cleanContent,
 }) => (
   <div
-    className="w-full flex justify-start space-y-2"
+    className="w-full flex justify-start space-y-2 group"
     data-testid={`message-${message.role}`}
     data-message-id={message.id}
   >
@@ -148,6 +189,9 @@ const AssistantMessage: React.FC<{
 
       {/* Tool calls (legacy system) */}
       <ToolCallBlock toolCalls={toolCalls} />
+
+      {/* Copy button - appears on hover */}
+      {cleanContent.trim() && <CopyButton text={cleanContent} />}
     </div>
   </div>
 );
@@ -185,6 +229,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode 
       thinkingContent={thinkingContent}
       segments={segments}
       toolCalls={toolCalls}
+      cleanContent={cleanContent}
     />
   );
 };
