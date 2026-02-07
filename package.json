@@ -5,6 +5,7 @@
   "scripts": {
     "ensure-cmake": "cargo build --manifest-path tools/ensure-cmake/Cargo.toml --release",
     "cargo": "cargo run --manifest-path tools/ensure-cmake/Cargo.toml --release --quiet -- cargo",
+    "dev:frontend": "vite --host --port 4000",
     "dev": "npm run ensure-cmake && concurrently \"vite --host --port 4000\" \"npm run cargo -- build --bin llama_chat_web && npm run cargo -- run --bin llama_chat_web\"",
     "dev:auto": "node scripts/detect-and-run.js web",
     "dev:auto:desktop": "node scripts/detect-and-run.js desktop",

@@ -66,13 +66,13 @@ lazy_static::lazy_static! {
 }
 
 #[cfg(target_os = "windows")]
-fn get_cached_windows_system_usage() -> (f32, f32, f32) {
+pub fn get_cached_windows_system_usage() -> (f32, f32, f32) {
     let last = LAST_USAGE.lock().unwrap();
     (last.1, last.2, last.3)
 }
 
 #[cfg(target_os = "windows")]
-fn get_windows_system_usage() -> (f32, f32, f32) {
+pub fn get_windows_system_usage() -> (f32, f32, f32) {
     // Cache for 500ms to allow smooth real-time updates
     let mut last = LAST_USAGE.lock().unwrap();
     if last.0.elapsed() < Duration::from_millis(500) {
@@ -160,7 +160,7 @@ fn get_windows_system_usage() -> (f32, f32, f32) {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn get_windows_system_usage() -> (f32, f32, f32) {
+pub fn get_windows_system_usage() -> (f32, f32, f32) {
     // Return placeholder values on non-Windows platforms
     (0.0, 0.0, 0.0)
 }

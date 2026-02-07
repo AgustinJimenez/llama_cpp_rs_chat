@@ -4,6 +4,8 @@ import { autoParseToolCalls } from '../utils/toolParser';
 import { parseConversationFile } from '../utils/conversationParser';
 import { areToolCallsComplete } from './useToolExecution';
 import { logToastError, logToastWarning } from '../utils/toastLogger';
+import { isTauriEnv } from '../utils/tauri';
+import { getConversation } from '../utils/tauriCommands';
 import type { Message, ToolCall } from '../types';
 
 interface UseConversationWatcherOptions {
@@ -97,15 +99,7 @@ export function useConversationWatcher({
         return;
       }
       try {
-        const response = await fetch(`/api/conversation/${currentConversationId}`);
-        if (!response.ok) {
-          logToastWarning(
-            'useConversationWatcher.poll',
-            `Failed to refetch conversation (${response.status})`
-          );
-          return;
-        }
-        const data = await response.json();
+        const data = await getConversation(currentConversationId!);
         if (data.content) {
           const parsedMessages = parseConversationFile(data.content);
           let nextMessages = parsedMessages;
@@ -149,7 +143,7 @@ export function useConversationWatcher({
 
           await reconcileUiStateFromMessages(nextMessages);
         } else if (data.messages) {
-          const parsedMessages: Message[] = data.messages;
+          const parsedMessages = data.messages as unknown as Message[];
           let nextMessages = parsedMessages;
           const localMessages = currentMessagesRef.current;
           if (isStreamingRef.current && localMessages.length > 0) {
@@ -188,6 +182,12 @@ export function useConversationWatcher({
 
   useEffect(() => {
     if (!currentConversationId) {
+      return;
+    }
+
+    // In Tauri mode, token streaming is handled by events from generate_stream.
+    // No WebSocket needed — just skip.
+    if (isTauriEnv()) {
       return;
     }
 

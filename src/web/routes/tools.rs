@@ -49,7 +49,7 @@ const MAX_RESPONSE_BYTES: usize = 100_000; // 100KB max download
 const MAX_TEXT_CHARS: usize = 10_000; // 10K chars returned to model by default
 
 /// Fetch a URL and return its content as plain text (HTML stripped).
-fn fetch_url_as_text(url: &str, max_chars: usize) -> serde_json::Value {
+pub fn fetch_url_as_text(url: &str, max_chars: usize) -> serde_json::Value {
     sys_debug!("[WEB_FETCH] Fetching URL: {}", url);
 
     let agent = ureq::AgentBuilder::new()

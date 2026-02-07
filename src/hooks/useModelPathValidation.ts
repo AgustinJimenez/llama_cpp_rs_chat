@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
+import { isTauriEnv } from '../utils/tauri';
+import { getModelInfo, addModelHistory } from '../utils/tauriCommands';
 import type { ModelMetadata } from '@/types';
-
-// Check if we're running in Tauri environment
-const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
 interface UseModelPathValidationOptions {
   /** The model path to validate */
@@ -56,11 +55,7 @@ export const useModelPathValidation = ({
   // Helper function to save model path to history
   const saveToHistory = useCallback(async (path: string) => {
     try {
-      await fetch('/api/model/history', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model_path: path }),
-      });
+      await addModelHistory(path);
     } catch (error) {
       console.error('Failed to save model path to history:', error);
     }
@@ -80,113 +75,76 @@ export const useModelPathValidation = ({
     const checkFileExists = async () => {
       setIsCheckingFile(true);
       try {
-        if (isTauri) {
-          // For Tauri, use the filesystem API via invoke
-          const { invoke } = await import('@tauri-apps/api/core');
-          try {
-            const metadata = await invoke<ModelMetadata>('get_model_metadata', { modelPath });
-            setFileExists(true);
-            setDirectoryError(null);
-            setDirectorySuggestions([]);
+        const trimmedPath = modelPath.trim();
 
-            // Save to history when file is validated
-            await saveToHistory(modelPath);
+        try {
+          const data = await getModelInfo(trimmedPath);
 
-            // Set model metadata
-            console.log('[DEBUG] Tauri metadata received:', metadata);
-            setModelInfo(metadata);
-
-            // Update max layers if available
-            if (metadata.estimated_layers) {
-              setMaxLayers(metadata.estimated_layers);
-            }
-          } catch {
+          // Check if response indicates an error (directory, not found, etc.)
+          if ((data as Record<string, unknown>).is_directory && (data as Record<string, unknown>).suggestions) {
+            const errorData = data as Record<string, unknown>;
+            setDirectoryError(errorData.error as string);
+            setDirectorySuggestions(errorData.suggestions as string[]);
             setFileExists(false);
-            setModelInfo(null);
-          }
-        } else {
-          // For web, make GET request to check if file exists on server
-          const trimmedPath = modelPath.trim();
-          const encodedPath = encodeURIComponent(trimmedPath);
 
-          try {
-            const response = await fetch(`/api/model/info?path=${encodedPath}`);
-
-            if (response.ok) {
-              const data = await response.json();
-              setFileExists(true);
-              setDirectoryError(null);
-              setDirectorySuggestions([]);
-
-              // Save to history when file is validated
-              await saveToHistory(trimmedPath);
-
-              // Parse file_size_gb from file_size string (e.g., "11.65 GB" -> 11.65)
-              let fileSizeGb: number | undefined;
-              if (data.file_size && typeof data.file_size === 'string') {
-                const match = data.file_size.match(/([\d.]+)\s*GB/i);
-                if (match) {
-                  fileSizeGb = parseFloat(match[1]);
-                }
-              }
-
-              setModelInfo({
-                name: data.name || trimmedPath.split(/[\\/]/).pop() || 'Unknown',
-                architecture: data.architecture || 'Unknown',
-                parameters: data.parameters || 'Unknown',
-                quantization: data.quantization || 'Unknown',
-                file_size: data.file_size || 'Unknown',
-                file_size_gb: fileSizeGb,
-                context_length: data.context_length || 'Unknown',
-                file_path: trimmedPath,
-                estimated_layers: data.estimated_layers,
-                gguf_metadata: data.gguf_metadata,
-                default_system_prompt: data.default_system_prompt,
-                general_name: data.general_name,
-                recommended_params: data.recommended_params,
-                // Extract architecture details if available
-                block_count: data.gguf_metadata?.['gemma3.block_count'] ||
-                            data.gguf_metadata?.['llama.block_count'],
-                attention_head_count_kv: data.gguf_metadata?.['gemma3.attention.head_count_kv'] ||
-                                         data.gguf_metadata?.['llama.attention.head_count_kv'],
-                embedding_length: data.gguf_metadata?.['gemma3.embedding_length'] ||
-                                 data.gguf_metadata?.['llama.embedding_length'],
-              });
-
-              // Update max layers if available
-              if (data.estimated_layers) {
-                setMaxLayers(data.estimated_layers);
-              }
-            } else {
-              // Check if it's a directory error with suggestions
-              const errorData = await response.json();
-
-              if (errorData.is_directory && errorData.suggestions) {
-                setDirectoryError(errorData.error);
-                setDirectorySuggestions(errorData.suggestions);
-                setFileExists(false);
-
-                // Auto-complete if there's only one .gguf file
-                if (errorData.suggestions.length === 1 && onPathChange) {
-                  const autoPath = trimmedPath.endsWith('\\') || trimmedPath.endsWith('/')
-                    ? `${trimmedPath}${errorData.suggestions[0]}`
-                    : `${trimmedPath}\\${errorData.suggestions[0]}`;
-                  onPathChange(autoPath);
-                }
-              } else {
-                setFileExists(false);
-                setDirectoryError(null);
-                setDirectorySuggestions([]);
-                setModelInfo(null);
-              }
+            // Auto-complete if there's only one .gguf file
+            if ((errorData.suggestions as string[]).length === 1 && onPathChange) {
+              const autoPath = trimmedPath.endsWith('\\') || trimmedPath.endsWith('/')
+                ? `${trimmedPath}${(errorData.suggestions as string[])[0]}`
+                : `${trimmedPath}\\${(errorData.suggestions as string[])[0]}`;
+              onPathChange(autoPath);
             }
-          } catch (error) {
-            console.error('[DEBUG] Error checking file:', error);
-            setFileExists(false);
-            setDirectoryError(null);
-            setDirectorySuggestions([]);
-            setModelInfo(null);
+            return;
           }
+
+          setFileExists(true);
+          setDirectoryError(null);
+          setDirectorySuggestions([]);
+
+          // Save to history when file is validated
+          await saveToHistory(trimmedPath);
+
+          // Parse file_size_gb from file_size string (e.g., "11.65 GB" -> 11.65)
+          let fileSizeGb: number | undefined;
+          const fileSizeStr = (data as Record<string, unknown>).file_size;
+          if (fileSizeStr && typeof fileSizeStr === 'string') {
+            const match = fileSizeStr.match(/([\d.]+)\s*GB/i);
+            if (match) {
+              fileSizeGb = parseFloat(match[1]);
+            }
+          }
+
+          const d = data as Record<string, unknown>;
+          const meta = d.gguf_metadata as Record<string, string | number | boolean | null | undefined> | undefined;
+          setModelInfo({
+            name: (d.name as string) || trimmedPath.split(/[\\/]/).pop() || 'Unknown',
+            architecture: (d.architecture as string) || 'Unknown',
+            parameters: (d.parameters as string) || 'Unknown',
+            quantization: (d.quantization as string) || 'Unknown',
+            file_size: (d.file_size as string) || 'Unknown',
+            file_size_gb: fileSizeGb,
+            context_length: (d.context_length as string) || 'Unknown',
+            file_path: trimmedPath,
+            estimated_layers: d.estimated_layers as number | undefined,
+            gguf_metadata: meta,
+            default_system_prompt: d.default_system_prompt as string | undefined,
+            general_name: d.general_name as string | undefined,
+            recommended_params: d.recommended_params as ModelMetadata['recommended_params'],
+            // Extract architecture details if available
+            block_count: String(meta?.['gemma3.block_count'] ?? meta?.['llama.block_count'] ?? ''),
+            attention_head_count_kv: String(meta?.['gemma3.attention.head_count_kv'] ?? meta?.['llama.attention.head_count_kv'] ?? ''),
+            embedding_length: String(meta?.['gemma3.embedding_length'] ?? meta?.['llama.embedding_length'] ?? ''),
+          });
+
+          // Update max layers if available
+          if (d.estimated_layers) {
+            setMaxLayers(d.estimated_layers as number);
+          }
+        } catch {
+          setFileExists(false);
+          setDirectoryError(null);
+          setDirectorySuggestions([]);
+          setModelInfo(null);
         }
       } catch {
         setFileExists(false);
@@ -208,6 +166,6 @@ export const useModelPathValidation = ({
     directorySuggestions,
     modelInfo,
     maxLayers,
-    isTauri,
+    isTauri: isTauriEnv(),
   };
 };

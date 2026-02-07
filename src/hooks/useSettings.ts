@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { TauriAPI } from '../utils/tauri';
+import { getConfig, saveConfig } from '../utils/tauriCommands';
 import type { SamplerConfig } from '../types';
 
 export function useSettings() {
@@ -10,9 +10,9 @@ export function useSettings() {
   const loadConfig = useCallback(async () => {
     setIsLoading(true);
     setError(null);
-    
+
     try {
-      const samplerConfig = await TauriAPI.getSamplerConfig();
+      const samplerConfig = await getConfig();
       setConfig(samplerConfig);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load configuration';
@@ -25,9 +25,9 @@ export function useSettings() {
   const updateConfig = useCallback(async (newConfig: SamplerConfig) => {
     setIsLoading(true);
     setError(null);
-    
+
     try {
-      await TauriAPI.updateSamplerConfig(newConfig);
+      await saveConfig(newConfig);
       setConfig(newConfig);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to update configuration';

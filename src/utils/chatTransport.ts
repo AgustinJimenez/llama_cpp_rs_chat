@@ -207,12 +207,92 @@ class BrowserChatTransport implements ChatTransport {
   }
 }
 
-class TauriChatTransport extends BrowserChatTransport {
-  // For now, reuse WebSocket streaming even in Tauri; only sendMessage differs.
+class TauriChatTransport implements ChatTransport {
   async sendMessage(request: ChatRequest): Promise<Response> {
     const { invoke } = await import('@tauri-apps/api/core');
-    const payload = await invoke<unknown>('send_message', { request });
+    const payload = await invoke<unknown>('generate_stream', { request });
     return new Response(JSON.stringify(payload), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }
+
+  async streamMessage(
+    request: ChatRequest,
+    { onToken, onComplete, onError }: StreamingCallbacks,
+    abortSignal?: AbortSignal
+  ): Promise<void> {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const { listen } = await import('@tauri-apps/api/event');
+
+    const safeOnToken = onToken ?? (() => {});
+    const safeOnComplete = onComplete ?? (() => {});
+    const safeOnError = onError ?? (() => {});
+
+    return new Promise<void>(async (resolve, reject) => {
+      let settled = false;
+      let wasAborted = false;
+
+      const settle = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (error) reject(error);
+        else resolve();
+      };
+
+      const markAborted = () => {
+        wasAborted = true;
+        invoke('cancel_generation').catch(() => {});
+        settle(new Error('Request aborted'));
+      };
+
+      // Listen for token events
+      const unlistenToken = await listen<{ token: string; tokens_used?: number; max_tokens?: number }>('chat-token', (event) => {
+        if (settled || wasAborted) return;
+        safeOnToken(event.payload.token, event.payload.tokens_used, event.payload.max_tokens);
+      });
+
+      // Listen for done/error/cancel events
+      const unlistenDone = await listen<{ type: string; conversation_id?: string; tokens_used?: number; max_tokens?: number; error?: string }>('chat-done', (event) => {
+        if (settled || wasAborted) return;
+        const payload = event.payload;
+
+        if (payload.type === 'done') {
+          const conversationId = payload.conversation_id || request.conversation_id || crypto.randomUUID();
+          safeOnComplete(crypto.randomUUID(), conversationId, payload.tokens_used, payload.max_tokens);
+          settle();
+        } else if (payload.type === 'error') {
+          const errorMessage = payload.error || 'Unknown error';
+          safeOnError(errorMessage);
+          settle(new Error(errorMessage));
+        } else if (payload.type === 'cancelled') {
+          settle(new Error('Request aborted'));
+        }
+      });
+
+      const cleanup = () => {
+        unlistenToken();
+        unlistenDone();
+      };
+
+      // Handle abort signal
+      if (abortSignal) {
+        if (abortSignal.aborted) {
+          markAborted();
+          return;
+        }
+        abortSignal.addEventListener('abort', markAborted, { once: true });
+      }
+
+      // Start generation via invoke
+      try {
+        await invoke('generate_stream', { request });
+      } catch (err) {
+        if (!settled && !wasAborted) {
+          const errorMessage = err instanceof Error ? err.message : 'Failed to start generation';
+          safeOnError(errorMessage);
+          settle(new Error(errorMessage));
+        }
+      }
+    });
   }
 }
 

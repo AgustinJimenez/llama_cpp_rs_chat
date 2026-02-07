@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Menu, ChevronLeft, Plus, Settings, RotateCcw, X } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../atoms/dialog';
 import { Button } from '../atoms/button';
+import { getConversations, deleteConversation } from '../../utils/tauriCommands';
 
 interface ConversationFile {
   name: string;
@@ -28,24 +29,10 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, onNewChat, onOpenSe
   const fetchConversations = async () => {
     setLoading(true);
 
-    // Add timeout to prevent infinite loading
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
-
     try {
-      const response = await fetch('/api/conversations', {
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-
-      if (response.ok) {
-        const data = await response.json();
-        setConversations(data.conversations || []);
-      } else {
-        console.error('Failed to fetch conversations');
-      }
+      const data = await getConversations();
+      setConversations((data.conversations || []) as unknown as ConversationFile[]);
     } catch (error) {
-      clearTimeout(timeoutId);
       if ((error as Error).name === 'AbortError') {
         console.error('Fetch timeout: conversations request took too long');
       } else {
@@ -89,26 +76,19 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, onNewChat, onOpenSe
     if (!conversationToDelete) return;
 
     try {
-      const response = await fetch(`/api/conversations/${conversationToDelete.name}`, {
-        method: 'DELETE',
-      });
+      await deleteConversation(conversationToDelete.name);
 
-      if (response.ok) {
-        // Check if we're deleting the currently loaded conversation
-        const deletingCurrentConversation = currentConversationId && conversationToDelete.name === currentConversationId;
+      // Check if we're deleting the currently loaded conversation
+      const deletingCurrentConversation = currentConversationId && conversationToDelete.name === currentConversationId;
 
-        // Remove from list
-        setConversations(prev => prev.filter(c => c.name !== conversationToDelete.name));
-        setDeleteDialogOpen(false);
-        setConversationToDelete(null);
+      // Remove from list
+      setConversations(prev => prev.filter(c => c.name !== conversationToDelete.name));
+      setDeleteDialogOpen(false);
+      setConversationToDelete(null);
 
-        // If we deleted the current conversation, clear the chat
-        if (deletingCurrentConversation) {
-          onNewChat();
-        }
-      } else {
-        console.error('Failed to delete conversation');
-        alert('Failed to delete conversation');
+      // If we deleted the current conversation, clear the chat
+      if (deletingCurrentConversation) {
+        onNewChat();
       }
     } catch (error) {
       console.error('Error deleting conversation:', error);

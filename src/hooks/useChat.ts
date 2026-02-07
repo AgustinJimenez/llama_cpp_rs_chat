@@ -9,6 +9,7 @@ import { useConversationWatcher } from './useConversationWatcher';
 import { logToastError } from '../utils/toastLogger';
 import { notifyIfUnfocused } from '../utils/tauri';
 import { parseConversationFile } from '../utils/conversationParser';
+import { getConversation } from '../utils/tauriCommands';
 import type { Message, ChatRequest } from '../types';
 
 function isAbortErrorMessage(message: string): boolean {
@@ -85,12 +86,7 @@ export function useChat() {
     setMaxTokens(undefined);
 
     try {
-      const response = await fetch(`/api/conversation/${filename}`);
-      if (!response.ok) {
-        throw new Error('Failed to load conversation');
-      }
-
-      const data = await response.json();
+      const data = await getConversation(filename);
       if (data.content) {
         setMessages(parseConversationFile(data.content));
         setCurrentConversationId(filename);

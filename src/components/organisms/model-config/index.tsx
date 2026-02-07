@@ -13,6 +13,7 @@ import { Button } from '../../atoms/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../atoms/card';
 import type { SamplerConfig } from '@/types';
 import { toast } from 'react-hot-toast';
+import { getModelHistory } from '@/utils/tauriCommands';
 
 // Import extracted components
 import { ModelFileInput, ModelConfigSystemPrompt } from '../../molecules';
@@ -102,11 +103,8 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   useEffect(() => {
     const fetchHistory = async () => {
       try {
-        const response = await fetch('/api/model/history');
-        if (response.ok) {
-          const history = await response.json();
-          setModelHistory(history);
-        }
+        const history = await getModelHistory();
+        setModelHistory(history);
       } catch (error) {
         console.error('Failed to fetch model history:', error);
       }

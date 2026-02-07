@@ -1,5 +1,6 @@
 import { useRef, useCallback } from 'react';
 import { toast } from 'react-hot-toast';
+import { executeTool as executeToolCmd } from '../utils/tauriCommands';
 import type { ToolCall, Message } from '../types';
 
 // Configuration constants
@@ -11,25 +12,12 @@ export const LOOP_DETECTION_WINDOW = 3;
  */
 export async function executeTool(toolCall: ToolCall): Promise<string> {
   try {
-    const response = await fetch('/api/tools/execute', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        tool_name: toolCall.name,
-        arguments: toolCall.arguments,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Tool execution failed: ${response.statusText}`);
-    }
-
-    const result = await response.json();
+    const result = await executeToolCmd(toolCall);
 
     if (result.success) {
-      return result.result || 'Tool executed successfully';
+      return (result.result as string) || 'Tool executed successfully';
     } else {
-      return `Error: ${result.error || 'Unknown error'}`;
+      return `Error: ${(result.error as string) || 'Unknown error'}`;
     }
   } catch (error) {
     return `Error executing tool: ${error instanceof Error ? error.message : 'Unknown error'}`;

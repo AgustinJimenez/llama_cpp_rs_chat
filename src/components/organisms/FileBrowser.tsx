@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Folder, File, ArrowLeft, HardDrive } from 'lucide-react';
+import { browseFiles } from '../../utils/tauriCommands';
 import {
   Dialog,
   DialogContent,
@@ -10,7 +11,7 @@ import {
 } from '../atoms/dialog';
 import { Button } from '../atoms/button';
 // Using regular div with overflow instead of ScrollArea
-import type { FileItem, BrowseFilesResponse } from '../../types';
+import type { FileItem } from '../../types';
 
 interface FileBrowserProps {
   isOpen: boolean;
@@ -40,17 +41,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
     setError(null);
     
     try {
-      const response = await fetch(`/api/browse?path=${encodeURIComponent(path)}`);
-      if (!response.ok) {
-        const msg = response.status === 403
-          ? 'Access to this path is not allowed'
-          : response.status === 404
-            ? 'Directory not found'
-            : 'Failed to browse files';
-        throw new Error(msg);
-      }
-      
-      const data: BrowseFilesResponse = await response.json();
+      const data = await browseFiles(path);
       setFiles(data.files);
       setCurrentPath(data.current_path);
       setParentPath(data.parent_path);

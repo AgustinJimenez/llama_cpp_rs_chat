@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
+import { getSystemUsage } from '../../utils/tauriCommands';
 
 interface UsageData {
   cpu: number;
@@ -28,21 +29,16 @@ export function SystemUsage({ expanded = false, active = true }: SystemUsageProp
       if (isFetchingRef.current) return;
       isFetchingRef.current = true;
 
-      const controller = new AbortController();
-      const timeoutId = window.setTimeout(() => controller.abort(), 2000);
       try {
-        const response = await fetch('/api/system/usage', { signal: controller.signal });
-        if (response.ok) {
-          const data = await response.json();
-          setUsage(data);
-          setHasData(true);
+        const data = await getSystemUsage();
+        setUsage(data);
+        setHasData(true);
 
-          // Keep last 20 data points for mini graph
-          setHistory(prev => {
-            const updated = [...prev, data];
-            return updated.slice(-20);
-          });
-        }
+        // Keep last 20 data points for mini graph
+        setHistory(prev => {
+          const updated = [...prev, data];
+          return updated.slice(-20);
+        });
       } catch (error) {
         const isAbort =
           error instanceof DOMException &&
@@ -51,7 +47,6 @@ export function SystemUsage({ expanded = false, active = true }: SystemUsageProp
           console.error('Failed to fetch system usage:', error);
         }
       } finally {
-        window.clearTimeout(timeoutId);
         isFetchingRef.current = false;
       }
     };
