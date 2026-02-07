@@ -73,6 +73,7 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
             gpu_layers: None,
             last_used: std::time::SystemTime::now(),
             model_default_system_prompt: None,
+            general_name: None,
         });
     }
 
@@ -110,7 +111,7 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
 
     log_info!("system", "Model loaded successfully!");
 
-    // Read model's context length, token IDs, chat template, and default system prompt from GGUF metadata
+    // Read model's context length, token IDs, chat template, general name, and default system prompt from GGUF metadata
     let (
         model_context_length,
         bos_token_id,
@@ -118,6 +119,7 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
         chat_template_type,
         chat_template_string,
         default_system_prompt,
+        general_name,
     ) = if let Ok(file) = fs::File::open(model_path) {
         let mut reader = BufReader::new(file);
         if let Ok(header) = GgufHeader::parse(&mut reader) {
@@ -187,15 +189,21 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
                             _ => None,
                         });
 
-                (ctx_len, bos_id, eos_id, template_type, template_string, default_prompt)
+                // Extract general.name from metadata
+                let gen_name = metadata.get("general.name").and_then(|v| match v {
+                    Value::String(s) => Some(s.clone()),
+                    _ => None,
+                });
+
+                (ctx_len, bos_id, eos_id, template_type, template_string, default_prompt, gen_name)
             } else {
-                (None, None, None, None, None, None)
+                (None, None, None, None, None, None, None)
             }
         } else {
-            (None, None, None, None, None, None)
+            (None, None, None, None, None, None, None)
         }
     } else {
-        (None, None, None, None, None, None)
+        (None, None, None, None, None, None, None)
     };
 
     if let Some(ctx_len) = model_context_length {
@@ -242,6 +250,11 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
     state.gpu_layers = Some(optimal_gpu_layers);
     state.last_used = std::time::SystemTime::now();
     state.model_default_system_prompt = default_system_prompt.clone();
+    state.general_name = general_name.clone();
+
+    if let Some(ref name) = general_name {
+        log_info!("system", "Model general.name: {}", name);
+    }
 
     if let Some(ref prompt) = default_system_prompt {
         log_info!(

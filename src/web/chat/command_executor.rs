@@ -4,17 +4,35 @@ use tokio::sync::mpsc;
 
 use super::super::command::execute_command;
 use super::super::models::*;
+use super::tool_tags::ToolTags;
 use crate::log_info;
 
-// Command execution tokens
+// Default command execution tokens (used when no model-specific tags are set)
 pub const OUTPUT_OPEN: &str = "\n<||SYSTEM.OUTPUT>\n";
 pub const OUTPUT_CLOSE: &str = "\n<SYSTEM.OUTPUT||>\n";
 
-// Flexible regex pattern for command detection
+// Default SYSTEM.EXEC regex (always tried as fallback)
 lazy_static::lazy_static! {
     pub static ref EXEC_PATTERN: Regex = Regex::new(
         r"SYSTEM\.EXEC>(.+?)<SYSTEM\.EXEC\|{1,2}>"
     ).unwrap();
+}
+
+/// Build a regex that matches the model-specific exec tags.
+/// Returns None if the tags are already covered by the default EXEC_PATTERN.
+fn build_model_exec_regex(tags: &ToolTags) -> Option<Regex> {
+    // Skip if using default SYSTEM.EXEC tags (already handled by EXEC_PATTERN)
+    if tags.exec_open.contains("SYSTEM.EXEC") {
+        return None;
+    }
+
+    // Escape special regex characters in the tags
+    let open = regex::escape(tags.exec_open);
+    let close = regex::escape(tags.exec_close);
+
+    // Build pattern: open_tag(.+?)close_tag
+    let pattern = format!(r"{}(.+?){}", open, close);
+    Regex::new(&pattern).ok()
 }
 
 /// Result of command execution
@@ -25,12 +43,33 @@ pub struct CommandExecutionResult {
 
 /// Check if response contains an unprocessed command and execute it.
 ///
+/// Tries the model-specific exec tags first, then falls back to the default
+/// SYSTEM.EXEC pattern. This ensures commands work regardless of which tag
+/// format the model uses.
+///
 /// Returns the output block and tokens to inject if a command was found and executed.
 pub fn check_and_execute_command(
     response: &str,
     last_scan_pos: usize,
     conversation_id: &str,
     model: &llama_cpp_2::model::LlamaModel,
+) -> Result<Option<CommandExecutionResult>, String> {
+    check_and_execute_command_with_tags(
+        response,
+        last_scan_pos,
+        conversation_id,
+        model,
+        &super::tool_tags::DEFAULT_TAGS,
+    )
+}
+
+/// Check for and execute commands using model-specific tool tags.
+pub fn check_and_execute_command_with_tags(
+    response: &str,
+    last_scan_pos: usize,
+    conversation_id: &str,
+    model: &llama_cpp_2::model::LlamaModel,
+    tags: &ToolTags,
 ) -> Result<Option<CommandExecutionResult>, String> {
     // Only scan new content since last command execution
     let response_to_scan = if last_scan_pos < response.len() {
@@ -39,31 +78,49 @@ pub fn check_and_execute_command(
         return Ok(None);
     };
 
-    // Check for command pattern
-    let captures = match EXEC_PATTERN.captures(response_to_scan) {
-        Some(c) => c,
-        None => return Ok(None),
+    // Try model-specific regex first, then default EXEC_PATTERN
+    let command_text = {
+        let model_regex = build_model_exec_regex(tags);
+        let mut found: Option<String> = None;
+
+        // Try model-specific pattern first
+        if let Some(ref re) = model_regex {
+            if let Some(captures) = re.captures(response_to_scan) {
+                if let Some(m) = captures.get(1) {
+                    found = Some(m.as_str().to_string());
+                }
+            }
+        }
+
+        // Fall back to default SYSTEM.EXEC pattern
+        if found.is_none() {
+            if let Some(captures) = EXEC_PATTERN.captures(response_to_scan) {
+                if let Some(m) = captures.get(1) {
+                    found = Some(m.as_str().to_string());
+                }
+            }
+        }
+
+        match found {
+            Some(cmd) => cmd,
+            None => return Ok(None),
+        }
     };
 
-    // Extract command from capture group
-    let command_match = match captures.get(1) {
-        Some(m) => m,
-        None => return Ok(None),
-    };
-
-    let command_text = command_match.as_str();
-    log_info!(conversation_id, "🔧 SYSTEM.EXEC detected: {}", command_text);
+    log_info!(conversation_id, "🔧 Command detected: {}", command_text);
 
     // Execute the command
-    let output = execute_command(command_text);
+    let output = execute_command(&command_text);
     log_info!(
         conversation_id,
         "📤 Command output length: {} chars",
         output.len()
     );
 
-    // Format output block
-    let output_block = format!("{}{}{}", OUTPUT_OPEN, output.trim(), OUTPUT_CLOSE);
+    // Format output block using model-specific output tags
+    let output_open = format!("\n{}\n", tags.output_open);
+    let output_close = format!("\n{}\n", tags.output_close);
+    let output_block = format!("{}{}{}", output_open, output.trim(), output_close);
 
     // Tokenize output for injection into context
     let output_tokens = model

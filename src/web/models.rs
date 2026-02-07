@@ -314,6 +314,7 @@ pub struct LlamaState {
     pub gpu_layers: Option<u32>,            // Number of GPU layers offloaded
     pub last_used: std::time::SystemTime,
     pub model_default_system_prompt: Option<String>, // Model's default system prompt from GGUF
+    pub general_name: Option<String>,       // Model's general.name from GGUF metadata
 }
 
 pub type SharedLlamaState = Arc<Mutex<Option<LlamaState>>>;

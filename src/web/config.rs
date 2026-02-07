@@ -7,7 +7,7 @@ use super::models::SharedLlamaState;
 #[cfg(feature = "mock")]
 use super::models::SharedLlamaState;
 
-use super::chat_handler::get_universal_system_prompt;
+use super::chat_handler::{get_universal_system_prompt, get_universal_system_prompt_with_tags, get_tool_tags_for_model};
 
 // Import logging macro
 use crate::sys_warn;
@@ -41,7 +41,16 @@ pub fn get_resolved_system_prompt(llama_state: &Option<SharedLlamaState>) -> Opt
     let config = load_config();
     match config.system_prompt.as_deref() {
         // "__AGENTIC__" marker = use universal agentic prompt with command execution
-        Some("__AGENTIC__") => Some(get_universal_system_prompt()),
+        // Use model-specific tool tags if a model is loaded
+        Some("__AGENTIC__") => {
+            let general_name = llama_state.as_ref().and_then(|state| {
+                state.lock().ok().and_then(|guard| {
+                    guard.as_ref().and_then(|s| s.general_name.clone())
+                })
+            });
+            let tags = get_tool_tags_for_model(general_name.as_deref());
+            Some(get_universal_system_prompt_with_tags(tags))
+        }
         // Custom prompt = use as-is
         Some(custom) => Some(custom.to_string()),
         // None = use model's default system prompt from GGUF

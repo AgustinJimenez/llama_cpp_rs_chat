@@ -9,6 +9,12 @@ export interface Message {
 export interface ChatRequest {
   message: string;
   conversation_id?: string;
+  tool_tags?: {
+    exec_open: string;
+    exec_close: string;
+    output_open: string;
+    output_close: string;
+  };
 }
 
 export interface ChatResponse {

@@ -24,4 +24,6 @@ CMake on Windows: set CMAKE environment variable to your cmake.exe path if not i
 
 Tool calling: tool schema is exposed via /api/tools/available and execution via /api/tools/execute. Models see available tools injected into prompts. Safety limit MAX_TOOL_ITERATIONS = 5 on the frontend agent loop.
 
-Common gotchas to remember: use port 4000 for the UI (not 8000), keep backend running for Playwright tests, and prefer existing modules rather than duplicating code when editing web routes or chat logic.
+Browser automation: use the Chrome DevTools MCP (chrome-devtools-mcp) for browser testing, NOT the Claude Chrome extension. Install with: "claude mcp add chrome-devtools --scope user npx chrome-devtools-mcp@latest". Use this to interact with the UI at http://localhost:4000 for testing models, chat, and features.
+
+Common gotchas to remember: use port 4000 for the UI (not 8000), keep backend running for Playwright tests, use Chrome DevTools MCP for browser automation (not Claude Chrome extension), and prefer existing modules rather than duplicating code when editing web routes or chat logic.

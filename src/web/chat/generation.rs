@@ -11,10 +11,11 @@ use super::super::config::load_config;
 use super::super::model_manager::load_model;
 use super::super::models::*;
 use super::command_executor::{
-    check_and_execute_command, inject_output_tokens, stream_command_output,
+    check_and_execute_command_with_tags, inject_output_tokens, stream_command_output,
 };
 use super::stop_conditions::check_stop_conditions;
-use super::templates::apply_system_prompt_by_type;
+use super::templates::apply_system_prompt_by_type_with_tags;
+use super::tool_tags::get_tool_tags_for_model;
 use crate::{log_debug, log_info, log_warn, sys_debug, sys_error, sys_warn};
 
 // Constants for LLaMA configuration
@@ -147,22 +148,29 @@ pub async fn generate_llama_response(
     // Convert conversation to chat format using the new 3-system prompt approach
     let template_type = state.chat_template_type.clone();
     let chat_template_string = state.chat_template_string.clone();
+    let general_name = state.general_name.clone();
+
+    // Look up model-specific tool tags based on general.name from GGUF metadata
+    let tags = get_tool_tags_for_model(general_name.as_deref());
     log_info!(&conversation_id, "=== TEMPLATE DEBUG ===");
     log_info!(&conversation_id, "Template type: {:?}", template_type);
+    log_info!(&conversation_id, "General name: {:?}", general_name);
+    log_info!(&conversation_id, "Tool tags: exec_open={}, exec_close={}", tags.exec_open, tags.exec_close);
     log_info!(&conversation_id, "System prompt type: {:?}", config.system_prompt_type);
     log_info!(
         &conversation_id,
         "Conversation content:\n{}",
         conversation_content
     );
-    
-    // Use the new 3-system prompt dispatcher
-    let prompt = apply_system_prompt_by_type(
+
+    // Use the 3-system prompt dispatcher with model-specific tool tags
+    let prompt = apply_system_prompt_by_type_with_tags(
         &conversation_content,
         config.system_prompt_type.clone(),
         template_type.as_deref(),
         chat_template_string.as_deref(),
         config.system_prompt.as_deref(),
+        tags,
     )?;
     log_info!(&conversation_id, "=== FINAL PROMPT BEING SENT TO MODEL ===");
     log_info!(&conversation_id, "{}", prompt);
@@ -493,9 +501,9 @@ pub async fn generate_llama_response(
             }
         }
 
-        // Check for and execute any SYSTEM.EXEC commands in the response
+        // Check for and execute any commands in the response (using model-specific tags)
         if let Some(exec_result) =
-            check_and_execute_command(&response, last_exec_scan_pos, &conversation_id, model)?
+            check_and_execute_command_with_tags(&response, last_exec_scan_pos, &conversation_id, model, tags)?
         {
             // 1. Log to conversation file (CRITICAL: prevents infinite loops)
             {

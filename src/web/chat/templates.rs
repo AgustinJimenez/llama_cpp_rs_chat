@@ -2,10 +2,16 @@
 use crate::log_debug;
 use super::jinja_templates::{apply_native_chat_template, parse_conversation_to_messages, get_available_tools};
 use super::super::models::SystemPromptType;
+use super::tool_tags::{self, ToolTags};
 
 /// Get the universal system prompt for command execution.
-/// This prompt teaches ANY model how to use the <||SYSTEM.EXEC> tags.
+/// Uses the provided tool tags (model-specific or default) in the prompt.
 pub fn get_universal_system_prompt() -> String {
+    get_universal_system_prompt_with_tags(&tool_tags::DEFAULT_TAGS)
+}
+
+/// Get the universal system prompt using model-specific tool tags.
+pub fn get_universal_system_prompt_with_tags(tags: &ToolTags) -> String {
     let os_name = std::env::consts::OS;
     let cwd = std::env::current_dir()
         .map(|p| p.display().to_string())
@@ -28,6 +34,11 @@ pub fn get_universal_system_prompt() -> String {
         )
     };
 
+    let exec_open = tags.exec_open;
+    let exec_close = tags.exec_close;
+    let output_open = tags.output_open;
+    let output_close = tags.output_close;
+
     format!(
         r#"You are a helpful AI assistant with full system access.
 
@@ -35,26 +46,25 @@ pub fn get_universal_system_prompt() -> String {
 
 To execute system commands, you MUST use EXACTLY this format (copy it exactly):
 
-<||SYSTEM.EXEC>command_here<SYSTEM.EXEC||>
+{exec_open}command_here{exec_close}
 
-The format is: opening tag <||SYSTEM.EXEC> then command then closing tag <SYSTEM.EXEC||>
+The format is: opening tag {exec_open} then command then closing tag {exec_close}
 
 IMPORTANT RULES:
-1. Use ONLY this exact format - do NOT use [TOOL_CALLS], <function>, <tool_call>, or any other format
-2. The opening tag MUST start with <|| (less-than, pipe, pipe)
-3. The closing tag MUST end with ||> (pipe, pipe, greater-than)
-4. Do NOT add any prefix before <||SYSTEM.EXEC>
-5. Do NOT modify or abbreviate the tags
+1. Use ONLY this exact format - do NOT use any other format for commands
+2. Copy the opening and closing tags EXACTLY as shown above
+3. Do NOT modify or abbreviate the tags
+4. Put the full command between the opening and closing tags
 
 Examples (copy exactly):
-<||SYSTEM.EXEC>{list_cmd}<SYSTEM.EXEC||>
-<||SYSTEM.EXEC>{read_cmd}<SYSTEM.EXEC||>
-<||SYSTEM.EXEC>{write_cmd}<SYSTEM.EXEC||>
+{exec_open}{list_cmd}{exec_close}
+{exec_open}{read_cmd}{exec_close}
+{exec_open}{write_cmd}{exec_close}
 
 After execution, the output will appear in:
-<||SYSTEM.OUTPUT>
+{output_open}
 ...output here...
-<SYSTEM.OUTPUT||>
+{output_close}
 
 Wait for the output before continuing your response.
 
@@ -62,7 +72,7 @@ Wait for the output before continuing your response.
 
 You can fetch web pages to read their content. Use this to find download URLs, read documentation, or investigate errors:
 
-<||SYSTEM.EXEC>curl "http://localhost:8000/api/tools/web-fetch?url=https://example.com"<SYSTEM.EXEC||>
+{exec_open}curl "http://localhost:8000/api/tools/web-fetch?url=https://example.com"{exec_close}
 
 This returns the page content as clean text (HTML is stripped). Use this to:
 - Find correct download URLs instead of guessing
@@ -75,6 +85,10 @@ This returns the page content as clean text (HTML is stripped). Use this to:
 - Working Directory: {cwd}
 - Shell: {shell}
 "#,
+        exec_open = exec_open,
+        exec_close = exec_close,
+        output_open = output_open,
+        output_close = output_close,
         list_cmd = list_cmd,
         read_cmd = read_cmd,
         write_cmd = write_cmd,
@@ -85,9 +99,9 @@ This returns the page content as clean text (HTML is stripped). Use this to:
 }
 
 /// Apply system prompt based on the selected type
-/// 
+///
 /// This is the main function that handles all 3 system prompt types:
-/// - Default: Use model's native Jinja2 chat template  
+/// - Default: Use model's native Jinja2 chat template
 /// - Custom: Use our curated universal system prompt
 /// - UserDefined: Use user-provided system prompt
 pub fn apply_system_prompt_by_type(
@@ -97,19 +111,38 @@ pub fn apply_system_prompt_by_type(
     chat_template_string: Option<&str>,
     user_system_prompt: Option<&str>,
 ) -> Result<String, String> {
+    apply_system_prompt_by_type_with_tags(
+        conversation,
+        prompt_type,
+        template_type,
+        chat_template_string,
+        user_system_prompt,
+        &tool_tags::DEFAULT_TAGS,
+    )
+}
+
+/// Apply system prompt with model-specific tool tags.
+pub fn apply_system_prompt_by_type_with_tags(
+    conversation: &str,
+    prompt_type: SystemPromptType,
+    template_type: Option<&str>,
+    chat_template_string: Option<&str>,
+    user_system_prompt: Option<&str>,
+    tags: &ToolTags,
+) -> Result<String, String> {
     match prompt_type {
         SystemPromptType::Default => {
             // Try to use model's native Jinja2 template first
             if let Some(template) = chat_template_string {
                 log_debug!("templates", "Using native Jinja2 chat template");
-                
+
                 let messages = parse_conversation_to_messages(conversation);
                 let tools = Some(get_available_tools());
-                
+
                 match apply_native_chat_template(
-                    template, 
-                    messages, 
-                    tools, 
+                    template,
+                    messages,
+                    tools,
                     None, // documents
                     true  // add_generation_prompt
                 ) {
@@ -120,18 +153,18 @@ pub fn apply_system_prompt_by_type(
                     }
                 }
             }
-            
+
             // Fallback to your existing custom template logic
             log_debug!("templates", "Using fallback custom template logic");
-            apply_model_chat_template(conversation, template_type)
+            apply_model_chat_template_with_tags(conversation, template_type, tags)
         }
-        
+
         SystemPromptType::Custom => {
             // Use your curated universal system prompt
             log_debug!("templates", "Using custom universal system prompt");
-            apply_model_chat_template(conversation, template_type)
+            apply_model_chat_template_with_tags(conversation, template_type, tags)
         }
-        
+
         SystemPromptType::UserDefined => {
             // Use user-provided system prompt
             log_debug!("templates", "Using user-defined system prompt");
@@ -139,7 +172,7 @@ pub fn apply_system_prompt_by_type(
                 apply_user_defined_template(conversation, user_prompt)
             } else {
                 // Fallback if no user prompt provided
-                apply_model_chat_template(conversation, template_type)
+                apply_model_chat_template_with_tags(conversation, template_type, tags)
             }
         }
     }
@@ -213,13 +246,22 @@ fn apply_user_defined_template(conversation: &str, user_system_prompt: &str) -> 
     Ok(formatted)
 }
 
-/// Apply chat template formatting to conversation history.
-///
-/// Parses conversation text and formats it according to the model's chat template type.
-/// Now uses universal SYSTEM.EXEC prompt for all models instead of model-specific tool injection.
+/// Apply chat template formatting to conversation history (uses default tags).
 pub fn apply_model_chat_template(
     conversation: &str,
     template_type: Option<&str>,
+) -> Result<String, String> {
+    apply_model_chat_template_with_tags(conversation, template_type, &tool_tags::DEFAULT_TAGS)
+}
+
+/// Apply chat template formatting to conversation history.
+///
+/// Parses conversation text and formats it according to the model's chat template type.
+/// Uses model-specific tool tags in the system prompt for better tool-calling compliance.
+pub fn apply_model_chat_template_with_tags(
+    conversation: &str,
+    template_type: Option<&str>,
+    tags: &ToolTags,
 ) -> Result<String, String> {
     // Parse conversation into messages
     let mut system_message: Option<String> = None;
@@ -266,14 +308,13 @@ pub fn apply_model_chat_template(
         }
     }
 
-    // Get the universal system prompt (same for ALL models)
-    let universal_prompt = get_universal_system_prompt();
+    // Get the universal system prompt with model-specific tool tags
+    let universal_prompt = get_universal_system_prompt_with_tags(tags);
 
-    // Combine user's system message (if any) with our universal prompt
-    let final_system_message = match system_message {
-        Some(user_sys) => format!("{}\n\n{}", user_sys, universal_prompt),
-        None => universal_prompt,
-    };
+    // Use the model-specific universal prompt directly.
+    // The conversation's SYSTEM: block may contain a stale copy with default tags,
+    // so we always use the freshly-generated prompt with correct model-specific tags.
+    let final_system_message = universal_prompt;
 
     // Construct prompt based on detected template type
     let prompt = match template_type {
@@ -505,5 +546,28 @@ mod tests {
                 template
             );
         }
+    }
+
+    #[test]
+    fn test_model_specific_tags_in_prompt() {
+        use super::tool_tags;
+
+        // Qwen tags
+        let qwen_tags = tool_tags::get_tool_tags_for_model(Some("Qwen3 8B"));
+        let prompt = get_universal_system_prompt_with_tags(qwen_tags);
+        assert!(prompt.contains("<tool_call>"), "Qwen prompt should use <tool_call> tags");
+        assert!(prompt.contains("</tool_call>"), "Qwen prompt should use </tool_call> tags");
+        assert!(!prompt.contains("SYSTEM.EXEC"), "Qwen prompt should NOT contain SYSTEM.EXEC");
+
+        // Mistral tags
+        let mistral_tags = tool_tags::get_tool_tags_for_model(Some("mistralai_Devstral Small 2507"));
+        let prompt = get_universal_system_prompt_with_tags(mistral_tags);
+        assert!(prompt.contains("[TOOL_CALLS]"), "Mistral prompt should use [TOOL_CALLS] tags");
+        assert!(prompt.contains("[/TOOL_CALLS]"), "Mistral prompt should use [/TOOL_CALLS] tags");
+
+        // Unknown model (default tags)
+        let default_tags = tool_tags::get_tool_tags_for_model(Some("SomeUnknownModel"));
+        let prompt = get_universal_system_prompt_with_tags(default_tags);
+        assert!(prompt.contains("<||SYSTEM.EXEC>"), "Unknown model should use default SYSTEM.EXEC tags");
     }
 }

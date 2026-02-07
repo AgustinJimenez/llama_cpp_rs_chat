@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 use tokio::task::spawn_blocking;
 
 use crate::web::{
-    chat_handler::{generate_llama_response, get_universal_system_prompt},
+    chat_handler::{generate_llama_response, get_universal_system_prompt_with_tags, get_tool_tags_for_model},
     config::get_resolved_system_prompt,
     database::{conversation::ConversationLogger, SharedDatabase},
     models::{ChatMessage, ChatRequest, ChatResponse, TokenData},
@@ -318,8 +318,15 @@ pub async fn handle_post_chat_stream(
 
     #[cfg(not(feature = "mock"))]
     {
-        // Create a new conversation logger with universal system prompt
-        let universal_prompt = get_universal_system_prompt();
+        // Look up model-specific tool tags from the loaded model's general_name
+        let general_name = {
+            let state_guard = llama_state.lock().unwrap_or_else(|p| p.into_inner());
+            state_guard.as_ref().and_then(|s| s.general_name.clone())
+        };
+        let tags = get_tool_tags_for_model(general_name.as_deref());
+
+        // Create a new conversation logger with model-specific system prompt
+        let universal_prompt = get_universal_system_prompt_with_tags(tags);
 
         // Create a new conversation logger for this chat session
         let conversation_logger = match ConversationLogger::new(db.clone(), Some(&universal_prompt))
