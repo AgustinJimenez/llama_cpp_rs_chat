@@ -7,6 +7,8 @@ use llama_cpp_2::{
     token::LlamaToken,
 };
 use std::num::NonZeroU32;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use super::super::config::load_config;
@@ -78,6 +80,7 @@ pub async fn generate_llama_response(
     token_sender: Option<mpsc::UnboundedSender<TokenData>>,
     skip_user_logging: bool,
     db: &Database,
+    cancel: Arc<AtomicBool>,
 ) -> Result<(String, i32, i32), String> {
     sys_debug!(
         "[GENERATION] generate_llama_response called, token_sender is {}",
@@ -283,6 +286,11 @@ pub async fn generate_llama_response(
     let prompt_tokens = tokens.len();
     let batch_cap = PROMPT_BATCH_CAP;
 
+    // Check cancellation before expensive prompt decode
+    if cancel.load(Ordering::Relaxed) {
+        return Err("Cancelled".to_string());
+    }
+
     if !new_tokens.is_empty() {
         let new_chunks = new_tokens.len().div_ceil(batch_cap);
         log_debug!(
@@ -384,6 +392,13 @@ pub async fn generate_llama_response(
         );
 
         for i in 0..tokens_to_generate {
+            // Check cancellation every 4 tokens
+            if i % 4 == 0 && cancel.load(Ordering::Relaxed) {
+                log_info!(&conversation_id, "Generation cancelled by user");
+                hit_stop_condition = true;
+                break;
+            }
+
             // Sample next token
             if i % 50 == 0 {
                 log_debug!(

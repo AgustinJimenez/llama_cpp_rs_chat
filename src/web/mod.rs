@@ -6,6 +6,7 @@ pub mod command;
 pub mod config;
 pub mod database;
 pub mod filename_patterns; // Model filename pattern matching
+pub mod generation_queue; // Generation request queue with cancellation
 pub mod gguf_utils; // GGUF metadata utilities
 pub mod logger;
 pub mod model_manager;

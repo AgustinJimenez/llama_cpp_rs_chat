@@ -11,6 +11,9 @@ use std::sync::Arc;
 #[cfg(not(feature = "mock"))]
 use std::sync::Mutex;
 
+#[cfg(not(feature = "mock"))]
+use web::generation_queue::{GenerationQueue, SharedGenerationQueue};
+
 // HTTP server using hyper
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
@@ -25,9 +28,10 @@ use hyper::{Body, Method, Request, Response, Server, StatusCode};
 async fn handle_request(
     req: Request<Body>,
     llama_state: SharedLlamaState,
+    generation_queue: SharedGenerationQueue,
     db: SharedDatabase,
 ) -> std::result::Result<Response<Body>, Infallible> {
-    handle_request_impl(req, Some(llama_state), db).await
+    handle_request_impl(req, Some(llama_state), Some(generation_queue), db).await
 }
 
 #[cfg(feature = "mock")]
@@ -35,13 +39,15 @@ async fn handle_request(
     req: Request<Body>,
     db: SharedDatabase,
 ) -> std::result::Result<Response<Body>, Infallible> {
-    handle_request_impl(req, None, db).await
+    handle_request_impl(req, None, None, db).await
 }
 
 async fn handle_request_impl(
     req: Request<Body>,
     #[cfg(not(feature = "mock"))] llama_state: Option<SharedLlamaState>,
     #[cfg(feature = "mock")] _llama_state: Option<()>,
+    #[cfg(not(feature = "mock"))] generation_queue: Option<SharedGenerationQueue>,
+    #[cfg(feature = "mock")] _generation_queue: Option<()>,
     db: SharedDatabase,
 ) -> std::result::Result<Response<Body>, Infallible> {
     let method = req.method().clone();
@@ -49,6 +55,9 @@ async fn handle_request_impl(
 
     #[cfg(not(feature = "mock"))]
     let state = llama_state.unwrap();
+
+    #[cfg(not(feature = "mock"))]
+    let queue = generation_queue.unwrap();
 
     #[cfg(feature = "mock")]
     let state = ();
@@ -67,15 +76,19 @@ async fn handle_request_impl(
 
         // Chat endpoints
         (&Method::POST, "/api/chat") => {
-            web::routes::chat::handle_post_chat(req, state, db.clone()).await?
+            web::routes::chat::handle_post_chat(req, state, queue.clone(), db.clone()).await?
         }
 
         (&Method::POST, "/api/chat/stream") => {
-            web::routes::chat::handle_post_chat_stream(req, state, db.clone()).await?
+            web::routes::chat::handle_post_chat_stream(req, state, queue.clone(), db.clone()).await?
+        }
+
+        (&Method::POST, "/api/chat/cancel") => {
+            web::routes::chat::handle_post_chat_cancel(queue.clone()).await?
         }
 
         (&Method::GET, "/ws/chat/stream") => {
-            web::routes::chat::handle_websocket_chat_stream(req, state, db.clone()).await?
+            web::routes::chat::handle_websocket_chat_stream(req, state, queue.clone(), db.clone()).await?
         }
 
         (&Method::GET, path) if path.starts_with("/ws/conversation/watch/") => {
@@ -205,15 +218,23 @@ async fn main() -> std::io::Result<()> {
     #[cfg(not(feature = "mock"))]
     let llama_state: SharedLlamaState = Arc::new(Mutex::new(None));
 
+    // Create generation request queue (capacity 4 — generous for single-user)
+    #[cfg(not(feature = "mock"))]
+    let generation_queue: SharedGenerationQueue = Arc::new(GenerationQueue::spawn(4));
+
     // Create HTTP service
     let make_svc = make_service_fn({
         #[cfg(not(feature = "mock"))]
         let llama_state = llama_state.clone();
+        #[cfg(not(feature = "mock"))]
+        let generation_queue = generation_queue.clone();
         let db = db.clone();
 
         move |_conn| {
             #[cfg(not(feature = "mock"))]
             let llama_state = llama_state.clone();
+            #[cfg(not(feature = "mock"))]
+            let generation_queue = generation_queue.clone();
             let db = db.clone();
 
             async move {
@@ -221,7 +242,7 @@ async fn main() -> std::io::Result<()> {
                     let db = db.clone();
                     #[cfg(not(feature = "mock"))]
                     {
-                        handle_request(req, llama_state.clone(), db)
+                        handle_request(req, llama_state.clone(), generation_queue.clone(), db)
                     }
                     #[cfg(feature = "mock")]
                     {

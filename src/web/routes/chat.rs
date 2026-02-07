@@ -3,14 +3,15 @@ use hyper::body::Bytes;
 use hyper::{Body, Request, Response, StatusCode};
 use serde_json::json;
 use std::convert::Infallible;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
-use tokio::task::spawn_blocking;
 
 use crate::web::{
-    chat_handler::{generate_llama_response, get_universal_system_prompt_with_tags, get_tool_tags_for_model},
+    chat_handler::{get_universal_system_prompt_with_tags, get_tool_tags_for_model},
     config::get_resolved_system_prompt,
     database::{conversation::ConversationLogger, SharedDatabase},
+    generation_queue::{GenerationRequest, SharedGenerationQueue},
     models::{ChatMessage, ChatRequest, ChatResponse, TokenData},
     request_parsing::parse_json_body,
     response_helpers::{json_error, json_response},
@@ -22,13 +23,10 @@ use crate::web::{
 };
 
 // Import logging macros
-use crate::{sys_debug, sys_error, sys_info, sys_warn};
+use crate::{sys_error, sys_info};
 
 #[cfg(not(feature = "mock"))]
 use crate::web::models::SharedLlamaState;
-
-#[cfg(not(feature = "mock"))]
-use crate::web::model_manager::unload_model;
 
 // Helper function to get current timestamp for logging
 fn timestamp_now() -> String {
@@ -47,6 +45,8 @@ pub async fn handle_post_chat(
     req: Request<Body>,
     #[cfg(not(feature = "mock"))] llama_state: SharedLlamaState,
     #[cfg(feature = "mock")] _llama_state: (),
+    #[cfg(not(feature = "mock"))] generation_queue: SharedGenerationQueue,
+    #[cfg(feature = "mock")] _generation_queue: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     // Parse request body using helper
@@ -128,147 +128,30 @@ pub async fn handle_post_chat(
             logger.get_conversation_id()
         };
 
-        // Spawn generation in background - don't wait for it
-        let message_clone = chat_request.message.clone();
-        let conversation_logger_clone = conversation_logger.clone();
-        let llama_state_clone = llama_state.clone();
-        let db_clone = db.clone();
-        let conv_id_for_log = conversation_id.clone();
-        let rt_handle = tokio::runtime::Handle::current();
+        // Submit generation to the request queue
+        let cancel = Arc::new(AtomicBool::new(false));
+        let (result_tx, _result_rx) = tokio::sync::oneshot::channel();
+
+        let gen_request = GenerationRequest {
+            user_message: chat_request.message.clone(),
+            llama_state: llama_state.clone(),
+            conversation_logger: conversation_logger.clone(),
+            token_sender: None,
+            skip_user_logging: true,
+            db: db.clone(),
+            cancel,
+            result_sender: result_tx,
+        };
+
         sys_info!(
-            "[{}] [API_CHAT] Spawning background generation task for conversation: {}",
+            "[{}] [API_CHAT] Submitting generation to queue for conversation: {}",
             timestamp_now(),
-            conv_id_for_log
+            conversation_id
         );
-        // Use spawn_blocking to keep heavy work off the core runtime threads
-        spawn_blocking(move || {
-            sys_debug!(
-                "[{}] [BACKGROUND_GEN] Thread started for: {}",
-                timestamp_now(),
-                conv_id_for_log
-            );
-            sys_debug!(
-                "[{}] [BACKGROUND_GEN] Calling generate_llama_response...",
-                timestamp_now()
-            );
 
-            // Clone state for use in panic handler (needs to outlive the closure)
-            let state_for_unload = llama_state_clone.clone();
-
-            // Wrap generation in panic handler to catch tokenization crashes
-            let panic_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                rt_handle.block_on(generate_llama_response(
-                    &message_clone,
-                    llama_state_clone.clone(),
-                    conversation_logger_clone.clone(),
-                    None,
-                    true,
-                    &db_clone,
-                ))
-            }));
-
-            match panic_result {
-                Ok(result) => {
-                    // Generation completed or returned error
-                    match result {
-                        Ok((_content, tokens, max_tok)) => {
-                            sys_info!(
-                                "[{}] [BACKGROUND_GEN] Generation completed: {} tokens / {} max",
-                                timestamp_now(),
-                                tokens,
-                                max_tok
-                            );
-                        }
-                        Err(err) => {
-                            sys_error!(
-                                "[{}] [BACKGROUND_GEN] Generation failed: {}",
-                                timestamp_now(),
-                                err
-                            );
-
-                            // Write error to conversation file so it's visible to user
-                            let mut logger = conversation_logger_clone.lock().unwrap();
-                            logger.log_message("SYSTEM", &format!("⚠️ Generation Error: {err}"));
-                            logger.log_message("SYSTEM", "The model encountered an error during generation. This may be due to:");
-                            logger.log_message(
-                                "SYSTEM",
-                                "  - Complex output (large code blocks, JSON)",
-                            );
-                            logger.log_message("SYSTEM", "  - Context size limitations");
-                            logger.log_message("SYSTEM", "  - Model tokenization issues");
-                            logger.log_message(
-                                "SYSTEM",
-                                "Try simplifying your request or reducing context size.",
-                            );
-                        }
-                    }
-                }
-                Err(panic_err) => {
-                    // Tokenization panic caught!
-                    let panic_msg = if let Some(s) = panic_err.downcast_ref::<String>() {
-                        s.clone()
-                    } else if let Some(s) = panic_err.downcast_ref::<&str>() {
-                        s.to_string()
-                    } else {
-                        "Unknown panic".to_string()
-                    };
-
-                    sys_error!(
-                        "[{}] [BACKGROUND_GEN] PANIC CAUGHT: {}",
-                        timestamp_now(),
-                        panic_msg
-                    );
-
-                    // Write panic to conversation file
-                    let mut logger = conversation_logger_clone.lock().unwrap();
-                    logger.log_message("SYSTEM", "❌ Generation Crashed (Tokenization Panic)");
-                    logger.log_message("SYSTEM", &format!("Panic message: {panic_msg}"));
-                    logger.log_message("SYSTEM", "");
-                    logger.log_message(
-                        "SYSTEM",
-                        "This is a known issue with the llama-cpp-2 library.",
-                    );
-                    logger.log_message(
-                        "SYSTEM",
-                        "The model has been automatically unloaded for safety.",
-                    );
-                    logger.log_message("SYSTEM", "");
-                    logger.log_message("SYSTEM", "Please try:");
-                    logger.log_message("SYSTEM", "  - Reload the model");
-                    logger.log_message("SYSTEM", "  - Use a simpler, shorter prompt");
-                    logger.log_message("SYSTEM", "  - Reduce context size in model settings");
-                    logger.log_message(
-                        "SYSTEM",
-                        "  - Avoid requests for large code blocks or complex JSON",
-                    );
-                    drop(logger); // Release lock before unloading model
-
-                    // Automatically unload the model to prevent further crashes
-                    sys_warn!(
-                        "[{}] [BACKGROUND_GEN] Auto-unloading model after panic...",
-                        timestamp_now()
-                    );
-
-                    // Unload model asynchronously
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    match rt.block_on(unload_model(state_for_unload)) {
-                        Ok(_) => {
-                            sys_info!(
-                                "[{}] [BACKGROUND_GEN] Model unloaded successfully",
-                                timestamp_now()
-                            );
-                        }
-                        Err(e) => {
-                            sys_error!(
-                                "[{}] [BACKGROUND_GEN] Failed to unload model: {}",
-                                timestamp_now(),
-                                e
-                            );
-                        }
-                    }
-                }
-            }
-        });
+        if let Err(e) = generation_queue.submit(gen_request).await {
+            return Ok(json_error(StatusCode::SERVICE_UNAVAILABLE, &e));
+        }
 
         // Return immediately with conversation_id so frontend can connect WebSocket
         let chat_response = ChatResponse {
@@ -310,6 +193,8 @@ pub async fn handle_post_chat_stream(
     req: Request<Body>,
     #[cfg(not(feature = "mock"))] llama_state: SharedLlamaState,
     #[cfg(feature = "mock")] _llama_state: (),
+    #[cfg(not(feature = "mock"))] generation_queue: SharedGenerationQueue,
+    #[cfg(feature = "mock")] _generation_queue: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     // Parse request body using helper
@@ -346,33 +231,28 @@ pub async fn handle_post_chat_stream(
         let (tx, mut rx) = mpsc::unbounded_channel::<TokenData>();
         let (err_tx, mut err_rx) = mpsc::unbounded_channel::<String>();
 
-        // Spawn generation task
-        let message = chat_request.message.clone();
-        let state_clone = llama_state.clone();
-        let db_clone = db.clone();
+        // Submit generation to queue
+        let cancel = Arc::new(AtomicBool::new(false));
+        let (result_tx, _result_rx) = tokio::sync::oneshot::channel();
         let err_tx_clone = err_tx.clone();
+
+        let gen_request = GenerationRequest {
+            user_message: chat_request.message.clone(),
+            llama_state: llama_state.clone(),
+            conversation_logger,
+            token_sender: Some(tx),
+            skip_user_logging: false,
+            db: db.clone(),
+            cancel,
+            result_sender: result_tx,
+        };
+
+        // Submit and handle queue-full error
+        let queue_clone = generation_queue.clone();
         tokio::spawn(async move {
-            match generate_llama_response(
-                &message,
-                state_clone,
-                conversation_logger,
-                Some(tx),
-                false,
-                &db_clone,
-            )
-            .await
-            {
-                Ok((_content, tokens, max)) => {
-                    sys_debug!(
-                        "[DEBUG] Generation completed successfully: {} tokens used, {} max",
-                        tokens,
-                        max
-                    );
-                }
-                Err(e) => {
-                    sys_error!("[ERROR] Generation failed: {}", e);
-                    let _ = err_tx_clone.send(e.to_string());
-                }
+            if let Err(e) = queue_clone.submit(gen_request).await {
+                sys_error!("[ERROR] Failed to submit to generation queue: {}", e);
+                let _ = err_tx_clone.send(e);
             }
         });
 
@@ -426,17 +306,36 @@ pub async fn handle_post_chat_stream(
 
     #[cfg(feature = "mock")]
     {
-        Ok(json_raw(
+        Ok(json_error(
             StatusCode::OK,
-            r#"{"error":"Streaming not available (mock feature enabled)"}"#.to_string(),
+            "Streaming not available (mock feature enabled)",
         ))
     }
+}
+
+/// Cancel the currently in-progress generation.
+pub async fn handle_post_chat_cancel(
+    #[cfg(not(feature = "mock"))] generation_queue: SharedGenerationQueue,
+    #[cfg(feature = "mock")] _generation_queue: (),
+) -> Result<Response<Body>, Infallible> {
+    #[cfg(not(feature = "mock"))]
+    {
+        generation_queue.cancel_active();
+        sys_info!("[API_CHAT_CANCEL] Cancellation requested");
+    }
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "application/json")
+        .body(Body::from(r#"{"success":true,"message":"Cancellation requested"}"#))
+        .unwrap())
 }
 
 pub async fn handle_websocket_chat_stream(
     req: Request<Body>,
     #[cfg(not(feature = "mock"))] llama_state: SharedLlamaState,
     #[cfg(feature = "mock")] _llama_state: (),
+    #[cfg(not(feature = "mock"))] generation_queue: SharedGenerationQueue,
+    #[cfg(feature = "mock")] _generation_queue: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     // Check if the request wants to upgrade to WebSocket
@@ -455,13 +354,14 @@ pub async fn handle_websocket_chat_stream(
     {
         // Clone state for the WebSocket handler
         let llama_state_ws = llama_state.clone();
+        let queue_ws = generation_queue.clone();
         let db_ws = db.clone();
 
         // Spawn WebSocket handler on the upgraded connection
         tokio::spawn(async move {
             match hyper::upgrade::on(req).await {
                 Ok(upgraded) => {
-                    if let Err(e) = handle_websocket(upgraded, Some(llama_state_ws), db_ws).await {
+                    if let Err(e) = handle_websocket(upgraded, Some(llama_state_ws), queue_ws, db_ws).await {
                         sys_error!("[WEBSOCKET ERROR] {}", e);
                     }
                 }

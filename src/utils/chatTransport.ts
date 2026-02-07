@@ -113,6 +113,8 @@ function streamViaWebSocket(
 
     const markAborted = () => {
       state.wasAborted = true;
+      // Tell backend to cancel the in-progress generation
+      fetch('/api/chat/cancel', { method: 'POST' }).catch(() => {});
       settle(new Error('Request aborted'));
     };
 

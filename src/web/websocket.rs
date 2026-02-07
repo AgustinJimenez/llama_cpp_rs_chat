@@ -1,17 +1,17 @@
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
 use hyper::upgrade::Upgraded;
 use llama_cpp_2::model::AddBos;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
-use tokio::task::spawn_blocking;
 use tokio::time::{Duration, Instant};
 use tokio_tungstenite::tungstenite::protocol::Message as WsMessage;
 use tokio_tungstenite::WebSocketStream;
 
-use super::chat_handler::{apply_model_chat_template, generate_llama_response};
+use super::chat_handler::apply_model_chat_template;
 use super::config::get_resolved_system_prompt;
 use super::database::{conversation::ConversationLogger, SharedDatabase};
+use super::generation_queue::{GenerationRequest, SharedGenerationQueue};
 use super::models::*;
 
 // Import logging macros
@@ -115,6 +115,7 @@ fn calculate_tokens_for_content(
 pub async fn handle_websocket(
     upgraded: Upgraded,
     llama_state: Option<SharedLlamaState>,
+    generation_queue: SharedGenerationQueue,
     db: SharedDatabase,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Convert the upgraded connection to a WebSocket stream
@@ -215,46 +216,31 @@ pub async fn handle_websocket(
                 // Create channel for streaming tokens
                 let (tx, mut rx) = mpsc::unbounded_channel::<TokenData>();
 
-                // Spawn generation task
+                // Submit generation to queue
                 let message = chat_request.message.clone();
+                sys_debug!("[WS_CHAT] Submitting generation to queue");
 
-                let state_clone = llama_state.clone();
-                sys_debug!("[WS_CHAT] Spawning generation task");
-                let conversation_logger_clone = conversation_logger.clone();
-                let db_clone = db.clone();
-                let rt_handle = tokio::runtime::Handle::current();
-                // Run generation on a blocking thread so the WS sender isn't starved.
-                // This prevents tokens from being buffered until the model finishes.
-                spawn_blocking(move || {
-                    sys_debug!("[WS_CHAT] Generation blocking task started");
-                    if let Some(state) = state_clone {
-                        sys_debug!("[WS_CHAT] State is Some, calling generate_llama_response...");
-                        let result = rt_handle.block_on(generate_llama_response(
-                            &message,
-                            state,
-                            conversation_logger_clone,
-                            Some(tx),
-                            false,
-                            &db_clone,
-                        ));
-                        match result {
-                            Ok((content, tokens, max)) => {
-                                sys_info!(
-                                    "[WS_CHAT] Generation SUCCESS: {} chars, {} tokens, max {}",
-                                    content.len(),
-                                    tokens,
-                                    max
-                                );
-                            }
-                            Err(e) => {
-                                sys_error!("[WS_CHAT] Generation FAILED with error: {}", e);
-                            }
-                        }
-                    } else {
-                        sys_error!("[WS_CHAT] ERROR: state_clone is None - no model loaded!");
+                let cancel = Arc::new(AtomicBool::new(false));
+                let (result_tx, _result_rx) = tokio::sync::oneshot::channel();
+
+                if let Some(state) = llama_state.clone() {
+                    let gen_request = GenerationRequest {
+                        user_message: message,
+                        llama_state: state,
+                        conversation_logger: conversation_logger.clone(),
+                        token_sender: Some(tx),
+                        skip_user_logging: false,
+                        db: db.clone(),
+                        cancel: cancel.clone(),
+                        result_sender: result_tx,
+                    };
+
+                    if let Err(e) = generation_queue.submit(gen_request).await {
+                        sys_error!("[WS_CHAT] Failed to submit to queue: {}", e);
                     }
-                    sys_debug!("[WS_CHAT] Generation task ending, tx will be dropped");
-                });
+                } else {
+                    sys_error!("[WS_CHAT] ERROR: llama_state is None - no model loaded!");
+                }
 
                 // Stream tokens through WebSocket
                 let mut pending_tokens = String::new();
