@@ -78,7 +78,7 @@ function App() {
       <div
         className={`flex-1 transition-all duration-300`}
         style={{
-          marginLeft: isSidebarOpen ? '280px' : '60px'
+          marginLeft: isSidebarOpen ? '280px' : '70px'
         }}
       >
         <div className="flex flex-col h-full flat-card">

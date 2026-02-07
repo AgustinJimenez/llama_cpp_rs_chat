@@ -65,7 +65,7 @@ export function MessagesArea({
   return (
     <div
       ref={containerRef}
-      className="flex-1 overflow-y-auto p-6 space-y-4"
+      className="flex-1 overflow-y-auto overflow-x-hidden p-6 space-y-4"
       data-testid="messages-container"
       onScroll={handleScroll}
     >

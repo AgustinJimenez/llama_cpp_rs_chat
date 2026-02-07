@@ -116,7 +116,7 @@ const AssistantMessage: React.FC<{
     data-testid={`message-${message.role}`}
     data-message-id={message.id}
   >
-    <div className="max-w-[80%] space-y-2">
+    <div className="max-w-[80%] space-y-2 overflow-hidden">
       {/* Thinking process (for reasoning models) */}
       {thinkingContent && <ThinkingBlock content={thinkingContent} />}
 

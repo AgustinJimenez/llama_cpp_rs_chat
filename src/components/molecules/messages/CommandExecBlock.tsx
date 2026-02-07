@@ -25,8 +25,8 @@ export const CommandExecBlock: React.FC<CommandExecBlockProps> = ({ blocks }) =>
           </div>
 
           {/* Command content */}
-          <div className="bg-black/40 px-3 py-2">
-            <code className="text-sm text-green-200 font-mono">
+          <div className="bg-black/40 px-3 py-2 overflow-hidden">
+            <code className="text-sm text-green-200 font-mono break-all">
               {block.command}
             </code>
           </div>
@@ -38,7 +38,7 @@ export const CommandExecBlock: React.FC<CommandExecBlockProps> = ({ blocks }) =>
                 <span className="text-xs text-gray-400">Output:</span>
               </div>
               <div className="bg-black/60 px-3 py-2 max-h-64 overflow-auto">
-                <pre className="text-xs text-gray-300 font-mono whitespace-pre-wrap">
+                <pre className="text-xs text-gray-300 font-mono whitespace-pre-wrap break-all">
                   {block.output}
                 </pre>
               </div>
