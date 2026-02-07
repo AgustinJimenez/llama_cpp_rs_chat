@@ -142,6 +142,8 @@ export const useModelPathValidation = ({
                 estimated_layers: data.estimated_layers,
                 gguf_metadata: data.gguf_metadata,
                 default_system_prompt: data.default_system_prompt,
+                general_name: data.general_name,
+                recommended_params: data.recommended_params,
                 // Extract architecture details if available
                 block_count: data.gguf_metadata?.['gemma3.block_count'] ||
                             data.gguf_metadata?.['llama.block_count'],
