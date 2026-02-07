@@ -1,18 +1,13 @@
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
 use hyper::upgrade::Upgraded;
-use llama_cpp_2::model::AddBos;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc;
+use std::sync::atomic::Ordering;
 use tokio::time::{Duration, Instant};
 use tokio_tungstenite::tungstenite::protocol::Message as WsMessage;
 use tokio_tungstenite::WebSocketStream;
 
-use super::chat_handler::apply_model_chat_template;
-use super::config::get_resolved_system_prompt;
-use super::database::{conversation::ConversationLogger, SharedDatabase};
-use super::generation_queue::{GenerationRequest, SharedGenerationQueue};
-use super::models::*;
+use super::database::SharedDatabase;
+use super::models::ChatRequest;
+use super::worker::worker_bridge::{GenerationResult, SharedWorkerBridge};
 
 // Import logging macros
 use crate::{sys_debug, sys_error, sys_info, sys_warn};
@@ -81,42 +76,11 @@ async fn flush_pending_tokens(
     Ok(())
 }
 
-/// Calculate token counts for conversation content
-/// Returns (tokens_used, max_tokens) tuple where both values are Option<i32>
-fn calculate_tokens_for_content(
-    content: &str,
-    llama_state: &Option<SharedLlamaState>,
-) -> (Option<i32>, Option<i32>) {
-    if let Some(ref state) = llama_state {
-        if let Ok(state_lock) = state.lock() {
-            if let Some(ref llama_state_inner) = *state_lock {
-                if let Some(ref model) = llama_state_inner.model {
-                    if let Some(context_size) = llama_state_inner.model_context_length {
-                        // Apply chat template to get the prompt
-                        let template_type = llama_state_inner.chat_template_type.as_deref();
-                        match apply_model_chat_template(content, template_type) {
-                            Ok(prompt) => match model.str_to_token(&prompt, AddBos::Always) {
-                                Ok(tokens) => {
-                                    return (Some(tokens.len() as i32), Some(context_size as i32))
-                                }
-                                Err(_) => return (None, Some(context_size as i32)),
-                            },
-                            Err(_) => return (None, Some(context_size as i32)),
-                        }
-                    }
-                }
-            }
-        }
-    }
-    (None, None)
-}
-
 // WebSocket handler for real-time token streaming
 pub async fn handle_websocket(
     upgraded: Upgraded,
-    llama_state: Option<SharedLlamaState>,
-    generation_queue: SharedGenerationQueue,
-    db: SharedDatabase,
+    bridge: SharedWorkerBridge,
+    _db: SharedDatabase,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Convert the upgraded connection to a WebSocket stream
     let ws_stream = WebSocketStream::from_raw_socket(
@@ -153,102 +117,39 @@ pub async fn handle_websocket(
                     }
                 };
 
-                // Determine system prompt based on config
-                let system_prompt = get_resolved_system_prompt(&db, &llama_state);
-
-                // Create or load conversation logger based on conversation_id
-                let conversation_logger = match &chat_request.conversation_id {
-                    Some(conv_id) => {
-                        sys_info!("[WS_CHAT] Loading existing conversation: {}", conv_id);
-                        // Load existing conversation
-                        match ConversationLogger::from_existing(db.clone(), conv_id) {
-                            Ok(logger) => {
-                                sys_info!(
-                                    "[WS_CHAT] Successfully loaded conversation: {}",
-                                    conv_id
-                                );
-                                Arc::new(Mutex::new(logger))
-                            }
-                            Err(e) => {
-                                sys_error!("[WS_CHAT] Failed to load conversation: {}", e);
-                                let error_msg = serde_json::json!({
-                                    "type": "error",
-                                    "error": format!("Failed to load conversation: {}", e)
-                                });
-                                let _ =
-                                    ws_sender.send(WsMessage::Text(error_msg.to_string())).await;
-                                break;
-                            }
-                        }
-                    }
-                    None => {
-                        sys_info!("[WS_CHAT] Creating new conversation with system prompt mode");
-                        // Create a new conversation with config-based system prompt
-                        match ConversationLogger::new(db.clone(), system_prompt.as_deref()) {
-                            Ok(logger) => {
-                                sys_info!("[WS_CHAT] Successfully created new conversation");
-                                Arc::new(Mutex::new(logger))
-                            }
-                            Err(e) => {
-                                sys_error!("[WS_CHAT] Failed to create conversation: {}", e);
-                                let error_msg = serde_json::json!({
-                                    "type": "error",
-                                    "error": format!("Failed to create conversation logger: {}", e)
-                                });
-                                let _ =
-                                    ws_sender.send(WsMessage::Text(error_msg.to_string())).await;
-                                break;
-                            }
-                        }
-                    }
-                };
-
-                // Get conversation ID to send back to client
-                let conversation_id = {
-                    let logger = conversation_logger
-                        .lock()
-                        .expect("Conversation logger mutex poisoned");
-                    logger.get_conversation_id()
-                };
-                sys_info!("[WS_CHAT] Conversation ID: {}", conversation_id);
                 sys_debug!("[WS_CHAT] User message: {}", chat_request.message);
 
-                // Create channel for streaming tokens
-                let (tx, mut rx) = mpsc::unbounded_channel::<TokenData>();
-
-                // Submit generation to queue
-                let message = chat_request.message.clone();
-                sys_debug!("[WS_CHAT] Submitting generation to queue");
-
-                let cancel = Arc::new(AtomicBool::new(false));
-                let (result_tx, _result_rx) = tokio::sync::oneshot::channel();
-
-                if let Some(state) = llama_state.clone() {
-                    let gen_request = GenerationRequest {
-                        user_message: message,
-                        llama_state: state,
-                        conversation_logger: conversation_logger.clone(),
-                        token_sender: Some(tx),
-                        skip_user_logging: false,
-                        db: db.clone(),
-                        cancel: cancel.clone(),
-                        result_sender: result_tx,
-                    };
-
-                    if let Err(e) = generation_queue.submit(gen_request).await {
-                        sys_error!("[WS_CHAT] Failed to submit to queue: {}", e);
+                // Start generation via worker bridge
+                let (mut rx, done_rx) = match bridge
+                    .generate(
+                        chat_request.message.clone(),
+                        chat_request.conversation_id.clone(),
+                        false, // Worker logs user message
+                    )
+                    .await
+                {
+                    Ok(r) => r,
+                    Err(e) => {
+                        sys_error!("[WS_CHAT] Failed to start generation: {}", e);
+                        let error_msg = serde_json::json!({
+                            "type": "error",
+                            "error": format!("Failed to start generation: {}", e)
+                        });
+                        let _ = ws_sender.send(WsMessage::Text(error_msg.to_string())).await;
+                        break;
                     }
-                } else {
-                    sys_error!("[WS_CHAT] ERROR: llama_state is None - no model loaded!");
-                }
+                };
 
-                // Stream tokens through WebSocket
+                sys_debug!("[WS_CHAT] Generation started via worker bridge");
+
+                // Stream tokens through WebSocket with buffering
                 let mut pending_tokens = String::new();
                 let mut pending_tokens_used: Option<i32> = None;
                 let mut pending_max_tokens: Option<i32> = None;
                 let mut next_flush = Instant::now() + WS_TOKEN_FLUSH_INTERVAL;
                 let mut debug = WsStreamDebug {
-                    enabled: std::env::var("LLAMA_CHAT_WS_STREAM_DEBUG").ok().as_deref() == Some("1"),
+                    enabled: std::env::var("LLAMA_CHAT_WS_STREAM_DEBUG").ok().as_deref()
+                        == Some("1"),
                     last_log: Instant::now(),
                     chunks_sent: 0,
                     chars_sent: 0,
@@ -256,7 +157,7 @@ pub async fn handle_websocket(
 
                 loop {
                     tokio::select! {
-                        // Receive tokens from the generation task
+                        // Receive tokens from the worker via bridge
                         token_result = rx.recv() => {
                             match token_result {
                                 Some(token_data) => {
@@ -287,6 +188,14 @@ pub async fn handle_websocket(
                                         &mut next_flush,
                                         &mut debug,
                                     ).await;
+
+                                    // Get conversation_id from completion result
+                                    let conversation_id = match done_rx.await {
+                                        Ok(GenerationResult::Complete { conversation_id, .. }) => conversation_id,
+                                        Ok(GenerationResult::Cancelled) => String::new(),
+                                        Ok(GenerationResult::Error(_)) | Err(_) => String::new(),
+                                    };
+
                                     let done_msg = serde_json::json!({
                                         "type": "done",
                                         "conversation_id": conversation_id
@@ -361,7 +270,7 @@ pub async fn handle_websocket(
 pub async fn handle_conversation_watch(
     upgraded: Upgraded,
     conversation_id: String,
-    llama_state: Option<SharedLlamaState>,
+    bridge: SharedWorkerBridge,
     db: SharedDatabase,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let ws_stream = WebSocketStream::from_raw_socket(
@@ -392,14 +301,18 @@ pub async fn handle_conversation_watch(
         initial_content.len()
     );
 
-    // Calculate token counts for initial content
-    let (tokens_used, max_tokens) = calculate_tokens_for_content(&initial_content, &llama_state);
+    // Get max_tokens from bridge metadata (can't count tokens without model in-process)
+    let max_tokens = bridge
+        .model_status()
+        .await
+        .and_then(|m| m.context_length)
+        .map(|c| c as i32);
 
     // Send initial content with token info
     let initial_msg = serde_json::json!({
         "type": "update",
         "content": initial_content,
-        "tokens_used": tokens_used,
+        "tokens_used": null,
         "max_tokens": max_tokens
     });
 

@@ -6,7 +6,7 @@ pub mod command;
 pub mod config;
 pub mod database;
 pub mod filename_patterns; // Model filename pattern matching
-pub mod generation_queue; // Generation request queue with cancellation
+// generation_queue removed — replaced by out-of-process worker bridge
 pub mod gguf_utils; // GGUF metadata utilities
 pub mod logger;
 pub mod model_manager;
@@ -19,14 +19,6 @@ pub mod utils;
 pub mod vram_calculator; // GPU/VRAM calculations
 pub mod websocket;
 pub mod websocket_utils; // WebSocket helper functions
+pub mod worker; // Out-of-process model worker
 
-// Re-export commonly used types
-pub use models::*;
-// Removed unused re-exports to fix compiler warnings
-// pub use config::*;
-// pub use conversation::*;
-// pub use model_manager::*;
-// pub use chat_handler::*;
-// pub use websocket::*;
-// pub use response::*;
-// pub use request::*;
+// Re-exports removed — import specific types where needed

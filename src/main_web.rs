@@ -3,16 +3,15 @@ mod web; // Declare web module for model capabilities and utilities
 
 // Import all types and functions from web modules
 use web::database::{Database, SharedDatabase};
-use web::*;
 
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::Arc;
-#[cfg(not(feature = "mock"))]
-use std::sync::Mutex;
 
 #[cfg(not(feature = "mock"))]
-use web::generation_queue::{GenerationQueue, SharedGenerationQueue};
+use web::worker::process_manager::ProcessManager;
+#[cfg(not(feature = "mock"))]
+use web::worker::worker_bridge::{SharedWorkerBridge, WorkerBridge};
 
 // HTTP server using hyper
 use hyper::service::{make_service_fn, service_fn};
@@ -27,11 +26,10 @@ use hyper::{Body, Method, Request, Response, Server, StatusCode};
 #[cfg(not(feature = "mock"))]
 async fn handle_request(
     req: Request<Body>,
-    llama_state: SharedLlamaState,
-    generation_queue: SharedGenerationQueue,
+    worker_bridge: SharedWorkerBridge,
     db: SharedDatabase,
 ) -> std::result::Result<Response<Body>, Infallible> {
-    handle_request_impl(req, Some(llama_state), Some(generation_queue), db).await
+    handle_request_impl(req, Some(worker_bridge), db).await
 }
 
 #[cfg(feature = "mock")]
@@ -39,32 +37,27 @@ async fn handle_request(
     req: Request<Body>,
     db: SharedDatabase,
 ) -> std::result::Result<Response<Body>, Infallible> {
-    handle_request_impl(req, None, None, db).await
+    handle_request_impl(req, None, db).await
 }
 
 async fn handle_request_impl(
     req: Request<Body>,
-    #[cfg(not(feature = "mock"))] llama_state: Option<SharedLlamaState>,
-    #[cfg(feature = "mock")] _llama_state: Option<()>,
-    #[cfg(not(feature = "mock"))] generation_queue: Option<SharedGenerationQueue>,
-    #[cfg(feature = "mock")] _generation_queue: Option<()>,
+    #[cfg(not(feature = "mock"))] worker_bridge: Option<SharedWorkerBridge>,
+    #[cfg(feature = "mock")] _worker_bridge: Option<()>,
     db: SharedDatabase,
 ) -> std::result::Result<Response<Body>, Infallible> {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
 
     #[cfg(not(feature = "mock"))]
-    let state = llama_state.unwrap();
-
-    #[cfg(not(feature = "mock"))]
-    let queue = generation_queue.unwrap();
+    let bridge = worker_bridge.unwrap();
 
     #[cfg(feature = "mock")]
-    let state = ();
+    let bridge = ();
 
     let response = match (&method, path.as_str()) {
         // Health check
-        (&Method::GET, "/health") => web::routes::health::handle(state).await?,
+        (&Method::GET, "/health") => web::routes::health::handle(bridge.clone()).await?,
 
         // System monitoring
         (&Method::GET, "/api/system/usage") => web::routes::system::handle_system_usage().await?,
@@ -76,83 +69,87 @@ async fn handle_request_impl(
 
         // Chat endpoints
         (&Method::POST, "/api/chat") => {
-            web::routes::chat::handle_post_chat(req, state, queue.clone(), db.clone()).await?
+            web::routes::chat::handle_post_chat(req, bridge.clone(), db.clone()).await?
         }
 
         (&Method::POST, "/api/chat/stream") => {
-            web::routes::chat::handle_post_chat_stream(req, state, queue.clone(), db.clone()).await?
+            web::routes::chat::handle_post_chat_stream(req, bridge.clone(), db.clone()).await?
         }
 
         (&Method::POST, "/api/chat/cancel") => {
-            web::routes::chat::handle_post_chat_cancel(queue.clone()).await?
+            web::routes::chat::handle_post_chat_cancel(bridge.clone()).await?
         }
 
         (&Method::GET, "/ws/chat/stream") => {
-            web::routes::chat::handle_websocket_chat_stream(req, state, queue.clone(), db.clone()).await?
+            web::routes::chat::handle_websocket_chat_stream(req, bridge.clone(), db.clone()).await?
         }
 
         (&Method::GET, path) if path.starts_with("/ws/conversation/watch/") => {
-            web::routes::chat::handle_conversation_watch_websocket(req, path, state, db.clone())
+            web::routes::chat::handle_conversation_watch_websocket(req, path, bridge.clone(), db.clone())
                 .await?
         }
 
         // Configuration endpoints
         (&Method::GET, "/api/config") => {
-            web::routes::config::handle_get_config(state, db.clone()).await?
+            web::routes::config::handle_get_config(bridge.clone(), db.clone()).await?
         }
 
         (&Method::POST, "/api/config") => {
-            web::routes::config::handle_post_config(req, state, db.clone()).await?
+            web::routes::config::handle_post_config(req, bridge.clone(), db.clone()).await?
         }
 
         // Conversation endpoints
         (&Method::GET, path) if path.starts_with("/api/conversation/") => {
-            web::routes::conversation::handle_get_conversation(path, state, db.clone()).await?
+            web::routes::conversation::handle_get_conversation(path, bridge.clone(), db.clone()).await?
         }
 
         (&Method::GET, "/api/conversations") => {
-            web::routes::conversation::handle_get_conversations(state, db.clone()).await?
+            web::routes::conversation::handle_get_conversations(bridge.clone(), db.clone()).await?
         }
 
         (&Method::DELETE, path) if path.starts_with("/api/conversations/") => {
-            web::routes::conversation::handle_delete_conversation(path, state, db.clone()).await?
+            web::routes::conversation::handle_delete_conversation(path, bridge.clone(), db.clone()).await?
         }
 
         // Model endpoints
         (&Method::GET, "/api/model/info") => {
-            web::routes::model::handle_get_model_info(req, state).await?
+            web::routes::model::handle_get_model_info(req, bridge.clone()).await?
         }
 
         (&Method::GET, "/api/model/status") => {
-            web::routes::model::handle_get_model_status(state).await?
+            web::routes::model::handle_get_model_status(bridge.clone()).await?
         }
 
         (&Method::GET, "/api/model/history") => {
-            web::routes::model::handle_get_model_history(state, db.clone()).await?
+            web::routes::model::handle_get_model_history(bridge.clone(), db.clone()).await?
         }
 
         (&Method::POST, "/api/model/history") => {
-            web::routes::model::handle_post_model_history(req, state, db.clone()).await?
+            web::routes::model::handle_post_model_history(req, bridge.clone(), db.clone()).await?
         }
 
         (&Method::POST, "/api/model/load") => {
-            web::routes::model::handle_post_model_load(req, state, db.clone()).await?
+            web::routes::model::handle_post_model_load(req, bridge.clone(), db.clone()).await?
         }
 
         (&Method::POST, "/api/model/unload") => {
-            web::routes::model::handle_post_model_unload(state).await?
+            web::routes::model::handle_post_model_unload(bridge.clone()).await?
+        }
+
+        (&Method::POST, "/api/model/hard-unload") => {
+            web::routes::model::handle_post_model_hard_unload(bridge.clone()).await?
         }
 
         // File operations
-        (&Method::GET, "/api/browse") => web::routes::files::handle_get_browse(req, state).await?,
+        (&Method::GET, "/api/browse") => web::routes::files::handle_get_browse(req, bridge.clone()).await?,
 
         (&Method::POST, "/api/upload") => {
-            web::routes::files::handle_post_upload(req, state).await?
+            web::routes::files::handle_post_upload(req, bridge.clone()).await?
         }
 
         // Tool execution
         (&Method::POST, "/api/tools/execute") => {
-            web::routes::tools::handle_post_tools_execute(req, state).await?
+            web::routes::tools::handle_post_tools_execute(req, bridge.clone()).await?
         }
 
         // Web fetch (GET endpoint for easy curl access from model)
@@ -161,10 +158,10 @@ async fn handle_request_impl(
         }
 
         // CORS preflight
-        (&Method::OPTIONS, _) => web::routes::static_files::handle_options(state).await?,
+        (&Method::OPTIONS, _) => web::routes::static_files::handle_options(bridge.clone()).await?,
 
         // Static file serving
-        (&Method::GET, "/") => web::routes::static_files::handle_index(state).await?,
+        (&Method::GET, "/") => web::routes::static_files::handle_index(bridge.clone()).await?,
 
         (&Method::GET, path)
             if path.starts_with("/assets/")
@@ -172,7 +169,7 @@ async fn handle_request_impl(
                 || path.ends_with(".ico")
                 || path.ends_with(".png") =>
         {
-            web::routes::static_files::handle_static_asset(path, state).await?
+            web::routes::static_files::handle_static_asset(path, bridge.clone()).await?
         }
 
         // 404 Not Found
@@ -185,8 +182,27 @@ async fn handle_request_impl(
     Ok(response)
 }
 
-#[tokio::main]
-async fn main() -> std::io::Result<()> {
+fn main() -> std::io::Result<()> {
+    // Check for --worker flag BEFORE creating tokio runtime.
+    // The worker creates its own runtimes internally for async operations,
+    // so it must not run inside an existing tokio runtime.
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--worker") {
+        let db_path = args
+            .windows(2)
+            .find(|w| w[0] == "--db-path")
+            .map(|w| w[1].as_str())
+            .unwrap_or("assets/llama_chat.db");
+        web::worker::worker_main::run_worker(db_path);
+        return Ok(());
+    }
+
+    // Create tokio runtime for the server
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(server_main())
+}
+
+async fn server_main() -> std::io::Result<()> {
     // Initialize SQLite database
     let db: SharedDatabase = Arc::new(
         Database::new("assets/llama_chat.db").expect("Failed to initialize SQLite database"),
@@ -214,27 +230,25 @@ async fn main() -> std::io::Result<()> {
         }
     }
 
-    // Create shared LLaMA state
+    // Spawn worker process
     #[cfg(not(feature = "mock"))]
-    let llama_state: SharedLlamaState = Arc::new(Mutex::new(None));
-
-    // Create generation request queue (capacity 4 — generous for single-user)
-    #[cfg(not(feature = "mock"))]
-    let generation_queue: SharedGenerationQueue = Arc::new(GenerationQueue::spawn(4));
+    let worker_bridge: SharedWorkerBridge = {
+        let pm = Arc::new(
+            ProcessManager::spawn("assets/llama_chat.db")
+                .expect("Failed to spawn worker process"),
+        );
+        Arc::new(WorkerBridge::new(pm))
+    };
 
     // Create HTTP service
     let make_svc = make_service_fn({
         #[cfg(not(feature = "mock"))]
-        let llama_state = llama_state.clone();
-        #[cfg(not(feature = "mock"))]
-        let generation_queue = generation_queue.clone();
+        let worker_bridge = worker_bridge.clone();
         let db = db.clone();
 
         move |_conn| {
             #[cfg(not(feature = "mock"))]
-            let llama_state = llama_state.clone();
-            #[cfg(not(feature = "mock"))]
-            let generation_queue = generation_queue.clone();
+            let worker_bridge = worker_bridge.clone();
             let db = db.clone();
 
             async move {
@@ -242,7 +256,7 @@ async fn main() -> std::io::Result<()> {
                     let db = db.clone();
                     #[cfg(not(feature = "mock"))]
                     {
-                        handle_request(req, llama_state.clone(), generation_queue.clone(), db)
+                        handle_request(req, worker_bridge.clone(), db)
                     }
                     #[cfg(feature = "mock")]
                     {
@@ -258,6 +272,7 @@ async fn main() -> std::io::Result<()> {
     let server = Server::bind(&addr).serve(make_svc);
 
     println!("🦙 LLaMA Chat Web Server starting on http://{addr}");
+    println!("📡 Worker process spawned for model inference");
     println!("Available endpoints:");
     println!("  GET  /health               - Health check");
     println!("  POST /api/chat             - Chat with LLaMA");
@@ -268,6 +283,7 @@ async fn main() -> std::io::Result<()> {
     println!("  POST /api/model/history    - Add model path to history");
     println!("  POST /api/model/load       - Load a specific model");
     println!("  POST /api/model/unload     - Unload current model");
+    println!("  POST /api/model/hard-unload - Force kill worker (reclaim all memory)");
     println!("  POST /api/upload           - Upload model file");
     println!("  GET  /api/conversations    - List conversation files");
     println!("  POST /api/tools/execute    - Execute tool calls");

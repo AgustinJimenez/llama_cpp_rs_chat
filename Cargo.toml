@@ -76,6 +76,9 @@ minijinja = "2.3"
 # SQLite database
 rusqlite = { version = "0.30", features = ["bundled"] }
 
+# Cross-thread channels for worker process IPC
+crossbeam-channel = "0.5"
+
 # HTTP client for web fetching (ureq: lightweight, blocking, rustls for TLS)
 ureq = { version = "2.9", default-features = false, features = ["tls"] }
 

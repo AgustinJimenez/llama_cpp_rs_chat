@@ -14,10 +14,10 @@ use crate::web::{
 };
 
 // Import logging macros
-use crate::{sys_debug, sys_warn};
+use crate::sys_debug;
 
 #[cfg(not(feature = "mock"))]
-use crate::web::models::SharedLlamaState;
+use crate::web::worker::worker_bridge::SharedWorkerBridge;
 
 #[derive(serde::Deserialize)]
 struct ToolExecuteRequest {
@@ -125,8 +125,8 @@ fn fetch_url_as_text(url: &str, max_chars: usize) -> serde_json::Value {
 
 pub async fn handle_post_tools_execute(
     req: Request<Body>,
-    #[cfg(not(feature = "mock"))] llama_state: SharedLlamaState,
-    #[cfg(feature = "mock")] _llama_state: (),
+    #[cfg(not(feature = "mock"))] _bridge: SharedWorkerBridge,
+    #[cfg(feature = "mock")] _bridge: (),
 ) -> Result<Response<Body>, Infallible> {
     // Parse request body using helper
     let request: ToolExecuteRequest = match parse_json_body(req.into_body()).await {
@@ -137,16 +137,11 @@ pub async fn handle_post_tools_execute(
     // Get current model's capabilities for tool translation
     #[cfg(not(feature = "mock"))]
     let (tool_name, tool_arguments) = {
-        // Access the shared state to get current chat template
-        let state_guard = llama_state;
-        // Handle poisoned mutex by extracting the inner value
-        let state = state_guard.lock().unwrap_or_else(|poisoned| {
-            sys_warn!("[WARN] Mutex was poisoned, recovering...");
-            poisoned.into_inner()
-        });
-        let chat_template = state
+        // Get chat template from worker bridge cached metadata
+        let meta = _bridge.model_status().await;
+        let chat_template = meta
             .as_ref()
-            .and_then(|s| s.chat_template_type.as_deref())
+            .and_then(|m| m.chat_template_type.as_deref())
             .unwrap_or("Unknown");
         let capabilities = crate::web::models::get_model_capabilities(chat_template);
 

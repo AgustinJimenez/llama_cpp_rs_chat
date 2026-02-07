@@ -2244,6 +2244,7 @@ dependencies = [
  "base64 0.21.7",
  "chrono",
  "cmake",
+ "crossbeam-channel",
  "flate2",
  "futures-util",
  "gguf-llms",

@@ -17,7 +17,7 @@ use crate::sys_error;
 
 pub async fn handle_get_browse(
     req: Request<Body>,
-    #[cfg(not(feature = "mock"))] _llama_state: crate::web::models::SharedLlamaState,
+    #[cfg(not(feature = "mock"))] _llama_state: crate::web::worker::worker_bridge::SharedWorkerBridge,
     #[cfg(feature = "mock")] _llama_state: (),
 ) -> Result<Response<Body>, Infallible> {
     // Parse query parameters for path
@@ -102,7 +102,7 @@ pub async fn handle_get_browse(
 
 pub async fn handle_post_upload(
     req: Request<Body>,
-    #[cfg(not(feature = "mock"))] _llama_state: crate::web::models::SharedLlamaState,
+    #[cfg(not(feature = "mock"))] _llama_state: crate::web::worker::worker_bridge::SharedWorkerBridge,
     #[cfg(feature = "mock")] _llama_state: (),
 ) -> Result<Response<Body>, Infallible> {
     // Extract headers before consuming the request body

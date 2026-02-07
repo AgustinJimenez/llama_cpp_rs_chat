@@ -1,18 +1,14 @@
 // Chat route handlers
 use hyper::body::Bytes;
 use hyper::{Body, Request, Response, StatusCode};
-use serde_json::json;
 use std::convert::Infallible;
-use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc;
 
 use crate::web::{
-    chat_handler::{get_universal_system_prompt_with_tags, get_tool_tags_for_model},
-    config::get_resolved_system_prompt,
+    chat_handler::{get_tool_tags_for_model, get_universal_system_prompt_with_tags},
+    config::load_config,
     database::{conversation::ConversationLogger, SharedDatabase},
-    generation_queue::{GenerationRequest, SharedGenerationQueue},
-    models::{ChatMessage, ChatRequest, ChatResponse, TokenData},
+    models::{ChatMessage, ChatRequest, ChatResponse},
     request_parsing::parse_json_body,
     response_helpers::{json_error, json_response},
     websocket::{handle_conversation_watch, handle_websocket},
@@ -26,7 +22,7 @@ use crate::web::{
 use crate::{sys_error, sys_info};
 
 #[cfg(not(feature = "mock"))]
-use crate::web::models::SharedLlamaState;
+use crate::web::worker::worker_bridge::SharedWorkerBridge;
 
 // Helper function to get current timestamp for logging
 fn timestamp_now() -> String {
@@ -41,12 +37,27 @@ fn timestamp_now() -> String {
     format!("{hours:02}:{minutes:02}:{seconds:02}.{millis:03}")
 }
 
+/// Resolve system prompt from database config and model general_name.
+#[cfg(not(feature = "mock"))]
+fn resolve_system_prompt(
+    db: &crate::web::database::Database,
+    general_name: Option<&str>,
+) -> Option<String> {
+    let config = load_config(db);
+    match config.system_prompt.as_deref() {
+        Some("__AGENTIC__") => {
+            let tags = get_tool_tags_for_model(general_name);
+            Some(get_universal_system_prompt_with_tags(tags))
+        }
+        Some(custom) => Some(custom.to_string()),
+        None => None,
+    }
+}
+
 pub async fn handle_post_chat(
     req: Request<Body>,
-    #[cfg(not(feature = "mock"))] llama_state: SharedLlamaState,
-    #[cfg(feature = "mock")] _llama_state: (),
-    #[cfg(not(feature = "mock"))] generation_queue: SharedGenerationQueue,
-    #[cfg(feature = "mock")] _generation_queue: (),
+    #[cfg(not(feature = "mock"))] bridge: SharedWorkerBridge,
+    #[cfg(feature = "mock")] _bridge: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     // Parse request body using helper
@@ -85,6 +96,12 @@ pub async fn handle_post_chat(
             return Ok(json_response(StatusCode::OK, &response));
         }
 
+        // Get model's general_name from bridge metadata
+        let general_name = bridge
+            .model_status()
+            .await
+            .and_then(|m| m.general_name.clone());
+
         // Create or load conversation logger
         let conversation_logger = if let Some(conversation_id) = &chat_request.conversation_id {
             // Load existing conversation
@@ -98,13 +115,8 @@ pub async fn handle_post_chat(
                 }
             }
         } else {
-            // Create new conversation - determine system prompt based on config
-            #[cfg(not(feature = "mock"))]
-            let system_prompt = get_resolved_system_prompt(&db, &Some(llama_state.clone()));
-
-            #[cfg(feature = "mock")]
-            let system_prompt = get_resolved_system_prompt(&db, &None);
-
+            // Create new conversation with resolved system prompt
+            let system_prompt = resolve_system_prompt(&db, general_name.as_deref());
             match ConversationLogger::new(db.clone(), system_prompt.as_deref()) {
                 Ok(logger) => Arc::new(Mutex::new(logger)),
                 Err(e) => {
@@ -128,29 +140,27 @@ pub async fn handle_post_chat(
             logger.get_conversation_id()
         };
 
-        // Submit generation to the request queue
-        let cancel = Arc::new(AtomicBool::new(false));
-        let (result_tx, _result_rx) = tokio::sync::oneshot::channel();
-
-        let gen_request = GenerationRequest {
-            user_message: chat_request.message.clone(),
-            llama_state: llama_state.clone(),
-            conversation_logger: conversation_logger.clone(),
-            token_sender: None,
-            skip_user_logging: true,
-            db: db.clone(),
-            cancel,
-            result_sender: result_tx,
-        };
-
+        // Submit generation to worker (skip_user_logging since we logged above)
         sys_info!(
-            "[{}] [API_CHAT] Submitting generation to queue for conversation: {}",
+            "[{}] [API_CHAT] Submitting generation to worker for conversation: {}",
             timestamp_now(),
             conversation_id
         );
 
-        if let Err(e) = generation_queue.submit(gen_request).await {
-            return Ok(json_error(StatusCode::SERVICE_UNAVAILABLE, &e));
+        match bridge
+            .generate(
+                chat_request.message.clone(),
+                Some(conversation_id.clone()),
+                true, // skip_user_logging — already logged above
+            )
+            .await
+        {
+            Ok(_receivers) => {
+                // Drop receivers — generation runs in worker, client watches via WebSocket
+            }
+            Err(e) => {
+                return Ok(json_error(StatusCode::SERVICE_UNAVAILABLE, &e));
+            }
         }
 
         // Return immediately with conversation_id so frontend can connect WebSocket
@@ -191,12 +201,12 @@ pub async fn handle_post_chat(
 
 pub async fn handle_post_chat_stream(
     req: Request<Body>,
-    #[cfg(not(feature = "mock"))] llama_state: SharedLlamaState,
-    #[cfg(feature = "mock")] _llama_state: (),
-    #[cfg(not(feature = "mock"))] generation_queue: SharedGenerationQueue,
-    #[cfg(feature = "mock")] _generation_queue: (),
+    #[cfg(not(feature = "mock"))] bridge: SharedWorkerBridge,
+    #[cfg(feature = "mock")] _bridge: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
+    let _ = &db; // Worker handles DB operations
+
     // Parse request body using helper
     let chat_request: ChatRequest = match parse_json_body(req.into_body()).await {
         Ok(req) => req,
@@ -205,92 +215,41 @@ pub async fn handle_post_chat_stream(
 
     #[cfg(not(feature = "mock"))]
     {
-        // Look up model-specific tool tags from the loaded model's general_name
-        let general_name = {
-            let state_guard = llama_state.lock().unwrap_or_else(|p| p.into_inner());
-            state_guard.as_ref().and_then(|s| s.general_name.clone())
-        };
-        let tags = get_tool_tags_for_model(general_name.as_deref());
-
-        // Create a new conversation logger with model-specific system prompt
-        let universal_prompt = get_universal_system_prompt_with_tags(tags);
-
-        // Create a new conversation logger for this chat session
-        let conversation_logger = match ConversationLogger::new(db.clone(), Some(&universal_prompt))
+        // Start generation via worker bridge
+        let (mut token_rx, _done_rx) = match bridge
+            .generate(
+                chat_request.message.clone(),
+                None,  // New conversation (worker creates it)
+                false, // Worker logs user message
+            )
+            .await
         {
-            Ok(logger) => Arc::new(Mutex::new(logger)),
+            Ok(rx) => rx,
             Err(e) => {
-                return Ok(json_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    &format!("Failed to create conversation logger: {e}"),
-                ));
+                return Ok(json_error(StatusCode::SERVICE_UNAVAILABLE, &e));
             }
         };
-
-        // Create channel for streaming tokens
-        let (tx, mut rx) = mpsc::unbounded_channel::<TokenData>();
-        let (err_tx, mut err_rx) = mpsc::unbounded_channel::<String>();
-
-        // Submit generation to queue
-        let cancel = Arc::new(AtomicBool::new(false));
-        let (result_tx, _result_rx) = tokio::sync::oneshot::channel();
-        let err_tx_clone = err_tx.clone();
-
-        let gen_request = GenerationRequest {
-            user_message: chat_request.message.clone(),
-            llama_state: llama_state.clone(),
-            conversation_logger,
-            token_sender: Some(tx),
-            skip_user_logging: false,
-            db: db.clone(),
-            cancel,
-            result_sender: result_tx,
-        };
-
-        // Submit and handle queue-full error
-        let queue_clone = generation_queue.clone();
-        tokio::spawn(async move {
-            if let Err(e) = queue_clone.submit(gen_request).await {
-                sys_error!("[ERROR] Failed to submit to generation queue: {}", e);
-                let _ = err_tx_clone.send(e);
-            }
-        });
 
         // Use Body::channel for direct control over chunk sending
         let (mut sender, body) = Body::channel();
 
         // Spawn task to send tokens through the channel
         tokio::spawn(async move {
-            let mut error_sent = false;
-            loop {
-                tokio::select! {
-                    Some(token_data) = rx.recv() => {
-                        // Send TokenData as JSON
-                        let json = serde_json::to_string(&token_data).unwrap_or_else(|_| r#"{"token":"","tokens_used":0,"max_tokens":0}"#.to_string());
-                        let event = format!("data: {json}\n\n");
+            while let Some(token_data) = token_rx.recv().await {
+                // Send TokenData as JSON
+                let json_str = serde_json::to_string(&token_data).unwrap_or_else(|_| {
+                    r#"{"token":"","tokens_used":0,"max_tokens":0}"#.to_string()
+                });
+                let event = format!("data: {json_str}\n\n");
 
-                        // Send chunk immediately - this ensures no buffering
-                        if sender.send_data(Bytes::from(event)).await.is_err() {
-                            // Client disconnected
-                            break;
-                        }
-                    }
-                    Some(err_msg) = err_rx.recv() => {
-                        let error_event = format!("event: error\ndata: {}\n\n", json!({ "error": err_msg }));
-                        let _ = sender.send_data(Bytes::from(error_event)).await;
-                        error_sent = true;
-                        break;
-                    }
-                    else => {
-                        // Channel closed, generation complete
-                        break;
-                    }
+                // Send chunk immediately - this ensures no buffering
+                if sender.send_data(Bytes::from(event)).await.is_err() {
+                    // Client disconnected
+                    break;
                 }
             }
-            // Send done event unless an error was sent
-            if !error_sent {
-                let _ = sender.send_data(Bytes::from("data: [DONE]\n\n")).await;
-            }
+            // Send done event
+            let _ = sender.send_data(Bytes::from("data: [DONE]\n\n")).await;
         });
 
         Ok(Response::builder()
@@ -315,27 +274,27 @@ pub async fn handle_post_chat_stream(
 
 /// Cancel the currently in-progress generation.
 pub async fn handle_post_chat_cancel(
-    #[cfg(not(feature = "mock"))] generation_queue: SharedGenerationQueue,
-    #[cfg(feature = "mock")] _generation_queue: (),
+    #[cfg(not(feature = "mock"))] bridge: SharedWorkerBridge,
+    #[cfg(feature = "mock")] _bridge: (),
 ) -> Result<Response<Body>, Infallible> {
     #[cfg(not(feature = "mock"))]
     {
-        generation_queue.cancel_active();
+        bridge.cancel_generation().await;
         sys_info!("[API_CHAT_CANCEL] Cancellation requested");
     }
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header("content-type", "application/json")
-        .body(Body::from(r#"{"success":true,"message":"Cancellation requested"}"#))
+        .body(Body::from(
+            r#"{"success":true,"message":"Cancellation requested"}"#,
+        ))
         .unwrap())
 }
 
 pub async fn handle_websocket_chat_stream(
     req: Request<Body>,
-    #[cfg(not(feature = "mock"))] llama_state: SharedLlamaState,
-    #[cfg(feature = "mock")] _llama_state: (),
-    #[cfg(not(feature = "mock"))] generation_queue: SharedGenerationQueue,
-    #[cfg(feature = "mock")] _generation_queue: (),
+    #[cfg(not(feature = "mock"))] bridge: SharedWorkerBridge,
+    #[cfg(feature = "mock")] _bridge: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     // Check if the request wants to upgrade to WebSocket
@@ -353,15 +312,14 @@ pub async fn handle_websocket_chat_stream(
     #[cfg(not(feature = "mock"))]
     {
         // Clone state for the WebSocket handler
-        let llama_state_ws = llama_state.clone();
-        let queue_ws = generation_queue.clone();
+        let bridge_ws = bridge.clone();
         let db_ws = db.clone();
 
         // Spawn WebSocket handler on the upgraded connection
         tokio::spawn(async move {
             match hyper::upgrade::on(req).await {
                 Ok(upgraded) => {
-                    if let Err(e) = handle_websocket(upgraded, Some(llama_state_ws), queue_ws, db_ws).await {
+                    if let Err(e) = handle_websocket(upgraded, bridge_ws, db_ws).await {
                         sys_error!("[WEBSOCKET ERROR] {}", e);
                     }
                 }
@@ -386,8 +344,8 @@ pub async fn handle_websocket_chat_stream(
 pub async fn handle_conversation_watch_websocket(
     req: Request<Body>,
     path: &str,
-    #[cfg(not(feature = "mock"))] llama_state: SharedLlamaState,
-    #[cfg(feature = "mock")] _llama_state: (),
+    #[cfg(not(feature = "mock"))] bridge: SharedWorkerBridge,
+    #[cfg(feature = "mock")] _bridge: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     // Extract conversation ID from path
@@ -415,7 +373,7 @@ pub async fn handle_conversation_watch_websocket(
     #[cfg(not(feature = "mock"))]
     {
         // Clone state for the WebSocket handler
-        let llama_state_ws = llama_state.clone();
+        let bridge_ws = bridge.clone();
         let db_ws = db.clone();
 
         // Spawn WebSocket handler on the upgraded connection
@@ -425,7 +383,7 @@ pub async fn handle_conversation_watch_websocket(
                     if let Err(e) = handle_conversation_watch(
                         upgraded,
                         conversation_id,
-                        Some(llama_state_ws),
+                        bridge_ws,
                         db_ws,
                     )
                     .await

@@ -12,8 +12,8 @@ use crate::web::{
 };
 
 pub async fn handle_get_config(
-    #[cfg(not(feature = "mock"))] _llama_state: crate::web::models::SharedLlamaState,
-    #[cfg(feature = "mock")] _llama_state: (),
+    #[cfg(not(feature = "mock"))] _bridge: crate::web::worker::worker_bridge::SharedWorkerBridge,
+    #[cfg(feature = "mock")] _bridge: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     let db_config = db.load_config();
@@ -30,8 +30,8 @@ pub async fn handle_get_config(
 
 pub async fn handle_post_config(
     req: Request<Body>,
-    #[cfg(not(feature = "mock"))] _llama_state: crate::web::models::SharedLlamaState,
-    #[cfg(feature = "mock")] _llama_state: (),
+    #[cfg(not(feature = "mock"))] _bridge: crate::web::worker::worker_bridge::SharedWorkerBridge,
+    #[cfg(feature = "mock")] _bridge: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     // Parse request body
@@ -69,14 +69,7 @@ pub async fn handle_post_config(
 
     match db.save_config(&merged) {
         Ok(_) => {
-            // Invalidate cached system prompt since config changed
-            #[cfg(not(feature = "mock"))]
-            if let Ok(mut guard) = _llama_state.lock() {
-                if let Some(ref mut state) = *guard {
-                    state.cached_system_prompt = None;
-                    state.cached_prompt_key = None;
-                }
-            }
+            // No cache invalidation needed — worker reads fresh config from DB on each generation
             Ok(json_raw(StatusCode::OK, r#"{"success":true}"#.to_string()))
         }
         Err(e) => Ok(json_error(

@@ -55,7 +55,7 @@ fn parse_conversation_to_messages(content: &str) -> Vec<ChatMessage> {
 
 pub async fn handle_get_conversation(
     path: &str,
-    #[cfg(not(feature = "mock"))] _llama_state: crate::web::models::SharedLlamaState,
+    #[cfg(not(feature = "mock"))] _llama_state: crate::web::worker::worker_bridge::SharedWorkerBridge,
     #[cfg(feature = "mock")] _llama_state: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
@@ -83,7 +83,7 @@ pub async fn handle_get_conversation(
 }
 
 pub async fn handle_get_conversations(
-    #[cfg(not(feature = "mock"))] _llama_state: crate::web::models::SharedLlamaState,
+    #[cfg(not(feature = "mock"))] _llama_state: crate::web::worker::worker_bridge::SharedWorkerBridge,
     #[cfg(feature = "mock")] _llama_state: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
@@ -121,7 +121,7 @@ pub async fn handle_get_conversations(
 
 pub async fn handle_delete_conversation(
     path: &str,
-    #[cfg(not(feature = "mock"))] _llama_state: crate::web::models::SharedLlamaState,
+    #[cfg(not(feature = "mock"))] _llama_state: crate::web::worker::worker_bridge::SharedWorkerBridge,
     #[cfg(feature = "mock")] _llama_state: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {

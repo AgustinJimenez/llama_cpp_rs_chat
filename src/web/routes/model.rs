@@ -6,7 +6,7 @@ use serde::Deserialize;
 use std::convert::Infallible;
 use std::fs;
 use std::io::BufReader;
-use std::sync::{Mutex as StdMutex, OnceLock, TryLockError};
+use std::sync::{Mutex as StdMutex, OnceLock};
 use tokio::task::spawn_blocking;
 
 use crate::web::{
@@ -26,10 +26,7 @@ use crate::web::{
 use crate::{sys_debug, sys_error};
 
 #[cfg(not(feature = "mock"))]
-use crate::web::{
-    model_manager::{get_model_status, load_model, unload_model},
-    models::SharedLlamaState,
-};
+use crate::web::worker::worker_bridge::SharedWorkerBridge;
 
 // File size constants
 const BYTES_PER_GB: u64 = 1_073_741_824;
@@ -74,8 +71,8 @@ fn scan_directory_for_gguf_files(path: &std::path::Path) -> Vec<String> {
 
 pub async fn handle_get_model_info(
     req: Request<Body>,
-    #[cfg(not(feature = "mock"))] _llama_state: SharedLlamaState,
-    #[cfg(feature = "mock")] _llama_state: (),
+    #[cfg(not(feature = "mock"))] _bridge: SharedWorkerBridge,
+    #[cfg(feature = "mock")] _bridge: (),
 ) -> Result<Response<Body>, Infallible> {
     sys_debug!("[DEBUG] /api/model/info endpoint hit");
 
@@ -394,60 +391,28 @@ pub async fn handle_get_model_info(
 }
 
 pub async fn handle_get_model_status(
-    #[cfg(not(feature = "mock"))] llama_state: SharedLlamaState,
-    #[cfg(feature = "mock")] _llama_state: (),
+    #[cfg(not(feature = "mock"))] bridge: SharedWorkerBridge,
+    #[cfg(feature = "mock")] _bridge: (),
 ) -> Result<Response<Body>, Infallible> {
     #[cfg(not(feature = "mock"))]
     {
-        // Avoid blocking/hanging the status endpoint if the model mutex is held by a long operation.
-        // Return the last known-good status (cached) when the mutex would block.
-        let cache = MODEL_STATUS_CACHE_JSON.get_or_init(|| StdMutex::new(default_model_status_json()));
-
-        let guard = match llama_state.try_lock() {
-            Ok(guard) => Some(guard),
-            Err(TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner()),
-            Err(TryLockError::WouldBlock) => None,
+        // Get model status from worker bridge cached metadata (no IPC round-trip)
+        let status = match bridge.model_status().await {
+            Some(meta) => crate::web::models::ModelStatus {
+                loaded: meta.loaded,
+                model_path: Some(meta.model_path),
+                last_used: None,
+                memory_usage_mb: if meta.loaded { Some(512) } else { None },
+            },
+            None => crate::web::models::ModelStatus {
+                loaded: false,
+                model_path: None,
+                last_used: None,
+                memory_usage_mb: None,
+            },
         };
 
-        let response_json = if let Some(state_guard) = guard {
-            // Compute status using the already-held guard instead of taking a second lock.
-            let status = match state_guard.as_ref() {
-                Some(state) => {
-                    let loaded = state.model.is_some();
-                    let model_path = state.current_model_path.clone();
-                    let last_used = state
-                        .last_used
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .ok()
-                        .map(|d| d.as_secs().to_string());
-
-                    crate::web::models::ModelStatus {
-                        loaded,
-                        model_path,
-                        last_used,
-                        memory_usage_mb: if loaded { Some(512) } else { None },
-                    }
-                }
-                None => crate::web::models::ModelStatus {
-                    loaded: false,
-                    model_path: None,
-                    last_used: None,
-                    memory_usage_mb: None,
-                },
-            };
-
-            let json = serialize_with_fallback(&status, &default_model_status_json());
-            if let Ok(mut cached) = cache.lock() {
-                *cached = json.clone();
-            }
-            json
-        } else {
-            cache
-                .lock()
-                .map(|g| g.clone())
-                .unwrap_or_else(|_| default_model_status_json())
-        };
-
+        let response_json = serialize_with_fallback(&status, &default_model_status_json());
         Ok(json_raw(StatusCode::OK, response_json))
     }
 
@@ -461,8 +426,8 @@ pub async fn handle_get_model_status(
 }
 
 pub async fn handle_get_model_history(
-    #[cfg(not(feature = "mock"))] _llama_state: SharedLlamaState,
-    #[cfg(feature = "mock")] _llama_state: (),
+    #[cfg(not(feature = "mock"))] _bridge: SharedWorkerBridge,
+    #[cfg(feature = "mock")] _bridge: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     let history = db.get_model_history().unwrap_or_default();
@@ -473,8 +438,8 @@ pub async fn handle_get_model_history(
 
 pub async fn handle_post_model_history(
     req: Request<Body>,
-    #[cfg(not(feature = "mock"))] _llama_state: SharedLlamaState,
-    #[cfg(feature = "mock")] _llama_state: (),
+    #[cfg(not(feature = "mock"))] _bridge: SharedWorkerBridge,
+    #[cfg(feature = "mock")] _bridge: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     #[derive(Deserialize)]
@@ -496,8 +461,8 @@ pub async fn handle_post_model_history(
 
 pub async fn handle_post_model_load(
     req: Request<Body>,
-    #[cfg(not(feature = "mock"))] llama_state: SharedLlamaState,
-    #[cfg(feature = "mock")] _llama_state: (),
+    #[cfg(not(feature = "mock"))] bridge: SharedWorkerBridge,
+    #[cfg(feature = "mock")] _bridge: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     sys_debug!("[DEBUG] /api/model/load endpoint hit");
@@ -510,13 +475,18 @@ pub async fn handle_post_model_load(
             Err(error_response) => return Ok(error_response),
         };
 
-        // Attempt to load the model
-        match load_model(llama_state.clone(), &load_request.model_path).await {
-            Ok(_) => {
+        // Attempt to load the model via worker process
+        match bridge.load_model(&load_request.model_path).await {
+            Ok(meta) => {
                 // Add to model history on successful load
                 add_to_model_history(&db, &load_request.model_path);
 
-                let status = get_model_status(&llama_state);
+                let status = crate::web::models::ModelStatus {
+                    loaded: true,
+                    model_path: Some(meta.model_path),
+                    last_used: None,
+                    memory_usage_mb: Some(512),
+                };
                 let response = ModelResponse {
                     success: true,
                     message: format!("Model loaded successfully from {}", load_request.model_path),
@@ -561,14 +531,19 @@ pub async fn handle_post_model_load(
 }
 
 pub async fn handle_post_model_unload(
-    #[cfg(not(feature = "mock"))] llama_state: SharedLlamaState,
-    #[cfg(feature = "mock")] _llama_state: (),
+    #[cfg(not(feature = "mock"))] bridge: SharedWorkerBridge,
+    #[cfg(feature = "mock")] _bridge: (),
 ) -> Result<Response<Body>, Infallible> {
     #[cfg(not(feature = "mock"))]
     {
-        match unload_model(llama_state.clone()).await {
+        match bridge.unload_model().await {
             Ok(_) => {
-                let status = get_model_status(&llama_state);
+                let status = crate::web::models::ModelStatus {
+                    loaded: false,
+                    model_path: None,
+                    last_used: None,
+                    memory_usage_mb: None,
+                };
                 let response = ModelResponse {
                     success: true,
                     message: "Model unloaded successfully".to_string(),
@@ -606,6 +581,37 @@ pub async fn handle_post_model_unload(
         Ok(json_raw(
             StatusCode::SERVICE_UNAVAILABLE,
             r#"{"success":false,"message":"Model unloading not available (mock feature enabled)"}"#
+                .to_string(),
+        ))
+    }
+}
+
+/// Force-kill the worker process, instantly reclaiming all VRAM and RAM.
+/// Automatically restarts a fresh worker.
+pub async fn handle_post_model_hard_unload(
+    #[cfg(not(feature = "mock"))] bridge: SharedWorkerBridge,
+    #[cfg(feature = "mock")] _bridge: (),
+) -> Result<Response<Body>, Infallible> {
+    #[cfg(not(feature = "mock"))]
+    {
+        match bridge.force_unload().await {
+            Ok(_) => Ok(json_raw(
+                StatusCode::OK,
+                r#"{"success":true,"message":"Worker process killed, memory reclaimed"}"#
+                    .to_string(),
+            )),
+            Err(e) => Ok(json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("Failed to force unload: {e}"),
+            )),
+        }
+    }
+
+    #[cfg(feature = "mock")]
+    {
+        Ok(json_raw(
+            StatusCode::SERVICE_UNAVAILABLE,
+            r#"{"success":false,"message":"Force unload not available (mock feature enabled)"}"#
                 .to_string(),
         ))
     }

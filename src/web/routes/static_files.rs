@@ -7,7 +7,7 @@ use tokio::fs;
 use crate::web::response_helpers::cors_preflight;
 
 pub async fn handle_index(
-    #[cfg(not(feature = "mock"))] _llama_state: crate::web::models::SharedLlamaState,
+    #[cfg(not(feature = "mock"))] _llama_state: crate::web::worker::worker_bridge::SharedWorkerBridge,
     #[cfg(feature = "mock")] _llama_state: (),
 ) -> Result<Response<Body>, Infallible> {
     // Serve the main index.html from the built frontend
@@ -44,7 +44,7 @@ pub async fn handle_index(
 
 pub async fn handle_static_asset(
     path: &str,
-    #[cfg(not(feature = "mock"))] _llama_state: crate::web::models::SharedLlamaState,
+    #[cfg(not(feature = "mock"))] _llama_state: crate::web::worker::worker_bridge::SharedWorkerBridge,
     #[cfg(feature = "mock")] _llama_state: (),
 ) -> Result<Response<Body>, Infallible> {
     // Serve static assets (JS, CSS, etc.)
@@ -88,7 +88,7 @@ pub async fn handle_static_asset(
 }
 
 pub async fn handle_options(
-    #[cfg(not(feature = "mock"))] _llama_state: crate::web::models::SharedLlamaState,
+    #[cfg(not(feature = "mock"))] _llama_state: crate::web::worker::worker_bridge::SharedWorkerBridge,
     #[cfg(feature = "mock")] _llama_state: (),
 ) -> Result<Response<Body>, Infallible> {
     Ok(cors_preflight())
