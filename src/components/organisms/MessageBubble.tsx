@@ -1,5 +1,6 @@
 import React from 'react';
 import type { Message, ToolCall } from '../../types';
+import type { MessageSegment } from '../../hooks/useMessageParsing';
 import { useMessageParsing } from '../../hooks/useMessageParsing';
 import { MarkdownContent } from '../molecules/MarkdownContent';
 import { ThinkingBlock, CommandExecBlock, ToolCallBlock } from '../molecules/messages';
@@ -94,22 +95,21 @@ const UserMessage: React.FC<{
 );
 
 /**
- * Assistant message component with thinking, tool calls, and command blocks.
+ * Assistant message component with thinking, tool calls, and command blocks
+ * rendered in chronological order.
  */
 const AssistantMessage: React.FC<{
   message: Message;
   viewMode: 'text' | 'markdown';
   thinkingContent: string | null;
-  systemExecBlocks: { command: string; output: string | null }[];
+  segments: MessageSegment[];
   toolCalls: ToolCall[];
-  contentWithoutThinking: string;
 }> = ({
   message,
   viewMode,
   thinkingContent,
-  systemExecBlocks,
+  segments,
   toolCalls,
-  contentWithoutThinking,
 }) => (
   <div
     className="w-full flex justify-start space-y-2"
@@ -120,24 +120,34 @@ const AssistantMessage: React.FC<{
       {/* Thinking process (for reasoning models) */}
       {thinkingContent && <ThinkingBlock content={thinkingContent} />}
 
-      {/* Command executions */}
-      <CommandExecBlock blocks={systemExecBlocks} />
+      {/* Interleaved text and command blocks in chronological order */}
+      {segments.map((segment, index) => {
+        if (segment.type === 'command') {
+          return (
+            <CommandExecBlock
+              key={`seg-cmd-${index}`}
+              blocks={[{ command: segment.command, output: segment.output }]}
+            />
+          );
+        }
+        // Text segment
+        const text = segment.content;
+        if (!text.trim()) return null;
+        return (
+          <div key={`seg-txt-${index}`} className="flat-message-assistant p-4">
+            {viewMode === 'markdown' ? (
+              <MarkdownContent content={text} testId="message-content" />
+            ) : (
+              <p className="text-sm whitespace-pre-wrap leading-relaxed" data-testid="message-content">
+                {text}
+              </p>
+            )}
+          </div>
+        );
+      })}
 
       {/* Tool calls (legacy system) */}
       <ToolCallBlock toolCalls={toolCalls} />
-
-      {/* Main message content */}
-      {contentWithoutThinking && contentWithoutThinking.trim() && (
-        <div className="flat-message-assistant p-4">
-          {viewMode === 'markdown' ? (
-            <MarkdownContent content={contentWithoutThinking} testId="message-content" />
-          ) : (
-            <p className="text-sm whitespace-pre-wrap leading-relaxed" data-testid="message-content">
-              {contentWithoutThinking}
-            </p>
-          )}
-        </div>
-      )}
     </div>
   </div>
 );
@@ -150,8 +160,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode 
     toolCalls,
     cleanContent,
     thinkingContent,
-    systemExecBlocks,
-    contentWithoutThinking,
+    segments,
     isError,
   } = useMessageParsing(message);
 
@@ -174,9 +183,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode 
       message={message}
       viewMode={viewMode}
       thinkingContent={thinkingContent}
-      systemExecBlocks={systemExecBlocks}
+      segments={segments}
       toolCalls={toolCalls}
-      contentWithoutThinking={contentWithoutThinking}
     />
   );
 };

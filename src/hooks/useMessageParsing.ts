@@ -7,12 +7,17 @@ export interface SystemExecBlock {
   output: string | null;
 }
 
+export type MessageSegment =
+  | { type: 'text'; content: string }
+  | { type: 'command'; command: string; output: string | null };
+
 export interface ParsedMessage {
   toolCalls: ToolCall[];
   cleanContent: string;
   thinkingContent: string | null;
   systemExecBlocks: SystemExecBlock[];
   contentWithoutThinking: string;
+  segments: MessageSegment[];
   isError: boolean;
 }
 
@@ -21,6 +26,7 @@ export interface ParsedMessage {
  * - Tool calls
  * - Thinking content (for reasoning models)
  * - SYSTEM.EXEC blocks (command executions)
+ * - Ordered segments (text + commands interleaved chronologically)
  * - Clean content without special tags
  */
 export function useMessageParsing(message: Message): ParsedMessage {
@@ -50,11 +56,6 @@ export function useMessageParsing(message: Message): ParsedMessage {
   // Extract command execution blocks (supports all model-specific tag formats)
   const systemExecBlocks = useMemo(() => {
     const blocks: SystemExecBlock[] = [];
-    // Match ALL known exec tag formats:
-    // 1. Default SYSTEM.EXEC: <||SYSTEM.EXEC>cmd<SYSTEM.EXEC||>
-    // 2. Qwen: <tool_call>cmd</tool_call>
-    // 3. Mistral: [TOOL_CALLS]cmd[/TOOL_CALLS]
-    // Also tolerate malformed variants (missing <|| prefix, stray [TOOL_CALLS] prefix)
     const execRegex =
       /(?:\[TOOL_CALLS\]\s*)?(?:<\|\|)?SYSTEM\.EXEC>([\s\S]*?)<SYSTEM\.EXEC\|\|>|<tool_call>([\s\S]*?)<\/tool_call>|\[TOOL_CALLS\]([\s\S]*?)\[\/TOOL_CALLS\]/g;
     const outputRegex =
@@ -62,12 +63,10 @@ export function useMessageParsing(message: Message): ParsedMessage {
 
     let match;
     while ((match = execRegex.exec(message.content)) !== null) {
-      // One of the capture groups will have the command (others are undefined)
       const command = (match[1] || match[2] || match[3] || '').trim();
       blocks.push({ command, output: null });
     }
 
-    // Match outputs to commands (in order)
     let outputIndex = 0;
     while ((match = outputRegex.exec(message.content)) !== null) {
       if (outputIndex < blocks.length) {
@@ -80,18 +79,94 @@ export function useMessageParsing(message: Message): ParsedMessage {
     return blocks;
   }, [message.content]);
 
-  // Get content without thinking tags and all command execution tags
+  // Build ordered segments: interleave text and command blocks chronologically
+  const segments = useMemo(() => {
+    // Start from cleanContent (tool calls stripped) and remove thinking tags
+    let content = cleanContent.replace(/<think>[\s\S]*?<\/think>/g, '');
+
+    // Collect all exec+output block spans with their positions
+    const spans: { start: number; end: number; command: string; output: string | null }[] = [];
+
+    const execRegex =
+      /(?:\[TOOL_CALLS\]\s*)?(?:<\|\|)?SYSTEM\.EXEC>([\s\S]*?)<SYSTEM\.EXEC\|\|>|<tool_call>([\s\S]*?)<\/tool_call>|\[TOOL_CALLS\]([\s\S]*?)\[\/TOOL_CALLS\]/g;
+    const outputRegex =
+      /(?:<\|\|)?SYSTEM\.OUTPUT>([\s\S]*?)<SYSTEM\.OUTPUT\|\|>|<tool_response>([\s\S]*?)<\/tool_response>|\[TOOL_RESULTS\]([\s\S]*?)\[\/TOOL_RESULTS\]/g;
+
+    // Find all exec blocks with positions
+    const execMatches: { start: number; end: number; command: string }[] = [];
+    let match;
+    while ((match = execRegex.exec(content)) !== null) {
+      execMatches.push({
+        start: match.index,
+        end: match.index + match[0].length,
+        command: (match[1] || match[2] || match[3] || '').trim(),
+      });
+    }
+
+    // Find all output blocks with positions
+    const outputMatches: { start: number; end: number; output: string }[] = [];
+    while ((match = outputRegex.exec(content)) !== null) {
+      outputMatches.push({
+        start: match.index,
+        end: match.index + match[0].length,
+        output: (match[1] || match[2] || match[3] || '').trim(),
+      });
+    }
+
+    // Pair exec blocks with their corresponding output blocks (by order)
+    for (let i = 0; i < execMatches.length; i++) {
+      const exec = execMatches[i];
+      const output = i < outputMatches.length ? outputMatches[i] : null;
+      spans.push({
+        start: exec.start,
+        // If there's a paired output, the span extends to end of output
+        end: output ? output.end : exec.end,
+        command: exec.command,
+        output: output ? output.output : null,
+      });
+    }
+
+    // Sort spans by position (should already be in order, but be safe)
+    spans.sort((a, b) => a.start - b.start);
+
+    // Build segments by splitting content around command spans
+    const result: MessageSegment[] = [];
+    let cursor = 0;
+
+    for (const span of spans) {
+      // Text before this command
+      if (span.start > cursor) {
+        const text = content.slice(cursor, span.start).trim();
+        if (text) {
+          result.push({ type: 'text', content: text });
+        }
+      }
+      // The command block
+      result.push({ type: 'command', command: span.command, output: span.output });
+      cursor = span.end;
+    }
+
+    // Remaining text after last command
+    if (cursor < content.length) {
+      const text = content.slice(cursor).trim();
+      if (text) {
+        result.push({ type: 'text', content: text });
+      }
+    }
+
+    return result;
+  }, [cleanContent]);
+
+  // Get content without thinking tags and all command execution tags (kept for backward compat)
   const contentWithoutThinking = useMemo(() => {
     let content = cleanContent;
     content = content.replace(/<think>[\s\S]*?<\/think>/g, '');
-    // Strip all exec tag formats
     content = content.replace(
       /(?:\[TOOL_CALLS\]\s*)?(?:<\|\|)?SYSTEM\.EXEC>[\s\S]*?<SYSTEM\.EXEC\|\|>/g,
       ''
     );
     content = content.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '');
     content = content.replace(/\[TOOL_CALLS\][\s\S]*?\[\/TOOL_CALLS\]/g, '');
-    // Strip all output tag formats
     content = content.replace(/(?:<\|\|)?SYSTEM\.OUTPUT>[\s\S]*?<SYSTEM\.OUTPUT\|\|>/g, '');
     content = content.replace(/<tool_response>[\s\S]*?<\/tool_response>/g, '');
     content = content.replace(/\[TOOL_RESULTS\][\s\S]*?\[\/TOOL_RESULTS\]/g, '');
@@ -111,6 +186,7 @@ export function useMessageParsing(message: Message): ParsedMessage {
     thinkingContent,
     systemExecBlocks,
     contentWithoutThinking,
+    segments,
     isError,
   };
 }
