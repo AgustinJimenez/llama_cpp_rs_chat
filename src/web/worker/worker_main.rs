@@ -332,20 +332,31 @@ fn run_generation(
         // Create token streaming channel
         let (token_sender, mut token_receiver) = mpsc::unbounded_channel::<TokenData>();
 
-        // Spawn a task to forward tokens from mpsc to crossbeam
+        // Forward tokens from tokio mpsc → crossbeam on a REAL OS thread.
+        // The generation loop is synchronous (no yield points), so a tokio::spawn
+        // task on this single-threaded runtime would be starved until generation ends.
+        // A real thread polls try_recv() independently of the tokio runtime.
         let tx_clone = tx.clone();
-        let forward_handle = tokio::spawn(async move {
-            while let Some(token_data) = token_receiver.recv().await {
-                let response = WorkerResponse::ok(
-                    req_id,
-                    WorkerPayload::Token {
-                        token: token_data.token,
-                        tokens_used: token_data.tokens_used,
-                        max_tokens: token_data.max_tokens,
-                    },
-                );
-                if tx_clone.send(response).is_err() {
-                    break; // Main loop exited
+        let forward_thread = thread::spawn(move || {
+            loop {
+                match token_receiver.try_recv() {
+                    Ok(token_data) => {
+                        let response = WorkerResponse::ok(
+                            req_id,
+                            WorkerPayload::Token {
+                                token: token_data.token,
+                                tokens_used: token_data.tokens_used,
+                                max_tokens: token_data.max_tokens,
+                            },
+                        );
+                        if tx_clone.send(response).is_err() {
+                            break; // Main loop exited
+                        }
+                    }
+                    Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
+                        thread::sleep(std::time::Duration::from_millis(1));
+                    }
+                    Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => break,
                 }
             }
         });
@@ -362,8 +373,11 @@ fn run_generation(
         )
         .await;
 
-        // Wait for token forwarding to finish
-        let _ = forward_handle.await;
+        // Drop the sender so the forward thread sees Disconnected
+        drop(result.as_ref().ok()); // ensure token_sender is dropped (moved into generate)
+
+        // Wait for forwarding thread to finish
+        let _ = forward_thread.join();
 
         // Get the conversation ID from the logger
         let final_conv_id = shared_logger
