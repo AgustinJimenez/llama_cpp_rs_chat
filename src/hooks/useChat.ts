@@ -303,11 +303,22 @@ export function useChat() {
     shouldStopExecution: toolExecution.shouldStopExecution,
   });
 
+  // Stop the current generation
+  const stopGeneration = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    isStreamingRef.current = false;
+    setIsLoading(false);
+  }, []);
+
   return {
     messages,
     isLoading,
     error,
     sendMessage,
+    stopGeneration,
     clearMessages,
     loadConversation,
     currentConversationId,

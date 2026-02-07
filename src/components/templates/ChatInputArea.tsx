@@ -9,6 +9,7 @@ interface ChatInputAreaProps {
   modelError?: string | null;
   isLoading: boolean;
   onSendMessage: (message: string) => void;
+  onStopGeneration: () => void;
   onModelLoad: (modelPath: string, config: SamplerConfig) => void;
 }
 
@@ -19,6 +20,7 @@ export function ChatInputArea({
   modelError,
   isLoading,
   onSendMessage,
+  onStopGeneration,
   onModelLoad,
 }: ChatInputAreaProps) {
   return (
@@ -26,6 +28,7 @@ export function ChatInputArea({
       {modelLoaded ? (
         <MessageInput
           onSendMessage={onSendMessage}
+          onStopGeneration={onStopGeneration}
           disabled={isLoading}
         />
       ) : (

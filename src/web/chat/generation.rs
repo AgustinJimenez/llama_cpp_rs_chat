@@ -672,11 +672,15 @@ pub async fn generate_llama_response(
     );
 
     // Finish assistant message
+    let was_cancelled = cancel.load(Ordering::Relaxed);
     {
         let mut logger = conversation_logger
             .lock()
             .map_err(|_| "Failed to lock conversation logger")?;
         logger.finish_assistant_message();
+        if was_cancelled {
+            logger.log_message("system", "[Generation stopped by user]");
+        }
     }
 
     // Store context back into inference cache for KV cache reuse on next turn
