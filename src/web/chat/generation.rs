@@ -30,10 +30,18 @@ fn create_sampler(config: &SamplerConfig, conversation_id: &str) -> LlamaSampler
         "Temperature" => {
             log_info!(
                 conversation_id,
-                "Using Temperature sampler: temp={}",
-                config.temperature
+                "Using Temperature sampler: temp={}, top_p={}, top_k={}",
+                config.temperature,
+                config.top_p,
+                config.top_k
             );
-            LlamaSampler::temp(config.temperature as f32)
+            // Chain: temp → top_k → top_p → dist (must end with a terminal sampler)
+            LlamaSampler::chain_simple([
+                LlamaSampler::temp(config.temperature as f32),
+                LlamaSampler::top_k(config.top_k as i32),
+                LlamaSampler::top_p(config.top_p as f32, 1),
+                LlamaSampler::dist(1234),
+            ])
         }
         "Mirostat" => {
             log_info!(
