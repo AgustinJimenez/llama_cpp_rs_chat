@@ -1,8 +1,36 @@
-use llama_cpp_2::{llama_backend::LlamaBackend, model::LlamaModel};
+use llama_cpp_2::{
+    context::LlamaContext, llama_backend::LlamaBackend, model::LlamaModel, token::LlamaToken,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
 use super::database::conversation::ConversationLogger;
+
+/// Cached inference context for KV cache reuse across conversation turns.
+///
+/// SAFETY: The `context` field stores a `LlamaContext` whose lifetime is erased
+/// to `'static`. The actual lifetime is tied to the `LlamaModel` in the parent
+/// `LlamaState`. The context MUST be dropped (set to `None`) before the model
+/// is dropped. This invariant is enforced by clearing `inference_cache` in
+/// `model_manager.rs` before any model change or unload.
+pub struct InferenceCache {
+    /// Reusable LlamaContext with erased lifetime (model must outlive this).
+    pub context: LlamaContext<'static>,
+    /// The conversation this cache belongs to.
+    pub conversation_id: String,
+    /// Tokens currently evaluated in the KV cache.
+    pub evaluated_tokens: Vec<LlamaToken>,
+    /// Context size used when creating this context.
+    pub context_size: u32,
+    /// Whether GPU KV offload was enabled.
+    pub offload_kqv: bool,
+}
+
+// SAFETY: LlamaContext wraps a raw C pointer (NonNull) which is !Send by default.
+// However, the llama.cpp context is not tied to a specific thread — it's safe to
+// move between threads as long as it's not used concurrently. We guarantee
+// single-threaded access via the Mutex<Option<LlamaState>> wrapper.
+unsafe impl Send for InferenceCache {}
 
 // Import logging macros
 use crate::sys_debug;
@@ -309,6 +337,11 @@ pub struct LlamaState {
     pub last_used: std::time::SystemTime,
     pub model_default_system_prompt: Option<String>, // Model's default system prompt from GGUF
     pub general_name: Option<String>,       // Model's general.name from GGUF metadata
+    // Cached resolved system prompt (invalidated on config or model change)
+    pub cached_system_prompt: Option<String>,
+    pub cached_prompt_key: Option<(Option<String>, Option<String>)>, // (system_prompt, general_name)
+    /// Cached inference context for KV cache reuse. MUST be dropped before model.
+    pub inference_cache: Option<InferenceCache>,
 }
 
 pub type SharedLlamaState = Arc<Mutex<Option<LlamaState>>>;

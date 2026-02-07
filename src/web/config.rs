@@ -69,38 +69,52 @@ pub fn add_to_model_history(db: &Database, model_path: &str) {
     }
 }
 
-/// Get the resolved system prompt based on config and model state
+/// Get the resolved system prompt based on config and model state.
 ///
-/// This helper resolves the system prompt in the following priority:
-/// 1. If config has "__AGENTIC__" marker, use universal agentic prompt
-/// 2. If config has custom prompt, use it
-/// 3. Otherwise, try to get model's default system prompt from GGUF metadata
+/// Uses a cache on LlamaState to avoid re-resolving on every request.
+/// Cache key: (config.system_prompt, general_name). Invalidated on config
+/// or model change.
+///
+/// Priority: 1. "__AGENTIC__" → universal agentic prompt
+///           2. Custom string → use as-is
+///           3. None → model's default from GGUF metadata
 #[cfg(not(feature = "mock"))]
 pub fn get_resolved_system_prompt(
     db: &Database,
     llama_state: &Option<SharedLlamaState>,
 ) -> Option<String> {
     let config = load_config(db);
-    match config.system_prompt.as_deref() {
-        // "__AGENTIC__" marker = use universal agentic prompt with command execution
-        // Use model-specific tool tags if a model is loaded
+    let current_key = (config.system_prompt.clone(), {
+        llama_state.as_ref().and_then(|s| {
+            s.lock()
+                .ok()
+                .and_then(|g| g.as_ref().and_then(|st| st.general_name.clone()))
+        })
+    });
+
+    // Check cache
+    if let Some(ref state_arc) = llama_state {
+        if let Ok(mut guard) = state_arc.lock() {
+            if let Some(ref mut state) = *guard {
+                if state.cached_prompt_key.as_ref() == Some(&current_key) {
+                    return state.cached_system_prompt.clone();
+                }
+            }
+        }
+    }
+
+    // Cache miss: resolve
+    let resolved = match config.system_prompt.as_deref() {
         Some("__AGENTIC__") => {
-            let general_name = llama_state.as_ref().and_then(|state| {
-                state
-                    .lock()
-                    .ok()
-                    .and_then(|guard| guard.as_ref().and_then(|s| s.general_name.clone()))
-            });
-            let tags = get_tool_tags_for_model(general_name.as_deref());
+            let general_name = current_key.1.as_deref();
+            let tags = get_tool_tags_for_model(general_name);
             Some(get_universal_system_prompt_with_tags(tags))
         }
-        // Custom prompt = use as-is
         Some(custom) => Some(custom.to_string()),
-        // None = use model's default system prompt from GGUF
         None => {
-            if let Some(ref state) = llama_state {
-                if let Ok(state_guard) = state.lock() {
-                    state_guard
+            if let Some(ref state_arc) = llama_state {
+                if let Ok(guard) = state_arc.lock() {
+                    guard
                         .as_ref()
                         .and_then(|s| s.model_default_system_prompt.clone())
                 } else {
@@ -110,7 +124,19 @@ pub fn get_resolved_system_prompt(
                 None
             }
         }
+    };
+
+    // Store in cache
+    if let Some(ref state_arc) = llama_state {
+        if let Ok(mut guard) = state_arc.lock() {
+            if let Some(ref mut state) = *guard {
+                state.cached_system_prompt = resolved.clone();
+                state.cached_prompt_key = Some(current_key);
+            }
+        }
     }
+
+    resolved
 }
 
 /// Mock version for testing

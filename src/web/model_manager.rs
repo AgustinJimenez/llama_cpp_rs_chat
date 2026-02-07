@@ -74,6 +74,9 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
             last_used: std::time::SystemTime::now(),
             model_default_system_prompt: None,
             general_name: None,
+            cached_system_prompt: None,
+            cached_prompt_key: None,
+            inference_cache: None,
         });
     }
 
@@ -89,6 +92,9 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
         }
     }
 
+    // CRITICAL: Drop inference cache BEFORE dropping the model.
+    // The cached context borrows the model, so it must go first.
+    state.inference_cache = None;
     // Unload current model if any
     state.model = None;
     state.current_model_path = None;
@@ -251,6 +257,10 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
     state.last_used = std::time::SystemTime::now();
     state.model_default_system_prompt = default_system_prompt.clone();
     state.general_name = general_name.clone();
+    // Invalidate caches (model changed)
+    state.cached_system_prompt = None;
+    state.cached_prompt_key = None;
+    state.inference_cache = None;
 
     if let Some(ref name) = general_name {
         log_info!("system", "Model general.name: {}", name);
@@ -280,6 +290,10 @@ pub async fn unload_model(llama_state: SharedLlamaState) -> Result<(), String> {
             "system",
             "Unloading model and tearing down backend to free memory"
         );
+        // CRITICAL: Drop inference cache before dropping entire state.
+        if let Some(ref mut state) = *state_guard {
+            state.inference_cache = None;
+        }
         *state_guard = None;
     } else {
         log_debug!(

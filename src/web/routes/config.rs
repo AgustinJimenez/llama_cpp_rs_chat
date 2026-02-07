@@ -68,7 +68,17 @@ pub async fn handle_post_config(
     merged.model_history = existing_db_config.model_history;
 
     match db.save_config(&merged) {
-        Ok(_) => Ok(json_raw(StatusCode::OK, r#"{"success":true}"#.to_string())),
+        Ok(_) => {
+            // Invalidate cached system prompt since config changed
+            #[cfg(not(feature = "mock"))]
+            if let Ok(mut guard) = _llama_state.lock() {
+                if let Some(ref mut state) = *guard {
+                    state.cached_system_prompt = None;
+                    state.cached_prompt_key = None;
+                }
+            }
+            Ok(json_raw(StatusCode::OK, r#"{"success":true}"#.to_string()))
+        }
         Err(e) => Ok(json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             &format!("Failed to save configuration: {e}"),

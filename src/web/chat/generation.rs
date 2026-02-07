@@ -1,8 +1,10 @@
 use llama_cpp_2::{
     context::params::LlamaContextParams,
+    context::LlamaContext,
     llama_batch::LlamaBatch,
     model::{AddBos, Special},
     sampling::LlamaSampler,
+    token::LlamaToken,
 };
 use std::num::NonZeroU32;
 use tokio::sync::mpsc;
@@ -114,11 +116,11 @@ pub async fn generate_llama_response(
     // Ensure model is loaded
     load_model(llama_state.clone(), model_path).await?;
 
-    // Now use the shared state for generation
-    let state_guard = llama_state
+    // Now use the shared state for generation (mutable for inference cache)
+    let mut state_guard = llama_state
         .lock()
         .map_err(|_| "Failed to lock LLaMA state")?;
-    let state = state_guard.as_ref().ok_or("LLaMA state not initialized")?;
+    let state = state_guard.as_mut().ok_or("LLaMA state not initialized")?;
     let model = state.model.as_ref().ok_or("No model loaded")?;
 
     // Get context size: prefer user config, fallback to model's context_length, then default
@@ -195,84 +197,138 @@ pub async fn generate_llama_response(
         tokens.len()
     );
 
-    // Create context with configured size
-    log_debug!(
-        &conversation_id,
-        "Step 3: Creating context (size={}K tokens)...",
-        context_size / 1024
-    );
+    // Context parameters
     let n_ctx = NonZeroU32::new(context_size).expect("Context size must be non-zero");
-
-    // Offload KV cache to GPU when GPU layers are available for faster inference.
-    // Falls back to CPU RAM when running CPU-only (supports larger contexts).
     let offload_kqv = state.gpu_layers.unwrap_or(0) > 0;
     if offload_kqv {
         log_info!(
             &conversation_id,
-            "⚡ KV cache on GPU for faster inference ({} layers offloaded)",
+            "⚡ KV cache on GPU ({} layers offloaded)",
             state.gpu_layers.unwrap_or(0)
+        );
+    }
+
+    // Try to reuse cached inference context for KV cache reuse
+    let cached = state.inference_cache.take();
+    let (mut context, skip_tokens) = match cached {
+        Some(cache)
+            if cache.conversation_id == conversation_id
+                && cache.context_size == context_size
+                && cache.offload_kqv == offload_kqv =>
+        {
+            // Cache hit: find common prefix between cached and new tokens
+            let common_len = cache
+                .evaluated_tokens
+                .iter()
+                .zip(tokens.iter())
+                .take_while(|(a, b)| a == b)
+                .count();
+
+            let mut ctx = cache.context;
+
+            if common_len < cache.evaluated_tokens.len() {
+                // Conversation diverged (e.g., message edited/deleted).
+                // Clear KV cache entries from the divergence point onward.
+                log_info!(
+                    &conversation_id,
+                    "KV cache diverged at token {}, clearing {} stale entries",
+                    common_len,
+                    cache.evaluated_tokens.len() - common_len
+                );
+                let _ = ctx.clear_kv_cache_seq(
+                    Some(0),
+                    Some(common_len as u32),
+                    None,
+                );
+            }
+
+            log_info!(
+                &conversation_id,
+                "♻️ Reusing KV cache: {} of {} prompt tokens already evaluated, {} new",
+                common_len,
+                tokens.len(),
+                tokens.len() - common_len
+            );
+            (ctx, common_len)
+        }
+        _ => {
+            // Cache miss: create fresh context
+            drop(cached);
+            log_debug!(
+                &conversation_id,
+                "Step 3: Creating fresh context (size={}K tokens)...",
+                context_size / 1024
+            );
+            let ctx_params = LlamaContextParams::default()
+                .with_n_ctx(Some(n_ctx))
+                .with_offload_kqv(offload_kqv);
+
+            // SAFETY: We erase the lifetime to 'static so the context can be stored
+            // in InferenceCache. The model MUST outlive the context — enforced by
+            // clearing inference_cache before any model drop in model_manager.rs.
+            let ctx = unsafe {
+                let real_ctx = model
+                    .new_context(&state.backend, ctx_params)
+                    .map_err(|e| format!("Context creation failed: {e}"))?;
+                std::mem::transmute::<LlamaContext<'_>, LlamaContext<'static>>(real_ctx)
+            };
+            log_debug!(&conversation_id, "Step 3 complete: Fresh context created");
+            (ctx, 0)
+        }
+    };
+
+    // Evaluate only the NEW tokens (skip those already in KV cache)
+    let new_tokens = &tokens[skip_tokens..];
+    const PROMPT_BATCH_CAP: usize = 2048;
+    let prompt_tokens = tokens.len();
+    let batch_cap = PROMPT_BATCH_CAP;
+
+    if !new_tokens.is_empty() {
+        let new_chunks = new_tokens.len().div_ceil(batch_cap);
+        log_debug!(
+            &conversation_id,
+            "Step 5: Decoding {} new prompt tokens in {} chunks (skipped {})...",
+            new_tokens.len(),
+            new_chunks,
+            skip_tokens
+        );
+
+        let mut batch = LlamaBatch::new(batch_cap, 1);
+        for chunk_idx in 0..new_chunks {
+            let start = chunk_idx * batch_cap;
+            let end = std::cmp::min(start + batch_cap, new_tokens.len());
+
+            batch.clear();
+            for (offset, &token) in new_tokens[start..end].iter().enumerate() {
+                let pos = skip_tokens + start + offset;
+                let is_last = pos == prompt_tokens - 1;
+                batch
+                    .add(token, pos as i32, &[0], is_last)
+                    .map_err(|e| format!("Batch add failed at prompt token {pos}: {e}"))?;
+            }
+
+            context.decode(&mut batch).map_err(|e| {
+                format!(
+                    "Prompt decode failed (chunk {}/{}): {}",
+                    chunk_idx + 1,
+                    new_chunks,
+                    e
+                )
+            })?;
+        }
+        log_debug!(
+            &conversation_id,
+            "Step 5 complete: Prompt decode successful"
         );
     } else {
         log_info!(
             &conversation_id,
-            "💾 KV cache in CPU RAM (no GPU layers)"
+            "Step 5: All {} prompt tokens already in KV cache, skipping decode",
+            prompt_tokens
         );
     }
 
-    let ctx_params = LlamaContextParams::default()
-        .with_n_ctx(Some(n_ctx))
-        .with_offload_kqv(offload_kqv);
-
-    let mut context = model
-        .new_context(&state.backend, ctx_params)
-        .map_err(|e| format!("Context creation failed: {e}"))?;
-    log_debug!(&conversation_id, "Step 3 complete: Context created");
-
-    // Prepare batch (prompt may exceed batch capacity, so decode in chunks)
-    const PROMPT_BATCH_CAP: usize = 2048;
-    let prompt_tokens = tokens.len();
-    let batch_cap = PROMPT_BATCH_CAP;
-    let prompt_chunks = prompt_tokens.div_ceil(batch_cap);
-
-    log_debug!(
-        &conversation_id,
-        "Step 4: Preparing prompt batches (cap={}, tokens={}, chunks={})...",
-        batch_cap,
-        prompt_tokens,
-        prompt_chunks
-    );
-
     let mut batch = LlamaBatch::new(batch_cap, 1);
-
-    // Process prompt tokens in chunks to avoid overflowing the batch
-    log_debug!(&conversation_id, "Step 5: Starting prompt decode...");
-    for chunk_idx in 0..prompt_chunks {
-        let start = chunk_idx * batch_cap;
-        let end = std::cmp::min(start + batch_cap, prompt_tokens);
-
-        batch.clear();
-        for (offset, &token) in tokens[start..end].iter().enumerate() {
-            let i = start + offset;
-            let is_last = i == prompt_tokens - 1;
-            batch
-                .add(token, i as i32, &[0], is_last)
-                .map_err(|e| format!("Batch add failed at prompt token {i}: {e}"))?;
-        }
-
-        context.decode(&mut batch).map_err(|e| {
-            format!(
-                "Prompt decode failed (chunk {}/{}): {}",
-                chunk_idx + 1,
-                prompt_chunks,
-                e
-            )
-        })?;
-    }
-
-    log_debug!(
-        &conversation_id,
-        "Step 5 complete: Prompt decode successful"
-    );
 
     // Start assistant message in conversation log (enables streaming broadcast)
     {
@@ -286,6 +342,7 @@ pub async fn generate_llama_response(
     let mut response = String::new();
     let mut token_pos = tokens.len() as i32;
     let mut total_tokens_generated = 0;
+    let mut generated_token_ids: Vec<LlamaToken> = Vec::new();
 
     // Calculate max tokens based on remaining context space
     let remaining_context = (context_size as i32) - token_pos - 128;
@@ -398,6 +455,7 @@ pub async fn generate_llama_response(
 
             token_pos += 1;
             total_tokens_generated += 1;
+            generated_token_ids.push(next_token);
 
             // Convert to string for display
             let token_str = match model.token_to_str(next_token, Special::Tokenize) {
@@ -542,6 +600,7 @@ pub async fn generate_llama_response(
                 &conversation_id,
             )?;
 
+            generated_token_ids.extend(exec_result.output_tokens.iter().map(|&id| LlamaToken(id)));
             command_executed = true;
             // CRITICAL: Reset stop condition so generation continues after command output
             hit_stop_condition = false;
@@ -603,6 +662,25 @@ pub async fn generate_llama_response(
             .map_err(|_| "Failed to lock conversation logger")?;
         logger.finish_assistant_message();
     }
+
+    // Store context back into inference cache for KV cache reuse on next turn
+    let total_cached = tokens.len() + generated_token_ids.len();
+    let gen_count = generated_token_ids.len();
+    let mut all_evaluated = tokens;
+    all_evaluated.extend(generated_token_ids);
+    state.inference_cache = Some(InferenceCache {
+        context,
+        conversation_id: conversation_id.clone(),
+        evaluated_tokens: all_evaluated,
+        context_size,
+        offload_kqv,
+    });
+    log_info!(
+        &conversation_id,
+        "Stored KV cache: {} total tokens ({} generated this turn)",
+        total_cached,
+        gen_count
+    );
 
     Ok((response.trim().to_string(), token_pos, max_total_tokens))
 }
