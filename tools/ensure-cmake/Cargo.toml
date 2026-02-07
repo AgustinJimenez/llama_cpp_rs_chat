@@ -1,0 +1,10 @@
+[package]
+name = "ensure-cmake"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ureq = { version = "2.9", default-features = false, features = ["tls"] }
+zip = { version = "7.4", default-features = false, features = ["deflate"] }
+tar = "0.4"
+flate2 = "1.1"

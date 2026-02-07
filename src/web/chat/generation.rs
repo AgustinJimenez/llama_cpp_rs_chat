@@ -117,14 +117,8 @@ pub async fn generate_llama_response(
         .or(state.model_context_length)
         .unwrap_or(CONTEXT_SIZE);
 
-    // Since we're keeping KV cache in CPU RAM (not GPU), we don't need to reduce context size
-    // Just use the requested context size directly
     let context_size = requested_context_size;
 
-    log_info!(
-        &conversation_id,
-        "Using KV cache in CPU RAM - full context size available"
-    );
     log_info!(
         &conversation_id,
         "Using context size: {} (model max: {:?})",
@@ -199,17 +193,25 @@ pub async fn generate_llama_response(
     );
     let n_ctx = NonZeroU32::new(context_size).expect("Context size must be non-zero");
 
-    // Keep KV cache in CPU RAM instead of GPU VRAM
-    // This allows using the full context size even with limited VRAM
-    // Trade-off: Slightly slower inference, but can use much larger contexts
-    log_info!(
-        &conversation_id,
-        "💾 Keeping KV cache in CPU RAM to support larger context sizes"
-    );
+    // Offload KV cache to GPU when GPU layers are available for faster inference.
+    // Falls back to CPU RAM when running CPU-only (supports larger contexts).
+    let offload_kqv = state.gpu_layers.unwrap_or(0) > 0;
+    if offload_kqv {
+        log_info!(
+            &conversation_id,
+            "⚡ KV cache on GPU for faster inference ({} layers offloaded)",
+            state.gpu_layers.unwrap_or(0)
+        );
+    } else {
+        log_info!(
+            &conversation_id,
+            "💾 KV cache in CPU RAM (no GPU layers)"
+        );
+    }
 
     let ctx_params = LlamaContextParams::default()
         .with_n_ctx(Some(n_ctx))
-        .with_offload_kqv(false); // Keep KV cache in CPU RAM, not GPU
+        .with_offload_kqv(offload_kqv);
 
     let mut context = model
         .new_context(&state.backend, ctx_params)

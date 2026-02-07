@@ -1,8 +1,8 @@
 AGENTS GUIDE
 
-This is the short canonical reference for agents (Claude Code, OpenAI Agents, etc.) working in this repo. Use this to remember key development steps across sessions.
+This is the short canonical reference for agents (Claude Code, OpenAI Agents, etc.) working in this repo.
 
-Default development: 
+Default development:
 - Web app: "npm run dev:auto" (automatic GPU detection) or "npm run dev" (CPU-only)
 - Desktop app: "npm run dev:auto:desktop" (automatic GPU detection) or "npm run tauri:dev" (CPU-only)
 
@@ -16,26 +16,34 @@ Backend alternatives: "cargo run --bin llama_chat_web" if Vite is already runnin
 
 Desktop app: "cargo tauri dev" for hot reload, "cargo tauri build" for production desktop.
 
+CMake: required by llama-cpp-sys-2. All npm scripts route through tools/ensure-cmake, a standalone Rust tool that auto-downloads a portable CMake if it's not on PATH. This solves the chicken-and-egg problem where llama-cpp-sys-2's build script needs cmake before our build.rs runs. The ensure-cmake tool checks: (1) "cmake" on PATH, (2) well-known install locations (C:\Program Files\CMake, /usr/local/bin, /opt/homebrew/bin), (3) cached download in target/cmake/, (4) fresh download from GitHub releases. When cmake is found at an absolute path not on PATH, it injects the directory into the child process's PATH.
+
+Docker:
+- CPU: "docker build -f Dockerfile.test-cmake -t llama-cpu ." then "docker run -p 8000:8000 -v /path/to/models:/app/models -v ./assets:/app/assets llama-cpu"
+- CUDA: "docker build -f Dockerfile.cuda -t llama-cuda ." then "docker run --gpus all -p 8000:8000 -v /path/to/models:/app/models -v ./assets:/app/assets llama-cuda"
+- Mount models to /app/models (the browse endpoint only allows /app/models and /app paths)
+- CUDA requires NVIDIA Container Toolkit on the host
+
 Testing: "npm test" (Playwright E2E; backend must be running on 8000). UI/headed/debug variants: "npm run test:ui", "npm run test:headed", "npm run test:debug", "npm run test:docker". Unit tests: "cargo test". Single browser: "npx playwright test --project=chromium".
 
 Mock mode for tests: build or run with the "mock" feature. Example: "cargo build --features mock --bin llama_chat_web" or "TEST_MODE=true cargo run --bin llama_chat_web".
-
-CMake: required for building llama.cpp. If not installed, the build.rs will attempt to download a portable copy to target/cmake/. For Docker/CI builds without cmake, download it first and set CMAKE env var (see Dockerfile.test-cmake). Manual install: "winget install Kitware.CMake" (Windows), "brew install cmake" (macOS), "sudo apt install cmake" (Linux).
 
 Tool calling: tool schema is exposed via /api/tools/available and execution via /api/tools/execute. Models see available tools injected into prompts. Safety limit MAX_TOOL_ITERATIONS = 5 on the frontend agent loop.
 
 Browser automation: use the Chrome DevTools MCP (chrome-devtools-mcp) for browser testing, NOT the Claude Chrome extension. Install with: "claude mcp add chrome-devtools --scope user npx chrome-devtools-mcp@latest". Use this to interact with the UI at http://localhost:4000 for testing models, chat, and features.
 
-Common gotchas to remember: use port 4000 for the UI (not 8000), keep backend running for Playwright tests, use Chrome DevTools MCP for browser automation (not Claude Chrome extension), and prefer existing modules rather than duplicating code when editing web routes or chat logic.
+Common gotchas: use port 4000 for the UI (not 8000), keep backend running for Playwright tests, use Chrome DevTools MCP for browser automation (not Claude Chrome extension), must kill running llama_chat_web.exe before rebuilding on Windows (Access denied), prefer existing modules rather than duplicating code when editing web routes or chat logic.
 
 Architecture:
 
-Backend (src/web/): chat/ is the inference pipeline (generation.rs token loop, templates.rs prompt formatting, command_executor.rs tool execution, tool_tags.rs per-model tag config, stop_conditions.rs). routes/ has HTTP/WebSocket handlers (chat, config, model, conversations, tools, files, health, logs). database/ is SQLite persistence (conversations, messages, config). models.rs defines shared types (SamplerConfig, SharedLlamaState, ChatRequest/Response). config.rs loads assets/config.json and resolves system prompts. model_manager.rs handles model loading/unloading. websocket.rs handles WebSocket streaming.
+Backend (src/web/): chat/ is the inference pipeline (generation.rs token loop with conditional KV cache GPU offload, templates.rs prompt formatting, command_executor.rs tool execution, tool_tags.rs per-model tag config, stop_conditions.rs). routes/ has HTTP/WebSocket handlers (chat, config, model, conversations, tools, files, health, logs, system, frontend_logs, static_files). database/ is SQLite persistence (conversations, messages, config, migration). models.rs defines shared types (SamplerConfig, SharedLlamaState, ChatRequest/Response). config.rs loads assets/config.json and resolves system prompts. model_manager.rs handles model loading/unloading with VRAM-based GPU layer calculation. websocket.rs handles WebSocket streaming. gguf_utils.rs extracts model metadata for auto-configuration. vram_calculator.rs computes optimal GPU layer count.
 
-Chat pipeline: WebSocket message → load config + model → resolve system prompt (agentic/custom/model-default) → format with chat template (ChatML/Mistral/Llama3/Gemma) using model-specific tool tags → tokenize → generate tokens in loop → check stop conditions → detect and execute commands (regex on tool tags) → inject output back into context → stream tokens to frontend → log to SQLite.
+Chat pipeline: WebSocket message -> load config + model -> resolve system prompt (agentic/custom/model-default) -> format with chat template (ChatML/Mistral/Llama3/Gemma) using model-specific tool tags -> tokenize -> create context with KV cache on GPU if gpu_layers > 0 -> generate tokens in loop -> check stop conditions -> detect and execute commands (regex on tool tags) -> inject output back into context -> stream tokens to frontend -> log to SQLite.
 
 Key types: SharedLlamaState (Arc<Mutex<Option<LlamaModelState>>>) wraps the loaded model. ConversationLogger writes to SQLite per-conversation. ToolTags (exec_open/close, output_open/close) are per-model (Qwen uses <tool_call>, Mistral uses [TOOL_CALLS], default uses SYSTEM.EXEC). SamplerConfig holds all inference params plus model_path and model_history.
 
 Frontend (src/): Atomic design — atoms/ (Button, Dialog, etc.), molecules/ (MessageInput, ToolCallBlock, CommandExecBlock), organisms/ (ModelSelector, SettingsModal, Sidebar), templates/ (ChatInputArea, MessagesArea). Key hooks: useChat (messaging orchestration), useModel (model lifecycle), useToolExecution (tool call parsing with MAX_TOOL_ITERATIONS=20), useSettings (sampler config). Utils: chatTransport (HTTP/WS abstraction), toolParser (multi-format tool call extraction).
+
+Model auto-configuration: When loading a GGUF model, gguf_utils.rs extracts general.sampling.* keys for optimal parameters. Fallback presets in src/config/modelPresets.ts keyed by general.name. Priority: GGUF embedded params -> preset lookup -> defaults.
 
 Linting: "cargo clippy --bin llama_chat_web --features cuda" for Rust. "npm run lint" for frontend ESLint. Both should report zero warnings on clean code.

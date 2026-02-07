@@ -1,259 +1,153 @@
-# 🦙 LLaMA Chat - AI Assistant
+# LLaMA Chat
 
-A modern AI chat application built with Tauri, Rust, and llama-cpp-2. Features a beautiful UI with integrated shell command execution capabilities. Available as both a native desktop app and web application.
+A local AI chat application built with Rust and React. Runs GGUF models via llama.cpp with GPU acceleration (CUDA/Metal). Available as a web app, desktop app (Tauri), or CLI.
 
-![LLaMA Chat Screenshot](https://img.shields.io/badge/Platform-Desktop%20%26%20Web-blue) ![Rust](https://img.shields.io/badge/Language-Rust-orange) ![Tauri](https://img.shields.io/badge/Framework-Tauri-green)
+## Features
 
-## ✨ Features
+- **Local inference** powered by llama-cpp-2 with CUDA and Metal GPU acceleration
+- **Web and desktop** modes (Tauri) from the same codebase
+- **Tool execution** — models can run shell commands with safety limits
+- **Auto-configuration** — extracts optimal sampling parameters from GGUF metadata
+- **Multiple samplers** — Greedy, Temperature, TopP, TopK, Mirostat, and chain variants
+- **Conversation history** stored in SQLite
+- **Docker support** — CPU and CUDA images included
 
-- 🖥️ **Native Desktop & Web Application** - Built with Tauri for desktop or run as a web app
-- 🧠 **Local LLM Inference** - Powered by llama-cpp-2 with multiple model support
-- 🎨 **Modern UI** - Beautiful gradient design with real-time chat interface
-- ⚙️ **Advanced Sampling** - 11 different sampling strategies including IBM-recommended settings
-- 🔧 **Command Execution** - Integrated shell command capabilities for AI assistance
-- 💾 **Conversation Logging** - Automatic chat history with timestamped files
-- 🌐 **Cross-Platform** - Works on macOS, Windows, and Linux
-
-## 🚀 Quick Start
-
-### Option 1: Web Application (Recommended for Development)
-
-1. **Install Dependencies:**
-   ```bash
-   npm install
-   ```
-
-2. **Run the Web App:**
-   ```bash
-   # Starts both frontend (Vite) and backend (Rust web server)
-   npm run dev
-   ```
-
-   The app will be available at `http://localhost:5173`
-
-### Option 2: Desktop Application
-
-1. **Install Dependencies:**
-   ```bash
-   # Install Node.js dependencies
-   npm install
-
-   # Install Tauri CLI (if not already installed)
-   cargo install tauri-cli
-   ```
-
-2. **Run the Desktop App:**
-   ```bash
-   # Development mode with hot reload
-   cargo tauri dev
-
-   # Or build for production
-   cargo tauri build
-   ```
-
-### Option 3: Command Line Interface
-
-For testing or headless usage:
+## Quick Start
 
 ```bash
-# Run the CLI version (original test interface)
-cargo run --bin test
+npm install
+npm run dev:auto        # auto-detects GPU (CUDA/Metal/CPU)
 ```
 
-## 🔧 Configuration
+Opens at **http://localhost:4000**. The backend runs on port 8000.
 
-### Sampler Settings
+CMake is required to build llama.cpp. If it's not installed, the build toolchain downloads a portable copy automatically — no manual install needed.
 
-The application supports multiple sampling strategies with IBM-recommended defaults:
+### Manual GPU selection
 
-- **Temperature**: 0.7 (IBM recommended)
-- **Top P**: 0.95 (IBM recommended) 
-- **Top K**: 20 (IBM recommended)
-- **Mirostat Tau**: 5.0
-- **Mirostat Eta**: 0.1
-
-### Available Samplers
-
-Choose from 11 different sampling strategies:
-
-| Sampler | Description | Status |
-|---------|-------------|--------|
-| `Greedy` | Deterministic selection | ✅ Working |
-| `Temperature` | Temperature-based sampling | ✅ Working |
-| `Mirostat` | Mirostat sampling | ✅ Working |
-| `TopP` | Nucleus sampling | ⚠️ Model-dependent |
-| `TopK` | Top-K sampling | ⚠️ Model-dependent |
-| `Typical` | Typical sampling | ⚠️ Model-dependent |
-| `MinP` | Minimum probability threshold | ⚠️ Model-dependent |
-| `TempExt` | Extended temperature | ⚠️ Model-dependent |
-| `ChainTempTopP` | Temperature + Top-P chain | ⚠️ Model-dependent |
-| `ChainTempTopK` | Temperature + Top-K chain | ⚠️ Model-dependent |
-| `ChainFull` | Full chain (IBM recommended) | ⚠️ Model-dependent |
-
-*Note: Advanced samplers may crash with some models due to compatibility issues*
-
-### Model Configuration
-
-Update the model path in `src/chat.rs`:
-
-```rust
-pub const MODEL_PATH: &str = "/path/to/your/model.gguf";
+```bash
+npm run dev:cuda        # NVIDIA GPU (CUDA)
+npm run dev:metal       # Apple GPU (Metal)
+npm run dev             # CPU only
 ```
 
-Default model:
-```
-/Users/agus/.lmstudio/models/lmstudio-community/granite-4.0-h-tiny-GGUF/granite-4.0-h-tiny-Q4_K_M.gguf
+### Desktop app (Tauri)
+
+```bash
+npm run dev:auto:desktop   # auto-detect GPU
+npm run tauri:dev:cuda     # or manual
+cargo tauri build          # production build
 ```
 
-## 📁 Project Structure
+## Docker
+
+### CPU
+
+```bash
+docker build -f Dockerfile.test-cmake -t llama-cpu .
+docker run -p 8000:8000 \
+  -v /path/to/models:/app/models \
+  -v ./assets:/app/assets \
+  llama-cpu
+```
+
+### CUDA (NVIDIA GPU)
+
+```bash
+docker build -f Dockerfile.cuda -t llama-cuda .
+docker run --gpus all -p 8000:8000 \
+  -v /path/to/models:/app/models \
+  -v ./assets:/app/assets \
+  llama-cuda
+```
+
+Mount your models directory to `/app/models` and browse them in the UI.
+
+## Configuration
+
+Models are configured through the web UI (Settings). The app auto-configures sampling parameters from GGUF embedded metadata when available, with fallback presets for known models.
+
+Key settings:
+- **Model path** — select any `.gguf` file
+- **Sampler type** — Greedy, Temperature, TopP, TopK, Mirostat, ChainFull, etc.
+- **Context size** — defaults to model's trained context or 4096
+- **System prompt** — customizable per conversation
+- **GPU layers** — auto-calculated based on available VRAM
+
+Configuration is stored in `assets/config.json` and SQLite (`assets/llama_chat.db`).
+
+## Project Structure
 
 ```
 llama_cpp_rs_chat/
 ├── src/
-│   ├── lib.rs              # Tauri commands and state management
-│   ├── main.rs             # Tauri app entry point
-│   ├── chat.rs             # LLaMA chat engine with samplers
-│   └── test.rs             # CLI version (for testing)
-├── tauri.conf.json         # Tauri app configuration
-├── index.html              # Frontend UI
-├── main.js                 # Frontend JavaScript
-├── package.json            # Node.js dependencies
-├── assets/conversations/   # Chat history storage
-└── vendor/llama-cpp-sys-2/ # llama.cpp bindings
+│   ├── web/                    # Backend
+│   │   ├── chat/               # Inference pipeline
+│   │   │   ├── generation.rs   # Token generation loop
+│   │   │   ├── templates.rs    # Prompt formatting (ChatML/Mistral/Llama3/Gemma)
+│   │   │   ├── tool_tags.rs    # Per-model tool call tags
+│   │   │   ├── command_executor.rs  # Shell command execution
+│   │   │   └── stop_conditions.rs   # EOS/stop token detection
+│   │   ├── routes/             # HTTP/WebSocket handlers
+│   │   ├── database/           # SQLite persistence
+│   │   ├── model_manager.rs    # Model loading/unloading
+│   │   ├── gguf_utils.rs       # GGUF metadata extraction
+│   │   ├── vram_calculator.rs  # GPU layer auto-calculation
+│   │   └── websocket.rs        # WebSocket streaming
+│   ├── components/             # Frontend (React)
+│   │   ├── atoms/              # Button, Dialog, etc.
+│   │   ├── molecules/          # MessageInput, ToolCallBlock
+│   │   ├── organisms/          # ModelSelector, SettingsModal
+│   │   └── templates/          # ChatInputArea, MessagesArea
+│   ├── config/modelPresets.ts  # Fallback model presets
+│   ├── main.rs                 # Tauri desktop entry
+│   ├── main_web.rs             # Web server entry
+│   └── lib.rs                  # Tauri commands
+├── tools/ensure-cmake/         # Auto-downloads CMake if missing
+├── assets/                     # Config, DB, conversations
+├── Dockerfile.cuda             # CUDA Docker image
+├── Dockerfile.test-cmake       # CPU Docker image
+└── package.json
 ```
 
-## 🎯 Usage
-
-### Web & Desktop App
-
-1. **Launch** the application:
-   - Web: `npm run dev` → Open `http://localhost:5173`
-   - Desktop: `cargo tauri dev`
-2. **Load a Model** - Click "Select a model to load" and browse for a `.gguf` file
-3. **Chat** with the AI using the beautiful interface
-4. **Configure** samplers and model settings in the model configuration modal
-5. **Execute Commands** by asking the AI to perform file operations
-6. **View History** - all conversations are automatically saved
-
-### Command Examples
-
-Ask the AI to help with:
-
-- **File Operations**: "Find all .txt files in this directory"
-- **Code Analysis**: "Check the Rust code in src/ and summarize it"
-- **System Tasks**: "Show me the current directory contents"
-- **Development**: "Help me understand this codebase"
-
-### CLI Mode
-
-For development and testing:
+## Development
 
 ```bash
-# Run with debug output
-RUST_LOG=debug cargo run --bin test
-
-# Test specific functionality
-cargo test --bin test
-```
-
-## 🔧 Development
-
-### Available Commands
-
-```bash
-# Web Development (Frontend + Backend)
-npm run dev              # Start Vite dev server + Rust web backend
-
-# Desktop Development
-cargo tauri dev          # Start Tauri desktop app with hot reload
-cargo tauri build        # Build production desktop app
-
-# Frontend Only
-npm run build            # Build frontend for production
-
-# Rust Builds
-cargo build --lib                    # Build library
-cargo build --bin llama_chat_web     # Build web backend
-cargo build --bin test               # Build CLI test binary
+npm run dev:auto          # Web app with auto GPU detection
+npm run dev:auto:desktop  # Desktop app with auto GPU detection
+npm run build             # Production frontend build
+cargo test                # Rust unit tests
+npm test                  # Playwright E2E tests (backend must be running)
+cargo clippy --bin llama_chat_web --features cuda  # Lint
+npm run lint              # Frontend ESLint
 ```
 
 ### Testing
 
 ```bash
-# Run Rust tests
-cargo test
-
-# Run e2e tests
-cargo test test_e2e --bin test
+npm test                  # Run all E2E tests
+npm run test:headed       # Run with browser visible
+npm run test:debug        # Debug mode
+npm run test:docker       # Docker-based test run
 ```
 
-## 🐳 Docker Support (Legacy)
+For mock mode (no real model needed): build with `--features mock` or set `TEST_MODE=true`.
 
-For consistent environments or macOS Sequoia compatibility:
+## System Requirements
 
-```bash
-# Build and run
-docker-compose up llama-chat
-
-# Run tests
-docker-compose --profile test up test-runner
-```
-
-## 📝 Conversation Logging
-
-All conversations are automatically saved to:
-```
-assets/conversations/chat_YYYY-MM-DD-HH-mm-ss-SSS.txt
-```
-
-Format includes:
-- User messages
-- AI responses  
-- Command executions with output
-- Timestamps
-
-## 🛠️ System Requirements
-
-- **Rust** 1.70+ 
+- **Rust** 1.70+
 - **Node.js** 16+
-- **Operating System**: macOS, Windows, or Linux
-- **Memory**: 4GB+ RAM (depends on model size)
-- **Storage**: Space for model files (typically 1-8GB)
+- **CMake** — auto-downloaded if not installed
+- **CUDA toolkit** (optional) — for NVIDIA GPU acceleration
+- **Xcode Command Line Tools** (macOS) — for Metal acceleration
 
-## 🤝 Contributing
+## Troubleshooting
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
-## 📄 License
-
-This project is open source. Please check the license file for details.
-
-## 🆘 Troubleshooting
-
-### Common Issues
-
-1. **Tauri build fails**: Ensure you have the latest Tauri CLI
-2. **Model not found**: Update the MODEL_PATH in `src/chat.rs`
-3. **Sampling crashes**: Try using `Greedy` or `Temperature` samplers
-4. **macOS Sequoia issues**: Use Docker or wait for llama.cpp updates
-
-### Debug Mode
-
-Enable detailed logging:
-```bash
-RUST_LOG=debug cargo tauri dev
-```
-
-### Support
-
-- Check existing GitHub issues
-- Create a new issue with detailed error information
-- Include system information and model details
+- **CMake not found**: The build toolchain (`tools/ensure-cmake`) downloads it automatically. If that fails, install manually: `winget install Kitware.CMake` (Windows), `brew install cmake` (macOS), `sudo apt install cmake` (Linux).
+- **CUDA build fails**: Ensure CUDA toolkit is installed and `nvcc` is on PATH.
+- **Port 4000 in use**: The Vite dev server uses port 4000. Kill any existing process or change the port in package.json.
+- **Model won't load**: Check that the `.gguf` file path is correct and the file isn't corrupted. Try a smaller model first.
 
 ---
 
-**Built with ❤️ using Rust, Tauri, and llama.cpp**
+Built with Rust, React, Tauri, and llama.cpp
