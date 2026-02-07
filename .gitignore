@@ -34,3 +34,10 @@ Thumbs.db
 assets/model_path.txt
 
 target2/
+
+# ensure-cmake build artifacts
+tools/ensure-cmake/target/
+tools/ensure-cmake/Cargo.lock
+
+# Test data artifacts
+test_data/

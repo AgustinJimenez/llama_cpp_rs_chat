@@ -10,7 +10,8 @@ use std::sync::{Mutex as StdMutex, OnceLock, TryLockError};
 use tokio::task::spawn_blocking;
 
 use crate::web::{
-    config::{add_to_model_history, load_config},
+    config::add_to_model_history,
+    database::SharedDatabase,
     filename_patterns::{detect_architecture, detect_parameters, detect_quantization},
     gguf_utils::{
         detect_tool_format, extract_default_system_prompt, value_to_display_string,
@@ -462,10 +463,10 @@ pub async fn handle_get_model_status(
 pub async fn handle_get_model_history(
     #[cfg(not(feature = "mock"))] _llama_state: SharedLlamaState,
     #[cfg(feature = "mock")] _llama_state: (),
+    db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
-    // Load config and return model history
-    let config = load_config();
-    let response_json = serialize_with_fallback(&config.model_history, "[]");
+    let history = db.get_model_history().unwrap_or_default();
+    let response_json = serialize_with_fallback(&history, "[]");
 
     Ok(json_raw(StatusCode::OK, response_json))
 }
@@ -474,6 +475,7 @@ pub async fn handle_post_model_history(
     req: Request<Body>,
     #[cfg(not(feature = "mock"))] _llama_state: SharedLlamaState,
     #[cfg(feature = "mock")] _llama_state: (),
+    db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     #[derive(Deserialize)]
     struct AddHistoryRequest {
@@ -487,7 +489,7 @@ pub async fn handle_post_model_history(
     };
 
     // Add to history
-    add_to_model_history(&request.model_path);
+    add_to_model_history(&db, &request.model_path);
 
     Ok(json_raw(StatusCode::OK, r#"{"success":true}"#.to_string()))
 }
@@ -496,6 +498,7 @@ pub async fn handle_post_model_load(
     req: Request<Body>,
     #[cfg(not(feature = "mock"))] llama_state: SharedLlamaState,
     #[cfg(feature = "mock")] _llama_state: (),
+    db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     sys_debug!("[DEBUG] /api/model/load endpoint hit");
 
@@ -511,7 +514,7 @@ pub async fn handle_post_model_load(
         match load_model(llama_state.clone(), &load_request.model_path).await {
             Ok(_) => {
                 // Add to model history on successful load
-                add_to_model_history(&load_request.model_path);
+                add_to_model_history(&db, &load_request.model_path);
 
                 let status = get_model_status(&llama_state);
                 let response = ModelResponse {

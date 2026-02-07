@@ -214,6 +214,7 @@ pub fn migrate_config(db: &Database) -> Result<bool, String> {
         mirostat_eta: Option<f64>,
         model_path: Option<String>,
         system_prompt: Option<String>,
+        system_prompt_type: Option<String>,
         context_size: Option<u32>,
         stop_tokens: Option<Vec<String>>,
         model_history: Option<Vec<String>>,
@@ -223,6 +224,12 @@ pub fn migrate_config(db: &Database) -> Result<bool, String> {
         .map_err(|e| format!("Failed to parse config.json: {e}"))?;
 
     // Convert to DbSamplerConfig
+    let system_prompt_type = match json_config.system_prompt_type.as_deref() {
+        Some("Custom") => crate::web::models::SystemPromptType::Custom,
+        Some("UserDefined") => crate::web::models::SystemPromptType::UserDefined,
+        _ => crate::web::models::SystemPromptType::Default,
+    };
+
     let db_config = DbSamplerConfig {
         sampler_type: json_config
             .sampler_type
@@ -234,6 +241,7 @@ pub fn migrate_config(db: &Database) -> Result<bool, String> {
         mirostat_eta: json_config.mirostat_eta.unwrap_or(0.1),
         model_path: json_config.model_path,
         system_prompt: json_config.system_prompt,
+        system_prompt_type,
         context_size: json_config.context_size,
         stop_tokens: json_config.stop_tokens,
         model_history: Vec::new(), // Handled separately

@@ -84,10 +84,12 @@ async fn handle_request_impl(
         }
 
         // Configuration endpoints
-        (&Method::GET, "/api/config") => web::routes::config::handle_get_config(state).await?,
+        (&Method::GET, "/api/config") => {
+            web::routes::config::handle_get_config(state, db.clone()).await?
+        }
 
         (&Method::POST, "/api/config") => {
-            web::routes::config::handle_post_config(req, state).await?
+            web::routes::config::handle_post_config(req, state, db.clone()).await?
         }
 
         // Conversation endpoints
@@ -113,15 +115,15 @@ async fn handle_request_impl(
         }
 
         (&Method::GET, "/api/model/history") => {
-            web::routes::model::handle_get_model_history(state).await?
+            web::routes::model::handle_get_model_history(state, db.clone()).await?
         }
 
         (&Method::POST, "/api/model/history") => {
-            web::routes::model::handle_post_model_history(req, state).await?
+            web::routes::model::handle_post_model_history(req, state, db.clone()).await?
         }
 
         (&Method::POST, "/api/model/load") => {
-            web::routes::model::handle_post_model_load(req, state).await?
+            web::routes::model::handle_post_model_load(req, state, db.clone()).await?
         }
 
         (&Method::POST, "/api/model/unload") => {

@@ -1,5 +1,6 @@
+use super::database::config::DbSamplerConfig;
+use super::database::Database;
 use super::models::SamplerConfig;
-use std::fs;
 
 #[cfg(not(feature = "mock"))]
 use super::models::SharedLlamaState;
@@ -7,26 +8,64 @@ use super::models::SharedLlamaState;
 #[cfg(feature = "mock")]
 use super::models::SharedLlamaState;
 
-use super::chat_handler::{get_universal_system_prompt_with_tags, get_tool_tags_for_model};
+use super::chat_handler::{get_tool_tags_for_model, get_universal_system_prompt_with_tags};
 
 // Import logging macro
 use crate::sys_warn;
 
-// Helper function to load configuration
-pub fn load_config() -> SamplerConfig {
-    let config_path = "assets/config.json";
-    match fs::read_to_string(config_path) {
-        Ok(content) => match serde_json::from_str::<SamplerConfig>(&content) {
-            Ok(config) => config,
-            Err(e) => {
-                sys_warn!("Failed to parse config file: {}, using defaults", e);
-                SamplerConfig::default()
-            }
-        },
-        Err(_) => {
-            // Config file doesn't exist, use defaults
-            SamplerConfig::default()
-        }
+/// Convert DbSamplerConfig to the JSON-serializable SamplerConfig
+pub fn db_config_to_sampler_config(db_config: &DbSamplerConfig) -> SamplerConfig {
+    SamplerConfig {
+        sampler_type: db_config.sampler_type.clone(),
+        temperature: db_config.temperature,
+        top_p: db_config.top_p,
+        top_k: db_config.top_k,
+        mirostat_tau: db_config.mirostat_tau,
+        mirostat_eta: db_config.mirostat_eta,
+        model_path: db_config.model_path.clone(),
+        system_prompt: db_config.system_prompt.clone(),
+        system_prompt_type: db_config.system_prompt_type.clone(),
+        context_size: db_config.context_size,
+        stop_tokens: db_config.stop_tokens.clone(),
+        model_history: db_config.model_history.clone(),
+    }
+}
+
+/// Convert SamplerConfig to DbSamplerConfig
+pub fn sampler_config_to_db(config: &SamplerConfig) -> DbSamplerConfig {
+    DbSamplerConfig {
+        sampler_type: config.sampler_type.clone(),
+        temperature: config.temperature,
+        top_p: config.top_p,
+        top_k: config.top_k,
+        mirostat_tau: config.mirostat_tau,
+        mirostat_eta: config.mirostat_eta,
+        model_path: config.model_path.clone(),
+        system_prompt: config.system_prompt.clone(),
+        system_prompt_type: config.system_prompt_type.clone(),
+        context_size: config.context_size,
+        stop_tokens: config.stop_tokens.clone(),
+        model_history: config.model_history.clone(),
+    }
+}
+
+/// Load configuration from database
+pub fn load_config(db: &Database) -> SamplerConfig {
+    let db_config = db.load_config();
+    db_config_to_sampler_config(&db_config)
+}
+
+// Helper function to add a model path to history
+pub fn add_to_model_history(db: &Database, model_path: &str) {
+    if let Err(e) = db.add_to_model_history(model_path) {
+        sys_warn!("Failed to add to model history: {}", e);
+    }
+
+    // Also update model_path in config
+    let mut db_config = db.load_config();
+    db_config.model_path = Some(model_path.to_string());
+    if let Err(e) = db.update_config(&db_config) {
+        sys_warn!("Failed to update model_path in config: {}", e);
     }
 }
 
@@ -37,16 +76,20 @@ pub fn load_config() -> SamplerConfig {
 /// 2. If config has custom prompt, use it
 /// 3. Otherwise, try to get model's default system prompt from GGUF metadata
 #[cfg(not(feature = "mock"))]
-pub fn get_resolved_system_prompt(llama_state: &Option<SharedLlamaState>) -> Option<String> {
-    let config = load_config();
+pub fn get_resolved_system_prompt(
+    db: &Database,
+    llama_state: &Option<SharedLlamaState>,
+) -> Option<String> {
+    let config = load_config(db);
     match config.system_prompt.as_deref() {
         // "__AGENTIC__" marker = use universal agentic prompt with command execution
         // Use model-specific tool tags if a model is loaded
         Some("__AGENTIC__") => {
             let general_name = llama_state.as_ref().and_then(|state| {
-                state.lock().ok().and_then(|guard| {
-                    guard.as_ref().and_then(|s| s.general_name.clone())
-                })
+                state
+                    .lock()
+                    .ok()
+                    .and_then(|guard| guard.as_ref().and_then(|s| s.general_name.clone()))
             });
             let tags = get_tool_tags_for_model(general_name.as_deref());
             Some(get_universal_system_prompt_with_tags(tags))
@@ -72,36 +115,16 @@ pub fn get_resolved_system_prompt(llama_state: &Option<SharedLlamaState>) -> Opt
 
 /// Mock version for testing
 #[cfg(feature = "mock")]
-pub fn get_resolved_system_prompt(_llama_state: &Option<SharedLlamaState>) -> Option<String> {
-    let config = load_config();
+pub fn get_resolved_system_prompt(
+    db: &Database,
+    _llama_state: &Option<SharedLlamaState>,
+) -> Option<String> {
+    let config = load_config(db);
     match config.system_prompt.as_deref() {
-        Some("__AGENTIC__") => Some(get_universal_system_prompt_with_tags(&super::chat::tool_tags::DEFAULT_TAGS)),
+        Some("__AGENTIC__") => Some(get_universal_system_prompt_with_tags(
+            &super::chat::tool_tags::DEFAULT_TAGS,
+        )),
         Some(custom) => Some(custom.to_string()),
         None => None,
-    }
-}
-
-// Helper function to add a model path to history
-pub fn add_to_model_history(model_path: &str) {
-    let config_path = "assets/config.json";
-
-    // Load current config
-    let mut config = load_config();
-
-    // Remove the path if it already exists (to move it to the front)
-    config.model_history.retain(|p| p != model_path);
-
-    // Add to the front of the list
-    config.model_history.insert(0, model_path.to_string());
-
-    // Keep only the last 10 paths
-    if config.model_history.len() > 10 {
-        config.model_history.truncate(10);
-    }
-
-    // Save the updated config
-    let _ = fs::create_dir_all("assets");
-    if let Ok(json) = serde_json::to_string_pretty(&config) {
-        let _ = fs::write(config_path, json);
     }
 }

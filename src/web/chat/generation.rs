@@ -8,6 +8,7 @@ use std::num::NonZeroU32;
 use tokio::sync::mpsc;
 
 use super::super::config::load_config;
+use super::super::database::Database;
 use super::super::model_manager::load_model;
 use super::super::models::*;
 use super::command_executor::{
@@ -66,6 +67,7 @@ pub async fn generate_llama_response(
     conversation_logger: SharedConversationLogger,
     token_sender: Option<mpsc::UnboundedSender<TokenData>>,
     skip_user_logging: bool,
+    db: &Database,
 ) -> Result<(String, i32, i32), String> {
     sys_debug!(
         "[GENERATION] generate_llama_response called, token_sender is {}",
@@ -94,7 +96,7 @@ pub async fn generate_llama_response(
     }
 
     // Load configuration to get model path and context size
-    let config = load_config();
+    let config = load_config(db);
     let model_path = config.model_path.as_deref().unwrap_or(MODEL_PATH);
     let stop_tokens = config
         .stop_tokens

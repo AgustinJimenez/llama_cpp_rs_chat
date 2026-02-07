@@ -100,10 +100,10 @@ pub async fn handle_post_chat(
         } else {
             // Create new conversation - determine system prompt based on config
             #[cfg(not(feature = "mock"))]
-            let system_prompt = get_resolved_system_prompt(&Some(llama_state.clone()));
+            let system_prompt = get_resolved_system_prompt(&db, &Some(llama_state.clone()));
 
             #[cfg(feature = "mock")]
-            let system_prompt = get_resolved_system_prompt(&None);
+            let system_prompt = get_resolved_system_prompt(&db, &None);
 
             match ConversationLogger::new(db.clone(), system_prompt.as_deref()) {
                 Ok(logger) => Arc::new(Mutex::new(logger)),
@@ -132,6 +132,7 @@ pub async fn handle_post_chat(
         let message_clone = chat_request.message.clone();
         let conversation_logger_clone = conversation_logger.clone();
         let llama_state_clone = llama_state.clone();
+        let db_clone = db.clone();
         let conv_id_for_log = conversation_id.clone();
         let rt_handle = tokio::runtime::Handle::current();
         sys_info!(
@@ -162,6 +163,7 @@ pub async fn handle_post_chat(
                     conversation_logger_clone.clone(),
                     None,
                     true,
+                    &db_clone,
                 ))
             }));
 
@@ -347,6 +349,7 @@ pub async fn handle_post_chat_stream(
         // Spawn generation task
         let message = chat_request.message.clone();
         let state_clone = llama_state.clone();
+        let db_clone = db.clone();
         let err_tx_clone = err_tx.clone();
         tokio::spawn(async move {
             match generate_llama_response(
@@ -355,6 +358,7 @@ pub async fn handle_post_chat_stream(
                 conversation_logger,
                 Some(tx),
                 false,
+                &db_clone,
             )
             .await
             {

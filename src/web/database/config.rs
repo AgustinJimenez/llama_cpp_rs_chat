@@ -1,6 +1,7 @@
 // Configuration database operations
 
 use super::{current_timestamp_millis, db_error, Database};
+use crate::web::models::SystemPromptType;
 use rusqlite::params;
 
 /// Sampler configuration stored in database
@@ -14,6 +15,7 @@ pub struct DbSamplerConfig {
     pub mirostat_eta: f64,
     pub model_path: Option<String>,
     pub system_prompt: Option<String>,
+    pub system_prompt_type: SystemPromptType,
     pub context_size: Option<u32>,
     pub stop_tokens: Option<Vec<String>>,
     pub model_history: Vec<String>,
@@ -30,10 +32,27 @@ impl Default for DbSamplerConfig {
             mirostat_eta: 0.1,
             model_path: None,
             system_prompt: None,
+            system_prompt_type: SystemPromptType::Default,
             context_size: Some(32768),
             stop_tokens: None,
             model_history: Vec::new(),
         }
+    }
+}
+
+fn parse_system_prompt_type(s: Option<String>) -> SystemPromptType {
+    match s.as_deref() {
+        Some("Custom") => SystemPromptType::Custom,
+        Some("UserDefined") => SystemPromptType::UserDefined,
+        _ => SystemPromptType::Default,
+    }
+}
+
+fn system_prompt_type_to_str(spt: &SystemPromptType) -> &'static str {
+    match spt {
+        SystemPromptType::Default => "Default",
+        SystemPromptType::Custom => "Custom",
+        SystemPromptType::UserDefined => "UserDefined",
     }
 }
 
@@ -45,11 +64,12 @@ impl Database {
             let conn = self.connection();
             conn.query_row(
                 "SELECT sampler_type, temperature, top_p, top_k, mirostat_tau,
-                        mirostat_eta, model_path, system_prompt, context_size, stop_tokens
+                        mirostat_eta, model_path, system_prompt, system_prompt_type,
+                        context_size, stop_tokens
                  FROM config WHERE id = 1",
                 [],
                 |row| {
-                    let stop_tokens_json: Option<String> = row.get(9)?;
+                    let stop_tokens_json: Option<String> = row.get(10)?;
                     let stop_tokens = stop_tokens_json.and_then(|j| serde_json::from_str(&j).ok());
 
                     Ok(DbSamplerConfig {
@@ -63,7 +83,8 @@ impl Database {
                         mirostat_eta: row.get::<_, Option<f64>>(5)?.unwrap_or(0.1),
                         model_path: row.get(6)?,
                         system_prompt: row.get(7)?,
-                        context_size: row.get(8)?,
+                        system_prompt_type: parse_system_prompt_type(row.get(8)?),
+                        context_size: row.get(9)?,
                         stop_tokens,
                         model_history: Vec::new(), // Loaded separately
                     })
@@ -90,8 +111,9 @@ impl Database {
         conn.execute(
             "INSERT OR REPLACE INTO config
              (id, sampler_type, temperature, top_p, top_k, mirostat_tau,
-              mirostat_eta, model_path, system_prompt, context_size, stop_tokens, updated_at)
-             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+              mirostat_eta, model_path, system_prompt, system_prompt_type,
+              context_size, stop_tokens, updated_at)
+             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 config.sampler_type,
                 config.temperature,
@@ -101,6 +123,7 @@ impl Database {
                 config.mirostat_eta,
                 config.model_path,
                 config.system_prompt,
+                system_prompt_type_to_str(&config.system_prompt_type),
                 config.context_size,
                 stop_tokens_json,
                 current_timestamp_millis(),
@@ -123,7 +146,8 @@ impl Database {
             "UPDATE config SET
              sampler_type = ?1, temperature = ?2, top_p = ?3, top_k = ?4,
              mirostat_tau = ?5, mirostat_eta = ?6, model_path = ?7,
-             system_prompt = ?8, context_size = ?9, stop_tokens = ?10, updated_at = ?11
+             system_prompt = ?8, system_prompt_type = ?9, context_size = ?10,
+             stop_tokens = ?11, updated_at = ?12
              WHERE id = 1",
             params![
                 config.sampler_type,
@@ -134,6 +158,7 @@ impl Database {
                 config.mirostat_eta,
                 config.model_path,
                 config.system_prompt,
+                system_prompt_type_to_str(&config.system_prompt_type),
                 config.context_size,
                 stop_tokens_json,
                 current_timestamp_millis(),
@@ -280,6 +305,7 @@ mod tests {
             mirostat_eta: 0.2,
             model_path: Some("/path/to/model.gguf".to_string()),
             system_prompt: Some("You are helpful".to_string()),
+            system_prompt_type: SystemPromptType::Custom,
             context_size: Some(4096),
             stop_tokens: Some(vec!["</s>".to_string()]),
             model_history: Vec::new(),

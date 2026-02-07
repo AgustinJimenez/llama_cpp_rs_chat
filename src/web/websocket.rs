@@ -153,7 +153,7 @@ pub async fn handle_websocket(
                 };
 
                 // Determine system prompt based on config
-                let system_prompt = get_resolved_system_prompt(&llama_state);
+                let system_prompt = get_resolved_system_prompt(&db, &llama_state);
 
                 // Create or load conversation logger based on conversation_id
                 let conversation_logger = match &chat_request.conversation_id {
@@ -221,6 +221,7 @@ pub async fn handle_websocket(
                 let state_clone = llama_state.clone();
                 sys_debug!("[WS_CHAT] Spawning generation task");
                 let conversation_logger_clone = conversation_logger.clone();
+                let db_clone = db.clone();
                 let rt_handle = tokio::runtime::Handle::current();
                 // Run generation on a blocking thread so the WS sender isn't starved.
                 // This prevents tokens from being buffered until the model finishes.
@@ -234,6 +235,7 @@ pub async fn handle_websocket(
                             conversation_logger_clone,
                             Some(tx),
                             false,
+                            &db_clone,
                         ));
                         match result {
                             Ok((content, tokens, max)) => {

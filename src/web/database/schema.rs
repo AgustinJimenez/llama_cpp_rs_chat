@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS config (
     mirostat_eta REAL DEFAULT 0.1,
     model_path TEXT,
     system_prompt TEXT,
+    system_prompt_type TEXT DEFAULT 'Default',
     context_size INTEGER DEFAULT 32768,
     stop_tokens TEXT,
     updated_at INTEGER NOT NULL
@@ -110,6 +111,12 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         conn.execute(sql, [])
             .map_err(db_error(&format!("create {name}")))?;
     }
+
+    // Add system_prompt_type column if missing (schema migration for existing DBs)
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN system_prompt_type TEXT DEFAULT 'Default'",
+        [],
+    );
 
     // Insert default config row if it doesn't exist
     conn.execute(
