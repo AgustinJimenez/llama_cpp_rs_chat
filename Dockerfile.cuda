@@ -1,0 +1,122 @@
+# syntax=docker/dockerfile:1
+# CUDA-enabled Dockerfile — builds llama_chat_web with GPU acceleration.
+#
+# Build:
+#   docker build -f Dockerfile.cuda -t llama-cuda .
+#
+# Run:
+#   docker run --gpus all -p 8000:8000 \
+#     -v "E:/.lmstudio:/app/models" \
+#     -v "E:/repo/llama_cpp_rs_chat/assets:/app/assets" \
+#     llama-cuda
+
+FROM nvidia/cuda:12.6.0-devel-ubuntu22.04
+
+# Prevent interactive prompts during apt install
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install build dependencies + Rust toolchain
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    git \
+    clang \
+    libclang-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust 1.88 via rustup
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.88.0
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Verify toolchain
+RUN rustc --version && cargo --version
+
+WORKDIR /app
+
+# Copy project source
+COPY Cargo.toml Cargo.lock build.rs ./
+COPY src ./src
+COPY check_gemma_template.rs ./
+
+# Patch: remove Tauri deps and non-web binaries
+RUN python3 << 'PYEOF'
+import re
+
+with open('Cargo.toml', 'r') as f:
+    lines = f.readlines()
+
+out = []
+skip_block = False
+for i, line in enumerate(lines):
+    if line.startswith('default-run'):
+        continue
+    if line.startswith('tauri = ') or line.startswith('tauri-plugin-shell') or line.startswith('tauri-plugin-dialog'):
+        out.append('# ' + line)
+        continue
+    if line.startswith('tauri-build'):
+        out.append('# ' + line)
+        continue
+    if line.strip() == '[lib]':
+        skip_block = True
+        continue
+    if line.strip() == '[[bin]]':
+        name_line = ''
+        for j in range(i+1, min(i+5, len(lines))):
+            if lines[j].strip().startswith('name'):
+                name_line = lines[j]
+                break
+        if 'llama_chat_web' not in name_line:
+            skip_block = True
+            continue
+    if skip_block:
+        if line.strip() == '' or line.startswith('[') or line.startswith('[['):
+            if line.startswith('[') or line.startswith('[['):
+                skip_block = False
+                out.append(line)
+            else:
+                skip_block = False
+            continue
+        continue
+    out.append(line)
+
+with open('Cargo.toml', 'w') as f:
+    f.writelines(out)
+print('OK: Cargo.toml patched')
+PYEOF
+
+RUN sed -i 's/tauri_build::build()/()/' build.rs && \
+    rm -f src/lib.rs src/main.rs check_gemma_template.rs src/test_model.rs
+
+# Download portable CMake (same version pinned in build.rs)
+ENV CMAKE_VERSION=3.31.6
+RUN mkdir -p target/cmake && \
+    curl -fsSL "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz" \
+      -o target/cmake/cmake.tar.gz && \
+    tar -xzf target/cmake/cmake.tar.gz -C target/cmake/ && \
+    rm target/cmake/cmake.tar.gz && \
+    echo "OK: CMake ${CMAKE_VERSION} downloaded"
+
+# Set CMAKE env var so the cmake crate (used by llama-cpp-sys-2) finds it
+ENV CMAKE=/app/target/cmake/cmake-3.31.6-linux-x86_64/bin/cmake
+ENV PATH="/app/target/cmake/cmake-3.31.6-linux-x86_64/bin:${PATH}"
+
+# Ensure CUDA is visible to the build
+ENV CUDA_PATH=/usr/local/cuda
+ENV PATH="${CUDA_PATH}/bin:${PATH}"
+ENV LD_LIBRARY_PATH="${CUDA_PATH}/lib64:${LD_LIBRARY_PATH}"
+
+# Verify cmake and nvcc
+RUN cmake --version && nvcc --version
+
+# Build with CUDA feature
+RUN cargo build --release --features cuda --bin llama_chat_web 2>&1 | tee /tmp/build.log
+
+# Verify the build succeeded
+RUN test -f target/release/llama_chat_web && echo "SUCCESS: CUDA-enabled binary built"
+
+# Expose server port
+EXPOSE 8000
+
+CMD ["./target/release/llama_chat_web"]
