@@ -11,7 +11,13 @@ const CMAKE_VERSION: &str = "3.31.6";
 const CMAKE_URL_BASE: &str = "https://github.com/Kitware/CMake/releases/download";
 
 fn main() {
-    // Try to find cmake — system first, then cached download, then fresh download.
+    // Ensure cmake is available. Downloads a portable copy if needed and
+    // writes target/cmake-env with the CMAKE path for use by wrapper scripts.
+    // Note: env::set_var only affects THIS process, not sibling build scripts
+    // (like llama-cpp-sys-2). For the env to reach those, CMAKE must be set
+    // before `cargo build` is invoked. The ensure_cmake bin target and the
+    // npm scripts handle that; this build.rs serves as a fallback for when
+    // cmake IS on PATH already.
     ensure_cmake_available();
 
     // Tauri build step
@@ -23,6 +29,14 @@ fn main() {
 // ---------------------------------------------------------------------------
 
 fn ensure_cmake_available() {
+    // Check CMAKE env var first (set by ensure_cmake or user)
+    if let Ok(cmake_path) = env::var("CMAKE") {
+        if Path::new(&cmake_path).exists() {
+            println!("cargo:warning=Setting CMAKE environment variable to: {cmake_path}");
+            return;
+        }
+    }
+
     // 1. System cmake (PATH or well-known locations)
     if let Some(path) = find_system_cmake() {
         set_cmake_env(&path);
@@ -41,6 +55,8 @@ fn ensure_cmake_available() {
     match download_and_extract_cmake(&cache_dir) {
         Ok(cmake_path) => {
             set_cmake_env(&cmake_path);
+            // Write cmake path to a file so wrapper scripts can source it
+            write_cmake_env_file(&cache_dir, &cmake_path);
             println!("cargo:warning=CMake {CMAKE_VERSION} downloaded and ready at: {}", cmake_path.display());
         }
         Err(e) => {
@@ -58,10 +74,10 @@ fn ensure_cmake_available() {
     }
 }
 
-/// Point the `cmake` crate (and downstream llama-cpp-sys-2) at the given binary.
+/// Point the `cmake` crate at the given binary and update PATH.
 fn set_cmake_env(cmake_bin: &Path) {
     let cmake_str = cmake_bin.to_string_lossy();
-    println!("cargo:warning=Using CMake at: {cmake_str}");
+    println!("cargo:warning=Setting CMAKE environment variable to: {cmake_str}");
     env::set_var("CMAKE", &*cmake_str);
 
     // Add parent directory to PATH so child processes also find it
@@ -74,6 +90,15 @@ fn set_cmake_env(cmake_bin: &Path) {
                 println!("cargo:warning=Added {parent_str} to PATH");
             }
         }
+    }
+}
+
+/// Write cmake path to target/cmake-env so scripts can read it.
+fn write_cmake_env_file(cache_dir: &Path, cmake_bin: &Path) {
+    // Write to target/cmake-env (parent of cache_dir which is target/cmake/)
+    if let Some(target_dir) = cache_dir.parent() {
+        let env_file = target_dir.join("cmake-env");
+        let _ = fs::write(&env_file, cmake_bin.to_string_lossy().as_bytes());
     }
 }
 
@@ -109,10 +134,8 @@ fn find_system_cmake() -> Option<PathBuf> {
 
 fn cmake_cache_dir() -> PathBuf {
     // Use OUT_DIR to find target/ — OUT_DIR is like target/debug/build/<pkg>/out
-    // Walk up to find target/
     if let Ok(out_dir) = env::var("OUT_DIR") {
         let out = PathBuf::from(&out_dir);
-        // Walk up looking for a directory named "target"
         let mut dir = out.as_path();
         while let Some(parent) = dir.parent() {
             if dir.file_name().map(|n| n == "target").unwrap_or(false) {
@@ -121,17 +144,14 @@ fn cmake_cache_dir() -> PathBuf {
             dir = parent;
         }
     }
-    // Fallback: relative to crate root
     PathBuf::from("target/cmake")
 }
 
 fn find_cached_cmake(cache_dir: &Path) -> Option<PathBuf> {
     let cmake_bin = cached_cmake_binary(cache_dir);
     if cmake_bin.exists() {
-        // Verify it actually runs
         if let Ok(output) = Command::new(&cmake_bin).arg("--version").output() {
             if output.status.success() {
-                println!("cargo:warning=Found cached CMake at: {}", cmake_bin.display());
                 return Some(cmake_bin);
             }
         }
@@ -144,7 +164,6 @@ fn cached_cmake_binary(cache_dir: &Path) -> PathBuf {
     let dir_name = format!("cmake-{CMAKE_VERSION}-{platform_tag}");
 
     if cfg!(target_os = "macos") {
-        // macOS archive contains CMake.app/Contents/bin/cmake
         cache_dir
             .join(&dir_name)
             .join("CMake.app")
@@ -168,7 +187,6 @@ fn download_and_extract_cmake(cache_dir: &Path) -> Result<PathBuf, String> {
 
     println!("cargo:warning=Downloading {url} ...");
 
-    // Download to a temp file in the cache dir
     fs::create_dir_all(cache_dir).map_err(|e| format!("Failed to create {}: {e}", cache_dir.display()))?;
     let archive_path = cache_dir.join(&archive_name);
 
@@ -176,20 +194,16 @@ fn download_and_extract_cmake(cache_dir: &Path) -> Result<PathBuf, String> {
 
     println!("cargo:warning=Extracting {archive_name} ...");
 
-    // Extract
     if ext == "zip" {
         extract_zip(&archive_path, cache_dir)?;
     } else {
         extract_tar_gz(&archive_path, cache_dir)?;
     }
 
-    // Clean up archive
     let _ = fs::remove_file(&archive_path);
 
-    // Return path to cmake binary
     let cmake_bin = cached_cmake_binary(cache_dir);
     if cmake_bin.exists() {
-        // Make executable on Unix
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

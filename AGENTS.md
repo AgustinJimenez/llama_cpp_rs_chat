@@ -20,7 +20,7 @@ Testing: "npm test" (Playwright E2E; backend must be running on 8000). UI/headed
 
 Mock mode for tests: build or run with the "mock" feature. Example: "cargo build --features mock --bin llama_chat_web" or "TEST_MODE=true cargo run --bin llama_chat_web".
 
-CMake on Windows: set CMAKE environment variable to your cmake.exe path if not in PATH (e.g., "C:\Program Files\CMake\bin\cmake.exe").
+CMake: required for building llama.cpp. If not installed, the build.rs will attempt to download a portable copy to target/cmake/. For Docker/CI builds without cmake, download it first and set CMAKE env var (see Dockerfile.test-cmake). Manual install: "winget install Kitware.CMake" (Windows), "brew install cmake" (macOS), "sudo apt install cmake" (Linux).
 
 Tool calling: tool schema is exposed via /api/tools/available and execution via /api/tools/execute. Models see available tools injected into prompts. Safety limit MAX_TOOL_ITERATIONS = 5 on the frontend agent loop.
 

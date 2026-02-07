@@ -1,0 +1,102 @@
+# syntax=docker/dockerfile:1
+# Test Dockerfile — verifies CMake auto-download works.
+# Deliberately does NOT install cmake via apt. Downloads a portable
+# copy from GitHub before building, then sets CMAKE env var.
+#
+# Usage:
+#   docker build -f Dockerfile.test-cmake -t llama-cmake-test .
+
+FROM rust:1.88-bookworm
+
+# Install build deps — NOTE: cmake is intentionally absent
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    git \
+    clang \
+    libclang-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Verify cmake is NOT available
+RUN ! command -v cmake && echo "OK: cmake not found (as intended)"
+
+WORKDIR /app
+
+# Copy project source
+COPY Cargo.toml Cargo.lock build.rs ./
+COPY src ./src
+COPY check_gemma_template.rs ./
+
+# Patch: remove Tauri deps and non-web binaries
+RUN python3 << 'PYEOF'
+import re
+
+with open('Cargo.toml', 'r') as f:
+    lines = f.readlines()
+
+out = []
+skip_block = False
+for i, line in enumerate(lines):
+    if line.startswith('default-run'):
+        continue
+    if line.startswith('tauri = ') or line.startswith('tauri-plugin-shell') or line.startswith('tauri-plugin-dialog'):
+        out.append('# ' + line)
+        continue
+    if line.startswith('tauri-build'):
+        out.append('# ' + line)
+        continue
+    if line.strip() == '[lib]':
+        skip_block = True
+        continue
+    if line.strip() == '[[bin]]':
+        name_line = ''
+        for j in range(i+1, min(i+5, len(lines))):
+            if lines[j].strip().startswith('name'):
+                name_line = lines[j]
+                break
+        if 'llama_chat_web' not in name_line:
+            skip_block = True
+            continue
+    if skip_block:
+        if line.strip() == '' or line.startswith('[') or line.startswith('[['):
+            if line.startswith('[') or line.startswith('[['):
+                skip_block = False
+                out.append(line)
+            else:
+                skip_block = False
+            continue
+        continue
+    out.append(line)
+
+with open('Cargo.toml', 'w') as f:
+    f.writelines(out)
+print('OK: Cargo.toml patched')
+PYEOF
+
+RUN sed -i 's/tauri_build::build()/()/' build.rs && \
+    rm -f src/lib.rs src/main.rs check_gemma_template.rs src/test_model.rs
+
+# Download portable CMake (same version pinned in build.rs)
+ENV CMAKE_VERSION=3.31.6
+RUN mkdir -p target/cmake && \
+    curl -fsSL "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz" \
+      -o target/cmake/cmake.tar.gz && \
+    tar -xzf target/cmake/cmake.tar.gz -C target/cmake/ && \
+    rm target/cmake/cmake.tar.gz && \
+    echo "OK: CMake ${CMAKE_VERSION} downloaded"
+
+# Set CMAKE env var so the cmake crate (used by llama-cpp-sys-2) finds it
+ENV CMAKE=/app/target/cmake/cmake-3.31.6-linux-x86_64/bin/cmake
+ENV PATH="/app/target/cmake/cmake-3.31.6-linux-x86_64/bin:${PATH}"
+
+# Verify cmake works
+RUN cmake --version
+
+# Build — llama-cpp-sys-2 will use the CMAKE env var
+RUN cargo build --release --bin llama_chat_web 2>&1 | tee /tmp/build.log
+
+# Verify the build succeeded
+RUN test -f target/release/llama_chat_web && echo "SUCCESS: binary built without system cmake"
+
+CMD ["echo", "CMake auto-download test passed"]
