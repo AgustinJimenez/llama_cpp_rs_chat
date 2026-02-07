@@ -16,13 +16,13 @@ fn main() {
     let gpu_layers: u32 = 40; // All layers on GPU
 
     println!("Configuration:");
-    println!("  Model: {}", model_path);
+    println!("  Model: {model_path}");
     println!(
         "  Context Size: {} tokens ({}K)",
         context_size,
         context_size / 1024
     );
-    println!("  GPU Layers: {}", gpu_layers);
+    println!("  GPU Layers: {gpu_layers}");
     println!();
 
     // Initialize backend
@@ -78,7 +78,7 @@ fn main() {
         tokens.len(),
         token_time.as_secs_f32()
     );
-    println!("  Prompt: {}", prompt);
+    println!("  Prompt: {prompt}");
     println!("  Token count: {}", tokens.len());
     println!();
 
@@ -111,7 +111,7 @@ fn main() {
     let mut n_generated = 0;
     let max_tokens = 500; // Generate 500 tokens (enough to trigger crash if it exists)
 
-    println!("  Generating up to {} tokens...", max_tokens);
+    println!("  Generating up to {max_tokens} tokens...");
 
     // Create greedy sampler
     let mut sampler = LlamaSampler::greedy();
@@ -122,13 +122,13 @@ fn main() {
 
         // Check for EOS
         if model.is_eog_token(new_token) {
-            println!("  ✓ Hit end-of-generation token at {} tokens", i);
+            println!("  ✓ Hit end-of-generation token at {i} tokens");
             break;
         }
 
         // Print progress every 50 tokens
         if i % 50 == 0 {
-            println!("    ... generated {} tokens so far", i);
+            println!("    ... generated {i} tokens so far");
         }
 
         // Clear batch and add new token

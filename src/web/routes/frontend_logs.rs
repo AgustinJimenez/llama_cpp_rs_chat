@@ -74,7 +74,7 @@ pub async fn handle_post_frontend_logs(req: Request<Body>) -> Result<Response<Bo
 
     // Filename format requested: year-month-day-hour_minute.log
     let file_stamp = chrono::Local::now().format("%Y-%m-%d-%H_%M").to_string();
-    let log_path = format!("{}/{}.log", log_dir, file_stamp);
+    let log_path = format!("{log_dir}/{file_stamp}.log");
 
     let mut file = match std::fs::OpenOptions::new()
         .create(true)

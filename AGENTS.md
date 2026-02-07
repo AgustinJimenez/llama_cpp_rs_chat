@@ -27,3 +27,15 @@ Tool calling: tool schema is exposed via /api/tools/available and execution via 
 Browser automation: use the Chrome DevTools MCP (chrome-devtools-mcp) for browser testing, NOT the Claude Chrome extension. Install with: "claude mcp add chrome-devtools --scope user npx chrome-devtools-mcp@latest". Use this to interact with the UI at http://localhost:4000 for testing models, chat, and features.
 
 Common gotchas to remember: use port 4000 for the UI (not 8000), keep backend running for Playwright tests, use Chrome DevTools MCP for browser automation (not Claude Chrome extension), and prefer existing modules rather than duplicating code when editing web routes or chat logic.
+
+Architecture:
+
+Backend (src/web/): chat/ is the inference pipeline (generation.rs token loop, templates.rs prompt formatting, command_executor.rs tool execution, tool_tags.rs per-model tag config, stop_conditions.rs). routes/ has HTTP/WebSocket handlers (chat, config, model, conversations, tools, files, health, logs). database/ is SQLite persistence (conversations, messages, config). models.rs defines shared types (SamplerConfig, SharedLlamaState, ChatRequest/Response). config.rs loads assets/config.json and resolves system prompts. model_manager.rs handles model loading/unloading. websocket.rs handles WebSocket streaming.
+
+Chat pipeline: WebSocket message → load config + model → resolve system prompt (agentic/custom/model-default) → format with chat template (ChatML/Mistral/Llama3/Gemma) using model-specific tool tags → tokenize → generate tokens in loop → check stop conditions → detect and execute commands (regex on tool tags) → inject output back into context → stream tokens to frontend → log to SQLite.
+
+Key types: SharedLlamaState (Arc<Mutex<Option<LlamaModelState>>>) wraps the loaded model. ConversationLogger writes to SQLite per-conversation. ToolTags (exec_open/close, output_open/close) are per-model (Qwen uses <tool_call>, Mistral uses [TOOL_CALLS], default uses SYSTEM.EXEC). SamplerConfig holds all inference params plus model_path and model_history.
+
+Frontend (src/): Atomic design — atoms/ (Button, Dialog, etc.), molecules/ (MessageInput, ToolCallBlock, CommandExecBlock), organisms/ (ModelSelector, SettingsModal, Sidebar), templates/ (ChatInputArea, MessagesArea). Key hooks: useChat (messaging orchestration), useModel (model lifecycle), useToolExecution (tool call parsing with MAX_TOOL_ITERATIONS=20), useSettings (sampler config). Utils: chatTransport (HTTP/WS abstraction), toolParser (multi-format tool call extraction).
+
+Linting: "cargo clippy --bin llama_chat_web --features cuda" for Rust. "npm run lint" for frontend ESLint. Both should report zero warnings on clean code.

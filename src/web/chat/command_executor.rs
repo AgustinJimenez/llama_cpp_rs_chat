@@ -7,10 +7,6 @@ use super::super::models::*;
 use super::tool_tags::ToolTags;
 use crate::log_info;
 
-// Default command execution tokens (used when no model-specific tags are set)
-pub const OUTPUT_OPEN: &str = "\n<||SYSTEM.OUTPUT>\n";
-pub const OUTPUT_CLOSE: &str = "\n<SYSTEM.OUTPUT||>\n";
-
 // Default SYSTEM.EXEC regex (always tried as fallback)
 lazy_static::lazy_static! {
     pub static ref EXEC_PATTERN: Regex = Regex::new(
@@ -31,7 +27,7 @@ fn build_model_exec_regex(tags: &ToolTags) -> Option<Regex> {
     let close = regex::escape(tags.exec_close);
 
     // Build pattern: open_tag(.+?)close_tag
-    let pattern = format!(r"{}(.+?){}", open, close);
+    let pattern = format!(r"{open}(.+?){close}");
     Regex::new(&pattern).ok()
 }
 
@@ -39,28 +35,6 @@ fn build_model_exec_regex(tags: &ToolTags) -> Option<Regex> {
 pub struct CommandExecutionResult {
     pub output_block: String,
     pub output_tokens: Vec<i32>,
-}
-
-/// Check if response contains an unprocessed command and execute it.
-///
-/// Tries the model-specific exec tags first, then falls back to the default
-/// SYSTEM.EXEC pattern. This ensures commands work regardless of which tag
-/// format the model uses.
-///
-/// Returns the output block and tokens to inject if a command was found and executed.
-pub fn check_and_execute_command(
-    response: &str,
-    last_scan_pos: usize,
-    conversation_id: &str,
-    model: &llama_cpp_2::model::LlamaModel,
-) -> Result<Option<CommandExecutionResult>, String> {
-    check_and_execute_command_with_tags(
-        response,
-        last_scan_pos,
-        conversation_id,
-        model,
-        &super::tool_tags::DEFAULT_TAGS,
-    )
 }
 
 /// Check for and execute commands using model-specific tool tags.
@@ -125,7 +99,7 @@ pub fn check_and_execute_command_with_tags(
     // Tokenize output for injection into context
     let output_tokens = model
         .str_to_token(&output_block, AddBos::Never)
-        .map_err(|e| format!("Tokenization of command output failed: {}", e))?;
+        .map_err(|e| format!("Tokenization of command output failed: {e}"))?;
 
     Ok(Some(CommandExecutionResult {
         output_block,
@@ -162,12 +136,12 @@ pub fn inject_output_tokens(
                     &[0],
                     is_last,
                 )
-                .map_err(|e| format!("Batch add failed for command output: {}", e))?;
+                .map_err(|e| format!("Batch add failed for command output: {e}"))?;
         }
 
         context
             .decode(batch)
-            .map_err(|e| format!("Decode failed for command output: {}", e))?;
+            .map_err(|e| format!("Decode failed for command output: {e}"))?;
 
         *token_pos += chunk.len() as i32;
     }

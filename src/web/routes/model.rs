@@ -189,7 +189,7 @@ pub async fn handle_get_model_info(
     } else if file_size_bytes >= BYTES_PER_MB {
         format!("{:.1} MB", file_size_bytes as f64 / BYTES_PER_MB as f64)
     } else {
-        format!("{} bytes", file_size_bytes)
+        format!("{file_size_bytes} bytes")
     };
 
     let filename = std::path::Path::new(&*decoded_path)
@@ -308,7 +308,7 @@ pub async fn handle_get_model_info(
             "context_length".to_string(),
         ];
         for key in &context_keys {
-            if let Some(val) = extractor.get_string(&key) {
+            if let Some(val) = extractor.get_string(key) {
                 model_info["context_length"] = serde_json::json!(val);
                 break;
             }
@@ -530,15 +530,14 @@ pub async fn handle_post_model_load(
             Err(e) => {
                 let response = ModelResponse {
                     success: false,
-                    message: format!("Failed to load model: {}", e),
+                    message: format!("Failed to load model: {e}"),
                     status: None,
                 };
 
                 let response_json = serialize_with_fallback(
                     &response,
                     &format!(
-                        r#"{{"success":false,"message":"Failed to load model: {}","status":null}}"#,
-                        e
+                        r#"{{"success":false,"message":"Failed to load model: {e}","status":null}}"#
                     ),
                 );
 
@@ -583,15 +582,14 @@ pub async fn handle_post_model_unload(
             Err(e) => {
                 let response = ModelResponse {
                     success: false,
-                    message: format!("Failed to unload model: {}", e),
+                    message: format!("Failed to unload model: {e}"),
                     status: None,
                 };
 
                 let response_json = serialize_with_fallback(
                     &response,
                     &format!(
-                        r#"{{"success":false,"message":"Failed to unload model: {}","status":null}}"#,
-                        e
+                        r#"{{"success":false,"message":"Failed to unload model: {e}","status":null}}"#
                     ),
                 );
 

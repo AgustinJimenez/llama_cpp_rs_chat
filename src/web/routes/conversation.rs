@@ -25,7 +25,7 @@ fn parse_conversation_to_messages(content: &str) -> Vec<ChatMessage> {
             // Save previous message if any
             if !current_role.is_empty() && !current_content.trim().is_empty() {
                 messages.push(ChatMessage {
-                    id: format!("msg_{}", sequence),
+                    id: format!("msg_{sequence}"),
                     role: current_role.to_lowercase(),
                     content: current_content.trim().to_string(),
                     timestamp: sequence,
@@ -43,7 +43,7 @@ fn parse_conversation_to_messages(content: &str) -> Vec<ChatMessage> {
     // Don't forget the last message
     if !current_role.is_empty() && !current_content.trim().is_empty() {
         messages.push(ChatMessage {
-            id: format!("msg_{}", sequence),
+            id: format!("msg_{sequence}"),
             role: current_role.to_lowercase(),
             content: current_content.trim().to_string(),
             timestamp: sequence,
@@ -102,7 +102,7 @@ pub async fn handle_get_conversations(
 
                 conversations.push(ConversationFile {
                     name: format!("{}.txt", record.id), // Keep .txt extension for API compatibility
-                    display_name: format!("Chat {}", timestamp_part),
+                    display_name: format!("Chat {timestamp_part}"),
                     timestamp: timestamp_part,
                 });
             }

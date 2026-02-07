@@ -63,7 +63,7 @@ pub fn check_stop_conditions(
     stop_tokens: &[String],
 ) -> StopConditionResult {
     // Test response with the new token appended
-    let test_response = format!("{}{}", response, new_token);
+    let test_response = format!("{response}{new_token}");
 
     // Don't stop if we're inside an exec block - let it complete
     let in_exec_block = is_inside_exec_block(response);

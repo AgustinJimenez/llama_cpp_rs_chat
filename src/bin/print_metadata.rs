@@ -12,13 +12,13 @@ fn main() {
     };
 
     println!("=================================================================");
-    println!("Reading GGUF metadata from: {}", model_path);
+    println!("Reading GGUF metadata from: {model_path}");
     println!("=================================================================\n");
 
     let file = match fs::File::open(model_path) {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("Failed to open model file: {}", e);
+            eprintln!("Failed to open model file: {e}");
             return;
         }
     };
@@ -28,7 +28,7 @@ fn main() {
     let header = match GgufHeader::parse(&mut reader) {
         Ok(h) => h,
         Err(e) => {
-            eprintln!("Failed to parse GGUF header: {}", e);
+            eprintln!("Failed to parse GGUF header: {e}");
             return;
         }
     };
@@ -36,7 +36,7 @@ fn main() {
     let metadata = match GgufReader::read_metadata(&mut reader, header.n_kv) {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("Failed to read metadata: {}", e);
+            eprintln!("Failed to read metadata: {e}");
             return;
         }
     };
@@ -50,9 +50,9 @@ fn main() {
         .or_else(|| metadata.get("llama.context_length"))
     {
         match v {
-            Value::Uint32(n) => println!("  context_length: {} tokens", n),
-            Value::Uint64(n) => println!("  context_length: {} tokens", n),
-            _ => println!("  context_length: {:?}", v),
+            Value::Uint32(n) => println!("  context_length: {n} tokens"),
+            Value::Uint64(n) => println!("  context_length: {n} tokens"),
+            _ => println!("  context_length: {v:?}"),
         }
     }
 
@@ -61,7 +61,7 @@ fn main() {
         .get("gemma3.embedding_length")
         .or_else(|| metadata.get("llama.embedding_length"))
     {
-        println!("  embedding_length: {:?}", v);
+        println!("  embedding_length: {v:?}");
     }
 
     // Block count (layers)
@@ -69,7 +69,7 @@ fn main() {
         .get("gemma3.block_count")
         .or_else(|| metadata.get("llama.block_count"))
     {
-        println!("  block_count (layers): {:?}", v);
+        println!("  block_count (layers): {v:?}");
     }
 
     // Feed forward length
@@ -77,7 +77,7 @@ fn main() {
         .get("gemma3.feed_forward_length")
         .or_else(|| metadata.get("llama.feed_forward_length"))
     {
-        println!("  feed_forward_length: {:?}", v);
+        println!("  feed_forward_length: {v:?}");
     }
 
     println!();
@@ -86,13 +86,13 @@ fn main() {
 
     // Token IDs
     if let Some(v) = metadata.get("tokenizer.ggml.bos_token_id") {
-        println!("  tokenizer.ggml.bos_token_id: {:?}", v);
+        println!("  tokenizer.ggml.bos_token_id: {v:?}");
     }
     if let Some(v) = metadata.get("tokenizer.ggml.eos_token_id") {
-        println!("  tokenizer.ggml.eos_token_id: {:?}", v);
+        println!("  tokenizer.ggml.eos_token_id: {v:?}");
     }
     if let Some(v) = metadata.get("tokenizer.ggml.model") {
-        println!("  tokenizer.ggml.model: {:?}", v);
+        println!("  tokenizer.ggml.model: {v:?}");
     }
 
     println!();
@@ -104,25 +104,25 @@ fn main() {
         .get("gemma3.rope.freq_base")
         .or_else(|| metadata.get("llama.rope.freq_base"))
     {
-        println!("  rope.freq_base: {:?}", v);
+        println!("  rope.freq_base: {v:?}");
     }
     if let Some(v) = metadata
         .get("gemma3.rope.dimension_count")
         .or_else(|| metadata.get("llama.rope.dimension_count"))
     {
-        println!("  rope.dimension_count: {:?}", v);
+        println!("  rope.dimension_count: {v:?}");
     }
     if let Some(v) = metadata
         .get("gemma3.rope.scaling.type")
         .or_else(|| metadata.get("llama.rope.scaling.type"))
     {
-        println!("  rope.scaling.type: {:?}", v);
+        println!("  rope.scaling.type: {v:?}");
     }
     if let Some(v) = metadata
         .get("gemma3.rope.scaling.factor")
         .or_else(|| metadata.get("llama.rope.scaling.factor"))
     {
-        println!("  rope.scaling.factor: {:?}", v);
+        println!("  rope.scaling.factor: {v:?}");
     }
 
     // Attention
@@ -130,16 +130,16 @@ fn main() {
         .get("gemma3.attention.head_count")
         .or_else(|| metadata.get("llama.attention.head_count"))
     {
-        println!("  attention.head_count: {:?}", v);
+        println!("  attention.head_count: {v:?}");
     }
     if let Some(v) = metadata
         .get("gemma3.attention.head_count_kv")
         .or_else(|| metadata.get("llama.attention.head_count_kv"))
     {
-        println!("  attention.head_count_kv: {:?}", v);
+        println!("  attention.head_count_kv: {v:?}");
     }
     if let Some(v) = metadata.get("gemma3.attention.sliding_window") {
-        println!("  attention.sliding_window: {:?}", v);
+        println!("  attention.sliding_window: {v:?}");
     }
 
     println!();
@@ -161,7 +161,7 @@ fn main() {
             "Unknown/Generic"
         };
 
-        println!("  Detected type: {}", template_type);
+        println!("  Detected type: {template_type}");
         println!("  Template preview (first 200 chars):");
         let preview = if template.len() > 200 {
             format!("{}...", &template[..200])
@@ -185,7 +185,7 @@ fn main() {
 
     for key in general_keys {
         if let Some(v) = metadata.get(key) {
-            println!("  {}: {:?}", key, v);
+            println!("  {key}: {v:?}");
         }
     }
 
@@ -194,19 +194,19 @@ fn main() {
     println!("-----------------------------------------------------------------");
 
     if let Some(v) = metadata.get("general.sampling.temp") {
-        println!("  temperature: {:?}", v);
+        println!("  temperature: {v:?}");
     }
     if let Some(v) = metadata.get("general.sampling.top_p") {
-        println!("  top_p: {:?}", v);
+        println!("  top_p: {v:?}");
     }
     if let Some(v) = metadata.get("general.sampling.top_k") {
-        println!("  top_k: {:?}", v);
+        println!("  top_k: {v:?}");
     }
     if let Some(v) = metadata.get("general.sampling.min_p") {
-        println!("  min_p: {:?}", v);
+        println!("  min_p: {v:?}");
     }
     if let Some(v) = metadata.get("general.sampling.repetition_penalty") {
-        println!("  repetition_penalty: {:?}", v);
+        println!("  repetition_penalty: {v:?}");
     }
 
     // Get architecture-specific context length
@@ -214,8 +214,8 @@ fn main() {
         .and_then(|v| if let Value::String(s) = v { Some(s.clone()) } else { None })
         .unwrap_or_else(|| "llama".to_string());
 
-    if let Some(v) = metadata.get(&format!("{}.context_length", arch)) {
-        println!("  context_length: {:?}", v);
+    if let Some(v) = metadata.get(&format!("{arch}.context_length")) {
+        println!("  context_length: {v:?}");
     }
 
     println!();
@@ -229,7 +229,7 @@ fn main() {
         if i % 3 == 0 && i > 0 {
             println!();
         }
-        print!("  {:40}", key);
+        print!("  {key:40}");
         if (i + 1) % 3 == 0 {
             println!();
         }

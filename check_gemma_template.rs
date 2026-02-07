@@ -14,25 +14,25 @@ fn main() {
                 // Print chat template
                 if let Some(Value::String(template)) = metadata.get("tokenizer.chat_template") {
                     println!("Chat template:");
-                    println!("{}\n", template);
+                    println!("{template}\n");
                     println!("Template length: {} chars\n", template.len());
                 }
 
                 // Print model name
                 if let Some(Value::String(name)) = metadata.get("general.name") {
-                    println!("Model name: {}", name);
+                    println!("Model name: {name}");
                 }
 
                 // Print architecture
                 if let Some(Value::String(arch)) = metadata.get("general.architecture") {
-                    println!("Architecture: {}", arch);
+                    println!("Architecture: {arch}");
                 }
 
                 // Print context length
                 if let Some(ctx) = metadata.get("llama.context_length") {
                     match ctx {
-                        Value::Uint32(n) => println!("Context length: {}", n),
-                        Value::Uint64(n) => println!("Context length: {}", n),
+                        Value::Uint32(n) => println!("Context length: {n}"),
+                        Value::Uint64(n) => println!("Context length: {n}"),
                         _ => {}
                     }
                 }
@@ -42,11 +42,11 @@ fn main() {
                 let mut keys: Vec<_> = metadata.keys().collect();
                 keys.sort();
                 for key in keys {
-                    println!("  - {}", key);
+                    println!("  - {key}");
                 }
             }
         }
     } else {
-        eprintln!("Failed to open model file: {}", model_path);
+        eprintln!("Failed to open model file: {model_path}");
     }
 }

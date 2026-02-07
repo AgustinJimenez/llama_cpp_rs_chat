@@ -320,7 +320,7 @@ mod tests {
 
         // Add 15 models
         for i in 0..15 {
-            db.add_to_model_history(&format!("/model{}.gguf", i))
+            db.add_to_model_history(&format!("/model{i}.gguf"))
                 .unwrap();
         }
 

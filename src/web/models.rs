@@ -9,8 +9,10 @@ use crate::sys_debug;
 
 /// System prompt type selection
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Default)]
 pub enum SystemPromptType {
     /// Use model's native Jinja2 chat template
+    #[default]
     Default,
     /// Use custom curated prompts
     Custom,
@@ -18,11 +20,6 @@ pub enum SystemPromptType {
     UserDefined,
 }
 
-impl Default for SystemPromptType {
-    fn default() -> Self {
-        SystemPromptType::Default
-    }
-}
 
 // Configuration structure
 #[derive(Deserialize, Serialize, Clone)]
@@ -146,9 +143,9 @@ pub fn translate_tool_for_model(
                 let command = if cfg!(target_os = "windows") {
                     // PowerShell: Use Get-Content (cat is an alias)
                     // PowerShell handles Windows paths with backslashes correctly
-                    format!("cat \"{}\"", path)
+                    format!("cat \"{path}\"")
                 } else {
-                    format!("cat \"{}\"", path)
+                    format!("cat \"{path}\"")
                 };
 
                 sys_debug!("[TOOL TRANSLATION] read_file → bash: {}", command);
@@ -167,12 +164,11 @@ pub fn translate_tool_for_model(
                     // PowerShell: Use Set-Content or Out-File
                     // Note: echo in PowerShell automatically writes to file with >
                     format!(
-                        "'{}' | Out-File -FilePath \"{}\" -Encoding UTF8",
-                        content, path
+                        "'{content}' | Out-File -FilePath \"{path}\" -Encoding UTF8"
                     )
                 } else {
                     // Linux/Mac: echo 'content' > "file"
-                    format!("echo '{}' > \"{}\"", content, path)
+                    format!("echo '{content}' > \"{path}\"")
                 };
 
                 sys_debug!("[TOOL TRANSLATION] write_file → bash: {}", command);
@@ -193,16 +189,14 @@ pub fn translate_tool_for_model(
                 let command = if cfg!(target_os = "windows") {
                     // PowerShell: Use Get-ChildItem (ls is an alias)
                     if recursive {
-                        format!("ls -Recurse \"{}\"", path)
+                        format!("ls -Recurse \"{path}\"")
                     } else {
-                        format!("ls \"{}\"", path)
+                        format!("ls \"{path}\"")
                     }
+                } else if recursive {
+                    format!("ls -R \"{path}\"")
                 } else {
-                    if recursive {
-                        format!("ls -R \"{}\"", path)
-                    } else {
-                        format!("ls -la \"{}\"", path)
-                    }
+                    format!("ls -la \"{path}\"")
                 };
 
                 sys_debug!("[TOOL TRANSLATION] list_directory → bash: {}", command);

@@ -95,7 +95,7 @@ fn setup_logging() -> Result<(), Box<dyn std::error::Error>> {
     let log_dir = "logs";
     std::fs::create_dir_all(log_dir)?;
     let timestamp = Local::now().format("%Y-%m-%d-%H_%M").to_string();
-    let log_path = format!("{}/{}.log", log_dir, timestamp);
+    let log_path = format!("{log_dir}/{timestamp}.log");
 
     let file_appender = FileAppender::builder()
         .encoder(Box::new(PatternEncoder::new(
@@ -114,7 +114,7 @@ fn setup_logging() -> Result<(), Box<dyn std::error::Error>> {
 
 fn main() {
     if let Err(e) = setup_logging() {
-        eprintln!("Failed to set up logging: {}", e);
+        eprintln!("Failed to set up logging: {e}");
     }
 
     tauri::Builder::default()

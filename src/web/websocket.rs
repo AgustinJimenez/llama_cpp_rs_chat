@@ -276,8 +276,8 @@ pub async fn handle_websocket(
                                     pending_tokens_used = Some(token_data.tokens_used);
                                     pending_max_tokens = Some(token_data.max_tokens);
 
-                                    if pending_tokens.len() >= WS_TOKEN_FLUSH_MAX_CHARS {
-                                        if flush_pending_tokens(
+                                    if pending_tokens.len() >= WS_TOKEN_FLUSH_MAX_CHARS
+                                        && flush_pending_tokens(
                                             &mut ws_sender,
                                             &mut pending_tokens,
                                             &mut pending_tokens_used,
@@ -287,7 +287,6 @@ pub async fn handle_websocket(
                                         ).await.is_err() {
                                             break;
                                         }
-                                    }
                                 }
                                 None => {
                                     // Channel closed, generation complete

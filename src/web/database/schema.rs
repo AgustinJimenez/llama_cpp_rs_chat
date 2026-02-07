@@ -108,7 +108,7 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
 
     for (name, sql) in statements.iter() {
         conn.execute(sql, [])
-            .map_err(db_error(&format!("create {}", name)))?;
+            .map_err(db_error(&format!("create {name}")))?;
     }
 
     // Insert default config row if it doesn't exist
@@ -134,8 +134,8 @@ pub fn drop_all_tables(conn: &Connection) -> Result<(), String> {
     ];
 
     for table in tables.iter() {
-        conn.execute(&format!("DROP TABLE IF EXISTS {}", table), [])
-            .map_err(db_error(&format!("drop {}", table)))?;
+        conn.execute(&format!("DROP TABLE IF EXISTS {table}"), [])
+            .map_err(db_error(&format!("drop {table}")))?;
     }
 
     Ok(())
@@ -151,7 +151,7 @@ mod tests {
         conn.execute("PRAGMA foreign_keys = ON", []).unwrap();
 
         let result = initialize(&conn);
-        assert!(result.is_ok(), "Schema initialization failed: {:?}", result);
+        assert!(result.is_ok(), "Schema initialization failed: {result:?}");
 
         // Verify tables exist
         let tables: Vec<String> = conn

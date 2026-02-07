@@ -41,7 +41,7 @@ pub type SharedDatabase = Arc<Database>;
 ///
 /// Usage: `.map_err(db_error("create conversation"))?`
 pub fn db_error(context: &str) -> impl Fn(rusqlite::Error) -> String + '_ {
-    move |e| format!("Failed to {}: {}", context, e)
+    move |e| format!("Failed to {context}: {e}")
 }
 
 impl Database {
@@ -148,8 +148,7 @@ pub fn generate_conversation_id() -> String {
     let day = remaining_days + 1;
 
     format!(
-        "chat_{:04}-{:02}-{:02}-{:02}-{:02}-{:02}-{:03}",
-        year, month, day, hours, minutes, seconds, millis
+        "chat_{year:04}-{month:02}-{day:02}-{hours:02}-{minutes:02}-{seconds:02}-{millis:03}"
     )
 }
 

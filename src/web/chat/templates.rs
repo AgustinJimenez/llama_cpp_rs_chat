@@ -4,12 +4,6 @@ use super::jinja_templates::{apply_native_chat_template, parse_conversation_to_m
 use super::super::models::SystemPromptType;
 use super::tool_tags::{self, ToolTags};
 
-/// Get the universal system prompt for command execution.
-/// Uses the provided tool tags (model-specific or default) in the prompt.
-pub fn get_universal_system_prompt() -> String {
-    get_universal_system_prompt_with_tags(&tool_tags::DEFAULT_TAGS)
-}
-
 /// Get the universal system prompt using model-specific tool tags.
 pub fn get_universal_system_prompt_with_tags(tags: &ToolTags) -> String {
     let os_name = std::env::consts::OS;
@@ -84,40 +78,7 @@ This returns the page content as clean text (HTML is stripped). Use this to:
 - OS: {os_name}
 - Working Directory: {cwd}
 - Shell: {shell}
-"#,
-        exec_open = exec_open,
-        exec_close = exec_close,
-        output_open = output_open,
-        output_close = output_close,
-        list_cmd = list_cmd,
-        read_cmd = read_cmd,
-        write_cmd = write_cmd,
-        os_name = os_name,
-        cwd = cwd,
-        shell = shell
-    )
-}
-
-/// Apply system prompt based on the selected type
-///
-/// This is the main function that handles all 3 system prompt types:
-/// - Default: Use model's native Jinja2 chat template
-/// - Custom: Use our curated universal system prompt
-/// - UserDefined: Use user-provided system prompt
-pub fn apply_system_prompt_by_type(
-    conversation: &str,
-    prompt_type: SystemPromptType,
-    template_type: Option<&str>,
-    chat_template_string: Option<&str>,
-    user_system_prompt: Option<&str>,
-) -> Result<String, String> {
-    apply_system_prompt_by_type_with_tags(
-        conversation,
-        prompt_type,
-        template_type,
-        chat_template_string,
-        user_system_prompt,
-        &tool_tags::DEFAULT_TAGS,
+"#
     )
 }
 
@@ -181,7 +142,6 @@ pub fn apply_system_prompt_by_type_with_tags(
 /// Apply user-defined system prompt
 fn apply_user_defined_template(conversation: &str, user_system_prompt: &str) -> Result<String, String> {
     // Parse conversation into messages  
-    let system_message: Option<String> = Some(user_system_prompt.to_string());
     let mut user_messages = Vec::new();
     let mut assistant_messages = Vec::new();
     let mut current_role = "";
@@ -227,9 +187,7 @@ fn apply_user_defined_template(conversation: &str, user_system_prompt: &str) -> 
     // Format using simple template with user's system prompt
     let mut formatted = String::new();
     
-    if let Some(sys_msg) = system_message {
-        formatted.push_str(&format!("<|start_of_role|>system<|end_of_role|>{}<|end_of_text|>\n", sys_msg));
-    }
+    formatted.push_str(&format!("<|start_of_role|>system<|end_of_role|>{user_system_prompt}<|end_of_text|>\n"));
 
     // Interleave user and assistant messages
     let max_len = user_messages.len().max(assistant_messages.len());
@@ -264,7 +222,6 @@ pub fn apply_model_chat_template_with_tags(
     tags: &ToolTags,
 ) -> Result<String, String> {
     // Parse conversation into messages
-    let mut system_message: Option<String> = None;
     let mut user_messages = Vec::new();
     let mut assistant_messages = Vec::new();
     let mut current_role = "";
@@ -279,7 +236,6 @@ pub fn apply_model_chat_template_with_tags(
             // Save previous role's content
             if !current_role.is_empty() && !current_content.trim().is_empty() {
                 match current_role {
-                    "SYSTEM" => system_message = Some(current_content.trim().to_string()),
                     "USER" => user_messages.push(current_content.trim().to_string()),
                     "ASSISTANT" => assistant_messages.push(current_content.trim().to_string()),
                     _ => {}
@@ -301,7 +257,6 @@ pub fn apply_model_chat_template_with_tags(
     // Add the final role content
     if !current_role.is_empty() && !current_content.trim().is_empty() {
         match current_role {
-            "SYSTEM" => system_message = Some(current_content.trim().to_string()),
             "USER" => user_messages.push(current_content.trim().to_string()),
             "ASSISTANT" => assistant_messages.push(current_content.trim().to_string()),
             _ => {}
@@ -418,7 +373,7 @@ pub fn apply_model_chat_template_with_tags(
             let mut p = String::new();
 
             // Gemma doesn't have a system role, so prepend to first user message
-            let first_user_prefix = format!("{}\n\n", final_system_message);
+            let first_user_prefix = format!("{final_system_message}\n\n");
 
             // Add conversation history
             let turn_count = user_messages.len().max(assistant_messages.len());
@@ -490,7 +445,7 @@ mod tests {
 
     #[test]
     fn test_universal_system_prompt_contains_exec_tags() {
-        let prompt = get_universal_system_prompt();
+        let prompt = get_universal_system_prompt_with_tags(&tool_tags::DEFAULT_TAGS);
         assert!(prompt.contains("<||SYSTEM.EXEC>"));
         assert!(prompt.contains("<SYSTEM.EXEC||>"));
         assert!(prompt.contains("<||SYSTEM.OUTPUT>"));
@@ -499,7 +454,7 @@ mod tests {
 
     #[test]
     fn test_universal_system_prompt_contains_os_info() {
-        let prompt = get_universal_system_prompt();
+        let prompt = get_universal_system_prompt_with_tags(&tool_tags::DEFAULT_TAGS);
         // Should contain OS info
         assert!(prompt.contains("OS:"));
         assert!(prompt.contains("Working Directory:"));
@@ -542,8 +497,7 @@ mod tests {
             let result = apply_model_chat_template(conversation, Some(template)).unwrap();
             assert!(
                 result.contains("<||SYSTEM.EXEC>"),
-                "Template {} should include SYSTEM.EXEC",
-                template
+                "Template {template} should include SYSTEM.EXEC"
             );
         }
     }

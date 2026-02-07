@@ -103,7 +103,7 @@ impl Database {
         match result {
             Ok(record) => Ok(Some(record)),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(format!("Failed to get conversation: {}", e)),
+            Err(e) => Err(format!("Failed to get conversation: {e}")),
         }
     }
 
@@ -415,7 +415,7 @@ impl ConversationLogger {
         let id = conversation_id.trim_end_matches(".txt");
 
         if !db.conversation_exists(id)? {
-            return Err(format!("Conversation {} not found", id));
+            return Err(format!("Conversation {id} not found"));
         }
 
         let sequence_counter = db.get_message_count(id)?;
@@ -577,7 +577,7 @@ impl ConversationLogger {
     pub fn load_conversation_from_file(&self) -> std::io::Result<String> {
         self.db
             .get_conversation_as_text(&self.conversation_id)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+            .map_err(std::io::Error::other)
     }
 }
 

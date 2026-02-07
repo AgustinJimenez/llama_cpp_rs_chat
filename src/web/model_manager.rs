@@ -62,7 +62,7 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
 
     // Initialize backend if needed
     if state_guard.is_none() {
-        let backend = LlamaBackend::init().map_err(|e| format!("Failed to init backend: {}", e))?;
+        let backend = LlamaBackend::init().map_err(|e| format!("Failed to init backend: {e}"))?;
         *state_guard = Some(LlamaState {
             backend,
             model: None,
@@ -107,7 +107,7 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
     );
 
     let model = LlamaModel::load_from_file(&state.backend, model_path, &model_params)
-        .map_err(|e| format!("Failed to load model: {}", e))?;
+        .map_err(|e| format!("Failed to load model: {e}"))?;
 
     log_info!("system", "Model loaded successfully!");
 

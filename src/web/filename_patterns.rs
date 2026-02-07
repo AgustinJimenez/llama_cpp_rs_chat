@@ -143,6 +143,7 @@ pub fn detect_quantization(filename: &str) -> &'static str {
 }
 
 /// Extract all metadata from filename
+#[allow(dead_code)]
 pub struct FilenameMetadata {
     pub architecture: &'static str,
     pub parameters: &'static str,

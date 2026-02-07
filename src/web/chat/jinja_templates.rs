@@ -1,6 +1,5 @@
 use minijinja::{context, Environment};
 use serde_json::{json, Value};
-use crate::log_debug;
 
 /// Apply native Jinja2 chat template from model metadata
 /// 
@@ -18,7 +17,7 @@ pub fn apply_native_chat_template(
     
     // Add the template
     env.add_template("chat_template", template_string)
-        .map_err(|e| format!("Failed to parse chat template: {}", e))?;
+        .map_err(|e| format!("Failed to parse chat template: {e}"))?;
 
     // Prepare context variables that the template expects
     let tools_vec = tools.unwrap_or_default();
@@ -36,10 +35,10 @@ pub fn apply_native_chat_template(
 
     // Render the template
     let template = env.get_template("chat_template")
-        .map_err(|e| format!("Failed to get template: {}", e))?;
+        .map_err(|e| format!("Failed to get template: {e}"))?;
     
     template.render(&template_context)
-        .map_err(|e| format!("Failed to render template: {}", e))
+        .map_err(|e| format!("Failed to render template: {e}"))
 }
 
 /// Chat message structure for Jinja2 templates
@@ -129,27 +128,6 @@ pub fn get_available_tools() -> Vec<Value> {
     ]
 }
 
-/// Extract system prompt that might be embedded in the chat template
-pub fn extract_embedded_system_prompt(template: &str) -> Option<String> {
-    // Look for common patterns in Jinja2 templates that define system messages
-    if let Some(start) = template.find("set default_system_message = '") {
-        let after_start = &template[start + "set default_system_message = '".len()..];
-        if let Some(end) = after_start.find("'") {
-            return Some(after_start[..end].to_string());
-        }
-    }
-
-    // Look for other patterns
-    if let Some(start) = template.find("set system_message = \"") {
-        let after_start = &template[start + "set system_message = \"".len()..];
-        if let Some(end) = after_start.find("\"") {
-            return Some(after_start[..end].to_string());
-        }
-    }
-
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -175,14 +153,4 @@ Can you help me with something?"#;
         assert_eq!(messages[2].content, "Can you help me with something?");
     }
 
-    #[test]
-    fn test_extract_embedded_system_prompt() {
-        let template = r#"
-        {%- set default_system_message = 'You are a helpful assistant.' %}
-        ...rest of template...
-        "#;
-        
-        let prompt = extract_embedded_system_prompt(template);
-        assert_eq!(prompt, Some("You are a helpful assistant.".to_string()));
-    }
 }

@@ -48,7 +48,7 @@ pub async fn handle_static_asset(
     #[cfg(feature = "mock")] _llama_state: (),
 ) -> Result<Response<Body>, Infallible> {
     // Serve static assets (JS, CSS, etc.)
-    let file_path = format!("./dist{}", path);
+    let file_path = format!("./dist{path}");
     match fs::read(&file_path).await {
         Ok(content) => {
             let content_type = if path.ends_with(".js") {

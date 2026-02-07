@@ -44,7 +44,7 @@ pub const MIN_VRAM_RATIO: f64 = 0.1; // Minimum 10% VRAM required for GPU offloa
 pub fn get_available_vram_gb() -> Option<f64> {
     // Try nvidia-smi first
     if let Ok(output) = Command::new("nvidia-smi")
-        .args(&["--query-gpu=memory.free", "--format=csv,noheader,nounits"])
+        .args(["--query-gpu=memory.free", "--format=csv,noheader,nounits"])
         .output()
     {
         if output.status.success() {

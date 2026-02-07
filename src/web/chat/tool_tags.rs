@@ -1,8 +1,8 @@
-/// Per-model tool tag configuration.
-///
-/// Different model families are trained with different tool-calling formats.
-/// Using a model's native tags in the system prompt makes it far more likely
-/// to follow tool-calling instructions than using generic custom tags.
+//! Per-model tool tag configuration.
+//!
+//! Different model families are trained with different tool-calling formats.
+//! Using a model's native tags in the system prompt makes it far more likely
+//! to follow tool-calling instructions than using generic custom tags.
 
 /// Tool tag delimiters used in the system prompt and command detection.
 #[derive(Debug, Clone)]

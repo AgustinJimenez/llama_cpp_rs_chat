@@ -55,7 +55,7 @@ pub fn build_json_error_response(status: StatusCode, message: &str) -> Response<
         .status(status)
         .header("content-type", "application/json")
         .header("access-control-allow-origin", "*")
-        .body(Body::from(format!(r#"{{"error":"{}"}}"#, message)))
+        .body(Body::from(format!(r#"{{"error":"{message}"}}"#)))
         .unwrap()
 }
 

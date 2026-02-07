@@ -158,7 +158,7 @@ pub async fn send_message(
         let mut conversations = state.conversations.lock().unwrap();
         let conversation = conversations
             .entry(conversation_id.clone())
-            .or_insert_with(Vec::new);
+            .or_default();
         conversation.push(user_message.clone());
     }
 
@@ -187,7 +187,7 @@ pub async fn send_message(
             Ok(engine) => engine
                 .generate_response(&request.message)
                 .await
-                .unwrap_or_else(|e| format!("Error generating response: {}", e)),
+                .unwrap_or_else(|e| format!("Error generating response: {e}")),
             Err(e) => {
                 // Clear invalid model path from config when model fails to load
                 {
@@ -195,8 +195,7 @@ pub async fn send_message(
                     config_guard.model_path = None;
                 }
                 format!(
-                    "Model failed to load (path cleared): {}. Please load a valid model.",
-                    e
+                    "Model failed to load (path cleared): {e}. Please load a valid model."
                 )
             }
         }
@@ -254,7 +253,7 @@ pub async fn get_sampler_config() -> Result<SamplerConfig, String> {
 pub async fn update_sampler_config(config: SamplerConfig) -> Result<(), String> {
     // Store the updated configuration
     // Note: This will require reinitializing the chat engine with new config
-    println!("Updated sampler config: {:?}", config);
+    println!("Updated sampler config: {config:?}");
     // In a real implementation, we'd save this to a file or database
     // and potentially restart the chat engine with the new configuration
     Ok(())
@@ -320,7 +319,7 @@ pub async fn load_model(
 
                 Ok(ModelResponse {
                     success: false,
-                    message: format!("Failed to load model: {}", e),
+                    message: format!("Failed to load model: {e}"),
                     status: None,
                 })
             }
@@ -402,7 +401,7 @@ pub async fn get_model_metadata(model_path: String) -> Result<ModelMetadata, Str
 
     // Get basic file info
     let file_metadata =
-        fs::metadata(&model_path).map_err(|e| format!("Failed to read file metadata: {}", e))?;
+        fs::metadata(&model_path).map_err(|e| format!("Failed to read file metadata: {e}"))?;
 
     let file_size = file_metadata.len();
     let file_size_str = if file_size > 1024 * 1024 * 1024 {
@@ -410,7 +409,7 @@ pub async fn get_model_metadata(model_path: String) -> Result<ModelMetadata, Str
     } else if file_size > 1024 * 1024 {
         format!("{:.1} MB", file_size as f64 / (1024.0 * 1024.0))
     } else {
-        format!("{} bytes", file_size)
+        format!("{file_size} bytes")
     };
 
     let file_name = std::path::Path::new(&model_path)
@@ -425,8 +424,7 @@ pub async fn get_model_metadata(model_path: String) -> Result<ModelMetadata, Str
             .unwrap_or_else(|_| Err("GGUF parsing panicked - corrupted file format".to_string()))
             .unwrap_or_else(|e| {
                 println!(
-                    "Failed to read GGUF metadata: {}, falling back to filename parsing",
-                    e
+                    "Failed to read GGUF metadata: {e}, falling back to filename parsing"
                 );
                 let (arch, params, quant) = parse_model_filename(&file_name);
                 (arch, params, quant, "Unknown".to_string())
@@ -451,15 +449,15 @@ fn read_gguf_basic_metadata(file_path: &str) -> Result<(String, String, String, 
     use std::fs::File;
     use std::io::BufReader;
 
-    let file = File::open(file_path).map_err(|e| format!("Failed to open file: {}", e))?;
+    let file = File::open(file_path).map_err(|e| format!("Failed to open file: {e}"))?;
 
     let mut reader = BufReader::new(file);
 
     let header = GgufHeader::parse(&mut reader)
-        .map_err(|e| format!("Failed to parse GGUF header: {}", e))?;
+        .map_err(|e| format!("Failed to parse GGUF header: {e}"))?;
 
     let metadata = GgufReader::read_metadata(&mut reader, header.n_kv)
-        .map_err(|e| format!("Failed to read GGUF metadata: {}", e))?;
+        .map_err(|e| format!("Failed to read GGUF metadata: {e}"))?;
 
     // Helper to get metadata value as string
     let get_string = |key: &str| -> Option<String> {
@@ -486,7 +484,7 @@ fn read_gguf_basic_metadata(file_path: &str) -> Result<(String, String, String, 
         .or_else(|| get_string("general.file_type"))
         .unwrap_or_else(|| "Unknown".to_string());
 
-    let context_length = get_string(&format!("{}.context_length", architecture))
+    let context_length = get_string(&format!("{architecture}.context_length"))
         .or_else(|| get_string("llama.context_length"))
         .or_else(|| get_string("context_length"))
         .unwrap_or_else(|| "Unknown".to_string());
@@ -566,7 +564,7 @@ mod tests {
                     println!("  Context length: {}", metadata.context_length);
                 }
                 Err(e) => {
-                    println!("Test metadata extraction failed: {}", e);
+                    println!("Test metadata extraction failed: {e}");
                 }
             }
         } else {

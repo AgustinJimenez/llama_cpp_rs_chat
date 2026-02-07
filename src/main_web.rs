@@ -181,11 +181,11 @@ async fn main() -> std::io::Result<()> {
     // Run migrations for existing file-based data
     match web::database::migration::migrate_existing_conversations(&db) {
         Ok(count) if count > 0 => {
-            println!("📂 Migrated {} existing conversations to SQLite", count);
+            println!("📂 Migrated {count} existing conversations to SQLite");
         }
         Ok(_) => {}
         Err(e) => {
-            eprintln!("⚠️  Warning: Conversation migration failed: {}", e);
+            eprintln!("⚠️  Warning: Conversation migration failed: {e}");
         }
     }
 
@@ -195,7 +195,7 @@ async fn main() -> std::io::Result<()> {
         }
         Ok(false) => {}
         Err(e) => {
-            eprintln!("⚠️  Warning: Config migration failed: {}", e);
+            eprintln!("⚠️  Warning: Config migration failed: {e}");
         }
     }
 
@@ -234,7 +234,7 @@ async fn main() -> std::io::Result<()> {
     let addr = SocketAddr::from(([0, 0, 0, 0], 8000));
     let server = Server::bind(&addr).serve(make_svc);
 
-    println!("🦙 LLaMA Chat Web Server starting on http://{}", addr);
+    println!("🦙 LLaMA Chat Web Server starting on http://{addr}");
     println!("Available endpoints:");
     println!("  GET  /health               - Health check");
     println!("  POST /api/chat             - Chat with LLaMA");
@@ -254,7 +254,7 @@ async fn main() -> std::io::Result<()> {
 
     server
         .await
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        .map_err(std::io::Error::other)?;
 
     Ok(())
 }

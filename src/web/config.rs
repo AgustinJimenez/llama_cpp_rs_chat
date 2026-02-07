@@ -7,7 +7,7 @@ use super::models::SharedLlamaState;
 #[cfg(feature = "mock")]
 use super::models::SharedLlamaState;
 
-use super::chat_handler::{get_universal_system_prompt, get_universal_system_prompt_with_tags, get_tool_tags_for_model};
+use super::chat_handler::{get_universal_system_prompt_with_tags, get_tool_tags_for_model};
 
 // Import logging macro
 use crate::sys_warn;
@@ -75,7 +75,7 @@ pub fn get_resolved_system_prompt(llama_state: &Option<SharedLlamaState>) -> Opt
 pub fn get_resolved_system_prompt(_llama_state: &Option<SharedLlamaState>) -> Option<String> {
     let config = load_config();
     match config.system_prompt.as_deref() {
-        Some("__AGENTIC__") => Some(get_universal_system_prompt()),
+        Some("__AGENTIC__") => Some(get_universal_system_prompt_with_tags(&super::chat::tool_tags::DEFAULT_TAGS)),
         Some(custom) => Some(custom.to_string()),
         None => None,
     }

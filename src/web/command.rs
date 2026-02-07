@@ -6,9 +6,9 @@ pub fn parse_command_with_quotes(cmd: &str) -> Vec<String> {
     let mut parts = Vec::new();
     let mut current_part = String::new();
     let mut in_quotes = false;
-    let mut chars = cmd.chars().peekable();
+    let chars = cmd.chars().peekable();
 
-    while let Some(ch) = chars.next() {
+    for ch in chars {
         match ch {
             '"' => {
                 in_quotes = !in_quotes;
@@ -60,7 +60,7 @@ pub fn execute_command(cmd: &str) -> String {
                 }
             }
             Err(e) => {
-                format!("Error: Failed to change directory: {}", e)
+                format!("Error: Failed to change directory: {e}")
             }
         }
     } else {
@@ -88,7 +88,7 @@ pub fn execute_command(cmd: &str) -> String {
             let enriched_path = extra_dirs
                 .iter()
                 .filter(|d| !current_path.contains(*d))
-                .fold(current_path.clone(), |acc, d| format!("{};{}", acc, d));
+                .fold(current_path.clone(), |acc, d| format!("{acc};{d}"));
             cmd.env("PATH", enriched_path);
             cmd
         } else {
@@ -117,18 +117,18 @@ pub fn execute_command(cmd: &str) -> String {
                             if parts.len() > 1 {
                                 format!("Command '{}' executed successfully", parts.join(" "))
                             } else {
-                                format!("Command '{}' executed successfully", command_name)
+                                format!("Command '{command_name}' executed successfully")
                             }
                         }
                     }
                 } else if !stderr.is_empty() {
-                    format!("{}\nError: {}", stdout, stderr)
+                    format!("{stdout}\nError: {stderr}")
                 } else {
                     stdout.to_string()
                 }
             }
             Err(e) => {
-                format!("Failed to execute command: {}", e)
+                format!("Failed to execute command: {e}")
             }
         }
     }

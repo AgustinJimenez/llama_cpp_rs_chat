@@ -31,8 +31,8 @@ async fn canonicalize_allowed(path: &str) -> Result<PathBuf, String> {
     let input = path.to_string();
     let canonical = spawn_blocking(move || std::fs::canonicalize(&input))
         .await
-        .map_err(|e| format!("Failed to resolve path: {}", e))?
-        .map_err(|e| format!("Failed to resolve path: {}", e))?;
+        .map_err(|e| format!("Failed to resolve path: {e}"))?
+        .map_err(|e| format!("Failed to resolve path: {e}"))?;
 
     for root in ROOTS {
         let root_path = Path::new(root);
@@ -285,8 +285,8 @@ pub async fn handle_post_tools_execute(
                             format!(
                                 "{:>10} {:>15} {}",
                                 file_type,
-                                size.map(|s| format!("{} bytes", s))
-                                    .unwrap_or_else(|| "".to_string()),
+                                size.map(|s| format!("{s} bytes"))
+                                    .unwrap_or_default(),
                                 e.path().display()
                             )
                         })
@@ -331,7 +331,7 @@ pub async fn handle_post_tools_execute(
                             items.push(format!(
                                 "{:>10} {:>15} {}",
                                 file_type,
-                                size.map(|s| format!("{} bytes", s))
+                                size.map(|s| format!("{s} bytes"))
                                     .unwrap_or_else(|| "".to_string()),
                                 e.file_name().to_string_lossy()
                             ));
@@ -391,7 +391,7 @@ pub async fn handle_post_tools_execute(
                     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
                     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
                     let combined = if !stderr.is_empty() {
-                        format!("{}\nSTDERR:\n{}", stdout, stderr)
+                        format!("{stdout}\nSTDERR:\n{stderr}")
                     } else {
                         stdout
                     };

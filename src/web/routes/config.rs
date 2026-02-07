@@ -51,13 +51,7 @@ pub async fn handle_post_config(
             "top_p must be between 0.0 and 1.0",
         ));
     }
-    if incoming_config.top_k < 0 {
-        return Ok(json_error(
-            StatusCode::BAD_REQUEST,
-            "top_k must be non-negative",
-        ));
-    }
-    if incoming_config.context_size.unwrap_or(0) <= 0 {
+    if incoming_config.context_size.unwrap_or(0) == 0 {
         return Ok(json_error(
             StatusCode::BAD_REQUEST,
             "context_size must be positive",
@@ -82,7 +76,7 @@ pub async fn handle_post_config(
 
     // Save merged configuration to file
     let config_path = "assets/config.json";
-    if let Err(_) = fs::create_dir_all("assets").await {
+    if fs::create_dir_all("assets").await.is_err() {
         return Ok(json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Failed to create config directory",

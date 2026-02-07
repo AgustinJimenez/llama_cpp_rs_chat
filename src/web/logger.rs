@@ -41,14 +41,13 @@ impl Logger {
         if let Err(e) = self.get_or_create_file(conversation_id) {
             // Can't use logging macros here as this IS the logger - use eprintln as fallback
             eprintln!(
-                "LOGGER ERROR: Failed to create log file for {}: {}",
-                conversation_id, e
+                "LOGGER ERROR: Failed to create log file for {conversation_id}: {e}"
             );
             return;
         }
 
         let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-        let log_line = format!("[{}] [{}] {}\n", timestamp, level, message);
+        let log_line = format!("[{timestamp}] [{level}] {message}\n");
 
         if let Ok(mut files) = self.files.lock() {
             if let Some(file) = files.get_mut(conversation_id) {

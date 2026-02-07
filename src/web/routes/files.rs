@@ -151,7 +151,7 @@ pub async fn handle_post_upload(
     let filename = if sanitized_name.ends_with(".gguf") {
         sanitized_name.to_string()
     } else {
-        format!("{}.gguf", sanitized_name)
+        format!("{sanitized_name}.gguf")
     };
 
     // Build destination path safely under /app/models
@@ -181,7 +181,7 @@ pub async fn handle_post_upload(
                 if let Err(e) = file.write_all(&chunk).await {
                     return Ok(json_error(
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        &format!("Failed to save file: {}", e),
+                        &format!("Failed to save file: {e}"),
                     ));
                 }
             }
@@ -195,7 +195,7 @@ pub async fn handle_post_upload(
         }
         Err(e) => Ok(json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("Failed to save file: {}", e),
+            &format!("Failed to save file: {e}"),
         )),
     }
 }

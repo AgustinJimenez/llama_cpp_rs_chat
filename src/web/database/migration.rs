@@ -18,13 +18,13 @@ pub fn migrate_existing_conversations(db: &Database) -> Result<u32, String> {
     let mut migrated_count = 0;
 
     let entries = fs::read_dir(conversations_dir)
-        .map_err(|e| format!("Failed to read conversations directory: {}", e))?;
+        .map_err(|e| format!("Failed to read conversations directory: {e}"))?;
 
     for entry in entries {
-        let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+        let entry = entry.map_err(|e| format!("Failed to read directory entry: {e}"))?;
         let path = entry.path();
 
-        if path.extension().map_or(false, |ext| ext == "txt") {
+        if path.extension().is_some_and(|ext| ext == "txt") {
             if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
                 if filename.starts_with("chat_") {
                     let conv_id = filename.trim_end_matches(".txt").to_string();
@@ -52,7 +52,7 @@ fn migrate_single_conversation(
     conv_id: &str,
 ) -> Result<(), String> {
     let content =
-        fs::read_to_string(file_path).map_err(|e| format!("Failed to read file: {}", e))?;
+        fs::read_to_string(file_path).map_err(|e| format!("Failed to read file: {e}"))?;
 
     // Parse timestamp from conversation ID: chat_YYYY-MM-DD-HH-mm-ss-SSS
     let created_at = parse_timestamp_from_id(conv_id).unwrap_or_else(|| {
@@ -129,8 +129,8 @@ fn parse_timestamp_from_id(conv_id: &str) -> Option<i64> {
         [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
     };
 
-    for m in 0..(month - 1) as usize {
-        days += days_in_months[m];
+    for dim in &days_in_months[..(month - 1) as usize] {
+        days += dim;
     }
 
     // Add day of month
@@ -202,7 +202,7 @@ pub fn migrate_config(db: &Database) -> Result<bool, String> {
 
     // Read and parse JSON config
     let content = fs::read_to_string(config_path)
-        .map_err(|e| format!("Failed to read config.json: {}", e))?;
+        .map_err(|e| format!("Failed to read config.json: {e}"))?;
 
     #[derive(serde::Deserialize)]
     struct JsonConfig {
@@ -220,7 +220,7 @@ pub fn migrate_config(db: &Database) -> Result<bool, String> {
     }
 
     let json_config: JsonConfig = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse config.json: {}", e))?;
+        .map_err(|e| format!("Failed to parse config.json: {e}"))?;
 
     // Convert to DbSamplerConfig
     let db_config = DbSamplerConfig {

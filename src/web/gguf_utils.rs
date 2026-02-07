@@ -98,15 +98,15 @@ pub fn format_parameter_count(param_str: &str) -> String {
 /// TODO: Use for API endpoint that returns full model metadata
 #[allow(dead_code)]
 pub fn read_gguf_metadata_raw(file_path: &str) -> Result<HashMap<String, Value>, String> {
-    let file = File::open(file_path).map_err(|e| format!("Failed to open file: {}", e))?;
+    let file = File::open(file_path).map_err(|e| format!("Failed to open file: {e}"))?;
 
     let mut reader = BufReader::new(file);
 
     let header = GgufHeader::parse(&mut reader)
-        .map_err(|e| format!("Failed to parse GGUF header: {}", e))?;
+        .map_err(|e| format!("Failed to parse GGUF header: {e}"))?;
 
     let metadata = GgufReader::read_metadata(&mut reader, header.n_kv)
-        .map_err(|e| format!("Failed to read GGUF metadata: {}", e))?;
+        .map_err(|e| format!("Failed to read GGUF metadata: {e}"))?;
 
     Ok(metadata)
 }
@@ -138,7 +138,7 @@ pub fn read_gguf_basic_metadata(file_path: &str) -> Result<GgufBasicMetadata, St
         .unwrap_or_else(|| "Unknown".to_string());
 
     // Get context length - try architecture-specific key first
-    let context_length = get_string(&format!("{}.context_length", architecture))
+    let context_length = get_string(&format!("{architecture}.context_length"))
         .or_else(|| get_string("llama.context_length"))
         .or_else(|| get_string("general.context_length"))
         .or_else(|| get_string("context_length"))
@@ -285,7 +285,7 @@ impl<'a> MetadataExtractor<'a> {
 
     /// Get architecture-specific field
     pub fn get_arch_field(&self, arch: &str, field: &str) -> Option<String> {
-        self.get_string(&format!("{}.{}", arch, field))
+        self.get_string(&format!("{arch}.{field}"))
     }
 
     /// Convert all metadata to a JSON map

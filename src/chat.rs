@@ -98,13 +98,13 @@ pub struct ChatEngine {
 impl ChatEngine {
     pub fn new(config: ChatConfig) -> Result<Self, String> {
         // Initialize backend
-        let backend = LlamaBackend::init().map_err(|e| format!("Failed to init backend: {}", e))?;
+        let backend = LlamaBackend::init().map_err(|e| format!("Failed to init backend: {e}"))?;
 
         // Load model
         let model_path = get_model_path();
         let model_params = LlamaModelParams::default();
         let model = LlamaModel::load_from_file(&backend, &model_path, &model_params)
-            .map_err(|e| format!("Failed to load model from {}: {}", model_path, e))?;
+            .map_err(|e| format!("Failed to load model from {model_path}: {e}"))?;
 
         Ok(Self {
             backend,
@@ -211,15 +211,14 @@ impl ChatEngine {
         // Use proper Granite chat format with dynamic OS detection
         let system_prompt = get_system_prompt();
         let prompt = format!(
-            "<|start_of_role|>system<|end_of_role|>{}<|end_of_text|><|start_of_role|>user<|end_of_role|>{}<|end_of_text|><|start_of_role|>assistant<|end_of_role|>",
-            system_prompt, user_message
+            "<|start_of_role|>system<|end_of_role|>{system_prompt}<|end_of_text|><|start_of_role|>user<|end_of_role|>{user_message}<|end_of_text|><|start_of_role|>assistant<|end_of_role|>"
         );
 
         // Tokenize
         let tokens = self
             .model
             .str_to_token(&prompt, AddBos::Never)
-            .map_err(|e| format!("Tokenization failed: {}", e))?;
+            .map_err(|e| format!("Tokenization failed: {e}"))?;
 
         // Create context with safe size
         let context_size = get_context_size();
@@ -228,7 +227,7 @@ impl ChatEngine {
         let mut context = self
             .model
             .new_context(&self.backend, ctx_params)
-            .map_err(|e| format!("Context creation failed: {}", e))?;
+            .map_err(|e| format!("Context creation failed: {e}"))?;
 
         // Prepare batch with larger size to handle big contexts
         let batch_size = std::cmp::min(tokens.len() + 1000, 4096);
@@ -238,13 +237,13 @@ impl ChatEngine {
             let is_last = i == tokens.len() - 1;
             batch
                 .add(token, i as i32, &[0], is_last)
-                .map_err(|e| format!("Batch add failed: {}", e))?;
+                .map_err(|e| format!("Batch add failed: {e}"))?;
         }
 
         // Process initial tokens
         context
             .decode(&mut batch)
-            .map_err(|e| format!("Initial decode failed: {}", e))?;
+            .map_err(|e| format!("Initial decode failed: {e}"))?;
 
         // Generate response - limited to reasonable length
         let mut response = String::new();
@@ -264,7 +263,7 @@ impl ChatEngine {
             let token_str = self
                 .model
                 .token_to_str(next_token, Special::Tokenize)
-                .map_err(|e| format!("Token conversion failed: {}", e))?;
+                .map_err(|e| format!("Token conversion failed: {e}"))?;
 
             response.push_str(&token_str);
 
@@ -277,12 +276,12 @@ impl ChatEngine {
             batch.clear();
             batch
                 .add(next_token, token_pos, &[0], true)
-                .map_err(|e| format!("Batch add failed: {}", e))?;
+                .map_err(|e| format!("Batch add failed: {e}"))?;
 
             // Decode next token
             context
                 .decode(&mut batch)
-                .map_err(|e| format!("Decode failed: {}", e))?;
+                .map_err(|e| format!("Decode failed: {e}"))?;
 
             token_pos += 1;
         }
@@ -323,7 +322,7 @@ pub fn get_system_prompt() -> String {
     format!(
         "
 You are a local cli AI tool with shell access on a computer, your goal is to understand what the user wants and help with tasks.
-The current system is running on {}
+The current system is running on {os_info}
 From that, you must automatically know what commands are available and how to format them
 
 Rules of operation
@@ -349,9 +348,8 @@ Rules of operation
 To run a command, use this exact format:
 <COMMAND>command_here</COMMAND>
 
-Current directory: {}
-Current date: {}
-",
-        os_info, current_dir, current_date
+Current directory: {current_dir}
+Current date: {current_date}
+"
     )
 }

@@ -40,7 +40,7 @@ fn timestamp_now() -> String {
     let hours = (secs / 3600) % 24;
     let minutes = (secs / 60) % 60;
     let seconds = secs % 60;
-    format!("{:02}:{:02}:{:02}.{:03}", hours, minutes, seconds, millis)
+    format!("{hours:02}:{minutes:02}:{seconds:02}.{millis:03}")
 }
 
 pub async fn handle_post_chat(
@@ -93,7 +93,7 @@ pub async fn handle_post_chat(
                 Err(e) => {
                     return Ok(json_error(
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        &format!("Failed to load conversation: {}", e),
+                        &format!("Failed to load conversation: {e}"),
                     ));
                 }
             }
@@ -110,7 +110,7 @@ pub async fn handle_post_chat(
                 Err(e) => {
                     return Ok(json_error(
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        &format!("Failed to create conversation logger: {}", e),
+                        &format!("Failed to create conversation logger: {e}"),
                     ));
                 }
             }
@@ -186,7 +186,7 @@ pub async fn handle_post_chat(
 
                             // Write error to conversation file so it's visible to user
                             let mut logger = conversation_logger_clone.lock().unwrap();
-                            logger.log_message("SYSTEM", &format!("⚠️ Generation Error: {}", err));
+                            logger.log_message("SYSTEM", &format!("⚠️ Generation Error: {err}"));
                             logger.log_message("SYSTEM", "The model encountered an error during generation. This may be due to:");
                             logger.log_message(
                                 "SYSTEM",
@@ -220,7 +220,7 @@ pub async fn handle_post_chat(
                     // Write panic to conversation file
                     let mut logger = conversation_logger_clone.lock().unwrap();
                     logger.log_message("SYSTEM", "❌ Generation Crashed (Tokenization Panic)");
-                    logger.log_message("SYSTEM", &format!("Panic message: {}", panic_msg));
+                    logger.log_message("SYSTEM", &format!("Panic message: {panic_msg}"));
                     logger.log_message("SYSTEM", "");
                     logger.log_message(
                         "SYSTEM",
@@ -335,7 +335,7 @@ pub async fn handle_post_chat_stream(
             Err(e) => {
                 return Ok(json_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    &format!("Failed to create conversation logger: {}", e),
+                    &format!("Failed to create conversation logger: {e}"),
                 ));
             }
         };
@@ -383,7 +383,7 @@ pub async fn handle_post_chat_stream(
                     Some(token_data) = rx.recv() => {
                         // Send TokenData as JSON
                         let json = serde_json::to_string(&token_data).unwrap_or_else(|_| r#"{"token":"","tokens_used":0,"max_tokens":0}"#.to_string());
-                        let event = format!("data: {}\n\n", json);
+                        let event = format!("data: {json}\n\n");
 
                         // Send chunk immediately - this ensures no buffering
                         if sender.send_data(Bytes::from(event)).await.is_err() {

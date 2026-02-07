@@ -39,11 +39,7 @@ pub async fn parse_json<T: DeserializeOwned>(req: Request<Body>) -> Result<T, Re
 /// Example: extract_path_param("/api/conversations/chat123.txt", "/api/conversations/") => Some("chat123.txt")
 #[allow(dead_code)]
 pub fn extract_path_param<'a>(path: &'a str, prefix: &str) -> Option<&'a str> {
-    if path.starts_with(prefix) {
-        Some(&path[prefix.len()..])
-    } else {
-        None
-    }
+    path.strip_prefix(prefix)
 }
 
 /// Parse query string parameter

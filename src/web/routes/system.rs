@@ -24,7 +24,7 @@ pub async fn handle_system_usage() -> Result<Response<Body>, Infallible> {
         let started = Instant::now();
         let result = timeout(
             Duration::from_millis(1500),
-            spawn_blocking(|| get_windows_system_usage()),
+            spawn_blocking(get_windows_system_usage),
         )
         .await;
 
@@ -81,7 +81,7 @@ fn get_windows_system_usage() -> (f32, f32, f32) {
 
     // Get CPU usage via PowerShell
     let cpu_output = Command::new("powershell")
-        .args(&[
+        .args([
             "-NoProfile",
             "-NonInteractive",
             "-Command",
@@ -106,7 +106,7 @@ fn get_windows_system_usage() -> (f32, f32, f32) {
 
     // Get RAM usage via PowerShell (using WMI)
     let ram_output = Command::new("powershell")
-        .args(&[
+        .args([
             "-NoProfile",
             "-NonInteractive",
             "-Command",
@@ -131,7 +131,7 @@ fn get_windows_system_usage() -> (f32, f32, f32) {
 
     // Get GPU usage via nvidia-smi (if available)
     let gpu_output = Command::new("nvidia-smi")
-        .args(&[
+        .args([
             "--query-gpu=utilization.gpu",
             "--format=csv,noheader,nounits",
         ])

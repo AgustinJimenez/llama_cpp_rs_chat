@@ -49,7 +49,7 @@ fn create_sampler(config: &SamplerConfig, conversation_id: &str) -> LlamaSampler
                 100, // m
             )
         }
-        "Greedy" | _ => {
+        _ => {
             log_info!(conversation_id, "Using Greedy sampler (default)");
             LlamaSampler::greedy()
         }
@@ -184,7 +184,7 @@ pub async fn generate_llama_response(
     log_debug!(&conversation_id, "Step 2: Starting tokenization...");
     let tokens = model
         .str_to_token(&prompt, AddBos::Never)
-        .map_err(|e| format!("Tokenization failed: {}", e))?;
+        .map_err(|e| format!("Tokenization failed: {e}"))?;
     log_debug!(
         &conversation_id,
         "Step 2 complete: Tokenized to {} tokens",
@@ -213,14 +213,14 @@ pub async fn generate_llama_response(
 
     let mut context = model
         .new_context(&state.backend, ctx_params)
-        .map_err(|e| format!("Context creation failed: {}", e))?;
+        .map_err(|e| format!("Context creation failed: {e}"))?;
     log_debug!(&conversation_id, "Step 3 complete: Context created");
 
     // Prepare batch (prompt may exceed batch capacity, so decode in chunks)
     const PROMPT_BATCH_CAP: usize = 2048;
     let prompt_tokens = tokens.len();
     let batch_cap = PROMPT_BATCH_CAP;
-    let prompt_chunks = (prompt_tokens + batch_cap - 1) / batch_cap;
+    let prompt_chunks = prompt_tokens.div_ceil(batch_cap);
 
     log_debug!(
         &conversation_id,
@@ -244,7 +244,7 @@ pub async fn generate_llama_response(
             let is_last = i == prompt_tokens - 1;
             batch
                 .add(token, i as i32, &[0], is_last)
-                .map_err(|e| format!("Batch add failed at prompt token {}: {}", i, e))?;
+                .map_err(|e| format!("Batch add failed at prompt token {i}: {e}"))?;
         }
 
         context.decode(&mut batch).map_err(|e| {
@@ -325,7 +325,7 @@ pub async fn generate_llama_response(
             }
 
             // Extra logging around the 150 token mark
-            if total_tokens_generated >= 145 && total_tokens_generated <= 155 {
+            if (145..=155).contains(&total_tokens_generated) {
                 log_debug!(
                     &conversation_id,
                     "Token #{}: About to sample...",
@@ -335,7 +335,7 @@ pub async fn generate_llama_response(
 
             let next_token = sampler.sample(&context, -1);
 
-            if total_tokens_generated >= 145 && total_tokens_generated <= 155 {
+            if (145..=155).contains(&total_tokens_generated) {
                 log_debug!(
                     &conversation_id,
                     "Token #{}: Sampled token ID {}",
@@ -357,7 +357,7 @@ pub async fn generate_llama_response(
             }
 
             // Add token to batch and decode
-            if total_tokens_generated >= 145 && total_tokens_generated <= 155 {
+            if (145..=155).contains(&total_tokens_generated) {
                 log_debug!(
                     &conversation_id,
                     "Token #{}: About to add to batch and decode...",
@@ -368,16 +368,15 @@ pub async fn generate_llama_response(
             batch.clear();
             batch.add(next_token, token_pos, &[0], true).map_err(|e| {
                 format!(
-                    "Batch add failed at token {}: {}",
-                    total_tokens_generated, e
+                    "Batch add failed at token {total_tokens_generated}: {e}"
                 )
             })?;
 
             context
                 .decode(&mut batch)
-                .map_err(|e| format!("Decode failed at token {}: {}", total_tokens_generated, e))?;
+                .map_err(|e| format!("Decode failed at token {total_tokens_generated}: {e}"))?;
 
-            if total_tokens_generated >= 145 && total_tokens_generated <= 155 {
+            if (145..=155).contains(&total_tokens_generated) {
                 log_debug!(
                     &conversation_id,
                     "Token #{}: Decode successful",
@@ -402,7 +401,7 @@ pub async fn generate_llama_response(
                 }
             };
 
-            if total_tokens_generated >= 145 && total_tokens_generated <= 155 {
+            if (145..=155).contains(&total_tokens_generated) {
                 log_debug!(
                     &conversation_id,
                     "Token #{}: Converted to string: {:?}",
@@ -412,7 +411,7 @@ pub async fn generate_llama_response(
             }
 
             // Check for stop sequences using helper function
-            if total_tokens_generated >= 145 && total_tokens_generated <= 155 {
+            if (145..=155).contains(&total_tokens_generated) {
                 log_debug!(
                     &conversation_id,
                     "Token #{}: Checking {} stop tokens...",
@@ -433,7 +432,7 @@ pub async fn generate_llama_response(
                         partial_to_remove
                     );
                 }
-                if total_tokens_generated >= 145 && total_tokens_generated <= 155 {
+                if (145..=155).contains(&total_tokens_generated) {
                     log_debug!(
                         &conversation_id,
                         "Token #{}: Should stop = true, breaking loop",
@@ -448,7 +447,7 @@ pub async fn generate_llama_response(
                 break;
             }
 
-            if total_tokens_generated >= 145 && total_tokens_generated <= 155 {
+            if (145..=155).contains(&total_tokens_generated) {
                 log_debug!(
                     &conversation_id,
                     "Token #{}: No stop condition, adding token to response",
@@ -484,12 +483,10 @@ pub async fn generate_llama_response(
                         );
                     }
                 }
-            } else {
-                if total_tokens_generated == 1 {
-                    sys_warn!(
-                        "[GENERATION] WARNING: token_sender is None, tokens not being streamed!"
-                    );
-                }
+            } else if total_tokens_generated == 1 {
+                sys_warn!(
+                    "[GENERATION] WARNING: token_sender is None, tokens not being streamed!"
+                );
             }
 
             // Log token
