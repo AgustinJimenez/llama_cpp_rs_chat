@@ -12,19 +12,21 @@ interface MemoryCalculationParams {
 
 /**
  * Calculate KV cache size in GB
- * Formula: tokens × layers × kv_heads × head_dim × 2 (K+V) × 2 bytes (fp16)
+ * Formula: context × layers × kv_heads × head_dim × 2 (K+V) × 2 bytes (fp16)
+ * where head_dim = embedding_length / q_heads (NOT kv_heads)
  */
 function calculateKvCacheSize(
   contextSize: number,
   totalLayers: number,
   kvHeads: number,
+  qHeads: number,
   embeddingLength: number
 ): number {
-  // Estimate head_dim from embedding length
-  // head_dim = embedding_length / (kv_heads * 2)
-  const headDim = embeddingLength / (kvHeads * 2);
+  // head_dim is determined by total Q attention heads, not KV heads
+  const headDim = embeddingLength / qHeads;
 
-  // KV cache size in bytes
+  // KV cache: each layer stores K and V projections of size (kv_heads × head_dim) per token
+  // 2 = K + V, 2 = bytes per element (fp16)
   const bytes = contextSize * totalLayers * kvHeads * headDim * 2 * 2;
 
   // Convert to GB
@@ -72,15 +74,20 @@ export function useMemoryCalculation({
 
     const modelSizeGb = modelMetadata.file_size_gb || 0;
 
+    const qHeads =
+      modelMetadata.architecture_details?.attention_head_count ||
+      (modelMetadata.attention_head_count ? parseInt(modelMetadata.attention_head_count) : null) ||
+      32;
+
     const kvHeads =
       modelMetadata.architecture_details?.attention_head_count_kv ||
       (modelMetadata.attention_head_count_kv ? parseInt(modelMetadata.attention_head_count_kv) : null) ||
-      8;
+      qHeads; // Default: same as Q heads (no GQA)
 
     const embeddingLength =
       modelMetadata.architecture_details?.embedding_length ||
       (modelMetadata.embedding_length ? parseInt(modelMetadata.embedding_length) : null) ||
-      3840;
+      4096;
 
     // Calculate how much of model goes to GPU vs CPU
     const gpuLayersClamped = Math.min(Math.max(gpuLayers, 0), totalLayers);
@@ -97,6 +104,7 @@ export function useMemoryCalculation({
       contextSize,
       totalLayers,
       kvHeads,
+      qHeads,
       embeddingLength
     );
 

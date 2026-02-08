@@ -130,10 +130,11 @@ export const useModelPathValidation = ({
             default_system_prompt: d.default_system_prompt as string | undefined,
             general_name: d.general_name as string | undefined,
             recommended_params: d.recommended_params as ModelMetadata['recommended_params'],
-            // Extract architecture details if available
-            block_count: String(meta?.['gemma3.block_count'] ?? meta?.['llama.block_count'] ?? ''),
-            attention_head_count_kv: String(meta?.['gemma3.attention.head_count_kv'] ?? meta?.['llama.attention.head_count_kv'] ?? ''),
-            embedding_length: String(meta?.['gemma3.embedding_length'] ?? meta?.['llama.embedding_length'] ?? ''),
+            // Extract architecture details from top-level (parsed by backend) or raw GGUF metadata
+            block_count: String(d.block_count ?? meta?.['gemma3.block_count'] ?? meta?.['llama.block_count'] ?? ''),
+            attention_head_count: String(d.attention_head_count ?? meta?.['gemma3.attention.head_count'] ?? meta?.['llama.attention.head_count'] ?? ''),
+            attention_head_count_kv: String(d.attention_head_count_kv ?? meta?.['gemma3.attention.head_count_kv'] ?? meta?.['llama.attention.head_count_kv'] ?? ''),
+            embedding_length: String(d.embedding_length ?? meta?.['gemma3.embedding_length'] ?? meta?.['llama.embedding_length'] ?? ''),
           });
 
           // Update max layers if available
