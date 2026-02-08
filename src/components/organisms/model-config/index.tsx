@@ -13,7 +13,7 @@ import { Button } from '../../atoms/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../atoms/card';
 import type { SamplerConfig } from '@/types';
 import { toast } from 'react-hot-toast';
-import { getModelHistory } from '@/utils/tauriCommands';
+import { getModelHistory, getSystemUsage } from '@/utils/tauriCommands';
 
 // Import extracted components
 import { ModelFileInput, ModelConfigSystemPrompt } from '../../molecules';
@@ -68,8 +68,8 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   const [showHistory, setShowHistory] = useState(false);
   const [systemPromptMode, setSystemPromptMode] = useState<'model' | 'system' | 'custom'>('system');
   const [customSystemPrompt, setCustomSystemPrompt] = useState('You are a helpful AI assistant.');
-  const [availableVramGb, _setAvailableVramGb] = useState(22.0); // Default: RTX 4090
-  const [availableRamGb, _setAvailableRamGb] = useState(32.0);   // Default: 32GB
+  const [availableVramGb, setAvailableVramGb] = useState(24.0); // Default until detected
+  const [availableRamGb, setAvailableRamGb] = useState(64.0);   // Default until detected
 
   // Use model path validation hook for file checking and metadata fetching
   const {
@@ -101,8 +101,10 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     }
   }, [isOpen, initialModelPath, modelPath]);
 
-  // Fetch model history when modal opens
+  // Fetch model history and hardware info when modal opens
   useEffect(() => {
+    if (!isOpen) return;
+
     const fetchHistory = async () => {
       try {
         const history = await getModelHistory();
@@ -112,9 +114,22 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
       }
     };
 
-    if (isOpen) {
-      fetchHistory();
-    }
+    const fetchHardwareInfo = async () => {
+      try {
+        const usage = await getSystemUsage();
+        if (usage.total_vram_gb && usage.total_vram_gb > 0) {
+          setAvailableVramGb(usage.total_vram_gb);
+        }
+        if (usage.total_ram_gb && usage.total_ram_gb > 0) {
+          setAvailableRamGb(usage.total_ram_gb);
+        }
+      } catch (error) {
+        console.error('Failed to fetch hardware info:', error);
+      }
+    };
+
+    fetchHistory();
+    fetchHardwareInfo();
   }, [isOpen]);
 
   useEffect(() => {

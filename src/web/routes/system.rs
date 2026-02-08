@@ -47,10 +47,21 @@ pub async fn handle_system_usage() -> Result<Response<Body>, Infallible> {
     #[cfg(not(target_os = "windows"))]
     let (cpu_usage, ram_usage, gpu_usage) = get_windows_system_usage();
 
+    // Get hardware totals (cached alongside usage)
+    #[cfg(target_os = "windows")]
+    let (total_ram_gb, total_vram_gb) = {
+        let last = HARDWARE_TOTALS.lock().unwrap();
+        (last.0, last.1)
+    };
+    #[cfg(not(target_os = "windows"))]
+    let (total_ram_gb, total_vram_gb) = (0.0_f32, 0.0_f32);
+
     let response = serde_json::json!({
         "cpu": cpu_usage,
         "gpu": gpu_usage,
         "ram": ram_usage,
+        "total_ram_gb": total_ram_gb,
+        "total_vram_gb": total_vram_gb,
     });
 
     Ok(json_raw(
@@ -63,6 +74,8 @@ pub async fn handle_system_usage() -> Result<Response<Body>, Infallible> {
 lazy_static::lazy_static! {
     static ref LAST_USAGE: Mutex<(Instant, f32, f32, f32)> =
         Mutex::new((Instant::now(), 0.0, 0.0, 0.0));
+    /// Cached hardware totals: (total_ram_gb, total_vram_gb)
+    static ref HARDWARE_TOTALS: Mutex<(f32, f32)> = Mutex::new((0.0, 0.0));
 }
 
 #[cfg(target_os = "windows")]
@@ -152,6 +165,36 @@ pub fn get_windows_system_usage() -> (f32, f32, f32) {
     } else {
         0.0
     };
+
+    // Detect hardware totals (only once, when still at defaults)
+    {
+        let mut hw = HARDWARE_TOTALS.lock().unwrap();
+        if hw.0 == 0.0 {
+            // Total RAM via WMI (returns KB)
+            if let Ok(output) = Command::new("powershell")
+                .args(["-NoProfile", "-NonInteractive", "-Command",
+                    "gwmi Win32_OperatingSystem | % { $_.TotalVisibleMemorySize }"])
+                .output()
+            {
+                if let Ok(kb) = String::from_utf8_lossy(&output.stdout).trim().parse::<f64>() {
+                    hw.0 = (kb / 1_048_576.0) as f32; // KB → GB
+                }
+            }
+            // Total VRAM via nvidia-smi
+            if let Ok(output) = Command::new("nvidia-smi")
+                .args(["--query-gpu=memory.total", "--format=csv,noheader,nounits"])
+                .output()
+            {
+                if let Some(mb) = String::from_utf8_lossy(&output.stdout)
+                    .lines().next()
+                    .and_then(|l| l.trim().parse::<f64>().ok())
+                {
+                    hw.1 = (mb / 1024.0) as f32; // MB → GB
+                }
+            }
+            sys_debug!("[SYSTEM] Detected hardware: {:.1} GB RAM, {:.1} GB VRAM", hw.0, hw.1);
+        }
+    }
 
     // Update cache
     *last = (Instant::now(), cpu_usage, ram_usage, gpu_usage);

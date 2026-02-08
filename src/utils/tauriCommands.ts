@@ -53,10 +53,12 @@ interface BrowseFilesResponse {
   parent_path?: string;
 }
 
-interface SystemUsageData {
+export interface SystemUsageData {
   cpu: number;
   gpu: number;
   ram: number;
+  total_ram_gb?: number;
+  total_vram_gb?: number;
 }
 
 // ─── Helper ───────────────────────────────────────────────────────────
