@@ -9,6 +9,7 @@
 mod command_executor;
 mod generation;
 mod jinja_templates;
+mod sampler;
 mod stop_conditions;
 mod templates;
 pub mod tool_tags;

@@ -7,6 +7,7 @@ pub mod config;
 pub mod database;
 pub mod filename_patterns; // Model filename pattern matching
 // generation_queue removed — replaced by out-of-process worker bridge
+pub mod gguf_info; // GGUF model info extraction
 pub mod gguf_utils; // GGUF metadata utilities
 pub mod logger;
 pub mod model_manager;
