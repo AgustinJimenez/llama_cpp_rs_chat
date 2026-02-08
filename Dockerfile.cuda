@@ -38,8 +38,6 @@ WORKDIR /app
 # Copy project source
 COPY Cargo.toml Cargo.lock build.rs ./
 COPY src ./src
-COPY check_gemma_template.rs ./
-
 # Patch: remove Tauri deps and non-web binaries
 RUN python3 << 'PYEOF'
 import re
@@ -87,7 +85,7 @@ print('OK: Cargo.toml patched')
 PYEOF
 
 RUN sed -i 's/tauri_build::build()/()/' build.rs && \
-    rm -f src/lib.rs src/main.rs check_gemma_template.rs src/test_model.rs
+    rm -f src/lib.rs src/main.rs src/test_model.rs
 
 # Download portable CMake (same version pinned in build.rs)
 ENV CMAKE_VERSION=3.31.6
