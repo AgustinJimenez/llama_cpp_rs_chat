@@ -8,34 +8,34 @@ interface ToolCallBlockProps {
 /**
  * Get a brief one-line summary for a tool call based on its name and arguments.
  */
+const TOOL_SUMMARIZERS: Record<string, (args: Record<string, unknown>) => string> = {
+  read_file: (args) => String(args.path || ''),
+  write_file: (args) => {
+    const content = String(args.content || '');
+    return `${args.path} (${content.length} chars)`;
+  },
+  execute_python: (args) => {
+    const code = String(args.code || '');
+    const firstLine = code.split('\n')[0].trim();
+    const lineCount = code.split('\n').length;
+    return lineCount > 1 ? `${firstLine} ... (${lineCount} lines)` : firstLine;
+  },
+  execute_command: (args) => String(args.command || ''),
+  list_directory: (args) => String(args.path || '.'),
+};
+
+function defaultToolSummary(args: Record<string, unknown>): string {
+  const entries = Object.entries(args);
+  if (entries.length === 0) return '';
+  const [key, val] = entries[0];
+  const valStr = typeof val === 'string' ? val : JSON.stringify(val);
+  return `${key}: ${valStr.slice(0, 60)}${valStr.length > 60 ? '...' : ''}`;
+}
+
 function getToolSummary(name: string, args: Record<string, unknown> | string): string {
   if (typeof args === 'string') return args.slice(0, 80);
-
-  switch (name) {
-    case 'read_file':
-      return String(args.path || '');
-    case 'write_file': {
-      const content = String(args.content || '');
-      return `${args.path} (${content.length} chars)`;
-    }
-    case 'execute_python': {
-      const code = String(args.code || '');
-      const firstLine = code.split('\n')[0].trim();
-      const lineCount = code.split('\n').length;
-      return lineCount > 1 ? `${firstLine} ... (${lineCount} lines)` : firstLine;
-    }
-    case 'execute_command':
-      return String(args.command || '');
-    case 'list_directory':
-      return String(args.path || '.');
-    default: {
-      const entries = Object.entries(args);
-      if (entries.length === 0) return '';
-      const [key, val] = entries[0];
-      const valStr = typeof val === 'string' ? val : JSON.stringify(val);
-      return `${key}: ${valStr.slice(0, 60)}${valStr.length > 60 ? '...' : ''}`;
-    }
-  }
+  const summarizer = TOOL_SUMMARIZERS[name];
+  return summarizer ? summarizer(args) : defaultToolSummary(args);
 }
 
 /**

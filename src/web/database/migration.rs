@@ -239,6 +239,7 @@ pub fn migrate_config(db: &Database) -> Result<bool, String> {
         top_k: json_config.top_k.unwrap_or(20),
         mirostat_tau: json_config.mirostat_tau.unwrap_or(5.0),
         mirostat_eta: json_config.mirostat_eta.unwrap_or(0.1),
+        repeat_penalty: 1.0,
         model_path: json_config.model_path,
         system_prompt: json_config.system_prompt,
         system_prompt_type,

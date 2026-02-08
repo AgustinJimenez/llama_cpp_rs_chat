@@ -54,6 +54,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     top_k: 20,
     mirostat_tau: 5.0,
     mirostat_eta: 0.1,
+    repeat_penalty: 1.0,
     model_path: '',
     gpu_layers: 32,  // Default for RTX 4090
   });
@@ -135,20 +136,26 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   }, [modelInfo]);
 
   // Auto-apply recommended sampling parameters when model info loads
+  const generalName = modelInfo?.general_name;
+  const recommendedParams = modelInfo?.recommended_params;
   useEffect(() => {
-    if (!modelInfo) return;
+    if (!generalName && !recommendedParams) return;
 
     // First try GGUF embedded params, then preset lookup, then default
     let preset: Partial<SamplerConfig> | null = null;
 
     // Check for GGUF embedded params
-    if (modelInfo.recommended_params && Object.keys(modelInfo.recommended_params).length > 0) {
-      preset = modelInfo.recommended_params;
+    if (recommendedParams && Object.keys(recommendedParams).length > 0) {
+      const { repetition_penalty, ...rest } = recommendedParams;
+      preset = {
+        ...rest,
+        ...(repetition_penalty != null ? { repeat_penalty: repetition_penalty } : {}),
+      };
     }
 
     // Fallback to preset lookup by model name
     if (!preset) {
-      preset = findPresetByName(modelInfo.general_name || '');
+      preset = findPresetByName(generalName || '');
     }
 
     // Final fallback to default
@@ -160,11 +167,11 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     setConfig(prev => ({
       ...prev,
       ...preset,
-      model_path: prev.model_path, // Keep the model path
+      model_path: prev.model_path,
     }));
 
-    console.log('[ModelConfig] Auto-applied preset for:', modelInfo.general_name, preset);
-  }, [modelInfo?.general_name, modelInfo?.recommended_params]);
+    console.log('[ModelConfig] Auto-applied preset for:', generalName, preset);
+  }, [generalName, recommendedParams]);
 
   const handleInputChange = (field: keyof SamplerConfig, value: string | number) => {
     setConfig(prev => ({

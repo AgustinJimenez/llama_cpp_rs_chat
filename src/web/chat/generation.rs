@@ -30,6 +30,15 @@ const MODEL_PATH: &str =
 
 /// Create a sampler based on the configuration
 fn create_sampler(config: &SamplerConfig, conversation_id: &str) -> LlamaSampler {
+    let use_penalties = config.repeat_penalty > 1.0;
+    if use_penalties {
+        log_info!(
+            conversation_id,
+            "Repeat penalty enabled: {}",
+            config.repeat_penalty
+        );
+    }
+
     match config.sampler_type.as_str() {
         "Temperature" => {
             log_info!(
@@ -39,13 +48,21 @@ fn create_sampler(config: &SamplerConfig, conversation_id: &str) -> LlamaSampler
                 config.top_p,
                 config.top_k
             );
-            // Chain: temp → top_k → top_p → dist (must end with a terminal sampler)
-            LlamaSampler::chain_simple([
-                LlamaSampler::temp(config.temperature as f32),
-                LlamaSampler::top_k(config.top_k as i32),
-                LlamaSampler::top_p(config.top_p as f32, 1),
-                LlamaSampler::dist(1234),
-            ])
+            let mut samplers: Vec<LlamaSampler> = Vec::new();
+            if use_penalties {
+                // penalties must come before other samplers per llama.cpp docs
+                samplers.push(LlamaSampler::penalties(
+                    64, // last_n tokens to penalize
+                    config.repeat_penalty as f32,
+                    0.0, // freq penalty disabled
+                    0.0, // presence penalty disabled
+                ));
+            }
+            samplers.push(LlamaSampler::temp(config.temperature as f32));
+            samplers.push(LlamaSampler::top_k(config.top_k as i32));
+            samplers.push(LlamaSampler::top_p(config.top_p as f32, 1));
+            samplers.push(LlamaSampler::dist(1234));
+            LlamaSampler::chain_simple(samplers)
         }
         "Mirostat" => {
             log_info!(
@@ -54,6 +71,7 @@ fn create_sampler(config: &SamplerConfig, conversation_id: &str) -> LlamaSampler
                 config.mirostat_tau,
                 config.mirostat_eta
             );
+            // Mirostat doesn't support chaining with penalties
             LlamaSampler::mirostat(
                 0,    // n_vocab
                 1234, // seed
@@ -64,7 +82,20 @@ fn create_sampler(config: &SamplerConfig, conversation_id: &str) -> LlamaSampler
         }
         _ => {
             log_info!(conversation_id, "Using Greedy sampler (default)");
-            LlamaSampler::greedy()
+            if use_penalties {
+                // For Greedy with penalties: penalties → greedy
+                LlamaSampler::chain_simple([
+                    LlamaSampler::penalties(
+                        64,
+                        config.repeat_penalty as f32,
+                        0.0,
+                        0.0,
+                    ),
+                    LlamaSampler::greedy(),
+                ])
+            } else {
+                LlamaSampler::greedy()
+            }
         }
     }
 }

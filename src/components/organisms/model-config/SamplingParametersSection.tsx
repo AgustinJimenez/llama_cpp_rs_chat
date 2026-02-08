@@ -15,6 +15,35 @@ export interface SamplingParametersSectionProps {
   onConfigChange: (field: keyof SamplerConfig, value: string | number) => void;
 }
 
+interface SliderParamProps {
+  label: string;
+  value: number;
+  format?: (v: number) => string;
+  description?: string;
+  onChange: (value: number) => void;
+  min: number;
+  max: number;
+  step: number;
+}
+
+const SliderParam: React.FC<SliderParamProps> = ({ label, value, format, description, onChange, min, max, step }) => (
+  <div className="space-y-2">
+    <div className="flex justify-between items-center">
+      <label className="text-sm font-medium">{label}</label>
+      <span className="text-sm font-mono text-muted-foreground">{format ? format(value) : value}</span>
+    </div>
+    <Slider
+      value={[value]}
+      onValueChange={([v]) => onChange(v)}
+      max={max}
+      min={min}
+      step={step}
+      className="w-full"
+    />
+    {description && <p className="text-xs text-muted-foreground">{description}</p>}
+  </div>
+);
+
 export const SamplingParametersSection: React.FC<SamplingParametersSectionProps> = ({
   config,
   onConfigChange
@@ -43,94 +72,28 @@ export const SamplingParametersSection: React.FC<SamplingParametersSectionProps>
       </p>
     </div>
 
-    {/* Temperature */}
-    <div className="space-y-2">
-      <div className="flex justify-between items-center">
-        <label className="text-sm font-medium">Temperature</label>
-        <span className="text-sm font-mono text-muted-foreground">{config.temperature.toFixed(2)}</span>
-      </div>
-      <Slider
-        value={[config.temperature]}
-        onValueChange={([value]) => onConfigChange('temperature', value)}
-        max={2}
-        min={0}
-        step={0.1}
-        className="w-full"
-      />
-      <p className="text-xs text-muted-foreground">
-        Higher values make output more random, lower values more focused
-      </p>
-    </div>
+    <SliderParam label="Temperature" value={config.temperature} format={v => v.toFixed(2)}
+      description="Higher values make output more random, lower values more focused"
+      onChange={v => onConfigChange('temperature', v)} min={0} max={2} step={0.1} />
 
-    {/* Top P */}
-    <div className="space-y-2">
-      <div className="flex justify-between items-center">
-        <label className="text-sm font-medium">Top P (Nucleus)</label>
-        <span className="text-sm font-mono text-muted-foreground">{config.top_p.toFixed(2)}</span>
-      </div>
-      <Slider
-        value={[config.top_p]}
-        onValueChange={([value]) => onConfigChange('top_p', value)}
-        max={1}
-        min={0}
-        step={0.05}
-        className="w-full"
-      />
-      <p className="text-xs text-muted-foreground">
-        Only consider tokens that make up the top P probability mass
-      </p>
-    </div>
+    <SliderParam label="Top P (Nucleus)" value={config.top_p} format={v => v.toFixed(2)}
+      description="Only consider tokens that make up the top P probability mass"
+      onChange={v => onConfigChange('top_p', v)} min={0} max={1} step={0.05} />
 
-    {/* Top K */}
-    <div className="space-y-2">
-      <div className="flex justify-between items-center">
-        <label className="text-sm font-medium">Top K</label>
-        <span className="text-sm font-mono text-muted-foreground">{config.top_k}</span>
-      </div>
-      <Slider
-        value={[config.top_k]}
-        onValueChange={([value]) => onConfigChange('top_k', Math.round(value))}
-        max={100}
-        min={1}
-        step={1}
-        className="w-full"
-      />
-      <p className="text-xs text-muted-foreground">
-        Consider only the top K most likely tokens
-      </p>
-    </div>
+    <SliderParam label="Top K" value={config.top_k} format={v => String(v)}
+      description="Consider only the top K most likely tokens"
+      onChange={v => onConfigChange('top_k', Math.round(v))} min={1} max={100} step={1} />
+
+    <SliderParam label="Repeat Penalty" value={config.repeat_penalty} format={v => v.toFixed(2)}
+      description="Penalizes repeated tokens (1.0 = disabled, higher = less repetition)"
+      onChange={v => onConfigChange('repeat_penalty', v)} min={1} max={2} step={0.05} />
 
     {/* Mirostat Parameters */}
     <div className="grid grid-cols-2 gap-4">
-      <div className="space-y-2">
-        <div className="flex justify-between items-center">
-          <label className="text-sm font-medium">Mirostat Tau</label>
-          <span className="text-sm font-mono text-muted-foreground">{config.mirostat_tau.toFixed(1)}</span>
-        </div>
-        <Slider
-          value={[config.mirostat_tau]}
-          onValueChange={([value]) => onConfigChange('mirostat_tau', value)}
-          max={10}
-          min={0}
-          step={0.1}
-          className="w-full"
-        />
-      </div>
-
-      <div className="space-y-2">
-        <div className="flex justify-between items-center">
-          <label className="text-sm font-medium">Mirostat Eta</label>
-          <span className="text-sm font-mono text-muted-foreground">{config.mirostat_eta.toFixed(2)}</span>
-        </div>
-        <Slider
-          value={[config.mirostat_eta]}
-          onValueChange={([value]) => onConfigChange('mirostat_eta', value)}
-          max={1}
-          min={0}
-          step={0.01}
-          className="w-full"
-        />
-      </div>
+      <SliderParam label="Mirostat Tau" value={config.mirostat_tau} format={v => v.toFixed(1)}
+        onChange={v => onConfigChange('mirostat_tau', v)} min={0} max={10} step={0.1} />
+      <SliderParam label="Mirostat Eta" value={config.mirostat_eta} format={v => v.toFixed(2)}
+        onChange={v => onConfigChange('mirostat_eta', v)} min={0} max={1} step={0.01} />
     </div>
   </>
 );

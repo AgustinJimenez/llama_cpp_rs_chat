@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
-import { ChatHeader, SettingsModal, Sidebar, RightSidebar } from './components/organisms';
+import { ChatHeader, Sidebar, RightSidebar } from './components/organisms';
 import { ChatInputArea, MessagesArea } from './components/templates';
 import { useChat } from './hooks/useChat';
 import { useModel } from './hooks/useModel';
@@ -11,8 +11,6 @@ import { logToastError } from './utils/toastLogger';
 function App() {
   const { messages, isLoading, sendMessage, stopGeneration, clearMessages, loadConversation, currentConversationId, tokensUsed, maxTokens } = useChat();
   const { status: modelStatus, isLoading: isModelLoading, loadingAction, error: modelError, hasStatusError, loadModel, unloadModel, hardUnload } = useModel();
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('markdown');
 
@@ -20,16 +18,8 @@ function App() {
     clearMessages();
   };
 
-  const toggleSidebar = () => {
-    setIsSidebarOpen(!isSidebarOpen);
-  };
-
   const toggleRightSidebar = () => {
     setIsRightSidebarOpen(!isRightSidebarOpen);
-  };
-
-  const handleOpenSettings = () => {
-    setIsSettingsOpen(true);
   };
 
   const handleModelLoad = async (modelPath: string, config: SamplerConfig) => {
@@ -66,34 +56,25 @@ function App() {
     <div className="h-screen bg-background flex" data-testid="chat-app">
       {/* Sidebar */}
       <Sidebar
-        isOpen={isSidebarOpen}
-        onToggle={toggleSidebar}
         onNewChat={handleNewConversation}
-        onOpenSettings={handleOpenSettings}
         onLoadConversation={loadConversation}
         currentConversationId={currentConversationId}
       />
 
       {/* Main Content */}
       <div
-        className={`flex-1 transition-all duration-300`}
-        style={{
-          marginLeft: isSidebarOpen ? '280px' : '70px'
-        }}
+        className="flex-1 ml-[240px]"
       >
-        <div className="flex flex-col h-full flat-card">
+        <div className="flex flex-col h-full">
           {/* Header */}
           <ChatHeader
-            isSidebarOpen={isSidebarOpen}
             modelLoaded={modelStatus.loaded}
             modelPath={modelStatus.model_path ?? undefined}
             isModelLoading={isModelLoading}
-            messagesLength={messages.length}
             tokensUsed={tokensUsed}
             maxTokens={maxTokens}
             viewMode={viewMode}
             isRightSidebarOpen={isRightSidebarOpen}
-            onToggleSidebar={toggleSidebar}
             onModelUnload={handleModelUnload}
             onForceUnload={handleForceUnload}
             hasStatusError={hasStatusError}
@@ -105,7 +86,6 @@ function App() {
           <MessagesArea
             messages={messages}
             isLoading={isLoading}
-            modelLoaded={modelStatus.loaded}
             isModelLoading={isModelLoading}
             loadingAction={loadingAction}
             viewMode={viewMode}
@@ -129,12 +109,6 @@ function App() {
       <RightSidebar
         isOpen={isRightSidebarOpen}
         onClose={() => setIsRightSidebarOpen(false)}
-      />
-
-      {/* Settings Modal */}
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
       />
 
       {/* Toast Notifications */}

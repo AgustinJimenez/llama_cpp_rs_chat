@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS config (
     top_k INTEGER DEFAULT 20,
     mirostat_tau REAL DEFAULT 5.0,
     mirostat_eta REAL DEFAULT 0.1,
+    repeat_penalty REAL DEFAULT 1.0,
     model_path TEXT,
     system_prompt TEXT,
     system_prompt_type TEXT DEFAULT 'Default',
@@ -121,6 +122,12 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
     // Add disable_file_logging column if missing
     let _ = conn.execute(
         "ALTER TABLE config ADD COLUMN disable_file_logging INTEGER DEFAULT 1",
+        [],
+    );
+
+    // Add repeat_penalty column if missing
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN repeat_penalty REAL DEFAULT 1.0",
         [],
     );
 

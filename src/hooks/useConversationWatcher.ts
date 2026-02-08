@@ -25,6 +25,29 @@ const WS_RECONNECT_BASE_MS = 500;
 const WS_RECONNECT_MAX_MS = 5000;
 const WS_STUCK_STREAMING_POLL_MS = 15_000;
 
+/**
+ * Pick the best message list between incoming (server) and local (UI).
+ * During streaming, prefer whichever has more content to avoid flickering.
+ */
+function reconcileMessages(incoming: Message[], local: Message[], isStreaming: boolean): Message[] {
+  if (!isStreaming || local.length === 0) return incoming;
+
+  const localLast = local[local.length - 1];
+  const incomingLast = incoming[incoming.length - 1];
+
+  if (localLast?.role === 'assistant') {
+    const incomingAssistant = incomingLast?.role === 'assistant' ? incomingLast : null;
+    const incomingLength = incomingAssistant?.content.length ?? 0;
+    if (incomingLength < localLast.content.length || incoming.length < local.length) {
+      return local;
+    }
+  } else if (incoming.length < local.length) {
+    return local;
+  }
+
+  return incoming;
+}
+
 function getNextDelay(attempt: number): number {
   const exp = WS_RECONNECT_BASE_MS * Math.pow(2, attempt);
   return Math.min(exp, WS_RECONNECT_MAX_MS);
@@ -100,68 +123,36 @@ export function useConversationWatcher({
       }
       try {
         const data = await getConversation(currentConversationId!);
-        if (data.content) {
-          const parsedMessages = parseConversationFile(data.content);
-          let nextMessages = parsedMessages;
-          const localMessages = currentMessagesRef.current;
-          if (isStreamingRef.current && localMessages.length > 0) {
-            const localLast = localMessages[localMessages.length - 1];
-            const incomingLast = parsedMessages[parsedMessages.length - 1];
-            if (localLast?.role === 'assistant') {
-              const incomingAssistant = incomingLast?.role === 'assistant' ? incomingLast : null;
-              const incomingLength = incomingAssistant?.content.length ?? 0;
-              if (incomingLength < localLast.content.length || parsedMessages.length < localMessages.length) {
-                nextMessages = localMessages;
-              }
-            } else if (parsedMessages.length < localMessages.length) {
-              nextMessages = localMessages;
-            }
-          }
-          setMessages(nextMessages);
+        const parsedMessages = data.content
+          ? parseConversationFile(data.content)
+          : data.messages
+            ? (data.messages as unknown as Message[])
+            : null;
 
-          if (isStreamingRef.current) {
-            const lastMessage = nextMessages[nextMessages.length - 1];
-            const assistantContent = lastMessage?.role === 'assistant' ? lastMessage.content : '';
-            if (!assistantContent) {
-              return;
-            }
+        if (!parsedMessages) return;
 
-            if (assistantContent === lastPolledAssistantContentRef.current) {
-              stablePollsRef.current += 1;
-            } else {
-              stablePollsRef.current = 0;
-              lastPolledAssistantContentRef.current = assistantContent;
-            }
+        const nextMessages = reconcileMessages(parsedMessages, currentMessagesRef.current, isStreamingRef.current);
+        setMessages(nextMessages);
 
-            if (stablePollsRef.current < 1) {
-              return;
-            }
+        if (isStreamingRef.current) {
+          const lastMessage = nextMessages[nextMessages.length - 1];
+          const assistantContent = lastMessage?.role === 'assistant' ? lastMessage.content : '';
+          if (!assistantContent) return;
+
+          if (assistantContent === lastPolledAssistantContentRef.current) {
+            stablePollsRef.current += 1;
           } else {
             stablePollsRef.current = 0;
-            lastPolledAssistantContentRef.current = '';
+            lastPolledAssistantContentRef.current = assistantContent;
           }
 
-          await reconcileUiStateFromMessages(nextMessages);
-        } else if (data.messages) {
-          const parsedMessages = data.messages as unknown as Message[];
-          let nextMessages = parsedMessages;
-          const localMessages = currentMessagesRef.current;
-          if (isStreamingRef.current && localMessages.length > 0) {
-            const localLast = localMessages[localMessages.length - 1];
-            const incomingLast = parsedMessages[parsedMessages.length - 1];
-            if (localLast?.role === 'assistant') {
-              const incomingAssistant = incomingLast?.role === 'assistant' ? incomingLast : null;
-              const incomingLength = incomingAssistant?.content.length ?? 0;
-              if (incomingLength < localLast.content.length || parsedMessages.length < localMessages.length) {
-                nextMessages = localMessages;
-              }
-            } else if (parsedMessages.length < localMessages.length) {
-              nextMessages = localMessages;
-            }
-          }
-          setMessages(nextMessages);
-          await reconcileUiStateFromMessages(nextMessages);
+          if (stablePollsRef.current < 1) return;
+        } else {
+          stablePollsRef.current = 0;
+          lastPolledAssistantContentRef.current = '';
         }
+
+        await reconcileUiStateFromMessages(nextMessages);
       } catch (err) {
         logToastWarning('useConversationWatcher.poll', 'Conversation poll failed', err);
       }

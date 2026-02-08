@@ -1,5 +1,5 @@
 import React, { useState, useCallback, KeyboardEvent, useEffect, useRef } from 'react';
-import { Send, Square } from 'lucide-react';
+import { ArrowUp, Square } from 'lucide-react';
 
 interface MessageInputProps {
   onSendMessage: (message: string) => void;
@@ -17,14 +17,12 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   const [message, setMessage] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-focus the input when component mounts
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.focus();
     }
   }, []);
 
-  // Auto-focus when disabled changes from true to false (LLM finishes generating)
   useEffect(() => {
     if (!disabled && textareaRef.current) {
       textareaRef.current.focus();
@@ -51,43 +49,43 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   }, []);
 
   return (
-    <form onSubmit={handleSubmit} className="flex gap-2 items-start" data-testid="message-form">
-      <div className="flex-1">
+    <form onSubmit={handleSubmit} data-testid="message-form">
+      <div className="flat-input-container flex items-end gap-2 px-4 py-3">
         <textarea
           ref={textareaRef}
           value={message}
           onChange={handleTextareaChange}
           onKeyDown={handleKeyDown}
-          placeholder="Type your message..."
+          placeholder="Message..."
           disabled={disabled}
-          className="flat-input w-full h-[60px] resize-none"
-          rows={2}
+          className="flex-1 bg-transparent border-none outline-none resize-none text-sm text-foreground placeholder:text-muted-foreground min-h-[24px] max-h-[120px] py-0.5"
+          rows={1}
           data-testid="message-input"
           aria-disabled={disabled}
           aria-label={disabled && disabledReason ? disabledReason : 'Message input'}
         />
+        {disabled && onStopGeneration ? (
+          <button
+            type="button"
+            onClick={onStopGeneration}
+            className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg bg-destructive text-white hover:opacity-90 transition-opacity"
+            data-testid="stop-button"
+            title="Stop generation"
+          >
+            <Square className="h-4 w-4" />
+          </button>
+        ) : (
+          <button
+            type="submit"
+            disabled={disabled || !message.trim()}
+            className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-[hsl(220_10%_55%)] text-[hsl(220_10%_90%)] hover:bg-[hsl(220_10%_62%)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            data-testid="send-button"
+            title={disabled && disabledReason ? disabledReason : undefined}
+          >
+            <ArrowUp className="h-4 w-4" />
+          </button>
+        )}
       </div>
-      {disabled && onStopGeneration ? (
-        <button
-          type="button"
-          onClick={onStopGeneration}
-          className="flat-button bg-destructive text-white px-6 h-[60px] min-w-[60px] flex items-center justify-center hover:opacity-90"
-          data-testid="stop-button"
-          title="Stop generation"
-        >
-          <Square className="h-5 w-5" />
-        </button>
-      ) : (
-        <button
-          type="submit"
-          disabled={disabled || !message.trim()}
-          className="flat-button bg-primary text-white px-6 h-[60px] min-w-[60px] flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-          data-testid="send-button"
-          title={disabled && disabledReason ? disabledReason : undefined}
-        >
-          <Send className="h-5 w-5" />
-        </button>
-      )}
     </form>
   );
 };

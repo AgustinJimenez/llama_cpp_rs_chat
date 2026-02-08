@@ -226,73 +226,72 @@ class TauriChatTransport implements ChatTransport {
     const safeOnComplete = onComplete ?? (() => {});
     const safeOnError = onError ?? (() => {});
 
-    return new Promise<void>(async (resolve, reject) => {
-      let settled = false;
-      let wasAborted = false;
+    let settled = false;
+    let wasAborted = false;
+    let settleResolve: () => void;
+    let settleReject: (err: Error) => void;
+    const promise = new Promise<void>((resolve, reject) => {
+      settleResolve = resolve;
+      settleReject = reject;
+    });
 
-      const settle = (error?: Error) => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        if (error) reject(error);
-        else resolve();
-      };
+    // Set up listeners before creating the promise callbacks
+    const unlistenToken = await listen<{ token: string; tokens_used?: number; max_tokens?: number }>('chat-token', (event) => {
+      if (settled || wasAborted) return;
+      safeOnToken(event.payload.token, event.payload.tokens_used, event.payload.max_tokens);
+    });
 
-      const markAborted = () => {
-        wasAborted = true;
-        invoke('cancel_generation').catch(() => {});
+    const unlistenDone = await listen<{ type: string; conversation_id?: string; tokens_used?: number; max_tokens?: number; error?: string }>('chat-done', (event) => {
+      if (settled || wasAborted) return;
+      const payload = event.payload;
+
+      if (payload.type === 'done') {
+        const conversationId = payload.conversation_id || request.conversation_id || crypto.randomUUID();
+        safeOnComplete(crypto.randomUUID(), conversationId, payload.tokens_used, payload.max_tokens);
+        settle();
+      } else if (payload.type === 'error') {
+        const errorMessage = payload.error || 'Unknown error';
+        safeOnError(errorMessage);
+        settle(new Error(errorMessage));
+      } else if (payload.type === 'cancelled') {
         settle(new Error('Request aborted'));
-      };
-
-      // Listen for token events
-      const unlistenToken = await listen<{ token: string; tokens_used?: number; max_tokens?: number }>('chat-token', (event) => {
-        if (settled || wasAborted) return;
-        safeOnToken(event.payload.token, event.payload.tokens_used, event.payload.max_tokens);
-      });
-
-      // Listen for done/error/cancel events
-      const unlistenDone = await listen<{ type: string; conversation_id?: string; tokens_used?: number; max_tokens?: number; error?: string }>('chat-done', (event) => {
-        if (settled || wasAborted) return;
-        const payload = event.payload;
-
-        if (payload.type === 'done') {
-          const conversationId = payload.conversation_id || request.conversation_id || crypto.randomUUID();
-          safeOnComplete(crypto.randomUUID(), conversationId, payload.tokens_used, payload.max_tokens);
-          settle();
-        } else if (payload.type === 'error') {
-          const errorMessage = payload.error || 'Unknown error';
-          safeOnError(errorMessage);
-          settle(new Error(errorMessage));
-        } else if (payload.type === 'cancelled') {
-          settle(new Error('Request aborted'));
-        }
-      });
-
-      const cleanup = () => {
-        unlistenToken();
-        unlistenDone();
-      };
-
-      // Handle abort signal
-      if (abortSignal) {
-        if (abortSignal.aborted) {
-          markAborted();
-          return;
-        }
-        abortSignal.addEventListener('abort', markAborted, { once: true });
-      }
-
-      // Start generation via invoke
-      try {
-        await invoke('generate_stream', { request });
-      } catch (err) {
-        if (!settled && !wasAborted) {
-          const errorMessage = err instanceof Error ? err.message : 'Failed to start generation';
-          safeOnError(errorMessage);
-          settle(new Error(errorMessage));
-        }
       }
     });
+
+    const cleanup = () => { unlistenToken(); unlistenDone(); };
+
+    const settle = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (error) settleReject(error);
+      else settleResolve();
+    };
+
+    const markAborted = () => {
+      wasAborted = true;
+      invoke('cancel_generation').catch(() => {});
+      settle(new Error('Request aborted'));
+    };
+
+    // Handle abort signal
+    if (abortSignal) {
+      if (abortSignal.aborted) { markAborted(); return promise; }
+      abortSignal.addEventListener('abort', markAborted, { once: true });
+    }
+
+    // Start generation via invoke
+    try {
+      await invoke('generate_stream', { request });
+    } catch (err) {
+      if (!settled && !wasAborted) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to start generation';
+        safeOnError(errorMessage);
+        settle(new Error(errorMessage));
+      }
+    }
+
+    return promise;
   }
 }
 

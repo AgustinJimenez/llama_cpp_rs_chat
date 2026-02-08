@@ -58,6 +58,8 @@ pub struct SamplerConfig {
     pub top_k: u32,
     pub mirostat_tau: f64,
     pub mirostat_eta: f64,
+    #[serde(default = "default_repeat_penalty")]
+    pub repeat_penalty: f64,
     pub model_path: Option<String>,
     pub system_prompt: Option<String>,
     #[serde(default)]
@@ -72,6 +74,10 @@ pub struct SamplerConfig {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_repeat_penalty() -> f64 {
+    1.0
 }
 
 // Common stop tokens for different model providers
@@ -99,6 +105,7 @@ impl Default for SamplerConfig {
             top_k: 20,
             mirostat_tau: 5.0,
             mirostat_eta: 0.1,
+            repeat_penalty: 1.0,
             model_path: Some("/app/models/lmstudio-community/granite-4.0-h-tiny-GGUF/granite-4.0-h-tiny-Q4_K_M.gguf".to_string()),
             system_prompt: None,
             system_prompt_type: SystemPromptType::default(),

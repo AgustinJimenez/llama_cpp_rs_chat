@@ -13,6 +13,7 @@ pub struct DbSamplerConfig {
     pub top_k: u32,
     pub mirostat_tau: f64,
     pub mirostat_eta: f64,
+    pub repeat_penalty: f64,
     pub model_path: Option<String>,
     pub system_prompt: Option<String>,
     pub system_prompt_type: SystemPromptType,
@@ -31,6 +32,7 @@ impl Default for DbSamplerConfig {
             top_k: 20,
             mirostat_tau: 5.0,
             mirostat_eta: 0.1,
+            repeat_penalty: 1.0,
             model_path: None,
             system_prompt: None,
             system_prompt_type: SystemPromptType::Default,
@@ -67,7 +69,7 @@ impl Database {
             conn.query_row(
                 "SELECT sampler_type, temperature, top_p, top_k, mirostat_tau,
                         mirostat_eta, model_path, system_prompt, system_prompt_type,
-                        context_size, stop_tokens, disable_file_logging
+                        context_size, stop_tokens, disable_file_logging, repeat_penalty
                  FROM config WHERE id = 1",
                 [],
                 |row| {
@@ -90,6 +92,7 @@ impl Database {
                         stop_tokens,
                         model_history: Vec::new(), // Loaded separately
                         disable_file_logging: row.get::<_, Option<i32>>(11)?.unwrap_or(1) != 0,
+                        repeat_penalty: row.get::<_, Option<f64>>(12)?.unwrap_or(1.0),
                     })
                 },
             )
@@ -114,9 +117,9 @@ impl Database {
         conn.execute(
             "INSERT OR REPLACE INTO config
              (id, sampler_type, temperature, top_p, top_k, mirostat_tau,
-              mirostat_eta, model_path, system_prompt, system_prompt_type,
+              mirostat_eta, repeat_penalty, model_path, system_prompt, system_prompt_type,
               context_size, stop_tokens, disable_file_logging, updated_at)
-             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 config.sampler_type,
                 config.temperature,
@@ -124,6 +127,7 @@ impl Database {
                 config.top_k,
                 config.mirostat_tau,
                 config.mirostat_eta,
+                config.repeat_penalty,
                 config.model_path,
                 config.system_prompt,
                 system_prompt_type_to_str(&config.system_prompt_type),
@@ -149,9 +153,9 @@ impl Database {
         conn.execute(
             "UPDATE config SET
              sampler_type = ?1, temperature = ?2, top_p = ?3, top_k = ?4,
-             mirostat_tau = ?5, mirostat_eta = ?6, model_path = ?7,
-             system_prompt = ?8, system_prompt_type = ?9, context_size = ?10,
-             stop_tokens = ?11, disable_file_logging = ?12, updated_at = ?13
+             mirostat_tau = ?5, mirostat_eta = ?6, repeat_penalty = ?7, model_path = ?8,
+             system_prompt = ?9, system_prompt_type = ?10, context_size = ?11,
+             stop_tokens = ?12, disable_file_logging = ?13, updated_at = ?14
              WHERE id = 1",
             params![
                 config.sampler_type,
@@ -160,6 +164,7 @@ impl Database {
                 config.top_k,
                 config.mirostat_tau,
                 config.mirostat_eta,
+                config.repeat_penalty,
                 config.model_path,
                 config.system_prompt,
                 system_prompt_type_to_str(&config.system_prompt_type),
@@ -308,6 +313,7 @@ mod tests {
             top_k: 40,
             mirostat_tau: 3.0,
             mirostat_eta: 0.2,
+            repeat_penalty: 1.1,
             model_path: Some("/path/to/model.gguf".to_string()),
             system_prompt: Some("You are helpful".to_string()),
             system_prompt_type: SystemPromptType::Custom,

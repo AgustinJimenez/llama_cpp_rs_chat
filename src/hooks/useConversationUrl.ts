@@ -14,7 +14,9 @@ export function getConversationFromUrl(): string | null {
 export function updateUrlWithConversation(conversationId: string | null) {
   const url = new URL(window.location.href);
   if (conversationId) {
-    url.searchParams.set('conversation', conversationId);
+    // Strip .txt for cleaner URLs
+    const cleanId = conversationId.replace(/\.txt$/, '');
+    url.searchParams.set('conversation', cleanId);
   } else {
     url.searchParams.delete('conversation');
   }

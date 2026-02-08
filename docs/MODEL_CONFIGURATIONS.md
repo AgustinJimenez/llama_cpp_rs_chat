@@ -20,8 +20,8 @@ Parameters sourced from official model cards on HuggingFace and vendor documenta
 | 6 | Ministral-3-14B-Reasoning | mistral3 | 14B | Q8_0 | 15.24 GB | ✓ |
 | 7 | MiniCPM4.1-8B | minicpm | 8B | BF16 | 16.37 GB | ✓ |
 | 8 | Magistral-Small-2509 | llama | 24B | Q6_K | 20.22 GB | ✓ |
-| 9 | granite-4.0-h-tiny | granitehybrid | 7B | Q4_K_M | 4.23 GB | ✓ |
-| 10 | gpt-oss-20b | gpt-oss | 20B | MXFP4 | 12.11 GB | ✓ |
+| 9 | granite-4.0-h-tiny | granitehybrid | 7B | Q4_K_M | 4.23 GB | ⚠ |
+| 10 | gpt-oss-20b | gpt-oss | 20B | MXFP4 | 12.11 GB | ⚠ |
 | 11 | Qwen3-8B | qwen3 | 8B | Q8_0 | 8.71 GB | ✓ |
 | 12 | gemma-3-12b-it | gemma3 | 12B | Q8_0 | 13.36 GB | ✓ |
 | 13 | Qwen3-Coder-30B-A3B-1M | qwen3moe | 30B-A3B | Q4_K_S | 17.46 GB | ✓ |
@@ -383,9 +383,9 @@ Parameters sourced from official model cards on HuggingFace and vendor documenta
 | context_length | 1048576 |
 
 ### Notes
+- **Not fully functional.** Tool calls work (native `name{json}` format) but the model does not produce a natural language summary after receiving tool output — it just stops. Requires `repeat_penalty: 1.1` to prevent infinite tool-call loops (see llama.cpp issue #16678).
 - Hybrid MoE + SSM architecture (only 1B active params).
-- Native 1M context window.
-- Validated up to 128K tokens in practice.
+- Native 1M context window, but use 4K-32K in practice on 24GB VRAM (1M = 300GB KV cache).
 - Multilingual: 12 languages.
 - Use temperature=0 for deterministic results.
 
@@ -421,6 +421,7 @@ Parameters sourced from official model cards on HuggingFace and vendor documenta
 | context_length | 131072 |
 
 ### Notes
+- **Not fully functional.** The model "thinks out loud" with internal monologue (`<|start|>assistant<|channel|>analysis` tags) visible in output. It tries multiple tool call formats (JSON `list_directory`, `execute_command`) before self-correcting to `<||SYSTEM.EXEC>` tags. Tool execution works but output is noisy. Use 8K context on 24GB VRAM (128K = 22.5GB KV cache overflow).
 - **Must use Harmony response format** (won't work otherwise).
 - Configurable reasoning effort via system prompt:
   - `"Reasoning: low"` - Fast responses

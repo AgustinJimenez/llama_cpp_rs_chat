@@ -25,10 +25,10 @@ module.exports = {
     },
   },
   rules: {
-    'max-lines': ['warn', { max: 400, skipBlankLines: true, skipComments: true }],
-    'max-lines-per-function': ['warn', { max: 120, skipBlankLines: true, skipComments: true }],
-    complexity: ['warn', { max: 15 }],
-    '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+    'max-lines': ['error', { max: 400, skipBlankLines: true, skipComments: true }],
+    'max-lines-per-function': ['error', { max: 120, skipBlankLines: true, skipComments: true }],
+    complexity: ['error', { max: 15 }],
+    '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
     'react/react-in-jsx-scope': 'off',
   },
 };

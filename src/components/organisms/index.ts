@@ -5,7 +5,6 @@ export { default as Sidebar } from './Sidebar';
 export { RightSidebar } from './RightSidebar';
 export { SystemUsage } from './SystemUsage';
 export { ModelSelector } from './ModelSelector';
-export { SettingsModal } from './SettingsModal';
 export { FileBrowser } from './FileBrowser';
 
 // Model configuration modal and sections

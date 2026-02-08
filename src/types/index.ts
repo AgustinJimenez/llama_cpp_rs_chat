@@ -31,6 +31,7 @@ export interface SamplerConfig {
   top_k: number;
   mirostat_tau: number;
   mirostat_eta: number;
+  repeat_penalty: number;
   model_path?: string;
   system_prompt?: string;
   context_size?: number;
@@ -160,4 +161,4 @@ export interface ToolResult {
   error?: string;
 }
 
-export type ViewMode = 'text' | 'markdown';
+export type ViewMode = 'text' | 'markdown' | 'raw';

@@ -2,16 +2,13 @@ import { Unplug, Activity } from 'lucide-react';
 import type { ViewMode } from '../../types';
 
 interface ChatHeaderProps {
-  isSidebarOpen: boolean;
   modelLoaded: boolean;
   modelPath?: string;
   isModelLoading: boolean;
-  messagesLength: number;
   tokensUsed?: number;
   maxTokens?: number;
   viewMode: ViewMode;
   isRightSidebarOpen: boolean;
-  onToggleSidebar: () => void;
   onModelUnload: () => void;
   onForceUnload: () => void;
   hasStatusError: boolean;
@@ -19,124 +16,113 @@ interface ChatHeaderProps {
   onToggleRightSidebar: () => void;
 }
 
-// eslint-disable-next-line max-lines-per-function
 export function ChatHeader({
   modelLoaded,
   modelPath,
   isModelLoading,
-  messagesLength,
   tokensUsed,
   maxTokens,
   viewMode,
   isRightSidebarOpen,
-  onToggleSidebar,
   onModelUnload,
   onForceUnload,
   hasStatusError,
   onViewModeChange,
   onToggleRightSidebar,
 }: ChatHeaderProps) {
-  return (
-    <div className="flex items-center justify-between px-6 py-3 flat-header" data-testid="chat-header">
-      <div className="flex items-center gap-4">
-        <button
-          onClick={onToggleSidebar}
-          className="md:hidden p-2 hover:bg-muted rounded-lg"
-          data-testid="mobile-sidebar-toggle"
-        >
-          ☰
-        </button>
-      </div>
+  const modelName = (() => {
+    const fullPath = modelPath || '';
+    const fileName = fullPath.split(/[/\\]/).pop() || '';
+    return fileName.replace(/\.gguf$/i, '');
+  })();
 
-      <div className="flex-1 flex justify-center items-center gap-6">
-        {modelLoaded ? (
-          <div className="flex items-center gap-3">
-            <p className="text-lg font-semibold">
-              {(() => {
-                const fullPath = modelPath || '';
-                const fileName = fullPath.split(/[/\\]/).pop() || 'Model loaded';
-                // Remove .gguf extension if present
-                return fileName.replace(/\.gguf$/i, '');
-              })()}
-            </p>
+  return (
+    <div className="flex items-center justify-between px-4 py-2 border-b border-border" data-testid="chat-header">
+      {/* Left: model name */}
+      <div className="flex items-center gap-2 min-w-0">
+        {modelLoaded && (
+          <>
+            <span className="text-sm font-medium truncate">{modelName}</span>
             <button
               onClick={onModelUnload}
               disabled={isModelLoading}
-              className="flat-button bg-destructive text-white px-4 py-2 disabled:opacity-50"
+              className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-muted transition-colors disabled:opacity-50"
               title="Unload model"
             >
-              <Unplug className="h-4 w-4" />
+              <Unplug className="h-3.5 w-3.5" />
             </button>
-          </div>
-        ) : hasStatusError ? (
-          <div className="flex items-center gap-3">
-            <p className="text-sm font-semibold text-destructive">Model status unknown</p>
+          </>
+        )}
+        {!modelLoaded && hasStatusError && (
+          <>
+            <span className="text-sm text-destructive">Model status unknown</span>
             <button
               onClick={onForceUnload}
               disabled={isModelLoading}
-              className="flat-button bg-destructive text-white px-4 py-2 disabled:opacity-50"
-              title="Force unload backend"
+              className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-muted transition-colors disabled:opacity-50"
+              title="Force unload"
             >
-              <Unplug className="h-4 w-4" />
+              <Unplug className="h-3.5 w-3.5" />
             </button>
-          </div>
-        ) : null}
+          </>
+        )}
       </div>
 
-      {/* Right section - always show if model loaded and we have data */}
+      {/* Right: context + view toggle + monitor */}
       {modelLoaded && (
-        <div className="flex items-center gap-4">
-          {/* Context/Tokens Display - show when we have token data */}
+        <div className="flex items-center gap-3">
           {tokensUsed !== undefined && maxTokens !== undefined && (
-            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-              <span>Context:</span>
-              <span className="font-mono px-2 py-1 bg-muted rounded text-foreground">{tokensUsed}</span>
-              <span>/</span>
-              <span className="font-mono px-2 py-1 bg-muted rounded text-foreground">{maxTokens}</span>
-              <span>tokens</span>
-            </div>
+            <span className="text-xs text-muted-foreground font-mono">
+              {tokensUsed}/{maxTokens}
+            </span>
           )}
 
-          {/* WebSocket Connection Status */}
-          {/* View Mode Toggle - only show when there are messages */}
-          {messagesLength > 0 && (
-            <div className="flex items-center gap-2 bg-muted rounded-lg p-1">
-              <button
-                onClick={() => onViewModeChange('markdown')}
-                className={`px-4 py-2 font-medium text-sm transition-all rounded-md ${
-                  viewMode === 'markdown'
-                    ? 'bg-primary text-white'
-                    : 'border border-primary hover:bg-background'
-                }`}
-                title="Markdown view"
-              >
-                Markdown
-              </button>
-              <button
-                onClick={() => onViewModeChange('text')}
-                className={`px-4 py-2 font-medium text-sm transition-all rounded-md ${
-                  viewMode === 'text'
-                    ? 'bg-primary text-white'
-                    : 'border border-primary hover:bg-background'
-                }`}
-                title="Plain text view"
-              >
-                Plain Text
-              </button>
-            </div>
-          )}
+          <div className="flex items-center bg-muted rounded-md p-0.5">
+            <button
+              onClick={() => onViewModeChange('markdown')}
+              className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
+                viewMode === 'markdown'
+                  ? 'bg-card text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+              title="Markdown view"
+            >
+              MD
+            </button>
+            <button
+              onClick={() => onViewModeChange('text')}
+              className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
+                viewMode === 'text'
+                  ? 'bg-card text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+              title="Plain text view"
+            >
+              TXT
+            </button>
+            <button
+              onClick={() => onViewModeChange('raw')}
+              className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
+                viewMode === 'raw'
+                  ? 'bg-card text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+              title="Raw model output (no parsing)"
+            >
+              RAW
+            </button>
+          </div>
 
-          {/* System Monitor Toggle Button */}
           <button
             onClick={onToggleRightSidebar}
-            className={`p-2 rounded-lg transition-all ${
+            className={`p-1.5 rounded-md transition-colors ${
               isRightSidebarOpen
-                ? 'bg-primary text-white'
-                : 'bg-muted hover:bg-muted/80 border border-border'
+                ? 'bg-muted text-foreground'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
             }`}
             title="Toggle system monitor"
           >
-            <Activity className="h-5 w-5" />
+            <Activity className="h-3.5 w-3.5" />
           </button>
         </div>
       )}

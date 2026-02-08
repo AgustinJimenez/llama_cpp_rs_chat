@@ -7,7 +7,6 @@ import type { LoadingAction } from '../../hooks/useModel';
 interface MessagesAreaProps {
   messages: Message[];
   isLoading: boolean;
-  modelLoaded: boolean;
   isModelLoading: boolean;
   loadingAction?: LoadingAction;
   viewMode: ViewMode;
@@ -16,7 +15,6 @@ interface MessagesAreaProps {
 export function MessagesArea({
   messages,
   isLoading,
-  modelLoaded,
   isModelLoading,
   loadingAction,
   viewMode,
@@ -65,21 +63,23 @@ export function MessagesArea({
   return (
     <div
       ref={containerRef}
-      className="flex-1 overflow-y-auto overflow-x-hidden p-6 space-y-4"
+      className="flex-1 overflow-y-auto overflow-x-hidden"
       data-testid="messages-container"
       onScroll={handleScroll}
     >
-      {messages.length === 0 ? (
-        <WelcomeMessage modelLoaded={modelLoaded} isModelLoading={isModelLoading} loadingAction={loadingAction} />
-      ) : (
-        <>
-          {messages.map((message) => (
-            <MessageBubble key={message.id} message={message} viewMode={viewMode} />
-          ))}
-          {isLoading && <LoadingIndicator />}
-          <div ref={messagesEndRef} />
-        </>
-      )}
+      <div className="max-w-3xl mx-auto px-6 py-6 space-y-6">
+        {messages.length === 0 ? (
+          <WelcomeMessage isModelLoading={isModelLoading} loadingAction={loadingAction} />
+        ) : (
+          <>
+            {messages.map((message) => (
+              <MessageBubble key={message.id} message={message} viewMode={viewMode} />
+            ))}
+            {isLoading && <LoadingIndicator />}
+            <div ref={messagesEndRef} />
+          </>
+        )}
+      </div>
     </div>
   );
 }

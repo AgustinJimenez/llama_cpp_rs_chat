@@ -24,23 +24,25 @@ export function ChatInputArea({
   onModelLoad,
 }: ChatInputAreaProps) {
   return (
-    <div className="border-t border-border bg-card px-4 pt-3 pb-2" data-testid="input-container">
-      {modelLoaded ? (
-        <MessageInput
-          onSendMessage={onSendMessage}
-          onStopGeneration={onStopGeneration}
-          disabled={isLoading}
-        />
-      ) : (
-        <div className="flex justify-center">
-          <ModelSelector
-            onModelLoad={onModelLoad}
-            currentModelPath={currentModelPath}
-            isLoading={isModelLoading}
-            error={modelError ?? undefined}
+    <div className="px-6 pb-4 pt-2" data-testid="input-container">
+      <div className="max-w-3xl mx-auto">
+        {modelLoaded ? (
+          <MessageInput
+            onSendMessage={onSendMessage}
+            onStopGeneration={onStopGeneration}
+            disabled={isLoading}
           />
-        </div>
-      )}
+        ) : (
+          <div className="flex justify-center">
+            <ModelSelector
+              onModelLoad={onModelLoad}
+              currentModelPath={currentModelPath}
+              isLoading={isModelLoading}
+              error={modelError ?? undefined}
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -1,5 +1,38 @@
 import type { Message } from '../types';
 
+interface ParseState {
+  currentRole: string;
+  currentContent: string;
+  hasSystemPrompt: boolean;
+  systemPromptContent: string;
+}
+
+function isRoleHeader(line: string): string | null {
+  if (!line.endsWith(':')) return null;
+  for (const role of ['SYSTEM', 'USER', 'ASSISTANT']) {
+    if (line === `${role}:`) return role;
+  }
+  return null;
+}
+
+function flushMessage(state: ParseState, messages: Message[]) {
+  if (!state.currentRole || !state.currentContent.trim()) return;
+
+  const message = createMessageIfValid(
+    state.currentRole,
+    state.currentContent.trim(),
+    state.hasSystemPrompt,
+    state.systemPromptContent
+  );
+  if (!message) return;
+
+  if (message.role === 'system' && message.isSystemPrompt) {
+    state.hasSystemPrompt = true;
+    state.systemPromptContent = message.content;
+  }
+  messages.push(message);
+}
+
 /**
  * Parse conversation file content into Message array.
  * Handles SYSTEM, USER, and ASSISTANT messages, filtering out
@@ -7,59 +40,20 @@ import type { Message } from '../types';
  */
 export function parseConversationFile(content: string): Message[] {
   const messages: Message[] = [];
-  let currentRole = '';
-  let currentContent = '';
-  let hasSystemPrompt = false;
-  let systemPromptContent = '';
+  const state: ParseState = { currentRole: '', currentContent: '', hasSystemPrompt: false, systemPromptContent: '' };
 
   for (const line of content.split('\n')) {
-    if (
-      line.endsWith(':') &&
-      (line.startsWith('SYSTEM:') || line.startsWith('USER:') || line.startsWith('ASSISTANT:'))
-    ) {
-      // Save previous message if it exists
-      if (currentRole && currentContent.trim()) {
-        const message = createMessageIfValid(
-          currentRole,
-          currentContent.trim(),
-          hasSystemPrompt,
-          systemPromptContent
-        );
-        if (message) {
-          if (message.role === 'system' && message.isSystemPrompt) {
-            hasSystemPrompt = true;
-            systemPromptContent = message.content;
-          }
-          messages.push(message);
-        }
-      }
-
-      // Start new message
-      currentRole = line.replace(':', '');
-      currentContent = '';
+    const role = isRoleHeader(line);
+    if (role) {
+      flushMessage(state, messages);
+      state.currentRole = role;
+      state.currentContent = '';
     } else if (!line.startsWith('[COMMAND:') && line.trim()) {
-      // Skip command execution logs, add content
-      currentContent += line + '\n';
+      state.currentContent += line + '\n';
     }
   }
 
-  // Add the final message
-  if (currentRole && currentContent.trim()) {
-    const message = createMessageIfValid(
-      currentRole,
-      currentContent.trim(),
-      hasSystemPrompt,
-      systemPromptContent
-    );
-    if (message) {
-      if (message.role === 'system' && message.isSystemPrompt) {
-        hasSystemPrompt = true;
-        systemPromptContent = message.content;
-      }
-      messages.push(message);
-    }
-  }
-
+  flushMessage(state, messages);
   return messages;
 }
 
@@ -76,9 +70,7 @@ function createMessageIfValid(
 
   // Always allow system messages; mark the first as the system prompt.
   if (role === 'system') {
-    if (hasSystemPrompt && content === systemPromptContent) {
-      return null;
-    }
+    if (hasSystemPrompt && content === systemPromptContent) return null;
     return {
       id: crypto.randomUUID(),
       role: 'system',
@@ -108,10 +100,10 @@ function createMessageIfValid(
 function isToolCallOnly(content: string): boolean {
   const contentWithoutThinking = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 
-  const hasQwenToolCall = contentWithoutThinking.includes('<tool_call>');
-  const hasLlama3ToolCall = contentWithoutThinking.includes('<function=');
-  const hasMistralToolCall = contentWithoutThinking.includes('[TOOL_CALLS]');
-  const hasToolCall = hasQwenToolCall || hasLlama3ToolCall || hasMistralToolCall;
+  const hasToolCall =
+    contentWithoutThinking.includes('<tool_call>') ||
+    contentWithoutThinking.includes('<function=') ||
+    contentWithoutThinking.includes('[TOOL_CALLS]');
 
   if (!hasToolCall) return false;
 

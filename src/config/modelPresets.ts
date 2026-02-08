@@ -153,6 +153,7 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     temperature: 0.0,
     top_p: 1.0,
     top_k: 0,
+    repeat_penalty: 1.1,
   },
 
   // OpenAI
@@ -217,4 +218,5 @@ export const DEFAULT_PRESET: ModelPreset = {
   top_k: 40,
   mirostat_tau: 5.0,
   mirostat_eta: 0.1,
+  repeat_penalty: 1.0,
 };

@@ -50,6 +50,25 @@ fn try_parse_mistral_comma_format(trimmed: &str) -> Option<(String, Value)> {
     Some((name, args))
 }
 
+/// Parse direct concatenation format: `tool_name{"arg":"val"}`
+///
+/// Granite models output tool calls with the name directly followed by JSON args,
+/// e.g. `list_directory{"path": "."}` or `read_file{"path": "test.txt"}`.
+fn try_parse_name_json_format(trimmed: &str) -> Option<(String, Value)> {
+    // Find the first `{` — everything before it is the name
+    let brace_idx = trimmed.find('{')?;
+    let name = trimmed[..brace_idx].trim().to_string();
+    let json_part = &trimmed[brace_idx..];
+
+    // Validate: name should be a simple identifier
+    if name.is_empty() || name.contains(' ') || name.contains('<') || name.contains('>') {
+        return None;
+    }
+
+    let args: Value = serde_json::from_str(json_part).ok()?;
+    Some((name, args))
+}
+
 /// Parse Llama3/Hermes XML format: `<function=tool_name> <parameter=arg> value </parameter> </function>`
 ///
 /// Qwen3-Coder models sometimes output this format instead of JSON tool calls.
@@ -99,6 +118,7 @@ fn try_parse_llama3_xml_format(trimmed: &str) -> Option<(String, Value)> {
 /// 2. Mistral array:  `[{"name":"read_file","arguments":{"path":"..."}}]`
 /// 3. Mistral comma:  `read_file,{"path": "..."}` (Devstral native format)
 /// 4. Llama3 XML:     `<function=read_file> <parameter=path> value </parameter> </function>`
+/// 5. Name+JSON:      `read_file{"path": "..."}` (Granite native format)
 ///
 /// Returns `Some(output)` if recognized, `None` to fall back to shell.
 pub fn dispatch_native_tool(text: &str) -> Option<String> {
@@ -109,6 +129,8 @@ pub fn dispatch_native_tool(text: &str) -> Option<String> {
     } else if let Some((n, a)) = try_parse_mistral_comma_format(trimmed) {
         (n, a)
     } else if let Some((n, a)) = try_parse_llama3_xml_format(trimmed) {
+        (n, a)
+    } else if let Some((n, a)) = try_parse_name_json_format(trimmed) {
         (n, a)
     } else {
         return None;
@@ -400,6 +422,15 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&temp).unwrap(), "hello world");
 
         std::fs::remove_file(&temp).ok();
+    }
+
+    #[test]
+    fn test_dispatch_name_json_format() {
+        // Granite outputs: list_directory{"path": "."}
+        let input = r#"list_directory{"path": "."}"#;
+        let result = dispatch_native_tool(input);
+        assert!(result.is_some(), "Should parse name+JSON format");
+        assert!(result.unwrap().contains("Directory listing"));
     }
 
     #[test]

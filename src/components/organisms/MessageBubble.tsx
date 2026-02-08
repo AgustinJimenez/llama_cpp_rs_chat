@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import type { Message, ToolCall } from '../../types';
+import type { Message } from '../../types';
 import type { MessageSegment } from '../../hooks/useMessageParsing';
 import { useMessageParsing } from '../../hooks/useMessageParsing';
 import { MarkdownContent } from '../molecules/MarkdownContent';
@@ -8,7 +8,7 @@ import { isTauriEnv } from '../../utils/tauri';
 
 interface MessageBubbleProps {
   message: Message;
-  viewMode?: 'text' | 'markdown';
+  viewMode?: 'text' | 'markdown' | 'raw';
 }
 
 /**
@@ -72,15 +72,19 @@ const SystemPromptMessage: React.FC<{ message: Message; cleanContent: string }> 
 const UserMessage: React.FC<{
   message: Message;
   cleanContent: string;
-  viewMode: 'text' | 'markdown';
+  viewMode: 'text' | 'markdown' | 'raw';
 }> = ({ message, cleanContent, viewMode }) => (
   <div
     className="flex w-full justify-end"
     data-testid={`message-${message.role}`}
     data-message-id={message.id}
   >
-    <div className="flat-message-user max-w-[80%] p-4">
-      {viewMode === 'markdown' ? (
+    <div className="flat-message-user max-w-[85%] px-4 py-3">
+      {viewMode === 'raw' ? (
+        <pre className="text-xs whitespace-pre-wrap leading-relaxed font-mono" data-testid="message-content">
+          {message.content}
+        </pre>
+      ) : viewMode === 'markdown' ? (
         <MarkdownContent content={cleanContent} testId="message-content" />
       ) : (
         <p className="text-sm whitespace-pre-wrap leading-relaxed" data-testid="message-content">
@@ -135,61 +139,68 @@ const CopyButton: React.FC<{ text: string }> = ({ text }) => {
  */
 const AssistantMessage: React.FC<{
   message: Message;
-  viewMode: 'text' | 'markdown';
+  viewMode: 'text' | 'markdown' | 'raw';
   thinkingContent: string | null;
   segments: MessageSegment[];
-  toolCalls: ToolCall[];
   cleanContent: string;
 }> = ({
   message,
   viewMode,
   thinkingContent,
   segments,
-  toolCalls,
   cleanContent,
 }) => (
   <div
-    className="w-full flex justify-start space-y-2 group"
+    className="w-full flex justify-start group"
     data-testid={`message-${message.role}`}
     data-message-id={message.id}
   >
-    <div className="max-w-[80%] space-y-2 overflow-hidden">
-      {/* Thinking process (for reasoning models) */}
-      {thinkingContent && <ThinkingBlock content={thinkingContent} />}
+    <div className="w-full space-y-3 overflow-hidden">
+      {viewMode === 'raw' ? (
+        /* Raw mode: show unprocessed content with no parsing */
+        <pre className="text-xs whitespace-pre-wrap leading-relaxed font-mono" data-testid="message-content">
+          {message.content}
+        </pre>
+      ) : (
+        <>
+          {/* Thinking process (for reasoning models) */}
+          {thinkingContent && <ThinkingBlock content={thinkingContent} />}
 
-      {/* Interleaved text, command blocks, and tool calls in chronological order */}
-      {segments.map((segment, index) => {
-        if (segment.type === 'command') {
-          return (
-            <CommandExecBlock
-              key={`seg-cmd-${index}`}
-              blocks={[{ command: segment.command, output: segment.output }]}
-            />
-          );
-        }
-        if (segment.type === 'tool_call') {
-          return (
-            <ToolCallBlock
-              key={`seg-tc-${index}`}
-              toolCalls={[segment.toolCall]}
-            />
-          );
-        }
-        // Text segment
-        const text = segment.content;
-        if (!text.trim()) return null;
-        return (
-          <div key={`seg-txt-${index}`} className="flat-message-assistant p-4">
-            {viewMode === 'markdown' ? (
-              <MarkdownContent content={text} testId="message-content" />
-            ) : (
-              <p className="text-sm whitespace-pre-wrap leading-relaxed" data-testid="message-content">
-                {text}
-              </p>
-            )}
-          </div>
-        );
-      })}
+          {/* Interleaved text, command blocks, and tool calls in chronological order */}
+          {segments.map((segment, index) => {
+            if (segment.type === 'command') {
+              return (
+                <CommandExecBlock
+                  key={`seg-cmd-${index}`}
+                  blocks={[{ command: segment.command, output: segment.output }]}
+                />
+              );
+            }
+            if (segment.type === 'tool_call') {
+              return (
+                <ToolCallBlock
+                  key={`seg-tc-${index}`}
+                  toolCalls={[segment.toolCall]}
+                />
+              );
+            }
+            // Text segment — no bubble, just text on background
+            const text = segment.content;
+            if (!text.trim()) return null;
+            return (
+              <div key={`seg-txt-${index}`}>
+                {viewMode === 'markdown' ? (
+                  <MarkdownContent content={text} testId="message-content" />
+                ) : (
+                  <p className="text-sm whitespace-pre-wrap leading-relaxed" data-testid="message-content">
+                    {text}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </>
+      )}
 
       {/* Copy button - appears on hover */}
       {cleanContent.trim() && <CopyButton text={cleanContent} />}
@@ -202,7 +213,6 @@ const AssistantMessage: React.FC<{
  */
 export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode = 'text' }) => {
   const {
-    toolCalls,
     cleanContent,
     thinkingContent,
     segments,
@@ -210,11 +220,12 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode 
   } = useMessageParsing(message);
 
   // System messages
+  const displayContent = viewMode === 'raw' ? message.content : cleanContent;
   if (message.role === 'system') {
     if (message.isSystemPrompt) {
-      return <SystemPromptMessage message={message} cleanContent={cleanContent} />;
+      return <SystemPromptMessage message={message} cleanContent={displayContent} />;
     }
-    return <SystemMessage message={message} cleanContent={cleanContent} isError={isError} />;
+    return <SystemMessage message={message} cleanContent={displayContent} isError={isError} />;
   }
 
   // User messages
@@ -229,7 +240,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode 
       viewMode={viewMode}
       thinkingContent={thinkingContent}
       segments={segments}
-      toolCalls={toolCalls}
       cleanContent={cleanContent}
     />
   );
