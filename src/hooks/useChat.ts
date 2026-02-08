@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import { toast } from 'react-hot-toast';
-import { createChatTransport, type ChatTransport } from '../utils/chatTransport';
+import { createChatTransport, type ChatTransport, type TimingInfo } from '../utils/chatTransport';
 import { autoParseToolCalls } from '../utils/toolParser';
 import { useConversationUrl } from './useConversationUrl';
 import { useToolExecution } from './useToolExecution';
@@ -57,6 +57,7 @@ export function useChat() {
   const [error, setError] = useState<string | null>(null);
   const [tokensUsed, setTokensUsed] = useState<number | undefined>(undefined);
   const [maxTokens, setMaxTokens] = useState<number | undefined>(undefined);
+  const [lastTimings, setLastTimings] = useState<TimingInfo | undefined>(undefined);
   const messagesRef = useRef<Message[]>([]);
 
   // Refs for streaming state
@@ -72,6 +73,7 @@ export function useChat() {
     setError(null);
     setTokensUsed(undefined);
     setMaxTokens(undefined);
+    setLastTimings(undefined);
   }, []);
 
   useEffect(() => {
@@ -141,10 +143,10 @@ export function useChat() {
           if (tokenCount !== undefined) setTokensUsed(tokenCount);
           if (maxTokenCount !== undefined) setMaxTokens(maxTokenCount);
         },
-        onComplete: (_messageId, conversationId, tokenCount, maxTokenCount) => {
+        onComplete: (_messageId, conversationId, tokenCount, maxTokenCount, timings) => {
           if (streamSeqRef.current !== streamSeq) return;
           isStreamingRef.current = false;
-          console.log('[useChat] Streaming complete');
+          console.log('[useChat] Streaming complete', timings ? `gen=${timings.genTokPerSec?.toFixed(1)} tok/s` : '');
           notifyIfUnfocused('Generation complete', 'Your AI response is ready.');
 
           if (!currentConversationId) {
@@ -152,6 +154,7 @@ export function useChat() {
           }
           if (tokenCount !== undefined) setTokensUsed(tokenCount);
           if (maxTokenCount !== undefined) setMaxTokens(maxTokenCount);
+          if (timings) setLastTimings(timings);
 
           setIsLoading(false);
           setMessages(prev => {
@@ -322,5 +325,6 @@ export function useChat() {
     currentConversationId,
     tokensUsed,
     maxTokens,
+    lastTimings,
   };
 }

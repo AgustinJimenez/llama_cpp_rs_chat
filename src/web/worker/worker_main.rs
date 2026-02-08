@@ -400,13 +400,15 @@ fn run_generation(params: GenerationParams) {
             .unwrap_or_default();
 
         match result {
-            Ok((_response, tokens_used, max_tokens)) => {
+            Ok(output) => {
                 let _ = tx.send(WorkerResponse::ok(
                     req_id,
                     WorkerPayload::GenerationComplete {
                         conversation_id: final_conv_id,
-                        tokens_used,
-                        max_tokens,
+                        tokens_used: output.tokens_used,
+                        max_tokens: output.max_tokens,
+                        prompt_tok_per_sec: output.prompt_tok_per_sec,
+                        gen_tok_per_sec: output.gen_tok_per_sec,
                     },
                 ));
             }

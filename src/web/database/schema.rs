@@ -138,6 +138,62 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         [],
     );
 
+    // Add advanced context params columns if missing
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN flash_attention INTEGER DEFAULT 0",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN cache_type_k TEXT DEFAULT 'f16'",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN cache_type_v TEXT DEFAULT 'f16'",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN n_batch INTEGER DEFAULT 2048",
+        [],
+    );
+
+    // Add extended sampling parameter columns if missing
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN typical_p REAL DEFAULT 1.0",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN frequency_penalty REAL DEFAULT 0.0",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN presence_penalty REAL DEFAULT 0.0",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN penalty_last_n INTEGER DEFAULT 64",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN dry_multiplier REAL DEFAULT 0.0",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN dry_base REAL DEFAULT 1.75",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN dry_allowed_length INTEGER DEFAULT 2",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN dry_penalty_last_n INTEGER DEFAULT -1",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN top_n_sigma REAL DEFAULT -1.0",
+        [],
+    );
+
     // Insert default config row if it doesn't exist
     conn.execute(
         "INSERT OR IGNORE INTO config (id, updated_at) VALUES (1, ?1)",

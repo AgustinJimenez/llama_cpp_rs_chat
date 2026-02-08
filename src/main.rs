@@ -325,6 +325,7 @@ async fn generate_stream(
                 conversation_id,
                 tokens_used,
                 max_tokens,
+                ..
             }) => {
                 let _ = app.emit(
                     "chat-done",

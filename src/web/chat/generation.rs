@@ -1,14 +1,15 @@
 use llama_cpp_2::{
-    context::params::LlamaContextParams,
+    context::params::{KvCacheType, LlamaContextParams},
     context::LlamaContext,
     llama_batch::LlamaBatch,
-    model::{AddBos, Special},
+    model::{AddBos, LlamaModel, Special},
     sampling::LlamaSampler,
     token::LlamaToken,
 };
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::mpsc;
 
 use super::super::config::load_config;
@@ -25,18 +26,96 @@ use crate::{log_debug, log_info, log_warn, sys_debug, sys_error, sys_warn};
 
 // Constants for LLaMA configuration
 const CONTEXT_SIZE: u32 = 32768;
+
+/// Parse a KV cache type string (from config) into the llama-cpp-2 enum.
+fn parse_kv_cache_type(s: &str) -> KvCacheType {
+    match s.to_lowercase().as_str() {
+        "f32" => KvCacheType::F32,
+        "f16" => KvCacheType::F16,
+        "q8_0" => KvCacheType::Q8_0,
+        "q4_0" => KvCacheType::Q4_0,
+        "q4_1" => KvCacheType::Q4_1,
+        "q5_0" => KvCacheType::Q5_0,
+        "q5_1" => KvCacheType::Q5_1,
+        _ => KvCacheType::F16, // default
+    }
+}
 const MODEL_PATH: &str =
     "/app/models/lmstudio-community/granite-4.0-h-tiny-GGUF/granite-4.0-h-tiny-Q4_K_M.gguf";
 
-/// Create a sampler based on the configuration
-fn create_sampler(config: &SamplerConfig, conversation_id: &str) -> LlamaSampler {
-    let use_penalties = config.repeat_penalty > 1.0;
+/// Output from a generation run, including timing metrics.
+pub struct GenerationOutput {
+    #[allow(dead_code)]
+    pub response: String,
+    pub tokens_used: i32,
+    pub max_tokens: i32,
+    /// Prompt evaluation speed in tokens/second.
+    pub prompt_tok_per_sec: Option<f64>,
+    /// Generation speed in tokens/second.
+    pub gen_tok_per_sec: Option<f64>,
+}
+
+/// Common sequence breakers for the DRY anti-repetition sampler.
+const DRY_SEQ_BREAKERS: &[&[u8]] = &[b"\n", b".", b",", b"!", b"?", b";", b":", b" "];
+
+/// Create a sampler based on the configuration.
+///
+/// `model` is needed only for the DRY sampler; pass `None` if unavailable.
+fn create_sampler(
+    config: &SamplerConfig,
+    conversation_id: &str,
+    model: Option<&LlamaModel>,
+) -> LlamaSampler {
+    let use_penalties = config.repeat_penalty > 1.0
+        || config.frequency_penalty > 0.0
+        || config.presence_penalty > 0.0;
+
     if use_penalties {
         log_info!(
             conversation_id,
-            "Repeat penalty enabled: {}",
-            config.repeat_penalty
+            "Penalties enabled: repeat={}, freq={}, presence={}, last_n={}",
+            config.repeat_penalty,
+            config.frequency_penalty,
+            config.presence_penalty,
+            config.penalty_last_n
         );
+    }
+
+    /// Push the standard penalty sampler onto a chain when any penalty is active.
+    fn push_penalties(samplers: &mut Vec<LlamaSampler>, config: &SamplerConfig) {
+        samplers.push(LlamaSampler::penalties(
+            config.penalty_last_n,
+            config.repeat_penalty as f32,
+            config.frequency_penalty as f32,
+            config.presence_penalty as f32,
+        ));
+    }
+
+    /// Push DRY anti-repetition sampler when multiplier > 0 and model is available.
+    fn push_dry(
+        samplers: &mut Vec<LlamaSampler>,
+        config: &SamplerConfig,
+        model: Option<&LlamaModel>,
+    ) {
+        if config.dry_multiplier > 0.0 {
+            if let Some(m) = model {
+                samplers.push(LlamaSampler::dry(
+                    m,
+                    config.dry_multiplier as f32,
+                    config.dry_base as f32,
+                    config.dry_allowed_length,
+                    config.dry_penalty_last_n,
+                    DRY_SEQ_BREAKERS.iter().copied(),
+                ));
+            }
+        }
+    }
+
+    /// Push top-N sigma filter when enabled (value > 0).
+    fn push_top_n_sigma(samplers: &mut Vec<LlamaSampler>, config: &SamplerConfig) {
+        if config.top_n_sigma > 0.0 {
+            samplers.push(LlamaSampler::top_n_sigma(config.top_n_sigma as f32));
+        }
     }
 
     match config.sampler_type.as_str() {
@@ -44,58 +123,162 @@ fn create_sampler(config: &SamplerConfig, conversation_id: &str) -> LlamaSampler
             log_info!(
                 conversation_id,
                 "Using Temperature sampler: temp={}, top_p={}, top_k={}",
-                config.temperature,
-                config.top_p,
-                config.top_k
+                config.temperature, config.top_p, config.top_k
             );
-            let mut samplers: Vec<LlamaSampler> = Vec::new();
-            if use_penalties {
-                // penalties must come before other samplers per llama.cpp docs
-                samplers.push(LlamaSampler::penalties(
-                    64, // last_n tokens to penalize
-                    config.repeat_penalty as f32,
-                    0.0, // freq penalty disabled
-                    0.0, // presence penalty disabled
-                ));
-            }
-            samplers.push(LlamaSampler::temp(config.temperature as f32));
-            samplers.push(LlamaSampler::top_k(config.top_k as i32));
-            samplers.push(LlamaSampler::top_p(config.top_p as f32, 1));
+            let mut s: Vec<LlamaSampler> = Vec::new();
+            if use_penalties { push_penalties(&mut s, config); }
+            push_dry(&mut s, config, model);
+            push_top_n_sigma(&mut s, config);
+            s.push(LlamaSampler::temp(config.temperature as f32));
+            s.push(LlamaSampler::top_k(config.top_k as i32));
+            s.push(LlamaSampler::top_p(config.top_p as f32, 1));
             if config.min_p > 0.0 {
-                samplers.push(LlamaSampler::min_p(config.min_p as f32, 1));
+                s.push(LlamaSampler::min_p(config.min_p as f32, 1));
             }
-            samplers.push(LlamaSampler::dist(1234));
-            LlamaSampler::chain_simple(samplers)
+            s.push(LlamaSampler::dist(1234));
+            LlamaSampler::chain_simple(s)
         }
+
         "Mirostat" => {
             log_info!(
                 conversation_id,
                 "Using Mirostat sampler: tau={}, eta={}",
-                config.mirostat_tau,
-                config.mirostat_eta
+                config.mirostat_tau, config.mirostat_eta
             );
-            // Mirostat doesn't support chaining with penalties
+            // Mirostat is a standalone sampler (doesn't chain well with penalties)
             LlamaSampler::mirostat(
-                0,    // n_vocab
+                0,    // n_vocab (0 = auto)
                 1234, // seed
                 config.mirostat_tau as f32,
                 config.mirostat_eta as f32,
-                100, // m
+                100,  // m
             )
         }
+
+        "TopP" => {
+            log_info!(conversation_id, "Using TopP sampler: top_p={}", config.top_p);
+            let mut s: Vec<LlamaSampler> = Vec::new();
+            if use_penalties { push_penalties(&mut s, config); }
+            push_dry(&mut s, config, model);
+            push_top_n_sigma(&mut s, config);
+            s.push(LlamaSampler::top_p(config.top_p as f32, 1));
+            s.push(LlamaSampler::dist(1234));
+            LlamaSampler::chain_simple(s)
+        }
+
+        "TopK" => {
+            log_info!(conversation_id, "Using TopK sampler: top_k={}", config.top_k);
+            let mut s: Vec<LlamaSampler> = Vec::new();
+            if use_penalties { push_penalties(&mut s, config); }
+            push_dry(&mut s, config, model);
+            push_top_n_sigma(&mut s, config);
+            s.push(LlamaSampler::top_k(config.top_k as i32));
+            s.push(LlamaSampler::dist(1234));
+            LlamaSampler::chain_simple(s)
+        }
+
+        "Typical" => {
+            log_info!(conversation_id, "Using Typical sampler: p={}", config.typical_p);
+            let mut s: Vec<LlamaSampler> = Vec::new();
+            if use_penalties { push_penalties(&mut s, config); }
+            push_dry(&mut s, config, model);
+            push_top_n_sigma(&mut s, config);
+            s.push(LlamaSampler::typical(config.typical_p as f32, 1));
+            s.push(LlamaSampler::dist(1234));
+            LlamaSampler::chain_simple(s)
+        }
+
+        "MinP" => {
+            log_info!(conversation_id, "Using MinP sampler: min_p={}", config.min_p);
+            let mut s: Vec<LlamaSampler> = Vec::new();
+            if use_penalties { push_penalties(&mut s, config); }
+            push_dry(&mut s, config, model);
+            push_top_n_sigma(&mut s, config);
+            s.push(LlamaSampler::min_p(config.min_p as f32, 1));
+            s.push(LlamaSampler::dist(1234));
+            LlamaSampler::chain_simple(s)
+        }
+
+        "TempExt" => {
+            log_info!(
+                conversation_id,
+                "Using TempExt (dynamic temperature) sampler: temp={}",
+                config.temperature
+            );
+            let mut s: Vec<LlamaSampler> = Vec::new();
+            if use_penalties { push_penalties(&mut s, config); }
+            push_dry(&mut s, config, model);
+            push_top_n_sigma(&mut s, config);
+            // temp_ext(t, delta, exponent) — delta/exponent not yet exposed in UI
+            s.push(LlamaSampler::temp_ext(config.temperature as f32, 0.0, 1.0));
+            s.push(LlamaSampler::dist(1234));
+            LlamaSampler::chain_simple(s)
+        }
+
+        "ChainTempTopP" => {
+            log_info!(
+                conversation_id,
+                "Using ChainTempTopP: temp={}, top_p={}",
+                config.temperature, config.top_p
+            );
+            let mut s: Vec<LlamaSampler> = Vec::new();
+            if use_penalties { push_penalties(&mut s, config); }
+            push_dry(&mut s, config, model);
+            push_top_n_sigma(&mut s, config);
+            s.push(LlamaSampler::temp(config.temperature as f32));
+            s.push(LlamaSampler::top_p(config.top_p as f32, 1));
+            s.push(LlamaSampler::dist(1234));
+            LlamaSampler::chain_simple(s)
+        }
+
+        "ChainTempTopK" => {
+            log_info!(
+                conversation_id,
+                "Using ChainTempTopK: temp={}, top_k={}",
+                config.temperature, config.top_k
+            );
+            let mut s: Vec<LlamaSampler> = Vec::new();
+            if use_penalties { push_penalties(&mut s, config); }
+            push_dry(&mut s, config, model);
+            push_top_n_sigma(&mut s, config);
+            s.push(LlamaSampler::temp(config.temperature as f32));
+            s.push(LlamaSampler::top_k(config.top_k as i32));
+            s.push(LlamaSampler::dist(1234));
+            LlamaSampler::chain_simple(s)
+        }
+
+        "ChainFull" => {
+            log_info!(
+                conversation_id,
+                "Using ChainFull: temp={}, top_k={}, top_p={}, min_p={}, typical_p={}",
+                config.temperature, config.top_k, config.top_p, config.min_p, config.typical_p
+            );
+            let mut s: Vec<LlamaSampler> = Vec::new();
+            if use_penalties { push_penalties(&mut s, config); }
+            push_dry(&mut s, config, model);
+            push_top_n_sigma(&mut s, config);
+            s.push(LlamaSampler::temp(config.temperature as f32));
+            s.push(LlamaSampler::top_k(config.top_k as i32));
+            s.push(LlamaSampler::top_p(config.top_p as f32, 1));
+            if config.min_p > 0.0 {
+                s.push(LlamaSampler::min_p(config.min_p as f32, 1));
+            }
+            if config.typical_p < 1.0 {
+                s.push(LlamaSampler::typical(config.typical_p as f32, 1));
+            }
+            s.push(LlamaSampler::dist(1234));
+            LlamaSampler::chain_simple(s)
+        }
+
+        // "Greedy" and any unknown type
         _ => {
-            log_info!(conversation_id, "Using Greedy sampler (default)");
+            log_info!(conversation_id, "Using Greedy sampler");
             if use_penalties {
-                // For Greedy with penalties: penalties → greedy
-                LlamaSampler::chain_simple([
-                    LlamaSampler::penalties(
-                        64,
-                        config.repeat_penalty as f32,
-                        0.0,
-                        0.0,
-                    ),
-                    LlamaSampler::greedy(),
-                ])
+                let mut s: Vec<LlamaSampler> = Vec::new();
+                push_penalties(&mut s, config);
+                push_dry(&mut s, config, model);
+                s.push(LlamaSampler::greedy());
+                LlamaSampler::chain_simple(s)
             } else {
                 LlamaSampler::greedy()
             }
@@ -115,7 +298,7 @@ pub async fn generate_llama_response(
     skip_user_logging: bool,
     db: &Database,
     cancel: Arc<AtomicBool>,
-) -> Result<(String, i32, i32), String> {
+) -> Result<GenerationOutput, String> {
     sys_debug!(
         "[GENERATION] generate_llama_response called, token_sender is {}",
         if token_sender.is_some() {
@@ -175,8 +358,8 @@ pub async fn generate_llama_response(
         state.model_context_length
     );
 
-    // Create sampler based on configuration
-    let mut sampler = create_sampler(&config, &conversation_id);
+    // Create sampler based on configuration (pass model for DRY sampler)
+    let mut sampler = create_sampler(&config, &conversation_id, Some(model));
 
     // Read conversation history from file and create chat prompt
     let conversation_content = {
@@ -237,11 +420,26 @@ pub async fn generate_llama_response(
     // Context parameters
     let n_ctx = NonZeroU32::new(context_size).expect("Context size must be non-zero");
     let offload_kqv = state.gpu_layers.unwrap_or(0) > 0;
+    let flash_attention = config.flash_attention;
+    let cache_type_k = config.cache_type_k.clone();
+    let cache_type_v = config.cache_type_v.clone();
+    let n_batch = config.n_batch;
     if offload_kqv {
         log_info!(
             &conversation_id,
             "⚡ KV cache on GPU ({} layers offloaded)",
             state.gpu_layers.unwrap_or(0)
+        );
+    }
+    if flash_attention {
+        log_info!(&conversation_id, "⚡ Flash attention enabled");
+    }
+    if cache_type_k != "f16" || cache_type_v != "f16" {
+        log_info!(
+            &conversation_id,
+            "KV cache quantization: K={}, V={}",
+            cache_type_k,
+            cache_type_v
         );
     }
 
@@ -251,7 +449,10 @@ pub async fn generate_llama_response(
         Some(cache)
             if cache.conversation_id == conversation_id
                 && cache.context_size == context_size
-                && cache.offload_kqv == offload_kqv =>
+                && cache.offload_kqv == offload_kqv
+                && cache.flash_attention == flash_attention
+                && cache.cache_type_k == cache_type_k
+                && cache.cache_type_v == cache_type_v =>
         {
             // Cache hit: find common prefix between cached and new tokens
             let common_len = cache
@@ -296,9 +497,17 @@ pub async fn generate_llama_response(
                 "Step 3: Creating fresh context (size={}K tokens)...",
                 context_size / 1024
             );
-            let ctx_params = LlamaContextParams::default()
+            let mut ctx_params = LlamaContextParams::default()
                 .with_n_ctx(Some(n_ctx))
-                .with_offload_kqv(offload_kqv);
+                .with_offload_kqv(offload_kqv)
+                .with_type_k(parse_kv_cache_type(&cache_type_k))
+                .with_type_v(parse_kv_cache_type(&cache_type_v))
+                .with_n_batch(n_batch);
+            if flash_attention {
+                ctx_params = ctx_params.with_flash_attention_policy(
+                    1, // LLAMA_FLASH_ATTN_TYPE_ENABLED
+                );
+            }
 
             // SAFETY: We erase the lifetime to 'static so the context can be stored
             // in InferenceCache. The model MUST outlive the context — enforced by
@@ -324,6 +533,9 @@ pub async fn generate_llama_response(
     if cancel.load(Ordering::Relaxed) {
         return Err("Cancelled".to_string());
     }
+
+    let prompt_eval_start = Instant::now();
+    let n_prompt_eval = new_tokens.len();
 
     if !new_tokens.is_empty() {
         let new_chunks = new_tokens.len().div_ceil(batch_cap);
@@ -369,6 +581,9 @@ pub async fn generate_llama_response(
             prompt_tokens
         );
     }
+
+    let prompt_eval_ms = prompt_eval_start.elapsed().as_secs_f64() * 1000.0;
+    let gen_start = Instant::now();
 
     let mut batch = LlamaBatch::new(batch_cap, 1);
 
@@ -709,6 +924,30 @@ pub async fn generate_llama_response(
         response.len()
     );
 
+    // Capture timing metrics via manual Instant timing
+    // (llama_perf_context returns 0ms in some llama.cpp builds)
+    let gen_eval_ms = gen_start.elapsed().as_secs_f64() * 1000.0;
+    let prompt_tok_per_sec = if prompt_eval_ms > 0.0 && n_prompt_eval > 0 {
+        Some(n_prompt_eval as f64 / prompt_eval_ms * 1000.0)
+    } else {
+        None
+    };
+    let gen_tok_per_sec = if gen_eval_ms > 0.0 && total_tokens_generated > 0 {
+        Some(total_tokens_generated as f64 / gen_eval_ms * 1000.0)
+    } else {
+        None
+    };
+    log_info!(
+        &conversation_id,
+        "Timing: prompt={:.1} tok/s ({} tokens in {:.0}ms), gen={:.1} tok/s ({} tokens in {:.0}ms)",
+        prompt_tok_per_sec.unwrap_or(0.0),
+        n_prompt_eval,
+        prompt_eval_ms,
+        gen_tok_per_sec.unwrap_or(0.0),
+        total_tokens_generated,
+        gen_eval_ms
+    );
+
     // Finish assistant message
     let was_cancelled = cancel.load(Ordering::Relaxed);
     {
@@ -732,6 +971,9 @@ pub async fn generate_llama_response(
         evaluated_tokens: all_evaluated,
         context_size,
         offload_kqv,
+        flash_attention,
+        cache_type_k,
+        cache_type_v,
     });
     log_info!(
         &conversation_id,
@@ -740,5 +982,11 @@ pub async fn generate_llama_response(
         gen_count
     );
 
-    Ok((response.trim().to_string(), token_pos, max_total_tokens))
+    Ok(GenerationOutput {
+        response: response.trim().to_string(),
+        tokens_used: token_pos,
+        max_tokens: max_total_tokens,
+        prompt_tok_per_sec,
+        gen_tok_per_sec,
+    })
 }

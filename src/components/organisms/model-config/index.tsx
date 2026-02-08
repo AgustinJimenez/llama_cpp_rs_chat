@@ -21,6 +21,7 @@ import { ModelMetadataDisplay } from './ModelMetadataDisplay';
 import { ContextSizeSection } from './ContextSizeSection';
 import { GpuLayersSection } from './GpuLayersSection';
 import { SamplingParametersSection } from './SamplingParametersSection';
+import { AdvancedContextSection } from './AdvancedContextSection';
 
 import { MemoryVisualization } from './MemoryVisualization';
 
@@ -189,7 +190,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     console.log('[ModelConfig] Auto-applied preset for:', generalName, preset);
   }, [generalName, recommendedParams]);
 
-  const handleInputChange = (field: keyof SamplerConfig, value: string | number) => {
+  const handleInputChange = (field: keyof SamplerConfig, value: string | number | boolean) => {
     setConfig(prev => ({
       ...prev,
       [field]: value
@@ -389,6 +390,11 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                   {modelInfo && (
                     <MemoryVisualization memory={memoryBreakdown} />
                   )}
+
+                  <AdvancedContextSection
+                    config={config}
+                    onConfigChange={handleInputChange}
+                  />
 
                   <SamplingParametersSection
                     config={config}

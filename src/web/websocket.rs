@@ -189,16 +189,20 @@ pub async fn handle_websocket(
                                         &mut debug,
                                     ).await;
 
-                                    // Get conversation_id from completion result
-                                    let conversation_id = match done_rx.await {
-                                        Ok(GenerationResult::Complete { conversation_id, .. }) => conversation_id,
-                                        Ok(GenerationResult::Cancelled) => String::new(),
-                                        Ok(GenerationResult::Error(_)) | Err(_) => String::new(),
+                                    // Get conversation_id and timings from completion result
+                                    let (conversation_id, prompt_tps, gen_tps) = match done_rx.await {
+                                        Ok(GenerationResult::Complete { conversation_id, prompt_tok_per_sec, gen_tok_per_sec, .. }) => {
+                                            (conversation_id, prompt_tok_per_sec, gen_tok_per_sec)
+                                        }
+                                        Ok(GenerationResult::Cancelled) => (String::new(), None, None),
+                                        Ok(GenerationResult::Error(_)) | Err(_) => (String::new(), None, None),
                                     };
 
                                     let done_msg = serde_json::json!({
                                         "type": "done",
-                                        "conversation_id": conversation_id
+                                        "conversation_id": conversation_id,
+                                        "prompt_tok_per_sec": prompt_tps,
+                                        "gen_tok_per_sec": gen_tps
                                     });
                                     let _ = ws_sender.send(WsMessage::Text(done_msg.to_string())).await;
                                     sys_debug!("[WS_CHAT] Done message sent");

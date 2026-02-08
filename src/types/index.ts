@@ -33,6 +33,21 @@ export interface SamplerConfig {
   mirostat_eta: number;
   repeat_penalty: number;
   min_p: number;
+  // Extended sampling params
+  typical_p?: number;
+  frequency_penalty?: number;
+  presence_penalty?: number;
+  penalty_last_n?: number;
+  dry_multiplier?: number;
+  dry_base?: number;
+  dry_allowed_length?: number;
+  dry_penalty_last_n?: number;
+  top_n_sigma?: number;
+  // Advanced context params
+  flash_attention?: boolean;
+  cache_type_k?: string;   // "f16" | "q8_0" | "q4_0"
+  cache_type_v?: string;   // "f16" | "q8_0" | "q4_0"
+  n_batch?: number;        // default 2048
   model_path?: string;
   system_prompt?: string;
   context_size?: number;

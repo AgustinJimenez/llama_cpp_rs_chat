@@ -7,6 +7,7 @@ interface ChatHeaderProps {
   isModelLoading: boolean;
   tokensUsed?: number;
   maxTokens?: number;
+  genTokPerSec?: number;
   viewMode: ViewMode;
   isRightSidebarOpen: boolean;
   onModelUnload: () => void;
@@ -22,6 +23,7 @@ export function ChatHeader({
   isModelLoading,
   tokensUsed,
   maxTokens,
+  genTokPerSec,
   viewMode,
   isRightSidebarOpen,
   onModelUnload,
@@ -74,6 +76,11 @@ export function ChatHeader({
           {tokensUsed !== undefined && maxTokens !== undefined && (
             <span className="text-xs text-muted-foreground font-mono">
               {tokensUsed}/{maxTokens}
+            </span>
+          )}
+          {genTokPerSec !== undefined && genTokPerSec > 0 && (
+            <span className="text-xs text-muted-foreground font-mono" title="Generation speed">
+              {genTokPerSec.toFixed(1)} tok/s
             </span>
           )}
 

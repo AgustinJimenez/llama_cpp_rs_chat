@@ -24,6 +24,12 @@ pub struct InferenceCache {
     pub context_size: u32,
     /// Whether GPU KV offload was enabled.
     pub offload_kqv: bool,
+    /// Whether flash attention was enabled.
+    pub flash_attention: bool,
+    /// KV cache quantization type for K.
+    pub cache_type_k: String,
+    /// KV cache quantization type for V.
+    pub cache_type_v: String,
 }
 
 // SAFETY: LlamaContext wraps a raw C pointer (NonNull) which is !Send by default.
@@ -62,6 +68,34 @@ pub struct SamplerConfig {
     pub repeat_penalty: f64,
     #[serde(default)]
     pub min_p: f64,
+    // Extended sampling params
+    #[serde(default = "default_typical_p")]
+    pub typical_p: f64,
+    #[serde(default)]
+    pub frequency_penalty: f64,
+    #[serde(default)]
+    pub presence_penalty: f64,
+    #[serde(default = "default_penalty_last_n")]
+    pub penalty_last_n: i32,
+    #[serde(default)]
+    pub dry_multiplier: f64,
+    #[serde(default = "default_dry_base")]
+    pub dry_base: f64,
+    #[serde(default = "default_dry_allowed_length")]
+    pub dry_allowed_length: i32,
+    #[serde(default = "default_dry_penalty_last_n")]
+    pub dry_penalty_last_n: i32,
+    #[serde(default = "default_top_n_sigma")]
+    pub top_n_sigma: f64,
+    // Advanced context params
+    #[serde(default)]
+    pub flash_attention: bool,
+    #[serde(default = "default_cache_type")]
+    pub cache_type_k: String,
+    #[serde(default = "default_cache_type")]
+    pub cache_type_v: String,
+    #[serde(default = "default_n_batch")]
+    pub n_batch: u32,
     pub model_path: Option<String>,
     pub system_prompt: Option<String>,
     #[serde(default)]
@@ -80,6 +114,38 @@ fn default_true() -> bool {
 
 fn default_repeat_penalty() -> f64 {
     1.0
+}
+
+fn default_cache_type() -> String {
+    "f16".to_string()
+}
+
+fn default_n_batch() -> u32 {
+    2048
+}
+
+fn default_typical_p() -> f64 {
+    1.0
+}
+
+fn default_penalty_last_n() -> i32 {
+    64
+}
+
+fn default_dry_base() -> f64 {
+    1.75
+}
+
+fn default_dry_allowed_length() -> i32 {
+    2
+}
+
+fn default_dry_penalty_last_n() -> i32 {
+    -1
+}
+
+fn default_top_n_sigma() -> f64 {
+    -1.0
 }
 
 // Common stop tokens for different model providers
@@ -109,6 +175,19 @@ impl Default for SamplerConfig {
             mirostat_eta: 0.1,
             repeat_penalty: 1.0,
             min_p: 0.0,
+            typical_p: 1.0,
+            frequency_penalty: 0.0,
+            presence_penalty: 0.0,
+            penalty_last_n: 64,
+            dry_multiplier: 0.0,
+            dry_base: 1.75,
+            dry_allowed_length: 2,
+            dry_penalty_last_n: -1,
+            top_n_sigma: -1.0,
+            flash_attention: false,
+            cache_type_k: "f16".to_string(),
+            cache_type_v: "f16".to_string(),
+            n_batch: 2048,
             model_path: Some("/app/models/lmstudio-community/granite-4.0-h-tiny-GGUF/granite-4.0-h-tiny-Q4_K_M.gguf".to_string()),
             system_prompt: None,
             system_prompt_type: SystemPromptType::default(),

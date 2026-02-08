@@ -82,6 +82,10 @@ pub enum WorkerPayload {
         conversation_id: String,
         tokens_used: i32,
         max_tokens: i32,
+        /// Prompt evaluation speed (tokens/second).
+        prompt_tok_per_sec: Option<f64>,
+        /// Generation speed (tokens/second).
+        gen_tok_per_sec: Option<f64>,
     },
     /// Generation was cancelled by the user.
     GenerationCancelled,

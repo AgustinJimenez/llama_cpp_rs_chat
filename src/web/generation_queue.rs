@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, oneshot};
 
-use super::chat::generate_llama_response;
+use super::chat::{generate_llama_response, GenerationOutput};
 use super::database::SharedDatabase;
 use super::models::{SharedConversationLogger, SharedLlamaState, TokenData};
 
@@ -27,7 +27,7 @@ pub struct GenerationRequest {
     /// Caller sets this to `true` to request early stop.
     pub cancel: CancellationFlag,
     /// One-shot channel to deliver the final result back to the caller.
-    pub result_sender: oneshot::Sender<Result<(String, i32, i32), String>>,
+    pub result_sender: oneshot::Sender<Result<GenerationOutput, String>>,
 }
 
 /// Cloneable handle that route handlers use to submit generation work.

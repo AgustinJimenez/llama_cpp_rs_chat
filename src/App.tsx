@@ -9,7 +9,7 @@ import { logToastError } from './utils/toastLogger';
 
 // eslint-disable-next-line max-lines-per-function
 function App() {
-  const { messages, isLoading, sendMessage, stopGeneration, clearMessages, loadConversation, currentConversationId, tokensUsed, maxTokens } = useChat();
+  const { messages, isLoading, sendMessage, stopGeneration, clearMessages, loadConversation, currentConversationId, tokensUsed, maxTokens, lastTimings } = useChat();
   const { status: modelStatus, isLoading: isModelLoading, loadingAction, error: modelError, hasStatusError, loadModel, unloadModel, hardUnload } = useModel();
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('markdown');
@@ -73,6 +73,7 @@ function App() {
             isModelLoading={isModelLoading}
             tokensUsed={tokensUsed}
             maxTokens={maxTokens}
+            genTokPerSec={lastTimings?.genTokPerSec}
             viewMode={viewMode}
             isRightSidebarOpen={isRightSidebarOpen}
             onModelUnload={handleModelUnload}

@@ -1,9 +1,14 @@
 import type { ChatRequest } from '../types';
 import { isTauriEnv } from './tauri';
 
+export interface TimingInfo {
+  promptTokPerSec?: number;
+  genTokPerSec?: number;
+}
+
 export interface StreamingCallbacks {
   onToken: (token: string, tokensUsed?: number, maxTokens?: number) => void;
-  onComplete: (messageId: string, conversationId: string, tokensUsed?: number, maxTokens?: number) => void;
+  onComplete: (messageId: string, conversationId: string, tokensUsed?: number, maxTokens?: number, timings?: TimingInfo) => void;
   onError: (error: string) => void;
 }
 
@@ -36,7 +41,7 @@ function handleStreamMessage(
   state: StreamState,
   callbacks: {
     onToken: (token: string, tokensUsed?: number, maxTokens?: number) => void;
-    onComplete: (messageId: string, conversationId: string, tokensUsed?: number, maxTokens?: number) => void;
+    onComplete: (messageId: string, conversationId: string, tokensUsed?: number, maxTokens?: number, timings?: TimingInfo) => void;
     onError: (error: string) => void;
   },
   settle: (error?: Error) => void,
@@ -55,7 +60,11 @@ function handleStreamMessage(
     if (message.type === 'done') {
       state.isCompleted = true;
       const conversationId = message.conversation_id || request.conversation_id || crypto.randomUUID();
-      callbacks.onComplete(crypto.randomUUID(), conversationId, state.lastTokensUsed, state.lastMaxTokens);
+      const timings: TimingInfo = {
+        promptTokPerSec: message.prompt_tok_per_sec,
+        genTokPerSec: message.gen_tok_per_sec,
+      };
+      callbacks.onComplete(crypto.randomUUID(), conversationId, state.lastTokensUsed, state.lastMaxTokens, timings);
       settle();
       return;
     }
