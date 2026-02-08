@@ -186,6 +186,7 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     temperature: 1.0,
     top_p: 0.95,
     top_k: 40,
+    repeat_penalty: 1.0,
   },
 };
 

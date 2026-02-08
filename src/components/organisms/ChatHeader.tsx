@@ -46,10 +46,10 @@ export function ChatHeader({
             <button
               onClick={onModelUnload}
               disabled={isModelLoading}
-              className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-muted transition-colors disabled:opacity-50"
+              className="p-1.5 rounded-md border border-border text-muted-foreground hover:text-destructive hover:border-destructive/50 hover:bg-destructive/10 transition-colors disabled:opacity-50"
               title="Unload model"
             >
-              <Unplug className="h-3.5 w-3.5" />
+              <Unplug className="h-4 w-4" />
             </button>
           </>
         )}
@@ -59,10 +59,10 @@ export function ChatHeader({
             <button
               onClick={onForceUnload}
               disabled={isModelLoading}
-              className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-muted transition-colors disabled:opacity-50"
+              className="p-1.5 rounded-md border border-border text-muted-foreground hover:text-destructive hover:border-destructive/50 hover:bg-destructive/10 transition-colors disabled:opacity-50"
               title="Force unload"
             >
-              <Unplug className="h-3.5 w-3.5" />
+              <Unplug className="h-4 w-4" />
             </button>
           </>
         )}

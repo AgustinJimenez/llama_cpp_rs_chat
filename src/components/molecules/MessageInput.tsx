@@ -68,7 +68,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
           <button
             type="button"
             onClick={onStopGeneration}
-            className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg bg-destructive text-white hover:opacity-90 transition-opacity"
+            className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-[hsl(220_10%_55%)] text-[hsl(220_10%_90%)] hover:bg-[hsl(220_10%_62%)] transition-colors"
             data-testid="stop-button"
             title="Stop generation"
           >
