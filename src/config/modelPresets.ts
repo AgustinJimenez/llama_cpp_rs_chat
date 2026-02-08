@@ -85,24 +85,28 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     temperature: 1.0,
     top_p: 0.95,
     top_k: 40,
+    repeat_penalty: 1.05,
   },
   "Qwen3 8B": {
     sampler_type: "Temperature",
     temperature: 0.7,
     top_p: 0.8,
     top_k: 20,
+    repeat_penalty: 1.0,
   },
   "Qwen_Qwen3 30B A3B Instruct 2507": {
     sampler_type: "Temperature",
     temperature: 0.7,
     top_p: 0.8,
     top_k: 20,
+    repeat_penalty: 1.0,
   },
   "Qwen3-Coder-30B-A3B-Instruct-1M": {
     sampler_type: "Temperature",
     temperature: 0.7,
     top_p: 0.8,
     top_k: 20,
+    repeat_penalty: 1.05,
   },
 
   // Mistral models
@@ -111,24 +115,28 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     temperature: 0.15,
     top_p: 0.95,
     top_k: 64,
+    repeat_penalty: 1.0,
   },
   "mistralai_Devstral Small 2 24B Instruct 2512": {
     sampler_type: "Temperature",
     temperature: 0.15,
     top_p: 0.95,
     top_k: 64,
+    repeat_penalty: 1.0,
   },
   "Magistral-Small-2509": {
     sampler_type: "Temperature",
     temperature: 0.7,
     top_p: 0.95,
     top_k: 40,
+    repeat_penalty: 1.0,
   },
   "mistralai_Ministral 3 14B Reasoning 2512": {
     sampler_type: "Temperature",
     temperature: 1.0,
     top_p: 0.95,
     top_k: 40,
+    repeat_penalty: 1.0,
   },
 
   // NVIDIA
@@ -137,6 +145,7 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     temperature: 1.0,
     top_p: 1.0,
     top_k: 40,
+    repeat_penalty: 1.0,
   },
 
   // Google
@@ -145,6 +154,7 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     temperature: 0.0,
     top_p: 1.0,
     top_k: 1,
+    repeat_penalty: 1.0,
   },
 
   // IBM
@@ -162,6 +172,7 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     temperature: 0.7,
     top_p: 0.95,
     top_k: 40,
+    repeat_penalty: 1.0,
   },
 
   // OpenBMB
@@ -170,6 +181,7 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     temperature: 0.6,
     top_p: 0.95,
     top_k: 40,
+    repeat_penalty: 1.02,
   },
 
   // EssentialAI
@@ -178,6 +190,7 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     temperature: 0.2,
     top_p: 0.95,
     top_k: 40,
+    repeat_penalty: 1.0,
   },
 
   // Zai
