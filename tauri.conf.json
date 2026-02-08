@@ -1,12 +1,12 @@
 {
   "productName": "LLaMA Chat",
   "version": "0.1.0",
-  "identifier": "com.llamachat.app",
+  "identifier": "com.llamachat.desktop",
   "build": {
     "beforeDevCommand": "vite --host --port 4000",
     "beforeBuildCommand": "npm run build",
     "devUrl": "http://localhost:4000",
-    "frontendDist": "../dist"
+    "frontendDist": "./dist"
   },
   "app": {
     "windows": [
@@ -22,6 +22,21 @@
     ],
     "security": {
       "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "both"
+      }
     }
   }
 }
