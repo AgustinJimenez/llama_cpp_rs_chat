@@ -254,16 +254,16 @@ pub fn run_worker(db_path: &str) {
                 );
 
                 generation_thread = Some(thread::spawn(move || {
-                    run_generation(
+                    run_generation(GenerationParams {
                         req_id,
                         user_message,
                         conversation_id,
                         skip_user_logging,
-                        state,
+                        llama_state: state,
                         db,
                         cancel,
                         tx,
-                    );
+                    });
                 }));
             }
         }
@@ -273,9 +273,8 @@ pub fn run_worker(db_path: &str) {
     std::process::exit(0);
 }
 
-/// Run a generation request on a background thread.
-/// Sends Token and GenerationComplete/Error responses through the channel.
-fn run_generation(
+/// Parameters for a generation request.
+struct GenerationParams {
     req_id: u64,
     user_message: String,
     conversation_id: Option<String>,
@@ -284,7 +283,11 @@ fn run_generation(
     db: SharedDatabase,
     cancel: Arc<AtomicBool>,
     tx: Sender<WorkerResponse>,
-) {
+}
+
+/// Run a generation request on a background thread.
+/// Sends Token and GenerationComplete/Error responses through the channel.
+fn run_generation(params: GenerationParams) {
     use crate::web::config::get_resolved_system_prompt;
     use crate::web::database::conversation::ConversationLogger;
     use tokio::sync::mpsc;
@@ -294,6 +297,17 @@ fn run_generation(
         .enable_all()
         .build()
         .expect("Failed to create tokio runtime for generation");
+
+    let GenerationParams {
+        req_id,
+        user_message,
+        conversation_id,
+        skip_user_logging,
+        llama_state,
+        db,
+        cancel,
+        tx,
+    } = params;
 
     rt.block_on(async {
         // Create or load conversation logger

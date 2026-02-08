@@ -4,7 +4,7 @@
 //! monitors its health, and restarts it on crash.
 
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 
 /// Manages the worker child process lifecycle.
@@ -12,7 +12,6 @@ pub struct ProcessManager {
     child: Mutex<Option<Child>>,
     db_path: String,
     restart_count: AtomicU32,
-    is_alive: AtomicBool,
 }
 
 impl ProcessManager {
@@ -24,7 +23,6 @@ impl ProcessManager {
             child: Mutex::new(Some(child)),
             db_path: db_path.to_string(),
             restart_count: AtomicU32::new(0),
-            is_alive: AtomicBool::new(true),
         })
     }
 
@@ -54,7 +52,6 @@ impl ProcessManager {
             }
             *guard = None;
         }
-        self.is_alive.store(false, Ordering::SeqCst);
     }
 
     /// Restart the worker process (after kill or crash).
@@ -66,7 +63,6 @@ impl ProcessManager {
         if let Ok(mut guard) = self.child.lock() {
             *guard = Some(child);
         }
-        self.is_alive.store(true, Ordering::SeqCst);
         self.restart_count.fetch_add(1, Ordering::Relaxed);
 
         eprintln!(
@@ -74,36 +70,6 @@ impl ProcessManager {
             self.restart_count.load(Ordering::Relaxed)
         );
         Ok(())
-    }
-
-    /// Check if the worker process is still alive (non-blocking).
-    pub fn check_alive(&self) -> bool {
-        if let Ok(mut guard) = self.child.lock() {
-            if let Some(ref mut child) = *guard {
-                match child.try_wait() {
-                    Ok(None) => return true, // Still running
-                    Ok(Some(status)) => {
-                        eprintln!("[PROCESS_MGR] Worker exited with status: {status}");
-                        *guard = None;
-                        self.is_alive.store(false, Ordering::SeqCst);
-                        return false;
-                    }
-                    Err(e) => {
-                        eprintln!("[PROCESS_MGR] Failed to check worker status: {e}");
-                        return false;
-                    }
-                }
-            }
-        }
-        false
-    }
-
-    pub fn is_alive(&self) -> bool {
-        self.is_alive.load(Ordering::SeqCst)
-    }
-
-    pub fn restart_count(&self) -> u32 {
-        self.restart_count.load(Ordering::Relaxed)
     }
 }
 

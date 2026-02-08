@@ -10,28 +10,86 @@ interface MemoryCalculationParams {
   availableRamGb: number;
 }
 
+interface ArchitectureParams {
+  totalLayers: number;
+  modelSizeGb: number;
+  qHeads: number;
+  kvHeads: number;
+  embeddingLength: number;
+}
+
+/** Parse a metadata string field into a number, or return null */
+function parseField(value: string | undefined): number | null {
+  if (!value) return null;
+  const n = parseInt(value);
+  return isNaN(n) ? null : n;
+}
+
+/** Extract architecture parameters from model metadata with fallbacks */
+function extractArchitectureParams(meta: ModelMetadata): ArchitectureParams {
+  const totalLayers =
+    meta.architecture_details?.block_count ||
+    parseField(meta.block_count) ||
+    meta.estimated_layers ||
+    48;
+
+  const qHeads =
+    meta.architecture_details?.attention_head_count ||
+    parseField(meta.attention_head_count) ||
+    32;
+
+  const kvHeads =
+    meta.architecture_details?.attention_head_count_kv ||
+    parseField(meta.attention_head_count_kv) ||
+    qHeads; // Default: same as Q heads (no GQA)
+
+  const embeddingLength =
+    meta.architecture_details?.embedding_length ||
+    parseField(meta.embedding_length) ||
+    4096;
+
+  return {
+    totalLayers,
+    modelSizeGb: meta.file_size_gb || 0,
+    qHeads,
+    kvHeads,
+    embeddingLength,
+  };
+}
+
 /**
  * Calculate KV cache size in GB
  * Formula: context × layers × kv_heads × head_dim × 2 (K+V) × 2 bytes (fp16)
  * where head_dim = embedding_length / q_heads (NOT kv_heads)
  */
-function calculateKvCacheSize(
+function calculateKvCacheGb(
   contextSize: number,
   totalLayers: number,
   kvHeads: number,
   qHeads: number,
   embeddingLength: number
 ): number {
-  // head_dim is determined by total Q attention heads, not KV heads
   const headDim = embeddingLength / qHeads;
-
-  // KV cache: each layer stores K and V projections of size (kv_heads × head_dim) per token
-  // 2 = K + V, 2 = bytes per element (fp16)
   const bytes = contextSize * totalLayers * kvHeads * headDim * 2 * 2;
-
-  // Convert to GB
   return bytes / (1024 * 1024 * 1024);
 }
+
+const EMPTY_BREAKDOWN = (vramGb: number, ramGb: number): MemoryBreakdown => ({
+  vram: {
+    total: vramGb,
+    modelGpu: 0,
+    kvCache: 0,
+    overhead: 2.0,
+    available: vramGb - 2.0,
+    overcommitted: false,
+  },
+  ram: {
+    total: ramGb,
+    modelCpu: 0,
+    available: ramGb,
+    overcommitted: false,
+  },
+});
 
 /**
  * Real-time memory calculation hook
@@ -45,81 +103,27 @@ export function useMemoryCalculation({
   availableRamGb,
 }: MemoryCalculationParams): MemoryBreakdown {
   return useMemo(() => {
-    // Default values if no model metadata available
     if (!modelMetadata) {
-      return {
-        vram: {
-          total: availableVramGb,
-          modelGpu: 0,
-          kvCache: 0,
-          overhead: 2.0,
-          available: availableVramGb - 2.0,
-          overcommitted: false,
-        },
-        ram: {
-          total: availableRamGb,
-          modelCpu: 0,
-          available: availableRamGb,
-          overcommitted: false,
-        },
-      };
+      return EMPTY_BREAKDOWN(availableVramGb, availableRamGb);
     }
 
-    // Extract architecture details with fallbacks
-    const totalLayers =
-      modelMetadata.architecture_details?.block_count ||
-      (modelMetadata.block_count ? parseInt(modelMetadata.block_count) : null) ||
-      modelMetadata.estimated_layers ||
-      48;
-
-    const modelSizeGb = modelMetadata.file_size_gb || 0;
-
-    const qHeads =
-      modelMetadata.architecture_details?.attention_head_count ||
-      (modelMetadata.attention_head_count ? parseInt(modelMetadata.attention_head_count) : null) ||
-      32;
-
-    const kvHeads =
-      modelMetadata.architecture_details?.attention_head_count_kv ||
-      (modelMetadata.attention_head_count_kv ? parseInt(modelMetadata.attention_head_count_kv) : null) ||
-      qHeads; // Default: same as Q heads (no GQA)
-
-    const embeddingLength =
-      modelMetadata.architecture_details?.embedding_length ||
-      (modelMetadata.embedding_length ? parseInt(modelMetadata.embedding_length) : null) ||
-      4096;
+    const { totalLayers, modelSizeGb, qHeads, kvHeads, embeddingLength } =
+      extractArchitectureParams(modelMetadata);
 
     // Calculate how much of model goes to GPU vs CPU
     const gpuLayersClamped = Math.min(Math.max(gpuLayers, 0), totalLayers);
-    const cpuLayers = totalLayers - gpuLayersClamped;
-
     const gpuFraction = gpuLayersClamped / totalLayers;
-    const cpuFraction = cpuLayers / totalLayers;
 
     const modelGpuSizeGb = modelSizeGb * gpuFraction;
-    const modelCpuSizeGb = modelSizeGb * cpuFraction;
+    const modelCpuSizeGb = modelSizeGb * (1 - gpuFraction);
 
-    // Calculate KV cache size (only on GPU)
-    const kvCacheSizeGb = calculateKvCacheSize(
-      contextSize,
-      totalLayers,
-      kvHeads,
-      qHeads,
-      embeddingLength
+    const kvCacheSizeGb = calculateKvCacheGb(
+      contextSize, totalLayers, kvHeads, qHeads, embeddingLength
     );
 
-    // System overhead (buffers, context management, etc.)
     const overheadGb = 2.0;
-
-    // VRAM calculations
     const vramUsed = modelGpuSizeGb + kvCacheSizeGb + overheadGb;
-    const vramAvailable = Math.max(0, availableVramGb - vramUsed);
-    const vramOvercommitted = vramUsed > availableVramGb;
-
-    // RAM calculations
     const ramUsed = modelCpuSizeGb;
-    const ramAvailable = Math.max(0, availableRamGb - ramUsed);
-    const ramOvercommitted = ramUsed > availableRamGb;
 
     return {
       vram: {
@@ -127,14 +131,14 @@ export function useMemoryCalculation({
         modelGpu: modelGpuSizeGb,
         kvCache: kvCacheSizeGb,
         overhead: overheadGb,
-        available: vramAvailable,
-        overcommitted: vramOvercommitted,
+        available: Math.max(0, availableVramGb - vramUsed),
+        overcommitted: vramUsed > availableVramGb,
       },
       ram: {
         total: availableRamGb,
         modelCpu: modelCpuSizeGb,
-        available: ramAvailable,
-        overcommitted: ramOvercommitted,
+        available: Math.max(0, availableRamGb - ramUsed),
+        overcommitted: ramUsed > availableRamGb,
       },
     };
   }, [modelMetadata, gpuLayers, contextSize, availableVramGb, availableRamGb]);

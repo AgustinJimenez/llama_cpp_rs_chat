@@ -6,7 +6,6 @@ use serde::Deserialize;
 use std::convert::Infallible;
 use std::fs;
 use std::io::BufReader;
-use std::sync::{Mutex as StdMutex, OnceLock};
 use tokio::task::spawn_blocking;
 
 use crate::web::{
@@ -42,8 +41,6 @@ const SMALL_MODEL_LAYERS: u32 = 36; // 7B and below
 const MEDIUM_MODEL_LAYERS: u32 = 45; // 13B
 const LARGE_MODEL_LAYERS: u32 = 60; // 30B
 const XLARGE_MODEL_LAYERS: u32 = 80; // 70B+
-
-static MODEL_STATUS_CACHE_JSON: OnceLock<StdMutex<String>> = OnceLock::new();
 
 fn default_model_status_json() -> String {
     r#"{"loaded":false,"model_path":null,"last_used":null,"memory_usage_mb":null}"#.to_string()

@@ -234,6 +234,7 @@ impl Database {
     }
 
     /// Insert log entry
+    #[allow(dead_code)]
     pub fn insert_log(
         &self,
         conversation_id: Option<&str>,
@@ -253,6 +254,7 @@ impl Database {
     }
 
     /// Get logs for a conversation
+    #[allow(dead_code)]
     pub fn get_logs_for_conversation(
         &self,
         conversation_id: &str,
@@ -282,6 +284,7 @@ impl Database {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct LogEntry {
     pub level: String,
     pub message: String,

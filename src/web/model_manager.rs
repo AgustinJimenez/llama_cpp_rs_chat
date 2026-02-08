@@ -277,32 +277,4 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, request
     Ok(())
 }
 
-// Helper function to unload the current model
-pub async fn unload_model(llama_state: SharedLlamaState) -> Result<(), String> {
-    let mut state_guard = llama_state
-        .lock()
-        .map_err(|_| "Failed to lock LLaMA state")?;
-
-    // Drop the entire backend + model to guarantee memory is released.
-    // This is safe because load_model() will reinitialize the backend on demand.
-    if state_guard.is_some() {
-        log_info!(
-            "system",
-            "Unloading model and tearing down backend to free memory"
-        );
-        // CRITICAL: Drop inference cache before dropping entire state.
-        if let Some(ref mut state) = *state_guard {
-            state.inference_cache = None;
-        }
-        *state_guard = None;
-    } else {
-        log_debug!(
-            "system",
-            "Unload requested but no backend/model was initialized"
-        );
-    }
-
-    Ok(())
-}
-
 // Tests moved to vram_calculator.rs

@@ -13,6 +13,7 @@ use tokio::sync::broadcast;
 
 /// Streaming update sent via broadcast channel for real-time WebSocket updates
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct StreamingUpdate {
     pub conversation_id: String,
     pub partial_content: String,

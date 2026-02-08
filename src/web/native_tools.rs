@@ -174,7 +174,7 @@ fn tool_read_file(args: &Value) -> String {
                 content
             }
         }
-        Err(e) => format!("Error reading '{}': {}", path, e),
+        Err(e) => format!("Error reading '{path}': {e}"),
     }
 }
 
@@ -193,14 +193,14 @@ fn tool_write_file(args: &Value) -> String {
     if let Some(parent) = Path::new(path).parent() {
         if !parent.exists() {
             if let Err(e) = std::fs::create_dir_all(parent) {
-                return format!("Error creating directories for '{}': {}", path, e);
+                return format!("Error creating directories for '{path}': {e}");
             }
         }
     }
 
     match std::fs::write(path, content) {
         Ok(()) => format!("Written {} bytes to {}", content.len(), path),
-        Err(e) => format!("Error writing '{}': {}", path, e),
+        Err(e) => format!("Error writing '{path}': {e}"),
     }
 }
 
@@ -223,7 +223,7 @@ fn tool_execute_python(args: &Value) -> String {
     ));
 
     if let Err(e) = std::fs::write(&temp_file, code) {
-        return format!("Error writing temp file: {}", e);
+        return format!("Error writing temp file: {e}");
     }
 
     // Run python on the temp file — no shell involved
@@ -239,14 +239,14 @@ fn tool_execute_python(args: &Value) -> String {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
             if !stderr.is_empty() {
-                format!("{}\nStderr: {}", stdout, stderr)
+                format!("{stdout}\nStderr: {stderr}")
             } else if stdout.is_empty() {
                 "Python script executed successfully (no output)".to_string()
             } else {
                 stdout.to_string()
             }
         }
-        Err(e) => format!("Error running Python: {}", e),
+        Err(e) => format!("Error running Python: {e}"),
     }
 }
 
@@ -259,11 +259,11 @@ fn tool_list_directory(args: &Value) -> String {
 
     let entries = match std::fs::read_dir(path) {
         Ok(entries) => entries,
-        Err(e) => return format!("Error reading directory '{}': {}", path, e),
+        Err(e) => return format!("Error reading directory '{path}': {e}"),
     };
 
     let mut lines = Vec::new();
-    lines.push(format!("Directory listing: {}", path));
+    lines.push(format!("Directory listing: {path}"));
     lines.push(format!("{:<40} {:>10} {}", "Name", "Size", "Type"));
     lines.push("-".repeat(60));
 
@@ -286,7 +286,7 @@ fn tool_list_directory(args: &Value) -> String {
             }
             Err(_) => (0, "<?>"),
         };
-        lines.push(format!("{:<40} {:>10} {}", name, size, file_type));
+        lines.push(format!("{name:<40} {size:>10} {file_type}"));
     }
 
     lines.join("\n")

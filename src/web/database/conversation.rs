@@ -15,22 +15,14 @@ use crate::sys_error;
 #[derive(Debug, Clone)]
 pub struct ConversationRecord {
     pub id: String,
-    pub created_at: i64,
-    pub updated_at: i64,
     pub system_prompt: Option<String>,
-    pub title: Option<String>,
 }
 
 /// Message record from database
 #[derive(Debug, Clone)]
 pub struct MessageRecord {
-    pub id: String,
-    pub conversation_id: String,
     pub role: String,
     pub content: String,
-    pub timestamp: u64,
-    pub sequence_order: i32,
-    pub is_streaming: bool,
 }
 
 impl Database {
@@ -86,16 +78,12 @@ impl Database {
     pub fn get_conversation(&self, id: &str) -> Result<Option<ConversationRecord>, String> {
         let conn = self.connection();
         let result = conn.query_row(
-            "SELECT id, created_at, updated_at, system_prompt, title
-             FROM conversations WHERE id = ?1",
+            "SELECT id, system_prompt FROM conversations WHERE id = ?1",
             [id],
             |row| {
                 Ok(ConversationRecord {
                     id: row.get(0)?,
-                    created_at: row.get(1)?,
-                    updated_at: row.get(2)?,
-                    system_prompt: row.get(3)?,
-                    title: row.get(4)?,
+                    system_prompt: row.get(1)?,
                 })
             },
         );
@@ -112,8 +100,7 @@ impl Database {
         let conn = self.connection();
         let mut stmt = conn
             .prepare(
-                "SELECT id, created_at, updated_at, system_prompt, title
-                 FROM conversations ORDER BY created_at DESC",
+                "SELECT id, system_prompt FROM conversations ORDER BY created_at DESC",
             )
             .map_err(db_error("prepare statement"))?;
 
@@ -121,10 +108,7 @@ impl Database {
             .query_map([], |row| {
                 Ok(ConversationRecord {
                     id: row.get(0)?,
-                    created_at: row.get(1)?,
-                    updated_at: row.get(2)?,
-                    system_prompt: row.get(3)?,
-                    title: row.get(4)?,
+                    system_prompt: row.get(1)?,
                 })
             })
             .map_err(db_error("query conversations"))?
@@ -307,21 +291,15 @@ impl Database {
         let conn = self.connection();
         let mut stmt = conn
             .prepare(
-                "SELECT id, conversation_id, role, content, timestamp, sequence_order, is_streaming
-                 FROM messages WHERE conversation_id = ?1 ORDER BY sequence_order ASC",
+                "SELECT role, content FROM messages WHERE conversation_id = ?1 ORDER BY sequence_order ASC",
             )
             .map_err(db_error("prepare statement"))?;
 
         let messages = stmt
             .query_map([conversation_id], |row| {
                 Ok(MessageRecord {
-                    id: row.get(0)?,
-                    conversation_id: row.get(1)?,
-                    role: row.get(2)?,
-                    content: row.get(3)?,
-                    timestamp: row.get::<_, i64>(4)? as u64,
-                    sequence_order: row.get(5)?,
-                    is_streaming: row.get::<_, i32>(6)? != 0,
+                    role: row.get(0)?,
+                    content: row.get(1)?,
                 })
             })
             .map_err(db_error("query messages"))?

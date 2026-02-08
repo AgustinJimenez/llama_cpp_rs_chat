@@ -34,6 +34,11 @@ path = "check_gemma_template.rs"
 name = "test_model"
 path = "src/test_model.rs"
 
+[lints.clippy]
+all = "warn"
+uninlined_format_args = "warn"
+too_many_arguments = "warn"
+
 [dependencies]
 # Tauri framework
 tauri = { version = "2.0", features = [] }

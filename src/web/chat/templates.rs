@@ -2,7 +2,7 @@
 use crate::log_debug;
 use super::jinja_templates::{apply_native_chat_template, parse_conversation_to_messages, get_available_tools};
 use super::super::models::SystemPromptType;
-use super::tool_tags::{self, ToolTags};
+use super::tool_tags::ToolTags;
 
 /// Get the universal system prompt using model-specific tool tags.
 pub fn get_universal_system_prompt_with_tags(tags: &ToolTags) -> String {
@@ -197,10 +197,12 @@ fn apply_user_defined_template(conversation: &str, user_system_prompt: &str) -> 
 }
 
 /// Apply chat template formatting to conversation history (uses default tags).
+#[cfg(test)]
 pub fn apply_model_chat_template(
     conversation: &str,
     template_type: Option<&str>,
 ) -> Result<String, String> {
+    use super::tool_tags;
     apply_model_chat_template_with_tags(conversation, template_type, &tool_tags::DEFAULT_TAGS)
 }
 
@@ -437,6 +439,7 @@ mod tests {
 
     #[test]
     fn test_universal_system_prompt_contains_exec_tags() {
+        use crate::web::chat::tool_tags;
         let prompt = get_universal_system_prompt_with_tags(&tool_tags::DEFAULT_TAGS);
         assert!(prompt.contains("<||SYSTEM.EXEC>"));
         assert!(prompt.contains("<SYSTEM.EXEC||>"));
@@ -446,6 +449,7 @@ mod tests {
 
     #[test]
     fn test_universal_system_prompt_contains_os_info() {
+        use crate::web::chat::tool_tags;
         let prompt = get_universal_system_prompt_with_tags(&tool_tags::DEFAULT_TAGS);
         // Should contain OS info
         assert!(prompt.contains("OS:"));
@@ -496,7 +500,7 @@ mod tests {
 
     #[test]
     fn test_model_specific_tags_in_prompt() {
-        use super::tool_tags;
+        use crate::web::chat::tool_tags;
 
         // Qwen tags
         let qwen_tags = tool_tags::get_tool_tags_for_model(Some("Qwen3 8B"));

@@ -21,10 +21,7 @@ pub struct ModelMeta {
     pub model_path: String,
     pub context_length: Option<u32>,
     pub chat_template_type: Option<String>,
-    pub chat_template_string: Option<String>,
-    pub gpu_layers: Option<u32>,
     pub general_name: Option<String>,
-    pub default_system_prompt: Option<String>,
 }
 
 /// Shared reference to the WorkerBridge.
@@ -139,20 +136,15 @@ impl WorkerBridge {
                 model_path,
                 context_length,
                 chat_template_type,
-                chat_template_string,
-                gpu_layers,
                 general_name,
-                default_system_prompt,
+                ..
             } => {
                 let meta = ModelMeta {
                     loaded: true,
                     model_path,
                     context_length,
                     chat_template_type,
-                    chat_template_string,
-                    gpu_layers,
                     general_name,
-                    default_system_prompt,
                 };
                 *self.model_meta.lock().await = Some(meta.clone());
                 Ok(meta)
@@ -300,15 +292,11 @@ impl WorkerBridge {
     pub async fn cancel_generation(&self) {
         self.send_fire_and_forget(WorkerCommand::CancelGeneration).await;
     }
-
-    /// Check if worker process is alive.
-    pub fn is_alive(&self) -> bool {
-        self.process_manager.is_alive()
-    }
 }
 
 /// Result of a completed generation.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum GenerationResult {
     Complete {
         conversation_id: String,
