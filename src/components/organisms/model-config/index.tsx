@@ -21,7 +21,7 @@ import { ModelMetadataDisplay } from './ModelMetadataDisplay';
 import { ContextSizeSection } from './ContextSizeSection';
 import { GpuLayersSection } from './GpuLayersSection';
 import { SamplingParametersSection } from './SamplingParametersSection';
-import { PresetsSection } from './PresetsSection';
+
 import { MemoryVisualization } from './MemoryVisualization';
 
 // Import hooks
@@ -55,6 +55,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     mirostat_tau: 5.0,
     mirostat_eta: 0.1,
     repeat_penalty: 1.0,
+    min_p: 0,
     model_path: '',
     gpu_layers: 32,  // Default for RTX 4090
   });
@@ -379,11 +380,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                     onConfigChange={handleInputChange}
                   />
 
-                  <PresetsSection
-                    generalName={modelInfo?.general_name}
-                    recommendedParams={modelInfo?.recommended_params}
-                    onApplyPreset={(preset) => setConfig(prev => ({ ...prev, ...preset }))}
-                  />
+
                 </CardContent>
               )}
             </Card>

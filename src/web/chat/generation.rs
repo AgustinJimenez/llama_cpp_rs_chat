@@ -61,6 +61,9 @@ fn create_sampler(config: &SamplerConfig, conversation_id: &str) -> LlamaSampler
             samplers.push(LlamaSampler::temp(config.temperature as f32));
             samplers.push(LlamaSampler::top_k(config.top_k as i32));
             samplers.push(LlamaSampler::top_p(config.top_p as f32, 1));
+            if config.min_p > 0.0 {
+                samplers.push(LlamaSampler::min_p(config.min_p as f32, 1));
+            }
             samplers.push(LlamaSampler::dist(1234));
             LlamaSampler::chain_simple(samplers)
         }

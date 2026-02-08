@@ -1,5 +1,4 @@
 import React from 'react';
-import { Button } from '../../atoms/button';
 import type { ModelMetadata } from '@/types';
 import { CONTEXT_SIZE_PRESETS } from './constants';
 
@@ -7,6 +6,12 @@ export interface ContextSizeSectionProps {
   contextSize: number;
   setContextSize: (size: number) => void;
   modelInfo: ModelMetadata | null;
+}
+
+function formatSize(n: number): string {
+  if (n >= 1048576) return `${n / 1048576}M`;
+  if (n >= 1024) return `${n / 1024}K`;
+  return String(n);
 }
 
 export const ContextSizeSection: React.FC<ContextSizeSectionProps> = ({
@@ -18,63 +23,37 @@ export const ContextSizeSection: React.FC<ContextSizeSectionProps> = ({
     ? parseInt(modelInfo.context_length.toString().replace(/,/g, ''))
     : null;
   const effectiveMax = maxContext && !isNaN(maxContext) ? maxContext : 2097152;
-  const visiblePresets = CONTEXT_SIZE_PRESETS.filter(p => p <= effectiveMax);
-  const showMaxButton = maxContext && !isNaN(maxContext) && !CONTEXT_SIZE_PRESETS.includes(maxContext);
+  const stops = CONTEXT_SIZE_PRESETS.filter(p => p <= effectiveMax);
+  // Add model max as final stop if it's not already a preset
+  if (maxContext && !isNaN(maxContext) && !stops.includes(maxContext)) {
+    stops.push(maxContext);
+  }
+
+  const currentIndex = stops.findIndex(s => s >= contextSize);
+  const sliderIndex = currentIndex === -1 ? stops.length - 1 : currentIndex;
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1">
       <div className="flex justify-between items-center">
         <label className="text-sm font-medium">Context Length</label>
-        <span className="text-sm font-mono text-muted-foreground">
-          {contextSize.toLocaleString()} tokens
+        <span className="text-sm font-mono text-foreground">
+          {formatSize(stops[sliderIndex])}
         </span>
       </div>
 
       <input
-        type="number"
-        value={contextSize}
-        onChange={(e) => {
-          const value = parseInt(e.target.value);
-          if (!isNaN(value) && value > 0) {
-            setContextSize(Math.min(value, effectiveMax));
-          }
-        }}
-        min={512}
-        max={effectiveMax}
-        step={512}
-        className="w-full px-3 py-2 text-sm border rounded-md bg-background"
+        type="range"
+        min={0}
+        max={stops.length - 1}
+        value={sliderIndex}
+        onChange={(e) => setContextSize(stops[parseInt(e.target.value)])}
+        className="w-full accent-[hsl(var(--primary))] cursor-pointer"
       />
 
-      <div className="flex gap-2 flex-wrap">
-        {visiblePresets.map(preset => (
-          <Button
-            key={preset}
-            type="button"
-            variant={contextSize === preset ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setContextSize(preset)}
-            className="text-xs"
-          >
-            {preset >= 1048576 ? `${preset / 1048576}M` : preset >= 1024 ? `${preset / 1024}K` : preset}
-          </Button>
-        ))}
-        {showMaxButton && (
-          <Button
-            type="button"
-            variant={contextSize === maxContext ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setContextSize(maxContext!)}
-            className="text-xs bg-muted hover:bg-muted/80"
-          >
-            Max ({maxContext!.toLocaleString()})
-          </Button>
-        )}
+      <div className="flex justify-between text-[10px] text-foreground/70">
+        <span>{formatSize(stops[0])}</span>
+        <span>{formatSize(stops[stops.length - 1])}</span>
       </div>
-
-      <p className="text-xs text-muted-foreground">
-        Larger context sizes allow longer conversations but use more memory and are slower.
-        {maxContext && !isNaN(maxContext) && ` Model maximum: ${maxContext.toLocaleString()}`}
-      </p>
     </div>
   );
 };

@@ -60,6 +60,8 @@ pub struct SamplerConfig {
     pub mirostat_eta: f64,
     #[serde(default = "default_repeat_penalty")]
     pub repeat_penalty: f64,
+    #[serde(default)]
+    pub min_p: f64,
     pub model_path: Option<String>,
     pub system_prompt: Option<String>,
     #[serde(default)]
@@ -106,6 +108,7 @@ impl Default for SamplerConfig {
             mirostat_tau: 5.0,
             mirostat_eta: 0.1,
             repeat_penalty: 1.0,
+            min_p: 0.0,
             model_path: Some("/app/models/lmstudio-community/granite-4.0-h-tiny-GGUF/granite-4.0-h-tiny-Q4_K_M.gguf".to_string()),
             system_prompt: None,
             system_prompt_type: SystemPromptType::default(),

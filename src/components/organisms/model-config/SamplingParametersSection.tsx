@@ -84,6 +84,10 @@ export const SamplingParametersSection: React.FC<SamplingParametersSectionProps>
       description="Consider only the top K most likely tokens"
       onChange={v => onConfigChange('top_k', Math.round(v))} min={1} max={100} step={1} />
 
+    <SliderParam label="Min P" value={config.min_p} format={v => v.toFixed(2)}
+      description="Filters tokens below min_p * max_probability (0 = disabled)"
+      onChange={v => onConfigChange('min_p', v)} min={0} max={0.5} step={0.01} />
+
     <SliderParam label="Repeat Penalty" value={config.repeat_penalty} format={v => v.toFixed(2)}
       description="Penalizes repeated tokens (1.0 = disabled, higher = less repetition)"
       onChange={v => onConfigChange('repeat_penalty', v)} min={1} max={2} step={0.05} />

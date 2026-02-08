@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS config (
     mirostat_tau REAL DEFAULT 5.0,
     mirostat_eta REAL DEFAULT 0.1,
     repeat_penalty REAL DEFAULT 1.0,
+    min_p REAL DEFAULT 0.0,
     model_path TEXT,
     system_prompt TEXT,
     system_prompt_type TEXT DEFAULT 'Default',
@@ -128,6 +129,12 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
     // Add repeat_penalty column if missing
     let _ = conn.execute(
         "ALTER TABLE config ADD COLUMN repeat_penalty REAL DEFAULT 1.0",
+        [],
+    );
+
+    // Add min_p column if missing
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN min_p REAL DEFAULT 0.0",
         [],
     );
 

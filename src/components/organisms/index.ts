@@ -14,4 +14,4 @@ export { MemoryVisualization } from './model-config/MemoryVisualization';
 export { ContextSizeSection } from './model-config/ContextSizeSection';
 export { GpuLayersSection } from './model-config/GpuLayersSection';
 export { SamplingParametersSection } from './model-config/SamplingParametersSection';
-export { PresetsSection } from './model-config/PresetsSection';
+

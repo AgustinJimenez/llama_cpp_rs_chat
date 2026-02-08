@@ -32,6 +32,7 @@ export interface SamplerConfig {
   mirostat_tau: number;
   mirostat_eta: number;
   repeat_penalty: number;
+  min_p: number;
   model_path?: string;
   system_prompt?: string;
   context_size?: number;
