@@ -27,12 +27,7 @@ Examples (copy exactly):
 <||SYSTEM.EXEC>type filename.txt<SYSTEM.EXEC||>
 <||SYSTEM.EXEC>echo content > filename.txt<SYSTEM.EXEC||>
 
-After execution, the output will appear in:
-<||SYSTEM.OUTPUT>
-...output here...
-<SYSTEM.OUTPUT||>
-
-Wait for the output before continuing your response.
+After execution, the system will inject the result between <||SYSTEM.OUTPUT> and <SYSTEM.OUTPUT||> tags. Do NOT generate <||SYSTEM.OUTPUT> yourself — the system does this automatically. Wait for the injected result before continuing.
 
 ## Current Environment
 - OS: (detected at runtime)

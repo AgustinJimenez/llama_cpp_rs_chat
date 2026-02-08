@@ -51,7 +51,7 @@ pub fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
 }
 
 // Helper function to load a model
-pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Result<(), String> {
+pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, requested_gpu_layers: Option<u32>) -> Result<(), String> {
     log_debug!("system", "load_model called with path: {}", model_path);
 
     // Handle poisoned mutex by recovering from panic
@@ -99,10 +99,10 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str) -> Resu
     state.model = None;
     state.current_model_path = None;
 
-    // Calculate optimal GPU layers
-    let optimal_gpu_layers = calculate_optimal_gpu_layers(model_path);
+    // Use requested GPU layers if provided, otherwise auto-calculate
+    let optimal_gpu_layers = requested_gpu_layers.unwrap_or_else(|| calculate_optimal_gpu_layers(model_path));
 
-    // Load new model with calculated GPU acceleration
+    // Load new model with configured GPU acceleration
     let model_params = LlamaModelParams::default().with_n_gpu_layers(optimal_gpu_layers);
 
     log_info!("system", "Loading model from: {}", model_path);

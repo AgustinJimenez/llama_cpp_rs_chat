@@ -117,7 +117,7 @@ pub async fn generate_llama_response(
         .unwrap_or_else(get_common_stop_tokens);
 
     // Ensure model is loaded
-    load_model(llama_state.clone(), model_path).await?;
+    load_model(llama_state.clone(), model_path, None).await?;
 
     // Now use the shared state for generation (mutable for inference cache)
     let mut state_guard = llama_state
@@ -582,51 +582,55 @@ pub async fn generate_llama_response(
                 logger.set_token_counts(token_pos, context_size as i32);
                 logger.log_token(&token_str);
             }
-        }
 
-        // Check for and execute any commands in the response (using model-specific tags)
-        if let Some(exec_result) =
-            check_and_execute_command_with_tags(&response, last_exec_scan_pos, &conversation_id, model, tags)?
-        {
-            // 1. Log to conversation file (CRITICAL: prevents infinite loops)
+            // Check for and execute any commands in the response (using model-specific tags)
+            // CRITICAL: This must be inside the inner loop so commands are detected immediately
+            // after the closing tag is generated, before the model hallucinates fake output.
+            if let Some(exec_result) =
+                check_and_execute_command_with_tags(&response, last_exec_scan_pos, &conversation_id, model, tags)?
             {
-                let mut logger = conversation_logger
-                    .lock()
-                    .map_err(|_| "Failed to lock conversation logger")?;
-                logger.log_token(&exec_result.output_block);
+                // 1. Log to conversation file (CRITICAL: prevents infinite loops)
+                {
+                    let mut logger = conversation_logger
+                        .lock()
+                        .map_err(|_| "Failed to lock conversation logger")?;
+                    logger.log_token(&exec_result.output_block);
+                }
+
+                // 2. Add to response string
+                response.push_str(&exec_result.output_block);
+
+                // 3. Stream to frontend
+                stream_command_output(
+                    &exec_result.output_block,
+                    &token_sender,
+                    token_pos,
+                    context_size,
+                );
+
+                // 4. Inject output tokens into LLM context
+                inject_output_tokens(
+                    &exec_result.output_tokens,
+                    &mut batch,
+                    &mut context,
+                    &mut token_pos,
+                    &conversation_id,
+                )?;
+
+                generated_token_ids.extend(exec_result.output_tokens.iter().map(|&id| LlamaToken(id)));
+                command_executed = true;
+                // CRITICAL: Reset stop condition so generation continues after command output
+                hit_stop_condition = false;
+                // Update scan position to end of response (past the injected output)
+                last_exec_scan_pos = response.len();
+                log_info!(
+                    &conversation_id,
+                    "✅ Command executed, output injected, scan position updated to {}",
+                    last_exec_scan_pos
+                );
+                // Break inner loop so outer loop restarts generation from updated context
+                break;
             }
-
-            // 2. Add to response string
-            response.push_str(&exec_result.output_block);
-
-            // 3. Stream to frontend
-            stream_command_output(
-                &exec_result.output_block,
-                &token_sender,
-                token_pos,
-                context_size,
-            );
-
-            // 4. Inject output tokens into LLM context
-            inject_output_tokens(
-                &exec_result.output_tokens,
-                &mut batch,
-                &mut context,
-                &mut token_pos,
-                &conversation_id,
-            )?;
-
-            generated_token_ids.extend(exec_result.output_tokens.iter().map(|&id| LlamaToken(id)));
-            command_executed = true;
-            // CRITICAL: Reset stop condition so generation continues after command output
-            hit_stop_condition = false;
-            // Update scan position to end of response (past the injected output)
-            last_exec_scan_pos = response.len();
-            log_info!(
-                &conversation_id,
-                "✅ Command executed, output injected, scan position updated to {}",
-                last_exec_scan_pos
-            );
         }
 
         // Break conditions

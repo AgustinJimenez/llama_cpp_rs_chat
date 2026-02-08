@@ -106,14 +106,15 @@ export async function getModelStatus(): Promise<ModelStatus> {
   return fetchJson<ModelStatus>('/api/model/status');
 }
 
-export async function loadModel(modelPath: string): Promise<ModelResponse> {
+export async function loadModel(modelPath: string, gpuLayers?: number): Promise<ModelResponse> {
+  const payload = { model_path: modelPath, gpu_layers: gpuLayers ?? null };
   if (isTauriEnv()) {
-    return invokeCmd<ModelResponse>('load_model', { request: { model_path: modelPath } });
+    return invokeCmd<ModelResponse>('load_model', { request: payload });
   }
   return fetchJson<ModelResponse>('/api/model/load', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model_path: modelPath }),
+    body: JSON.stringify(payload),
   });
 }
 

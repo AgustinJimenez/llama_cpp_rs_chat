@@ -85,8 +85,8 @@ export const useModel = () => {
         });
       }
 
-      // Then load the model
-      const data: ModelResponse = await loadModelCmd(modelPath);
+      // Then load the model (pass gpu_layers from config if available)
+      const data: ModelResponse = await loadModelCmd(modelPath, config?.gpu_layers);
 
       if (data.success) {
         // If backend returns no status or an incorrect unloaded status, synthesize a "loaded" status

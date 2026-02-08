@@ -245,6 +245,7 @@ pub fn migrate_config(db: &Database) -> Result<bool, String> {
         context_size: json_config.context_size,
         stop_tokens: json_config.stop_tokens,
         model_history: Vec::new(), // Handled separately
+        disable_file_logging: true,
     };
 
     // Save to database

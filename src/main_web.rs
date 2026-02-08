@@ -230,6 +230,15 @@ async fn server_main() -> std::io::Result<()> {
         }
     }
 
+    // Apply file logging setting from config
+    {
+        let config = db.load_config();
+        web::logger::LOGGER.set_enabled(!config.disable_file_logging);
+        if config.disable_file_logging {
+            println!("📝 File logging disabled (enable in settings)");
+        }
+    }
+
     // Spawn worker process
     #[cfg(not(feature = "mock"))]
     let worker_bridge: SharedWorkerBridge = {

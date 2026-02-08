@@ -28,6 +28,7 @@ pub fn db_config_to_sampler_config(db_config: &DbSamplerConfig) -> SamplerConfig
         context_size: db_config.context_size,
         stop_tokens: db_config.stop_tokens.clone(),
         model_history: db_config.model_history.clone(),
+        disable_file_logging: db_config.disable_file_logging,
     }
 }
 
@@ -46,6 +47,7 @@ pub fn sampler_config_to_db(config: &SamplerConfig) -> DbSamplerConfig {
         context_size: config.context_size,
         stop_tokens: config.stop_tokens.clone(),
         model_history: config.model_history.clone(),
+        disable_file_logging: config.disable_file_logging,
     }
 }
 

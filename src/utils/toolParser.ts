@@ -171,8 +171,9 @@ export function autoParseToolCalls(text: string): ToolCall[] {
  */
 export function stripToolCalls(text: string): string {
   return text
-    .replace(/\[TOOL_CALLS\][[][^[]+\[ARGS\]\{[^}]*\}/g, '') // Mistral
-    .replace(/<function=[^>]+>\{[^}]*\}<\/function>/g, '') // Llama3
-    .replace(/<tool_call>\{[^}]*\}<\/tool_call>/g, '') // Qwen
+    .replace(/\[TOOL_CALLS\][\s\S]*?(?=\[TOOL_CALLS\]|$)/g, '') // Mistral
+    .replace(/<function=[^>]+>[\s\S]*?<\/function>/g, '') // Llama3
+    .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '') // Qwen tool calls
+    .replace(/<tool_response>[\s\S]*?<\/tool_response>/g, '') // Qwen tool responses
     .trim();
 }

@@ -25,24 +25,20 @@ const SystemMessage: React.FC<{ message: Message; cleanContent: string; isError:
     data-message-id={message.id}
   >
     <div
-      className={`max-w-[90%] w-full p-4 rounded-lg ${
+      className={`max-w-[90%] w-full px-4 py-2 rounded-lg ${
         isError
           ? 'bg-red-950 border-2 border-red-500'
           : 'bg-yellow-950 border-2 border-yellow-500'
       }`}
     >
-      <div className="flex items-center gap-2 mb-2">
+      <div className="flex items-center gap-2">
         <span className="text-sm font-bold text-white">
           {isError ? '❌ SYSTEM ERROR' : '⚠️ SYSTEM'}
         </span>
+        <span className={`text-sm ${isError ? 'text-red-200' : 'text-yellow-200'}`}>
+          {cleanContent}
+        </span>
       </div>
-      <pre
-        className={`text-sm whitespace-pre-wrap leading-relaxed ${
-          isError ? 'text-red-200' : 'text-yellow-200'
-        }`}
-      >
-        {cleanContent}
-      </pre>
     </div>
   </div>
 );
@@ -161,13 +157,21 @@ const AssistantMessage: React.FC<{
       {/* Thinking process (for reasoning models) */}
       {thinkingContent && <ThinkingBlock content={thinkingContent} />}
 
-      {/* Interleaved text and command blocks in chronological order */}
+      {/* Interleaved text, command blocks, and tool calls in chronological order */}
       {segments.map((segment, index) => {
         if (segment.type === 'command') {
           return (
             <CommandExecBlock
               key={`seg-cmd-${index}`}
               blocks={[{ command: segment.command, output: segment.output }]}
+            />
+          );
+        }
+        if (segment.type === 'tool_call') {
+          return (
+            <ToolCallBlock
+              key={`seg-tc-${index}`}
+              toolCalls={[segment.toolCall]}
             />
           );
         }
@@ -186,9 +190,6 @@ const AssistantMessage: React.FC<{
           </div>
         );
       })}
-
-      {/* Tool calls (legacy system) */}
-      <ToolCallBlock toolCalls={toolCalls} />
 
       {/* Copy button - appears on hover */}
       {cleanContent.trim() && <CopyButton text={cleanContent} />}

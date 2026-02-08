@@ -66,6 +66,12 @@ pub struct SamplerConfig {
     pub stop_tokens: Option<Vec<String>>,
     #[serde(default)]
     pub model_history: Vec<String>,
+    #[serde(default = "default_true")]
+    pub disable_file_logging: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 // Common stop tokens for different model providers
@@ -99,6 +105,7 @@ impl Default for SamplerConfig {
             context_size: Some(32768),
             stop_tokens: Some(get_common_stop_tokens()),
             model_history: Vec::new(),
+            disable_file_logging: true,
         }
     }
 }
@@ -316,6 +323,7 @@ pub struct ModelStatus {
 #[derive(Deserialize)]
 pub struct ModelLoadRequest {
     pub model_path: String,
+    pub gpu_layers: Option<u32>,
 }
 
 #[derive(Serialize)]

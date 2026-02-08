@@ -118,6 +118,12 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         [],
     );
 
+    // Add disable_file_logging column if missing
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN disable_file_logging INTEGER DEFAULT 1",
+        [],
+    );
+
     // Insert default config row if it doesn't exist
     conn.execute(
         "INSERT OR IGNORE INTO config (id, updated_at) VALUES (1, ?1)",

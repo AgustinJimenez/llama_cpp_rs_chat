@@ -17,7 +17,10 @@ pub struct WorkerRequest {
 #[serde(tag = "type")]
 pub enum WorkerCommand {
     /// Load a GGUF model file.
-    LoadModel { model_path: String },
+    LoadModel {
+        model_path: String,
+        gpu_layers: Option<u32>,
+    },
     /// Unload the current model (free memory within the process).
     UnloadModel,
     /// Get current model status.

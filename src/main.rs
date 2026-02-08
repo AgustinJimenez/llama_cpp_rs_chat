@@ -124,7 +124,7 @@ async fn load_model(
     bridge: tauri::State<'_, SharedWorkerBridge>,
     db: tauri::State<'_, SharedDatabase>,
 ) -> Result<ModelResponse, String> {
-    match bridge.load_model(&request.model_path).await {
+    match bridge.load_model(&request.model_path, request.gpu_layers).await {
         Ok(meta) => {
             add_to_model_history(&db, &request.model_path);
             Ok(ModelResponse {

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { ToolCall } from '../../../types';
 
 interface ToolCallBlockProps {
@@ -6,12 +6,43 @@ interface ToolCallBlockProps {
 }
 
 /**
- * Format tool call arguments for display.
+ * Get a brief one-line summary for a tool call based on its name and arguments.
+ */
+function getToolSummary(name: string, args: Record<string, unknown> | string): string {
+  if (typeof args === 'string') return args.slice(0, 80);
+
+  switch (name) {
+    case 'read_file':
+      return String(args.path || '');
+    case 'write_file': {
+      const content = String(args.content || '');
+      return `${args.path} (${content.length} chars)`;
+    }
+    case 'execute_python': {
+      const code = String(args.code || '');
+      const firstLine = code.split('\n')[0].trim();
+      const lineCount = code.split('\n').length;
+      return lineCount > 1 ? `${firstLine} ... (${lineCount} lines)` : firstLine;
+    }
+    case 'execute_command':
+      return String(args.command || '');
+    case 'list_directory':
+      return String(args.path || '.');
+    default: {
+      const entries = Object.entries(args);
+      if (entries.length === 0) return '';
+      const [key, val] = entries[0];
+      const valStr = typeof val === 'string' ? val : JSON.stringify(val);
+      return `${key}: ${valStr.slice(0, 60)}${valStr.length > 60 ? '...' : ''}`;
+    }
+  }
+}
+
+/**
+ * Format tool call arguments for the expanded detail view.
  */
 function formatToolArguments(args: Record<string, unknown> | string): string {
-  if (typeof args === 'string') {
-    return args;
-  }
+  if (typeof args === 'string') return args;
 
   const lines: string[] = ['{'];
   const entries = Object.entries(args);
@@ -20,14 +51,12 @@ function formatToolArguments(args: Record<string, unknown> | string): string {
     const isLast = index === entries.length - 1;
 
     if (typeof value === 'string') {
-      // Unescape the string value for display
       const unescaped = value
         .replace(/\\n/g, '\n')
         .replace(/\\"/g, '"')
         .replace(/\\t/g, '\t')
         .replace(/\\\\/g, '\\');
 
-      // For multiline content, display it nicely
       if (unescaped.includes('\n')) {
         lines.push(`  "${key}":`);
         lines.push(unescaped.split('\n').map(line => `    ${line}`).join('\n'));
@@ -44,27 +73,50 @@ function formatToolArguments(args: Record<string, unknown> | string): string {
 }
 
 /**
- * Display tool calls with their arguments.
+ * Compact tool call display with expandable details.
+ * Uses the same green theme as CommandExecBlock.
  */
 export const ToolCallBlock: React.FC<ToolCallBlockProps> = ({ toolCalls }) => {
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+
   if (toolCalls.length === 0) return null;
 
+  const toggleExpand = (id: string) => {
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   return (
-    <div className="space-y-3">
-      {toolCalls.map((toolCall) => (
-        <div
-          key={toolCall.id}
-          className="p-3 bg-flat-purple rounded-lg"
-        >
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-xs font-medium text-white">🔧 Tool Call</span>
-            <span className="text-xs font-medium text-white">{toolCall.name}</span>
+    <div className="space-y-2">
+      {toolCalls.map((toolCall) => {
+        const isExpanded = expandedIds.has(toolCall.id);
+        const summary = getToolSummary(toolCall.name, toolCall.arguments);
+
+        return (
+          <div
+            key={toolCall.id}
+            className="rounded-lg overflow-hidden border border-green-500/30"
+          >
+            <button
+              onClick={() => toggleExpand(toolCall.id)}
+              className="w-full bg-green-950/70 px-3 py-2 flex items-center gap-2 text-left hover:bg-green-950/90 transition-colors"
+            >
+              <span className="text-xs font-medium text-green-300">{toolCall.name}</span>
+              <span className="text-xs text-green-200/60 truncate flex-1">{summary}</span>
+              <span className="text-green-400">{isExpanded ? '\u25BC' : '\u25B6'}</span>
+            </button>
+            {isExpanded && (
+              <pre className="text-xs text-gray-300 font-mono bg-black/40 px-3 py-2 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto">
+                {formatToolArguments(toolCall.arguments)}
+              </pre>
+            )}
           </div>
-          <pre className="text-xs text-white bg-black/20 p-3 rounded overflow-x-auto whitespace-pre-wrap">
-            {formatToolArguments(toolCall.arguments)}
-          </pre>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 };

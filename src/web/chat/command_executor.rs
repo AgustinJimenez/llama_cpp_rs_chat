@@ -4,13 +4,21 @@ use tokio::sync::mpsc;
 
 use super::super::command::execute_command;
 use super::super::models::*;
+use super::super::native_tools;
 use super::tool_tags::ToolTags;
 use crate::log_info;
 
 // Default SYSTEM.EXEC regex (always tried as fallback)
+// (?s) enables DOTALL mode so . matches newlines (multi-line commands)
 lazy_static::lazy_static! {
     pub static ref EXEC_PATTERN: Regex = Regex::new(
-        r"SYSTEM\.EXEC>(.+?)<SYSTEM\.EXEC\|{1,2}>"
+        r"(?s)SYSTEM\.EXEC>(.+?)<SYSTEM\.EXEC\|{1,2}>"
+    ).unwrap();
+
+    // Llama3/Hermes XML format: <function=tool_name> ... </function>
+    // Some models (Qwen3-Coder) output this without a <tool_call> wrapper.
+    static ref LLAMA3_FUNC_PATTERN: Regex = Regex::new(
+        r"(?s)(<function=[a-z_]+>.*?</function>)"
     ).unwrap();
 }
 
@@ -27,7 +35,8 @@ fn build_model_exec_regex(tags: &ToolTags) -> Option<Regex> {
     let close = regex::escape(tags.exec_close);
 
     // Build pattern: open_tag(.+?)close_tag
-    let pattern = format!(r"{open}(.+?){close}");
+    // (?s) enables DOTALL mode so . matches newlines (multi-line commands like python -c)
+    let pattern = format!(r"(?s){open}(.+?){close}");
     Regex::new(&pattern).ok()
 }
 
@@ -75,6 +84,15 @@ pub fn check_and_execute_command_with_tags(
             }
         }
 
+        // Fall back to Llama3/Hermes <function=...> pattern (no wrapping <tool_call> tag)
+        if found.is_none() {
+            if let Some(captures) = LLAMA3_FUNC_PATTERN.captures(response_to_scan) {
+                if let Some(m) = captures.get(1) {
+                    found = Some(m.as_str().to_string());
+                }
+            }
+        }
+
         match found {
             Some(cmd) => cmd,
             None => return Ok(None),
@@ -83,8 +101,14 @@ pub fn check_and_execute_command_with_tags(
 
     log_info!(conversation_id, "🔧 Command detected: {}", command_text);
 
-    // Execute the command
-    let output = execute_command(&command_text);
+    // Try native tool dispatch (JSON format) first, fall back to shell execution
+    let output = if let Some(native_output) = native_tools::dispatch_native_tool(&command_text) {
+        log_info!(conversation_id, "📦 Dispatched to native tool handler");
+        native_output
+    } else {
+        log_info!(conversation_id, "🐚 Falling back to shell execution");
+        execute_command(&command_text)
+    };
     log_info!(
         conversation_id,
         "📤 Command output length: {} chars",

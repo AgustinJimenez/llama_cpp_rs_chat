@@ -1,17 +1,25 @@
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 pub struct Logger {
     files: Mutex<HashMap<String, File>>,
+    enabled: AtomicBool,
 }
 
 impl Logger {
     pub fn new() -> Self {
         Logger {
             files: Mutex::new(HashMap::new()),
+            enabled: AtomicBool::new(true),
         }
+    }
+
+    /// Enable or disable file logging at runtime
+    pub fn set_enabled(&self, enabled: bool) {
+        self.enabled.store(enabled, Ordering::Relaxed);
     }
 
     fn get_or_create_file(&self, conversation_id: &str) -> std::io::Result<()> {
@@ -37,6 +45,9 @@ impl Logger {
     }
 
     pub fn log(&self, conversation_id: &str, level: &str, message: &str) {
+        if !self.enabled.load(Ordering::Relaxed) {
+            return;
+        }
         // Create or get the file for this conversation
         if let Err(e) = self.get_or_create_file(conversation_id) {
             // Can't use logging macros here as this IS the logger - use eprintln as fallback

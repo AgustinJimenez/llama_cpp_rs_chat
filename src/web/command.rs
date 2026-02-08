@@ -33,6 +33,81 @@ pub fn parse_command_with_quotes(cmd: &str) -> Vec<String> {
     parts
 }
 
+/// Check if a command uses shell operators that require a shell to interpret.
+fn needs_shell(cmd: &str) -> bool {
+    let mut in_quotes = false;
+    let mut prev = '\0';
+    for ch in cmd.chars() {
+        if ch == '"' {
+            in_quotes = !in_quotes;
+        }
+        if !in_quotes {
+            match ch {
+                '|' | '<' | ';' => return true,
+                '>' if prev != '2' => return true, // allow 2> but catch > and >>
+                '&' if prev == '&' => return true,  // &&
+                _ => {}
+            }
+        }
+        prev = ch;
+    }
+    false
+}
+
+/// Enrich PATH with common Windows tool directories.
+fn enriched_windows_path() -> String {
+    let current_path = env::var("PATH").unwrap_or_default();
+    let extra_dirs = [
+        r"C:\WINDOWS\system32",
+        r"C:\WINDOWS",
+        r"C:\WINDOWS\System32\Wbem",
+        r"C:\WINDOWS\System32\WindowsPowerShell\v1.0",
+        r"C:\Program Files\Git\cmd",
+        r"C:\Program Files\nodejs",
+        r"C:\ProgramData\chocolatey\bin",
+    ];
+    extra_dirs
+        .iter()
+        .filter(|d| !current_path.contains(*d))
+        .fold(current_path.clone(), |acc, d| format!("{acc};{d}"))
+}
+
+/// Execute a command on Windows.
+/// Strategy: try direct execution first (avoids shell quoting issues for python, git, etc.).
+/// Fall back to PowerShell for shell builtins (cat, dir, type) and commands with shell operators.
+fn execute_windows(cmd: &str, parts: &[String]) -> std::io::Result<std::process::Output> {
+    let path = enriched_windows_path();
+
+    // Commands with shell operators (|, >, &&, etc.) must go through PowerShell
+    if needs_shell(cmd) {
+        let escaped = cmd.replace('$', "`$");
+        return Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &escaped])
+            .env("PATH", &path)
+            .output();
+    }
+
+    // Try direct execution first — no shell means no quoting issues
+    let result = Command::new(&parts[0])
+        .args(&parts[1..])
+        .env("PATH", &path)
+        .output();
+
+    match &result {
+        Ok(_) => result,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // Command not found as executable — try PowerShell for aliases/builtins
+            // (cat, dir, type, ls, etc. are PowerShell aliases, not real executables)
+            let escaped = cmd.replace('$', "`$");
+            Command::new("powershell")
+                .args(["-NoProfile", "-NonInteractive", "-Command", &escaped])
+                .env("PATH", &path)
+                .output()
+        }
+        Err(_) => result,
+    }
+}
+
 // Helper function to execute system commands
 pub fn execute_command(cmd: &str) -> String {
     // Parse command with proper quote handling
@@ -67,39 +142,15 @@ pub fn execute_command(cmd: &str) -> String {
         // Normal command execution for non-cd commands
         let is_windows = cfg!(target_os = "windows");
 
-        // On Windows, route ALL commands through cmd.exe /c so they inherit
-        // the full system PATH (PowerShell, git, curl, python, etc.)
-        let mut command = if is_windows {
-            let full_cmd = parts.join(" ");
-            let mut cmd = Command::new("cmd");
-            cmd.args(["/c", &full_cmd]);
-            // Ensure common Windows tool directories are in PATH
-            // The Rust process may have a stripped PATH, so we enrich it
-            let current_path = env::var("PATH").unwrap_or_default();
-            let extra_dirs = [
-                r"C:\WINDOWS\system32",
-                r"C:\WINDOWS",
-                r"C:\WINDOWS\System32\Wbem",
-                r"C:\WINDOWS\System32\WindowsPowerShell\v1.0",
-                r"C:\Program Files\Git\cmd",
-                r"C:\Program Files\nodejs",
-                r"C:\ProgramData\chocolatey\bin",
-            ];
-            let enriched_path = extra_dirs
-                .iter()
-                .filter(|d| !current_path.contains(*d))
-                .fold(current_path.clone(), |acc, d| format!("{acc};{d}"));
-            cmd.env("PATH", enriched_path);
-            cmd
+        let output = if is_windows {
+            execute_windows(cmd.trim(), &parts)
         } else {
-            let mut cmd = Command::new(&parts[0]);
-            if parts.len() > 1 {
-                cmd.args(&parts[1..]);
-            }
-            cmd
+            Command::new(&parts[0])
+                .args(&parts[1..])
+                .output()
         };
 
-        match command.output() {
+        match output {
             Ok(output) => {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let stderr = String::from_utf8_lossy(&output.stderr);

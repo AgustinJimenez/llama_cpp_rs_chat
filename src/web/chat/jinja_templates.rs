@@ -112,19 +112,79 @@ pub fn parse_conversation_to_messages(conversation: &str) -> Vec<ChatMessage> {
 pub fn get_available_tools() -> Vec<Value> {
     vec![
         json!({
+            "name": "read_file",
+            "description": "Read the contents of a file. Returns the file text (truncated at 100KB for large files).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the file to read"
+                    }
+                },
+                "required": ["path"]
+            }
+        }),
+        json!({
+            "name": "write_file",
+            "description": "Write content to a file. Creates parent directories if needed. Overwrites existing files.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to write the file to"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "The content to write to the file"
+                    }
+                },
+                "required": ["path", "content"]
+            }
+        }),
+        json!({
+            "name": "execute_python",
+            "description": "Execute Python code. The code is written to a temp file and run with the Python interpreter. Supports multi-line code, imports, regex, and any valid Python. Returns stdout and stderr.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "The Python code to execute"
+                    }
+                },
+                "required": ["code"]
+            }
+        }),
+        json!({
             "name": "execute_command",
-            "description": "Execute system commands",
+            "description": "Execute a shell command (git, npm, curl, etc.). Use this for commands that are not covered by other tools.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "command": {
                         "type": "string",
-                        "description": "The command to execute"
+                        "description": "The shell command to execute"
                     }
                 },
                 "required": ["command"]
             }
-        })
+        }),
+        json!({
+            "name": "list_directory",
+            "description": "List files and directories in a path. Shows name, size, and type for each entry.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Directory path to list (defaults to current directory)"
+                    }
+                },
+                "required": []
+            }
+        }),
     ]
 }
 

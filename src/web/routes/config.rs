@@ -6,6 +6,7 @@ use std::convert::Infallible;
 use crate::web::{
     config::{db_config_to_sampler_config, sampler_config_to_db},
     database::SharedDatabase,
+    logger::LOGGER,
     models::SamplerConfig,
     request_parsing::parse_json_body,
     response_helpers::{json_error, json_raw},
@@ -69,7 +70,8 @@ pub async fn handle_post_config(
 
     match db.save_config(&merged) {
         Ok(_) => {
-            // No cache invalidation needed — worker reads fresh config from DB on each generation
+            // Sync file logging toggle at runtime
+            LOGGER.set_enabled(!merged.disable_file_logging);
             Ok(json_raw(StatusCode::OK, r#"{"success":true}"#.to_string()))
         }
         Err(e) => Ok(json_error(

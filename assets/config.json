@@ -12,14 +12,14 @@
   "stop_tokens": null,
   "model_history": [
     "E:/.lmstudio/models/lmstudio-community/Devstral-Small-2507-GGUF/Devstral-Small-2507-Q4_K_M.gguf",
-    "/Users/agus/.lmstudio/models/lmstudio-community/granite-4.0-h-tiny-GGUF/granite-4.0-h-tiny-Q4_K_M.gguf",
+    "/app/models/lmstudio-community/granite-4.0-h-tiny-GGUF/granite-4.0-h-tiny-Q4_K_M.gguf",
     "E:\\.lmstudio\\models\\lmstudio-community\\Devstral-Small-2507-GGUF\\Devstral-Small-2507-Q4_K_M.gguf",
+    "E:/.lmstudio/Mungert/MiniCPM4.1-8B-GGUF/MiniCPM4.1-8B-bf16.gguf",
+    "E:\\.lmstudio\\Mungert\\MiniCPM4.1-8B-GGUF\\MiniCPM4.1-8B-bf16.gguf",
+    "/Users/agus/.lmstudio/models/lmstudio-community/granite-4.0-h-tiny-GGUF/granite-4.0-h-tiny-Q4_K_M.gguf",
     "E:\\.lmstudio\\lmstudio-community\\granite-4.0-h-tiny-GGUF\\granite-4.0-h-tiny-Q8_0.gguf",
     "E:/.lmstudio/lmstudio-community/granite-4.0-h-tiny-GGUF/granite-4.0-h-tiny-Q8_0.gguf",
     "E:\\.lmstudio\\models\\lmstudio-community\\Qwen3-30B-A3B-Instruct-2507-GGUF\\Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf",
-    "E:/.lmstudio/lmstudio-community/Qwen3-8B-GGUF/Qwen3-8B-Q8_0.gguf",
-    "E:/.lmstudio/lmstudio-community/gemma-3-12b-it-GGUF/gemma-3-12b-it-Q8_0.gguf",
-    "E:/.lmstudio/Mungert/MiniCPM4.1-8B-GGUF/MiniCPM4.1-8B-bf16.gguf",
-    "E:/.lmstudio/models/lmstudio-community/Qwen3-30B-A3B-Instruct-2507-GGUF/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf"
+    "E:/.lmstudio/lmstudio-community/Qwen3-8B-GGUF/Qwen3-8B-Q8_0.gguf"
   ]
 }

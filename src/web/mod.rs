@@ -11,6 +11,7 @@ pub mod gguf_utils; // GGUF metadata utilities
 pub mod logger;
 pub mod model_manager;
 pub mod models;
+pub mod native_tools; // Native file I/O and code execution tools
 pub mod request;
 pub mod request_parsing; // Request body parsing utilities
 pub mod response_helpers; // Reusable HTTP response builders

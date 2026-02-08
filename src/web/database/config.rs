@@ -19,6 +19,7 @@ pub struct DbSamplerConfig {
     pub context_size: Option<u32>,
     pub stop_tokens: Option<Vec<String>>,
     pub model_history: Vec<String>,
+    pub disable_file_logging: bool,
 }
 
 impl Default for DbSamplerConfig {
@@ -36,6 +37,7 @@ impl Default for DbSamplerConfig {
             context_size: Some(32768),
             stop_tokens: None,
             model_history: Vec::new(),
+            disable_file_logging: true,
         }
     }
 }
@@ -65,7 +67,7 @@ impl Database {
             conn.query_row(
                 "SELECT sampler_type, temperature, top_p, top_k, mirostat_tau,
                         mirostat_eta, model_path, system_prompt, system_prompt_type,
-                        context_size, stop_tokens
+                        context_size, stop_tokens, disable_file_logging
                  FROM config WHERE id = 1",
                 [],
                 |row| {
@@ -87,6 +89,7 @@ impl Database {
                         context_size: row.get(9)?,
                         stop_tokens,
                         model_history: Vec::new(), // Loaded separately
+                        disable_file_logging: row.get::<_, Option<i32>>(11)?.unwrap_or(1) != 0,
                     })
                 },
             )
@@ -112,8 +115,8 @@ impl Database {
             "INSERT OR REPLACE INTO config
              (id, sampler_type, temperature, top_p, top_k, mirostat_tau,
               mirostat_eta, model_path, system_prompt, system_prompt_type,
-              context_size, stop_tokens, updated_at)
-             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+              context_size, stop_tokens, disable_file_logging, updated_at)
+             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 config.sampler_type,
                 config.temperature,
@@ -126,6 +129,7 @@ impl Database {
                 system_prompt_type_to_str(&config.system_prompt_type),
                 config.context_size,
                 stop_tokens_json,
+                config.disable_file_logging as i32,
                 current_timestamp_millis(),
             ],
         )
@@ -147,7 +151,7 @@ impl Database {
              sampler_type = ?1, temperature = ?2, top_p = ?3, top_k = ?4,
              mirostat_tau = ?5, mirostat_eta = ?6, model_path = ?7,
              system_prompt = ?8, system_prompt_type = ?9, context_size = ?10,
-             stop_tokens = ?11, updated_at = ?12
+             stop_tokens = ?11, disable_file_logging = ?12, updated_at = ?13
              WHERE id = 1",
             params![
                 config.sampler_type,
@@ -161,6 +165,7 @@ impl Database {
                 system_prompt_type_to_str(&config.system_prompt_type),
                 config.context_size,
                 stop_tokens_json,
+                config.disable_file_logging as i32,
                 current_timestamp_millis(),
             ],
         )
@@ -309,6 +314,7 @@ mod tests {
             context_size: Some(4096),
             stop_tokens: Some(vec!["</s>".to_string()]),
             model_history: Vec::new(),
+            disable_file_logging: true,
         };
 
         db.save_config(&config).unwrap();

@@ -128,7 +128,7 @@ pub fn run_worker(db_path: &str) {
                 break;
             }
 
-            WorkerCommand::LoadModel { model_path } => {
+            WorkerCommand::LoadModel { model_path, gpu_layers } => {
                 if generation_thread.is_some() {
                     write_response(
                         &mut stdout,
@@ -137,7 +137,7 @@ pub fn run_worker(db_path: &str) {
                     continue;
                 }
 
-                eprintln!("[WORKER] Loading model: {model_path}");
+                eprintln!("[WORKER] Loading model: {model_path} (gpu_layers: {gpu_layers:?})");
                 let state = llama_state.clone();
 
                 // Load model synchronously (blocking is fine, no generation running)
@@ -146,7 +146,7 @@ pub fn run_worker(db_path: &str) {
                     .build()
                     .expect("Failed to create tokio runtime");
 
-                let result = rt.block_on(load_model(state.clone(), &model_path));
+                let result = rt.block_on(load_model(state.clone(), &model_path, gpu_layers));
 
                 match result {
                     Ok(()) => {
