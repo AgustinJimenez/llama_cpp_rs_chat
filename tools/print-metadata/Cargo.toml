@@ -1,0 +1,7 @@
+[package]
+name = "print-metadata"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+gguf-llms = "0.0.2"

@@ -55,7 +55,7 @@ tokio = { version = "1.0", features = ["full"] }
 regex = "1.10"
 
 # LLaMA dependencies - with conditional CUDA GPU acceleration
-llama-cpp-2 = { version = "0.1.122", features = [] }
+llama-cpp-2 = { version = "0.1.130", features = [] }
 anyhow = "1.0"
 uuid = { version = "1.0", features = ["v4"] }
 

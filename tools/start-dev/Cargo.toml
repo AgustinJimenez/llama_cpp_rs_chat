@@ -1,0 +1,8 @@
+[package]
+name = "start-dev"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sysinfo = "0.35"
+ensure-cmake = { path = "../ensure-cmake" }

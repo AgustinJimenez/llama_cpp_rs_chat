@@ -35,9 +35,9 @@ assets/model_path.txt
 
 target2/
 
-# ensure-cmake build artifacts
-tools/ensure-cmake/target/
-tools/ensure-cmake/Cargo.lock
+# Tools build artifacts
+tools/*/target/
+tools/*/Cargo.lock
 
 # Test data artifacts
 test_data/

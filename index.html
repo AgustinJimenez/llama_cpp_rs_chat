@@ -7,7 +7,15 @@
     <title>🦙 LLaMA Chat</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="app-loader" style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0a0a0a">
+        <div style="text-align:center;color:#a1a1aa">
+          <div style="width:40px;height:40px;margin:0 auto 16px;border:3px solid #27272a;border-top-color:#a1a1aa;border-radius:50%;animation:spin 0.8s linear infinite"></div>
+          <div style="font-family:system-ui,sans-serif;font-size:14px">Loading...</div>
+        </div>
+      </div>
+    </div>
+    <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

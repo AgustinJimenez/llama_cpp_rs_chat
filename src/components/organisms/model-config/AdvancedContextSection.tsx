@@ -1,5 +1,5 @@
-import React from 'react';
-import { Zap } from 'lucide-react';
+import React, { useState } from 'react';
+import { Zap, Info } from 'lucide-react';
 import type { SamplerConfig } from '@/types';
 
 const KV_CACHE_OPTIONS = [
@@ -14,6 +14,56 @@ interface AdvancedContextSectionProps {
   config: SamplerConfig;
   onConfigChange: (field: keyof SamplerConfig, value: string | number | boolean) => void;
 }
+
+const KvCacheSection: React.FC<AdvancedContextSectionProps> = ({ config, onConfigChange }) => {
+  const [showTooltip, setShowTooltip] = useState(false);
+  const isQuantized = config.cache_type_k !== 'f16' || config.cache_type_v !== 'f16';
+
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <div>
+        <label className="text-sm font-medium mb-1 flex items-center gap-1.5">
+          KV Cache K Type
+          {isQuantized && (
+            <span
+              className="relative"
+              onMouseEnter={() => setShowTooltip(true)}
+              onMouseLeave={() => setShowTooltip(false)}
+            >
+              <Info className="h-3.5 w-3.5 text-amber-500 cursor-help" />
+              {showTooltip && (
+                <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1.5 px-2.5 py-1.5 text-xs text-amber-200 bg-popover border border-amber-500/30 rounded-md shadow-lg whitespace-nowrap z-50">
+                  Quantized KV cache saves VRAM but may slightly reduce output quality.
+                </span>
+              )}
+            </span>
+          )}
+        </label>
+        <select
+          className="w-full rounded-md border bg-background px-3 py-1.5 text-sm"
+          value={config.cache_type_k ?? 'f16'}
+          onChange={(e) => onConfigChange('cache_type_k', e.target.value)}
+        >
+          {KV_CACHE_OPTIONS.map(opt => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className="text-sm font-medium block mb-1">KV Cache V Type</label>
+        <select
+          className="w-full rounded-md border bg-background px-3 py-1.5 text-sm"
+          value={config.cache_type_v ?? 'f16'}
+          onChange={(e) => onConfigChange('cache_type_v', e.target.value)}
+        >
+          {KV_CACHE_OPTIONS.map(opt => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+};
 
 export const AdvancedContextSection: React.FC<AdvancedContextSectionProps> = ({
   config,
@@ -50,37 +100,7 @@ export const AdvancedContextSection: React.FC<AdvancedContextSectionProps> = ({
       </div>
 
       {/* KV Cache Quantization */}
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="text-sm font-medium block mb-1">KV Cache K Type</label>
-          <select
-            className="w-full rounded-md border bg-background px-3 py-1.5 text-sm"
-            value={config.cache_type_k ?? 'f16'}
-            onChange={(e) => onConfigChange('cache_type_k', e.target.value)}
-          >
-            {KV_CACHE_OPTIONS.map(opt => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="text-sm font-medium block mb-1">KV Cache V Type</label>
-          <select
-            className="w-full rounded-md border bg-background px-3 py-1.5 text-sm"
-            value={config.cache_type_v ?? 'f16'}
-            onChange={(e) => onConfigChange('cache_type_v', e.target.value)}
-          >
-            {KV_CACHE_OPTIONS.map(opt => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
-        </div>
-      </div>
-      {(config.cache_type_k !== 'f16' || config.cache_type_v !== 'f16') && (
-        <p className="text-xs text-amber-500">
-          Quantized KV cache saves VRAM but may slightly reduce output quality.
-        </p>
-      )}
+      <KvCacheSection config={config} onConfigChange={onConfigChange} />
 
       {/* Batch Size */}
       <div>
