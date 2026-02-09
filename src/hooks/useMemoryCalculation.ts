@@ -8,6 +8,7 @@ interface MemoryCalculationParams {
   contextSize: number;
   availableVramGb: number;
   availableRamGb: number;
+  overheadGb?: number;
 }
 
 interface ArchitectureParams {
@@ -101,6 +102,7 @@ export function useMemoryCalculation({
   contextSize,
   availableVramGb,
   availableRamGb,
+  overheadGb: overheadParam = 2.0,
 }: MemoryCalculationParams): MemoryBreakdown {
   return useMemo(() => {
     if (!modelMetadata) {
@@ -121,8 +123,7 @@ export function useMemoryCalculation({
       contextSize, totalLayers, kvHeads, qHeads, embeddingLength
     );
 
-    const overheadGb = 2.0;
-    const vramUsed = modelGpuSizeGb + kvCacheSizeGb + overheadGb;
+    const vramUsed = modelGpuSizeGb + kvCacheSizeGb + overheadParam;
     const ramUsed = modelCpuSizeGb;
 
     return {
@@ -130,7 +131,7 @@ export function useMemoryCalculation({
         total: availableVramGb,
         modelGpu: modelGpuSizeGb,
         kvCache: kvCacheSizeGb,
-        overhead: overheadGb,
+        overhead: overheadParam,
         available: Math.max(0, availableVramGb - vramUsed),
         overcommitted: vramUsed > availableVramGb,
       },
@@ -141,5 +142,5 @@ export function useMemoryCalculation({
         overcommitted: ramUsed > availableRamGb,
       },
     };
-  }, [modelMetadata, gpuLayers, contextSize, availableVramGb, availableRamGb]);
+  }, [modelMetadata, gpuLayers, contextSize, availableVramGb, availableRamGb, overheadParam]);
 }

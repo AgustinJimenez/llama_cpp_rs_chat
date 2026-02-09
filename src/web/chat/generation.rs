@@ -231,32 +231,49 @@ pub async fn generate_llama_response(
                 .take_while(|(a, b)| a == b)
                 .count();
 
-            let mut ctx = cache.context;
-
             if common_len < cache.evaluated_tokens.len() {
-                // Conversation diverged (e.g., message edited/deleted).
-                // Clear KV cache entries from the divergence point onward.
+                // Conversation diverged (e.g., message edited/deleted, or tool
+                // output tokens were injected last turn). Partial KV cache clearing
+                // via clear_kv_cache_seq only works for pure-attention models —
+                // hybrid models (Attention + SSM/Mamba like qwen3next) also have
+                // recurrent state memory that doesn't support partial clearing.
+                // Drop the context entirely and create fresh to be safe.
                 log_info!(
                     &conversation_id,
-                    "KV cache diverged at token {}, clearing {} stale entries",
+                    "KV cache diverged at token {} (cached {}), dropping context and starting fresh",
                     common_len,
-                    cache.evaluated_tokens.len() - common_len
+                    cache.evaluated_tokens.len()
                 );
-                let _ = ctx.clear_kv_cache_seq(
-                    Some(0),
-                    Some(common_len as u32),
-                    None,
+                drop(cache.context);
+                // Fall through to fresh context creation below
+                let mut ctx_params = LlamaContextParams::default()
+                    .with_n_ctx(Some(n_ctx))
+                    .with_offload_kqv(offload_kqv)
+                    .with_type_k(parse_kv_cache_type(&cache_type_k))
+                    .with_type_v(parse_kv_cache_type(&cache_type_v))
+                    .with_n_batch(n_batch);
+                if flash_attention {
+                    ctx_params = ctx_params.with_flash_attention_policy(
+                        1, // LLAMA_FLASH_ATTN_TYPE_ENABLED
+                    );
+                }
+                let ctx = unsafe {
+                    let real_ctx = model
+                        .new_context(&state.backend, ctx_params)
+                        .map_err(|e| format!("Context creation failed: {e}"))?;
+                    std::mem::transmute::<LlamaContext<'_>, LlamaContext<'static>>(real_ctx)
+                };
+                (ctx, 0)
+            } else {
+                log_info!(
+                    &conversation_id,
+                    "♻️ Reusing KV cache: {} of {} prompt tokens already evaluated, {} new",
+                    common_len,
+                    tokens.len(),
+                    tokens.len() - common_len
                 );
+                (cache.context, common_len)
             }
-
-            log_info!(
-                &conversation_id,
-                "♻️ Reusing KV cache: {} of {} prompt tokens already evaluated, {} new",
-                common_len,
-                tokens.len(),
-                tokens.len() - common_len
-            );
-            (ctx, common_len)
         }
         _ => {
             // Cache miss: create fresh context
@@ -605,7 +622,7 @@ pub async fn generate_llama_response(
             // CRITICAL: This must be inside the inner loop so commands are detected immediately
             // after the closing tag is generated, before the model hallucinates fake output.
             if let Some(exec_result) =
-                check_and_execute_command_with_tags(&response, last_exec_scan_pos, &conversation_id, model, tags)?
+                check_and_execute_command_with_tags(&response, last_exec_scan_pos, &conversation_id, model, tags, template_type.as_deref())?
             {
                 // 1. Log to conversation file (CRITICAL: prevents infinite loops)
                 {
@@ -626,16 +643,18 @@ pub async fn generate_llama_response(
                     context_size,
                 );
 
-                // 4. Inject output tokens into LLM context
+                // 4. Inject model-wrapped tokens into LLM context
+                // Uses model_tokens which include chat template turn structure
+                // (e.g. <|im_end|>\n<|im_start|>user\n...<|im_end|>\n<|im_start|>assistant\n for ChatML)
                 inject_output_tokens(
-                    &exec_result.output_tokens,
+                    &exec_result.model_tokens,
                     &mut batch,
                     &mut context,
                     &mut token_pos,
                     &conversation_id,
                 )?;
 
-                generated_token_ids.extend(exec_result.output_tokens.iter().map(|&id| LlamaToken(id)));
+                generated_token_ids.extend(exec_result.model_tokens.iter().map(|&id| LlamaToken(id)));
                 command_executed = true;
                 // CRITICAL: Reset stop condition so generation continues after command output
                 hit_stop_condition = false;

@@ -27,5 +27,3 @@ export const SAMPLER_DESCRIPTIONS: Record<SamplerType, string> = {
   'ChainTempTopK': 'Chains Temperature and Top-K sampling methods',
   'ChainFull': 'Full chain sampling (IBM recommended for best results)'
 };
-
-export const CONTEXT_SIZE_PRESETS = [2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576];

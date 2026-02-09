@@ -34,6 +34,9 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     if (message.trim() && !disabled) {
       onSendMessage(message.trim());
       setMessage('');
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+      }
     }
   }, [message, disabled, onSendMessage]);
 
@@ -44,9 +47,17 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     }
   }, [handleSubmit]);
 
+  const autoResize = useCallback((el: HTMLTextAreaElement) => {
+    el.style.height = 'auto';
+    const lineHeight = 20;
+    const maxHeight = lineHeight * 7;
+    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+  }, []);
+
   const handleTextareaChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setMessage(e.target.value);
-  }, []);
+    autoResize(e.target);
+  }, [autoResize]);
 
   return (
     <form onSubmit={handleSubmit} data-testid="message-form">
@@ -58,7 +69,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
           onKeyDown={handleKeyDown}
           placeholder="Message..."
           disabled={disabled}
-          className="flex-1 bg-transparent border-none outline-none resize-none text-sm text-foreground placeholder:text-muted-foreground min-h-[24px] max-h-[120px] py-0.5"
+          className="flex-1 bg-transparent border-none outline-none resize-none text-sm text-foreground placeholder:text-muted-foreground min-h-[24px] py-0.5 overflow-y-auto"
           rows={1}
           data-testid="message-input"
           aria-disabled={disabled}
@@ -68,7 +79,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
           <button
             type="button"
             onClick={onStopGeneration}
-            className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-[hsl(220_10%_55%)] text-[hsl(220_10%_90%)] hover:bg-[hsl(220_10%_62%)] transition-colors"
+            className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-white text-black hover:bg-gray-200 transition-colors"
             data-testid="stop-button"
             title="Stop generation"
           >
@@ -78,7 +89,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
           <button
             type="submit"
             disabled={disabled || !message.trim()}
-            className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-[hsl(220_10%_55%)] text-[hsl(220_10%_90%)] hover:bg-[hsl(220_10%_62%)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-white text-black hover:bg-gray-200 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             data-testid="send-button"
             title={disabled && disabledReason ? disabledReason : undefined}
           >

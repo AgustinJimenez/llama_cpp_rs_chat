@@ -13,13 +13,11 @@ import { Button } from '../../atoms/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../atoms/card';
 import type { SamplerConfig } from '@/types';
 import { toast } from 'react-hot-toast';
-import { getModelHistory, getSystemUsage } from '@/utils/tauriCommands';
+import { getModelHistory } from '@/utils/tauriCommands';
 
 // Import extracted components
 import { ModelFileInput, ModelConfigSystemPrompt } from '../../molecules';
 import { ModelMetadataDisplay } from './ModelMetadataDisplay';
-import { ContextSizeSection } from './ContextSizeSection';
-import { GpuLayersSection } from './GpuLayersSection';
 import { SamplingParametersSection } from './SamplingParametersSection';
 import { AdvancedContextSection } from './AdvancedContextSection';
 
@@ -28,6 +26,7 @@ import { MemoryVisualization } from './MemoryVisualization';
 // Import hooks
 import { useMemoryCalculation } from '@/hooks/useMemoryCalculation';
 import { useModelPathValidation } from '@/hooks/useModelPathValidation';
+import { useSystemResources } from '@/contexts/SystemResourcesContext';
 
 // Import model presets for auto-configuration
 import { findPresetByName, DEFAULT_PRESET } from '@/config/modelPresets';
@@ -69,8 +68,11 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   const [showHistory, setShowHistory] = useState(false);
   const [systemPromptMode, setSystemPromptMode] = useState<'model' | 'system' | 'custom'>('system');
   const [customSystemPrompt, setCustomSystemPrompt] = useState('You are a helpful AI assistant.');
-  const [availableVramGb, setAvailableVramGb] = useState(24.0); // Default until detected
-  const [availableRamGb, setAvailableRamGb] = useState(64.0);   // Default until detected
+
+  const [overheadGb, setOverheadGb] = useState(2.0);
+
+  // Use global system resources (fetched at app startup)
+  const { totalVramGb: availableVramGb, totalRamGb: availableRamGb } = useSystemResources();
 
   // Use model path validation hook for file checking and metadata fetching
   const {
@@ -93,6 +95,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     contextSize: contextSize,
     availableVramGb,
     availableRamGb,
+    overheadGb,
   });
 
   // Initialize model path from config when modal opens
@@ -102,7 +105,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     }
   }, [isOpen, initialModelPath, modelPath]);
 
-  // Fetch model history and hardware info when modal opens
+  // Fetch model history when modal opens
   useEffect(() => {
     if (!isOpen) return;
 
@@ -115,22 +118,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
       }
     };
 
-    const fetchHardwareInfo = async () => {
-      try {
-        const usage = await getSystemUsage();
-        if (usage.total_vram_gb && usage.total_vram_gb > 0) {
-          setAvailableVramGb(usage.total_vram_gb);
-        }
-        if (usage.total_ram_gb && usage.total_ram_gb > 0) {
-          setAvailableRamGb(usage.total_ram_gb);
-        }
-      } catch (error) {
-        console.error('Failed to fetch hardware info:', error);
-      }
-    };
-
     fetchHistory();
-    fetchHardwareInfo();
   }, [isOpen]);
 
   useEffect(() => {
@@ -366,12 +354,6 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
               </CardHeader>
               {isConfigExpanded && (
                 <CardContent className="space-y-4 pt-6">
-                  <ContextSizeSection
-                    contextSize={contextSize}
-                    setContextSize={setContextSize}
-                    modelInfo={modelInfo}
-                  />
-
                   <ModelConfigSystemPrompt
                     systemPromptMode={systemPromptMode}
                     setSystemPromptMode={setSystemPromptMode}
@@ -380,15 +362,19 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                     modelInfo={modelInfo}
                   />
 
-                  <GpuLayersSection
-                    gpuLayers={config.gpu_layers || 0}
-                    onGpuLayersChange={(layers) => handleInputChange('gpu_layers', layers)}
-                    maxLayers={maxLayers}
-                  />
-
                   {/* Memory Visualization - Real-time VRAM/RAM usage */}
                   {modelInfo && (
-                    <MemoryVisualization memory={memoryBreakdown} />
+                    <MemoryVisualization
+                      memory={memoryBreakdown}
+                      overheadGb={overheadGb}
+                      onOverheadChange={setOverheadGb}
+                      gpuLayers={config.gpu_layers || 0}
+                      onGpuLayersChange={(layers) => handleInputChange('gpu_layers', layers)}
+                      maxLayers={maxLayers}
+                      contextSize={contextSize}
+                      onContextSizeChange={setContextSize}
+                      maxContextSize={modelInfo?.context_length ? parseInt(modelInfo.context_length.toString().replace(/,/g, '')) || 131072 : 131072}
+                    />
                   )}
 
                   <AdvancedContextSection

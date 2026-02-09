@@ -32,6 +32,13 @@ function defaultToolSummary(args: Record<string, unknown>): string {
   return `${key}: ${valStr.slice(0, 60)}${valStr.length > 60 ? '...' : ''}`;
 }
 
+function formatToolName(name: string): string {
+  return name
+    .split('_')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
 function getToolSummary(name: string, args: Record<string, unknown> | string): string {
   if (typeof args === 'string') return args.slice(0, 80);
   const summarizer = TOOL_SUMMARIZERS[name];
@@ -78,6 +85,7 @@ function formatToolArguments(args: Record<string, unknown> | string): string {
  */
 export const ToolCallBlock: React.FC<ToolCallBlockProps> = ({ toolCalls }) => {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [expandedOutputIds, setExpandedOutputIds] = useState<Set<string>>(new Set());
 
   if (toolCalls.length === 0) return null;
 
@@ -90,29 +98,64 @@ export const ToolCallBlock: React.FC<ToolCallBlockProps> = ({ toolCalls }) => {
     });
   };
 
+  const toggleOutput = (id: string) => {
+    setExpandedOutputIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   return (
     <div className="space-y-2">
       {toolCalls.map((toolCall) => {
         const isExpanded = expandedIds.has(toolCall.id);
+        const isOutputExpanded = expandedOutputIds.has(toolCall.id);
         const summary = getToolSummary(toolCall.name, toolCall.arguments);
 
         return (
           <div
             key={toolCall.id}
-            className="rounded-lg overflow-hidden border border-green-500/30"
+            className="rounded-xl overflow-hidden"
+            style={{ border: '1px solid hsl(220 8% 28%)' }}
           >
+            {/* Tool call header */}
             <button
               onClick={() => toggleExpand(toolCall.id)}
-              className="w-full bg-green-950/70 px-3 py-2 flex items-center gap-2 text-left hover:bg-green-950/90 transition-colors"
+              className="w-full bg-muted px-3 py-2 flex items-center gap-2 text-left hover:bg-accent transition-colors"
             >
-              <span className="text-xs font-medium text-green-300">{toolCall.name}</span>
-              <span className="text-xs text-green-200/60 truncate flex-1">{summary}</span>
-              <span className="text-green-400">{isExpanded ? '\u25BC' : '\u25B6'}</span>
+              <span className="text-xs font-medium text-foreground">{formatToolName(toolCall.name)}</span>
+              <span className="text-xs text-muted-foreground truncate flex-1">{summary}</span>
+              <span className="text-muted-foreground">{isExpanded ? '\u25BC' : '\u25C0'}</span>
             </button>
+            {/* Expanded arguments */}
             {isExpanded && (
-              <pre className="text-xs text-gray-300 font-mono bg-black/40 px-3 py-2 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto">
+              <pre className="text-xs text-foreground font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto">
                 {formatToolArguments(toolCall.arguments)}
               </pre>
+            )}
+            {/* Tool output section */}
+            {toolCall.output && (
+              <>
+                <button
+                  onClick={() => toggleOutput(toolCall.id)}
+                  className="w-full bg-muted px-3 py-1.5 flex items-center gap-2 text-left hover:bg-accent transition-colors"
+                  style={{ borderTop: '1px solid hsl(220 8% 28%)' }}
+                >
+                  <span className="text-xs font-medium text-foreground">Output</span>
+                  <span className="text-xs text-muted-foreground truncate flex-1">
+                    {toolCall.output.length > 80 ? `${toolCall.output.slice(0, 80)}...` : toolCall.output}
+                  </span>
+                  <span className="text-muted-foreground">{isOutputExpanded ? '\u25BC' : '\u25C0'}</span>
+                </button>
+                {isOutputExpanded && (
+                  <pre className="text-xs text-foreground font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto"
+                    style={{ borderTop: '1px solid hsl(220 8% 28%)' }}>
+                    {toolCall.output}
+                  </pre>
+                )}
+              </>
             )}
           </div>
         );

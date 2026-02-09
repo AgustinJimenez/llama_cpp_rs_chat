@@ -42,8 +42,10 @@ fn build_model_exec_regex(tags: &ToolTags) -> Option<Regex> {
 
 /// Result of command execution
 pub struct CommandExecutionResult {
+    /// Display block for frontend/logging (just the output tags, no chat template wrapping)
     pub output_block: String,
-    pub output_tokens: Vec<i32>,
+    /// Tokens for model context injection (wrapped in chat template turn structure)
+    pub model_tokens: Vec<i32>,
 }
 
 /// Check for and execute commands using model-specific tool tags.
@@ -53,6 +55,7 @@ pub fn check_and_execute_command_with_tags(
     conversation_id: &str,
     model: &llama_cpp_2::model::LlamaModel,
     tags: &ToolTags,
+    template_type: Option<&str>,
 ) -> Result<Option<CommandExecutionResult>, String> {
     // Only scan new content since last command execution
     let response_to_scan = if last_scan_pos < response.len() {
@@ -115,19 +118,29 @@ pub fn check_and_execute_command_with_tags(
         output.len()
     );
 
-    // Format output block using model-specific output tags
+    // Format output block for frontend/logging (just output tags, no template wrapping)
     let output_open = format!("\n{}\n", tags.output_open);
     let output_close = format!("\n{}\n", tags.output_close);
     let output_block = format!("{}{}{}", output_open, output.trim(), output_close);
 
-    // Tokenize output for injection into context
-    let output_tokens = model
-        .str_to_token(&output_block, AddBos::Never)
-        .map_err(|e| format!("Tokenization of command output failed: {e}"))?;
+    // Build model injection block with chat template turn wrapping.
+    // The model needs proper turn structure to know the tool response is from
+    // a different role and that it should continue as assistant.
+    let model_block = wrap_output_for_model(&output_block, template_type);
+    log_info!(
+        conversation_id,
+        "🔄 Model injection block (template={:?}):\n{}",
+        template_type,
+        model_block
+    );
+
+    let model_tokens = model
+        .str_to_token(&model_block, AddBos::Never)
+        .map_err(|e| format!("Tokenization of model injection block failed: {e}"))?;
 
     Ok(Some(CommandExecutionResult {
         output_block,
-        output_tokens: output_tokens.iter().map(|t| t.0).collect(),
+        model_tokens: model_tokens.iter().map(|t| t.0).collect(),
     }))
 }
 
@@ -186,5 +199,49 @@ pub fn stream_command_output(
             tokens_used: token_pos,
             max_tokens: context_size as i32,
         });
+    }
+}
+
+/// Wrap tool output in the model's chat template turn structure.
+///
+/// After the model generates a tool call, we need to:
+/// 1. Close the assistant's turn
+/// 2. Present the tool response as a separate turn (role varies by template)
+/// 3. Re-open an assistant turn so the model continues naturally
+///
+/// Without this wrapping, the model sees raw tool output injected mid-turn
+/// and gets confused (e.g., Qwen loops on `<|im_start|>` tokens).
+///
+/// The `output_block` already contains the output tags (e.g. `<tool_response>...</tool_response>`).
+/// This function adds the surrounding chat template structure for model injection only.
+/// The frontend continues to see the unwrapped `output_block`.
+fn wrap_output_for_model(output_block: &str, template_type: Option<&str>) -> String {
+    match template_type {
+        Some("ChatML") => {
+            // Qwen/ChatML: <|im_end|>\n<|im_start|>user\n...output...<|im_end|>\n<|im_start|>assistant\n
+            format!(
+                "<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n",
+                output_block
+            )
+        }
+        Some("Llama3") => {
+            // Llama 3: <|eot_id|><|start_header_id|>tool<|end_header_id|>\n\n...output...<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n
+            format!(
+                "<|eot_id|><|start_header_id|>tool<|end_header_id|>\n\n{}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n",
+                output_block
+            )
+        }
+        Some("Gemma") => {
+            // Gemma: <end_of_turn>\n<start_of_turn>user\n...output...<end_of_turn>\n<start_of_turn>model\n
+            format!(
+                "<end_of_turn>\n<start_of_turn>user\n{}<end_of_turn>\n<start_of_turn>model\n",
+                output_block
+            )
+        }
+        Some("Mistral") | _ => {
+            // Mistral and default: output tags are sufficient, no extra turn wrapping needed.
+            // Mistral's tool format is inline within the conversation flow.
+            output_block.to_string()
+        }
     }
 }

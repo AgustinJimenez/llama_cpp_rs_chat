@@ -533,7 +533,9 @@ pub async fn handle_post_model_unload(
 ) -> Result<Response<Body>, Infallible> {
     #[cfg(not(feature = "mock"))]
     {
-        match bridge.unload_model().await {
+        // Always use hard-unload (kill worker) to guarantee CUDA memory is reclaimed.
+        // Soft unload frees Rust objects but CUDA memory pools stay reserved.
+        match bridge.force_unload().await {
             Ok(_) => {
                 let status = crate::web::models::ModelStatus {
                     loaded: false,
@@ -546,12 +548,10 @@ pub async fn handle_post_model_unload(
                     message: "Model unloaded successfully".to_string(),
                     status: Some(status),
                 };
-
                 let response_json = serialize_with_fallback(
                     &response,
                     r#"{"success":true,"message":"Model unloaded successfully","status":null}"#,
                 );
-
                 Ok(json_raw(StatusCode::OK, response_json))
             }
             Err(e) => {
@@ -560,14 +560,12 @@ pub async fn handle_post_model_unload(
                     message: format!("Failed to unload model: {e}"),
                     status: None,
                 };
-
                 let response_json = serialize_with_fallback(
                     &response,
                     &format!(
                         r#"{{"success":false,"message":"Failed to unload model: {e}","status":null}}"#
                     ),
                 );
-
                 Ok(json_raw(StatusCode::INTERNAL_SERVER_ERROR, response_json))
             }
         }

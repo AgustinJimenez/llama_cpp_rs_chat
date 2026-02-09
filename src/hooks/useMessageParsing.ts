@@ -66,9 +66,9 @@ function collectToolCallSpans(content: string): Span[] {
     tcMatches.push({ start: match.index, end: match.index + match[0].length, json: match[1].trim() });
   }
 
-  const trMatches: { start: number; end: number }[] = [];
+  const trMatches: { start: number; end: number; content: string }[] = [];
   while ((match = TOOL_RESPONSE_REGEX.exec(content)) !== null) {
-    trMatches.push({ start: match.index, end: match.index + match[0].length });
+    trMatches.push({ start: match.index, end: match.index + match[0].length, content: (match[1] || '').trim() });
   }
 
   for (const tc of tcMatches) {
@@ -82,7 +82,12 @@ function collectToolCallSpans(content: string): Span[] {
         end: tr ? tr.end : tc.end,
         segment: {
           type: 'tool_call',
-          toolCall: { id: crypto.randomUUID(), name: parsed.name, arguments: parsed.arguments || {} },
+          toolCall: {
+            id: crypto.randomUUID(),
+            name: parsed.name,
+            arguments: parsed.arguments || {},
+            output: tr ? tr.content : undefined,
+          },
         },
       });
     } catch {
