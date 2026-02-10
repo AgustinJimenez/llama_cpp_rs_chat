@@ -259,10 +259,13 @@ fn wrap_output_for_model(output_block: &str, template_type: Option<&str>) -> Str
             )
         }
         Some("Harmony") => {
-            // Harmony (gpt-oss-20b): Close assistant turn, inject tool result, re-open assistant final turn
+            // Harmony (gpt-oss-20b): Close assistant turn, inject tool result, re-open assistant analysis turn.
+            // Using "analysis" channel (not "final") so the model continues reasoning and can make
+            // more tool calls. If we re-open with "final", the model writes a user-facing summary
+            // immediately instead of executing further steps.
             // output_block already contains <|start|>tool<|message|>...result...<|end|>
             format!(
-                "<|end|>\n{}\n<|start|>assistant<|channel|>final<|message|>",
+                "<|end|>\n{}\n<|start|>assistant<|channel|>analysis<|message|>",
                 output_block
             )
         }
