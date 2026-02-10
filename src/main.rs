@@ -617,7 +617,7 @@ async fn web_fetch(
 #[tauri::command]
 async fn get_system_usage() -> Result<serde_json::Value, String> {
     #[cfg(target_os = "windows")]
-    let (cpu, ram, gpu) = {
+    let (cpu, ram, gpu, cpu_perf_pct) = {
         let result = tokio::time::timeout(
             std::time::Duration::from_millis(1500),
             tokio::task::spawn_blocking(web::routes::system::get_windows_system_usage),
@@ -630,8 +630,9 @@ async fn get_system_usage() -> Result<serde_json::Value, String> {
     };
 
     #[cfg(not(target_os = "windows"))]
-    let (cpu, ram, gpu) = (0.0f32, 0.0f32, 0.0f32);
+    let (cpu, ram, gpu, cpu_perf_pct) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
 
+    let _ = cpu_perf_pct; // Used by web routes, not needed in Tauri command
     Ok(serde_json::json!({"cpu": cpu, "gpu": gpu, "ram": ram}))
 }
 

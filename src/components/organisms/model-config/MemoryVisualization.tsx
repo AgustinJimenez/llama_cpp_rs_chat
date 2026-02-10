@@ -171,6 +171,7 @@ const MemoryLegend: React.FC<{ vram: MemoryBreakdown['vram']; ram: MemoryBreakdo
 
 interface SliderRowProps {
   color: string;
+  hexColor: string;
   label: string;
   min: number;
   max: number;
@@ -179,23 +180,46 @@ interface SliderRowProps {
   display: string;
 }
 
-const SliderRow: React.FC<SliderRowProps> = ({ color, label, min, max, value, onChange, display }) => (
-  <div className="flex items-center gap-3 text-xs text-zinc-400">
-    <div className="flex items-center gap-2 shrink-0">
-      <div className={`w-3 h-3 ${color} rounded-sm`} />
-      <span>{label}</span>
+const SliderRow: React.FC<SliderRowProps> = ({ color, hexColor, label, min, max, value, onChange, display }) => {
+  const pct = max > min ? ((value - min) / (max - min)) * 100 : 0;
+  return (
+    <div className="flex items-center gap-3 text-xs text-zinc-400">
+      <div className="flex items-center gap-2 shrink-0">
+        <div className={`w-3 h-3 ${color} rounded-sm`} />
+        <span>{label}</span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => onChange(parseInt(e.target.value))}
+        className="flex-1 cursor-pointer h-2 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer"
+        style={{
+          background: `linear-gradient(to right, ${hexColor} ${pct}%, #3f3f46 ${pct}%)`,
+          // @ts-expect-error CSS custom property for thumb color
+          '--thumb-color': hexColor,
+        }}
+        ref={(el) => {
+          if (el) {
+            el.style.setProperty('--thumb-color', hexColor);
+            // Inline the thumb color via a style element scoped to this slider
+            const id = `slider-${label.replace(/[^a-z]/gi, '')}`;
+            el.id = id;
+            let style = document.getElementById(`style-${id}`);
+            if (!style) {
+              style = document.createElement('style');
+              style.id = `style-${id}`;
+              document.head.appendChild(style);
+            }
+            style.textContent = `#${id}::-webkit-slider-thumb { background: ${hexColor}; } #${id}::-moz-range-thumb { background: ${hexColor}; border: none; }`;
+          }
+        }}
+      />
+      <span className="font-mono shrink-0 w-14 text-right">{display}</span>
     </div>
-    <input
-      type="range"
-      min={min}
-      max={max}
-      value={value}
-      onChange={(e) => onChange(parseInt(e.target.value))}
-      className={`flex-1 ${color.replace('bg-', 'accent-')} cursor-pointer h-3`}
-    />
-    <span className="font-mono shrink-0 w-14 text-right">{display}</span>
-  </div>
-);
+  );
+};
 
 // --- Sliders group ---
 
@@ -214,6 +238,7 @@ const MemorySliders: React.FC<MemorySlidersProps> = ({ gpuLayers, onGpuLayersCha
   <div className="space-y-2">
     <SliderRow
       color="bg-green-600"
+      hexColor="#16a34a"
       label="GPU Layers:"
       min={0}
       max={maxLayers}
@@ -223,6 +248,7 @@ const MemorySliders: React.FC<MemorySlidersProps> = ({ gpuLayers, onGpuLayersCha
     />
     <SliderRow
       color="bg-orange-500"
+      hexColor="#f97316"
       label="Context:"
       min={0}
       max={SLIDER_STEPS}
@@ -239,6 +265,7 @@ const MemorySliders: React.FC<MemorySlidersProps> = ({ gpuLayers, onGpuLayersCha
     />
     <SliderRow
       color="bg-purple-600"
+      hexColor="#9333ea"
       label="Overhead:"
       min={0}
       max={60}

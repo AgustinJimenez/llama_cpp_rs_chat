@@ -20,6 +20,12 @@ lazy_static::lazy_static! {
     static ref LLAMA3_FUNC_PATTERN: Regex = Regex::new(
         r"(?s)(<function=[a-z_]+>.*?</function>)"
     ).unwrap();
+
+    // Harmony format (gpt-oss-20b): to= tool_name ... code<|message|>{...}<|call|>
+    // Note: model may emit space after "to=" (e.g. "to= list_directory")
+    static ref HARMONY_CALL_PATTERN: Regex = Regex::new(
+        r"(?s)to=\s*(\w+)[\s\S]*?code<\|message\|>(.*?)<\|call\|>"
+    ).unwrap();
 }
 
 /// Build a regex that matches the model-specific exec tags.
@@ -92,6 +98,20 @@ pub fn check_and_execute_command_with_tags(
             if let Some(captures) = LLAMA3_FUNC_PATTERN.captures(response_to_scan) {
                 if let Some(m) = captures.get(1) {
                     found = Some(m.as_str().to_string());
+                }
+            }
+        }
+
+        // Fall back to Harmony format: to=tool_name ... code<|message|>{...}<|call|>
+        if found.is_none() {
+            if let Some(captures) = HARMONY_CALL_PATTERN.captures(response_to_scan) {
+                if let (Some(tool_name), Some(args_json)) = (captures.get(1), captures.get(2)) {
+                    // Reconstruct as standard JSON so dispatch_native_tool can parse it
+                    found = Some(format!(
+                        r#"{{"name":"{}","arguments":{}}}"#,
+                        tool_name.as_str(),
+                        args_json.as_str().trim()
+                    ));
                 }
             }
         }
@@ -235,6 +255,14 @@ fn wrap_output_for_model(output_block: &str, template_type: Option<&str>) -> Str
             // Gemma: <end_of_turn>\n<start_of_turn>user\n...output...<end_of_turn>\n<start_of_turn>model\n
             format!(
                 "<end_of_turn>\n<start_of_turn>user\n{}<end_of_turn>\n<start_of_turn>model\n",
+                output_block
+            )
+        }
+        Some("Harmony") => {
+            // Harmony (gpt-oss-20b): Close assistant turn, inject tool result, re-open assistant final turn
+            // output_block already contains <|start|>tool<|message|>...result...<|end|>
+            format!(
+                "<|end|>\n{}\n<|start|>assistant<|channel|>final<|message|>",
                 output_block
             )
         }

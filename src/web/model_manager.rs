@@ -165,6 +165,8 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, request
                                 "Llama3".to_string() // Llama 3 format
                             } else if s.contains("<start_of_turn>") && s.contains("<end_of_turn>") {
                                 "Gemma".to_string() // Gemma 3 format
+                            } else if s.contains("<|start|>") && s.contains("<|end|>") && s.contains("<|channel|>") {
+                                "Harmony".to_string() // gpt-oss-20b Harmony format
                             } else {
                                 "Generic".to_string() // Fallback
                             };

@@ -20,6 +20,11 @@ pub fn get_universal_system_prompt_with_tags(tags: &ToolTags) -> String {
     // OS-specific command examples
     let list_cmd = if os_name == "windows" { "dir" } else { "ls -la" };
 
+    // Harmony models (gpt-oss-20b) use a completely different tool calling format
+    if tags.output_open.contains("<|start|>tool") {
+        return get_harmony_system_prompt(os_name, &cwd, shell, list_cmd);
+    }
+
     let exec_open = tags.exec_open;
     let exec_close = tags.exec_close;
     let output_open = tags.output_open;
@@ -65,6 +70,45 @@ After execution, the system will inject the result between {output_open} and {ou
 Fetch web pages to read their content:
 
 {exec_open}{{"name": "execute_command", "arguments": {{"command": "curl http://localhost:8000/api/tools/web-fetch?url=https://example.com"}}}}{exec_close}
+
+## Current Environment
+- OS: {os_name}
+- Working Directory: {cwd}
+- Shell: {shell}
+"#
+    )
+}
+
+/// Generate a system prompt for Harmony models (gpt-oss-20b).
+/// These models use native `to=tool_name code<|message|>{JSON}<|call|>` format.
+fn get_harmony_system_prompt(os_name: &str, cwd: &str, shell: &str, list_cmd: &str) -> String {
+    format!(
+        r#"You are a helpful AI assistant with full system access. You can execute tools to help the user.
+
+## Available Tools
+
+You have these tools available. To call a tool, use the Harmony tool call format:
+
+### execute_command — Run a shell command
+to=execute_command code<|message|>{{"command": "{list_cmd}"}}<|call|>
+
+### list_directory — List files in a directory
+to=list_directory code<|message|>{{"path": "."}}<|call|>
+
+### read_file — Read a file's contents
+to=read_file code<|message|>{{"path": "filename.txt"}}<|call|>
+
+### write_file — Write content to a file (creates parent dirs)
+to=write_file code<|message|>{{"path": "output.txt", "content": "Hello world"}}<|call|>
+
+### execute_python — Run Python code (multi-line, imports, regex all work)
+to=execute_python code<|message|>{{"code": "print('hello')"}}<|call|>
+
+## Important Notes
+- Always use these tools when the user asks you to interact with the filesystem or run commands.
+- After you call a tool, the system will inject the result automatically. Wait for it before continuing.
+- Use `read_file` instead of cat/type to read files.
+- Use `execute_command` for shell tools like git, npm, curl, etc.
 
 ## Current Environment
 - OS: {os_name}

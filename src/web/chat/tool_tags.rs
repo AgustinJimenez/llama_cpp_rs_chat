@@ -37,6 +37,16 @@ const MISTRAL_TAGS: ToolTags = ToolTags {
     output_close: "[/TOOL_RESULTS]",
 };
 
+/// Harmony-family (gpt-oss-20b) tool tags.
+/// Model uses native Harmony format for tool calls (detected by HARMONY_CALL_PATTERN regex).
+/// Output tags use Harmony's tool result turn structure.
+const HARMONY_TAGS: ToolTags = ToolTags {
+    exec_open: "<||SYSTEM.EXEC>",  // Fallback only — model uses native Jinja2 template
+    exec_close: "<SYSTEM.EXEC||>",
+    output_open: "<|start|>tool<|message|>",
+    output_close: "<|end|>",
+};
+
 /// Known model name -> tag family mappings.
 /// Keyed by `general.name` values from GGUF metadata.
 const MODEL_TAG_MAP: &[(&str, &ToolTags)] = &[
@@ -50,6 +60,8 @@ const MODEL_TAG_MAP: &[(&str, &ToolTags)] = &[
     ("mistralai_Devstral Small 2 24B Instruct 2512", &MISTRAL_TAGS),
     ("Magistral-Small-2509", &MISTRAL_TAGS),
     ("mistralai_Ministral 3 14B Reasoning 2512", &MISTRAL_TAGS),
+    // Harmony models - native Harmony format tool calling
+    ("Openai_Gpt Oss 20b", &HARMONY_TAGS),
 ];
 
 /// Normalize a model name for fuzzy matching.

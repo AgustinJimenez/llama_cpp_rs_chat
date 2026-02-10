@@ -59,6 +59,8 @@ export interface SystemUsageData {
   ram: number;
   total_ram_gb?: number;
   total_vram_gb?: number;
+  cpu_cores?: number;
+  cpu_ghz?: number;
 }
 
 // ─── Helper ───────────────────────────────────────────────────────────

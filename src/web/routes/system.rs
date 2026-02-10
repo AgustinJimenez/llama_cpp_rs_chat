@@ -20,7 +20,7 @@ use tokio::time::timeout;
 pub async fn handle_system_usage() -> Result<Response<Body>, Infallible> {
     // Get system usage using Windows-native commands
     #[cfg(target_os = "windows")]
-    let (cpu_usage, ram_usage, gpu_usage) = {
+    let (cpu_usage, ram_usage, gpu_usage, cpu_perf_pct) = {
         let started = Instant::now();
         let result = timeout(
             Duration::from_millis(1500),
@@ -45,16 +45,22 @@ pub async fn handle_system_usage() -> Result<Response<Body>, Infallible> {
     };
 
     #[cfg(not(target_os = "windows"))]
-    let (cpu_usage, ram_usage, gpu_usage) = get_windows_system_usage();
+    let (cpu_usage, ram_usage, gpu_usage, cpu_perf_pct) = (0.0_f32, 0.0_f32, 0.0_f32, 100.0_f32);
 
     // Get hardware totals (cached alongside usage)
     #[cfg(target_os = "windows")]
-    let (total_ram_gb, total_vram_gb) = {
+    let (total_ram_gb, total_vram_gb, cpu_cores, cpu_base_mhz) = {
         let last = HARDWARE_TOTALS.lock().unwrap();
-        (last.0, last.1)
+        (last.0, last.1, last.2, last.3)
     };
     #[cfg(not(target_os = "windows"))]
-    let (total_ram_gb, total_vram_gb) = (0.0_f32, 0.0_f32);
+    let (total_ram_gb, total_vram_gb, cpu_cores, cpu_base_mhz) = (0.0_f32, 0.0_f32, 0_u32, 0_u32);
+
+    // Current CPU speed = base_mhz * (perf% / 100)
+    #[cfg(target_os = "windows")]
+    let cpu_ghz = (cpu_base_mhz as f32) * cpu_perf_pct / 100.0 / 1000.0;
+    #[cfg(not(target_os = "windows"))]
+    let cpu_ghz = 0.0_f32;
 
     let response = serde_json::json!({
         "cpu": cpu_usage,
@@ -62,6 +68,8 @@ pub async fn handle_system_usage() -> Result<Response<Body>, Infallible> {
         "ram": ram_usage,
         "total_ram_gb": total_ram_gb,
         "total_vram_gb": total_vram_gb,
+        "cpu_cores": cpu_cores,
+        "cpu_ghz": cpu_ghz,
     });
 
     Ok(json_raw(
@@ -72,49 +80,51 @@ pub async fn handle_system_usage() -> Result<Response<Body>, Infallible> {
 
 #[cfg(target_os = "windows")]
 lazy_static::lazy_static! {
-    static ref LAST_USAGE: Mutex<(Instant, f32, f32, f32)> =
-        Mutex::new((Instant::now(), 0.0, 0.0, 0.0));
-    /// Cached hardware totals: (total_ram_gb, total_vram_gb)
-    static ref HARDWARE_TOTALS: Mutex<(f32, f32)> = Mutex::new((0.0, 0.0));
+    /// Cached usage: (timestamp, cpu%, ram%, gpu%, cpu_perf_pct)
+    static ref LAST_USAGE: Mutex<(Instant, f32, f32, f32, f32)> =
+        Mutex::new((Instant::now(), 0.0, 0.0, 0.0, 100.0));
+    /// Cached hardware totals: (total_ram_gb, total_vram_gb, cpu_cores, cpu_base_mhz)
+    static ref HARDWARE_TOTALS: Mutex<(f32, f32, u32, u32)> = Mutex::new((0.0, 0.0, 0, 0));
 }
 
 #[cfg(target_os = "windows")]
-pub fn get_cached_windows_system_usage() -> (f32, f32, f32) {
+pub fn get_cached_windows_system_usage() -> (f32, f32, f32, f32) {
     let last = LAST_USAGE.lock().unwrap();
-    (last.1, last.2, last.3)
+    (last.1, last.2, last.3, last.4)
 }
 
 #[cfg(target_os = "windows")]
-pub fn get_windows_system_usage() -> (f32, f32, f32) {
+pub fn get_windows_system_usage() -> (f32, f32, f32, f32) {
     // Cache for 500ms to allow smooth real-time updates
     let mut last = LAST_USAGE.lock().unwrap();
     if last.0.elapsed() < Duration::from_millis(500) {
-        return (last.1, last.2, last.3);
+        return (last.1, last.2, last.3, last.4);
     }
 
-    // Get CPU usage via PowerShell
+    // Get CPU usage + performance percentage via PowerShell (single call)
     let cpu_output = Command::new("powershell")
         .args([
             "-NoProfile",
             "-NonInteractive",
             "-Command",
-            "Get-Counter '\\Processor(_Total)\\% Processor Time' | Select-Object -ExpandProperty CounterSamples | Select-Object -ExpandProperty CookedValue"
+            "(Get-Counter @('\\Processor(_Total)\\% Processor Time','\\Processor Information(_Total)\\% Processor Performance')).CounterSamples | ForEach-Object { $_.CookedValue }"
         ])
         .output();
 
-    let cpu_usage = if let Ok(output) = cpu_output {
+    let (cpu_usage, cpu_perf_pct) = if let Ok(output) = cpu_output {
         if !output.status.success() {
             sys_debug!(
                 "[SYSTEM USAGE] CPU command failed: {}",
                 String::from_utf8_lossy(&output.stderr).trim()
             );
         }
-        String::from_utf8_lossy(&output.stdout)
-            .trim()
-            .parse::<f32>()
-            .unwrap_or(0.0)
+        let lines: Vec<f32> = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|l| l.trim().parse::<f32>().ok())
+            .collect();
+        (lines.first().copied().unwrap_or(0.0), lines.get(1).copied().unwrap_or(100.0))
     } else {
-        0.0
+        (0.0, 100.0)
     };
 
     // Get RAM usage via PowerShell (using WMI)
@@ -180,6 +190,24 @@ pub fn get_windows_system_usage() -> (f32, f32, f32) {
                     hw.0 = (kb / 1_048_576.0) as f32; // KB → GB
                 }
             }
+            // CPU logical processors + base clock
+            if let Ok(output) = Command::new("powershell")
+                .args(["-NoProfile", "-NonInteractive", "-Command",
+                    "Get-CimInstance Win32_Processor | ForEach-Object { $_.NumberOfLogicalProcessors; $_.MaxClockSpeed }"])
+                .output()
+            {
+                let lines: Vec<String> = String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .map(|l| l.trim().to_string())
+                    .filter(|l| !l.is_empty())
+                    .collect();
+                if let Some(cores) = lines.first().and_then(|s| s.parse::<u32>().ok()) {
+                    hw.2 = cores;
+                }
+                if let Some(mhz) = lines.get(1).and_then(|s| s.parse::<u32>().ok()) {
+                    hw.3 = mhz;
+                }
+            }
             // Total VRAM via nvidia-smi
             if let Ok(output) = Command::new("nvidia-smi")
                 .args(["--query-gpu=memory.total", "--format=csv,noheader,nounits"])
@@ -197,13 +225,13 @@ pub fn get_windows_system_usage() -> (f32, f32, f32) {
     }
 
     // Update cache
-    *last = (Instant::now(), cpu_usage, ram_usage, gpu_usage);
+    *last = (Instant::now(), cpu_usage, ram_usage, gpu_usage, cpu_perf_pct);
 
-    (cpu_usage, ram_usage, gpu_usage)
+    (cpu_usage, ram_usage, gpu_usage, cpu_perf_pct)
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn get_windows_system_usage() -> (f32, f32, f32) {
+pub fn get_windows_system_usage() -> (f32, f32, f32, f32) {
     // Return placeholder values on non-Windows platforms
-    (0.0, 0.0, 0.0)
+    (0.0, 0.0, 0.0, 100.0)
 }
