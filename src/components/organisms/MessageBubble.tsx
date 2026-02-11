@@ -126,8 +126,11 @@ const AssistantMessage: React.FC<{
           {/* Thinking process (for reasoning models) */}
           {thinkingContent && <ThinkingBlock content={thinkingContent} />}
 
-          {/* Interleaved text, command blocks, and tool calls in chronological order */}
+          {/* Interleaved text, command blocks, tool calls, and thinking in chronological order */}
           {segments.map((segment, index) => {
+            if (segment.type === 'thinking') {
+              return <ThinkingBlock key={`seg-think-${index}`} content={segment.content} />;
+            }
             if (segment.type === 'command') {
               return (
                 <CommandExecBlock

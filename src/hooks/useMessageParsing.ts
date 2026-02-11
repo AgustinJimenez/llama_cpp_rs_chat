@@ -10,7 +10,8 @@ export interface SystemExecBlock {
 export type MessageSegment =
   | { type: 'text'; content: string }
   | { type: 'command'; command: string; output: string | null }
-  | { type: 'tool_call'; toolCall: ToolCall };
+  | { type: 'tool_call'; toolCall: ToolCall }
+  | { type: 'thinking'; content: string };
 
 export interface ParsedMessage {
   toolCalls: ToolCall[];
@@ -33,78 +34,156 @@ const THINKING_REGEX = /<think>[\s\S]*?<\/think>/g;
 // --- Harmony format parser (gpt-oss-20b) ---
 
 interface HarmonyParsed {
-  thinking: string;
+  /** Ordered segments: text, commands, and final text in chronological order */
+  segments: MessageSegment[];
+  /** Final user-facing content (for cleanContent/toolCalls extraction) */
   finalContent: string;
 }
 
-const HARMONY_SEGMENT_REGEX = /<\|start\|>assistant<\|channel\|>([\s\S]*?)<\|end\|>/g;
+interface HarmonyAccumulator {
+  segments: MessageSegment[];
+  finalParts: string[];
+  pendingCommand: string | null;
+}
+
 const HARMONY_DETECT = /<\|start\|>assistant<\|channel\|>/;
+const HARMONY_SEGMENT_REGEX = /<\|start\|>([\s\S]*?)(?=<\|start\|>|$)/g;
+const HARMONY_TOOL_CALL_REGEX = /to=\s*(\w+)\s+code<\|message\|>([\s\S]*?)<\|call\|>/;
+
+/** Push a text segment, merging with previous text to avoid tiny blocks. */
+function harmonyPushText(segments: MessageSegment[], text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) return;
+  const last = segments[segments.length - 1];
+  if (last && last.type === 'text') {
+    last.content += '\n\n' + trimmed;
+  } else {
+    segments.push({ type: 'text', content: trimmed });
+  }
+}
+
+/** Extract bare reasoning text after the first <|end|> in a segment body. */
+function harmonyExtractTrailing(segments: MessageSegment[], segBody: string) {
+  const idx = segBody.indexOf('<|end|>');
+  if (idx < 0) return;
+  const trailing = segBody.slice(idx + 7).replace(/<\|end\|>/g, '').trim();
+  if (trailing) harmonyPushText(segments, trailing);
+}
+
+/** Extract a human-readable command string from tool call JSON. */
+function harmonyParseCommand(toolName: string, argsJson: string): string {
+  try {
+    const parsed = JSON.parse(argsJson);
+    if (parsed.command) return parsed.command;
+    if (parsed.path) return `${toolName}: ${parsed.path}`;
+    return `${toolName}(${JSON.stringify(parsed)})`;
+  } catch {
+    return `${toolName}: ${argsJson}`;
+  }
+}
+
+/** Process a tool output segment: <|start|>tool<|message|>...<|end|> */
+function harmonyProcessToolOutput(acc: HarmonyAccumulator, body: string) {
+  const outputText = body
+    .replace(/^tool<\|message\|>/, '')
+    .replace(/<\|end\|>[\s\S]*$/, '')
+    .trim();
+
+  if (acc.pendingCommand) {
+    acc.segments.push({ type: 'command', command: acc.pendingCommand, output: outputText });
+    acc.pendingCommand = null;
+  }
+
+  harmonyExtractTrailing(acc.segments, body);
+}
+
+/** Process an assistant channel segment (analysis/commentary/final). */
+function harmonyProcessAssistant(acc: HarmonyAccumulator, body: string) {
+  const channelBody = body.replace(/^assistant<\|channel\|>/, '');
+  const channelMatch = channelBody.match(/^(\w+)/);
+  const channel = channelMatch ? channelMatch[1] : '';
+
+  if (channel === 'final') {
+    const msgIdx = channelBody.indexOf('<|message|>');
+    if (msgIdx >= 0) {
+      const text = channelBody.slice(msgIdx + 11).replace(/<\|end\|>[\s\S]*$/, '').trim();
+      if (text) acc.finalParts.push(text);
+    }
+  } else {
+    const toolCallMatch = channelBody.match(HARMONY_TOOL_CALL_REGEX);
+
+    if (toolCallMatch) {
+      acc.pendingCommand = harmonyParseCommand(toolCallMatch[1], toolCallMatch[2].trim());
+
+      // Post-<|call|> commentary (e.g. "commentary<|message|>Let's call it.")
+      const postCall = channelBody.split('<|call|>').slice(1).join('<|call|>');
+      const commentaryMatch = postCall.match(/<\|message\|>([\s\S]*?)(?:<\|end\|>|$)/);
+      if (commentaryMatch) harmonyPushText(acc.segments, commentaryMatch[1]);
+    } else {
+      // Pure reasoning — extract message content
+      const messageParts = channelBody.split('<|message|>');
+      for (let i = 1; i < messageParts.length; i++) {
+        const part = messageParts[i]
+          .replace(/<\|call\|>[\s\S]*$/, '')
+          .replace(/<\|end\|>[\s\S]*$/, '')
+          .trim();
+        if (part) harmonyPushText(acc.segments, part);
+      }
+    }
+  }
+
+  harmonyExtractTrailing(acc.segments, body);
+}
 
 /**
  * Parse Harmony-format model output (gpt-oss-20b).
- * Segments are delimited by <|start|>assistant<|channel|>...<|end|>.
- * Channel types: analysis, commentary (→ thinking), final (→ display).
- * Returns null if content is not Harmony format.
+ * Returns ordered segments preserving the chronological flow:
+ *   text → command → text → command → ... → text (final)
  */
 function parseHarmonyContent(raw: string): HarmonyParsed | null {
   if (!HARMONY_DETECT.test(raw)) return null;
 
-  const thinkingParts: string[] = [];
-  const finalParts: string[] = [];
+  const acc: HarmonyAccumulator = { segments: [], finalParts: [], pendingCommand: null };
 
-  // Capture any bare text before the first <|start|> as thinking
+  // Bare text before the first <|start|>
   const firstStart = raw.indexOf('<|start|>');
   if (firstStart > 0) {
-    const prefix = raw.slice(0, firstStart).replace(/<\|end\|>/g, '').trim();
-    if (prefix) thinkingParts.push(prefix);
+    harmonyPushText(acc.segments, raw.slice(0, firstStart).replace(/<\|end\|>/g, ''));
   }
 
   let match;
   while ((match = HARMONY_SEGMENT_REGEX.exec(raw)) !== null) {
     const body = match[1];
+    if (body.startsWith('tool<|message|>')) {
+      harmonyProcessToolOutput(acc, body);
+    } else if (body.startsWith('assistant<|channel|>')) {
+      harmonyProcessAssistant(acc, body);
+    }
+  }
+  // Reset regex state for potential re-use
+  HARMONY_SEGMENT_REGEX.lastIndex = 0;
 
-    // Extract channel name (first word after <|channel|>)
-    // e.g. "analysis<|message|>..." or "analysis to=execute_command code<|message|>..."
-    // or "final<|message|>..."
-    const channelMatch = body.match(/^(\w+)/);
-    const channel = channelMatch ? channelMatch[1] : '';
+  // Flush pending command with no output
+  if (acc.pendingCommand) {
+    acc.segments.push({ type: 'command', command: acc.pendingCommand, output: null });
+  }
 
-    // Extract <|message|> content (last one in the segment for the main text)
-    // There can be multiple <|message|> in one segment (e.g. after <|call|>commentary<|message|>...)
-    // We want all message content for thinking, or the final message content for final
-    const messageParts = body.split('<|message|>');
-
-    if (channel === 'final') {
-      // Everything after the last <|message|> is the final response
-      const lastPart = messageParts[messageParts.length - 1];
-      if (lastPart) finalParts.push(lastPart.trim());
-    } else {
-      // analysis, commentary — collect message content as thinking
-      for (let i = 1; i < messageParts.length; i++) {
-        // Strip trailing <|call|> and anything after it (tool call markers within thinking)
-        const part = messageParts[i].split('<|call|>')[0].trim();
-        if (part) thinkingParts.push(part);
-      }
+  // Trailing unterminated final segment
+  if (acc.finalParts.length === 0) {
+    const lastEnd = raw.lastIndexOf('<|end|>');
+    if (lastEnd >= 0) {
+      const trailer = raw.slice(lastEnd + 7).trim();
+      const trailingFinal = trailer.match(/<\|start\|>assistant<\|channel\|>final<\|message\|>([\s\S]*)/);
+      if (trailingFinal) acc.finalParts.push(trailingFinal[1].trim());
     }
   }
 
-  // Also capture any trailing text after the last <|end|> that's not in a segment
-  const lastEnd = raw.lastIndexOf('<|end|>');
-  if (lastEnd >= 0) {
-    const trailer = raw.slice(lastEnd + 7).trim();
-    // Check if trailer has a bare <|start|>...<|channel|>final<|message|> without <|end|>
-    const trailingFinal = trailer.match(/<\|start\|>assistant<\|channel\|>final<\|message\|>([\s\S]*)/);
-    if (trailingFinal) {
-      finalParts.push(trailingFinal[1].trim());
-    } else if (trailer) {
-      finalParts.push(trailer);
-    }
+  const finalContent = acc.finalParts.join('\n') || raw.replace(/<\|[^|]*\|>/g, ' ').trim();
+  if (finalContent.trim()) {
+    acc.segments.push({ type: 'text', content: finalContent });
   }
 
-  return {
-    thinking: thinkingParts.join('\n'),
-    finalContent: finalParts.join('\n') || raw.replace(/<\|[^|]*\|>/g, ' ').trim(),
-  };
+  return { segments: acc.segments, finalContent };
 }
 
 function collectExecSpans(content: string): Span[] {
@@ -229,8 +308,8 @@ export function useMessageParsing(message: Message): ParsedMessage {
   }, [effectiveContent, toolCalls.length]);
 
   const thinkingContent = useMemo(() => {
-    // Harmony thinking takes priority over <think> blocks
-    if (harmony && harmony.thinking) return harmony.thinking;
+    // Harmony uses inline thinking segments — no top-level thinking block
+    if (harmony) return null;
     const thinkMatch = message.content.match(/<think>([\s\S]*?)<\/think>/);
     return thinkMatch ? thinkMatch[1].trim() : null;
   }, [message.content, harmony]);
@@ -254,7 +333,11 @@ export function useMessageParsing(message: Message): ParsedMessage {
     return blocks;
   }, [effectiveContent]);
 
-  const segments = useMemo(() => buildSegments(effectiveContent), [effectiveContent]);
+  const segments = useMemo(() => {
+    // Harmony provides its own ordered segments (thinking + commands + final text interleaved)
+    if (harmony) return harmony.segments;
+    return buildSegments(effectiveContent);
+  }, [effectiveContent, harmony]);
 
   const contentWithoutThinking = useMemo(() => {
     return cleanContent
