@@ -129,8 +129,16 @@ pub fn check_and_execute_command_with_tags(
         log_info!(conversation_id, "📦 Dispatched to native tool handler");
         native_output
     } else {
-        log_info!(conversation_id, "🐚 Falling back to shell execution");
-        execute_command(&command_text)
+        let trimmed_cmd = command_text.trim();
+        if trimmed_cmd.starts_with('{') || trimmed_cmd.starts_with('[') {
+            // Looks like a JSON tool call that failed to parse — don't execute as shell.
+            // This prevents `sh: {name:: command not found` errors.
+            log_info!(conversation_id, "⚠️ JSON-like tool call failed to parse, returning error to model");
+            "Error: Failed to parse tool call JSON. The JSON may be malformed (check for unescaped backslashes, missing braces, or literal newlines in strings). Please try the execute_command tool to write files instead.".to_string()
+        } else {
+            log_info!(conversation_id, "🐚 Falling back to shell execution");
+            execute_command(&command_text)
+        }
     };
     log_info!(
         conversation_id,

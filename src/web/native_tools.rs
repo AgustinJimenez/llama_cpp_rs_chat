@@ -82,21 +82,77 @@ fn auto_close_json(input: &str) -> String {
 }
 
 /// Try to parse JSON, applying progressive fixups on failure:
+/// Escape invalid backslash sequences inside JSON strings.
+/// Models generating PHP/C# code produce `\D`, `\M`, `\E` etc. from namespace paths
+/// like `Illuminate\Database\Eloquent\Model`. These are invalid JSON escapes that
+/// cause serde_json to reject the entire tool call. This function converts them to
+/// valid `\\D`, `\\M`, `\\E` (literal backslash + letter) while preserving valid
+/// JSON escapes (`\"`, `\\`, `\/`, `\b`, `\f`, `\n`, `\r`, `\t`, `\uXXXX`).
+fn escape_invalid_backslashes_in_strings(input: &str) -> String {
+    let mut result = String::with_capacity(input.len() + input.len() / 8);
+    let mut in_string = false;
+    let mut chars = input.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if in_string {
+            if ch == '\\' {
+                if let Some(&next) = chars.peek() {
+                    match next {
+                        // Valid JSON escape sequences — keep as-is and consume the next char
+                        '"' | '\\' | '/' | 'b' | 'f' | 'n' | 'r' | 't' | 'u' => {
+                            result.push(ch);
+                            result.push(chars.next().unwrap());
+                        }
+                        // Invalid escape — double the backslash so serde_json sees \\X
+                        _ => {
+                            result.push('\\');
+                            result.push(ch);
+                        }
+                    }
+                } else {
+                    // Trailing backslash at end of input — escape it
+                    result.push('\\');
+                    result.push(ch);
+                }
+            } else if ch == '"' {
+                in_string = false;
+                result.push(ch);
+            } else {
+                result.push(ch);
+            }
+        } else {
+            if ch == '"' {
+                in_string = true;
+            }
+            result.push(ch);
+        }
+    }
+
+    result
+}
+
 /// 1. Raw parse
 /// 2. Escape literal newlines inside strings
-/// 3. Auto-close missing braces/brackets
+/// 3. Escape invalid backslashes + newlines
+/// 4. Auto-close missing braces/brackets
 fn try_parse_with_fixups(input: &str) -> Option<Value> {
     // 1. Try as-is
     if let Ok(v) = serde_json::from_str::<Value>(input) {
         return Some(v);
     }
     // 2. Escape newlines
-    let escaped = escape_newlines_in_json_strings(input);
-    if let Ok(v) = serde_json::from_str::<Value>(&escaped) {
+    let escaped_nl = escape_newlines_in_json_strings(input);
+    if let Ok(v) = serde_json::from_str::<Value>(&escaped_nl) {
         return Some(v);
     }
-    // 3. Escape newlines + auto-close braces
-    let closed = auto_close_json(&escaped);
+    // 3. Escape invalid backslashes + newlines
+    let escaped_bs = escape_invalid_backslashes_in_strings(input);
+    let escaped_both = escape_newlines_in_json_strings(&escaped_bs);
+    if let Ok(v) = serde_json::from_str::<Value>(&escaped_both) {
+        return Some(v);
+    }
+    // 4. Escape + auto-close braces
+    let closed = auto_close_json(&escaped_both);
     serde_json::from_str::<Value>(&closed).ok()
 }
 
@@ -610,5 +666,45 @@ print(f"Found: {match.group()}" if match else "No match")"#;
         assert!(output.contains("written") || output.contains("success") || output.contains("Written"),
             "Should write successfully: {}", output);
         let _ = std::fs::remove_file("/tmp/test-autoclose2.txt");
+    }
+
+    #[test]
+    fn test_escape_invalid_backslashes_php_namespaces() {
+        // PHP namespaces like Illuminate\Database produce \D which is invalid JSON escape
+        let input = r#"{"name":"write_file","arguments":{"path":"Person.php","content":"namespace App\Models;\nuse Illuminate\Database\Eloquent\Model;"}}"#;
+        let fixed = escape_invalid_backslashes_in_strings(input);
+        // Should double the backslashes before invalid escape chars (M, D, E)
+        assert!(fixed.contains(r"App\\Models"));
+        assert!(fixed.contains(r"Illuminate\\Database\\Eloquent\\Model"));
+        // Should now parse as valid JSON
+        assert!(serde_json::from_str::<Value>(&fixed).is_ok(), "Fixed JSON should parse: {}", fixed);
+    }
+
+    #[test]
+    fn test_escape_invalid_backslashes_preserves_valid_escapes() {
+        // Valid JSON escapes should NOT be doubled
+        let input = r#"{"content":"line1\nline2\ttab\"quoted\\"}"#;
+        let fixed = escape_invalid_backslashes_in_strings(input);
+        assert_eq!(input, fixed, "Valid escapes should be unchanged");
+    }
+
+    #[test]
+    fn test_dispatch_write_file_php_namespaces() {
+        // End-to-end: dispatch_native_tool should handle PHP namespaces via fixup chain
+        let temp = std::env::temp_dir().join("native_tools_test_php_ns.php");
+        let json = format!(
+            r#"{{"name":"write_file","arguments":{{"path":"{}","content":"<?php\nnamespace App\Models;\nuse Illuminate\Database\Eloquent\Model;\n\nclass Person extends Model {{\n    protected $fillable = ['name'];\n}}"}}}}"#,
+            temp.display()
+        );
+        let result = dispatch_native_tool(&json);
+        assert!(result.is_some(), "Should parse PHP namespace JSON via fixup chain");
+        let output = result.unwrap();
+        assert!(output.contains("Written"), "Should write file: {}", output);
+
+        let content = std::fs::read_to_string(&temp).unwrap();
+        assert!(content.contains(r"App\Models"), "Should preserve single backslash in file content");
+        assert!(content.contains(r"Illuminate\Database\Eloquent\Model"), "Should preserve namespace path");
+
+        std::fs::remove_file(&temp).ok();
     }
 }

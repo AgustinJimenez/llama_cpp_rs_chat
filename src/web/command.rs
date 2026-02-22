@@ -1,4 +1,5 @@
 use std::env;
+use std::path::Path;
 use std::process::Command;
 
 // Helper function to parse command with proper quote handling
@@ -128,6 +129,12 @@ pub fn execute_command(cmd: &str) -> String {
         || trimmed.contains('<');
 
     if has_shell_ops {
+        // Try native echo redirect first (avoids shell $variable expansion)
+        if !cfg!(target_os = "windows") {
+            if let Some(result) = try_native_echo_redirect(trimmed) {
+                return result;
+            }
+        }
         let shell = if cfg!(target_os = "windows") { "cmd" } else { "sh" };
         let flag = if cfg!(target_os = "windows") { "/C" } else { "-c" };
         let output = Command::new(shell).arg(flag).arg(trimmed).output();
@@ -138,7 +145,7 @@ pub fn execute_command(cmd: &str) -> String {
                 if !stderr.is_empty() && !o.status.success() {
                     format!("{stdout}\nError: {stderr}")
                 } else if stdout.is_empty() && stderr.is_empty() && o.status.success() {
-                    format!("Command executed successfully")
+                    "Command executed successfully".to_string()
                 } else {
                     format!("{stdout}{stderr}")
                 }
@@ -213,6 +220,133 @@ pub fn execute_command(cmd: &str) -> String {
                 format!("Failed to execute command: {e}")
             }
         }
+    }
+}
+
+/// Find the position of the last `>` redirect operator that is NOT inside quotes.
+fn find_last_redirect(cmd: &str) -> Option<usize> {
+    let mut last_pos = None;
+    let mut in_single = false;
+    let mut in_double = false;
+    for (i, ch) in cmd.chars().enumerate() {
+        match ch {
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            '>' if !in_single && !in_double => last_pos = Some(i),
+            _ => {}
+        }
+    }
+    last_pos
+}
+
+/// Split a command string on `&&` and `||` operators (outside of quotes).
+fn split_on_chain_ops(cmd: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut start = 0;
+    let mut in_single = false;
+    let mut in_double = false;
+    let bytes = cmd.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let ch = bytes[i] as char;
+        match ch {
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            '&' if !in_single && !in_double && i + 1 < bytes.len() && bytes[i + 1] == b'&' => {
+                parts.push(cmd[start..i].trim());
+                i += 2;
+                start = i;
+                continue;
+            }
+            '|' if !in_single && !in_double && i + 1 < bytes.len() && bytes[i + 1] == b'|' => {
+                parts.push(cmd[start..i].trim());
+                i += 2;
+                start = i;
+                continue;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    parts.push(cmd[start..].trim());
+    parts
+}
+
+/// Extract the content from an echo command (handling double quotes, single quotes, or bare text).
+fn extract_echo_content(echo_part: &str) -> Option<String> {
+    let trimmed = echo_part.trim();
+    let after_echo = if let Some(stripped) = trimmed.strip_prefix("echo ") {
+        stripped.trim()
+    } else {
+        return None;
+    };
+
+    if (after_echo.starts_with('"') && after_echo.ends_with('"')
+        || after_echo.starts_with('\'') && after_echo.ends_with('\''))
+        && after_echo.len() >= 2
+    {
+        Some(after_echo[1..after_echo.len() - 1].to_string())
+    } else {
+        Some(after_echo.to_string())
+    }
+}
+
+/// Intercept `echo "..." > file` patterns and write directly with std::fs::write.
+/// This avoids shell variable expansion ($table becomes empty) and quoting issues.
+/// Returns Some(result) if handled, None to fall through to sh -c.
+fn try_native_echo_redirect(cmd: &str) -> Option<String> {
+    let parts = split_on_chain_ops(cmd);
+    let last_part = parts.last()?.trim();
+
+    // The last segment must have a redirect
+    let redirect_pos = find_last_redirect(last_part)?;
+
+    // Split into echo part and file path
+    let echo_part = last_part[..redirect_pos].trim();
+    let file_path = last_part[redirect_pos + 1..].trim();
+
+    // Must start with echo
+    if !echo_part.starts_with("echo ") {
+        return None;
+    }
+
+    // File path must not be empty
+    if file_path.is_empty() {
+        return None;
+    }
+
+    // Execute any preceding chained commands (mkdir -p, etc.) via shell
+    if parts.len() > 1 {
+        let prefix_cmds = &parts[..parts.len() - 1];
+        for prefix in prefix_cmds {
+            let output = Command::new("sh").arg("-c").arg(prefix).output();
+            match output {
+                Ok(o) if !o.status.success() => {
+                    let stderr = String::from_utf8_lossy(&o.stderr);
+                    return Some(format!("Error: {stderr}"));
+                }
+                Err(e) => return Some(format!("Error: {e}")),
+                _ => {}
+            }
+        }
+    }
+
+    // Extract echo content and write directly
+    let content = extract_echo_content(echo_part)?;
+
+    // Process \n escape sequences to real newlines
+    let content = content.replace("\\n", "\n").replace("\\t", "\t");
+
+    // Ensure parent directory exists
+    if let Some(parent) = Path::new(file_path).parent() {
+        if !parent.as_os_str().is_empty() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+    }
+
+    match std::fs::write(file_path, &content) {
+        Ok(_) => Some(format!("Written {} bytes to {file_path}", content.len())),
+        Err(e) => Some(format!("Error writing to {file_path}: {e}")),
     }
 }
 
@@ -326,5 +460,63 @@ mod tests {
     fn test_unix_path_parsing() {
         let result = parse_command_with_quotes(r#"cat "/home/user/my file.txt""#);
         assert_eq!(result, vec!["cat", "/home/user/my file.txt"]);
+    }
+
+    #[test]
+    fn test_native_echo_redirect_preserves_dollar_vars() {
+        let cmd = r#"echo "<?php\n\$table->id();\n\$fillable = ['name'];" > /tmp/test_echo_redir.php"#;
+        let result = try_native_echo_redirect(cmd);
+        assert!(result.is_some(), "Should match echo > file pattern");
+        let content = std::fs::read_to_string("/tmp/test_echo_redir.php").unwrap();
+        assert!(content.contains("$table"), "Dollar vars should be preserved");
+        assert!(content.contains("$fillable"), "Dollar vars should be preserved");
+        std::fs::remove_file("/tmp/test_echo_redir.php").ok();
+    }
+
+    #[test]
+    fn test_native_echo_redirect_with_chain() {
+        let cmd = r#"mkdir -p /tmp/test_echo_chain && echo "hello" > /tmp/test_echo_chain/test.txt"#;
+        let result = try_native_echo_redirect(cmd);
+        assert!(result.is_some());
+        let content = std::fs::read_to_string("/tmp/test_echo_chain/test.txt").unwrap();
+        assert_eq!(content.trim(), "hello");
+        std::fs::remove_dir_all("/tmp/test_echo_chain").ok();
+    }
+
+    #[test]
+    fn test_native_echo_redirect_non_echo_falls_through() {
+        let cmd = "cat foo.txt > bar.txt";
+        let result = try_native_echo_redirect(cmd);
+        assert!(result.is_none(), "Non-echo redirects should fall through");
+    }
+
+    #[test]
+    fn test_find_last_redirect() {
+        assert_eq!(find_last_redirect(r#"echo "hi" > file.txt"#), Some(10));
+        assert_eq!(find_last_redirect(r#"echo "a > b" > out.txt"#), Some(13));
+        assert_eq!(find_last_redirect("echo hello"), None);
+    }
+
+    #[test]
+    fn test_split_on_chain_ops() {
+        let parts = split_on_chain_ops("mkdir -p dir && echo hi > f.txt");
+        assert_eq!(parts, vec!["mkdir -p dir", "echo hi > f.txt"]);
+    }
+
+    #[test]
+    fn test_extract_echo_content() {
+        assert_eq!(extract_echo_content(r#"echo "hello world""#), Some("hello world".to_string()));
+        assert_eq!(extract_echo_content(r#"echo 'single quotes'"#), Some("single quotes".to_string()));
+        assert_eq!(extract_echo_content("echo bare text"), Some("bare text".to_string()));
+    }
+
+    #[test]
+    fn test_native_echo_redirect_with_newline_escapes() {
+        let cmd = r#"echo "line1\nline2\nline3" > /tmp/test_echo_newlines.txt"#;
+        let result = try_native_echo_redirect(cmd);
+        assert!(result.is_some());
+        let content = std::fs::read_to_string("/tmp/test_echo_newlines.txt").unwrap();
+        assert!(content.contains("line1\nline2\nline3") || content.contains("line1"));
+        std::fs::remove_file("/tmp/test_echo_newlines.txt").ok();
     }
 }
