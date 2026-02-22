@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { X, Save, ChevronDown, ChevronRight } from 'lucide-react';
+import { X, Save } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { ContextSizeSection } from './model-config/ContextSizeSection';
 import { GpuLayersSection } from './model-config/GpuLayersSection';
+import { AdvancedContextSection } from './model-config/AdvancedContextSection';
 import { SamplingParametersSection } from './model-config/SamplingParametersSection';
 import { getConversationConfig, saveConversationConfig } from '../../utils/tauriCommands';
 import type { SamplerConfig } from '../../types';
@@ -10,80 +11,6 @@ import type { SamplerConfig } from '../../types';
 const CONTEXT_RELOAD_FIELDS: (keyof SamplerConfig)[] = [
   'context_size', 'flash_attention', 'cache_type_k', 'cache_type_v', 'n_batch',
 ];
-
-interface AdvancedContextProps {
-  config: SamplerConfig;
-  onChange: (field: keyof SamplerConfig, value: string | number | boolean) => void;
-}
-
-function AdvancedContextSection({ config, onChange }: AdvancedContextProps) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div>
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-      >
-        {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-        Advanced Context
-      </button>
-      {open && (
-        <div className="mt-3 space-y-4 pl-1">
-          <label className="flex items-center justify-between">
-            <span className="text-sm">Flash Attention</span>
-            <input
-              type="checkbox"
-              checked={config.flash_attention ?? false}
-              onChange={(e) => onChange('flash_attention', e.target.checked)}
-              className="accent-[hsl(var(--primary))]"
-            />
-          </label>
-          <div className="flex items-center justify-between">
-            <span className="text-sm">Cache Type K</span>
-            <select
-              value={config.cache_type_k ?? 'f16'}
-              onChange={(e) => onChange('cache_type_k', e.target.value)}
-              className="text-sm bg-muted border border-border rounded px-2 py-1"
-            >
-              <option value="f16">f16</option>
-              <option value="f32">f32</option>
-              <option value="q8_0">q8_0</option>
-              <option value="q4_0">q4_0</option>
-            </select>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-sm">Cache Type V</span>
-            <select
-              value={config.cache_type_v ?? 'f16'}
-              onChange={(e) => onChange('cache_type_v', e.target.value)}
-              className="text-sm bg-muted border border-border rounded px-2 py-1"
-            >
-              <option value="f16">f16</option>
-              <option value="f32">f32</option>
-              <option value="q8_0">q8_0</option>
-              <option value="q4_0">q4_0</option>
-            </select>
-          </div>
-          <div>
-            <div className="flex justify-between items-center">
-              <span className="text-sm">Batch Size</span>
-              <span className="text-sm font-mono text-muted-foreground">{config.n_batch ?? 2048}</span>
-            </div>
-            <input
-              type="range"
-              min={128}
-              max={8192}
-              step={128}
-              value={config.n_batch ?? 2048}
-              onChange={(e) => onChange('n_batch', parseInt(e.target.value))}
-              className="w-full accent-[hsl(var(--primary))] cursor-pointer"
-            />
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 interface ConversationConfigSidebarProps {
   isOpen: boolean;
@@ -193,7 +120,7 @@ export function ConversationConfigSidebar({
                 onGpuLayersChange={(n) => handleConfigChange('gpu_layers', n)}
                 maxLayers={100}
               />
-              <AdvancedContextSection config={localConfig} onChange={handleConfigChange} />
+              <AdvancedContextSection config={localConfig} onConfigChange={handleConfigChange} />
               <div className="border-t border-border" />
               <SamplingParametersSection config={localConfig} onConfigChange={handleConfigChange} />
             </>
