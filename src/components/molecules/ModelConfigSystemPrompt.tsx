@@ -57,7 +57,7 @@ export const SystemPromptSection: React.FC<SystemPromptSectionProps> = ({
 
   return (
     <div className="space-y-3 pt-2 border-t">
-      <label className="text-sm font-medium">System Prompt</label>
+      <span className="text-sm font-medium">System Prompt</span>
 
       <div className="flex gap-2">
         <Button

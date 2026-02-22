@@ -56,7 +56,7 @@ export const ContextSizeSection: React.FC<ContextSizeSectionProps> = ({
   return (
     <div className="space-y-1">
       <div className="flex justify-between items-center">
-        <label className="text-sm font-medium">Context Length</label>
+        <span className="text-sm font-medium">Context Length</span>
         <span className="text-sm font-mono text-foreground">
           {formatSize(contextSize)}
         </span>

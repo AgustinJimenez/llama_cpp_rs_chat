@@ -12,12 +12,13 @@ module.exports = {
       jsx: true,
     },
   },
-  plugins: ['@typescript-eslint', 'react', 'react-hooks'],
+  plugins: ['@typescript-eslint', 'react', 'react-hooks', 'react-refresh', 'jsx-a11y'],
   extends: [
     'eslint:recommended',
     'plugin:@typescript-eslint/recommended',
     'plugin:react/recommended',
     'plugin:react-hooks/recommended',
+    'plugin:jsx-a11y/recommended',
   ],
   settings: {
     react: {
@@ -30,5 +31,6 @@ module.exports = {
     complexity: ['error', { max: 15 }],
     '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
     'react/react-in-jsx-scope': 'off',
+    'react-refresh/only-export-components': ['warn', { allowConstantExport: true, allowExportNames: ['buttonVariants'] }],
   },
 };

@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useCallback, useEffect } from 'react';
 import { LoadingIndicator, WelcomeMessage } from '../atoms';
 import { MessageBubble } from '../organisms';
 import type { Message, ViewMode } from '../../types';
@@ -20,45 +20,45 @@ export function MessagesArea({
   viewMode,
 }: MessagesAreaProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const lastScrollAtRef = useRef<number>(0);
-  const scrollRafRef = useRef<number | null>(null);
-  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
+  const autoScrollRef = useRef(true);
 
-  const scrollToBottom = (behavior: ScrollBehavior) => {
-    messagesEndRef.current?.scrollIntoView({ behavior });
-  };
-
+  // Engage auto-scroll when streaming starts
   useEffect(() => {
-    const now = Date.now();
-    const behavior: ScrollBehavior = isLoading ? 'auto' : 'smooth';
+    if (isLoading) autoScrollRef.current = true;
+  }, [isLoading]);
 
-    // Avoid scheduling expensive smooth scrolls for every token while streaming.
-    if (isLoading && now - lastScrollAtRef.current < 200) {
-      return;
-    }
-    lastScrollAtRef.current = now;
-
-    if (scrollRafRef.current !== null) {
-      cancelAnimationFrame(scrollRafRef.current);
-    }
-
-    scrollRafRef.current = requestAnimationFrame(() => {
-      if (shouldAutoScroll) {
-        scrollToBottom(behavior);
+  // Auto-scroll to bottom when messages change (streaming tokens or new messages).
+  // Uses rAF so we run after the browser has committed the DOM update.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || !autoScrollRef.current) return;
+    requestAnimationFrame(() => {
+      if (autoScrollRef.current) {
+        el.scrollTop = el.scrollHeight;
       }
-      scrollRafRef.current = null;
     });
-  }, [messages, isLoading, shouldAutoScroll]);
+  }, [messages]);
 
-  const handleScroll = () => {
-    const container = containerRef.current;
-    if (!container) return;
-    const threshold = 120;
-    const isNearBottom =
-      container.scrollTop + container.clientHeight >= container.scrollHeight - threshold;
-    setShouldAutoScroll(isNearBottom);
-  };
+  // Detect user scrolling up via wheel to disengage auto-scroll.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY < 0) autoScrollRef.current = false;
+    };
+    el.addEventListener('wheel', onWheel, { passive: true });
+    return () => el.removeEventListener('wheel', onWheel);
+  });
+
+  // Re-engage auto-scroll when user scrolls back to bottom
+  const handleScroll = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distFromBottom < 80) {
+      autoScrollRef.current = true;
+    }
+  }, []);
 
   return (
     <div
@@ -67,17 +67,16 @@ export function MessagesArea({
       data-testid="messages-container"
       onScroll={handleScroll}
     >
-      <div className="max-w-3xl mx-auto px-6 py-6 space-y-6">
+      <div className="max-w-3xl mx-auto px-6 py-6">
         {messages.length === 0 ? (
           <WelcomeMessage isModelLoading={isModelLoading} loadingAction={loadingAction} />
         ) : (
-          <>
-            {messages.map((message) => (
-              <MessageBubble key={message.id} message={message} viewMode={viewMode} />
+          <div className="space-y-6">
+            {messages.map((msg) => (
+              <MessageBubble key={msg.id} message={msg} viewMode={viewMode} />
             ))}
             {isLoading && <LoadingIndicator />}
-            <div ref={messagesEndRef} />
-          </>
+          </div>
         )}
       </div>
     </div>

@@ -110,10 +110,41 @@ fn execute_windows(cmd: &str, parts: &[String]) -> std::io::Result<std::process:
 
 // Helper function to execute system commands
 pub fn execute_command(cmd: &str) -> String {
+    let trimmed = cmd.trim();
+
     // Parse command with proper quote handling
-    let parts = parse_command_with_quotes(cmd.trim());
+    let parts = parse_command_with_quotes(trimmed);
     if parts.is_empty() {
         return "Error: Empty command".to_string();
+    }
+
+    // If the command contains shell operators, delegate to sh/bash so they work.
+    // This handles `cd /dir && npm init`, pipes, redirects, etc.
+    let has_shell_ops = trimmed.contains("&&")
+        || trimmed.contains("||")
+        || trimmed.contains(" | ")
+        || trimmed.contains(';')
+        || trimmed.contains('>')
+        || trimmed.contains('<');
+
+    if has_shell_ops {
+        let shell = if cfg!(target_os = "windows") { "cmd" } else { "sh" };
+        let flag = if cfg!(target_os = "windows") { "/C" } else { "-c" };
+        let output = Command::new(shell).arg(flag).arg(trimmed).output();
+        return match output {
+            Ok(o) => {
+                let stdout = String::from_utf8_lossy(&o.stdout);
+                let stderr = String::from_utf8_lossy(&o.stderr);
+                if !stderr.is_empty() && !o.status.success() {
+                    format!("{stdout}\nError: {stderr}")
+                } else if stdout.is_empty() && stderr.is_empty() && o.status.success() {
+                    format!("Command executed successfully")
+                } else {
+                    format!("{stdout}{stderr}")
+                }
+            }
+            Err(e) => format!("Failed to execute command: {e}"),
+        };
     }
 
     let command_name = &parts[0];

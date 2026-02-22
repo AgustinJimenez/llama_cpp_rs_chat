@@ -132,7 +132,7 @@ export const SamplingParametersSection: React.FC<SamplingParametersSectionProps>
     <>
       {/* Sampler Type */}
       <div className="space-y-2">
-        <label className="text-sm font-medium">Sampler Type</label>
+        <span className="text-sm font-medium">Sampler Type</span>
         <Select
           value={config.sampler_type}
           onValueChange={(value) => onConfigChange('sampler_type', value)}

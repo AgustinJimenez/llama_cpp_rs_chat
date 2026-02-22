@@ -22,7 +22,7 @@ const KvCacheSection: React.FC<AdvancedContextSectionProps> = ({ config, onConfi
   return (
     <div className="grid grid-cols-2 gap-3">
       <div>
-        <label className="text-sm font-medium mb-1 flex items-center gap-1.5">
+        <span className="text-sm font-medium mb-1 flex items-center gap-1.5">
           KV Cache K Type
           {isQuantized && (
             <span
@@ -38,7 +38,7 @@ const KvCacheSection: React.FC<AdvancedContextSectionProps> = ({ config, onConfi
               )}
             </span>
           )}
-        </label>
+        </span>
         <select
           className="w-full rounded-md border bg-background px-3 py-1.5 text-sm"
           value={config.cache_type_k ?? 'f16'}
@@ -50,7 +50,7 @@ const KvCacheSection: React.FC<AdvancedContextSectionProps> = ({ config, onConfi
         </select>
       </div>
       <div>
-        <label className="text-sm font-medium block mb-1">KV Cache V Type</label>
+        <span className="text-sm font-medium block mb-1">KV Cache V Type</span>
         <select
           className="w-full rounded-md border bg-background px-3 py-1.5 text-sm"
           value={config.cache_type_v ?? 'f16'}
@@ -79,7 +79,7 @@ export const AdvancedContextSection: React.FC<AdvancedContextSectionProps> = ({
       {/* Flash Attention */}
       <div className="flex items-center justify-between">
         <div>
-          <label className="text-sm font-medium">Flash Attention</label>
+          <span className="text-sm font-medium">Flash Attention</span>
           <p className="text-xs text-muted-foreground">Faster inference, lower memory usage</p>
         </div>
         <button
@@ -105,7 +105,7 @@ export const AdvancedContextSection: React.FC<AdvancedContextSectionProps> = ({
       {/* Batch Size */}
       <div>
         <div className="flex items-center justify-between mb-1">
-          <label className="text-sm font-medium">Batch Size</label>
+          <span className="text-sm font-medium">Batch Size</span>
           <span className="text-xs text-muted-foreground">{config.n_batch ?? 2048}</span>
         </div>
         <div className="flex gap-1.5">

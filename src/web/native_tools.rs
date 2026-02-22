@@ -11,13 +11,102 @@ use std::process::Command;
 /// Maximum file size to return inline (100 KB).
 const MAX_READ_SIZE: usize = 100 * 1024;
 
+/// Escape raw newlines inside JSON string values so serde_json can parse them.
+/// Models often emit multiline content like `"content": "line1\nline2"` with literal
+/// newlines instead of `\\n`, which is invalid JSON.
+fn escape_newlines_in_json_strings(input: &str) -> String {
+    let mut result = String::with_capacity(input.len());
+    let mut in_string = false;
+    let mut prev_was_backslash = false;
+    for ch in input.chars() {
+        if in_string {
+            if ch == '\n' {
+                result.push_str("\\n");
+                prev_was_backslash = false;
+                continue;
+            }
+            if ch == '\r' {
+                prev_was_backslash = false;
+                continue; // drop \r, \n will follow
+            }
+            if ch == '"' && !prev_was_backslash {
+                in_string = false;
+            }
+            prev_was_backslash = ch == '\\' && !prev_was_backslash;
+        } else if ch == '"' {
+            in_string = true;
+            prev_was_backslash = false;
+        }
+        result.push(ch);
+    }
+    result
+}
+
+/// Auto-close unbalanced JSON braces/brackets (ignoring those inside strings).
+/// Models sometimes omit the final `}` or `}}` when generating tool-call JSON.
+fn auto_close_json(input: &str) -> String {
+    let mut depth_brace: i32 = 0; // { }
+    let mut depth_bracket: i32 = 0; // [ ]
+    let mut in_string = false;
+    let mut prev_backslash = false;
+
+    for ch in input.chars() {
+        if in_string {
+            if ch == '"' && !prev_backslash {
+                in_string = false;
+            }
+            prev_backslash = ch == '\\' && !prev_backslash;
+        } else {
+            match ch {
+                '"' => {
+                    in_string = true;
+                    prev_backslash = false;
+                }
+                '{' => depth_brace += 1,
+                '}' => depth_brace -= 1,
+                '[' => depth_bracket += 1,
+                ']' => depth_bracket -= 1,
+                _ => {}
+            }
+        }
+    }
+
+    let mut result = input.to_string();
+    for _ in 0..depth_bracket {
+        result.push(']');
+    }
+    for _ in 0..depth_brace {
+        result.push('}');
+    }
+    result
+}
+
+/// Try to parse JSON, applying progressive fixups on failure:
+/// 1. Raw parse
+/// 2. Escape literal newlines inside strings
+/// 3. Auto-close missing braces/brackets
+fn try_parse_with_fixups(input: &str) -> Option<Value> {
+    // 1. Try as-is
+    if let Ok(v) = serde_json::from_str::<Value>(input) {
+        return Some(v);
+    }
+    // 2. Escape newlines
+    let escaped = escape_newlines_in_json_strings(input);
+    if let Ok(v) = serde_json::from_str::<Value>(&escaped) {
+        return Some(v);
+    }
+    // 3. Escape newlines + auto-close braces
+    let closed = auto_close_json(&escaped);
+    serde_json::from_str::<Value>(&closed).ok()
+}
+
 /// Parse standard JSON format: `{"name":"...","arguments":{...}}` or array `[{...}]`
 fn try_parse_json_format(trimmed: &str) -> Option<(String, Value)> {
     let parsed: Value = if trimmed.starts_with('[') {
-        let arr: Value = serde_json::from_str(trimmed).ok()?;
+        let arr = try_parse_with_fixups(trimmed)?;
         arr.as_array()?.first()?.clone()
     } else {
-        serde_json::from_str(trimmed).ok()?
+        try_parse_with_fixups(trimmed)?
     };
 
     let name = parsed.get("name")?.as_str()?.to_string();
@@ -330,6 +419,33 @@ mod tests {
     }
 
     #[test]
+    fn test_dispatch_write_file_multiline_json_content() {
+        // Models often emit multiline JSON content with literal newlines
+        let temp = std::env::temp_dir().join("native_tools_test_multiline.json");
+        let json = format!(
+            "{{\n  \"name\": \"write_file\",\n  \"arguments\": {{\n    \"path\": \"{}\",\n    \"content\": \"{{\n  \\\"name\\\": \\\"test\\\",\n  \\\"version\\\": \\\"1.0.0\\\"\n}}\"\n  }}\n}}",
+            temp.display().to_string().replace('\\', "\\\\")
+        );
+        let result = dispatch_native_tool(&json);
+        assert!(result.is_some(), "Should parse multiline JSON content: {json}");
+        assert!(result.unwrap().contains("Written"));
+        let content = std::fs::read_to_string(&temp).unwrap();
+        assert!(content.contains("\"name\": \"test\""));
+        std::fs::remove_file(&temp).ok();
+    }
+
+    #[test]
+    fn test_escape_newlines_in_json_strings() {
+        let input = r#"{"name": "write_file", "arguments": {"content": "line1
+line2
+line3"}}"#;
+        let escaped = escape_newlines_in_json_strings(input);
+        let parsed: Value = serde_json::from_str(&escaped).unwrap();
+        let content = parsed["arguments"]["content"].as_str().unwrap();
+        assert_eq!(content, "line1\nline2\nline3");
+    }
+
+    #[test]
     fn test_dispatch_list_directory() {
         let json = r#"{"name": "list_directory", "arguments": {"path": "."}}"#;
         let result = dispatch_native_tool(json);
@@ -457,5 +573,42 @@ print(f"Found: {match.group()}" if match else "No match")"#;
         if !result.contains("Error running Python") {
             assert!(result.contains("Found: $1,234.56"));
         }
+    }
+
+    #[test]
+    fn test_auto_close_json_missing_brace() {
+        // GLM model pattern: emits write_file JSON missing the outer closing }
+        let input = r#"{"name": "write_file", "arguments": {"path": "/tmp/test.txt", "content": "hello"}}"#;
+        // Valid JSON - should parse fine
+        assert!(serde_json::from_str::<Value>(input).is_ok());
+
+        // Now remove the last } to simulate GLM's bug
+        let broken = &input[..input.len() - 1]; // {"name": "write_file", "arguments": {"path": "/tmp/test.txt", "content": "hello"}}  -> missing last }
+        assert!(serde_json::from_str::<Value>(broken).is_err());
+
+        let fixed = auto_close_json(broken);
+        assert_eq!(fixed, input); // Should add back the missing }
+        assert!(serde_json::from_str::<Value>(&fixed).is_ok());
+    }
+
+    #[test]
+    fn test_dispatch_write_file_missing_brace_with_newlines() {
+        // Exact pattern GLM produces: multiline content + missing outer closing }
+        let json = "{\"name\": \"write_file\", \"arguments\": {\"path\": \"/tmp/test-autoclose.txt\", \"content\": \"{\n  \\\"name\\\": \\\"test\\\",\n  \\\"version\\\": \\\"1.0.0\\\"\n}\"}}";
+        // This should work (has both braces)
+        let result = dispatch_native_tool(json);
+        assert!(result.is_some(), "Valid JSON should work: {:?}", result);
+        let _ = std::fs::remove_file("/tmp/test-autoclose.txt");
+
+        // Now test with missing outer brace (GLM pattern)
+        let broken = "{\"name\": \"write_file\", \"arguments\": {\"path\": \"/tmp/test-autoclose2.txt\", \"content\": \"{\n  \\\"name\\\": \\\"test\\\",\n  \\\"version\\\": \\\"1.0.0\\\"\n}\"}}";
+        // Remove last }
+        let broken = &broken[..broken.len() - 1];
+        let result = dispatch_native_tool(broken);
+        assert!(result.is_some(), "Should auto-close missing brace and dispatch write_file");
+        let output = result.unwrap();
+        assert!(output.contains("written") || output.contains("success") || output.contains("Written"),
+            "Should write successfully: {}", output);
+        let _ = std::fs::remove_file("/tmp/test-autoclose2.txt");
     }
 }

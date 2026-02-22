@@ -145,12 +145,15 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                   return (
                     <div
                       key={index}
+                      role="button"
+                      tabIndex={0}
                       className={`flex items-center gap-3 p-2 rounded-md cursor-pointer hover:bg-muted/50 transition-colors ${
                         isSelected ? 'bg-primary/10 border border-primary/20' : ''
                       } ${
                         !file.is_directory && !isSelectable ? 'opacity-50 cursor-not-allowed' : ''
                       }`}
                       onClick={() => handleFileClick(file)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleFileClick(file); }}
                     >
                       {file.is_directory ? (
                         <Folder className="h-4 w-4 text-blue-500" />

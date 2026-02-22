@@ -145,12 +145,15 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onLoadConversation, curren
               return (
                 <div
                   key={conversation.name}
+                  role="button"
+                  tabIndex={0}
                   className={`group flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors text-sm ${
                     isActive
                       ? 'bg-muted text-foreground'
                       : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
                   }`}
                   onClick={() => onLoadConversation(conversation.name)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onLoadConversation(conversation.name); }}
                   data-testid={`conversation-${index}`}
                 >
                   <span className="truncate flex-1 min-w-0">

@@ -14,7 +14,7 @@ export const GpuLayersSection: React.FC<GpuLayersSectionProps> = ({
 }) => (
   <div className="space-y-2">
     <div className="flex justify-between items-center">
-      <label className="text-sm font-medium">GPU Layers (CUDA)</label>
+      <span className="text-sm font-medium">GPU Layers (CUDA)</span>
       <span className="text-sm font-mono text-muted-foreground" data-testid="gpu-layers-display">
         {gpuLayers || 0} / {maxLayers}
       </span>
