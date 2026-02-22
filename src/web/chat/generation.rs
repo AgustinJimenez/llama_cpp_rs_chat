@@ -112,19 +112,21 @@ pub async fn generate_llama_response(
     let state = state_guard.as_mut().ok_or("LLaMA state not initialized")?;
     let model = state.model.as_ref().ok_or("No model loaded")?;
 
-    // Get context size: prefer user config, fallback to model's context_length, then default
-    let requested_context_size = config
-        .context_size
-        .or(state.model_context_length)
-        .unwrap_or(CONTEXT_SIZE);
-
-    let context_size = requested_context_size;
+    // Get context size: prefer user config, then cap GGUF context_length to our default,
+    // since many models declare 128K+ which OOMs on most GPUs.
+    let context_size = config.context_size.unwrap_or_else(|| {
+        state
+            .model_context_length
+            .map(|ctx| ctx.min(CONTEXT_SIZE))
+            .unwrap_or(CONTEXT_SIZE)
+    });
 
     log_info!(
         &conversation_id,
-        "Using context size: {} (model max: {:?})",
+        "Using context size: {} (model max: {:?}, default cap: {})",
         context_size,
-        state.model_context_length
+        state.model_context_length,
+        CONTEXT_SIZE
     );
 
     // Create sampler based on configuration (pass model for DRY sampler)

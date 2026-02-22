@@ -254,16 +254,30 @@ pub fn run_worker(db_path: &str) {
                 );
 
                 generation_thread = Some(thread::spawn(move || {
-                    run_generation(GenerationParams {
-                        req_id,
-                        user_message,
-                        conversation_id,
-                        skip_user_logging,
-                        llama_state: state,
-                        db,
-                        cancel,
-                        tx,
-                    });
+                    let tx_panic = tx.clone();
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        run_generation(GenerationParams {
+                            req_id,
+                            user_message,
+                            conversation_id,
+                            skip_user_logging,
+                            llama_state: state,
+                            db,
+                            cancel,
+                            tx,
+                        });
+                    }));
+                    if let Err(panic_info) = result {
+                        let msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                            s.to_string()
+                        } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                            s.clone()
+                        } else {
+                            "Unknown panic in generation thread".to_string()
+                        };
+                        eprintln!("[WORKER] Generation thread panicked: {msg}");
+                        let _ = tx_panic.send(WorkerResponse::error(req_id, format!("Generation panicked: {msg}")));
+                    }
                 }));
             }
         }

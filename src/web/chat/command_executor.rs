@@ -269,6 +269,11 @@ fn wrap_output_for_model(output_block: &str, template_type: Option<&str>) -> Str
                 output_block
             )
         }
+        Some("GLM") => {
+            // GLM-4 family: output_block contains <|observation|>\n{result}\n
+            // Re-open assistant turn so model continues generating
+            format!("{}\n<|assistant|>\n", output_block)
+        }
         Some("Mistral") | _ => {
             // Mistral and default: output tags are sufficient, no extra turn wrapping needed.
             // Mistral's tool format is inline within the conversation flow.

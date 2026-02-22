@@ -38,6 +38,13 @@ const TOOL_TAG_FAMILIES = {
     outputOpen: '[TOOL_RESULTS]',
     outputClose: '[/TOOL_RESULTS]',
   } as ToolTags,
+  // GLM models use <tool_call> with <|observation|> for results
+  glm: {
+    execOpen: '<tool_call>',
+    execClose: '</tool_call>',
+    outputOpen: '<|observation|>',
+    outputClose: '',
+  } as ToolTags,
   // Default for models without native tool format
   default: DEFAULT_TOOL_TAGS,
 };
@@ -55,8 +62,11 @@ export const MODEL_TOOL_TAGS: Record<string, ToolTags> = {
   "mistralai_Devstral Small 2 24B Instruct 2512": TOOL_TAG_FAMILIES.mistral,
   "Magistral-Small-2509": TOOL_TAG_FAMILIES.mistral,
   "mistralai_Ministral 3 14B Reasoning 2512": TOOL_TAG_FAMILIES.mistral,
+  // GLM models - use default SYSTEM.EXEC (model doesn't follow <tool_call> closing tags)
+  "Zai org_GLM 4.6V Flash": TOOL_TAG_FAMILIES.default,
+  "Zai org_GLM 4.7 Flash": TOOL_TAG_FAMILIES.default,
   // Other models - use default SYSTEM.EXEC (no strong native tool format)
-  // MiniCPM, Gemma, Granite, GLM, Nemotron, GPT-OSS, RNJ all use default
+  // MiniCPM, Gemma, Granite, Nemotron, GPT-OSS, RNJ all use default
 };
 
 // Look up tool tags for a model by general.name
@@ -193,13 +203,33 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     repeat_penalty: 1.0,
   },
 
-  // Zai
+  // Microsoft Phi
+  "Phi 4 Mini Reasoning": {
+    sampler_type: "Temperature",
+    temperature: 0.8,
+    top_p: 0.95,
+    top_k: 50,
+    min_p: 0.0,
+    repeat_penalty: 1.0,
+    context_size: 32768,
+  },
+
+  // Zhipu AI GLM models
   "Zai org_GLM 4.7 Flash": {
     sampler_type: "Temperature",
-    temperature: 1.0,
-    top_p: 0.95,
-    top_k: 40,
-    repeat_penalty: 1.0,
+    temperature: 0.8,
+    top_p: 0.6,
+    top_k: 2,
+    repeat_penalty: 1.1,
+    context_size: 16384,
+  },
+  "Zai org_GLM 4.6V Flash": {
+    sampler_type: "Temperature",
+    temperature: 0.8,
+    top_p: 0.6,
+    top_k: 2,
+    repeat_penalty: 1.1,
+    context_size: 16384,
   },
 };
 

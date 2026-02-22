@@ -37,15 +37,51 @@ impl StopConditionResult {
     }
 }
 
-/// Check if we're inside a SYSTEM.EXEC block
-/// Returns true if there's an opening tag without a closing tag
-fn is_inside_exec_block(response: &str) -> bool {
-    const EXEC_OPEN: &str = "<||SYSTEM.EXEC>";
-    const EXEC_CLOSE: &str = "<SYSTEM.EXEC||>";
+/// Maximum characters after an unclosed exec open tag before we give up
+/// and allow stop tokens to fire. Prevents infinite generation when a model
+/// opens an exec block but never properly closes it.
+const MAX_EXEC_BLOCK_LEN: usize = 1000;
 
-    let has_exec_open = response.contains("SYSTEM.EXEC>") || response.contains(EXEC_OPEN);
-    let has_exec_close = response.contains(EXEC_CLOSE) || response.contains("<SYSTEM.EXEC|");
-    has_exec_open && !has_exec_close
+/// Check if we're inside any tool execution block.
+/// Returns true if there's an opening tag without a matching closing tag
+/// AND the unclosed block is within MAX_EXEC_BLOCK_LEN characters.
+/// Supports: SYSTEM.EXEC, <tool_call>, [TOOL_CALLS]
+fn is_inside_exec_block(response: &str) -> bool {
+    let len = response.len();
+
+    // Helper: check if an unclosed tag is within the safety window
+    let is_recent_unclosed = |last_open: Option<usize>, last_close: Option<usize>| -> bool {
+        match (last_open, last_close) {
+            (Some(open_pos), Some(close_pos)) if open_pos > close_pos => {
+                len - open_pos <= MAX_EXEC_BLOCK_LEN
+            }
+            (Some(open_pos), None) => len - open_pos <= MAX_EXEC_BLOCK_LEN,
+            _ => false,
+        }
+    };
+
+    // Check default SYSTEM.EXEC tags
+    let in_system_exec = {
+        let last_open = response.rfind("SYSTEM.EXEC>");
+        let last_close = response.rfind("<SYSTEM.EXEC|");
+        is_recent_unclosed(last_open, last_close)
+    };
+
+    // Check Qwen <tool_call> tags
+    let in_tool_call = {
+        let last_open = response.rfind("<tool_call>");
+        let last_close = response.rfind("</tool_call>");
+        is_recent_unclosed(last_open, last_close)
+    };
+
+    // Check Mistral [TOOL_CALLS] tags
+    let in_mistral = {
+        let last_open = response.rfind("[TOOL_CALLS]");
+        let last_close = response.rfind("[/TOOL_CALLS]");
+        is_recent_unclosed(last_open, last_close)
+    };
+
+    in_system_exec || in_tool_call || in_mistral
 }
 
 /// Check if the response should stop based on stop tokens

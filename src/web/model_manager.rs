@@ -167,6 +167,10 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, request
                                 "Gemma".to_string() // Gemma 3 format
                             } else if s.contains("<|start|>") && s.contains("<|end|>") && s.contains("<|channel|>") {
                                 "Harmony".to_string() // gpt-oss-20b Harmony format
+                            } else if s.contains("<|observation|>") && s.contains("<|user|>") && s.contains("<|assistant|>") {
+                                "GLM".to_string() // GLM-4 family (has <|observation|> role)
+                            } else if s.contains("<|system|>") && s.contains("<|user|>") && s.contains("<|assistant|>") && s.contains("<|end|>") {
+                                "Phi".to_string() // Phi-3/Phi-4 format
                             } else {
                                 "Generic".to_string() // Fallback
                             };

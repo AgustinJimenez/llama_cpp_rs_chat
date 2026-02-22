@@ -437,6 +437,61 @@ pub fn apply_model_chat_template_with_tags(
 
             p
         }
+        Some("Phi") => {
+            // Phi-3/Phi-4 format: <|system|>content<|end|>\n<|user|>content<|end|>\n<|assistant|>
+            let mut p = String::new();
+
+            // System message
+            p.push_str("<|system|>\n");
+            p.push_str(&final_system_message);
+            p.push_str("<|end|>\n");
+
+            // Add conversation history
+            let turn_count = user_messages.len().max(assistant_messages.len());
+            for i in 0..turn_count {
+                if i < user_messages.len() {
+                    p.push_str("<|user|>\n");
+                    p.push_str(&user_messages[i]);
+                    p.push_str("<|end|>\n");
+                }
+                if i < assistant_messages.len() {
+                    p.push_str("<|assistant|>\n");
+                    p.push_str(&assistant_messages[i]);
+                    p.push_str("<|end|>\n");
+                }
+            }
+
+            // Add generation prompt
+            p.push_str("<|assistant|>\n");
+
+            p
+        }
+        Some("GLM") => {
+            // GLM-4 family: [gMASK]<sop><|system|>content<|user|>\ncontent<|assistant|>\n
+            let mut p = String::new();
+
+            // System message
+            p.push_str("[gMASK]<sop><|system|>\n");
+            p.push_str(&final_system_message);
+
+            // Add conversation history
+            let turn_count = user_messages.len().max(assistant_messages.len());
+            for i in 0..turn_count {
+                if i < user_messages.len() {
+                    p.push_str("<|user|>\n");
+                    p.push_str(&user_messages[i]);
+                }
+                if i < assistant_messages.len() {
+                    p.push_str("<|assistant|>\n");
+                    p.push_str(&assistant_messages[i]);
+                }
+            }
+
+            // Add generation prompt
+            p.push_str("<|assistant|>\n");
+
+            p
+        }
         Some(_) => {
             // Generic fallback
             let mut p = String::new();

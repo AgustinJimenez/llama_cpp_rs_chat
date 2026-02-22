@@ -47,6 +47,17 @@ const HARMONY_TAGS: ToolTags = ToolTags {
     output_close: "<|end|>",
 };
 
+/// GLM-family native tool tags.
+/// GLM uses `<tool_call>`/`</tool_call>` for calls and `<|observation|>` for results.
+/// The output_close is empty because `wrap_output_for_model()` adds `<|assistant|>`
+/// for model injection to re-open the assistant turn.
+const GLM_TAGS: ToolTags = ToolTags {
+    exec_open: "<tool_call>",
+    exec_close: "</tool_call>",
+    output_open: "<|observation|>",
+    output_close: "",
+};
+
 /// Known model name -> tag family mappings.
 /// Keyed by `general.name` values from GGUF metadata.
 const MODEL_TAG_MAP: &[(&str, &ToolTags)] = &[
@@ -62,6 +73,10 @@ const MODEL_TAG_MAP: &[(&str, &ToolTags)] = &[
     ("mistralai_Ministral 3 14B Reasoning 2512", &MISTRAL_TAGS),
     // Harmony models - native Harmony format tool calling
     ("Openai_Gpt Oss 20b", &HARMONY_TAGS),
+    // GLM models - use default SYSTEM.EXEC tags (model doesn't close <tool_call> properly)
+    // GLM_TAGS kept for reference but not used - model generates <|end_of_box|> instead of </tool_call>
+    ("Zai org_GLM 4.6V Flash", &DEFAULT_TAGS),
+    ("Zai org_GLM 4.7 Flash", &DEFAULT_TAGS),
 ];
 
 /// Normalize a model name for fuzzy matching.

@@ -158,6 +158,9 @@ pub fn get_common_stop_tokens() -> Vec<String> {
         "<|endoftext|>".to_string(),
         "</s>".to_string(),
         "<end_of_turn>".to_string(),
+        "<|end|>".to_string(),        // Phi-3/Phi-4 turn separator
+        "<|user|>".to_string(),        // GLM/Phi role boundary (stop before next user turn)
+        "<|observation|>".to_string(), // GLM tool result boundary
     ]
 }
 
@@ -238,6 +241,13 @@ pub fn get_model_capabilities(chat_template: &str) -> ModelCapabilities {
 
         // Llama3 models - assume they work like Mistral (can be updated after testing)
         "Llama3" => ModelCapabilities {
+            native_file_tools: true,
+            bash_tool: true,
+            requires_translation: false,
+        },
+
+        // GLM models support native tool calling with <tool_call> format
+        "GLM" => ModelCapabilities {
             native_file_tools: true,
             bash_tool: true,
             requires_translation: false,

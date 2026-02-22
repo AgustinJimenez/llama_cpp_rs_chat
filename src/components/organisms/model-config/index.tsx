@@ -131,11 +131,13 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   }, [modelPath]);
 
   // Set context size to model's max when metadata is loaded
+  // If a preset specifies a smaller context_size, the preset useEffect below will override this
   useEffect(() => {
     if (modelInfo?.context_length) {
       const maxContext = parseInt(modelInfo.context_length.toString().replace(/,/g, ''));
       if (!isNaN(maxContext)) {
-        setContextSize(maxContext);
+        // Cap at 32K by default to avoid GPU OOM on models with very large context windows
+        setContextSize(Math.min(maxContext, 32768));
       }
     }
   }, [modelInfo]);
@@ -168,12 +170,16 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
       preset = DEFAULT_PRESET;
     }
 
-    // Apply the preset
+    // Apply the preset (including context_size if specified)
+    const { context_size: presetContextSize, ...samplerPreset } = preset as Partial<SamplerConfig> & { context_size?: number };
     setConfig(prev => ({
       ...prev,
-      ...preset,
+      ...samplerPreset,
       model_path: prev.model_path,
     }));
+    if (presetContextSize) {
+      setContextSize(presetContextSize);
+    }
 
     console.log('[ModelConfig] Auto-applied preset for:', generalName, preset);
   }, [generalName, recommendedParams]);

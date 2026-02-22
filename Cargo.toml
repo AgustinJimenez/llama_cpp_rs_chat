@@ -81,7 +81,7 @@ chrono = "0.4"
 lazy_static = "1.4"
 
 # Jinja2 template engine for chat templates
-minijinja = "2.3"
+minijinja = { version = "2.3", features = ["json"] }
 
 # SQLite database
 rusqlite = { version = "0.30", features = ["bundled"] }
@@ -109,7 +109,7 @@ metal = ["llama-cpp-2/metal"]  # Metal support feature for macOS
 tauri-build = { version = "2.0", features = [] }
 cmake = "0.1"
 ureq = { version = "2.9", default-features = false, features = ["tls"] }
-zip = { version = "7.4", default-features = false, features = ["deflate"] }
+zip = { version = "8.1", default-features = false, features = ["deflate"] }
 tar = "0.4"
 flate2 = "1.1"
 
