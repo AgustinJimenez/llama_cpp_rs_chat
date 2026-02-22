@@ -124,6 +124,8 @@ function App() {
         isOpen={isConfigSidebarOpen}
         onClose={() => setIsConfigSidebarOpen(false)}
         conversationId={currentConversationId}
+        currentModelPath={modelStatus.model_path ?? undefined}
+        onReloadModel={handleModelLoad}
       />
 
       {/* Toast Notifications */}
