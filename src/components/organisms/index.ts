@@ -3,6 +3,7 @@ export { MessageBubble } from './MessageBubble';
 export { ChatHeader } from './ChatHeader';
 export { default as Sidebar } from './Sidebar';
 export { RightSidebar } from './RightSidebar';
+export { ConversationConfigSidebar } from './ConversationConfigSidebar';
 export { SystemUsage } from './SystemUsage';
 export { ModelSelector } from './ModelSelector';
 export { FileBrowser } from './FileBrowser';

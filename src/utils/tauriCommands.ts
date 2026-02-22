@@ -101,6 +101,21 @@ export async function saveConfig(config: SamplerConfig): Promise<void> {
   if (!response.ok) throw new Error('Failed to save configuration');
 }
 
+// ─── Per-Conversation Config ──────────────────────────────────────────
+
+export async function getConversationConfig(conversationId: string): Promise<SamplerConfig> {
+  return fetchJson<SamplerConfig>(`/api/conversations/${encodeURIComponent(conversationId)}/config`);
+}
+
+export async function saveConversationConfig(conversationId: string, config: SamplerConfig): Promise<void> {
+  const response = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/config`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  });
+  if (!response.ok) throw new Error('Failed to save conversation configuration');
+}
+
 // ─── Model ────────────────────────────────────────────────────────────
 
 export async function getModelStatus(): Promise<ModelStatus> {

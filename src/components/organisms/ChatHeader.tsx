@@ -1,5 +1,30 @@
-import { Unplug, Activity } from 'lucide-react';
+import { Unplug, Activity, SlidersHorizontal } from 'lucide-react';
 import type { ViewMode } from '../../types';
+
+const VIEW_MODES = [
+  { value: 'markdown' as ViewMode, label: 'MD', title: 'Markdown view' },
+  { value: 'text' as ViewMode, label: 'TXT', title: 'Plain text view' },
+  { value: 'raw' as ViewMode, label: 'RAW', title: 'Raw model output (no parsing)' },
+];
+
+function ViewModeToggle({ viewMode, onChange }: { viewMode: ViewMode; onChange: (m: ViewMode) => void }) {
+  return (
+    <div className="flex items-center bg-muted rounded-md p-0.5">
+      {VIEW_MODES.map(({ value, label, title }) => (
+        <button
+          key={value}
+          onClick={() => onChange(value)}
+          className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
+            viewMode === value ? 'bg-card text-foreground' : 'text-muted-foreground hover:text-foreground'
+          }`}
+          title={title}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 interface ChatHeaderProps {
   modelLoaded: boolean;
@@ -10,11 +35,13 @@ interface ChatHeaderProps {
   genTokPerSec?: number;
   viewMode: ViewMode;
   isRightSidebarOpen: boolean;
+  isConfigSidebarOpen: boolean;
   onModelUnload: () => void;
   onForceUnload: () => void;
   hasStatusError: boolean;
   onViewModeChange: (mode: ViewMode) => void;
   onToggleRightSidebar: () => void;
+  onToggleConfigSidebar: () => void;
 }
 
 export function ChatHeader({
@@ -26,11 +53,13 @@ export function ChatHeader({
   genTokPerSec,
   viewMode,
   isRightSidebarOpen,
+  isConfigSidebarOpen,
   onModelUnload,
   onForceUnload,
   hasStatusError,
   onViewModeChange,
   onToggleRightSidebar,
+  onToggleConfigSidebar,
 }: ChatHeaderProps) {
   const modelName = (() => {
     const fullPath = modelPath || '';
@@ -84,41 +113,19 @@ export function ChatHeader({
             </span>
           )}
 
-          <div className="flex items-center bg-muted rounded-md p-0.5">
-            <button
-              onClick={() => onViewModeChange('markdown')}
-              className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
-                viewMode === 'markdown'
-                  ? 'bg-card text-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-              title="Markdown view"
-            >
-              MD
-            </button>
-            <button
-              onClick={() => onViewModeChange('text')}
-              className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
-                viewMode === 'text'
-                  ? 'bg-card text-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-              title="Plain text view"
-            >
-              TXT
-            </button>
-            <button
-              onClick={() => onViewModeChange('raw')}
-              className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
-                viewMode === 'raw'
-                  ? 'bg-card text-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-              title="Raw model output (no parsing)"
-            >
-              RAW
-            </button>
-          </div>
+          <ViewModeToggle viewMode={viewMode} onChange={onViewModeChange} />
+
+          <button
+            onClick={onToggleConfigSidebar}
+            className={`p-1.5 rounded-md transition-colors ${
+              isConfigSidebarOpen
+                ? 'bg-muted text-foreground'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+            }`}
+            title="Conversation settings"
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+          </button>
 
           <button
             onClick={onToggleRightSidebar}

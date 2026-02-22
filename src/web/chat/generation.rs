@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::mpsc;
 
-use super::super::config::load_config;
+use super::super::config::load_config_for_conversation;
 use super::super::database::Database;
 use super::super::model_manager::load_model;
 use super::super::models::*;
@@ -95,7 +95,8 @@ pub async fn generate_llama_response(
     }
 
     // Load configuration to get model path and context size
-    let config = load_config(db);
+    // Uses per-conversation config if available, falls back to global
+    let config = load_config_for_conversation(db, &conversation_id);
     let model_path = config.model_path.as_deref().unwrap_or(MODEL_PATH);
     let stop_tokens = config
         .stop_tokens

@@ -73,6 +73,39 @@ CREATE TABLE IF NOT EXISTS model_history (
 )
 "#;
 
+const CREATE_CONVERSATION_CONFIG_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS conversation_config (
+    conversation_id TEXT PRIMARY KEY,
+    sampler_type TEXT DEFAULT 'Greedy',
+    temperature REAL DEFAULT 0.7,
+    top_p REAL DEFAULT 0.95,
+    top_k INTEGER DEFAULT 20,
+    mirostat_tau REAL DEFAULT 5.0,
+    mirostat_eta REAL DEFAULT 0.1,
+    repeat_penalty REAL DEFAULT 1.0,
+    min_p REAL DEFAULT 0.0,
+    typical_p REAL DEFAULT 1.0,
+    frequency_penalty REAL DEFAULT 0.0,
+    presence_penalty REAL DEFAULT 0.0,
+    penalty_last_n INTEGER DEFAULT 64,
+    dry_multiplier REAL DEFAULT 0.0,
+    dry_base REAL DEFAULT 1.75,
+    dry_allowed_length INTEGER DEFAULT 2,
+    dry_penalty_last_n INTEGER DEFAULT -1,
+    top_n_sigma REAL DEFAULT -1.0,
+    flash_attention INTEGER DEFAULT 0,
+    cache_type_k TEXT DEFAULT 'f16',
+    cache_type_v TEXT DEFAULT 'f16',
+    n_batch INTEGER DEFAULT 2048,
+    context_size INTEGER DEFAULT 32768,
+    system_prompt TEXT,
+    system_prompt_type TEXT DEFAULT 'Default',
+    stop_tokens TEXT,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+)
+"#;
+
 const CREATE_LOGS_TABLE: &str = r#"
 CREATE TABLE IF NOT EXISTS logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -103,6 +136,7 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         ("messages_index", CREATE_MESSAGES_INDEX),
         ("streaming_buffer", CREATE_STREAMING_BUFFER_TABLE),
         ("config", CREATE_CONFIG_TABLE),
+        ("conversation_config", CREATE_CONVERSATION_CONFIG_TABLE),
         ("model_history", CREATE_MODEL_HISTORY_TABLE),
         ("logs", CREATE_LOGS_TABLE),
         ("logs_conversation_index", CREATE_LOGS_CONVERSATION_INDEX),
@@ -210,6 +244,7 @@ pub fn drop_all_tables(conn: &Connection) -> Result<(), String> {
     let tables = [
         "streaming_buffer",
         "messages",
+        "conversation_config",
         "logs",
         "model_history",
         "config",
@@ -248,6 +283,7 @@ mod tests {
         assert!(tables.contains(&"conversations".to_string()));
         assert!(tables.contains(&"messages".to_string()));
         assert!(tables.contains(&"config".to_string()));
+        assert!(tables.contains(&"conversation_config".to_string()));
         assert!(tables.contains(&"logs".to_string()));
         assert!(tables.contains(&"model_history".to_string()));
         assert!(tables.contains(&"streaming_buffer".to_string()));

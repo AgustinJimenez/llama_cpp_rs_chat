@@ -87,6 +87,19 @@ pub fn load_config(db: &Database) -> SamplerConfig {
     db_config_to_sampler_config(&db_config)
 }
 
+/// Load configuration for a specific conversation.
+/// Falls back to global config if no per-conversation config exists.
+pub fn load_config_for_conversation(db: &Database, conversation_id: &str) -> SamplerConfig {
+    if let Some(conv_config) = db.load_conversation_config(conversation_id) {
+        // Per-conversation config doesn't store model_path — fill it from global
+        let mut config = db_config_to_sampler_config(&conv_config);
+        let global = load_config(db);
+        config.model_path = global.model_path;
+        return config;
+    }
+    load_config(db)
+}
+
 // Helper function to add a model path to history
 pub fn add_to_model_history(db: &Database, model_path: &str) {
     if let Err(e) = db.add_to_model_history(model_path) {

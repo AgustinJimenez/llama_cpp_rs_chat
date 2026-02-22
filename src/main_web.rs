@@ -98,6 +98,15 @@ async fn handle_request_impl(
             web::routes::config::handle_post_config(req, bridge.clone(), db.clone()).await?
         }
 
+        // Conversation config (must be before the catch-all /api/conversation/ route)
+        (&Method::GET, path) if path.starts_with("/api/conversations/") && path.ends_with("/config") => {
+            web::routes::config::handle_get_conversation_config(path, bridge.clone(), db.clone()).await?
+        }
+
+        (&Method::POST, path) if path.starts_with("/api/conversations/") && path.ends_with("/config") => {
+            web::routes::config::handle_post_conversation_config(req, path, bridge.clone(), db.clone()).await?
+        }
+
         // Conversation endpoints
         (&Method::GET, path) if path.starts_with("/api/conversation/") => {
             web::routes::conversation::handle_get_conversation(path, bridge.clone(), db.clone()).await?

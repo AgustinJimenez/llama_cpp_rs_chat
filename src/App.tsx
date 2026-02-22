@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
-import { ChatHeader, Sidebar, RightSidebar } from './components/organisms';
+import { ChatHeader, Sidebar, RightSidebar, ConversationConfigSidebar } from './components/organisms';
 import { ChatInputArea, MessagesArea } from './components/templates';
 import { useChat } from './hooks/useChat';
 import { useModel } from './hooks/useModel';
@@ -12,6 +12,7 @@ function App() {
   const { messages, isLoading, sendMessage, stopGeneration, clearMessages, loadConversation, currentConversationId, tokensUsed, maxTokens, lastTimings } = useChat();
   const { status: modelStatus, isLoading: isModelLoading, loadingAction, error: modelError, hasStatusError, loadModel, unloadModel, hardUnload } = useModel();
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
+  const [isConfigSidebarOpen, setIsConfigSidebarOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('markdown');
 
   const handleNewConversation = () => {
@@ -20,6 +21,10 @@ function App() {
 
   const toggleRightSidebar = () => {
     setIsRightSidebarOpen(!isRightSidebarOpen);
+  };
+
+  const toggleConfigSidebar = () => {
+    setIsConfigSidebarOpen(p => !p);
   };
 
   const handleModelLoad = async (modelPath: string, config: SamplerConfig) => {
@@ -81,6 +86,8 @@ function App() {
             hasStatusError={hasStatusError}
             onViewModeChange={setViewMode}
             onToggleRightSidebar={toggleRightSidebar}
+            isConfigSidebarOpen={isConfigSidebarOpen}
+            onToggleConfigSidebar={toggleConfigSidebar}
           />
 
           {/* Messages */}
@@ -110,6 +117,13 @@ function App() {
       <RightSidebar
         isOpen={isRightSidebarOpen}
         onClose={() => setIsRightSidebarOpen(false)}
+      />
+
+      {/* Right Sidebar - Conversation Config */}
+      <ConversationConfigSidebar
+        isOpen={isConfigSidebarOpen}
+        onClose={() => setIsConfigSidebarOpen(false)}
+        conversationId={currentConversationId}
       />
 
       {/* Toast Notifications */}

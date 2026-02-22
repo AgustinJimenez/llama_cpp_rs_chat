@@ -26,36 +26,49 @@ pub struct MessageRecord {
 }
 
 impl Database {
-    /// Create a new conversation
+    /// Create a new conversation and snapshot the current global config into conversation_config.
     pub fn create_conversation(&self, system_prompt: Option<&str>) -> Result<String, String> {
         let id = generate_conversation_id();
         let now = current_timestamp_millis();
 
-        let conn = self.connection();
-        conn.execute(
-            "INSERT INTO conversations (id, created_at, updated_at, system_prompt, title)
-             VALUES (?1, ?2, ?3, ?4, NULL)",
-            params![id, now, now, system_prompt],
-        )
-        .map_err(db_error("create conversation"))?;
+        {
+            let conn = self.connection();
+            conn.execute(
+                "INSERT INTO conversations (id, created_at, updated_at, system_prompt, title)
+                 VALUES (?1, ?2, ?3, ?4, NULL)",
+                params![id, now, now, system_prompt],
+            )
+            .map_err(db_error("create conversation"))?;
+        } // Release lock before loading config
+
+        // Snapshot current global config for this conversation
+        let global_config = self.load_config();
+        let _ = self.save_conversation_config(&id, &global_config);
 
         Ok(id)
     }
 
-    /// Create a conversation with a specific ID (for migration)
+    /// Create a conversation with a specific ID (for migration).
+    /// Also snapshots the current global config into conversation_config.
     pub fn create_conversation_with_id(
         &self,
         id: &str,
         system_prompt: Option<&str>,
         created_at: i64,
     ) -> Result<(), String> {
-        let conn = self.connection();
-        conn.execute(
-            "INSERT INTO conversations (id, created_at, updated_at, system_prompt, title)
-             VALUES (?1, ?2, ?3, ?4, NULL)",
-            params![id, created_at, created_at, system_prompt],
-        )
-        .map_err(db_error("create conversation"))?;
+        {
+            let conn = self.connection();
+            conn.execute(
+                "INSERT INTO conversations (id, created_at, updated_at, system_prompt, title)
+                 VALUES (?1, ?2, ?3, ?4, NULL)",
+                params![id, created_at, created_at, system_prompt],
+            )
+            .map_err(db_error("create conversation"))?;
+        } // Release lock before loading config
+
+        // Snapshot current global config for this conversation
+        let global_config = self.load_config();
+        let _ = self.save_conversation_config(id, &global_config);
 
         Ok(())
     }
