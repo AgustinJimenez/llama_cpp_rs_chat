@@ -57,6 +57,8 @@ export interface SamplerConfig {
   tool_tag_exec_close?: string;
   tool_tag_output_open?: string;
   tool_tag_output_close?: string;
+  // App settings
+  web_search_provider?: string;
 }
 
 export type SamplerType = 

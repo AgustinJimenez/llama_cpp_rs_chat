@@ -265,6 +265,7 @@ pub fn migrate_config(db: &Database) -> Result<bool, String> {
         tool_tag_exec_close: None,
         tool_tag_output_open: None,
         tool_tag_output_close: None,
+        web_search_provider: None,
     };
 
     // Save to database

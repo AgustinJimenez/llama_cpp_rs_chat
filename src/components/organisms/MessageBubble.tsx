@@ -8,6 +8,7 @@ import { ThinkingBlock, CommandExecBlock, ToolCallBlock } from '../molecules/mes
 interface MessageBubbleProps {
   message: Message;
   viewMode?: 'text' | 'markdown' | 'raw';
+  isStreaming?: boolean;
 }
 
 /**
@@ -58,7 +59,7 @@ const SystemPromptMessage: React.FC<{ message: Message; cleanContent: string }> 
       <summary className="text-sm font-semibold cursor-pointer select-none">
         System prompt
       </summary>
-      <pre className="text-sm whitespace-pre-wrap leading-relaxed text-muted-foreground mt-2">
+      <pre className="text-sm whitespace-pre-wrap leading-relaxed text-white mt-2">
         {cleanContent}
       </pre>
     </details>
@@ -103,12 +104,16 @@ const AssistantMessage: React.FC<{
   message: Message;
   viewMode: 'text' | 'markdown' | 'raw';
   thinkingContent: string | null;
+  isThinkingStreaming?: boolean;
   segments: MessageSegment[];
+  isStreaming?: boolean;
 }> = ({
   message,
   viewMode,
   thinkingContent,
+  isThinkingStreaming,
   segments,
+  isStreaming,
 }) => (
   <div
     className="w-full flex justify-start"
@@ -124,7 +129,7 @@ const AssistantMessage: React.FC<{
       ) : (
         <>
           {/* Thinking process (for reasoning models) */}
-          {thinkingContent && <ThinkingBlock content={thinkingContent} />}
+          {thinkingContent && <ThinkingBlock content={thinkingContent} isStreaming={isThinkingStreaming} />}
 
           {/* Interleaved text, command blocks, tool calls, and thinking in chronological order */}
           {segments.map((segment, index) => {
@@ -162,6 +167,15 @@ const AssistantMessage: React.FC<{
               </div>
             );
           })}
+
+          {/* Processing indicator: shown when streaming and last segment is a completed command */}
+          {isStreaming && segments.length > 0 && segments[segments.length - 1].type === 'command'
+            && (segments[segments.length - 1] as { output: string | null }).output !== null && (
+            <div className="flex items-center gap-2 px-3 py-2 text-xs text-blue-300/70">
+              <span className="inline-block w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+              Processing tool output...
+            </div>
+          )}
         </>
       )}
 
@@ -172,10 +186,11 @@ const AssistantMessage: React.FC<{
 /**
  * Message bubble component - renders user, assistant, or system messages.
  */
-export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode = 'text' }) => {
+export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode = 'text', isStreaming }) => {
   const {
     cleanContent,
     thinkingContent,
+    isThinkingStreaming,
     segments,
     isError,
   } = useMessageParsing(message);
@@ -200,7 +215,9 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode 
       message={message}
       viewMode={viewMode}
       thinkingContent={thinkingContent}
+      isThinkingStreaming={isThinkingStreaming}
       segments={segments}
+      isStreaming={isStreaming}
     />
   );
 };

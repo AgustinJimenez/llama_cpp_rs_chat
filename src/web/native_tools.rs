@@ -266,7 +266,7 @@ fn try_parse_llama3_xml_format(trimmed: &str) -> Option<(String, Value)> {
 /// 5. Name+JSON:      `read_file{"path": "..."}` (Granite native format)
 ///
 /// Returns `Some(output)` if recognized, `None` to fall back to shell.
-pub fn dispatch_native_tool(text: &str) -> Option<String> {
+pub fn dispatch_native_tool(text: &str, web_search_provider: Option<&str>) -> Option<String> {
     let trimmed = text.trim();
 
     let (name, args) = if let Some((n, a)) = try_parse_json_format(trimmed) {
@@ -286,7 +286,7 @@ pub fn dispatch_native_tool(text: &str) -> Option<String> {
         "write_file" => tool_write_file(&args),
         "execute_python" => tool_execute_python(&args),
         "list_directory" => tool_list_directory(&args),
-        "web_search" => tool_web_search(&args),
+        "web_search" => tool_web_search(&args, web_search_provider),
         "web_fetch" => tool_web_fetch(&args),
         "execute_command" => {
             // Delegate to shell execution via command.rs
@@ -446,7 +446,7 @@ const MAX_SEARCH_RESULT_CHARS: usize = 8_000;
 const MAX_FETCH_CHARS: usize = 15_000;
 
 /// Search the web using DuckDuckGo Instant Answer API, falling back to HTML scraping.
-fn tool_web_search(args: &Value) -> String {
+fn tool_web_search(args: &Value, provider: Option<&str>) -> String {
     let query = match args.get("query").and_then(|v| v.as_str()) {
         Some(q) => q,
         None => return "Error: 'query' argument is required".to_string(),
@@ -457,16 +457,126 @@ fn tool_web_search(args: &Value) -> String {
         .and_then(|v| v.as_u64())
         .unwrap_or(8) as usize;
 
-    // Try DuckDuckGo Instant Answer API first (reliable, no CAPTCHAs)
-    match tool_web_search_ddg_api(query, max_results) {
-        Some(result) if !result.is_empty() => return result,
+    match provider {
+        Some("Google") => {
+            eprintln!("[WEB_SEARCH] Using Google via headless Chrome");
+            tool_web_search_google_chrome(query, max_results)
+        }
         _ => {
-            eprintln!("[WEB_SEARCH] DDG API returned no results, trying HTML scraping");
+            // DuckDuckGo (default)
+            // Try DuckDuckGo Instant Answer API first (reliable, no CAPTCHAs)
+            match tool_web_search_ddg_api(query, max_results) {
+                Some(result) if !result.is_empty() => return result,
+                _ => {
+                    eprintln!("[WEB_SEARCH] DDG API returned no results, trying HTML scraping");
+                }
+            }
+
+            // Fallback: ureq-based DuckDuckGo HTML scraping
+            tool_web_search_ureq(query, max_results)
         }
     }
+}
 
-    // Fallback: ureq-based DuckDuckGo HTML scraping
-    tool_web_search_ureq(query, max_results)
+/// Search using Google via headless Chrome.
+/// Navigates to Google search, extracts result titles, snippets, and URLs from the DOM.
+fn tool_web_search_google_chrome(query: &str, max_results: usize) -> String {
+    let url = format!(
+        "https://www.google.com/search?q={}&num={}&hl=en",
+        urlencoding::encode(query),
+        max_results.min(10)
+    );
+
+    // Use Chrome to fetch the search results page
+    match super::browser::chrome_web_fetch(&url, 50_000) {
+        Ok(content) if !content.is_empty() => {
+            // Parse the text output for search results
+            // Chrome returns html2text-formatted content from Google's SERP
+            let mut output = String::new();
+            let mut count = 0;
+
+            // html2text converts Google results into a readable format.
+            // We extract lines that look like result titles/URLs/snippets.
+            let lines: Vec<&str> = content.lines().collect();
+            let mut i = 0;
+            while i < lines.len() && count < max_results {
+                let line = lines[i].trim();
+
+                // Detect result links: html2text renders [title][url] or title\nurl patterns
+                // Google SERP in text form has patterns like:
+                // "[Title](https://...)" or just "https://..." lines
+                if let Some(link_start) = line.find("](http") {
+                    // Markdown-style link: [Title](URL)
+                    let title = &line[1..link_start];
+                    let url_end = line[link_start + 2..].find(')').unwrap_or(line.len() - link_start - 2);
+                    let result_url = &line[link_start + 2..link_start + 2 + url_end];
+
+                    // Skip Google internal links, image links, cached links
+                    if !result_url.contains("google.com")
+                        && !result_url.contains("webcache")
+                        && !title.is_empty()
+                        && title.len() > 3
+                    {
+                        count += 1;
+                        output.push_str(&format!("{count}. {title}\n"));
+                        output.push_str(&format!("   URL: {result_url}\n"));
+
+                        // Look for a snippet on the next few lines
+                        for j in 1..=3 {
+                            if i + j < lines.len() {
+                                let next = lines[i + j].trim();
+                                if !next.is_empty()
+                                    && !next.starts_with('[')
+                                    && !next.starts_with("http")
+                                    && next.len() > 20
+                                {
+                                    output.push_str(&format!("   {next}\n"));
+                                    break;
+                                }
+                            }
+                        }
+                        output.push('\n');
+                    }
+                }
+                i += 1;
+            }
+
+            if output.is_empty() {
+                // Fallback: return raw text content (truncated) if parsing failed
+                let truncated = if content.len() > MAX_SEARCH_RESULT_CHARS {
+                    format!(
+                        "{}...\n[Truncated: {} of {} chars]",
+                        &content[..MAX_SEARCH_RESULT_CHARS],
+                        MAX_SEARCH_RESULT_CHARS,
+                        content.len()
+                    )
+                } else {
+                    content
+                };
+                return format!(
+                    "Search results for '{query}' (via Google):\n\n{truncated}"
+                );
+            }
+
+            if output.len() > MAX_SEARCH_RESULT_CHARS {
+                output.truncate(MAX_SEARCH_RESULT_CHARS);
+                output.push_str("\n...[truncated]");
+            }
+
+            format!(
+                "Search results for '{query}' (via Google):\n\n{output}\
+                 Note: Use web_fetch to read specific URLs for more detail."
+            )
+        }
+        Ok(_) => {
+            eprintln!("[WEB_SEARCH] Google Chrome returned empty content, falling back to DDG");
+            tool_web_search_ureq(query, max_results)
+        }
+        Err(e) => {
+            eprintln!("[WEB_SEARCH] Google Chrome failed: {e}, falling back to DDG");
+            tool_web_search_ureq(query, max_results)
+        }
+    }
 }
 
 /// Search using DuckDuckGo Instant Answer API (knowledge-based results).
@@ -740,7 +850,7 @@ mod tests {
             r#"{{"name": "read_file", "arguments": {{"path": "{}"}}}}"#,
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&json);
+        let result = dispatch_native_tool(&json, None);
         assert!(result.is_some());
         assert!(result.unwrap().contains("hello world"));
 
@@ -754,7 +864,7 @@ mod tests {
             r#"{{"name": "write_file", "arguments": {{"path": "{}", "content": "test content"}}}}"#,
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&json);
+        let result = dispatch_native_tool(&json, None);
         assert!(result.is_some());
         assert!(result.unwrap().contains("Written"));
         assert_eq!(std::fs::read_to_string(&temp).unwrap(), "test content");
@@ -770,7 +880,7 @@ mod tests {
             "{{\n  \"name\": \"write_file\",\n  \"arguments\": {{\n    \"path\": \"{}\",\n    \"content\": \"{{\n  \\\"name\\\": \\\"test\\\",\n  \\\"version\\\": \\\"1.0.0\\\"\n}}\"\n  }}\n}}",
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&json);
+        let result = dispatch_native_tool(&json, None);
         assert!(result.is_some(), "Should parse multiline JSON content: {json}");
         assert!(result.unwrap().contains("Written"));
         let content = std::fs::read_to_string(&temp).unwrap();
@@ -792,7 +902,7 @@ line3"}}"#;
     #[test]
     fn test_dispatch_list_directory() {
         let json = r#"{"name": "list_directory", "arguments": {"path": "."}}"#;
-        let result = dispatch_native_tool(json);
+        let result = dispatch_native_tool(json, None);
         assert!(result.is_some());
         assert!(result.unwrap().contains("Directory listing"));
     }
@@ -800,13 +910,13 @@ line3"}}"#;
     #[test]
     fn test_dispatch_unknown_tool_returns_none() {
         let json = r#"{"name": "unknown_tool", "arguments": {}}"#;
-        let result = dispatch_native_tool(json);
+        let result = dispatch_native_tool(json, None);
         assert!(result.is_none());
     }
 
     #[test]
     fn test_dispatch_non_json_returns_none() {
-        let result = dispatch_native_tool("ls -la");
+        let result = dispatch_native_tool("ls -la", None);
         assert!(result.is_none());
     }
 
@@ -819,7 +929,7 @@ line3"}}"#;
             r#"[{{"name": "read_file", "arguments": {{"path": "{}"}}}}]"#,
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&json);
+        let result = dispatch_native_tool(&json, None);
         assert!(result.is_some());
         assert!(result.unwrap().contains("mistral test"));
 
@@ -836,7 +946,7 @@ line3"}}"#;
             r#"read_file,{{"path": "{}"}}"#,
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&input);
+        let result = dispatch_native_tool(&input, None);
         assert!(result.is_some(), "Should parse Mistral comma format");
         assert!(result.unwrap().contains("comma format test"));
 
@@ -847,7 +957,7 @@ line3"}}"#;
     fn test_dispatch_mistral_comma_execute_command() {
         // Devstral: execute_command,{"command": "echo hello"}
         let input = r#"execute_command,{"command": "echo hello"}"#;
-        let result = dispatch_native_tool(input);
+        let result = dispatch_native_tool(input, None);
         assert!(result.is_some(), "Should parse comma format execute_command");
         assert!(result.unwrap().contains("hello"));
     }
@@ -862,7 +972,7 @@ line3"}}"#;
             "<function=read_file> <parameter=path> {} </parameter> </function>",
             temp.display()
         );
-        let result = dispatch_native_tool(&input);
+        let result = dispatch_native_tool(&input, None);
         assert!(result.is_some(), "Should parse Llama3 XML format");
         assert!(result.unwrap().contains("xml format test"));
 
@@ -876,7 +986,7 @@ line3"}}"#;
             "<function=write_file> <parameter=path> {} </parameter> <parameter=content> hello world </parameter> </function>",
             temp.display()
         );
-        let result = dispatch_native_tool(&input);
+        let result = dispatch_native_tool(&input, None);
         assert!(result.is_some(), "Should parse Llama3 XML write_file");
         assert!(result.unwrap().contains("Written"));
         assert_eq!(std::fs::read_to_string(&temp).unwrap(), "hello world");
@@ -888,7 +998,7 @@ line3"}}"#;
     fn test_dispatch_name_json_format() {
         // Granite outputs: list_directory{"path": "."}
         let input = r#"list_directory{"path": "."}"#;
-        let result = dispatch_native_tool(input);
+        let result = dispatch_native_tool(input, None);
         assert!(result.is_some(), "Should parse name+JSON format");
         assert!(result.unwrap().contains("Directory listing"));
     }
@@ -896,7 +1006,7 @@ line3"}}"#;
     #[test]
     fn test_execute_python_simple() {
         let json = r#"{"name": "execute_python", "arguments": {"code": "print('hello from python')"}}"#;
-        let result = dispatch_native_tool(json);
+        let result = dispatch_native_tool(json, None);
         assert!(result.is_some());
         let output = result.unwrap();
         // If python is available, should contain the output; if not, should contain an error
@@ -940,7 +1050,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
         // Exact pattern GLM produces: multiline content + missing outer closing }
         let json = "{\"name\": \"write_file\", \"arguments\": {\"path\": \"/tmp/test-autoclose.txt\", \"content\": \"{\n  \\\"name\\\": \\\"test\\\",\n  \\\"version\\\": \\\"1.0.0\\\"\n}\"}}";
         // This should work (has both braces)
-        let result = dispatch_native_tool(json);
+        let result = dispatch_native_tool(json, None);
         assert!(result.is_some(), "Valid JSON should work: {:?}", result);
         let _ = std::fs::remove_file("/tmp/test-autoclose.txt");
 
@@ -948,7 +1058,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
         let broken = "{\"name\": \"write_file\", \"arguments\": {\"path\": \"/tmp/test-autoclose2.txt\", \"content\": \"{\n  \\\"name\\\": \\\"test\\\",\n  \\\"version\\\": \\\"1.0.0\\\"\n}\"}}";
         // Remove last }
         let broken = &broken[..broken.len() - 1];
-        let result = dispatch_native_tool(broken);
+        let result = dispatch_native_tool(broken, None);
         assert!(result.is_some(), "Should auto-close missing brace and dispatch write_file");
         let output = result.unwrap();
         assert!(output.contains("written") || output.contains("success") || output.contains("Written"),
@@ -984,7 +1094,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
             r#"{{"name":"write_file","arguments":{{"path":"{}","content":"<?php\nnamespace App\Models;\nuse Illuminate\Database\Eloquent\Model;\n\nclass Person extends Model {{\n    protected $fillable = ['name'];\n}}"}}}}"#,
             temp.display()
         );
-        let result = dispatch_native_tool(&json);
+        let result = dispatch_native_tool(&json, None);
         assert!(result.is_some(), "Should parse PHP namespace JSON via fixup chain");
         let output = result.unwrap();
         assert!(output.contains("Written"), "Should write file: {}", output);
@@ -1028,7 +1138,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
     #[test]
     fn test_dispatch_web_search_missing_query() {
         let json = r#"{"name": "web_search", "arguments": {}}"#;
-        let result = dispatch_native_tool(json);
+        let result = dispatch_native_tool(json, None);
         assert!(result.is_some());
         assert!(result.unwrap().contains("Error"));
     }
@@ -1036,7 +1146,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
     #[test]
     fn test_dispatch_web_fetch_missing_url() {
         let json = r#"{"name": "web_fetch", "arguments": {}}"#;
-        let result = dispatch_native_tool(json);
+        let result = dispatch_native_tool(json, None);
         assert!(result.is_some());
         assert!(result.unwrap().contains("Error"));
     }

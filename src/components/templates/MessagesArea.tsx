@@ -23,7 +23,11 @@ export function MessagesArea({
   const containerRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
 
-  const itemCount = messages.length + (isLoading ? 1 : 0);
+  // Hide the standalone loading spinner when the last message already has inline
+  // streaming indicators (thinking block, processing tool output, etc.)
+  const lastMsg = messages[messages.length - 1];
+  const showLoadingRow = isLoading && !(lastMsg?.role === 'assistant' && lastMsg.content.length > 0);
+  const itemCount = messages.length + (showLoadingRow ? 1 : 0);
 
   const virtualizer = useVirtualizer({
     count: itemCount,
@@ -115,6 +119,7 @@ export function MessagesArea({
                     <MessageBubble
                       message={messages[virtualRow.index]}
                       viewMode={viewMode}
+                      isStreaming={isLoading && virtualRow.index === messages.length - 1}
                     />
                   ) : (
                     <LoadingIndicator />

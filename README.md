@@ -7,6 +7,7 @@ A local AI chat application built with Rust and React. Runs GGUF models via llam
 - **Local inference** powered by llama-cpp-2 with CUDA and Metal GPU acceleration
 - **Web and desktop** modes (Tauri) from the same codebase
 - **Tool execution** — models can run shell commands with safety limits
+- **Web search and fetch** — DuckDuckGo search API and headless Chrome for JS-rendered page fetching
 - **Auto-configuration** — extracts optimal sampling parameters from GGUF metadata
 - **Multiple samplers** — Greedy, Temperature, TopP, TopK, Mirostat, and chain variants
 - **Conversation history** stored in SQLite
@@ -91,12 +92,14 @@ llama_cpp_rs_chat/
 │   │   ├── routes/             # HTTP/WebSocket handlers
 │   │   ├── database/           # SQLite persistence
 │   │   ├── model_manager.rs    # Model loading/unloading
+│   │   ├── native_tools.rs     # Web search, web fetch, file I/O, code execution
+│   │   ├── browser.rs          # Headless Chrome singleton for JS-rendered pages
 │   │   ├── gguf_utils.rs       # GGUF metadata extraction
 │   │   ├── vram_calculator.rs  # GPU layer auto-calculation
 │   │   └── websocket.rs        # WebSocket streaming
 │   ├── components/             # Frontend (React)
 │   │   ├── atoms/              # Button, Dialog, etc.
-│   │   ├── molecules/          # MessageInput, ToolCallBlock
+│   │   ├── molecules/          # MessageInput, ThinkingBlock, CommandExecBlock
 │   │   ├── organisms/          # ModelSelector, SettingsModal
 │   │   └── templates/          # ChatInputArea, MessagesArea
 │   ├── config/modelPresets.ts  # Fallback model presets

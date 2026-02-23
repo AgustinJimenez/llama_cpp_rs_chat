@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
-import { ChatHeader, Sidebar, RightSidebar, ConversationConfigSidebar } from './components/organisms';
+import { ChatHeader, Sidebar, RightSidebar, ConversationConfigSidebar, AppSettingsModal } from './components/organisms';
 import { ChatInputArea, MessagesArea } from './components/templates';
 import { useChat } from './hooks/useChat';
 import { useModel } from './hooks/useModel';
@@ -13,10 +13,16 @@ function App() {
   const { status: modelStatus, isLoading: isModelLoading, loadingAction, error: modelError, hasStatusError, loadModel, unloadModel, hardUnload } = useModel();
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
   const [isConfigSidebarOpen, setIsConfigSidebarOpen] = useState(false);
+  const [isAppSettingsOpen, setIsAppSettingsOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('markdown');
 
   const handleNewConversation = () => {
     clearMessages();
+    // Focus the chat input after React re-renders
+    requestAnimationFrame(() => {
+      const input = document.querySelector<HTMLTextAreaElement>('[data-testid="message-input"]');
+      input?.focus();
+    });
   };
 
   const toggleRightSidebar = () => {
@@ -64,6 +70,7 @@ function App() {
         onNewChat={handleNewConversation}
         onLoadConversation={loadConversation}
         currentConversationId={currentConversationId}
+        onOpenAppSettings={() => setIsAppSettingsOpen(true)}
       />
 
       {/* Main Content */}
@@ -126,6 +133,12 @@ function App() {
         conversationId={currentConversationId}
         currentModelPath={modelStatus.model_path ?? undefined}
         onReloadModel={handleModelLoad}
+      />
+
+      {/* App Settings Modal */}
+      <AppSettingsModal
+        isOpen={isAppSettingsOpen}
+        onClose={() => setIsAppSettingsOpen(false)}
       />
 
       {/* Toast Notifications */}

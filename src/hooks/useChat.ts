@@ -10,7 +10,7 @@ import { logToastError } from '../utils/toastLogger';
 import { notifyIfUnfocused } from '../utils/tauri';
 import { parseConversationFile } from '../utils/conversationParser';
 import { getConversation } from '../utils/tauriCommands';
-import type { Message, ChatRequest } from '../types';
+import type { Message, ChatRequest, ToolCall } from '../types';
 
 function isAbortErrorMessage(message: string): boolean {
   return /aborted/i.test(message);
@@ -157,16 +157,22 @@ export function useChat() {
           if (timings) setLastTimings(timings);
 
           setIsLoading(false);
+          // Read latest messages via updater (synchronous) but keep side effects outside.
+          // Use a wrapper object so TypeScript tracks the mutation from inside the callback.
+          const pending: { action: { calls: ToolCall[]; msg: Message } | null } = { action: null };
           setMessages(prev => {
             const lastMsg = prev[prev.length - 1];
             if (lastMsg && lastMsg.role === 'assistant' && lastMsg.content) {
               const toolCalls = autoParseToolCalls(lastMsg.content);
               if (toolCalls.length > 0) {
-                toolExecutionRef.current?.processToolCalls(toolCalls, lastMsg);
+                pending.action = { calls: toolCalls, msg: lastMsg };
               }
             }
             return prev;
           });
+          if (pending.action) {
+            toolExecutionRef.current?.processToolCalls(pending.action.calls, pending.action.msg);
+          }
         },
         onError: (errorMsg) => {
           if (streamSeqRef.current !== streamSeq) return;

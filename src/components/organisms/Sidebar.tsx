@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { Plus, RotateCcw, Trash2, Settings } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../atoms/dialog';
 import { Button } from '../atoms/button';
 import { getConversations, deleteConversation } from '../../utils/tauriCommands';
@@ -14,6 +14,7 @@ interface SidebarProps {
   onNewChat: () => void;
   onLoadConversation: (filename: string) => void;
   currentConversationId?: string | null;
+  onOpenAppSettings?: () => void;
 }
 
 function relativeTime(timestamp: string): string {
@@ -41,7 +42,7 @@ function relativeTime(timestamp: string): string {
 }
 
 // eslint-disable-next-line max-lines-per-function
-const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onLoadConversation, currentConversationId }) => {
+const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onLoadConversation, currentConversationId, onOpenAppSettings }) => {
   const [conversations, setConversations] = useState<ConversationFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -133,8 +134,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onLoadConversation, curren
           </button>
         </div>
 
-        {/* Conversation list */}
-        <div className="flex-1 overflow-y-auto px-2 pb-2" data-testid="conversations-list">
+        {/* Conversation list — grows to fill space between header and footer */}
+        <div className="flex-1 overflow-y-auto px-2 pb-2 min-h-0" data-testid="conversations-list">
           {loading ? (
             <div className="text-center text-muted-foreground text-xs py-6">Loading...</div>
           ) : conversations.length === 0 ? (
@@ -178,6 +179,17 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onLoadConversation, curren
           )}
         </div>
 
+        {/* Bottom settings bar */}
+        <div className="px-3 pb-3 pt-2 border-t border-border">
+          <button
+            className="flex items-center gap-2 w-full px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
+            onClick={onOpenAppSettings}
+            aria-label="App Settings"
+          >
+            <Settings size={16} />
+            Settings
+          </button>
+        </div>
       </div>
 
       {/* Delete Confirmation Dialog */}

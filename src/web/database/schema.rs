@@ -262,6 +262,12 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         [],
     );
 
+    // Add web search provider column if missing
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN web_search_provider TEXT DEFAULT 'DuckDuckGo'",
+        [],
+    );
+
     // Insert default config row if it doesn't exist
     conn.execute(
         "INSERT OR IGNORE INTO config (id, updated_at) VALUES (1, ?1)",

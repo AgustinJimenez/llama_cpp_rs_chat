@@ -62,6 +62,7 @@ pub fn check_and_execute_command_with_tags(
     model: &llama_cpp_2::model::LlamaModel,
     tags: &ToolTags,
     template_type: Option<&str>,
+    web_search_provider: Option<&str>,
 ) -> Result<Option<CommandExecutionResult>, String> {
     // Only scan new content since last command execution
     let response_to_scan = if last_scan_pos < response.len() {
@@ -125,7 +126,7 @@ pub fn check_and_execute_command_with_tags(
     log_info!(conversation_id, "🔧 Command detected: {}", command_text);
 
     // Try native tool dispatch (JSON format) first, fall back to shell execution
-    let output = if let Some(native_output) = native_tools::dispatch_native_tool(&command_text) {
+    let output = if let Some(native_output) = native_tools::dispatch_native_tool(&command_text, web_search_provider) {
         log_info!(conversation_id, "📦 Dispatched to native tool handler");
         native_output
     } else {

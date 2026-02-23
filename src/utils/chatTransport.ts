@@ -122,8 +122,11 @@ function streamViaWebSocket(
 
     const markAborted = () => {
       state.wasAborted = true;
-      // Tell backend to cancel the in-progress generation
-      fetch('/api/chat/cancel', { method: 'POST' }).catch(() => {});
+      // Only cancel if generation hasn't already completed — otherwise we'd
+      // cancel the NEXT generation that starts shortly after.
+      if (!state.isCompleted) {
+        fetch('/api/chat/cancel', { method: 'POST' }).catch(() => {});
+      }
       settle(new Error('Request aborted'));
     };
 

@@ -146,6 +146,7 @@ impl Database {
                     model_path: None,
                     model_history: Vec::new(),
                     disable_file_logging: true,
+                    web_search_provider: None,
                 })
             },
         )

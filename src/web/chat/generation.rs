@@ -631,7 +631,7 @@ pub async fn generate_llama_response(
             // CRITICAL: This must be inside the inner loop so commands are detected immediately
             // after the closing tag is generated, before the model hallucinates fake output.
             if let Some(exec_result) =
-                check_and_execute_command_with_tags(&response, last_exec_scan_pos, &conversation_id, model, &tags, template_type.as_deref())?
+                check_and_execute_command_with_tags(&response, last_exec_scan_pos, &conversation_id, model, &tags, template_type.as_deref(), config.web_search_provider.as_deref())?
             {
                 // 1. Log to conversation file (CRITICAL: prevents infinite loops)
                 {
@@ -655,6 +655,11 @@ pub async fn generate_llama_response(
                 // 4. Inject model-wrapped tokens into LLM context
                 // Uses model_tokens which include chat template turn structure
                 // (e.g. <|im_end|>\n<|im_start|>user\n...<|im_end|>\n<|im_start|>assistant\n for ChatML)
+                log_info!(
+                    &conversation_id,
+                    "Injecting {} output tokens into context (prompt eval)...",
+                    exec_result.model_tokens.len()
+                );
                 inject_output_tokens(
                     &exec_result.model_tokens,
                     &mut batch,

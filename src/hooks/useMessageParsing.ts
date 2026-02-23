@@ -17,6 +17,7 @@ export interface ParsedMessage {
   toolCalls: ToolCall[];
   cleanContent: string;
   thinkingContent: string | null;
+  isThinkingStreaming: boolean;
   systemExecBlocks: SystemExecBlock[];
   contentWithoutThinking: string;
   segments: MessageSegment[];
@@ -30,6 +31,8 @@ const SYS_OUTPUT_REGEX = /(?:<\|\|)?SYSTEM\.OUTPUT>([\s\S]*?)<SYSTEM\.OUTPUT\|\|
 const TOOL_CALL_REGEX = /<tool_call>([\s\S]*?)<\/tool_call>/g;
 const TOOL_RESPONSE_REGEX = /<tool_response>([\s\S]*?)<\/tool_response>/g;
 const THINKING_REGEX = /<think>[\s\S]*?<\/think>/g;
+// Also match an unclosed <think> tag (streaming in progress)
+const THINKING_UNCLOSED_REGEX = /<think>([\s\S]*)$/;
 
 // --- Harmony format parser (gpt-oss-20b) ---
 
@@ -47,7 +50,7 @@ interface HarmonyAccumulator {
 }
 
 const HARMONY_DETECT = /<\|start\|>assistant<\|channel\|>/;
-const HARMONY_SEGMENT_REGEX = /<\|start\|>([\s\S]*?)(?=<\|start\|>|$)/g;
+const HARMONY_SEGMENT_PATTERN = /<\|start\|>([\s\S]*?)(?=<\|start\|>|$)/g;
 const HARMONY_TOOL_CALL_REGEX = /to=\s*(\w+)\s+code<\|message\|>([\s\S]*?)<\|call\|>/;
 
 /** Push a text segment, merging with previous text to avoid tiny blocks. */
@@ -151,8 +154,10 @@ function parseHarmonyContent(raw: string): HarmonyParsed | null {
     harmonyPushText(acc.segments, raw.slice(0, firstStart).replace(/<\|end\|>/g, ''));
   }
 
+  // Create local regex each call to avoid shared lastIndex state corruption
+  const segmentRegex = new RegExp(HARMONY_SEGMENT_PATTERN.source, 'g');
   let match;
-  while ((match = HARMONY_SEGMENT_REGEX.exec(raw)) !== null) {
+  while ((match = segmentRegex.exec(raw)) !== null) {
     const body = match[1];
     if (body.startsWith('tool<|message|>')) {
       harmonyProcessToolOutput(acc, body);
@@ -160,8 +165,6 @@ function parseHarmonyContent(raw: string): HarmonyParsed | null {
       harmonyProcessAssistant(acc, body);
     }
   }
-  // Reset regex state for potential re-use
-  HARMONY_SEGMENT_REGEX.lastIndex = 0;
 
   // Flush pending command with no output
   if (acc.pendingCommand) {
@@ -255,7 +258,7 @@ function collectToolCallSpans(content: string): Span[] {
 }
 
 function buildSegments(content: string): MessageSegment[] {
-  const cleaned = content.replace(THINKING_REGEX, '');
+  const cleaned = content.replace(THINKING_REGEX, '').replace(THINKING_UNCLOSED_REGEX, '');
   const spans = [...collectExecSpans(cleaned), ...collectToolCallSpans(cleaned)]
     .sort((a, b) => a.start - b.start);
 
@@ -310,9 +313,19 @@ export function useMessageParsing(message: Message): ParsedMessage {
   const thinkingContent = useMemo(() => {
     // Harmony uses inline thinking segments — no top-level thinking block
     if (harmony) return null;
+    // Match closed <think>...</think> first
     const thinkMatch = message.content.match(/<think>([\s\S]*?)<\/think>/);
-    return thinkMatch ? thinkMatch[1].trim() : null;
+    if (thinkMatch) return thinkMatch[1].trim();
+    // Match unclosed <think>... (streaming in progress)
+    const unclosedMatch = message.content.match(THINKING_UNCLOSED_REGEX);
+    return unclosedMatch ? unclosedMatch[1].trim() || null : null;
   }, [message.content, harmony]);
+
+  // True when thinking is actively streaming (unclosed <think> tag)
+  const isThinkingStreaming = useMemo(() => {
+    if (harmony || !thinkingContent) return false;
+    return !/<think>[\s\S]*?<\/think>/.test(message.content);
+  }, [message.content, harmony, thinkingContent]);
 
   const systemExecBlocks = useMemo(() => {
     const blocks: SystemExecBlock[] = [];
@@ -342,6 +355,7 @@ export function useMessageParsing(message: Message): ParsedMessage {
   const contentWithoutThinking = useMemo(() => {
     return cleanContent
       .replace(THINKING_REGEX, '')
+      .replace(THINKING_UNCLOSED_REGEX, '')
       .replace(EXEC_REGEX, '')
       .replace(SYS_OUTPUT_REGEX, '')
       .replace(/<tool_response>[\s\S]*?<\/tool_response>/g, '')
@@ -354,5 +368,5 @@ export function useMessageParsing(message: Message): ParsedMessage {
     message.content.includes('Error')
   );
 
-  return { toolCalls, cleanContent, thinkingContent, systemExecBlocks, contentWithoutThinking, segments, isError };
+  return { toolCalls, cleanContent, thinkingContent, isThinkingStreaming, systemExecBlocks, contentWithoutThinking, segments, isError };
 }

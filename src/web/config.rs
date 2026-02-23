@@ -48,6 +48,7 @@ pub fn db_config_to_sampler_config(db_config: &DbSamplerConfig) -> SamplerConfig
         tool_tag_exec_close: db_config.tool_tag_exec_close.clone(),
         tool_tag_output_open: db_config.tool_tag_output_open.clone(),
         tool_tag_output_close: db_config.tool_tag_output_close.clone(),
+        web_search_provider: db_config.web_search_provider.clone(),
     }
 }
 
@@ -86,6 +87,7 @@ pub fn sampler_config_to_db(config: &SamplerConfig) -> DbSamplerConfig {
         tool_tag_exec_close: config.tool_tag_exec_close.clone(),
         tool_tag_output_open: config.tool_tag_output_open.clone(),
         tool_tag_output_close: config.tool_tag_output_close.clone(),
+        web_search_provider: config.web_search_provider.clone(),
     }
 }
 
