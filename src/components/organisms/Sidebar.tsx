@@ -104,7 +104,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onLoadConversation, curren
     <>
       {/* Sidebar — always visible */}
       <div
-        className="fixed top-0 left-0 h-screen w-[240px] bg-card border-r border-border z-[1000] flex flex-col"
+        className="fixed top-0 left-0 h-screen w-[240px] bg-card border-r border-border z-40 flex flex-col"
         data-testid="sidebar"
       >
         {/* New thread button */}
