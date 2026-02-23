@@ -42,9 +42,12 @@ impl Database {
               typical_p, frequency_penalty, presence_penalty, penalty_last_n,
               dry_multiplier, dry_base, dry_allowed_length, dry_penalty_last_n,
               top_n_sigma, flash_attention, cache_type_k, cache_type_v, n_batch,
-              context_size, system_prompt, system_prompt_type, stop_tokens, updated_at)
+              context_size, system_prompt, system_prompt_type, stop_tokens,
+              tool_tag_exec_open, tool_tag_exec_close, tool_tag_output_open, tool_tag_output_close,
+              updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
-                     ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)",
+                     ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26,
+                     ?27, ?28, ?29, ?30, ?31)",
             params![
                 conversation_id,
                 config.sampler_type,
@@ -72,6 +75,10 @@ impl Database {
                 config.system_prompt,
                 system_prompt_type_to_str(&config.system_prompt_type),
                 stop_tokens_json,
+                config.tool_tag_exec_open,
+                config.tool_tag_exec_close,
+                config.tool_tag_output_open,
+                config.tool_tag_output_close,
                 current_timestamp_millis(),
             ],
         )
@@ -90,7 +97,8 @@ impl Database {
                     typical_p, frequency_penalty, presence_penalty, penalty_last_n,
                     dry_multiplier, dry_base, dry_allowed_length, dry_penalty_last_n,
                     top_n_sigma, flash_attention, cache_type_k, cache_type_v, n_batch,
-                    context_size, system_prompt, system_prompt_type, stop_tokens
+                    context_size, system_prompt, system_prompt_type, stop_tokens,
+                    tool_tag_exec_open, tool_tag_exec_close, tool_tag_output_open, tool_tag_output_close
              FROM conversation_config WHERE conversation_id = ?1",
             [conversation_id],
             |row| {
@@ -130,6 +138,10 @@ impl Database {
                     system_prompt: row.get(22)?,
                     system_prompt_type: parse_system_prompt_type(row.get(23)?),
                     stop_tokens,
+                    tool_tag_exec_open: row.get(25)?,
+                    tool_tag_exec_close: row.get(26)?,
+                    tool_tag_output_open: row.get(27)?,
+                    tool_tag_output_close: row.get(28)?,
                     // Global-only fields — not stored per-conversation
                     model_path: None,
                     model_history: Vec::new(),
@@ -162,8 +174,11 @@ impl Database {
                  dry_allowed_length = ?15, dry_penalty_last_n = ?16, top_n_sigma = ?17,
                  flash_attention = ?18, cache_type_k = ?19, cache_type_v = ?20,
                  n_batch = ?21, context_size = ?22, system_prompt = ?23,
-                 system_prompt_type = ?24, stop_tokens = ?25, updated_at = ?26
-                 WHERE conversation_id = ?27",
+                 system_prompt_type = ?24, stop_tokens = ?25,
+                 tool_tag_exec_open = ?26, tool_tag_exec_close = ?27,
+                 tool_tag_output_open = ?28, tool_tag_output_close = ?29,
+                 updated_at = ?30
+                 WHERE conversation_id = ?31",
                 params![
                     config.sampler_type,
                     config.temperature,
@@ -190,6 +205,10 @@ impl Database {
                     config.system_prompt,
                     system_prompt_type_to_str(&config.system_prompt_type),
                     stop_tokens_json,
+                    config.tool_tag_exec_open,
+                    config.tool_tag_exec_close,
+                    config.tool_tag_output_open,
+                    config.tool_tag_output_close,
                     current_timestamp_millis(),
                     conversation_id,
                 ],

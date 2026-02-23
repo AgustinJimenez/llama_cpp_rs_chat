@@ -185,6 +185,42 @@ pub fn get_available_tools() -> Vec<Value> {
                 "required": []
             }
         }),
+        json!({
+            "name": "web_search",
+            "description": "Search the web using DuckDuckGo. Returns a list of results with titles, URLs, and descriptions. Use this to find current information, documentation, or answers.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search query"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of results to return (default: 8)"
+                    }
+                },
+                "required": ["query"]
+            }
+        }),
+        json!({
+            "name": "web_fetch",
+            "description": "Fetch a web page and return its content as plain text (HTML is stripped). Use this to read articles, documentation, or any web page after finding its URL via web_search.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The URL to fetch"
+                    },
+                    "max_length": {
+                        "type": "integer",
+                        "description": "Maximum characters to return (default: 15000)"
+                    }
+                },
+                "required": ["url"]
+            }
+        }),
     ]
 }
 

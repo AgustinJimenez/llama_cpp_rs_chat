@@ -228,6 +228,40 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         [],
     );
 
+    // Add tool tag override columns if missing
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN tool_tag_exec_open TEXT",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN tool_tag_exec_close TEXT",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN tool_tag_output_open TEXT",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN tool_tag_output_close TEXT",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE conversation_config ADD COLUMN tool_tag_exec_open TEXT",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE conversation_config ADD COLUMN tool_tag_exec_close TEXT",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE conversation_config ADD COLUMN tool_tag_output_open TEXT",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE conversation_config ADD COLUMN tool_tag_output_close TEXT",
+        [],
+    );
+
     // Insert default config row if it doesn't exist
     conn.execute(
         "INSERT OR IGNORE INTO config (id, updated_at) VALUES (1, ?1)",

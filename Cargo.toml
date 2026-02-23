@@ -95,6 +95,9 @@ ureq = { version = "2.9", default-features = false, features = ["tls"] }
 # HTML to text conversion
 html2text = "0.12"
 
+# Headless Chrome for web search (bypasses CAPTCHAs)
+headless_chrome = "1.0"
+
 # System monitoring (optional - requires rebuild)
 # sysinfo = "0.30"
 # nvml-wrapper = { version = "0.9", optional = true }

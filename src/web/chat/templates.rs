@@ -25,10 +25,10 @@ pub fn get_universal_system_prompt_with_tags(tags: &ToolTags) -> String {
         return get_harmony_system_prompt(os_name, &cwd, shell, list_cmd);
     }
 
-    let exec_open = tags.exec_open;
-    let exec_close = tags.exec_close;
-    let output_open = tags.output_open;
-    let output_close = tags.output_close;
+    let exec_open = &tags.exec_open;
+    let exec_close = &tags.exec_close;
+    let output_open = &tags.output_open;
+    let output_close = &tags.output_close;
 
     format!(
         r#"You are a helpful AI assistant with full system access.
@@ -58,18 +58,19 @@ After execution, the system will inject the result between {output_open} and {ou
 ### list_directory — List files in a directory
 {exec_open}{{"name": "list_directory", "arguments": {{"path": "."}}}}{exec_close}
 
+### web_search — Search the web using DuckDuckGo
+{exec_open}{{"name": "web_search", "arguments": {{"query": "rust async tutorial"}}}}{exec_close}
+
+### web_fetch — Fetch a web page and return its text content
+{exec_open}{{"name": "web_fetch", "arguments": {{"url": "https://example.com"}}}}{exec_close}
+
 ## Important Notes
 - Use `read_file` instead of cat/type to read files
 - Use `write_file` instead of echo/python to write files
 - Use `execute_python` for any Python code (avoids shell quoting issues)
 - Use `execute_command` for shell tools like git, npm, curl, etc.
+- Use `web_search` to find information online, then `web_fetch` to read specific pages
 - You can also put raw shell commands directly: {exec_open}{list_cmd}{exec_close}
-
-## Web Browsing
-
-Fetch web pages to read their content:
-
-{exec_open}{{"name": "execute_command", "arguments": {{"command": "curl http://localhost:8000/api/tools/web-fetch?url=https://example.com"}}}}{exec_close}
 
 ## Current Environment
 - OS: {os_name}
@@ -104,11 +105,18 @@ to=write_file code<|message|>{{"path": "output.txt", "content": "Hello world"}}<
 ### execute_python — Run Python code (multi-line, imports, regex all work)
 to=execute_python code<|message|>{{"code": "print('hello')"}}<|call|>
 
+### web_search — Search the web using DuckDuckGo
+to=web_search code<|message|>{{"query": "rust async tutorial"}}<|call|>
+
+### web_fetch — Fetch a web page and return its text content
+to=web_fetch code<|message|>{{"url": "https://example.com"}}<|call|>
+
 ## Important Notes
 - Always use these tools when the user asks you to interact with the filesystem or run commands.
 - After you call a tool, the system will inject the result automatically. Wait for it before continuing.
 - Use `read_file` instead of cat/type to read files.
 - Use `execute_command` for shell tools like git, npm, curl, etc.
+- Use `web_search` to find information online, then `web_fetch` to read specific pages.
 
 ## Current Environment
 - OS: {os_name}
@@ -247,7 +255,7 @@ pub fn apply_model_chat_template(
     template_type: Option<&str>,
 ) -> Result<String, String> {
     use super::tool_tags;
-    apply_model_chat_template_with_tags(conversation, template_type, &tool_tags::DEFAULT_TAGS)
+    apply_model_chat_template_with_tags(conversation, template_type, &tool_tags::default_tags())
 }
 
 /// Apply chat template formatting to conversation history.
@@ -539,7 +547,7 @@ mod tests {
     #[test]
     fn test_universal_system_prompt_contains_exec_tags() {
         use crate::web::chat::tool_tags;
-        let prompt = get_universal_system_prompt_with_tags(&tool_tags::DEFAULT_TAGS);
+        let prompt = get_universal_system_prompt_with_tags(&tool_tags::default_tags());
         assert!(prompt.contains("<||SYSTEM.EXEC>"));
         assert!(prompt.contains("<SYSTEM.EXEC||>"));
         assert!(prompt.contains("<||SYSTEM.OUTPUT>"));
@@ -549,7 +557,7 @@ mod tests {
     #[test]
     fn test_universal_system_prompt_contains_os_info() {
         use crate::web::chat::tool_tags;
-        let prompt = get_universal_system_prompt_with_tags(&tool_tags::DEFAULT_TAGS);
+        let prompt = get_universal_system_prompt_with_tags(&tool_tags::default_tags());
         // Should contain OS info
         assert!(prompt.contains("OS:"));
         assert!(prompt.contains("Working Directory:"));
@@ -603,20 +611,20 @@ mod tests {
 
         // Qwen tags
         let qwen_tags = tool_tags::get_tool_tags_for_model(Some("Qwen3 8B"));
-        let prompt = get_universal_system_prompt_with_tags(qwen_tags);
+        let prompt = get_universal_system_prompt_with_tags(&qwen_tags);
         assert!(prompt.contains("<tool_call>"), "Qwen prompt should use <tool_call> tags");
         assert!(prompt.contains("</tool_call>"), "Qwen prompt should use </tool_call> tags");
         assert!(!prompt.contains("SYSTEM.EXEC"), "Qwen prompt should NOT contain SYSTEM.EXEC");
 
         // Mistral tags
         let mistral_tags = tool_tags::get_tool_tags_for_model(Some("mistralai_Devstral Small 2507"));
-        let prompt = get_universal_system_prompt_with_tags(mistral_tags);
+        let prompt = get_universal_system_prompt_with_tags(&mistral_tags);
         assert!(prompt.contains("[TOOL_CALLS]"), "Mistral prompt should use [TOOL_CALLS] tags");
         assert!(prompt.contains("[/TOOL_CALLS]"), "Mistral prompt should use [/TOOL_CALLS] tags");
 
         // Unknown model (default tags)
         let default_tags = tool_tags::get_tool_tags_for_model(Some("SomeUnknownModel"));
-        let prompt = get_universal_system_prompt_with_tags(default_tags);
+        let prompt = get_universal_system_prompt_with_tags(&default_tags);
         assert!(prompt.contains("<||SYSTEM.EXEC>"), "Unknown model should use default SYSTEM.EXEC tags");
     }
 }

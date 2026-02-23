@@ -271,7 +271,7 @@ async fn generate_stream(
     let system_prompt = match config.system_prompt.as_deref() {
         Some("__AGENTIC__") => {
             let tags = get_tool_tags_for_model(general_name.as_deref());
-            Some(get_universal_system_prompt_with_tags(tags))
+            Some(get_universal_system_prompt_with_tags(&tags))
         }
         Some(custom) => Some(custom.to_string()),
         None => None,

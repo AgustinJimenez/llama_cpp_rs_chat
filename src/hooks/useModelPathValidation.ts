@@ -135,6 +135,7 @@ export const useModelPathValidation = ({
             attention_head_count: String(d.attention_head_count ?? meta?.['gemma3.attention.head_count'] ?? meta?.['llama.attention.head_count'] ?? ''),
             attention_head_count_kv: String(d.attention_head_count_kv ?? meta?.['gemma3.attention.head_count_kv'] ?? meta?.['llama.attention.head_count_kv'] ?? ''),
             embedding_length: String(d.embedding_length ?? meta?.['gemma3.embedding_length'] ?? meta?.['llama.embedding_length'] ?? ''),
+            detected_tool_tags: d.detected_tool_tags as ModelMetadata['detected_tool_tags'],
           });
 
           // Update max layers if available

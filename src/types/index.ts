@@ -52,6 +52,11 @@ export interface SamplerConfig {
   system_prompt?: string;
   context_size?: number;
   gpu_layers?: number;  // Number of layers to offload to GPU
+  // Tool tag overrides (undefined = use auto-detected)
+  tool_tag_exec_open?: string;
+  tool_tag_exec_close?: string;
+  tool_tag_output_open?: string;
+  tool_tag_output_close?: string;
 }
 
 export type SamplerType = 
@@ -142,6 +147,14 @@ export interface ModelMetadata {
   padding_token_id?: string;
   chat_template?: string;
   default_system_prompt?: string;  // Extracted from chat_template
+
+  // Auto-detected tool tags from model name
+  detected_tool_tags?: {
+    exec_open: string;
+    exec_close: string;
+    output_open: string;
+    output_close: string;
+  };
 
   // All GGUF metadata (raw key-value pairs)
   gguf_metadata?: Record<string, string | number | boolean | null | undefined>;

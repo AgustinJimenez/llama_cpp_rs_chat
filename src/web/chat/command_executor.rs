@@ -37,8 +37,8 @@ fn build_model_exec_regex(tags: &ToolTags) -> Option<Regex> {
     }
 
     // Escape special regex characters in the tags
-    let open = regex::escape(tags.exec_open);
-    let close = regex::escape(tags.exec_close);
+    let open = regex::escape(&tags.exec_open);
+    let close = regex::escape(&tags.exec_close);
 
     // Build pattern: open_tag(.+?)close_tag
     // (?s) enables DOTALL mode so . matches newlines (multi-line commands like python -c)

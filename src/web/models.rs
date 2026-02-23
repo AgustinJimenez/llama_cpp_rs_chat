@@ -106,6 +106,15 @@ pub struct SamplerConfig {
     pub model_history: Vec<String>,
     #[serde(default = "default_true")]
     pub disable_file_logging: bool,
+    // Tool tag overrides (None = use auto-detected)
+    #[serde(default)]
+    pub tool_tag_exec_open: Option<String>,
+    #[serde(default)]
+    pub tool_tag_exec_close: Option<String>,
+    #[serde(default)]
+    pub tool_tag_output_open: Option<String>,
+    #[serde(default)]
+    pub tool_tag_output_close: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -198,6 +207,10 @@ impl Default for SamplerConfig {
             stop_tokens: Some(get_common_stop_tokens()),
             model_history: Vec::new(),
             disable_file_logging: true,
+            tool_tag_exec_open: None,
+            tool_tag_exec_close: None,
+            tool_tag_output_open: None,
+            tool_tag_output_close: None,
         }
     }
 }

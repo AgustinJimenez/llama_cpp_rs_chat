@@ -20,6 +20,7 @@ import { ModelFileInput, ModelConfigSystemPrompt } from '../../molecules';
 import { ModelMetadataDisplay } from './ModelMetadataDisplay';
 import { SamplingParametersSection } from './SamplingParametersSection';
 import { AdvancedContextSection } from './AdvancedContextSection';
+import { ToolTagsSection } from './ToolTagsSection';
 
 import { MemoryVisualization } from './MemoryVisualization';
 
@@ -386,6 +387,12 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                   <AdvancedContextSection
                     config={config}
                     onConfigChange={handleInputChange}
+                  />
+
+                  <ToolTagsSection
+                    config={config}
+                    onConfigChange={handleInputChange}
+                    modelInfo={modelInfo}
                   />
 
                   <SamplingParametersSection

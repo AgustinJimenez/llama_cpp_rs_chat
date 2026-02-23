@@ -148,8 +148,14 @@ pub async fn generate_llama_response(
     let chat_template_string = state.chat_template_string.clone();
     let general_name = state.general_name.clone();
 
-    // Look up model-specific tool tags based on general.name from GGUF metadata
-    let tags = get_tool_tags_for_model(general_name.as_deref());
+    // Look up model-specific tool tags based on general.name from GGUF metadata,
+    // then apply any user overrides from config
+    let tags = get_tool_tags_for_model(general_name.as_deref()).with_overrides(
+        config.tool_tag_exec_open.as_deref(),
+        config.tool_tag_exec_close.as_deref(),
+        config.tool_tag_output_open.as_deref(),
+        config.tool_tag_output_close.as_deref(),
+    );
     log_info!(&conversation_id, "=== TEMPLATE DEBUG ===");
     log_info!(&conversation_id, "Template type: {:?}", template_type);
     log_info!(&conversation_id, "General name: {:?}", general_name);
@@ -168,7 +174,7 @@ pub async fn generate_llama_response(
         template_type.as_deref(),
         chat_template_string.as_deref(),
         config.system_prompt.as_deref(),
-        tags,
+        &tags,
     )?;
     log_info!(&conversation_id, "=== FINAL PROMPT BEING SENT TO MODEL ===");
     log_info!(&conversation_id, "{}", prompt);
@@ -625,7 +631,7 @@ pub async fn generate_llama_response(
             // CRITICAL: This must be inside the inner loop so commands are detected immediately
             // after the closing tag is generated, before the model hallucinates fake output.
             if let Some(exec_result) =
-                check_and_execute_command_with_tags(&response, last_exec_scan_pos, &conversation_id, model, tags, template_type.as_deref())?
+                check_and_execute_command_with_tags(&response, last_exec_scan_pos, &conversation_id, model, &tags, template_type.as_deref())?
             {
                 // 1. Log to conversation file (CRITICAL: prevents infinite loops)
                 {

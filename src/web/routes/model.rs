@@ -9,6 +9,7 @@ use std::io::BufReader;
 use tokio::task::spawn_blocking;
 
 use crate::web::{
+    chat_handler::get_tool_tags_for_model,
     config::add_to_model_history,
     database::SharedDatabase,
     filename_patterns::{detect_architecture, detect_parameters, detect_quantization},
@@ -263,6 +264,15 @@ pub async fn handle_get_model_info(
         let model_name = extractor.get_string("general.name").unwrap_or_default();
         let tool_format = detect_tool_format(&arch, &model_name);
         model_info["tool_format"] = serde_json::json!(tool_format);
+
+        // Expose auto-detected tool tags so the frontend can show them as placeholders
+        let detected_tags = get_tool_tags_for_model(Some(&model_name));
+        model_info["detected_tool_tags"] = serde_json::json!({
+            "exec_open": detected_tags.exec_open,
+            "exec_close": detected_tags.exec_close,
+            "output_open": detected_tags.output_open,
+            "output_close": detected_tags.output_close,
+        });
 
         // Core model information
         if let Some(val) = extractor.get_string("general.name") {

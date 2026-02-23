@@ -44,6 +44,10 @@ pub fn db_config_to_sampler_config(db_config: &DbSamplerConfig) -> SamplerConfig
         stop_tokens: db_config.stop_tokens.clone(),
         model_history: db_config.model_history.clone(),
         disable_file_logging: db_config.disable_file_logging,
+        tool_tag_exec_open: db_config.tool_tag_exec_open.clone(),
+        tool_tag_exec_close: db_config.tool_tag_exec_close.clone(),
+        tool_tag_output_open: db_config.tool_tag_output_open.clone(),
+        tool_tag_output_close: db_config.tool_tag_output_close.clone(),
     }
 }
 
@@ -78,6 +82,10 @@ pub fn sampler_config_to_db(config: &SamplerConfig) -> DbSamplerConfig {
         stop_tokens: config.stop_tokens.clone(),
         model_history: config.model_history.clone(),
         disable_file_logging: config.disable_file_logging,
+        tool_tag_exec_open: config.tool_tag_exec_open.clone(),
+        tool_tag_exec_close: config.tool_tag_exec_close.clone(),
+        tool_tag_output_open: config.tool_tag_output_open.clone(),
+        tool_tag_output_close: config.tool_tag_output_close.clone(),
     }
 }
 
@@ -153,7 +161,7 @@ pub fn get_resolved_system_prompt(
         Some("__AGENTIC__") => {
             let general_name = current_key.1.as_deref();
             let tags = get_tool_tags_for_model(general_name);
-            Some(get_universal_system_prompt_with_tags(tags))
+            Some(get_universal_system_prompt_with_tags(&tags))
         }
         Some(custom) => Some(custom.to_string()),
         None => {
@@ -193,7 +201,7 @@ pub fn get_resolved_system_prompt(
     let config = load_config(db);
     match config.system_prompt.as_deref() {
         Some("__AGENTIC__") => Some(get_universal_system_prompt_with_tags(
-            &super::chat::tool_tags::DEFAULT_TAGS,
+            &super::chat::tool_tags::default_tags(),
         )),
         Some(custom) => Some(custom.to_string()),
         None => None,

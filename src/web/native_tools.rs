@@ -286,6 +286,8 @@ pub fn dispatch_native_tool(text: &str) -> Option<String> {
         "write_file" => tool_write_file(&args),
         "execute_python" => tool_execute_python(&args),
         "list_directory" => tool_list_directory(&args),
+        "web_search" => tool_web_search(&args),
+        "web_fetch" => tool_web_fetch(&args),
         "execute_command" => {
             // Delegate to shell execution via command.rs
             let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
@@ -435,6 +437,292 @@ fn tool_list_directory(args: &Value) -> String {
     }
 
     lines.join("\n")
+}
+
+/// Maximum characters to return from web search results.
+const MAX_SEARCH_RESULT_CHARS: usize = 8_000;
+
+/// Maximum characters to return from web page fetch.
+const MAX_FETCH_CHARS: usize = 15_000;
+
+/// Search the web using DuckDuckGo Instant Answer API, falling back to HTML scraping.
+fn tool_web_search(args: &Value) -> String {
+    let query = match args.get("query").and_then(|v| v.as_str()) {
+        Some(q) => q,
+        None => return "Error: 'query' argument is required".to_string(),
+    };
+
+    let max_results = args
+        .get("max_results")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(8) as usize;
+
+    // Try DuckDuckGo Instant Answer API first (reliable, no CAPTCHAs)
+    match tool_web_search_ddg_api(query, max_results) {
+        Some(result) if !result.is_empty() => return result,
+        _ => {
+            eprintln!("[WEB_SEARCH] DDG API returned no results, trying HTML scraping");
+        }
+    }
+
+    // Fallback: ureq-based DuckDuckGo HTML scraping
+    tool_web_search_ureq(query, max_results)
+}
+
+/// Search using DuckDuckGo Instant Answer API (knowledge-based results).
+/// Returns structured results from Wikipedia, related topics, and direct answers.
+fn tool_web_search_ddg_api(query: &str, max_results: usize) -> Option<String> {
+    let agent = ureq::AgentBuilder::new()
+        .timeout_read(std::time::Duration::from_secs(10))
+        .timeout_connect(std::time::Duration::from_secs(5))
+        .user_agent("Mozilla/5.0 (compatible; LlamaChat/1.0)")
+        .build();
+
+    let url = format!(
+        "https://api.duckduckgo.com/?q={}&format=json&no_html=1&skip_disambig=1",
+        urlencoding::encode(query)
+    );
+
+    let response = agent.get(&url).call().ok()?;
+    let body = response.into_string().ok()?;
+    let data: Value = serde_json::from_str(&body).ok()?;
+
+    let mut output = String::new();
+    let mut count = 0;
+
+    // Main abstract (usually Wikipedia)
+    let abstract_text = data["AbstractText"].as_str().unwrap_or("");
+    let abstract_url = data["AbstractURL"].as_str().unwrap_or("");
+    let abstract_source = data["AbstractSource"].as_str().unwrap_or("");
+    let heading = data["Heading"].as_str().unwrap_or("");
+
+    if !abstract_text.is_empty() {
+        count += 1;
+        output.push_str(&format!("{count}. {heading}\n"));
+        output.push_str(&format!("   Source: {abstract_source}\n"));
+        if !abstract_url.is_empty() {
+            output.push_str(&format!("   URL: {abstract_url}\n"));
+        }
+        output.push_str(&format!("   {abstract_text}\n\n"));
+    }
+
+    // Direct answer (e.g., calculator, conversions)
+    let answer = data["Answer"].as_str().unwrap_or("");
+    if !answer.is_empty() {
+        count += 1;
+        output.push_str(&format!("{count}. Direct Answer\n"));
+        output.push_str(&format!("   {answer}\n\n"));
+    }
+
+    // Related topics (additional knowledge links)
+    if let Some(topics) = data["RelatedTopics"].as_array() {
+        for topic in topics {
+            if count >= max_results {
+                break;
+            }
+            // Direct topic entry
+            if let (Some(text), Some(url)) = (topic["Text"].as_str(), topic["FirstURL"].as_str())
+            {
+                count += 1;
+                output.push_str(&format!("{count}. {text}\n"));
+                output.push_str(&format!("   URL: {url}\n\n"));
+            }
+            // Grouped topics (subcategories)
+            if let Some(sub_topics) = topic["Topics"].as_array() {
+                for sub in sub_topics {
+                    if count >= max_results {
+                        break;
+                    }
+                    if let (Some(text), Some(url)) =
+                        (sub["Text"].as_str(), sub["FirstURL"].as_str())
+                    {
+                        count += 1;
+                        output.push_str(&format!("{count}. {text}\n"));
+                        output.push_str(&format!("   URL: {url}\n\n"));
+                    }
+                }
+            }
+        }
+    }
+
+    if output.is_empty() {
+        return None;
+    }
+
+    if output.len() > MAX_SEARCH_RESULT_CHARS {
+        output.truncate(MAX_SEARCH_RESULT_CHARS);
+        output.push_str("\n...[truncated]");
+    }
+
+    Some(format!(
+        "Search results for '{query}' (via DuckDuckGo):\n\n{output}\
+         Note: These are knowledge-based results. Use web_fetch to read specific URLs for more detail."
+    ))
+}
+
+/// Fallback web search via ureq HTTP scraping (used when Chrome is unavailable).
+fn tool_web_search_ureq(query: &str, max_results: usize) -> String {
+    let agent = ureq::AgentBuilder::new()
+        .timeout_read(std::time::Duration::from_secs(15))
+        .timeout_connect(std::time::Duration::from_secs(10))
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        .build();
+
+    let url = format!(
+        "https://html.duckduckgo.com/html/?q={}",
+        urlencoding::encode(query)
+    );
+
+    let response = match agent.get(&url).call() {
+        Ok(r) => r,
+        Err(e) => return format!("Error: Failed to search DuckDuckGo: {e}"),
+    };
+
+    let body = match response.into_string() {
+        Ok(b) => b,
+        Err(e) => return format!("Error: Failed to read search response: {e}"),
+    };
+
+    // Try structured regex parsing first
+    let results = parse_ddg_results(&body, max_results);
+    if !results.is_empty() {
+        return format!("Search results for '{query}':\n\n{results}");
+    }
+
+    // Fallback: use html2text for raw conversion
+    let text = html2text::from_read(body.as_bytes(), 120);
+    let truncated = if text.len() > MAX_SEARCH_RESULT_CHARS {
+        format!(
+            "{}...\n[Truncated: first {} of {} chars]",
+            &text[..MAX_SEARCH_RESULT_CHARS],
+            MAX_SEARCH_RESULT_CHARS,
+            text.len()
+        )
+    } else {
+        text
+    };
+
+    format!("Search results for '{query}':\n\n{truncated}")
+}
+
+/// Parse DuckDuckGo HTML search results into structured text.
+fn parse_ddg_results(html: &str, max_results: usize) -> String {
+    use regex::Regex;
+
+    lazy_static::lazy_static! {
+        static ref RESULT_LINK: Regex = Regex::new(
+            r#"(?s)class="result__a"[^>]*href="([^"]*)"[^>]*>([^<]*)</a>"#
+        ).unwrap();
+
+        static ref RESULT_SNIPPET: Regex = Regex::new(
+            r#"(?s)class="result__snippet"[^>]*>(.*?)</(?:a|td|div|span)"#
+        ).unwrap();
+    }
+
+    let links: Vec<(String, String)> = RESULT_LINK
+        .captures_iter(html)
+        .take(max_results)
+        .map(|cap| {
+            let href = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+            let title = cap
+                .get(2)
+                .map(|m| m.as_str().trim())
+                .unwrap_or("")
+                .replace("&amp;", "&")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&#x27;", "'");
+            (href.to_string(), title)
+        })
+        .collect();
+
+    if links.is_empty() {
+        return String::new();
+    }
+
+    let snippets: Vec<String> = RESULT_SNIPPET
+        .captures_iter(html)
+        .take(max_results)
+        .map(|cap| {
+            let raw = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+            // Strip inner HTML tags from snippet
+            let tag_re = regex::Regex::new(r"<[^>]+>").unwrap();
+            tag_re
+                .replace_all(raw, "")
+                .trim()
+                .replace("&amp;", "&")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&#x27;", "'")
+        })
+        .collect();
+
+    let mut output = String::new();
+    for (i, (href, title)) in links.iter().enumerate() {
+        let snippet = snippets.get(i).map(|s| s.as_str()).unwrap_or("");
+
+        output.push_str(&format!("{}. {title}\n", i + 1));
+        output.push_str(&format!("   URL: {href}\n"));
+        if !snippet.is_empty() {
+            output.push_str(&format!("   {snippet}\n"));
+        }
+        output.push('\n');
+    }
+
+    if output.len() > MAX_SEARCH_RESULT_CHARS {
+        output.truncate(MAX_SEARCH_RESULT_CHARS);
+        output.push_str("\n...[truncated]");
+    }
+
+    output
+}
+
+/// Fetch a web page using headless Chrome (JS-rendered), falling back to ureq.
+fn tool_web_fetch(args: &Value) -> String {
+    let url = match args.get("url").and_then(|v| v.as_str()) {
+        Some(u) => u,
+        None => return "Error: 'url' argument is required".to_string(),
+    };
+
+    let max_chars = args
+        .get("max_length")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(MAX_FETCH_CHARS as u64) as usize;
+
+    // Try headless Chrome first (gets JS-rendered content)
+    match super::browser::chrome_web_fetch(url, max_chars) {
+        Ok(content) if !content.is_empty() => return content,
+        Ok(_) => {
+            eprintln!("[WEB_FETCH] Chrome returned empty content, falling back to ureq");
+        }
+        Err(e) => {
+            eprintln!("[WEB_FETCH] Chrome failed: {e}, falling back to ureq");
+        }
+    }
+
+    // Fallback: ureq-based fetch
+    tool_web_fetch_ureq(url, max_chars)
+}
+
+/// Fallback web fetch via ureq HTTP client (used when Chrome is unavailable).
+fn tool_web_fetch_ureq(url: &str, max_chars: usize) -> String {
+    let result = crate::web::routes::tools::fetch_url_as_text(url, max_chars);
+
+    if let Some(true) = result.get("success").and_then(|v| v.as_bool()) {
+        result
+            .get("result")
+            .and_then(|v| v.as_str())
+            .unwrap_or("(empty page)")
+            .to_string()
+    } else {
+        let error = result
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Unknown error");
+        format!("Error fetching URL: {error}")
+    }
 }
 
 #[cfg(test)]
@@ -706,5 +994,62 @@ print(f"Found: {match.group()}" if match else "No match")"#;
         assert!(content.contains(r"Illuminate\Database\Eloquent\Model"), "Should preserve namespace path");
 
         std::fs::remove_file(&temp).ok();
+    }
+
+    #[test]
+    fn test_parse_ddg_results_extracts_links_and_snippets() {
+        let html = r#"
+        <div class="result">
+            <a class="result__a" href="https://example.com/page1">Example Page One</a>
+            <td class="result__snippet">This is the first result snippet about example.</td>
+        </div>
+        <div class="result">
+            <a class="result__a" href="https://example.com/page2">Example &amp; Page Two</a>
+            <td class="result__snippet">Second result with <b>bold</b> text.</td>
+        </div>
+        "#;
+
+        let result = parse_ddg_results(html, 10);
+        assert!(result.contains("Example Page One"), "Should extract first title");
+        assert!(result.contains("https://example.com/page1"), "Should extract first URL");
+        assert!(result.contains("first result snippet"), "Should extract first snippet");
+        assert!(result.contains("Example & Page Two"), "Should decode &amp;");
+        assert!(result.contains("https://example.com/page2"), "Should extract second URL");
+        assert!(result.contains("Second result with"), "Should extract second snippet");
+        assert!(!result.contains("<b>"), "Should strip inner HTML tags from snippets");
+    }
+
+    #[test]
+    fn test_parse_ddg_results_empty_html() {
+        let result = parse_ddg_results("<html><body>no results</body></html>", 10);
+        assert!(result.is_empty(), "Should return empty string for no results");
+    }
+
+    #[test]
+    fn test_dispatch_web_search_missing_query() {
+        let json = r#"{"name": "web_search", "arguments": {}}"#;
+        let result = dispatch_native_tool(json);
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("Error"));
+    }
+
+    #[test]
+    fn test_dispatch_web_fetch_missing_url() {
+        let json = r#"{"name": "web_fetch", "arguments": {}}"#;
+        let result = dispatch_native_tool(json);
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("Error"));
+    }
+
+    #[test]
+    fn test_ddg_api_formats_output() {
+        // Test that tool_web_search_ddg_api returns formatted output for known queries
+        // This is an integration test that calls the real API
+        let result = tool_web_search_ddg_api("rust programming language", 5);
+        assert!(result.is_some(), "DDG API should return results for 'rust programming language'");
+        let text = result.unwrap();
+        assert!(text.contains("Rust"), "Should contain 'Rust' in results");
+        assert!(text.contains("URL:"), "Should contain URLs");
+        assert!(text.contains("Search results for"), "Should have header");
     }
 }

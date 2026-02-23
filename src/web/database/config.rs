@@ -35,6 +35,11 @@ pub struct DbSamplerConfig {
     pub stop_tokens: Option<Vec<String>>,
     pub model_history: Vec<String>,
     pub disable_file_logging: bool,
+    // Tool tag overrides (None = use auto-detected)
+    pub tool_tag_exec_open: Option<String>,
+    pub tool_tag_exec_close: Option<String>,
+    pub tool_tag_output_open: Option<String>,
+    pub tool_tag_output_close: Option<String>,
 }
 
 impl Default for DbSamplerConfig {
@@ -68,6 +73,10 @@ impl Default for DbSamplerConfig {
             stop_tokens: None,
             model_history: Vec::new(),
             disable_file_logging: true,
+            tool_tag_exec_open: None,
+            tool_tag_exec_close: None,
+            tool_tag_output_open: None,
+            tool_tag_output_close: None,
         }
     }
 }
@@ -101,7 +110,8 @@ impl Database {
                         flash_attention, cache_type_k, cache_type_v, n_batch,
                         typical_p, frequency_penalty, presence_penalty, penalty_last_n,
                         dry_multiplier, dry_base, dry_allowed_length, dry_penalty_last_n,
-                        top_n_sigma
+                        top_n_sigma,
+                        tool_tag_exec_open, tool_tag_exec_close, tool_tag_output_open, tool_tag_output_close
                  FROM config WHERE id = 1",
                 [],
                 |row| {
@@ -139,6 +149,10 @@ impl Database {
                         dry_allowed_length: row.get::<_, Option<i32>>(24)?.unwrap_or(2),
                         dry_penalty_last_n: row.get::<_, Option<i32>>(25)?.unwrap_or(-1),
                         top_n_sigma: row.get::<_, Option<f64>>(26)?.unwrap_or(-1.0),
+                        tool_tag_exec_open: row.get(27)?,
+                        tool_tag_exec_close: row.get(28)?,
+                        tool_tag_output_open: row.get(29)?,
+                        tool_tag_output_close: row.get(30)?,
                     })
                 },
             )
@@ -168,9 +182,11 @@ impl Database {
               cache_type_k, cache_type_v, n_batch,
               typical_p, frequency_penalty, presence_penalty, penalty_last_n,
               dry_multiplier, dry_base, dry_allowed_length, dry_penalty_last_n,
-              top_n_sigma, updated_at)
+              top_n_sigma,
+              tool_tag_exec_open, tool_tag_exec_close, tool_tag_output_open, tool_tag_output_close,
+              updated_at)
              VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
-                     ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)",
+                     ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32)",
             params![
                 config.sampler_type,
                 config.temperature,
@@ -199,6 +215,10 @@ impl Database {
                 config.dry_allowed_length,
                 config.dry_penalty_last_n,
                 config.top_n_sigma,
+                config.tool_tag_exec_open,
+                config.tool_tag_exec_close,
+                config.tool_tag_output_open,
+                config.tool_tag_output_close,
                 current_timestamp_millis(),
             ],
         )
@@ -224,7 +244,10 @@ impl Database {
              flash_attention = ?15, cache_type_k = ?16, cache_type_v = ?17, n_batch = ?18,
              typical_p = ?19, frequency_penalty = ?20, presence_penalty = ?21, penalty_last_n = ?22,
              dry_multiplier = ?23, dry_base = ?24, dry_allowed_length = ?25, dry_penalty_last_n = ?26,
-             top_n_sigma = ?27, updated_at = ?28
+             top_n_sigma = ?27,
+             tool_tag_exec_open = ?28, tool_tag_exec_close = ?29,
+             tool_tag_output_open = ?30, tool_tag_output_close = ?31,
+             updated_at = ?32
              WHERE id = 1",
             params![
                 config.sampler_type,
@@ -254,6 +277,10 @@ impl Database {
                 config.dry_allowed_length,
                 config.dry_penalty_last_n,
                 config.top_n_sigma,
+                config.tool_tag_exec_open,
+                config.tool_tag_exec_close,
+                config.tool_tag_output_open,
+                config.tool_tag_output_close,
                 current_timestamp_millis(),
             ],
         )
@@ -421,6 +448,10 @@ mod tests {
             stop_tokens: Some(vec!["</s>".to_string()]),
             model_history: Vec::new(),
             disable_file_logging: true,
+            tool_tag_exec_open: Some("<custom_exec>".to_string()),
+            tool_tag_exec_close: Some("</custom_exec>".to_string()),
+            tool_tag_output_open: None,
+            tool_tag_output_close: None,
         };
 
         db.save_config(&config).unwrap();

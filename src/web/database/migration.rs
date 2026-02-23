@@ -261,6 +261,10 @@ pub fn migrate_config(db: &Database) -> Result<bool, String> {
         stop_tokens: json_config.stop_tokens,
         model_history: Vec::new(), // Handled separately
         disable_file_logging: true,
+        tool_tag_exec_open: None,
+        tool_tag_exec_close: None,
+        tool_tag_output_open: None,
+        tool_tag_output_close: None,
     };
 
     // Save to database
