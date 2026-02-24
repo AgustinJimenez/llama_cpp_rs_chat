@@ -1,12 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { toast } from 'react-hot-toast';
-import { autoParseToolCalls } from '../utils/toolParser';
 import { parseConversationFile } from '../utils/conversationParser';
-import { areToolCallsComplete } from './useToolExecution';
 import { logToastError, logToastWarning } from '../utils/toastLogger';
 import { isTauriEnv } from '../utils/tauri';
 import { getConversation } from '../utils/tauriCommands';
-import type { Message, ToolCall } from '../types';
+import type { Message } from '../types';
 
 interface UseConversationWatcherOptions {
   currentConversationId: string | null;
@@ -16,9 +14,6 @@ interface UseConversationWatcherOptions {
   setTokensUsed: React.Dispatch<React.SetStateAction<number | undefined>>;
   setMaxTokens: React.Dispatch<React.SetStateAction<number | undefined>>;
   setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;
-  processToolCalls: (toolCalls: ToolCall[], lastMessage: Message) => Promise<void>;
-  isMessageProcessed: (messageId: string) => boolean;
-  shouldStopExecution: (toolCalls: ToolCall[]) => boolean;
 }
 
 const WS_RECONNECT_BASE_MS = 500;
@@ -55,7 +50,10 @@ function getNextDelay(attempt: number): number {
 
 /**
  * Hook to watch conversation updates via WebSocket.
- * Handles real-time updates, tool call detection, and context warnings.
+ * Handles real-time updates and context warnings.
+ *
+ * Tool execution is handled entirely by the backend inline during generation.
+ * This hook only manages message display and loading state.
  */
 // eslint-disable-next-line max-lines-per-function
 export function useConversationWatcher({
@@ -66,9 +64,6 @@ export function useConversationWatcher({
   setTokensUsed,
   setMaxTokens,
   setIsLoading,
-  processToolCalls,
-  isMessageProcessed,
-  shouldStopExecution,
 }: UseConversationWatcherOptions) {
   const lastWsUpdateAtRef = useRef<number>(Date.now());
   const lastPolledAssistantContentRef = useRef<string>('');
@@ -91,23 +86,6 @@ export function useConversationWatcher({
     const reconcileUiStateFromMessages = async (parsedMessages: Message[]) => {
       const lastMessage = parsedMessages[parsedMessages.length - 1];
       if (!lastMessage || lastMessage.role !== 'assistant') {
-        return;
-      }
-
-      const toolCalls = autoParseToolCalls(lastMessage.content);
-      if (toolCalls.length > 0) {
-        const hasComplete = areToolCallsComplete(lastMessage.content, toolCalls);
-        if (hasComplete && shouldStopExecution(toolCalls)) {
-          isStreamingRef.current = false;
-          setIsLoading(false);
-          return;
-        }
-
-        if (hasComplete && !isMessageProcessed(lastMessage.id) && !shouldStopExecution(toolCalls)) {
-          await processToolCalls(toolCalls, lastMessage);
-        }
-
-        setIsLoading(!hasComplete);
         return;
       }
 
@@ -164,11 +142,8 @@ export function useConversationWatcher({
     currentConversationId,
     isStreamingRef,
     currentMessagesRef,
-    processToolCalls,
-    isMessageProcessed,
     setIsLoading,
     setMessages,
-    shouldStopExecution,
   ]);
 
   useEffect(() => {
@@ -256,7 +231,7 @@ export function useConversationWatcher({
       console.log('[ConversationWatcher] Updated messages, count:', parsedMessages.length);
 
       // Check for generation errors
-      if (content.includes('⚠️ Generation Error:')) {
+      if (content.includes('\u26a0\ufe0f Generation Error:')) {
         console.error('[ConversationWatcher] Generation error detected');
         const display = 'Model generation failed. Try simplifying your request or reducing context size.';
         logToastError('useConversationWatcher.handleUpdate', display);
@@ -265,8 +240,9 @@ export function useConversationWatcher({
         return;
       }
 
-      // Handle tool calls in assistant messages
-      handleToolCalls(parsedMessages);
+      // No tool calls to handle — backend does this inline during generation.
+      // Just turn off loading spinner.
+      setIsLoading(false);
 
       // Update token counts
       if (message.tokens_used !== undefined && message.tokens_used !== null) {
@@ -278,48 +254,23 @@ export function useConversationWatcher({
     }
 
     function handleContextWarnings(content: string) {
-      if (content.includes('⚠️ Context Size Reduced') && content.includes('Auto-reduced to:')) {
+      if (content.includes('\u26a0\ufe0f Context Size Reduced') && content.includes('Auto-reduced to:')) {
         const match = content.match(/Auto-reduced to: (\d+) tokens/);
         if (match) {
           const reducedSize = parseInt(match[1]);
           if (reducedSize < 4096) {
-            const display = `⚠️ Context size critically low (${reducedSize} tokens)! Model may not work properly.`;
+            const display = `\u26a0\ufe0f Context size critically low (${reducedSize} tokens)! Model may not work properly.`;
             logToastWarning('useConversationWatcher.context', display);
             toast.error(display, { duration: 10000 });
           } else {
-            const display = `⚠️ Context size reduced to ${reducedSize} tokens due to VRAM limits.`;
+            const display = `\u26a0\ufe0f Context size reduced to ${reducedSize} tokens due to VRAM limits.`;
             logToastWarning('useConversationWatcher.context', display);
             toast(display, {
               duration: 5000,
-              icon: '⚠️',
+              icon: '\u26a0\ufe0f',
             });
           }
         }
-      }
-    }
-
-    function handleToolCalls(parsedMessages: Message[]) {
-      const lastMessage = parsedMessages[parsedMessages.length - 1];
-      if (!lastMessage || lastMessage.role !== 'assistant' || !lastMessage.content.length) {
-        return;
-      }
-
-      const toolCalls = autoParseToolCalls(lastMessage.content);
-      console.log('[ConversationWatcher] Detected', toolCalls.length, 'tool calls');
-
-      if (toolCalls.length > 0) {
-        const hasComplete = areToolCallsComplete(lastMessage.content, toolCalls);
-        console.log('[ConversationWatcher] Tool calls complete:', hasComplete);
-
-        if (hasComplete && !isMessageProcessed(lastMessage.id)) {
-          // Double-check we shouldn't stop before processing
-          if (!shouldStopExecution(toolCalls)) {
-            processToolCalls(toolCalls, lastMessage);
-          }
-        }
-      } else {
-        // No tool calls - turn off loading spinner
-        setIsLoading(false);
       }
     }
   }, [
@@ -329,9 +280,6 @@ export function useConversationWatcher({
     setTokensUsed,
     setMaxTokens,
     setIsLoading,
-    processToolCalls,
-    isMessageProcessed,
-    shouldStopExecution,
   ]);
 
   return {};

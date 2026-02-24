@@ -10,7 +10,8 @@ interface ToolParser {
 
 /**
  * Mistral/Devstral tool parser
- * Format: [TOOL_CALLS]function_name[ARGS]{"arg": "value"}
+ * Comma format: [TOOL_CALLS]function_name,{"arg": "value"}[/TOOL_CALLS]
+ * JSON format:  [TOOL_CALLS][{"name":"func","arguments":{...}}][/TOOL_CALLS]
  */
 const mistralParser: ToolParser = {
   detect(text: string): boolean {
@@ -19,30 +20,33 @@ const mistralParser: ToolParser = {
 
   parse(text: string): ToolCall[] {
     const toolCalls: ToolCall[] = [];
-
-    // Regex to match [TOOL_CALLS]function_name[ARGS]{...}
-    // Use [\s\S]*? to properly handle nested JSON
-    const regex = /\[TOOL_CALLS\]([[][^[]+)\[ARGS\]([\s\S]*?)(?=\[TOOL_CALLS\]|$)/g;
+    const regex = /\[TOOL_CALLS\]([\s\S]*?)\[\/TOOL_CALLS\]/g;
     let match;
 
     while ((match = regex.exec(text)) !== null) {
-      const functionName = match[1].trim();
-      const argsText = match[2].trim();
-
-      // Extract JSON from the arguments text
-      const jsonMatch = argsText.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) continue;
-
-      try {
-        const args = JSON.parse(jsonMatch[0]);
-        toolCalls.push({
-          id: crypto.randomUUID(),
-          name: functionName,
-          arguments: args,
-        });
-      } catch (e) {
-        console.error('Failed to parse tool call arguments:', e, jsonMatch[0]);
+      const body = match[1].trim();
+      // Try comma format: name,{"key":"val"}
+      const commaIdx = body.indexOf(',{');
+      if (commaIdx > 0) {
+        const name = body.slice(0, commaIdx).trim();
+        try {
+          const args = JSON.parse(body.slice(commaIdx + 1));
+          if (name && !name.includes(' ')) {
+            toolCalls.push({ id: crypto.randomUUID(), name, arguments: args });
+            continue;
+          }
+        } catch { /* fall through */ }
       }
+      // Try JSON object/array format
+      try {
+        const parsed = JSON.parse(body);
+        const items = Array.isArray(parsed) ? parsed : [parsed];
+        for (const item of items) {
+          if (item.name) {
+            toolCalls.push({ id: crypto.randomUUID(), name: item.name, arguments: item.arguments || {} });
+          }
+        }
+      } catch { /* skip */ }
     }
 
     return toolCalls;
@@ -77,8 +81,21 @@ const llama3Parser: ToolParser = {
           name: functionName,
           arguments: args,
         });
-      } catch (e) {
-        console.error('Failed to parse tool call arguments:', e, argsJson);
+      } catch {
+        // Fall back to XML parameter format: <parameter=key>value</parameter>
+        const params: Record<string, unknown> = {};
+        const paramRegex = /<parameter=([^>]+)>([\s\S]*?)<\/parameter>/g;
+        let pm;
+        while ((pm = paramRegex.exec(argsJson)) !== null) {
+          params[pm[1].trim()] = pm[2].trim();
+        }
+        if (Object.keys(params).length > 0) {
+          toolCalls.push({
+            id: crypto.randomUUID(),
+            name: functionName,
+            arguments: params,
+          });
+        }
       }
     }
 
@@ -171,7 +188,8 @@ export function autoParseToolCalls(text: string): ToolCall[] {
  */
 export function stripToolCalls(text: string): string {
   return text
-    .replace(/\[TOOL_CALLS\][\s\S]*?(?=\[TOOL_CALLS\]|$)/g, '') // Mistral
+    .replace(/\[TOOL_CALLS\][\s\S]*?\[\/TOOL_CALLS\]/g, '') // Mistral calls
+    .replace(/\[TOOL_RESULTS\][\s\S]*?\[\/TOOL_RESULTS\]/g, '') // Mistral results
     .replace(/<function=[^>]+>[\s\S]*?<\/function>/g, '') // Llama3
     .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '') // Qwen tool calls
     .replace(/<tool_response>[\s\S]*?<\/tool_response>/g, '') // Qwen tool responses

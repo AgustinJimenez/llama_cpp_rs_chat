@@ -1,6 +1,12 @@
 use std::env;
+use std::io::BufRead;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex as StdMutex};
+
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 // Helper function to parse command with proper quote handling
 pub fn parse_command_with_quotes(cmd: &str) -> Vec<String> {
@@ -135,19 +141,35 @@ pub fn execute_command(cmd: &str) -> String {
                 return result;
             }
         }
-        let shell = if cfg!(target_os = "windows") { "cmd" } else { "sh" };
-        let flag = if cfg!(target_os = "windows") { "/C" } else { "-c" };
-        let output = Command::new(shell).arg(flag).arg(trimmed).output();
+        #[cfg(target_os = "windows")]
+        let output = Command::new("cmd")
+            .raw_arg(format!("/C {trimmed}"))
+            .env("PATH", enriched_windows_path())
+            .output();
+        #[cfg(not(target_os = "windows"))]
+        let output = Command::new("sh").arg("-c").arg(trimmed).output();
         return match output {
             Ok(o) => {
                 let stdout = String::from_utf8_lossy(&o.stdout);
                 let stderr = String::from_utf8_lossy(&o.stderr);
+                let exit_code = o.status.code().unwrap_or(-1);
                 if !stderr.is_empty() && !o.status.success() {
-                    format!("{stdout}\nError: {stderr}")
+                    format!("{stdout}\nError (exit code {exit_code}): {stderr}")
                 } else if stdout.is_empty() && stderr.is_empty() && o.status.success() {
-                    "Command executed successfully".to_string()
+                    "Command executed successfully (no output)".to_string()
+                } else if stdout.is_empty() && stderr.is_empty() && !o.status.success() {
+                    format!("Command failed with exit code {exit_code} and produced no output. The command may have found no matches or encountered a silent error.")
                 } else {
-                    format!("{stdout}{stderr}")
+                    let combined = format!("{stdout}{stderr}");
+                    if combined.trim().is_empty() {
+                        if o.status.success() {
+                            "Command executed successfully (no output)".to_string()
+                        } else {
+                            format!("Command failed with exit code {exit_code} (no output)")
+                        }
+                    } else {
+                        combined
+                    }
                 }
             }
             Err(e) => format!("Failed to execute command: {e}"),
@@ -210,13 +232,202 @@ pub fn execute_command(cmd: &str) -> String {
                             }
                         }
                     }
+                } else if !output.status.success() && stdout.is_empty() && stderr.is_empty() {
+                    let exit_code = output.status.code().unwrap_or(-1);
+                    format!("Command failed with exit code {exit_code} and produced no output.")
                 } else if !stderr.is_empty() {
-                    format!("{stdout}\nError: {stderr}")
+                    let exit_code = output.status.code().unwrap_or(0);
+                    if output.status.success() {
+                        format!("{stdout}{stderr}")
+                    } else {
+                        format!("{stdout}\nError (exit code {exit_code}): {stderr}")
+                    }
                 } else {
                     stdout.to_string()
                 }
             }
             Err(e) => {
+                format!("Failed to execute command: {e}")
+            }
+        }
+    }
+}
+
+/// Execute a command with streaming output, calling `on_line` for each line of stdout.
+/// Returns the full accumulated output as a String (same as `execute_command`).
+/// Uses spawn() + BufReader instead of .output() so output is available line-by-line.
+///
+/// If `cancel` is provided and set to `true`, the child process is killed and
+/// the function returns early with a cancellation notice.
+pub fn execute_command_streaming(
+    cmd: &str,
+    cancel: Option<Arc<AtomicBool>>,
+    mut on_line: impl FnMut(&str),
+) -> String {
+    let trimmed = cmd.trim();
+
+    let parts = parse_command_with_quotes(trimmed);
+    if parts.is_empty() {
+        return "Error: Empty command".to_string();
+    }
+
+    // cd command - no streaming needed
+    let command_name = &parts[0];
+    if command_name == "cd" {
+        return execute_command(cmd);
+    }
+
+    // Determine how to spawn the command
+    let has_shell_ops = trimmed.contains("&&")
+        || trimmed.contains("||")
+        || trimmed.contains(" | ")
+        || trimmed.contains(';')
+        || trimmed.contains('>')
+        || trimmed.contains('<');
+
+    // For echo redirects on Unix, use the native handler (no streaming needed)
+    if has_shell_ops && !cfg!(target_os = "windows") {
+        if let Some(result) = try_native_echo_redirect(trimmed) {
+            return result;
+        }
+    }
+
+    // For streaming, ALWAYS merge stderr into stdout via `2>&1` shell wrapper.
+    // Many tools (composer, npm, cargo, etc.) write progress to stderr, and we want
+    // to stream ALL output — not just stdout. The shell wrapper overhead is negligible
+    // for long-running commands that benefit from streaming.
+    let env_vars = [
+        ("PYTHONUNBUFFERED", "1"),
+        ("COMPOSER_PROCESS_TIMEOUT", "0"),
+        ("GIT_FLUSH", "1"),
+        ("CI", "true"),
+    ];
+
+    #[cfg(target_os = "windows")]
+    let child_result = {
+        let path = enriched_windows_path();
+        let mut cmd = Command::new("cmd");
+        cmd.raw_arg(format!("/C {trimmed} 2>&1"))
+            .env("PATH", &path);
+        for (k, v) in &env_vars {
+            cmd.env(k, v);
+        }
+        cmd.stdout(Stdio::piped()).stderr(Stdio::null()).spawn()
+    };
+
+    #[cfg(not(target_os = "windows"))]
+    let child_result = {
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c").arg(format!("{trimmed} 2>&1"));
+        for (k, v) in &env_vars {
+            cmd.env(k, v);
+        }
+        cmd.stdout(Stdio::piped()).stderr(Stdio::null()).spawn()
+    };
+
+    match child_result {
+        Ok(mut child) => {
+            let mut output = String::new();
+
+            // Take stdout before sharing child with monitor thread
+            let stdout_pipe = child.stdout.take();
+
+            // Wrap child so the cancel-monitor thread can kill it.
+            // The monitor checks `cancel` every 100ms and calls child.kill() if set.
+            // A `done_flag` tells the monitor to exit on normal completion.
+            let child_cell = Arc::new(StdMutex::new(child));
+            let done_flag = Arc::new(AtomicBool::new(false));
+
+            let monitor_handle = cancel.map(|cancel_flag| {
+                let child_ref = child_cell.clone();
+                let done_ref = done_flag.clone();
+                std::thread::spawn(move || -> bool {
+                    loop {
+                        if cancel_flag.load(Ordering::Relaxed) {
+                            if let Ok(mut guard) = child_ref.lock() {
+                                let _ = guard.kill();
+                            }
+                            return true; // was cancelled
+                        }
+                        if done_ref.load(Ordering::Relaxed) {
+                            return false; // normal completion
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                })
+            });
+
+            // Read stdout and stream output as it arrives.
+            // stderr is merged into stdout via 2>&1, so all output comes through here.
+            // We use byte-level reading instead of BufReader::lines() because:
+            // 1. lines() only splits on \n — progress bars using \r would be missed
+            // 2. When pipe data arrives in bursts (from child's buffer flush), we want
+            //    to emit each line immediately rather than waiting for more \n
+            if let Some(stdout) = stdout_pipe {
+                let mut reader = std::io::BufReader::new(stdout);
+                let mut line_buf = String::new();
+                let mut byte_buf = [0u8; 4096];
+
+                loop {
+                    match std::io::Read::read(&mut reader, &mut byte_buf) {
+                        Ok(0) => break, // EOF (child exited or was killed)
+                        Ok(n) => {
+                            let chunk = String::from_utf8_lossy(&byte_buf[..n]);
+                            for ch in chunk.chars() {
+                                if ch == '\n' || ch == '\r' {
+                                    if !line_buf.is_empty() {
+                                        on_line(&line_buf);
+                                        output.push_str(&line_buf);
+                                        output.push('\n');
+                                        line_buf.clear();
+                                    }
+                                } else {
+                                    line_buf.push(ch);
+                                }
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+                // Flush any remaining content
+                if !line_buf.is_empty() {
+                    on_line(&line_buf);
+                    output.push_str(&line_buf);
+                    output.push('\n');
+                }
+            }
+
+            // Signal monitor thread to exit, then wait for child + monitor
+            done_flag.store(true, Ordering::Relaxed);
+
+            let status = child_cell.lock().unwrap().wait();
+            let exit_code = status.as_ref().ok().and_then(|s| s.code()).unwrap_or(-1);
+            let success = status.as_ref().map(|s| s.success()).unwrap_or(false);
+
+            let was_cancelled = monitor_handle
+                .map(|h| h.join().unwrap_or(false))
+                .unwrap_or(false);
+
+            if was_cancelled {
+                output.push_str("\n[Cancelled by user]\n");
+            }
+
+            if output.trim().is_empty() {
+                if success {
+                    "Command executed successfully (no output)".to_string()
+                } else {
+                    format!("Command failed with exit code {exit_code} and produced no output.")
+                }
+            } else {
+                output
+            }
+        }
+        Err(e) => {
+            // On Windows, if direct execution fails with NotFound, try PowerShell
+            if cfg!(target_os = "windows") && !has_shell_ops && e.kind() == std::io::ErrorKind::NotFound {
+                // Fall back to non-streaming execute_command for PowerShell fallback
+                execute_command(cmd)
+            } else {
                 format!("Failed to execute command: {e}")
             }
         }
@@ -518,5 +729,35 @@ mod tests {
         let content = std::fs::read_to_string("/tmp/test_echo_newlines.txt").unwrap();
         assert!(content.contains("line1\nline2\nline3") || content.contains("line1"));
         std::fs::remove_file("/tmp/test_echo_newlines.txt").ok();
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn test_cmd_quoted_paths_raw_arg() {
+        // Simulates the exact command an AI agent generates: quoted PHP path + quoted composer path
+        let php = env::current_dir().unwrap().join("php-8.2.30").join("php.exe");
+        if !php.exists() {
+            eprintln!("Skipping: php.exe not found at {:?}", php);
+            return;
+        }
+        // Command with quoted paths — the exact pattern that broke before raw_arg fix
+        let cmd = format!("\"{}\" -v", php.display());
+        let result = execute_command(&cmd);
+        assert!(result.contains("PHP"), "Expected PHP version output, got: {result}");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn test_streaming_cmd_quoted_paths_raw_arg() {
+        let php = env::current_dir().unwrap().join("php-8.2.30").join("php.exe");
+        if !php.exists() {
+            eprintln!("Skipping: php.exe not found at {:?}", php);
+            return;
+        }
+        let cmd = format!("\"{}\" -v", php.display());
+        let mut lines = Vec::new();
+        let result = execute_command_streaming(&cmd, None, |line| lines.push(line.to_string()));
+        assert!(result.contains("PHP"), "Expected PHP version output, got: {result}");
+        assert!(!lines.is_empty(), "Expected streaming lines, got none");
     }
 }

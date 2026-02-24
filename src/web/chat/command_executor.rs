@@ -1,8 +1,10 @@
 use llama_cpp_2::{llama_batch::LlamaBatch, model::AddBos};
 use regex::Regex;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
-use super::super::command::execute_command;
+use super::super::command::execute_command_streaming;
 use super::super::models::*;
 use super::super::native_tools;
 use super::tool_tags::ToolTags;
@@ -54,6 +56,9 @@ pub struct CommandExecutionResult {
     pub model_tokens: Vec<i32>,
 }
 
+/// Maximum number of times the same command can be repeated before blocking.
+const MAX_COMMAND_REPEATS: usize = 2;
+
 /// Check for and execute commands using model-specific tool tags.
 pub fn check_and_execute_command_with_tags(
     response: &str,
@@ -63,6 +68,11 @@ pub fn check_and_execute_command_with_tags(
     tags: &ToolTags,
     template_type: Option<&str>,
     web_search_provider: Option<&str>,
+    recent_commands: &mut Vec<String>,
+    token_sender: &Option<mpsc::UnboundedSender<TokenData>>,
+    token_pos: i32,
+    context_size: u32,
+    cancel: Option<Arc<AtomicBool>>,
 ) -> Result<Option<CommandExecutionResult>, String> {
     // Only scan new content since last command execution
     let response_to_scan = if last_scan_pos < response.len() {
@@ -125,20 +135,99 @@ pub fn check_and_execute_command_with_tags(
 
     log_info!(conversation_id, "🔧 Command detected: {}", command_text);
 
-    // Try native tool dispatch (JSON format) first, fall back to shell execution
-    let output = if let Some(native_output) = native_tools::dispatch_native_tool(&command_text, web_search_provider) {
+    // Loop detection: check if this command was recently executed
+    let normalized_cmd = command_text.trim().to_string();
+    let repeat_count = recent_commands.iter().filter(|c| *c == &normalized_cmd).count();
+    if repeat_count >= MAX_COMMAND_REPEATS {
+        log_info!(
+            conversation_id,
+            "🔁 Loop detected! Command repeated {} times: {}",
+            repeat_count + 1,
+            normalized_cmd
+        );
+        let output = format!(
+            "LOOP DETECTED: You have already run this exact command {} times with the same result. \
+             STOP repeating it. Try a COMPLETELY DIFFERENT approach, or explain to the user what is blocking you.",
+            repeat_count
+        );
+        let output_open = format!("\n{}\n", tags.output_open);
+        let output_close = format!("\n{}\n", tags.output_close);
+        let output_block = format!("{}{}{}", output_open, output.trim(), output_close);
+        let model_block = wrap_output_for_model(&output_block, template_type);
+        let model_tokens = model
+            .str_to_token(&model_block, AddBos::Never)
+            .map_err(|e| format!("Tokenization of loop detection block failed: {e}"))?;
+        return Ok(Some(CommandExecutionResult {
+            output_block,
+            model_tokens: model_tokens.iter().map(|t| t.0).collect(),
+        }));
+    }
+    recent_commands.push(normalized_cmd);
+
+    // Stream the output_open tag to frontend immediately so the UI shows the block
+    let output_open = format!("\n{}\n", tags.output_open);
+    let output_close = format!("\n{}\n", tags.output_close);
+
+    if let Some(ref sender) = token_sender {
+        let _ = sender.send(TokenData {
+            token: output_open.clone(),
+            tokens_used: token_pos,
+            max_tokens: context_size as i32,
+        });
+    }
+
+    // Check if this is an `execute_command` tool call — route through streaming path
+    // so the UI shows line-by-line output for long-running commands (composer, npm, etc.)
+    let output = if let Some(cmd) = native_tools::extract_execute_command(&command_text) {
+        log_info!(conversation_id, "🐚 Streaming execute_command: {}", cmd);
+        let sender_clone = token_sender.clone();
+        execute_command_streaming(&cmd, cancel.clone(), |line| {
+            if let Some(ref sender) = sender_clone {
+                let _ = sender.send(TokenData {
+                    token: format!("{line}\n"),
+                    tokens_used: token_pos,
+                    max_tokens: context_size as i32,
+                });
+            }
+        })
+    } else if let Some(native_output) = native_tools::dispatch_native_tool(&command_text, web_search_provider) {
         log_info!(conversation_id, "📦 Dispatched to native tool handler");
+        // Non-execute tools complete quickly, stream their output at once
+        if let Some(ref sender) = token_sender {
+            let _ = sender.send(TokenData {
+                token: native_output.trim().to_string(),
+                tokens_used: token_pos,
+                max_tokens: context_size as i32,
+            });
+        }
         native_output
     } else {
         let trimmed_cmd = command_text.trim();
         if trimmed_cmd.starts_with('{') || trimmed_cmd.starts_with('[') {
             // Looks like a JSON tool call that failed to parse — don't execute as shell.
-            // This prevents `sh: {name:: command not found` errors.
             log_info!(conversation_id, "⚠️ JSON-like tool call failed to parse, returning error to model");
-            "Error: Failed to parse tool call JSON. The JSON may be malformed (check for unescaped backslashes, missing braces, or literal newlines in strings). Please try the execute_command tool to write files instead.".to_string()
+            let err_msg = "Error: Failed to parse tool call JSON. The JSON may be malformed (check for unescaped backslashes, missing braces, or literal newlines in strings). Please try the execute_command tool to write files instead.".to_string();
+            if let Some(ref sender) = token_sender {
+                let _ = sender.send(TokenData {
+                    token: err_msg.clone(),
+                    tokens_used: token_pos,
+                    max_tokens: context_size as i32,
+                });
+            }
+            err_msg
         } else {
-            log_info!(conversation_id, "🐚 Falling back to shell execution");
-            execute_command(&command_text)
+            log_info!(conversation_id, "🐚 Falling back to streaming shell execution");
+            // Use streaming execution — each line is sent to frontend as it arrives
+            let sender_clone = token_sender.clone();
+            execute_command_streaming(&command_text, cancel.clone(), |line| {
+                if let Some(ref sender) = sender_clone {
+                    let _ = sender.send(TokenData {
+                        token: format!("{line}\n"),
+                        tokens_used: token_pos,
+                        max_tokens: context_size as i32,
+                    });
+                }
+            })
         }
     };
     log_info!(
@@ -147,9 +236,16 @@ pub fn check_and_execute_command_with_tags(
         output.len()
     );
 
-    // Format output block for frontend/logging (just output tags, no template wrapping)
-    let output_open = format!("\n{}\n", tags.output_open);
-    let output_close = format!("\n{}\n", tags.output_close);
+    // Stream the output_close tag to frontend
+    if let Some(ref sender) = token_sender {
+        let _ = sender.send(TokenData {
+            token: output_close.clone(),
+            tokens_used: token_pos,
+            max_tokens: context_size as i32,
+        });
+    }
+
+    // Format the full output block for model injection and logging
     let output_block = format!("{}{}{}", output_open, output.trim(), output_close);
 
     // Build model injection block with chat template turn wrapping.
@@ -213,22 +309,6 @@ pub fn inject_output_tokens(
     }
 
     Ok(())
-}
-
-/// Stream command output to frontend via token sender.
-pub fn stream_command_output(
-    output_block: &str,
-    token_sender: &Option<mpsc::UnboundedSender<TokenData>>,
-    token_pos: i32,
-    context_size: u32,
-) {
-    if let Some(ref sender) = token_sender {
-        let _ = sender.send(TokenData {
-            token: output_block.to_string(),
-            tokens_used: token_pos,
-            max_tokens: context_size as i32,
-        });
-    }
 }
 
 /// Wrap tool output in the model's chat template turn structure.

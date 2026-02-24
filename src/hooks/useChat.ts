@@ -2,15 +2,13 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import { toast } from 'react-hot-toast';
 import { createChatTransport, type ChatTransport, type TimingInfo } from '../utils/chatTransport';
-import { autoParseToolCalls } from '../utils/toolParser';
 import { useConversationUrl } from './useConversationUrl';
-import { useToolExecution } from './useToolExecution';
 import { useConversationWatcher } from './useConversationWatcher';
 import { logToastError } from '../utils/toastLogger';
 import { notifyIfUnfocused } from '../utils/tauri';
 import { parseConversationFile } from '../utils/conversationParser';
 import { getConversation } from '../utils/tauriCommands';
-import type { Message, ChatRequest, ToolCall } from '../types';
+import type { Message, ChatRequest } from '../types';
 
 function isAbortErrorMessage(message: string): boolean {
   return /aborted/i.test(message);
@@ -25,27 +23,14 @@ function removeEmptyAssistantMessage(
   );
 }
 
-function canSendMessage(opts: {
-  content: string;
-  bypassLoadingCheck: boolean;
-  isLoading: boolean;
-}) {
-  const { content, bypassLoadingCheck, isLoading } = opts;
-  if (!bypassLoadingCheck && (isLoading || !content.trim())) {
-    return false;
-  }
-  if (!content.trim()) {
-    return false;
-  }
-  return true;
-}
-
 /**
- * Main chat hook - orchestrates messaging, streaming, and tool execution.
+ * Main chat hook - orchestrates messaging and streaming.
+ *
+ * Tool execution is handled entirely by the backend inline during generation.
+ * The frontend only handles token display and conversation management.
  *
  * Delegates to specialized hooks:
  * - useConversationUrl: URL param persistence
- * - useToolExecution: Tool call handling and loop detection
  * - useConversationWatcher: WebSocket updates
  */
 // eslint-disable-next-line max-lines-per-function
@@ -110,7 +95,6 @@ export function useChat() {
     }
   }, []);
 
-  const toolExecutionRef = useRef<ReturnType<typeof useToolExecution> | null>(null);
   const hasLoggedFirstTokenRef = useRef(false);
 
   const runStream = useCallback(async (params: {
@@ -157,22 +141,6 @@ export function useChat() {
           if (timings) setLastTimings(timings);
 
           setIsLoading(false);
-          // Read latest messages via updater (synchronous) but keep side effects outside.
-          // Use a wrapper object so TypeScript tracks the mutation from inside the callback.
-          const pending: { action: { calls: ToolCall[]; msg: Message } | null } = { action: null };
-          setMessages(prev => {
-            const lastMsg = prev[prev.length - 1];
-            if (lastMsg && lastMsg.role === 'assistant' && lastMsg.content) {
-              const toolCalls = autoParseToolCalls(lastMsg.content);
-              if (toolCalls.length > 0) {
-                pending.action = { calls: toolCalls, msg: lastMsg };
-              }
-            }
-            return prev;
-          });
-          if (pending.action) {
-            toolExecutionRef.current?.processToolCalls(pending.action.calls, pending.action.msg);
-          }
         },
         onError: (errorMsg) => {
           if (streamSeqRef.current !== streamSeq) return;
@@ -197,13 +165,12 @@ export function useChat() {
     );
   }, [currentConversationId, setMessages]);
 
-  // Send message - defined before tool execution hook since it's needed there
+  // Send message
   const sendMessage = useCallback(async (content: string, bypassLoadingCheck = false) => {
-    if (!canSendMessage({
-      content,
-      bypassLoadingCheck,
-      isLoading,
-    })) {
+    if (!bypassLoadingCheck && (isLoading || !content.trim())) {
+      return;
+    }
+    if (!content.trim()) {
       return;
     }
 
@@ -213,14 +180,6 @@ export function useChat() {
     }
     abortControllerRef.current = new AbortController();
 
-    // Check if this is a tool result (not a new user message)
-    const isToolResult = content.startsWith('[TOOL_RESULTS]');
-    if (!isToolResult) {
-      toolExecutionRef.current?.resetToolState();
-    } else {
-      console.log('[useChat] Continuing with tool results');
-    }
-
     // Create user message
     const userMessage: Message = {
       id: crypto.randomUUID(),
@@ -229,10 +188,7 @@ export function useChat() {
       timestamp: Date.now(),
     };
 
-    // Add user message to UI (skip tool results - they're only for the model)
-    if (!isToolResult) {
-      setMessages(prev => [...prev, userMessage]);
-    }
+    setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
     setError(null);
 
@@ -282,14 +238,6 @@ export function useChat() {
     }
   }, [isLoading, currentConversationId, runStream]);
 
-  // Tool execution hook
-  const toolExecution = useToolExecution({
-    maxTokens,
-    sendMessage,
-    setIsLoading,
-  });
-  toolExecutionRef.current = toolExecution;
-
   // URL persistence hook
   useConversationUrl({
     currentConversationId,
@@ -305,9 +253,6 @@ export function useChat() {
     setTokensUsed,
     setMaxTokens,
     setIsLoading,
-    processToolCalls: toolExecution.processToolCalls,
-    isMessageProcessed: toolExecution.isMessageProcessed,
-    shouldStopExecution: toolExecution.shouldStopExecution,
   });
 
   // Stop the current generation

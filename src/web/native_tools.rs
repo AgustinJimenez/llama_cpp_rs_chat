@@ -256,6 +256,85 @@ fn try_parse_llama3_xml_format(trimmed: &str) -> Option<(String, Value)> {
     Some((name, Value::Object(args)))
 }
 
+/// Fallback: infer tool name from bare argument keys.
+///
+/// Some models (GLM) put just the arguments without the name/arguments wrapper inside
+/// SYSTEM.EXEC tags, e.g. `{"command": "ls"}` or `{"path": "/tmp", "content": "hello"}`.
+/// We infer the tool name from which keys are present.
+fn try_infer_tool_from_bare_args(trimmed: &str) -> Option<(String, Value)> {
+    let parsed = try_parse_with_fixups(trimmed)?;
+    let obj = parsed.as_object()?;
+
+    // Skip if it has a "name" key — that's the standard wrapper format (handled elsewhere)
+    if obj.contains_key("name") {
+        return None;
+    }
+
+    let name = if obj.contains_key("command") {
+        "execute_command"
+    } else if obj.contains_key("code") {
+        "execute_python"
+    } else if obj.contains_key("path") && obj.contains_key("content") {
+        "write_file"
+    } else if obj.contains_key("query") {
+        "web_search"
+    } else if obj.contains_key("url") {
+        "web_fetch"
+    } else if obj.contains_key("path") {
+        // Could be read_file or list_directory — default to read_file
+        "read_file"
+    } else {
+        return None;
+    };
+
+    Some((name.to_string(), parsed))
+}
+
+/// Try to parse a tool call text into (name, arguments) using all supported formats.
+///
+/// Returns `Some((name, args))` if parsed, `None` otherwise.
+pub fn try_parse_tool_call(text: &str) -> Option<(String, Value)> {
+    let trimmed = text.trim();
+    if let Some(result) = try_parse_json_format(trimmed) {
+        Some(result)
+    } else if let Some(result) = try_parse_mistral_comma_format(trimmed) {
+        Some(result)
+    } else if let Some(result) = try_parse_llama3_xml_format(trimmed) {
+        Some(result)
+    } else if let Some(result) = try_parse_name_json_format(trimmed) {
+        Some(result)
+    } else {
+        None
+    }
+}
+
+/// If the text is an `execute_command` tool call, extract and return the command string.
+/// Used by the command executor to route `execute_command` through the streaming path.
+pub fn extract_execute_command(text: &str) -> Option<String> {
+    // First try the standard tool call format: {"name":"execute_command","arguments":{"command":"..."}}
+    if let Some((name, args)) = try_parse_tool_call(text) {
+        if name == "execute_command" {
+            let command = args.get("command").and_then(|v| v.as_str())?;
+            if !command.is_empty() {
+                return Some(command.to_string());
+            }
+        }
+        return None;
+    }
+
+    // Fallback: some models (GLM) put bare arguments without the name/arguments wrapper,
+    // e.g. {"command": "..."} inside SYSTEM.EXEC tags
+    let trimmed = text.trim();
+    if let Some(parsed) = try_parse_with_fixups(trimmed) {
+        if let Some(command) = parsed.get("command").and_then(|v| v.as_str()) {
+            if !command.is_empty() {
+                return Some(command.to_string());
+            }
+        }
+    }
+    None
+}
+
 /// Try to dispatch a tool call to a native handler.
 ///
 /// Supports multiple formats:
@@ -266,6 +345,9 @@ fn try_parse_llama3_xml_format(trimmed: &str) -> Option<(String, Value)> {
 /// 5. Name+JSON:      `read_file{"path": "..."}` (Granite native format)
 ///
 /// Returns `Some(output)` if recognized, `None` to fall back to shell.
+///
+/// Note: `execute_command` is handled here as a blocking fallback. The command executor
+/// should prefer `extract_execute_command()` + `execute_command_streaming()` for streaming.
 pub fn dispatch_native_tool(text: &str, web_search_provider: Option<&str>) -> Option<String> {
     let trimmed = text.trim();
 
@@ -276,6 +358,9 @@ pub fn dispatch_native_tool(text: &str, web_search_provider: Option<&str>) -> Op
     } else if let Some((n, a)) = try_parse_llama3_xml_format(trimmed) {
         (n, a)
     } else if let Some((n, a)) = try_parse_name_json_format(trimmed) {
+        (n, a)
+    } else if let Some((n, a)) = try_infer_tool_from_bare_args(trimmed) {
+        // Fallback: some models (GLM) put bare arguments without name/arguments wrapper
         (n, a)
     } else {
         return None;

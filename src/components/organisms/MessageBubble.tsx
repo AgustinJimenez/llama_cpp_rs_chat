@@ -3,7 +3,7 @@ import type { Message } from '../../types';
 import type { MessageSegment } from '../../hooks/useMessageParsing';
 import { useMessageParsing } from '../../hooks/useMessageParsing';
 import { MarkdownContent } from '../molecules/MarkdownContent';
-import { ThinkingBlock, CommandExecBlock, ToolCallBlock } from '../molecules/messages';
+import { ThinkingBlock, ToolCallBlock } from '../molecules/messages';
 
 interface MessageBubbleProps {
   message: Message;
@@ -97,7 +97,7 @@ const UserMessage: React.FC<{
 
 
 /**
- * Assistant message component with thinking, tool calls, and command blocks
+ * Assistant message component with thinking and tool calls
  * rendered in chronological order.
  */
 const AssistantMessage: React.FC<{
@@ -106,14 +106,12 @@ const AssistantMessage: React.FC<{
   thinkingContent: string | null;
   isThinkingStreaming?: boolean;
   segments: MessageSegment[];
-  isStreaming?: boolean;
 }> = ({
   message,
   viewMode,
   thinkingContent,
   isThinkingStreaming,
   segments,
-  isStreaming,
 }) => (
   <div
     className="w-full flex justify-start"
@@ -135,14 +133,6 @@ const AssistantMessage: React.FC<{
           {segments.map((segment, index) => {
             if (segment.type === 'thinking') {
               return <ThinkingBlock key={`seg-think-${index}`} content={segment.content} />;
-            }
-            if (segment.type === 'command') {
-              return (
-                <CommandExecBlock
-                  key={`seg-cmd-${index}`}
-                  blocks={[{ command: segment.command, output: segment.output }]}
-                />
-              );
             }
             if (segment.type === 'tool_call') {
               return (
@@ -168,14 +158,6 @@ const AssistantMessage: React.FC<{
             );
           })}
 
-          {/* Processing indicator: shown when streaming and last segment is a completed command */}
-          {isStreaming && segments.length > 0 && segments[segments.length - 1].type === 'command'
-            && (segments[segments.length - 1] as { output: string | null }).output !== null && (
-            <div className="flex items-center gap-2 px-3 py-2 text-xs text-blue-300/70">
-              <span className="inline-block w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-              Processing tool output...
-            </div>
-          )}
         </>
       )}
 
@@ -186,7 +168,7 @@ const AssistantMessage: React.FC<{
 /**
  * Message bubble component - renders user, assistant, or system messages.
  */
-export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode = 'text', isStreaming }) => {
+export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode = 'text', isStreaming: _isStreaming }) => {
   const {
     cleanContent,
     thinkingContent,
@@ -217,7 +199,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode 
       thinkingContent={thinkingContent}
       isThinkingStreaming={isThinkingStreaming}
       segments={segments}
-      isStreaming={isStreaming}
     />
   );
 };

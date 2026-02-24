@@ -41,3 +41,7 @@ tools/*/Cargo.lock
 
 # Test data artifacts
 test_data/
+
+# PHP/Composer artifacts (from tool execution tests)
+vendor/
+composer.lock

@@ -45,6 +45,39 @@ function getToolSummary(name: string, args: Record<string, unknown> | string): s
   return summarizer ? summarizer(args) : defaultToolSummary(args);
 }
 
+/** Track elapsed time while a condition is active. */
+function useElapsedTime(isActive: boolean): number {
+  const startRef = React.useRef<number | null>(null);
+  const [elapsed, setElapsed] = React.useState(0);
+
+  React.useEffect(() => {
+    if (isActive && startRef.current === null) {
+      startRef.current = Date.now();
+    }
+    if (!isActive) {
+      startRef.current = null;
+      setElapsed(0);
+      return;
+    }
+    const id = setInterval(() => {
+      if (startRef.current !== null) {
+        setElapsed(Math.floor((Date.now() - startRef.current) / 1000));
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [isActive]);
+
+  return elapsed;
+}
+
+function formatElapsed(seconds: number): string {
+  if (seconds <= 0) return '';
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}m ${s}s`;
+}
+
 /**
  * Format tool call arguments for the expanded detail view.
  */
@@ -79,87 +112,135 @@ function formatToolArguments(args: Record<string, unknown> | string): string {
   return lines.join('\n');
 }
 
+const ExecutingHeader: React.FC<{ name: string; summary: string; hasOutput: boolean; elapsed: number }> = ({ name, summary, hasOutput, elapsed }) => {
+  const elapsedStr = formatElapsed(elapsed);
+  return (
+    <div className="w-full bg-yellow-950/70 px-3 py-2 flex items-center gap-2">
+      <span className="inline-block w-3 h-3 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
+      <span className="text-xs font-medium text-yellow-300">
+        {hasOutput ? 'Running...' : 'Executing Tool...'}{elapsedStr && ` (${elapsedStr})`}
+      </span>
+      <span className="text-xs text-yellow-300/50 truncate">{formatToolName(name)}: {summary}</span>
+    </div>
+  );
+};
+
+const StreamingOutput: React.FC<{ output: string }> = ({ output }) => {
+  const outputRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
+  }, [output]);
+
+  return (
+    <>
+      <div className="bg-gray-900/50 px-3 py-1 border-t border-yellow-500/20 flex items-center gap-2">
+        <span className="inline-block w-2 h-2 bg-yellow-400 rounded-full animate-pulse" />
+        <span className="text-xs text-yellow-300/70">Live output:</span>
+      </div>
+      <div ref={outputRef} className="bg-black/60 px-3 py-2 max-h-64 overflow-auto">
+        <pre className="text-xs text-yellow-100/80 font-mono whitespace-pre-wrap break-all">{output}</pre>
+      </div>
+    </>
+  );
+};
+
+const WaitingIndicator: React.FC<{ name: string; elapsed: number }> = ({ name, elapsed }) => {
+  const elapsedStr = formatElapsed(elapsed);
+  return (
+    <div className="bg-black/60 px-3 py-2.5 flex items-center gap-2.5 border-t border-yellow-500/20">
+      <div className="flex gap-1 items-center">
+        <div className="w-1.5 h-1.5 bg-yellow-400 rounded-full animate-bounce" style={{ animationDelay: '0ms', animationDuration: '1s' }} />
+        <div className="w-1.5 h-1.5 bg-yellow-400 rounded-full animate-bounce" style={{ animationDelay: '200ms', animationDuration: '1s' }} />
+        <div className="w-1.5 h-1.5 bg-yellow-400 rounded-full animate-bounce" style={{ animationDelay: '400ms', animationDuration: '1s' }} />
+      </div>
+      <span className="text-xs text-yellow-300/70">
+        Waiting for {formatToolName(name)} result...{elapsedStr && ` (${elapsedStr})`}
+      </span>
+    </div>
+  );
+};
+
+const CompletedHeader: React.FC<{
+  name: string; summary: string; isExpanded: boolean; onToggle: () => void;
+}> = ({ name, summary, isExpanded, onToggle }) => (
+  <button
+    onClick={onToggle}
+    className="w-full bg-muted px-3 py-2 flex items-center gap-2 text-left hover:bg-accent transition-colors"
+  >
+    <span className="text-xs font-medium text-foreground">{formatToolName(name)}</span>
+    <span className="text-xs text-muted-foreground truncate flex-1">{summary}</span>
+    <span className="text-muted-foreground">{isExpanded ? '\u25BC' : '\u25C0'}</span>
+  </button>
+);
+
+const CompletedOutput: React.FC<{
+  output: string; isExpanded: boolean; onToggle: () => void;
+}> = ({ output, isExpanded, onToggle }) => (
+  <>
+    <button
+      onClick={onToggle}
+      className="w-full bg-muted px-3 py-1.5 flex items-center gap-2 text-left hover:bg-accent transition-colors"
+      style={{ borderTop: '1px solid hsl(220 8% 28%)' }}
+    >
+      <span className="text-xs font-medium text-foreground">Output</span>
+      <span className="text-xs text-muted-foreground truncate flex-1">
+        {output.length > 80 ? `${output.slice(0, 80)}...` : output}
+      </span>
+      <span className="text-muted-foreground">{isExpanded ? '\u25BC' : '\u25C0'}</span>
+    </button>
+    {isExpanded && (
+      <pre className="text-xs text-foreground font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto"
+        style={{ borderTop: '1px solid hsl(220 8% 28%)' }}>
+        {output}
+      </pre>
+    )}
+  </>
+);
+
+const SingleToolCall: React.FC<{ toolCall: ToolCall }> = ({ toolCall }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [isOutputExpanded, setIsOutputExpanded] = useState(false);
+  const summary = getToolSummary(toolCall.name, toolCall.arguments);
+  const isExecuting = toolCall.isStreaming === true || (toolCall.isPending === true && !toolCall.output);
+  const hasStreamingOutput = toolCall.isStreaming === true && !!toolCall.output && toolCall.output.trim().length > 0;
+  const elapsed = useElapsedTime(isExecuting);
+
+  return (
+    <div
+      className="rounded-xl overflow-hidden"
+      style={{ border: `1px solid ${isExecuting ? 'hsl(45 80% 30%)' : 'hsl(220 8% 28%)'}` }}
+    >
+      {isExecuting
+        ? <ExecutingHeader name={toolCall.name} summary={summary} hasOutput={hasStreamingOutput} elapsed={elapsed} />
+        : <CompletedHeader name={toolCall.name} summary={summary} isExpanded={isExpanded} onToggle={() => setIsExpanded(!isExpanded)} />
+      }
+      {isExpanded && !isExecuting && (
+        <pre className="text-xs text-foreground font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto">
+          {formatToolArguments(toolCall.arguments)}
+        </pre>
+      )}
+      {isExecuting && !hasStreamingOutput && <WaitingIndicator name={toolCall.name} elapsed={elapsed} />}
+      {hasStreamingOutput && <StreamingOutput output={toolCall.output!} />}
+      {!isExecuting && toolCall.output && (
+        <CompletedOutput output={toolCall.output} isExpanded={isOutputExpanded} onToggle={() => setIsOutputExpanded(!isOutputExpanded)} />
+      )}
+    </div>
+  );
+};
+
 /**
  * Compact tool call display with expandable details.
- * Uses the same green theme as CommandExecBlock.
+ * Shows executing/streaming state for in-progress tool calls.
  */
 export const ToolCallBlock: React.FC<ToolCallBlockProps> = ({ toolCalls }) => {
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-  const [expandedOutputIds, setExpandedOutputIds] = useState<Set<string>>(new Set());
-
   if (toolCalls.length === 0) return null;
-
-  const toggleExpand = (id: string) => {
-    setExpandedIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const toggleOutput = (id: string) => {
-    setExpandedOutputIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
 
   return (
     <div className="space-y-2">
-      {toolCalls.map((toolCall) => {
-        const isExpanded = expandedIds.has(toolCall.id);
-        const isOutputExpanded = expandedOutputIds.has(toolCall.id);
-        const summary = getToolSummary(toolCall.name, toolCall.arguments);
-
-        return (
-          <div
-            key={toolCall.id}
-            className="rounded-xl overflow-hidden"
-            style={{ border: '1px solid hsl(220 8% 28%)' }}
-          >
-            {/* Tool call header */}
-            <button
-              onClick={() => toggleExpand(toolCall.id)}
-              className="w-full bg-muted px-3 py-2 flex items-center gap-2 text-left hover:bg-accent transition-colors"
-            >
-              <span className="text-xs font-medium text-foreground">{formatToolName(toolCall.name)}</span>
-              <span className="text-xs text-muted-foreground truncate flex-1">{summary}</span>
-              <span className="text-muted-foreground">{isExpanded ? '\u25BC' : '\u25C0'}</span>
-            </button>
-            {/* Expanded arguments */}
-            {isExpanded && (
-              <pre className="text-xs text-foreground font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto">
-                {formatToolArguments(toolCall.arguments)}
-              </pre>
-            )}
-            {/* Tool output section */}
-            {toolCall.output && (
-              <>
-                <button
-                  onClick={() => toggleOutput(toolCall.id)}
-                  className="w-full bg-muted px-3 py-1.5 flex items-center gap-2 text-left hover:bg-accent transition-colors"
-                  style={{ borderTop: '1px solid hsl(220 8% 28%)' }}
-                >
-                  <span className="text-xs font-medium text-foreground">Output</span>
-                  <span className="text-xs text-muted-foreground truncate flex-1">
-                    {toolCall.output.length > 80 ? `${toolCall.output.slice(0, 80)}...` : toolCall.output}
-                  </span>
-                  <span className="text-muted-foreground">{isOutputExpanded ? '\u25BC' : '\u25C0'}</span>
-                </button>
-                {isOutputExpanded && (
-                  <pre className="text-xs text-foreground font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto"
-                    style={{ borderTop: '1px solid hsl(220 8% 28%)' }}>
-                    {toolCall.output}
-                  </pre>
-                )}
-              </>
-            )}
-          </div>
-        );
-      })}
+      {toolCalls.map((toolCall) => (
+        <SingleToolCall key={toolCall.id} toolCall={toolCall} />
+      ))}
     </div>
   );
 };

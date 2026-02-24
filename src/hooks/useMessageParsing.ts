@@ -1,15 +1,10 @@
 import { useMemo } from 'react';
 import { autoParseToolCalls, stripToolCalls } from '../utils/toolParser';
+import { collectLlama3Spans, collectMistralSpans } from '../utils/toolSpanCollectors';
 import type { Message, ToolCall } from '../types';
-
-export interface SystemExecBlock {
-  command: string;
-  output: string | null;
-}
 
 export type MessageSegment =
   | { type: 'text'; content: string }
-  | { type: 'command'; command: string; output: string | null }
   | { type: 'tool_call'; toolCall: ToolCall }
   | { type: 'thinking'; content: string };
 
@@ -18,7 +13,6 @@ export interface ParsedMessage {
   cleanContent: string;
   thinkingContent: string | null;
   isThinkingStreaming: boolean;
-  systemExecBlocks: SystemExecBlock[];
   contentWithoutThinking: string;
   segments: MessageSegment[];
   isError: boolean;
@@ -30,6 +24,9 @@ const EXEC_REGEX = /(?:<\|\|)?SYSTEM\.EXEC>([\s\S]*?)<SYSTEM\.EXEC\|\|>/g;
 const SYS_OUTPUT_REGEX = /(?:<\|\|)?SYSTEM\.OUTPUT>([\s\S]*?)<SYSTEM\.OUTPUT\|\|>/g;
 const TOOL_CALL_REGEX = /<tool_call>([\s\S]*?)<\/tool_call>/g;
 const TOOL_RESPONSE_REGEX = /<tool_response>([\s\S]*?)<\/tool_response>/g;
+// Mistral format cleanup regexes
+const MISTRAL_CALL_REGEX = /\[TOOL_CALLS\][\s\S]*?\[\/TOOL_CALLS\]/g;
+const MISTRAL_RESULT_REGEX = /\[TOOL_RESULTS\][\s\S]*?\[\/TOOL_RESULTS\]/g;
 const THINKING_REGEX = /<think>[\s\S]*?<\/think>/g;
 // Also match an unclosed <think> tag (streaming in progress)
 const THINKING_UNCLOSED_REGEX = /<think>([\s\S]*)$/;
@@ -93,7 +90,10 @@ function harmonyProcessToolOutput(acc: HarmonyAccumulator, body: string) {
     .trim();
 
   if (acc.pendingCommand) {
-    acc.segments.push({ type: 'command', command: acc.pendingCommand, output: outputText });
+    const { name, args } = parseExecCommand(acc.pendingCommand);
+    acc.segments.push({ type: 'tool_call', toolCall: {
+      id: crypto.randomUUID(), name, arguments: args, output: outputText,
+    } });
     acc.pendingCommand = null;
   }
 
@@ -168,7 +168,10 @@ function parseHarmonyContent(raw: string): HarmonyParsed | null {
 
   // Flush pending command with no output
   if (acc.pendingCommand) {
-    acc.segments.push({ type: 'command', command: acc.pendingCommand, output: null });
+    const { name: pName, args: pArgs } = parseExecCommand(acc.pendingCommand);
+    acc.segments.push({ type: 'tool_call', toolCall: {
+      id: crypto.randomUUID(), name: pName, arguments: pArgs, isPending: true,
+    } });
   }
 
   // Trailing unterminated final segment
@@ -189,6 +192,24 @@ function parseHarmonyContent(raw: string): HarmonyParsed | null {
   return { segments: acc.segments, finalContent };
 }
 
+/** Convert a raw command string to a ToolCall-compatible name + arguments. */
+function parseExecCommand(command: string): { name: string; args: Record<string, unknown> } {
+  // JSON format: {"name":"tool","arguments":{...}}
+  try {
+    const parsed = JSON.parse(command);
+    if (parsed.name) return { name: parsed.name, args: parsed.arguments || {} };
+  } catch { /* not JSON */ }
+  // Function call: tool_name({"arg":"val"})
+  const funcMatch = command.match(/^(\w+)\((\{[\s\S]*\})\)$/);
+  if (funcMatch) {
+    try {
+      return { name: funcMatch[1], args: JSON.parse(funcMatch[2]) };
+    } catch { /* fall through */ }
+  }
+  // Raw shell command
+  return { name: 'execute_command', args: { command } };
+}
+
 function collectExecSpans(content: string): Span[] {
   const spans: Span[] = [];
   const execMatches: { start: number; end: number; command: string }[] = [];
@@ -205,15 +226,53 @@ function collectExecSpans(content: string): Span[] {
 
   for (let i = 0; i < execMatches.length; i++) {
     const exec = execMatches[i];
+    const { name, args } = parseExecCommand(exec.command);
     const output = i < outputMatches.length ? outputMatches[i] : null;
-    spans.push({
-      start: exec.start,
-      end: output ? output.end : exec.end,
-      segment: { type: 'command', command: exec.command, output: output ? output.output : null },
-    });
+    if (output) {
+      spans.push({
+        start: exec.start, end: output.end,
+        segment: { type: 'tool_call', toolCall: {
+          id: crypto.randomUUID(), name, arguments: args,
+          output: output.output,
+        } },
+      });
+    } else {
+      const partialMatch = content.match(/(?:<\|\|)?SYSTEM\.OUTPUT>([\s\S]*)$/);
+      const lastCompleteEnd = content.lastIndexOf('<SYSTEM.OUTPUT||>');
+      const partialStart = content.lastIndexOf('SYSTEM.OUTPUT>');
+      if (partialMatch && partialStart > lastCompleteEnd) {
+        spans.push({
+          start: exec.start, end: content.length,
+          segment: { type: 'tool_call', toolCall: {
+            id: crypto.randomUUID(), name, arguments: args,
+            output: partialMatch[1] || '', isStreaming: true, isPending: true,
+          } },
+        });
+      } else {
+        spans.push({
+          start: exec.start, end: exec.end,
+          segment: { type: 'tool_call', toolCall: {
+            id: crypto.randomUUID(), name, arguments: args, isPending: true,
+          } },
+        });
+      }
+    }
   }
 
   return spans;
+}
+
+/** Check if there's an unclosed <tool_response> after a given position in the content. */
+function findStreamingResponse(content: string, afterPos: number): { output: string; end: number } | null {
+  const afterTc = content.slice(afterPos);
+  const partialTrMatch = afterTc.match(/^[\s\S]*?<tool_response>([\s\S]*)$/);
+  if (!partialTrMatch) return null;
+
+  const lastCompleteTrEnd = content.lastIndexOf('</tool_response>');
+  const partialTrStart = content.lastIndexOf('<tool_response>');
+  if (partialTrStart <= lastCompleteTrEnd) return null;
+
+  return { output: partialTrMatch[1] || '', end: content.length };
 }
 
 function collectToolCallSpans(content: string): Span[] {
@@ -230,22 +289,53 @@ function collectToolCallSpans(content: string): Span[] {
     trMatches.push({ start: match.index, end: match.index + match[0].length, content: (match[1] || '').trim() });
   }
 
+  // Pair tool calls with their responses
+  type TcMatch = typeof tcMatches[number];
+  type TrMatch = typeof trMatches[number];
+  const paired: { tc: TcMatch; tr: TrMatch | null }[] = [];
+
   for (const tc of tcMatches) {
     const tr = trMatches.find(r => r.start > tc.end);
     if (tr) trMatches.splice(trMatches.indexOf(tr), 1);
+    paired.push({ tc, tr: tr || null });
+  }
 
+  // Only the LAST unmatched tool call can claim an unclosed streaming response
+  const lastUnmatchedIdx = paired.reduce(
+    (acc, p, i) => (p.tr === null ? i : acc), -1
+  );
+
+  for (let i = 0; i < paired.length; i++) {
+    const { tc, tr } = paired[i];
     try {
       const parsed = JSON.parse(tc.json);
+
+      const isLastUnmatched = !tr && i === lastUnmatchedIdx;
+      let output: string | undefined = tr ? tr.content : undefined;
+      let isStreaming = false;
+      let spanEnd = tr ? tr.end : tc.end;
+
+      if (isLastUnmatched) {
+        const streaming = findStreamingResponse(content, tc.end);
+        if (streaming) {
+          output = streaming.output;
+          isStreaming = true;
+          spanEnd = streaming.end;
+        }
+      }
+
       spans.push({
         start: tc.start,
-        end: tr ? tr.end : tc.end,
+        end: spanEnd,
         segment: {
           type: 'tool_call',
           toolCall: {
             id: crypto.randomUUID(),
             name: parsed.name,
             arguments: parsed.arguments || {},
-            output: tr ? tr.content : undefined,
+            output,
+            isStreaming,
+            isPending: isLastUnmatched,
           },
         },
       });
@@ -259,7 +349,12 @@ function collectToolCallSpans(content: string): Span[] {
 
 function buildSegments(content: string): MessageSegment[] {
   const cleaned = content.replace(THINKING_REGEX, '').replace(THINKING_UNCLOSED_REGEX, '');
-  const spans = [...collectExecSpans(cleaned), ...collectToolCallSpans(cleaned)]
+  const toolCallSpans = collectToolCallSpans(cleaned);
+  // Try format-specific collectors in priority order (first non-empty wins)
+  const mistralSpans = toolCallSpans.length > 0 ? [] : collectMistralSpans(cleaned);
+  const toolSpans = toolCallSpans.length > 0 ? toolCallSpans
+    : mistralSpans.length > 0 ? mistralSpans : collectLlama3Spans(cleaned);
+  const spans = [...collectExecSpans(cleaned), ...toolSpans]
     .sort((a, b) => a.start - b.start);
 
   const result: MessageSegment[] = [];
@@ -327,25 +422,6 @@ export function useMessageParsing(message: Message): ParsedMessage {
     return !/<think>[\s\S]*?<\/think>/.test(message.content);
   }, [message.content, harmony, thinkingContent]);
 
-  const systemExecBlocks = useMemo(() => {
-    const blocks: SystemExecBlock[] = [];
-    let match;
-
-    while ((match = EXEC_REGEX.exec(effectiveContent)) !== null) {
-      blocks.push({ command: (match[1] || '').trim(), output: null });
-    }
-
-    let outputIndex = 0;
-    while ((match = SYS_OUTPUT_REGEX.exec(effectiveContent)) !== null) {
-      if (outputIndex < blocks.length) {
-        blocks[outputIndex].output = (match[1] || '').trim();
-        outputIndex++;
-      }
-    }
-
-    return blocks;
-  }, [effectiveContent]);
-
   const segments = useMemo(() => {
     // Harmony provides its own ordered segments (thinking + commands + final text interleaved)
     if (harmony) return harmony.segments;
@@ -359,6 +435,8 @@ export function useMessageParsing(message: Message): ParsedMessage {
       .replace(EXEC_REGEX, '')
       .replace(SYS_OUTPUT_REGEX, '')
       .replace(/<tool_response>[\s\S]*?<\/tool_response>/g, '')
+      .replace(MISTRAL_CALL_REGEX, '')
+      .replace(MISTRAL_RESULT_REGEX, '')
       .trim();
   }, [cleanContent]);
 
@@ -368,5 +446,5 @@ export function useMessageParsing(message: Message): ParsedMessage {
     message.content.includes('Error')
   );
 
-  return { toolCalls, cleanContent, thinkingContent, isThinkingStreaming, systemExecBlocks, contentWithoutThinking, segments, isError };
+  return { toolCalls, cleanContent, thinkingContent, isThinkingStreaming, contentWithoutThinking, segments, isError };
 }

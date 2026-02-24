@@ -184,6 +184,9 @@ export interface ToolCall {
   name: string;
   arguments: Record<string, unknown>;
   output?: string;
+  isStreaming?: boolean;
+  /** True when this tool call has no output yet and may still be executing. */
+  isPending?: boolean;
 }
 
 export interface ToolResult {

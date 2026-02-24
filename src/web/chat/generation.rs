@@ -16,7 +16,7 @@ use super::super::database::Database;
 use super::super::model_manager::load_model;
 use super::super::models::*;
 use super::command_executor::{
-    check_and_execute_command_with_tags, inject_output_tokens, stream_command_output,
+    check_and_execute_command_with_tags, inject_output_tokens,
 };
 use super::stop_conditions::check_stop_conditions;
 use super::templates::apply_system_prompt_by_type_with_tags;
@@ -156,9 +156,16 @@ pub async fn generate_llama_response(
         config.tool_tag_output_open.as_deref(),
         config.tool_tag_output_close.as_deref(),
     );
+    // Get model's actual BOS/EOS token text for Jinja templates
+    let bos_text = model.token_to_str(model.token_bos(), Special::Tokenize)
+        .unwrap_or_else(|_| "<s>".to_string());
+    let eos_text = model.token_to_str(model.token_eos(), Special::Tokenize)
+        .unwrap_or_else(|_| "</s>".to_string());
+
     log_info!(&conversation_id, "=== TEMPLATE DEBUG ===");
     log_info!(&conversation_id, "Template type: {:?}", template_type);
     log_info!(&conversation_id, "General name: {:?}", general_name);
+    log_info!(&conversation_id, "BOS token text: {:?}, EOS token text: {:?}", bos_text, eos_text);
     log_info!(&conversation_id, "Tool tags: exec_open={}, exec_close={}", tags.exec_open, tags.exec_close);
     log_info!(&conversation_id, "System prompt type: {:?}", config.system_prompt_type);
     log_info!(
@@ -175,6 +182,8 @@ pub async fn generate_llama_response(
         chat_template_string.as_deref(),
         config.system_prompt.as_deref(),
         &tags,
+        &bos_text,
+        &eos_text,
     )?;
     log_info!(&conversation_id, "=== FINAL PROMPT BEING SENT TO MODEL ===");
     log_info!(&conversation_id, "{}", prompt);
@@ -419,6 +428,8 @@ pub async fn generate_llama_response(
 
     // Track position in response after last executed command to prevent re-matching
     let mut last_exec_scan_pos: usize = 0;
+    // Track recent commands for loop detection
+    let mut recent_commands: Vec<String> = Vec::new();
 
     // Outer loop to handle command execution and continuation
     loop {
@@ -631,7 +642,7 @@ pub async fn generate_llama_response(
             // CRITICAL: This must be inside the inner loop so commands are detected immediately
             // after the closing tag is generated, before the model hallucinates fake output.
             if let Some(exec_result) =
-                check_and_execute_command_with_tags(&response, last_exec_scan_pos, &conversation_id, model, &tags, template_type.as_deref(), config.web_search_provider.as_deref())?
+                check_and_execute_command_with_tags(&response, last_exec_scan_pos, &conversation_id, model, &tags, template_type.as_deref(), config.web_search_provider.as_deref(), &mut recent_commands, &token_sender, token_pos, context_size, Some(cancel.clone()))?
             {
                 // 1. Log to conversation file (CRITICAL: prevents infinite loops)
                 {
@@ -644,13 +655,8 @@ pub async fn generate_llama_response(
                 // 2. Add to response string
                 response.push_str(&exec_result.output_block);
 
-                // 3. Stream to frontend
-                stream_command_output(
-                    &exec_result.output_block,
-                    &token_sender,
-                    token_pos,
-                    context_size,
-                );
+                // Note: streaming to frontend now happens incrementally inside
+                // check_and_execute_command_with_tags (output_open, lines, output_close)
 
                 // 4. Inject model-wrapped tokens into LLM context
                 // Uses model_tokens which include chat template turn structure

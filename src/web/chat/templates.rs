@@ -64,6 +64,16 @@ After execution, the system will inject the result between {output_open} and {ou
 ### web_fetch — Fetch a web page and return its text content
 {exec_open}{{"name": "web_fetch", "arguments": {{"url": "https://example.com"}}}}{exec_close}
 
+## Behavior
+- Be autonomous and resourceful. Complete tasks fully without asking the user for help.
+- If a command fails, try a DIFFERENT alternative approach. Do NOT retry the same failing command.
+- If a tool is not in PATH, use its full path (e.g., `E:\php\php.exe` instead of `php`), or download it to a known location and reference it by full path.
+- After downloading a tool, use its full path to run it. Do NOT assume it is in PATH.
+- Do NOT tell the user to run commands manually — use your tools to solve problems yourself.
+- NEVER repeat the same failing command more than once. If it failed, change your approach.
+- When creating files, use `write_file` to create them directly. Do not just show the code and ask the user to copy it.
+- When a task requires multiple steps, execute them one by one using your tools. Do not skip steps.
+
 ## Important Notes
 - Use `read_file` instead of cat/type to read files
 - Use `write_file` instead of echo/python to write files
@@ -111,6 +121,16 @@ to=web_search code<|message|>{{"query": "rust async tutorial"}}<|call|>
 ### web_fetch — Fetch a web page and return its text content
 to=web_fetch code<|message|>{{"url": "https://example.com"}}<|call|>
 
+## Behavior
+- Be autonomous and resourceful. Complete tasks fully without asking the user for help.
+- If a command fails, try a DIFFERENT alternative approach. Do NOT retry the same failing command.
+- If a tool is not in PATH, use its full path (e.g., `E:\php\php.exe` instead of `php`), or download it to a known location and reference it by full path.
+- After downloading a tool, use its full path to run it. Do NOT assume it is in PATH.
+- Do NOT tell the user to run commands manually — use your tools to solve problems yourself.
+- NEVER repeat the same failing command more than once. If it failed, change your approach.
+- When creating files, use `write_file` to create them directly. Do not just show the code and ask the user to copy it.
+- When a task requires multiple steps, execute them one by one using your tools. Do not skip steps.
+
 ## Important Notes
 - Always use these tools when the user asks you to interact with the filesystem or run commands.
 - After you call a tool, the system will inject the result automatically. Wait for it before continuing.
@@ -134,6 +154,8 @@ pub fn apply_system_prompt_by_type_with_tags(
     chat_template_string: Option<&str>,
     user_system_prompt: Option<&str>,
     tags: &ToolTags,
+    bos_token: &str,
+    eos_token: &str,
 ) -> Result<String, String> {
     match prompt_type {
         SystemPromptType::Default => {
@@ -149,7 +171,9 @@ pub fn apply_system_prompt_by_type_with_tags(
                     messages,
                     tools,
                     None, // documents
-                    true  // add_generation_prompt
+                    true, // add_generation_prompt
+                    bos_token,
+                    eos_token,
                 ) {
                     Ok(result) => return Ok(result),
                     Err(e) => {

@@ -11,10 +11,12 @@ pub fn apply_native_chat_template(
     tools: Option<Vec<Value>>,
     documents: Option<Vec<Value>>,
     add_generation_prompt: bool,
+    bos_token: &str,
+    eos_token: &str,
 ) -> Result<String, String> {
     // Create Jinja2 environment
     let mut env = Environment::new();
-    
+
     // Add the template
     env.add_template("chat_template", template_string)
         .map_err(|e| format!("Failed to parse chat template: {e}"))?;
@@ -29,8 +31,11 @@ pub fn apply_native_chat_template(
         add_generation_prompt => add_generation_prompt,
         // Common Jinja2 template variables
         available_tools => &tools_vec,
-        bos_token => "<s>",
-        eos_token => "</s>",
+        bos_token => bos_token,
+        eos_token => eos_token,
+        // Disable thinking/reasoning mode — models like GLM-4 check this variable
+        // and enter <think> mode if it's undefined, causing immediate EOS
+        enable_thinking => false,
     };
 
     // Render the template
