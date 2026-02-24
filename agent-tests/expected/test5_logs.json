@@ -1,0 +1,20 @@
+[
+  {
+    "timestamp": "2024-03-15 08:12:33",
+    "level": "INFO",
+    "service": "auth-service",
+    "message": "User login successful for user_id=4821"
+  },
+  {
+    "timestamp": "2024-03-15 08:12:45",
+    "level": "WARN",
+    "service": "api-gateway",
+    "message": "Rate limit approaching for client IP 192.168.1.50 (85/100 requests)"
+  },
+   {"timestamp": "2024-03-15 08:13:01", "level": "ERROR", "service": "payment-service", "message": "Transaction failed for order_id=ORD-9921 - insufficient funds"},
+  {"timestamp": "2024-03-15 08:13:15", "level": "INFO", "service": "auth-service", "message": "New session created session_id=sess_abc123"},
+  {"timestamp": "2024-03-15 08:14:02", "level": "ERROR", "service": "database", "message": "Connection pool exhausted, 0/20 connections available"},
+  {"timestamp": "2024-03-15 08:14:10", "level": "WARN", "service": "api-gateway", "message": "Slow response detected for /api/products (2340ms)"},
+  {"timestamp": "2024-03-15 08:15:00", "level": "INFO", "service": "scheduler", "message": "Daily backup job started job_id=backup_20240315"},
+  {"timestamp": "2024-03-15 08:15:30", "level": "ERROR", "service": "email-service", "message": "SMTP connection timeout after 30s to smtp.provider.com"}
+]

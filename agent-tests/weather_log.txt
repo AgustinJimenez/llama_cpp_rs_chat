@@ -1,0 +1,31 @@
+Valley Farm Weather Log - 2024 Growing Season
+
+Month: April
+  Avg Temperature: 58°F
+  Total Rainfall: 4.2 inches
+  Notes: Cool start to the season, steady rain throughout
+
+Month: May
+  Avg Temperature: 67°F
+  Total Rainfall: 5.8 inches
+  Notes: Warm and wet, ideal growing conditions
+
+Month: June
+  Avg Temperature: 75°F
+  Total Rainfall: 3.1 inches
+  Notes: Moderate heat, adequate rain
+
+Month: July
+  Avg Temperature: 92°F
+  Total Rainfall: 0.3 inches
+  Notes: Severe drought, record heat wave, irrigation required
+
+Month: August
+  Avg Temperature: 84°F
+  Total Rainfall: 2.5 inches
+  Notes: Heat broke mid-month, some late rain helped recovery
+
+Month: September
+  Avg Temperature: 71°F
+  Total Rainfall: 4.8 inches
+  Notes: Good rainfall returned, cooler temps, strong late harvest

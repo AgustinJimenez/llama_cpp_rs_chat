@@ -1,0 +1,14 @@
+{
+  "farm": "Valley Farm",
+  "year": 2024,
+  "crop": "Tomatoes",
+  "unit": "pounds per acre",
+  "monthly_yields": [
+    { "month": "April", "yield": 0, "notes": "Planting phase, no harvest" },
+    { "month": "May", "yield": 820, "notes": "Early harvest, excellent growth" },
+    { "month": "June", "yield": 1450, "notes": "Strong production" },
+    { "month": "July", "yield": 340, "notes": "Severe drop due to heat and drought" },
+    { "month": "August", "yield": 980, "notes": "Partial recovery after rain" },
+    { "month": "September", "yield": 1680, "notes": "Best month, ideal conditions" }
+  ]
+}

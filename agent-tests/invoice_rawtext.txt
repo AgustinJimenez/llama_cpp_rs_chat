@@ -1,0 +1,34 @@
+INVOICE
+
+Invoice Number: INV-2024-0847
+Date: March 15, 2024
+
+Bill From:
+  TechSupply Co.
+  456 Industrial Blvd, Suite 200
+  San Jose, CA 95112
+
+Bill To:
+  Acme Corporation
+  789 Business Ave
+  Portland, OR 97201
+
+Items:
+  1. USB-C Docking Station (Model: DS-400)
+     Qty: 25 | Unit Price: $89.99 | Total: $2,249.75
+
+  2. Wireless Keyboard & Mouse Combo (Model: KM-200)
+     Qty: 50 | Unit Price: $45.50 | Total: $2,275.00
+
+  3. 27" 4K Monitor (Model: MON-2700)
+     Qty: 10 | Unit Price: $349.00 | Total: $3,490.00
+
+  4. CAT6 Ethernet Cable 10ft (Model: CAT6-10)
+     Qty: 100 | Unit Price: $8.75 | Total: $875.00
+
+Subtotal: $8,889.75
+Tax (8.5%): $755.63
+Grand Total: $9,645.38
+
+Payment Terms: Net 30
+Due Date: April 14, 2024

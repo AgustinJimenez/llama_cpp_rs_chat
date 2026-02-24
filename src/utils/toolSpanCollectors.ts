@@ -105,6 +105,34 @@ export function collectLlama3Spans(content: string): Span[] {
   return spans;
 }
 
+// --- Shared: convert parsed tool calls + results into spans ---
+
+type ParsedCall = { start: number; end: number; name: string; args: Record<string, unknown> };
+type ParsedResult = { start: number; end: number; content: string };
+
+function buildToolSpans(
+  content: string, calls: ParsedCall[], results: ParsedResult[],
+): Span[] {
+  const spans: Span[] = [];
+  for (const call of calls) {
+    const res = results.find(r => r.start >= call.end);
+    if (res) results.splice(results.indexOf(res), 1);
+    const isLast = call === calls[calls.length - 1];
+    let output: string | undefined = res ? res.content : undefined;
+    let isStreaming = false;
+    let spanEnd = res ? res.end : call.end;
+    if (!res && isLast) {
+      const streaming = findStreamingResponse(content, call.end);
+      if (streaming) { output = streaming.output; isStreaming = true; spanEnd = streaming.end; }
+    }
+    spans.push({ start: call.start, end: spanEnd, segment: { type: 'tool_call', toolCall: {
+      id: crypto.randomUUID(), name: call.name, arguments: call.args,
+      output, isStreaming, isPending: !res && isLast,
+    } } });
+  }
+  return spans;
+}
+
 // --- Mistral: [TOOL_CALLS]...[/TOOL_CALLS] + [TOOL_RESULTS]...[/TOOL_RESULTS] ---
 
 function parseMistralBody(body: string): { name: string; args: Record<string, unknown> } | null {
@@ -125,10 +153,8 @@ function parseMistralBody(body: string): { name: string; args: Record<string, un
 }
 
 export function collectMistralSpans(content: string): Span[] {
-  const spans: Span[] = [];
   let match;
-  type C = { start: number; end: number; name: string; args: Record<string, unknown> };
-  const calls: C[] = [];
+  const calls: ParsedCall[] = [];
 
   // Try bracket format first: [TOOL_CALLS]name[ARGS]{...}
   // Uses balanced-brace scanner instead of regex for JSON body (nested JSON breaks \{.*?\}).
@@ -152,7 +178,7 @@ export function collectMistralSpans(content: string): Span[] {
     }
   }
 
-  if (calls.length === 0) return spans;
+  if (calls.length === 0) return [];
 
   // Collect results from both [TOOL_RESULTS] and <tool_response> tags
   const results: { start: number; end: number; content: string }[] = [];
@@ -162,22 +188,5 @@ export function collectMistralSpans(content: string): Span[] {
   results.push(...trMatches);
   results.sort((a, b) => a.start - b.start);
 
-  for (const call of calls) {
-    const res = results.find(r => r.start >= call.end);
-    if (res) results.splice(results.indexOf(res), 1);
-    const isLast = call === calls[calls.length - 1];
-    let output: string | undefined = res ? res.content : undefined;
-    let isStreaming = false;
-    let spanEnd = res ? res.end : call.end;
-    // Check for streaming response on the last call
-    if (!res && isLast) {
-      const streaming = findStreamingResponse(content, call.end);
-      if (streaming) { output = streaming.output; isStreaming = true; spanEnd = streaming.end; }
-    }
-    spans.push({ start: call.start, end: spanEnd, segment: { type: 'tool_call', toolCall: {
-      id: crypto.randomUUID(), name: call.name, arguments: call.args,
-      output, isStreaming, isPending: !res && isLast,
-    } } });
-  }
-  return spans;
+  return buildToolSpans(content, calls, results);
 }

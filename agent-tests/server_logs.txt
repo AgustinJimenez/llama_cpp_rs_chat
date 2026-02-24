@@ -1,0 +1,8 @@
+2024-03-15 08:12:33 [INFO] auth-service: User login successful for user_id=4821
+2024-03-15 08:12:45 [WARN] api-gateway: Rate limit approaching for client IP 192.168.1.50 (85/100 requests)
+2024-03-15 08:13:01 [ERROR] payment-service: Transaction failed for order_id=ORD-9921 - insufficient funds
+2024-03-15 08:13:15 [INFO] auth-service: New session created session_id=sess_abc123
+2024-03-15 08:14:02 [ERROR] database: Connection pool exhausted, 0/20 connections available
+2024-03-15 08:14:10 [WARN] api-gateway: Slow response detected for /api/products (2340ms)
+2024-03-15 08:15:00 [INFO] scheduler: Daily backup job started job_id=backup_20240315
+2024-03-15 08:15:30 [ERROR] email-service: SMTP connection timeout after 30s to smtp.provider.com

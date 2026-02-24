@@ -1,0 +1,39 @@
+{
+  "invoice_number": "INV-2024-0847",
+  "date": "March 15, 2024",
+  "vendor_name": "TechSupply Co.",
+  "vendor_address": "456 Industrial Blvd, Suite 200, San Jose, CA 95112",
+  "customer_name": "Acme Corporation",
+  "customer_address": "789 Business Ave, Portland, OR 97201",
+  "items": [
+    {
+      "description": "USB-C Docking Station (Model: DS-400)",
+      "quantity": 25,
+      "unit_price": 89.99,
+      "total": 2249.75
+    },
+    {
+      "description": "Wireless Keyboard & Mouse Combo (Model: KM-200)",
+      "quantity": 50,
+      "unit_price": 45.50,
+      "total": 2275.00
+    },
+    {
+      "description": "27\" 4K Monitor (Model: MON-2700)",
+      "quantity": 10,
+      "unit_price": 349.00,
+      "total": 3490.00
+    },
+    {
+      "description": "CAT6 Ethernet Cable 10ft (Model: CAT6-10)",
+      "quantity": 100,
+      "unit_price": 8.75,
+      "total": 875.00
+    }
+  ],
+  "subtotal": 8889.75,
+  "tax": 755.63,
+  "grand_total": 9645.38,
+  "payment_terms": "Net 30",
+  "due_date": "April 14, 2024"
+}

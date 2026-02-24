@@ -1,0 +1,9 @@
+1. Number of employees in the Engineering department: 5
+2. Average salary across all employees: $127,875
+3. Highest-paid employee: Frank Johansson, role: Staff Engineer
+4. Employees hired before 2022:
+   - Alice Chen (2019-03-15)
+   - Bob Martinez (2020-07-01)
+   - Carol Williams (2018-01-10)
+   - Frank Johansson (2017-09-22)
+   - Grace Liu (2020-02-14)
