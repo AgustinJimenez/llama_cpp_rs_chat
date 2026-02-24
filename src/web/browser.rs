@@ -17,6 +17,11 @@ const BROWSER_IDLE_TIMEOUT_SECS: u64 = 300; // 5 minutes
 /// Default timeout for page navigation.
 const NAV_TIMEOUT: Duration = Duration::from_secs(15);
 
+/// Hard timeout for the entire chrome_web_fetch operation.
+/// Covers browser launch + tab creation + navigation + content extraction.
+/// If anything hangs (DNS, Chrome startup, unresponsive DevTools), this kills it.
+const FETCH_HARD_TIMEOUT: Duration = Duration::from_secs(25);
+
 lazy_static::lazy_static! {
     static ref CHROME_BROWSER: Mutex<Option<Browser>> = Mutex::new(None);
 }
@@ -98,7 +103,30 @@ fn new_tab() -> Result<Arc<Tab>, String> {
 }
 
 /// Fetch a web page using headless Chrome (JS-rendered content).
+/// Wrapped in a hard timeout to prevent indefinite blocking when Chrome hangs.
 pub fn chrome_web_fetch(url: &str, max_chars: usize) -> Result<String, String> {
+    let url_owned = url.to_string();
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    std::thread::spawn(move || {
+        let result = chrome_web_fetch_inner(&url_owned, max_chars);
+        let _ = tx.send(result);
+    });
+
+    match rx.recv_timeout(FETCH_HARD_TIMEOUT) {
+        Ok(result) => result,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            eprintln!("[BROWSER] chrome_web_fetch hard timeout ({}s) for URL, killing browser",
+                FETCH_HARD_TIMEOUT.as_secs());
+            // Kill the browser so the spawned thread unblocks on its next CDP call
+            shutdown_browser();
+            Err(format!("Chrome fetch timed out after {}s", FETCH_HARD_TIMEOUT.as_secs()))
+        }
+        Err(e) => Err(format!("Chrome fetch thread error: {e}")),
+    }
+}
+
+fn chrome_web_fetch_inner(url: &str, max_chars: usize) -> Result<String, String> {
     get_or_init_browser()?;
     let tab = new_tab()?;
 

@@ -4,8 +4,9 @@
  * positioned spans for widget rendering in the MD view.
  */
 import type { ToolCall } from '../types';
+import { extractBalancedJson, findStreamingResponse } from './toolFormatUtils';
 
-type MessageSegment =
+export type MessageSegment =
   | { type: 'text'; content: string }
   | { type: 'tool_call'; toolCall: ToolCall }
   | { type: 'thinking'; content: string };
@@ -18,39 +19,6 @@ const LLAMA3_FUNC_REGEX = /<function=([^>]+)>([\s\S]*?)<\/function>/g;
 const MISTRAL_CALL_REGEX = /\[TOOL_CALLS\]([\s\S]*?)\[\/TOOL_CALLS\]/g;
 const MISTRAL_BRACKET_PREFIX = /\[TOOL_CALLS\](\w+)\[ARGS\]/g;
 const MISTRAL_RESULT_REGEX = /\[TOOL_RESULTS\]([\s\S]*?)\[\/TOOL_RESULTS\]/g;
-
-// --- Shared helpers ---
-
-/** Extract balanced JSON starting at text[start]. Returns { end, json } or null. */
-function extractBalancedJson(text: string, start: number): { end: number; json: string } | null {
-  if (start >= text.length || text[start] !== '{') return null;
-  let depth = 0;
-  let inString = false;
-  let prevBackslash = false;
-  for (let i = start; i < text.length; i++) {
-    const ch = text[i];
-    if (inString) {
-      if (ch === '"' && !prevBackslash) inString = false;
-      prevBackslash = ch === '\\' && !prevBackslash;
-    } else {
-      if (ch === '"') { inString = true; prevBackslash = false; }
-      else if (ch === '{') depth++;
-      else if (ch === '}') { depth--; if (depth === 0) return { end: i + 1, json: text.slice(start, i + 1) }; }
-    }
-  }
-  return null;
-}
-
-/** Check if there's an unclosed <tool_response> after a given position. */
-function findStreamingResponse(content: string, afterPos: number): { output: string; end: number } | null {
-  const afterTc = content.slice(afterPos);
-  const partialTrMatch = afterTc.match(/^[\s\S]*?<tool_response>([\s\S]*)$/);
-  if (!partialTrMatch) return null;
-  const lastCompleteTrEnd = content.lastIndexOf('</tool_response>');
-  const partialTrStart = content.lastIndexOf('<tool_response>');
-  if (partialTrStart <= lastCompleteTrEnd) return null;
-  return { output: partialTrMatch[1] || '', end: content.length };
-}
 
 function freshResponseMatches(content: string): { start: number; end: number; content: string }[] {
   const matches: { start: number; end: number; content: string }[] = [];
@@ -152,41 +120,243 @@ function parseMistralBody(body: string): { name: string; args: Record<string, un
   return null;
 }
 
-export function collectMistralSpans(content: string): Span[] {
-  let match;
+/** Bracket format spans: [TOOL_CALLS]name[ARGS]{json} */
+function mistralBracketCalls(content: string): ParsedCall[] {
   const calls: ParsedCall[] = [];
-
-  // Try bracket format first: [TOOL_CALLS]name[ARGS]{...}
-  // Uses balanced-brace scanner instead of regex for JSON body (nested JSON breaks \{.*?\}).
-  const bracketRe = new RegExp(MISTRAL_BRACKET_PREFIX.source, 'g');
-  while ((match = bracketRe.exec(content)) !== null) {
-    const name = match[1].trim();
-    const jsonStart = match.index + match[0].length;
-    const balanced = extractBalancedJson(content, jsonStart);
+  const re = new RegExp(MISTRAL_BRACKET_PREFIX.source, 'g');
+  let match;
+  while ((match = re.exec(content)) !== null) {
+    const balanced = extractBalancedJson(content, match.index + match[0].length);
     if (!balanced) continue;
     try {
-      const args = JSON.parse(balanced.json);
-      calls.push({ start: match.index, end: balanced.end, name, args });
+      calls.push({ start: match.index, end: balanced.end, name: match[1].trim(), args: JSON.parse(balanced.json) });
     } catch { /* skip */ }
   }
+  return calls;
+}
 
-  // Fall back to closed-tag format: [TOOL_CALLS]...[/TOOL_CALLS]
-  if (calls.length === 0) {
-    while ((match = MISTRAL_CALL_REGEX.exec(content)) !== null) {
-      const parsed = parseMistralBody(match[1].trim());
-      if (parsed) calls.push({ start: match.index, end: match.index + match[0].length, ...parsed });
-    }
+/** Closed-tag format spans: [TOOL_CALLS]...[/TOOL_CALLS] */
+function mistralClosedTagCalls(content: string): ParsedCall[] {
+  const calls: ParsedCall[] = [];
+  let match;
+  while ((match = MISTRAL_CALL_REGEX.exec(content)) !== null) {
+    const parsed = parseMistralBody(match[1].trim());
+    if (parsed) calls.push({ start: match.index, end: match.index + match[0].length, ...parsed });
   }
+  return calls;
+}
+
+/** Bare JSON format spans: [TOOL_CALLS]{"name":"...","arguments":{...}} (Magistral) */
+function mistralBareJsonCalls(content: string): ParsedCall[] {
+  const calls: ParsedCall[] = [];
+  const re = /\[TOOL_CALLS\]\s*\{/g;
+  let match;
+  while ((match = re.exec(content)) !== null) {
+    const balanced = extractBalancedJson(content, match.index + match[0].length - 1);
+    if (!balanced) continue;
+    try {
+      const parsed = JSON.parse(balanced.json);
+      if (parsed.name) calls.push({ start: match.index, end: balanced.end, name: parsed.name, args: parsed.arguments || {} });
+    } catch { /* skip */ }
+  }
+  return calls;
+}
+
+export function collectMistralSpans(content: string): Span[] {
+  const bracket = mistralBracketCalls(content);
+  const closed = bracket.length > 0 ? [] : mistralClosedTagCalls(content);
+  const calls = bracket.length > 0 ? bracket : closed.length > 0 ? closed : mistralBareJsonCalls(content);
 
   if (calls.length === 0) return [];
 
   // Collect results from both [TOOL_RESULTS] and <tool_response> tags
-  const results: { start: number; end: number; content: string }[] = [];
+  const results: ParsedResult[] = [];
+  let match;
   while ((match = MISTRAL_RESULT_REGEX.exec(content)) !== null)
     results.push({ start: match.index, end: match.index + match[0].length, content: (match[1] || '').trim() });
-  const trMatches = freshResponseMatches(content);
-  results.push(...trMatches);
+  results.push(...freshResponseMatches(content));
   results.sort((a, b) => a.start - b.start);
 
   return buildToolSpans(content, calls, results);
+}
+
+// --- SYSTEM.EXEC: <||SYSTEM.EXEC>...<SYSTEM.EXEC||> ---
+
+const EXEC_REGEX = /(?:<\|\|)?SYSTEM\.EXEC>([\s\S]*?)<(?:\|\|)?SYSTEM\.EXEC\|\|>/g;
+const SYS_OUTPUT_REGEX = /(?:<\|\|)?SYSTEM\.OUTPUT>([\s\S]*?)<(?:\|\|)?SYSTEM\.OUTPUT\|\|>/g;
+
+/** Convert a raw command string to a ToolCall-compatible name + arguments. */
+export function parseExecCommand(command: string): { name: string; args: Record<string, unknown> } {
+  try {
+    const parsed = JSON.parse(command);
+    if (parsed.name) return { name: parsed.name, args: parsed.arguments || {} };
+  } catch { /* not JSON */ }
+  const funcMatch = command.match(/^(\w+)\((\{[\s\S]*\})\)$/);
+  if (funcMatch) {
+    try {
+      return { name: funcMatch[1], args: JSON.parse(funcMatch[2]) };
+    } catch { /* fall through */ }
+  }
+  return { name: 'execute_command', args: { command } };
+}
+
+export function collectExecSpans(content: string): Span[] {
+  const spans: Span[] = [];
+  const execMatches: { start: number; end: number; command: string }[] = [];
+  let match;
+
+  while ((match = EXEC_REGEX.exec(content)) !== null) {
+    execMatches.push({ start: match.index, end: match.index + match[0].length, command: (match[1] || '').trim() });
+  }
+
+  const outputMatches: { start: number; end: number; output: string }[] = [];
+  while ((match = SYS_OUTPUT_REGEX.exec(content)) !== null) {
+    outputMatches.push({ start: match.index, end: match.index + match[0].length, output: (match[1] || '').trim() });
+  }
+
+  for (let i = 0; i < execMatches.length; i++) {
+    const exec = execMatches[i];
+    const { name, args } = parseExecCommand(exec.command);
+    const output = i < outputMatches.length ? outputMatches[i] : null;
+    if (output) {
+      spans.push({
+        start: exec.start, end: output.end,
+        segment: { type: 'tool_call', toolCall: {
+          id: crypto.randomUUID(), name, arguments: args,
+          output: output.output,
+        } },
+      });
+    } else {
+      const partialMatch = content.match(/(?:<\|\|)?SYSTEM\.OUTPUT>([\s\S]*)$/);
+      const lastCompleteEnd = content.lastIndexOf('<SYSTEM.OUTPUT||>');
+      const partialStart = content.lastIndexOf('SYSTEM.OUTPUT>');
+      if (partialMatch && partialStart > lastCompleteEnd) {
+        spans.push({
+          start: exec.start, end: content.length,
+          segment: { type: 'tool_call', toolCall: {
+            id: crypto.randomUUID(), name, arguments: args,
+            output: partialMatch[1] || '', isStreaming: true, isPending: true,
+          } },
+        });
+      } else {
+        spans.push({
+          start: exec.start, end: exec.end,
+          segment: { type: 'tool_call', toolCall: {
+            id: crypto.randomUUID(), name, arguments: args, isPending: true,
+          } },
+        });
+      }
+    }
+  }
+
+  return spans;
+}
+
+// --- Qwen: <tool_call>{"name":"...","arguments":{...}}</tool_call> ---
+
+const TOOL_CALL_REGEX = /<tool_call>([\s\S]*?)<\/tool_call>/g;
+
+export function collectQwenSpans(content: string): Span[] {
+  const spans: Span[] = [];
+  let match;
+
+  const tcMatches: { start: number; end: number; json: string }[] = [];
+  while ((match = TOOL_CALL_REGEX.exec(content)) !== null) {
+    tcMatches.push({ start: match.index, end: match.index + match[0].length, json: match[1].trim() });
+  }
+
+  const trMatches: { start: number; end: number; content: string }[] = [];
+  const trRe = new RegExp(TOOL_RESPONSE_REGEX.source, 'g');
+  while ((match = trRe.exec(content)) !== null) {
+    trMatches.push({ start: match.index, end: match.index + match[0].length, content: (match[1] || '').trim() });
+  }
+
+  type TcMatch = typeof tcMatches[number];
+  type TrMatch = typeof trMatches[number];
+  const paired: { tc: TcMatch; tr: TrMatch | null }[] = [];
+
+  for (const tc of tcMatches) {
+    const tr = trMatches.find(r => r.start > tc.end);
+    if (tr) trMatches.splice(trMatches.indexOf(tr), 1);
+    paired.push({ tc, tr: tr || null });
+  }
+
+  const lastUnmatchedIdx = paired.reduce(
+    (acc, p, i) => (p.tr === null ? i : acc), -1
+  );
+
+  for (let i = 0; i < paired.length; i++) {
+    const { tc, tr } = paired[i];
+    try {
+      const parsed = JSON.parse(tc.json);
+
+      const isLastUnmatched = !tr && i === lastUnmatchedIdx;
+      let output: string | undefined = tr ? tr.content : undefined;
+      let isStreaming = false;
+      let spanEnd = tr ? tr.end : tc.end;
+
+      if (isLastUnmatched) {
+        const streaming = findStreamingResponse(content, tc.end);
+        if (streaming) {
+          output = streaming.output;
+          isStreaming = true;
+          spanEnd = streaming.end;
+        }
+      }
+
+      spans.push({
+        start: tc.start,
+        end: spanEnd,
+        segment: {
+          type: 'tool_call',
+          toolCall: {
+            id: crypto.randomUUID(),
+            name: parsed.name,
+            arguments: parsed.arguments || {},
+            output,
+            isStreaming,
+            isPending: isLastUnmatched,
+          },
+        },
+      });
+    } catch {
+      // Skip unparseable tool calls
+    }
+  }
+
+  return spans;
+}
+
+// --- Segment builder: combines all collectors into ordered segments ---
+
+export const THINKING_REGEX = /<think>[\s\S]*?<\/think>/g;
+export const THINKING_UNCLOSED_REGEX = /<think>([\s\S]*)$/;
+
+export function buildSegments(content: string): MessageSegment[] {
+  const cleaned = content.replace(THINKING_REGEX, '').replace(THINKING_UNCLOSED_REGEX, '');
+  const qwenSpans = collectQwenSpans(cleaned);
+  const mistralSpans = qwenSpans.length > 0 ? [] : collectMistralSpans(cleaned);
+  const toolSpans = qwenSpans.length > 0 ? qwenSpans
+    : mistralSpans.length > 0 ? mistralSpans : collectLlama3Spans(cleaned);
+  const spans = [...collectExecSpans(cleaned), ...toolSpans]
+    .sort((a, b) => a.start - b.start);
+
+  const result: MessageSegment[] = [];
+  let cursor = 0;
+
+  for (const span of spans) {
+    if (span.start > cursor) {
+      const text = cleaned.slice(cursor, span.start).trim();
+      if (text) result.push({ type: 'text', content: text });
+    }
+    result.push(span.segment);
+    cursor = span.end;
+  }
+
+  if (cursor < cleaned.length) {
+    const text = cleaned.slice(cursor).trim();
+    if (text) result.push({ type: 'text', content: text });
+  }
+
+  return result;
 }

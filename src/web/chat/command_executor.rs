@@ -12,9 +12,10 @@ use crate::log_info;
 
 // Default SYSTEM.EXEC regex (always tried as fallback)
 // (?s) enables DOTALL mode so . matches newlines (multi-line commands)
+// Closing tag: models may emit <SYSTEM.EXEC||> (correct) or <||SYSTEM.EXEC||> (mirrored opening)
 lazy_static::lazy_static! {
     pub static ref EXEC_PATTERN: Regex = Regex::new(
-        r"(?s)SYSTEM\.EXEC>(.+?)<SYSTEM\.EXEC\|{1,2}>"
+        r"(?s)SYSTEM\.EXEC>(.+?)<(?:\|{1,2})?SYSTEM\.EXEC\|{1,2}>"
     ).unwrap();
 
     // Llama3/Hermes XML format: <function=tool_name> ... </function>
@@ -35,6 +36,13 @@ lazy_static::lazy_static! {
     // because non-greedy \{.*?\} fails on nested JSON (e.g. write_file with JSON content).
     static ref MISTRAL_BRACKET_PREFIX: Regex = Regex::new(
         r"\[TOOL_CALLS\](\w+)\[ARGS\]"
+    ).unwrap();
+
+    // Mistral JSON format (Magistral-Small-2509):
+    // [TOOL_CALLS]{"name":"tool_name","arguments":{...}}
+    // The [TOOL_CALLS] tag is followed directly by a JSON object (no name[ARGS] separator).
+    static ref MISTRAL_JSON_PREFIX: Regex = Regex::new(
+        r"\[TOOL_CALLS\]\s*\{"
     ).unwrap();
 }
 
@@ -95,6 +103,69 @@ fn build_model_exec_regex(tags: &ToolTags) -> Option<Regex> {
     Regex::new(&pattern).ok()
 }
 
+// --- Format detectors: each returns the extracted command text or None ---
+
+type FormatDetector = fn(&str, &ToolTags) -> Option<String>;
+
+/// Detector priority order. First match wins.
+const FORMAT_PRIORITY: &[(&str, FormatDetector)] = &[
+    ("model_specific", detect_model_specific),
+    ("exec", detect_exec),
+    ("llama3", detect_llama3),
+    ("harmony", detect_harmony),
+    ("mistral_bracket", detect_mistral_bracket),
+    ("mistral_json", detect_mistral_json),
+];
+
+fn detect_model_specific(text: &str, tags: &ToolTags) -> Option<String> {
+    let re = build_model_exec_regex(tags)?;
+    re.captures(text)?.get(1).map(|m| m.as_str().to_string())
+}
+
+fn detect_exec(text: &str, _tags: &ToolTags) -> Option<String> {
+    EXEC_PATTERN.captures(text)?.get(1).map(|m| m.as_str().to_string())
+}
+
+fn detect_llama3(text: &str, _tags: &ToolTags) -> Option<String> {
+    LLAMA3_FUNC_PATTERN.captures(text)?.get(1).map(|m| m.as_str().to_string())
+}
+
+fn detect_harmony(text: &str, _tags: &ToolTags) -> Option<String> {
+    let caps = HARMONY_CALL_PATTERN.captures(text)?;
+    let (tool_name, args_json) = (caps.get(1)?, caps.get(2)?);
+    Some(format!(
+        r#"{{"name":"{}","arguments":{}}}"#,
+        tool_name.as_str(),
+        args_json.as_str().trim()
+    ))
+}
+
+fn detect_mistral_bracket(text: &str, _tags: &ToolTags) -> Option<String> {
+    let caps = MISTRAL_BRACKET_PREFIX.captures(text)?;
+    let tool_name = caps.get(1)?;
+    let json_start = caps.get(0)?.end();
+    let (_end, args_json) = extract_balanced_json(text, json_start)?;
+    Some(format!(
+        r#"{{"name":"{}","arguments":{}}}"#,
+        tool_name.as_str(),
+        args_json.trim()
+    ))
+}
+
+fn detect_mistral_json(text: &str, _tags: &ToolTags) -> Option<String> {
+    let m = MISTRAL_JSON_PREFIX.find(text)?;
+    // The `{` is at the end of the match, so JSON starts at match.end() - 1
+    let json_start = m.end() - 1;
+    let (_end, json) = extract_balanced_json(text, json_start)?;
+    // Validate it has the expected "name" and "arguments" fields
+    let parsed: serde_json::Value = serde_json::from_str(&json).ok()?;
+    if parsed.get("name").is_some() && parsed.get("arguments").is_some() {
+        Some(json)
+    } else {
+        None
+    }
+}
+
 /// Result of command execution
 pub struct CommandExecutionResult {
     /// Display block for frontend/logging (just the output tags, no chat template wrapping)
@@ -128,70 +199,15 @@ pub fn check_and_execute_command_with_tags(
         return Ok(None);
     };
 
-    // Try model-specific regex first, then default EXEC_PATTERN
+    // Try each format detector in priority order (first match wins)
     let command_text = {
-        let model_regex = build_model_exec_regex(tags);
         let mut found: Option<String> = None;
-
-        // Try model-specific pattern first
-        if let Some(ref re) = model_regex {
-            if let Some(captures) = re.captures(response_to_scan) {
-                if let Some(m) = captures.get(1) {
-                    found = Some(m.as_str().to_string());
-                }
+        for &(_name, detect) in FORMAT_PRIORITY {
+            if let Some(cmd) = detect(response_to_scan, tags) {
+                found = Some(cmd);
+                break;
             }
         }
-
-        // Fall back to default SYSTEM.EXEC pattern
-        if found.is_none() {
-            if let Some(captures) = EXEC_PATTERN.captures(response_to_scan) {
-                if let Some(m) = captures.get(1) {
-                    found = Some(m.as_str().to_string());
-                }
-            }
-        }
-
-        // Fall back to Llama3/Hermes <function=...> pattern (no wrapping <tool_call> tag)
-        if found.is_none() {
-            if let Some(captures) = LLAMA3_FUNC_PATTERN.captures(response_to_scan) {
-                if let Some(m) = captures.get(1) {
-                    found = Some(m.as_str().to_string());
-                }
-            }
-        }
-
-        // Fall back to Harmony format: to=tool_name ... code<|message|>{...}<|call|>
-        if found.is_none() {
-            if let Some(captures) = HARMONY_CALL_PATTERN.captures(response_to_scan) {
-                if let (Some(tool_name), Some(args_json)) = (captures.get(1), captures.get(2)) {
-                    // Reconstruct as standard JSON so dispatch_native_tool can parse it
-                    found = Some(format!(
-                        r#"{{"name":"{}","arguments":{}}}"#,
-                        tool_name.as_str(),
-                        args_json.as_str().trim()
-                    ));
-                }
-            }
-        }
-
-        // Fall back to Mistral v2 bracket format: [TOOL_CALLS]tool_name[ARGS]{...}
-        // Uses balanced-brace scanner instead of regex for the JSON body,
-        // because nested JSON (e.g. write_file content) breaks non-greedy \{.*?\}.
-        if found.is_none() {
-            if let Some(captures) = MISTRAL_BRACKET_PREFIX.captures(response_to_scan) {
-                if let Some(tool_name) = captures.get(1) {
-                    let json_start = captures.get(0).unwrap().end(); // right after [ARGS]
-                    if let Some((_end, args_json)) = extract_balanced_json(response_to_scan, json_start) {
-                        found = Some(format!(
-                            r#"{{"name":"{}","arguments":{}}}"#,
-                            tool_name.as_str(),
-                            args_json.trim()
-                        ));
-                    }
-                }
-            }
-        }
-
         match found {
             Some(cmd) => cmd,
             None => return Ok(None),

@@ -51,6 +51,7 @@ const TOOL_TAG_FAMILIES = {
 
 // Map of general.name -> tool tags
 // Only override for models where native tags work better than SYSTEM.EXEC
+// SYNC: Must match MODEL_TAG_MAP in src/web/chat/tool_tags.rs
 export const MODEL_TOOL_TAGS: Record<string, ToolTags> = {
   // Qwen models - strong tool calling with native tags
   "Qwen_Qwen3 Coder Next": TOOL_TAG_FAMILIES.qwen,
@@ -61,6 +62,7 @@ export const MODEL_TOOL_TAGS: Record<string, ToolTags> = {
   "mistralai_Devstral Small 2507": TOOL_TAG_FAMILIES.mistral,
   "mistralai_Devstral Small 2 24B Instruct 2512": TOOL_TAG_FAMILIES.mistral,
   "Magistral-Small-2509": TOOL_TAG_FAMILIES.mistral,
+  "mistralai_Ministral 3 3B Instruct 2512 BF16": TOOL_TAG_FAMILIES.mistral,
   "mistralai_Ministral 3 14B Reasoning 2512": TOOL_TAG_FAMILIES.mistral,
   // GLM models - use default SYSTEM.EXEC (model doesn't follow <tool_call> closing tags)
   "Zai org_GLM 4.6V Flash": TOOL_TAG_FAMILIES.default,
@@ -141,19 +143,27 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     top_k: 40,
     repeat_penalty: 1.0,
   },
-  "mistralai_Ministral 3 14B Reasoning 2512": {
+  "mistralai_Ministral 3 3B Instruct 2512 BF16": {
     sampler_type: "Temperature",
-    temperature: 1.0,
+    temperature: 0.1,
     top_p: 0.95,
     top_k: 40,
     repeat_penalty: 1.0,
+  },
+  "mistralai_Ministral 3 14B Reasoning 2512": {
+    sampler_type: "Temperature",
+    temperature: 0.7,
+    top_p: 0.95,
+    top_k: 40,
+    repeat_penalty: 1.0,
+    context_size: 32768,
   },
 
   // NVIDIA
   "Nemotron Nano 3 30B A3B": {
     sampler_type: "Temperature",
-    temperature: 1.0,
-    top_p: 1.0,
+    temperature: 0.6,
+    top_p: 0.95,
     top_k: 40,
     repeat_penalty: 1.0,
   },
@@ -188,8 +198,8 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
   // OpenBMB
   "MiniCPM4.1-8B": {
     sampler_type: "Temperature",
-    temperature: 0.6,
-    top_p: 0.95,
+    temperature: 0.7,
+    top_p: 0.7,
     top_k: 40,
     repeat_penalty: 1.02,
   },
@@ -217,11 +227,12 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
   // Zhipu AI GLM models
   "Zai org_GLM 4.7 Flash": {
     sampler_type: "Temperature",
-    temperature: 0.8,
-    top_p: 0.6,
-    top_k: 2,
-    repeat_penalty: 1.1,
-    context_size: 16384,
+    temperature: 0.7,
+    top_p: 1.0,
+    top_k: 0,
+    min_p: 0.01,
+    repeat_penalty: 1.0,
+    context_size: 32768,
   },
   "Zai org_GLM 4.6V Flash": {
     sampler_type: "Temperature",

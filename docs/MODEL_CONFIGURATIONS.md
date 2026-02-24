@@ -90,13 +90,35 @@ Parameters sourced from official model cards on HuggingFace and vendor documenta
 | Context Window | 202,752 tokens (~200K) |
 | Chat Template | Custom GLM (`[gMASK]<sop>`) |
 
-### Official Sampling Parameters (HuggingFace)
+### Official Sampling Parameters (Z.ai)
+
+**General use:**
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| temperature | 1.0 | Default; use 0.7 for SWE tasks, 0 for agentic |
-| top_p | 0.95 | Default; use 1.0 for SWE tasks |
+| temperature | 1.0 | Default for general tasks |
+| top_p | 0.95 | Default |
 | max_new_tokens | 131072 | Default generation limit |
+
+**Agentic / tool-calling (Terminal Bench, SWE Bench):**
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| temperature | 0.7 | Official for SWE/agentic tasks |
+| top_p | 1.0 | Official for SWE/agentic tasks |
+| top_k | -1 | Disabled per code examples |
+| min_p | 0.01 | Recommended for llama.cpp (overrides default 0.05) |
+| repeat_penalty | 1.0 | **Must be disabled** per Z.ai |
+
+**Community-suggested (HuggingFace discussion #6):**
+
+| Parameter | Value |
+|-----------|-------|
+| temperature | 0.6 |
+| top_k | 20 |
+| repeat_penalty | 1.05 |
+| min_p | 0.05 |
+| top_p | 0.95 |
 
 ### GGUF Embedded Parameters
 
@@ -107,12 +129,17 @@ Parameters sourced from official model cards on HuggingFace and vendor documenta
 
 ### Notes
 - Uses DeepSeek2-style MLA (Multi-head Latent Attention) architecture.
-- For agentic tasks, use temperature=0 with "Preserved Thinking mode".
+- For agentic tasks, use temperature=0.7, top_p=1.0 (from Terminal Bench / SWE Bench config).
+- Z.ai explicitly states: **disable repeat penalty** to avoid looping.
+- For llama.cpp: set min_p=0.01 (backend default is 0.05, too high for this model).
 - Has tool calling support via `<tools>` XML tags.
 - Supports vLLM and SGLang frameworks.
+- For τ²-Bench (deterministic agentic), use temperature=0 with "Preserved Thinking mode".
 
 ### Sources
 - https://huggingface.co/zai-org/GLM-4.7-Flash
+- https://huggingface.co/zai-org/GLM-4.7-Flash/discussions/6
+- https://unsloth.ai/docs/models/glm-4.7-flash
 
 ---
 
@@ -255,8 +282,77 @@ Parameters sourced from official model cards on HuggingFace and vendor documenta
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| temperature | 1.0 | Recommended; experiment with alternatives |
-| top_p | 0.95 | From examples |
+| temperature | 0.7 | Reasoning-specific recommendation (HuggingFace card examples, vLLM recipes). General baseline is 1.0 |
+| top_p | 0.95 | Consistent across all Mistral examples |
+| top_k | 40 | Not specified by Mistral (API doesn't expose it); 40 is safe default |
+| repeat_penalty | 1.0 | Default (not specified) |
+| context_size | 32768 | Practical for 24GB GPU. Max supported: 262,144 (YaRN rope scaling) |
+
+**Config variants:**
+
+| Variant | Temperature | Notes |
+|---------|-------------|-------|
+| Reasoning (recommended) | 0.7 | HuggingFace examples, vLLM recipes |
+| General baseline | 1.0 | Model card "most environments" |
+| Community/Unsloth | 0.6 | Lower temp for more deterministic output |
+
+### GGUF Embedded Parameters
+
+| Parameter | Value |
+|-----------|-------|
+| context_length | 262144 |
+
+### Reasoning Tokens
+- Uses `[THINK]`/`[/THINK]` delimiters for reasoning traces
+- Keep reasoning traces in conversation history for multi-turn
+- Budget ~16K-32K tokens for thinking traces in complex tasks
+
+### Agent Test Score: **6/6** (with correct config)
+- Previously 1/6 with temp=1.0, ctx=16384 (context exhaustion, buggy Python scripts)
+- Fixed to 6/6 with temp=0.7, ctx=32768
+- Uses Mistral bracket format `[TOOL_CALLS]name[ARGS]{...}`
+- All math correct (avg salary $127,875)
+- Minor: wrote to `results/` instead of `agent-tests/results/`
+
+### Notes
+- Built-in reasoning/thinking mode via chat template.
+- Vision-capable (maintain ~1:1 aspect ratio for images).
+- Keep reasoning traces in multi-turn context.
+- Fits in 32GB VRAM (BF16) or <24GB with quantization.
+- Uses YaRN rope scaling for extended context (factor 16.0, from 16K base to 256K).
+- Dense 14B model (not MoE, despite "3" in name referring to model family version).
+
+### Sources
+- https://huggingface.co/mistralai/Ministral-3-14B-Reasoning-2512
+- https://docs.mistral.ai/models/ministral-3-14b-25-12
+- https://docs.mistral.ai/capabilities/reasoning
+- https://docs.vllm.ai/projects/recipes/en/latest/Mistral/Ministral-3-Reasoning.html
+
+---
+
+## Ministral-3-3B-Instruct-2512 (Mistral)
+
+**File:** `lmstudio-community/Ministral-3-3B-Instruct-2512-GGUF/Ministral-3-3B-Instruct-2512-Q8_0.gguf`
+
+| Property | Value |
+|----------|-------|
+| Creator | Mistral AI |
+| Architecture | mistral3 (dense transformer) |
+| Total Parameters | 3B |
+| Quantization | Q8_0 |
+| Context Window | 262,144 tokens (256K) |
+| Chat Template | Mistral |
+| Vision | Yes (multimodal) |
+
+### Official Sampling Parameters (Mistral)
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| temperature | < 0.1 | Production / daily-driver |
+| temperature | 0.15 | Used in vLLM code examples |
+| top_p | — | Not specified by Mistral |
+| top_k | — | Not specified by Mistral |
+| repeat_penalty | — | Not specified (presence/frequency default to 0) |
 
 ### GGUF Embedded Parameters
 
@@ -265,14 +361,17 @@ Parameters sourced from official model cards on HuggingFace and vendor documenta
 | context_length | 262144 |
 
 ### Notes
-- Built-in reasoning/thinking mode via chat template.
-- Vision-capable (maintain ~1:1 aspect ratio for images).
-- Keep reasoning traces in multi-turn context.
-- Fits in 32GB VRAM (BF16) or <24GB with quantization.
-- Uses YaRN rope scaling for extended context.
+- Smallest model in the Ministral-3 family.
+- **Too small for agentic tasks** — scored 1/6 on agent test suite.
+- Can make tool calls (Mistral bracket format `[TOOL_CALLS]name[ARGS]{...}`) but generates buggy Python (reserved keywords, missing imports) and hallucinates tool calls to non-existent APIs.
+- Fast at 21.2 tok/s on RTX 4090.
+- Usable for simple tool calls (read_file, write_file) but unreliable for multi-step reasoning.
+- Config verified correct against official sources (2026-02-24).
 
 ### Sources
-- https://huggingface.co/mistralai/Ministral-3-14B-Reasoning-2512
+- https://huggingface.co/mistralai/Ministral-3-3B-Instruct-2512
+- https://huggingface.co/mistralai/Ministral-3-3B-Instruct-2512-GGUF
+- https://docs.vllm.ai/projects/recipes/en/latest/Mistral/Ministral-3-Instruct.html
 
 ---
 
@@ -642,23 +741,28 @@ Parameters sourced from official model cards on HuggingFace and vendor documenta
 
 ## Quick Reference
 
-### Parameter Comparison Across Models
+### Parameter Comparison Across Models (Agentic Config)
 
-| Parameter | Devstral-Small | Qwen3-30B-A3B | Qwen3-Coder |
-|-----------|---------------|---------------|-------------|
-| temperature | 0.15 | 0.7 | 0.7 |
-| top_p | 0.95 | 0.8 | 0.8 |
-| top_k | 64 | 20 | 20 |
-| min_p | 0.01 | 0 | - |
-| rep. penalty | 1.0 | - | 1.05 |
-| context | 128K | 256K | 256K (1M ext.) |
-| active params | 24B (dense) | 3.3B (MoE) | 3.3B (MoE) |
+| Parameter | Devstral-Small | GLM-4.7-Flash | Magistral-Small | Qwen3-Coder | Qwen3-30B-A3B | Ministral-14B-R | Ministral-3-3B |
+|-----------|---------------|---------------|-----------------|-------------|---------------|-----------------|----------------|
+| temperature | 0.15 | 0.7 | 0.7 | 0.7 | 0.7 | 0.7 | 0.1 |
+| top_p | 0.95 | 1.0 | 0.95 | 0.8 | 0.8 | 0.95 | 0.95 |
+| top_k | 64 | 0 (disabled) | 40 | 20 | 20 | 40 | 40 |
+| min_p | 0.01 | 0.01 | — | — | 0 | — | — |
+| rep. penalty | 1.0 | 1.0 (must!) | 1.0 | 1.05 | — | 1.0 | 1.0 |
+| context | 128K | 32K* | 131K | 256K (1M) | 256K | 32K** | 256K |
+| active params | 24B (dense) | 30B (MLA) | 24B (dense) | 3.3B (MoE) | 3.3B (MoE) | 14B (dense) | 3B (dense) |
+| agent score | 6/6 | 5.5/6 | 6/6 | 6/6 | slow | 6/6 | 1/6 |
+
+*GLM-4.7-Flash: native 200K context, but 32K recommended for 24GB VRAM
+**Ministral-14B-R: max 256K (YaRN scaling), but 32K practical for 24GB VRAM
 
 ### Model Selection Guide
 
 | Use Case | Recommended Model |
 |----------|-------------------|
 | Agentic tasks / tool calling | Devstral-Small (most reliable tool use) |
+| Agentic + reasoning | Ministral-14B-Reasoning (6/6, reasoning traces, dense 14B) |
 | Complex reasoning | Qwen3-30B-A3B (strong reasoning, large context) |
 | Code generation / analysis | Qwen3-Coder (code-optimized, 1M context) |
 | Long document processing | Qwen3-Coder Q4_K_S (1M context, lighter) |

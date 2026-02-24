@@ -111,6 +111,7 @@ type TagFactory = fn() -> ToolTags;
 
 /// Known model name -> tag family mappings.
 /// Keyed by `general.name` values from GGUF metadata.
+/// SYNC: Must match MODEL_TOOL_TAGS in src/config/modelPresets.ts
 const MODEL_TAG_MAP: &[(&str, TagFactory)] = &[
     // Qwen models - strong tool calling with native tags
     ("Qwen_Qwen3 Coder Next", qwen_tags),
@@ -121,6 +122,7 @@ const MODEL_TAG_MAP: &[(&str, TagFactory)] = &[
     ("mistralai_Devstral Small 2507", mistral_tags),
     ("mistralai_Devstral Small 2 24B Instruct 2512", mistral_tags),
     ("Magistral-Small-2509", mistral_tags),
+    ("mistralai_Ministral 3 3B Instruct 2512 BF16", mistral_tags),
     ("mistralai_Ministral 3 14B Reasoning 2512", mistral_tags),
     // Harmony models - native Harmony format tool calling
     ("Openai_Gpt Oss 20b", harmony_tags),

@@ -1,24 +1,5 @@
 import type { ToolCall, ToolFormat } from '../types';
-
-/** Extract balanced JSON starting at text[start]. Returns { end, json } or null. */
-function extractBalancedJson(text: string, start: number): { end: number; json: string } | null {
-  if (start >= text.length || text[start] !== '{') return null;
-  let depth = 0;
-  let inString = false;
-  let prevBackslash = false;
-  for (let i = start; i < text.length; i++) {
-    const ch = text[i];
-    if (inString) {
-      if (ch === '"' && !prevBackslash) inString = false;
-      prevBackslash = ch === '\\' && !prevBackslash;
-    } else {
-      if (ch === '"') { inString = true; prevBackslash = false; }
-      else if (ch === '{') depth++;
-      else if (ch === '}') { depth--; if (depth === 0) return { end: i + 1, json: text.slice(start, i + 1) }; }
-    }
-  }
-  return null;
-}
+import { extractBalancedJson } from './toolFormatUtils';
 
 /**
  * Tool parser interface for different model formats
@@ -30,63 +11,80 @@ interface ToolParser {
 
 /**
  * Mistral/Devstral tool parser
+ * Bracket format: [TOOL_CALLS]function_name[ARGS]{"arg": "value"}
  * Comma format:   [TOOL_CALLS]function_name,{"arg": "value"}[/TOOL_CALLS]
  * JSON format:    [TOOL_CALLS][{"name":"func","arguments":{...}}][/TOOL_CALLS]
- * Bracket format: [TOOL_CALLS]function_name[ARGS]{"arg": "value"}
+ * Bare JSON:      [TOOL_CALLS]{"name":"func","arguments":{...}}  (Magistral)
  */
+
+/** Parse bracket format: [TOOL_CALLS]name[ARGS]{json} */
+function parseMistralBracket(text: string): ToolCall[] {
+  const calls: ToolCall[] = [];
+  const re = /\[TOOL_CALLS\](\w+)\[ARGS\]/g;
+  let match;
+  while ((match = re.exec(text)) !== null) {
+    const balanced = extractBalancedJson(text, match.index + match[0].length);
+    if (!balanced) continue;
+    try {
+      calls.push({ id: crypto.randomUUID(), name: match[1].trim(), arguments: JSON.parse(balanced.json) });
+    } catch { /* skip */ }
+  }
+  return calls;
+}
+
+/** Parse closed-tag format: [TOOL_CALLS]...[/TOOL_CALLS] (comma or JSON body) */
+function parseMistralClosedTag(text: string): ToolCall[] {
+  const calls: ToolCall[] = [];
+  const re = /\[TOOL_CALLS\]([\s\S]*?)\[\/TOOL_CALLS\]/g;
+  let match;
+  while ((match = re.exec(text)) !== null) {
+    const body = match[1].trim();
+    const commaIdx = body.indexOf(',{');
+    if (commaIdx > 0) {
+      const name = body.slice(0, commaIdx).trim();
+      try {
+        const args = JSON.parse(body.slice(commaIdx + 1));
+        if (name && !name.includes(' ')) { calls.push({ id: crypto.randomUUID(), name, arguments: args }); continue; }
+      } catch { /* fall through */ }
+    }
+    try {
+      const parsed = JSON.parse(body);
+      const items = Array.isArray(parsed) ? parsed : [parsed];
+      for (const item of items) {
+        if (item.name) calls.push({ id: crypto.randomUUID(), name: item.name, arguments: item.arguments || {} });
+      }
+    } catch { /* skip */ }
+  }
+  return calls;
+}
+
+/** Parse bare JSON format: [TOOL_CALLS]{"name":"...","arguments":{...}} (Magistral) */
+function parseMistralBareJson(text: string): ToolCall[] {
+  const calls: ToolCall[] = [];
+  const re = /\[TOOL_CALLS\]\s*\{/g;
+  let match;
+  while ((match = re.exec(text)) !== null) {
+    const balanced = extractBalancedJson(text, match.index + match[0].length - 1);
+    if (!balanced) continue;
+    try {
+      const parsed = JSON.parse(balanced.json);
+      if (parsed.name) calls.push({ id: crypto.randomUUID(), name: parsed.name, arguments: parsed.arguments || {} });
+    } catch { /* skip */ }
+  }
+  return calls;
+}
+
 const mistralParser: ToolParser = {
   detect(text: string): boolean {
     return text.includes('[TOOL_CALLS]');
   },
 
   parse(text: string): ToolCall[] {
-    const toolCalls: ToolCall[] = [];
-
-    // Try bracket format first: [TOOL_CALLS]name[ARGS]{...}
-    // Uses balanced-brace scanner for JSON body (nested JSON breaks non-greedy regex).
-    const bracketRegex = /\[TOOL_CALLS\](\w+)\[ARGS\]/g;
-    let match;
-    while ((match = bracketRegex.exec(text)) !== null) {
-      const name = match[1].trim();
-      const jsonStart = match.index + match[0].length;
-      const balanced = extractBalancedJson(text, jsonStart);
-      if (!balanced) continue;
-      try {
-        const args = JSON.parse(balanced.json);
-        toolCalls.push({ id: crypto.randomUUID(), name, arguments: args });
-      } catch { /* skip */ }
-    }
-    if (toolCalls.length > 0) return toolCalls;
-
-    // Try closed-tag format: [TOOL_CALLS]...[/TOOL_CALLS]
-    const closedRegex = /\[TOOL_CALLS\]([\s\S]*?)\[\/TOOL_CALLS\]/g;
-    while ((match = closedRegex.exec(text)) !== null) {
-      const body = match[1].trim();
-      // Try comma format: name,{"key":"val"}
-      const commaIdx = body.indexOf(',{');
-      if (commaIdx > 0) {
-        const name = body.slice(0, commaIdx).trim();
-        try {
-          const args = JSON.parse(body.slice(commaIdx + 1));
-          if (name && !name.includes(' ')) {
-            toolCalls.push({ id: crypto.randomUUID(), name, arguments: args });
-            continue;
-          }
-        } catch { /* fall through */ }
-      }
-      // Try JSON object/array format
-      try {
-        const parsed = JSON.parse(body);
-        const items = Array.isArray(parsed) ? parsed : [parsed];
-        for (const item of items) {
-          if (item.name) {
-            toolCalls.push({ id: crypto.randomUUID(), name: item.name, arguments: item.arguments || {} });
-          }
-        }
-      } catch { /* skip */ }
-    }
-
-    return toolCalls;
+    const bracket = parseMistralBracket(text);
+    if (bracket.length > 0) return bracket;
+    const closed = parseMistralClosedTag(text);
+    if (closed.length > 0) return closed;
+    return parseMistralBareJson(text);
   },
 };
 

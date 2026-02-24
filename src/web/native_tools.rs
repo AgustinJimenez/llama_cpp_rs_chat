@@ -731,8 +731,15 @@ fn tool_web_search_google_chrome(query: &str, max_results: usize) -> String {
             tool_web_search_ureq(query, max_results)
         }
         Err(e) => {
+            let e_lower = e.to_lowercase();
+            let timed_out = e_lower.contains("timed out") || e_lower.contains("timeout");
             eprintln!("[WEB_SEARCH] Google Chrome failed: {e}, falling back to DDG");
-            tool_web_search_ureq(query, max_results)
+            let result = tool_web_search_ureq(query, max_results);
+            if timed_out && (result.contains("No results") || result.starts_with("Error")) {
+                format!("Error: Web search timed out for query '{query}'. The search engine did not respond in time. Try again or use a different query.")
+            } else {
+                result
+            }
         }
     }
 }
@@ -960,18 +967,29 @@ fn tool_web_fetch(args: &Value) -> String {
         .unwrap_or(MAX_FETCH_CHARS as u64) as usize;
 
     // Try headless Chrome first (gets JS-rendered content)
-    match super::browser::chrome_web_fetch(url, max_chars) {
+    let chrome_timed_out = match super::browser::chrome_web_fetch(url, max_chars) {
         Ok(content) if !content.is_empty() => return content,
         Ok(_) => {
             eprintln!("[WEB_FETCH] Chrome returned empty content, falling back to ureq");
+            false
         }
         Err(e) => {
+            let e_lower = e.to_lowercase();
+            let timed_out = e_lower.contains("timed out") || e_lower.contains("timeout");
             eprintln!("[WEB_FETCH] Chrome failed: {e}, falling back to ureq");
+            timed_out
         }
-    }
+    };
 
     // Fallback: ureq-based fetch
-    tool_web_fetch_ureq(url, max_chars)
+    let result = tool_web_fetch_ureq(url, max_chars);
+
+    // If both Chrome and ureq failed, prepend a clear timeout notice
+    if chrome_timed_out && result.starts_with("Error") {
+        format!("Error: Request timed out. The URL '{url}' did not respond within the timeout period. {result}")
+    } else {
+        result
+    }
 }
 
 /// Fallback web fetch via ureq HTTP client (used when Chrome is unavailable).
