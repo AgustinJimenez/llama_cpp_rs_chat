@@ -16,9 +16,30 @@ export type Span = { start: number; end: number; segment: MessageSegment };
 const TOOL_RESPONSE_REGEX = /<tool_response>([\s\S]*?)<\/tool_response>/g;
 const LLAMA3_FUNC_REGEX = /<function=([^>]+)>([\s\S]*?)<\/function>/g;
 const MISTRAL_CALL_REGEX = /\[TOOL_CALLS\]([\s\S]*?)\[\/TOOL_CALLS\]/g;
+const MISTRAL_BRACKET_PREFIX = /\[TOOL_CALLS\](\w+)\[ARGS\]/g;
 const MISTRAL_RESULT_REGEX = /\[TOOL_RESULTS\]([\s\S]*?)\[\/TOOL_RESULTS\]/g;
 
 // --- Shared helpers ---
+
+/** Extract balanced JSON starting at text[start]. Returns { end, json } or null. */
+function extractBalancedJson(text: string, start: number): { end: number; json: string } | null {
+  if (start >= text.length || text[start] !== '{') return null;
+  let depth = 0;
+  let inString = false;
+  let prevBackslash = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === '"' && !prevBackslash) inString = false;
+      prevBackslash = ch === '\\' && !prevBackslash;
+    } else {
+      if (ch === '"') { inString = true; prevBackslash = false; }
+      else if (ch === '{') depth++;
+      else if (ch === '}') { depth--; if (depth === 0) return { end: i + 1, json: text.slice(start, i + 1) }; }
+    }
+  }
+  return null;
+}
 
 /** Check if there's an unclosed <tool_response> after a given position. */
 function findStreamingResponse(content: string, afterPos: number): { output: string; end: number } | null {
@@ -108,21 +129,54 @@ export function collectMistralSpans(content: string): Span[] {
   let match;
   type C = { start: number; end: number; name: string; args: Record<string, unknown> };
   const calls: C[] = [];
-  while ((match = MISTRAL_CALL_REGEX.exec(content)) !== null) {
-    const parsed = parseMistralBody(match[1].trim());
-    if (parsed) calls.push({ start: match.index, end: match.index + match[0].length, ...parsed });
+
+  // Try bracket format first: [TOOL_CALLS]name[ARGS]{...}
+  // Uses balanced-brace scanner instead of regex for JSON body (nested JSON breaks \{.*?\}).
+  const bracketRe = new RegExp(MISTRAL_BRACKET_PREFIX.source, 'g');
+  while ((match = bracketRe.exec(content)) !== null) {
+    const name = match[1].trim();
+    const jsonStart = match.index + match[0].length;
+    const balanced = extractBalancedJson(content, jsonStart);
+    if (!balanced) continue;
+    try {
+      const args = JSON.parse(balanced.json);
+      calls.push({ start: match.index, end: balanced.end, name, args });
+    } catch { /* skip */ }
   }
+
+  // Fall back to closed-tag format: [TOOL_CALLS]...[/TOOL_CALLS]
+  if (calls.length === 0) {
+    while ((match = MISTRAL_CALL_REGEX.exec(content)) !== null) {
+      const parsed = parseMistralBody(match[1].trim());
+      if (parsed) calls.push({ start: match.index, end: match.index + match[0].length, ...parsed });
+    }
+  }
+
   if (calls.length === 0) return spans;
+
+  // Collect results from both [TOOL_RESULTS] and <tool_response> tags
   const results: { start: number; end: number; content: string }[] = [];
   while ((match = MISTRAL_RESULT_REGEX.exec(content)) !== null)
     results.push({ start: match.index, end: match.index + match[0].length, content: (match[1] || '').trim() });
+  const trMatches = freshResponseMatches(content);
+  results.push(...trMatches);
+  results.sort((a, b) => a.start - b.start);
+
   for (const call of calls) {
     const res = results.find(r => r.start >= call.end);
     if (res) results.splice(results.indexOf(res), 1);
     const isLast = call === calls[calls.length - 1];
-    spans.push({ start: call.start, end: res ? res.end : call.end, segment: { type: 'tool_call', toolCall: {
+    let output: string | undefined = res ? res.content : undefined;
+    let isStreaming = false;
+    let spanEnd = res ? res.end : call.end;
+    // Check for streaming response on the last call
+    if (!res && isLast) {
+      const streaming = findStreamingResponse(content, call.end);
+      if (streaming) { output = streaming.output; isStreaming = true; spanEnd = streaming.end; }
+    }
+    spans.push({ start: call.start, end: spanEnd, segment: { type: 'tool_call', toolCall: {
       id: crypto.randomUUID(), name: call.name, arguments: call.args,
-      output: res?.content, isPending: !res && isLast,
+      output, isStreaming, isPending: !res && isLast,
     } } });
   }
   return spans;

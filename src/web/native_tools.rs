@@ -131,10 +131,72 @@ fn escape_invalid_backslashes_in_strings(input: &str) -> String {
     result
 }
 
+/// Escape unescaped inner quotes inside JSON strings.
+///
+/// LLMs generating write_file with JSON content often produce:
+///   {"path": "test.json", "content": "{\n  "key": "val"\n}"}
+/// where the inner `"key"` quotes are NOT escaped. This function detects
+/// quotes that appear to be INSIDE a string (not structural) by checking
+/// the character following the `"`. Structural quotes are followed by
+/// `,`, `:`, `}`, `]`, or whitespace-then-structural. Inner quotes are
+/// followed by letters/digits (field names or values).
+fn escape_inner_quotes_in_strings(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let len = bytes.len();
+    let mut result = String::with_capacity(len + len / 8);
+    let mut in_string = false;
+    let mut prev_backslash = false;
+    let mut i = 0;
+
+    while i < len {
+        let b = bytes[i];
+        if in_string {
+            if b == b'"' && !prev_backslash {
+                // Check what follows this quote to decide if it's structural or inner
+                let mut j = i + 1;
+                while j < len && (bytes[j] == b' ' || bytes[j] == b'\t') {
+                    j += 1;
+                }
+                let next = if j < len { bytes[j] } else { 0 };
+                // Structural end-of-string: followed by , : } ] or EOF
+                if next == b',' || next == b':' || next == b'}' || next == b']' || next == 0 {
+                    in_string = false;
+                    result.push('"');
+                } else {
+                    // Inner quote — escape it
+                    result.push('\\');
+                    result.push('"');
+                }
+            } else if b == b'\n' {
+                result.push_str("\\n");
+                prev_backslash = false;
+                i += 1;
+                continue;
+            } else if b == b'\r' {
+                i += 1;
+                prev_backslash = false;
+                continue;
+            } else {
+                prev_backslash = b == b'\\' && !prev_backslash;
+                result.push(b as char);
+            }
+        } else {
+            if b == b'"' {
+                in_string = true;
+                prev_backslash = false;
+            }
+            result.push(b as char);
+        }
+        i += 1;
+    }
+    result
+}
+
 /// 1. Raw parse
 /// 2. Escape literal newlines inside strings
 /// 3. Escape invalid backslashes + newlines
 /// 4. Auto-close missing braces/brackets
+/// 5. Escape unescaped inner quotes (LLM JSON-in-JSON)
 fn try_parse_with_fixups(input: &str) -> Option<Value> {
     // 1. Try as-is
     if let Ok(v) = serde_json::from_str::<Value>(input) {
@@ -153,7 +215,18 @@ fn try_parse_with_fixups(input: &str) -> Option<Value> {
     }
     // 4. Escape + auto-close braces
     let closed = auto_close_json(&escaped_both);
-    serde_json::from_str::<Value>(&closed).ok()
+    if let Ok(v) = serde_json::from_str::<Value>(&closed) {
+        return Some(v);
+    }
+    // 5. Escape inner quotes (handles JSON-inside-JSON from LLMs)
+    let escaped_quotes = escape_inner_quotes_in_strings(input);
+    if let Ok(v) = serde_json::from_str::<Value>(&escaped_quotes) {
+        return Some(v);
+    }
+    // 6. All fixups combined
+    let all_fixed = escape_inner_quotes_in_strings(&escaped_both);
+    let all_closed = auto_close_json(&all_fixed);
+    serde_json::from_str::<Value>(&all_closed).ok()
 }
 
 /// Parse standard JSON format: `{"name":"...","arguments":{...}}` or array `[{...}]`

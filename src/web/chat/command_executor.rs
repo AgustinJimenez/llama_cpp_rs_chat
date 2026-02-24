@@ -28,6 +28,53 @@ lazy_static::lazy_static! {
     static ref HARMONY_CALL_PATTERN: Regex = Regex::new(
         r"(?s)to=\s*(\w+)[\s\S]*?code<\|message\|>(.*?)<\|call\|>"
     ).unwrap();
+
+    // Mistral v2 bracket format (Devstral-Small-2-2512):
+    // [TOOL_CALLS]tool_name[ARGS]{"arg":"val"}
+    // Only matches the prefix — JSON body is extracted via balanced-brace scanner
+    // because non-greedy \{.*?\} fails on nested JSON (e.g. write_file with JSON content).
+    static ref MISTRAL_BRACKET_PREFIX: Regex = Regex::new(
+        r"\[TOOL_CALLS\](\w+)\[ARGS\]"
+    ).unwrap();
+}
+
+/// Extract balanced JSON starting at position `start` in `text`.
+/// `text[start]` must be `{`. Respects string quoting so nested `{}`
+/// inside JSON strings don't break the match.
+/// Returns `(end_exclusive, json_slice)` on success.
+fn extract_balanced_json(text: &str, start: usize) -> Option<(usize, String)> {
+    let bytes = text.as_bytes();
+    if start >= bytes.len() || bytes[start] != b'{' {
+        return None;
+    }
+    let mut depth: i32 = 0;
+    let mut in_string = false;
+    let mut prev_backslash = false;
+    for (i, &b) in bytes[start..].iter().enumerate() {
+        if in_string {
+            if b == b'"' && !prev_backslash {
+                in_string = false;
+            }
+            prev_backslash = b == b'\\' && !prev_backslash;
+        } else {
+            match b {
+                b'"' => {
+                    in_string = true;
+                    prev_backslash = false;
+                }
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        let end = start + i + 1;
+                        return Some((end, text[start..end].to_string()));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    None
 }
 
 /// Build a regex that matches the model-specific exec tags.
@@ -123,6 +170,24 @@ pub fn check_and_execute_command_with_tags(
                         tool_name.as_str(),
                         args_json.as_str().trim()
                     ));
+                }
+            }
+        }
+
+        // Fall back to Mistral v2 bracket format: [TOOL_CALLS]tool_name[ARGS]{...}
+        // Uses balanced-brace scanner instead of regex for the JSON body,
+        // because nested JSON (e.g. write_file content) breaks non-greedy \{.*?\}.
+        if found.is_none() {
+            if let Some(captures) = MISTRAL_BRACKET_PREFIX.captures(response_to_scan) {
+                if let Some(tool_name) = captures.get(1) {
+                    let json_start = captures.get(0).unwrap().end(); // right after [ARGS]
+                    if let Some((_end, args_json)) = extract_balanced_json(response_to_scan, json_start) {
+                        found = Some(format!(
+                            r#"{{"name":"{}","arguments":{}}}"#,
+                            tool_name.as_str(),
+                            args_json.trim()
+                        ));
+                    }
                 }
             }
         }

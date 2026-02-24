@@ -1,5 +1,25 @@
 import type { ToolCall, ToolFormat } from '../types';
 
+/** Extract balanced JSON starting at text[start]. Returns { end, json } or null. */
+function extractBalancedJson(text: string, start: number): { end: number; json: string } | null {
+  if (start >= text.length || text[start] !== '{') return null;
+  let depth = 0;
+  let inString = false;
+  let prevBackslash = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === '"' && !prevBackslash) inString = false;
+      prevBackslash = ch === '\\' && !prevBackslash;
+    } else {
+      if (ch === '"') { inString = true; prevBackslash = false; }
+      else if (ch === '{') depth++;
+      else if (ch === '}') { depth--; if (depth === 0) return { end: i + 1, json: text.slice(start, i + 1) }; }
+    }
+  }
+  return null;
+}
+
 /**
  * Tool parser interface for different model formats
  */
@@ -10,8 +30,9 @@ interface ToolParser {
 
 /**
  * Mistral/Devstral tool parser
- * Comma format: [TOOL_CALLS]function_name,{"arg": "value"}[/TOOL_CALLS]
- * JSON format:  [TOOL_CALLS][{"name":"func","arguments":{...}}][/TOOL_CALLS]
+ * Comma format:   [TOOL_CALLS]function_name,{"arg": "value"}[/TOOL_CALLS]
+ * JSON format:    [TOOL_CALLS][{"name":"func","arguments":{...}}][/TOOL_CALLS]
+ * Bracket format: [TOOL_CALLS]function_name[ARGS]{"arg": "value"}
  */
 const mistralParser: ToolParser = {
   detect(text: string): boolean {
@@ -20,10 +41,26 @@ const mistralParser: ToolParser = {
 
   parse(text: string): ToolCall[] {
     const toolCalls: ToolCall[] = [];
-    const regex = /\[TOOL_CALLS\]([\s\S]*?)\[\/TOOL_CALLS\]/g;
-    let match;
 
-    while ((match = regex.exec(text)) !== null) {
+    // Try bracket format first: [TOOL_CALLS]name[ARGS]{...}
+    // Uses balanced-brace scanner for JSON body (nested JSON breaks non-greedy regex).
+    const bracketRegex = /\[TOOL_CALLS\](\w+)\[ARGS\]/g;
+    let match;
+    while ((match = bracketRegex.exec(text)) !== null) {
+      const name = match[1].trim();
+      const jsonStart = match.index + match[0].length;
+      const balanced = extractBalancedJson(text, jsonStart);
+      if (!balanced) continue;
+      try {
+        const args = JSON.parse(balanced.json);
+        toolCalls.push({ id: crypto.randomUUID(), name, arguments: args });
+      } catch { /* skip */ }
+    }
+    if (toolCalls.length > 0) return toolCalls;
+
+    // Try closed-tag format: [TOOL_CALLS]...[/TOOL_CALLS]
+    const closedRegex = /\[TOOL_CALLS\]([\s\S]*?)\[\/TOOL_CALLS\]/g;
+    while ((match = closedRegex.exec(text)) !== null) {
       const body = match[1].trim();
       // Try comma format: name,{"key":"val"}
       const commaIdx = body.indexOf(',{');
@@ -188,6 +225,7 @@ export function autoParseToolCalls(text: string): ToolCall[] {
  */
 export function stripToolCalls(text: string): string {
   return text
+    .replace(/\[TOOL_CALLS\]\w+\[ARGS\]\{[\s\S]*?\}/g, '') // Mistral v2 bracket calls
     .replace(/\[TOOL_CALLS\][\s\S]*?\[\/TOOL_CALLS\]/g, '') // Mistral calls
     .replace(/\[TOOL_RESULTS\][\s\S]*?\[\/TOOL_RESULTS\]/g, '') // Mistral results
     .replace(/<function=[^>]+>[\s\S]*?<\/function>/g, '') // Llama3

@@ -24,8 +24,8 @@ const EXEC_REGEX = /(?:<\|\|)?SYSTEM\.EXEC>([\s\S]*?)<SYSTEM\.EXEC\|\|>/g;
 const SYS_OUTPUT_REGEX = /(?:<\|\|)?SYSTEM\.OUTPUT>([\s\S]*?)<SYSTEM\.OUTPUT\|\|>/g;
 const TOOL_CALL_REGEX = /<tool_call>([\s\S]*?)<\/tool_call>/g;
 const TOOL_RESPONSE_REGEX = /<tool_response>([\s\S]*?)<\/tool_response>/g;
-// Mistral format cleanup regexes
-const MISTRAL_CALL_REGEX = /\[TOOL_CALLS\][\s\S]*?\[\/TOOL_CALLS\]/g;
+// Mistral format cleanup regexes (v1 closed-tag + v2 bracket format)
+const MISTRAL_CALL_REGEX = /(?:\[TOOL_CALLS\][\s\S]*?\[\/TOOL_CALLS\]|\[TOOL_CALLS\]\w+\[ARGS\]\{[\s\S]*?\})/g;
 const MISTRAL_RESULT_REGEX = /\[TOOL_RESULTS\][\s\S]*?\[\/TOOL_RESULTS\]/g;
 const THINKING_REGEX = /<think>[\s\S]*?<\/think>/g;
 // Also match an unclosed <think> tag (streaming in progress)
