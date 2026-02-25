@@ -6,7 +6,9 @@ import path from 'path';
 export default defineConfig({
   plugins: [
     react(),
-    checker({
+    // Only run TS/ESLint checker during build — dev checking is handled by VS Code.
+    // Running checker workers in dev leaks memory over long sessions (known issue).
+    ...(process.env.NODE_ENV === 'production' ? [checker({
       typescript: true,
       eslint: {
         lintCommand: 'eslint "src/**/*.{ts,tsx}"',
@@ -14,13 +16,28 @@ export default defineConfig({
       },
       overlay: { initialIsOpen: 'error' },
       enableBuild: true,
-    }),
+    })] : []),
   ],
   clearScreen: false,
   server: {
     port: 4000,
     strictPort: true,
     host: true,
+    watch: {
+      // Exclude large/irrelevant directories to prevent Windows file watcher memory leak
+      // (chokidar leaks file handles on Windows when watching rapidly-changing dirs)
+      ignored: [
+        '**/node_modules/**',
+        '**/target/**',
+        '**/src-tauri/target/**',
+        '**/results/**',
+        '**/expected/**',
+        '**/php-8.2.30/**',
+        '**/*.gguf',
+        '**/*.db',
+        '**/*.stackdump',
+      ],
+    },
     hmr: {
       path: '/__vite_hmr',
     },

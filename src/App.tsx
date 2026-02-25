@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
 import { ChatHeader, Sidebar, RightSidebar, ConversationConfigSidebar, AppSettingsModal } from './components/organisms';
-import { ChatInputArea, MessagesArea } from './components/templates';
+import { ModelConfigModal } from './components/organisms/model-config';
+import { MessagesArea } from './components/templates';
+import { WelcomeMessage } from './components/atoms';
+import { MessageInput } from './components/molecules';
 import { useChat } from './hooks/useChat';
 import { useModel } from './hooks/useModel';
 import type { SamplerConfig, ViewMode } from './types';
@@ -10,10 +13,16 @@ import { logToastError } from './utils/toastLogger';
 // eslint-disable-next-line max-lines-per-function
 function App() {
   const { messages, isLoading, sendMessage, stopGeneration, clearMessages, loadConversation, currentConversationId, tokensUsed, maxTokens, lastTimings } = useChat();
-  const { status: modelStatus, isLoading: isModelLoading, loadingAction, error: modelError, hasStatusError, loadModel, unloadModel, hardUnload } = useModel();
+  const { status: modelStatus, isLoading: isModelLoading, loadingAction, hasStatusError, loadModel, unloadModel, hardUnload } = useModel();
+
+  // Compute clean model display name from path
+  const modelName = modelStatus.model_path
+    ? (modelStatus.model_path.split(/[/\\]/).pop() || '').replace(/\.gguf$/i, '')
+    : '';
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
   const [isConfigSidebarOpen, setIsConfigSidebarOpen] = useState(false);
   const [isAppSettingsOpen, setIsAppSettingsOpen] = useState(false);
+  const [isModelConfigOpen, setIsModelConfigOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('markdown');
 
   const handleNewConversation = () => {
@@ -31,6 +40,13 @@ function App() {
 
   const toggleConfigSidebar = () => {
     setIsConfigSidebarOpen(p => !p);
+  };
+
+  const handleModelConfigSave = (config: SamplerConfig) => {
+    if (config.model_path) {
+      handleModelLoad(config.model_path, config);
+    }
+    setIsModelConfigOpen(false);
   };
 
   const handleModelLoad = async (modelPath: string, config: SamplerConfig) => {
@@ -88,6 +104,7 @@ function App() {
             genTokPerSec={lastTimings?.genTokPerSec}
             viewMode={viewMode}
             isRightSidebarOpen={isRightSidebarOpen}
+            onOpenModelConfig={() => setIsModelConfigOpen(true)}
             onModelUnload={handleModelUnload}
             onForceUnload={handleForceUnload}
             hasStatusError={hasStatusError}
@@ -97,26 +114,42 @@ function App() {
             onToggleConfigSidebar={toggleConfigSidebar}
           />
 
-          {/* Messages */}
-          <MessagesArea
-            messages={messages}
-            isLoading={isLoading}
-            isModelLoading={isModelLoading}
-            loadingAction={loadingAction}
-            viewMode={viewMode}
-          />
-
-          {/* Input / Model Selection */}
-          <ChatInputArea
-            modelLoaded={modelStatus.loaded}
-            currentModelPath={modelStatus.model_path ?? undefined}
-            isModelLoading={isModelLoading}
-            modelError={modelError}
-            isLoading={isLoading}
-            onSendMessage={sendMessage}
-            onStopGeneration={stopGeneration}
-            onModelLoad={handleModelLoad}
-          />
+          {messages.length === 0 ? (
+            /* Centered welcome + input */
+            <WelcomeMessage
+              isModelLoading={isModelLoading}
+              loadingAction={loadingAction}
+              modelLoaded={modelStatus.loaded}
+              modelName={modelName}
+              onSelectModel={() => setIsModelConfigOpen(true)}
+            >
+              <div className="w-full max-w-2xl px-6">
+                <MessageInput
+                  onSendMessage={sendMessage}
+                  onStopGeneration={stopGeneration}
+                  disabled={isLoading}
+                />
+              </div>
+            </WelcomeMessage>
+          ) : (
+            /* Normal chat layout */
+            <>
+              <MessagesArea
+                messages={messages}
+                isLoading={isLoading}
+                viewMode={viewMode}
+              />
+              <div className="px-6 pb-4 pt-2 animate-in slide-in-from-bottom-4 duration-300" data-testid="input-container">
+                <div className="max-w-3xl mx-auto">
+                  <MessageInput
+                    onSendMessage={sendMessage}
+                    onStopGeneration={stopGeneration}
+                    disabled={isLoading}
+                  />
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -139,6 +172,15 @@ function App() {
       <AppSettingsModal
         isOpen={isAppSettingsOpen}
         onClose={() => setIsAppSettingsOpen(false)}
+      />
+
+      {/* Model Config Modal */}
+      <ModelConfigModal
+        isOpen={isModelConfigOpen}
+        onClose={() => setIsModelConfigOpen(false)}
+        onSave={handleModelConfigSave}
+        isLoading={isModelLoading}
+        initialModelPath={modelStatus.model_path ?? undefined}
       />
 
       {/* Toast Notifications */}

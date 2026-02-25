@@ -67,6 +67,40 @@ fn scan_directory_for_gguf_files(path: &std::path::Path) -> Vec<String> {
     gguf_files
 }
 
+/// Scan for mmproj (multimodal projection) GGUF files in the same directory as the model.
+/// Returns a vec of (filename, file_size_bytes) for each mmproj file found.
+/// Vision-capable models in llama.cpp always require a separate mmproj companion file.
+fn scan_for_mmproj_files(model_path: &std::path::Path) -> Vec<(String, u64)> {
+    let dir = match model_path.parent() {
+        Some(d) => d,
+        None => return Vec::new(),
+    };
+    let mut results = Vec::new();
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let entry_path = entry.path();
+            if !entry_path.is_file() {
+                continue;
+            }
+            let ext_ok = entry_path
+                .extension()
+                .map(|e| e.eq_ignore_ascii_case("gguf"))
+                .unwrap_or(false);
+            if !ext_ok {
+                continue;
+            }
+            if let Some(name) = entry_path.file_name().and_then(|n| n.to_str()) {
+                let lower = name.to_ascii_lowercase();
+                if lower.contains("mmproj") {
+                    let size = fs::metadata(&entry_path).map(|m| m.len()).unwrap_or(0);
+                    results.push((name.to_string(), size));
+                }
+            }
+        }
+    }
+    results
+}
+
 pub async fn handle_get_model_info(
     req: Request<Body>,
     #[cfg(not(feature = "mock"))] _bridge: SharedWorkerBridge,
@@ -392,6 +426,43 @@ pub async fn handle_get_model_info(
         if !recommended_params.is_empty() {
             model_info["recommended_params"] = serde_json::json!(recommended_params);
         }
+    }
+
+    // Scan for mmproj companion files (vision/multimodal support)
+    let mmproj_path = path_obj.to_path_buf();
+    let mmproj_files = spawn_blocking(move || scan_for_mmproj_files(&mmproj_path))
+        .await
+        .unwrap_or_else(|_| Vec::new());
+
+    if !mmproj_files.is_empty() {
+        let dir_str = path_obj
+            .parent()
+            .and_then(|d| d.to_str())
+            .unwrap_or("");
+        let mmproj_json: Vec<serde_json::Value> = mmproj_files
+            .iter()
+            .map(|(name, size)| {
+                let size_str = if *size >= BYTES_PER_GB {
+                    format!("{:.1} GB", *size as f64 / BYTES_PER_GB as f64)
+                } else if *size >= BYTES_PER_MB {
+                    format!("{:.1} MB", *size as f64 / BYTES_PER_MB as f64)
+                } else {
+                    format!("{size} bytes")
+                };
+                let full_path = if dir_str.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{}{}{}", dir_str, std::path::MAIN_SEPARATOR, name)
+                };
+                serde_json::json!({
+                    "name": name,
+                    "path": full_path,
+                    "file_size": size_str,
+                })
+            })
+            .collect();
+        model_info["has_vision"] = serde_json::json!(true);
+        model_info["mmproj_files"] = serde_json::json!(mmproj_json);
     }
 
     Ok(json_raw(StatusCode::OK, model_info.to_string()))

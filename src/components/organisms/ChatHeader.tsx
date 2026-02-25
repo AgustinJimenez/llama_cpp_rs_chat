@@ -1,4 +1,5 @@
 import { Unplug, Activity, SlidersHorizontal } from 'lucide-react';
+import { ModelSelector } from './ModelSelector';
 import type { ViewMode } from '../../types';
 
 const VIEW_MODES = [
@@ -36,6 +37,7 @@ interface ChatHeaderProps {
   viewMode: ViewMode;
   isRightSidebarOpen: boolean;
   isConfigSidebarOpen: boolean;
+  onOpenModelConfig: () => void;
   onModelUnload: () => void;
   onForceUnload: () => void;
   hasStatusError: boolean;
@@ -44,6 +46,7 @@ interface ChatHeaderProps {
   onToggleConfigSidebar: () => void;
 }
 
+// eslint-disable-next-line complexity
 export function ChatHeader({
   modelLoaded,
   modelPath,
@@ -54,6 +57,7 @@ export function ChatHeader({
   viewMode,
   isRightSidebarOpen,
   isConfigSidebarOpen,
+  onOpenModelConfig,
   onModelUnload,
   onForceUnload,
   hasStatusError,
@@ -61,38 +65,33 @@ export function ChatHeader({
   onToggleRightSidebar,
   onToggleConfigSidebar,
 }: ChatHeaderProps) {
-  const modelName = (() => {
-    const fullPath = modelPath || '';
-    const fileName = fullPath.split(/[/\\]/).pop() || '';
-    return fileName.replace(/\.gguf$/i, '');
-  })();
-
   return (
     <div className="flex items-center justify-between px-4 py-2 border-b border-border" data-testid="chat-header">
-      {/* Left: model name */}
-      <div className="flex items-center gap-2 min-w-0">
-        {modelLoaded ? <>
-            <span className="text-sm font-medium truncate">{modelName}</span>
-            <button
-              onClick={onModelUnload}
-              disabled={isModelLoading}
-              className="p-1.5 rounded-md border border-border text-muted-foreground hover:text-destructive hover:border-destructive/50 hover:bg-destructive/10 transition-colors disabled:opacity-50"
-              title="Unload model"
-            >
-              <Unplug className="h-4 w-4" />
-            </button>
-          </> : null}
-        {!modelLoaded && hasStatusError ? <>
-            <span className="text-sm text-destructive">Model status unknown</span>
-            <button
-              onClick={onForceUnload}
-              disabled={isModelLoading}
-              className="p-1.5 rounded-md border border-border text-muted-foreground hover:text-destructive hover:border-destructive/50 hover:bg-destructive/10 transition-colors disabled:opacity-50"
-              title="Force unload"
-            >
-              <Unplug className="h-4 w-4" />
-            </button>
-          </> : null}
+      {/* Left: model selector + unload */}
+      <div className="flex items-center gap-1 min-w-0">
+        {(modelLoaded || isModelLoading) && (
+          <ModelSelector
+            currentModelPath={modelPath}
+            isLoading={isModelLoading}
+            onOpen={onOpenModelConfig}
+          />
+        )}
+        {modelLoaded ? <button
+            onClick={onModelUnload}
+            disabled={isModelLoading}
+            className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
+            title="Unload model"
+          >
+            <Unplug className="h-3.5 w-3.5" />
+          </button> : null}
+        {!modelLoaded && hasStatusError ? <button
+            onClick={onForceUnload}
+            disabled={isModelLoading}
+            className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
+            title="Force unload"
+          >
+            <Unplug className="h-3.5 w-3.5" />
+          </button> : null}
       </div>
 
       {/* Right: context + view toggle + monitor */}

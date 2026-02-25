@@ -158,6 +158,14 @@ export interface ModelMetadata {
     output_close: string;
   };
 
+  // Vision/multimodal support (detected via mmproj companion files)
+  has_vision?: boolean;
+  mmproj_files?: Array<{
+    name: string;
+    path: string;
+    file_size: string;
+  }>;
+
   // All GGUF metadata (raw key-value pairs)
   gguf_metadata?: Record<string, string | number | boolean | null | undefined>;
 }

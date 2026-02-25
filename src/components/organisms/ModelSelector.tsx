@@ -1,102 +1,40 @@
-import React, { useState } from 'react';
-import { Brain, FolderOpen, Search } from 'lucide-react';
+import React from 'react';
+import { ChevronDown, FolderOpen } from 'lucide-react';
 import { Button } from '../atoms/button';
-import { ModelConfigModal } from './model-config';
-import { HubExplorer } from './HubExplorer';
-import type { SamplerConfig } from '../../types';
 
 interface ModelSelectorProps {
-  onModelLoad: (modelPath: string, config: SamplerConfig) => void;
   currentModelPath?: string;
   isLoading?: boolean;
-  error?: string | null;
+  onOpen: () => void;
 }
 
 export const ModelSelector: React.FC<ModelSelectorProps> = ({
-  onModelLoad,
   currentModelPath,
   isLoading = false,
-  error = null
+  onOpen,
 }) => {
-  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
-  const [isExplorerOpen, setIsExplorerOpen] = useState(false);
-
-  const handleConfigSave = (config: SamplerConfig) => {
-    if (config.model_path) {
-      onModelLoad(config.model_path, config);
-    }
-    setIsConfigModalOpen(false);
-  };
-
-  const handleConfigCancel = () => {
-    setIsConfigModalOpen(false);
-  };
-
-  const handleButtonClick = () => {
-    setIsConfigModalOpen(true);
-  };
-
   const getDisplayText = () => {
-    if (isLoading) return "Loading model...";
+    if (isLoading) return "Loading...";
     if (currentModelPath) {
-      const fileName = currentModelPath.split('/').pop() || currentModelPath;
-      return `Model: ${fileName}`;
+      const fileName = currentModelPath.split(/[/\\]/).pop() || currentModelPath;
+      return fileName.replace(/\.gguf$/i, '');
     }
-    return "Select a model to load";
-  };
-
-  const getIcon = () => {
-    if (currentModelPath) {
-      return <Brain className="h-4 w-4" />;
-    }
-    return <FolderOpen className="h-4 w-4" />;
+    return "Select a model";
   };
 
   return (
-    <div className="relative" data-testid="model-selector">
-      <div className="flex items-center gap-1">
-        <Button
-          data-testid="select-model-button"
-          onClick={handleButtonClick}
-          disabled={isLoading}
-          variant="outline"
-          className="flex items-center gap-2 text-sm"
-        >
-          {getIcon()}
-          {getDisplayText()}
-        </Button>
-
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setIsExplorerOpen(true)}
-          title="Explore HuggingFace models"
-        >
-          <Search className="h-4 w-4" />
-        </Button>
-      </div>
-
-      {/* Error Display */}
-      {error ? <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-md max-w-md">
-          <p className="text-sm text-red-700">
-            <strong>Error:</strong> {error}
-          </p>
-        </div> : null}
-
-      {/* Model Configuration Modal */}
-      <ModelConfigModal
-        isOpen={isConfigModalOpen}
-        onClose={handleConfigCancel}
-        onSave={handleConfigSave}
-        isLoading={isLoading}
-        initialModelPath={currentModelPath}
-      />
-
-      {/* HuggingFace Model Explorer */}
-      <HubExplorer
-        isOpen={isExplorerOpen}
-        onClose={() => setIsExplorerOpen(false)}
-      />
+    <div className="flex items-center" data-testid="model-selector">
+      <Button
+        data-testid="select-model-button"
+        onClick={onOpen}
+        disabled={isLoading}
+        variant="ghost"
+        className="flex items-center gap-1.5 text-sm font-medium px-2"
+      >
+        <FolderOpen className="h-4 w-4 flex-shrink-0" />
+        <span className="truncate max-w-[260px]">{getDisplayText()}</span>
+        <ChevronDown className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+      </Button>
     </div>
   );
 };

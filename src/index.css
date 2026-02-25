@@ -116,9 +116,9 @@
   }
 
   .flat-input-container {
-    background: hsl(220 13% 12%);
-    border: 1px solid hsl(220 8% 28%);
-    @apply rounded-xl;
+    background: hsl(220 13% 14%);
+    border: 1px solid hsl(220 8% 24%);
+    @apply rounded-full;
   }
 
   .flat-header {

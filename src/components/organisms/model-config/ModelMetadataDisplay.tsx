@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Eye } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../atoms/card';
 import type { ModelMetadata } from '@/types';
 
@@ -43,6 +43,12 @@ export const ModelMetadataDisplay: React.FC<ModelMetadataDisplayProps> = ({
             <p><strong>Quantization:</strong> <span className="text-muted-foreground">{modelInfo.quantization}</span></p>
             {modelInfo.file_type ? <p><strong>File Type:</strong> <span className="text-muted-foreground">{modelInfo.file_type}</span></p> : null}
             {modelInfo.quantization_version ? <p><strong>Quant Version:</strong> <span className="text-muted-foreground">{modelInfo.quantization_version}</span></p> : null}
+            {modelInfo.has_vision ? <p className="flex items-center gap-1.5">
+                <Eye className="h-3.5 w-3.5 text-violet-400" />
+                <strong>Vision:</strong>{' '}
+                <span className="text-violet-400 font-medium">Supported</span>
+                <span className="text-muted-foreground">({modelInfo.mmproj_files?.length} mmproj file{(modelInfo.mmproj_files?.length ?? 0) > 1 ? 's' : ''} found)</span>
+              </p> : null}
           </div>
 
           {/* Model Details */}
@@ -69,6 +75,18 @@ export const ModelMetadataDisplay: React.FC<ModelMetadataDisplayProps> = ({
               {modelInfo.layer_norm_epsilon ? <p><strong>Layer Norm Epsilon:</strong> <span className="text-muted-foreground font-mono">{modelInfo.layer_norm_epsilon}</span></p> : null}
               {modelInfo.rope_dimension_count ? <p><strong>RoPE Dimensions:</strong> <span className="text-muted-foreground">{modelInfo.rope_dimension_count}</span></p> : null}
               {modelInfo.rope_freq_base ? <p><strong>RoPE Freq Base:</strong> <span className="text-muted-foreground">{modelInfo.rope_freq_base}</span></p> : null}
+            </div> : null}
+
+          {/* Vision / MMProj Files */}
+          {modelInfo.has_vision && modelInfo.mmproj_files ? <div className="space-y-1 pt-2 border-t">
+              <h4 className="font-semibold text-sm mb-2 flex items-center gap-1.5"><Eye className="h-3.5 w-3.5 text-violet-400" /> Vision Support</h4>
+              <p className="text-muted-foreground mb-2">Multimodal projection (mmproj) companion file detected.</p>
+              {modelInfo.mmproj_files.map((f, idx) => (
+                <div key={idx} className="flex items-center gap-2 px-2 py-1.5 bg-violet-500/10 rounded border border-violet-500/20">
+                  <span className="font-mono text-xs truncate flex-1">{f.name}</span>
+                  <span className="text-muted-foreground text-xs whitespace-nowrap">{f.file_size}</span>
+                </div>
+              ))}
             </div> : null}
 
           {/* Tokenizer Info */}

@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, RotateCcw, Trash2, Settings } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Plus, RotateCcw, Trash2, Settings, Search } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../atoms/dialog';
 import { Button } from '../atoms/button';
+import { HubExplorer } from './HubExplorer';
 import { getConversations, deleteConversation } from '../../utils/tauriCommands';
 
 interface ConversationFile {
@@ -41,12 +42,40 @@ function relativeTime(timestamp: string): string {
   return `${Math.floor(diffDay / 365)}y`;
 }
 
+const DATE_GROUPS = ['Today', 'Yesterday', 'Previous 7 Days', 'Previous 30 Days', 'Older'] as const;
+
+function getDateGroup(timestamp: string): string {
+  const parts = timestamp.split('-');
+  if (parts.length < 3) return 'Older';
+  const date = new Date(
+    Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]),
+    parts.length >= 4 ? Number(parts[3]) : 0,
+    parts.length >= 5 ? Number(parts[4]) : 0,
+    parts.length >= 6 ? Number(parts[5]) : 0
+  );
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const weekAgo = new Date(today);
+  weekAgo.setDate(weekAgo.getDate() - 7);
+  const monthAgo = new Date(today);
+  monthAgo.setDate(monthAgo.getDate() - 30);
+
+  if (date >= today) return 'Today';
+  if (date >= yesterday) return 'Yesterday';
+  if (date >= weekAgo) return 'Previous 7 Days';
+  if (date >= monthAgo) return 'Previous 30 Days';
+  return 'Older';
+}
+
 // eslint-disable-next-line max-lines-per-function
 const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onLoadConversation, currentConversationId, onOpenAppSettings }) => {
   const [conversations, setConversations] = useState<ConversationFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [conversationToDelete, setConversationToDelete] = useState<ConversationFile | null>(null);
+  const [isExplorerOpen, setIsExplorerOpen] = useState(false);
 
   const fetchConversations = async () => {
     setLoading(true);
@@ -73,6 +102,23 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onLoadConversation, curren
       fetchConversations();
     }
   }, [currentConversationId]);
+
+  // Group conversations by date
+  const groupedEntries = useMemo(() => {
+    const groups: Record<string, ConversationFile[]> = {};
+    for (const conv of conversations) {
+      const group = getDateGroup(conv.timestamp);
+      if (!groups[group]) groups[group] = [];
+      groups[group].push(conv);
+    }
+    const result: { group: string; items: { conversation: ConversationFile; flatIndex: number }[] }[] = [];
+    let idx = 0;
+    for (const group of DATE_GROUPS) {
+      if (!groups[group] || groups[group].length === 0) continue;
+      result.push({ group, items: groups[group].map(c => ({ conversation: c, flatIndex: idx++ })) });
+    }
+    return result;
+  }, [conversations]);
 
   const handleDeleteClick = (e: React.MouseEvent, conversation: ConversationFile) => {
     e.stopPropagation();
@@ -108,21 +154,28 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onLoadConversation, curren
         className="fixed top-0 left-0 h-screen w-[240px] bg-card border-r border-border z-40 flex flex-col"
         data-testid="sidebar"
       >
-        {/* New thread button */}
-        <div className="px-3 pt-3 pb-2">
+        {/* Top actions */}
+        <div className="px-3 pt-3 pb-2 space-y-0.5">
           <button
             className="flex items-center gap-2 w-full px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
             onClick={onNewChat}
             data-testid="new-chat-btn"
           >
             <Plus size={16} />
-            New thread
+            New conversation
+          </button>
+          <button
+            className="flex items-center gap-2 w-full px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
+            onClick={() => setIsExplorerOpen(true)}
+          >
+            <Search size={16} />
+            Explore models
           </button>
         </div>
 
-        {/* Threads header */}
+        {/* Conversations header */}
         <div className="flex items-center justify-between px-4 pt-2 pb-1">
-          <span className="text-xs font-medium text-muted-foreground">Threads</span>
+          <span className="text-xs font-medium text-muted-foreground">Conversations</span>
           <button
             className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
             onClick={fetchConversations}
@@ -141,41 +194,46 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onLoadConversation, curren
           ) : conversations.length === 0 ? (
             <div className="text-center text-muted-foreground text-xs py-6">No conversations yet</div>
           ) : (
-            conversations.map((conversation, index) => {
-              const isActive = currentConversationId === conversation.name;
-              return (
-                <div
-                  key={conversation.name}
-                  role="button"
-                  tabIndex={0}
-                  className={`group flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors text-sm ${
-                    isActive
-                      ? 'bg-muted text-foreground'
-                      : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
-                  }`}
-                  onClick={() => onLoadConversation(conversation.name)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onLoadConversation(conversation.name); }}
-                  data-testid={`conversation-${index}`}
-                >
-                  <span className="truncate flex-1 min-w-0">
-                    {conversation.displayName || conversation.name}
-                  </span>
-                  <div className="flex items-center gap-1 flex-shrink-0 ml-2">
-                    <span className="text-xs text-muted-foreground">
-                      {relativeTime(conversation.timestamp)}
-                    </span>
-                    <button
-                      className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-muted-foreground hover:text-destructive transition-all"
-                      onClick={(e) => handleDeleteClick(e, conversation)}
-                      aria-label="Delete conversation"
-                      data-testid={`delete-conversation-${index}`}
+            groupedEntries.map(({ group, items }) => (
+              <div key={group}>
+                <p className="px-3 pt-3 pb-1 text-xs font-medium text-muted-foreground">{group}</p>
+                {items.map(({ conversation, flatIndex }) => {
+                  const isActive = currentConversationId === conversation.name;
+                  return (
+                    <div
+                      key={conversation.name}
+                      role="button"
+                      tabIndex={0}
+                      className={`group flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors text-sm ${
+                        isActive
+                          ? 'bg-muted text-foreground'
+                          : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+                      }`}
+                      onClick={() => onLoadConversation(conversation.name)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onLoadConversation(conversation.name); }}
+                      data-testid={`conversation-${flatIndex}`}
                     >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                </div>
-              );
-            })
+                      <span className="truncate flex-1 min-w-0">
+                        {conversation.displayName || conversation.name}
+                      </span>
+                      <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+                        <span className="text-xs text-muted-foreground">
+                          {relativeTime(conversation.timestamp)}
+                        </span>
+                        <button
+                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-muted-foreground hover:text-destructive transition-all"
+                          onClick={(e) => handleDeleteClick(e, conversation)}
+                          aria-label="Delete conversation"
+                          data-testid={`delete-conversation-${flatIndex}`}
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ))
           )}
         </div>
 
@@ -207,6 +265,12 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onLoadConversation, curren
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* HuggingFace Model Explorer */}
+      <HubExplorer
+        isOpen={isExplorerOpen}
+        onClose={() => setIsExplorerOpen(false)}
+      />
     </>
   );
 };

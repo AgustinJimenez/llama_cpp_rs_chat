@@ -431,6 +431,10 @@ pub async fn generate_llama_response(
     // Track recent commands for loop detection
     let mut recent_commands: Vec<String> = Vec::new();
 
+    // Stall detection: if a single token takes longer than this, abort generation.
+    // This catches GPU thrashing, stuck inference, or models too large for hardware.
+    const TOKEN_STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
     // Outer loop to handle command execution and continuation
     loop {
         let mut command_executed = false;
@@ -472,6 +476,7 @@ pub async fn generate_llama_response(
                 );
             }
 
+            let token_start = Instant::now();
             let next_token = sampler.sample(&context, -1);
 
             if (145..=155).contains(&total_tokens_generated) {
@@ -514,6 +519,31 @@ pub async fn generate_llama_response(
             context
                 .decode(&mut batch)
                 .map_err(|e| format!("Decode failed at token {total_tokens_generated}: {e}"))?;
+
+            // Stall detection: abort if a single token took too long
+            let token_elapsed = token_start.elapsed();
+            if token_elapsed > TOKEN_STALL_TIMEOUT {
+                let secs = token_elapsed.as_secs();
+                log_info!(
+                    &conversation_id,
+                    "Generation stalled: token #{} took {}s (limit {}s). Aborting.",
+                    total_tokens_generated,
+                    secs,
+                    TOKEN_STALL_TIMEOUT.as_secs()
+                );
+                if let Some(ref sender) = token_sender {
+                    let _ = sender.send(TokenData {
+                        token: format!(
+                            "\n\n[Generation stalled — token took {}s. The model may be too large for your hardware. Try a smaller quantization or model.]",
+                            secs
+                        ),
+                        tokens_used: total_tokens_generated,
+                        max_tokens: max_total_tokens,
+                    });
+                }
+                hit_stop_condition = true;
+                break;
+            }
 
             if (145..=155).contains(&total_tokens_generated) {
                 log_debug!(

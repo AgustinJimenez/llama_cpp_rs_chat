@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Brain, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
 import {
   Dialog,
@@ -291,7 +291,6 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
       <DialogContent className="w-[95vw] max-w-7xl h-[90vh] max-h-[90vh] flex flex-col p-0">
         <DialogHeader className="px-6 pt-6">
           <DialogTitle className="flex items-center gap-2">
-            <Brain className="h-5 w-5" />
             Load Model
           </DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground">

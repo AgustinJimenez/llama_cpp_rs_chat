@@ -1,23 +1,18 @@
 import { useRef, useCallback, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { LoadingIndicator, WelcomeMessage } from '../atoms';
+import { LoadingIndicator } from '../atoms';
 import { MessageBubble } from '../organisms';
 import type { Message, ViewMode } from '../../types';
-import type { LoadingAction } from '../../hooks/useModel';
 
 interface MessagesAreaProps {
   messages: Message[];
   isLoading: boolean;
-  isModelLoading: boolean;
-  loadingAction?: LoadingAction;
   viewMode: ViewMode;
 }
 
 export function MessagesArea({
   messages,
   isLoading,
-  isModelLoading,
-  loadingAction,
   viewMode,
 }: MessagesAreaProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -88,48 +83,42 @@ export function MessagesArea({
       data-testid="messages-container"
       onScroll={handleScroll}
     >
-      {messages.length === 0 ? (
-        <div className="max-w-3xl mx-auto px-6 py-6">
-          <WelcomeMessage isModelLoading={isModelLoading} loadingAction={loadingAction} />
-        </div>
-      ) : (
-        <div className="max-w-3xl mx-auto px-6 py-6">
-          <div
-            style={{
-              height: virtualizer.getTotalSize(),
-              position: 'relative',
-              width: '100%',
-            }}
-          >
-            {virtualizer.getVirtualItems().map((virtualRow) => (
-              <div
-                key={virtualRow.key}
-                ref={virtualizer.measureElement}
-                data-index={virtualRow.index}
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  width: '100%',
-                  transform: `translateY(${virtualRow.start}px)`,
-                }}
-              >
-                <div className="pb-6">
-                  {virtualRow.index < messages.length ? (
-                    <MessageBubble
-                      message={messages[virtualRow.index]}
-                      viewMode={viewMode}
-                      isStreaming={isLoading ? virtualRow.index === messages.length - 1 : undefined}
-                    />
-                  ) : (
-                    <LoadingIndicator />
-                  )}
-                </div>
+      <div className="max-w-3xl mx-auto px-6 py-6">
+        <div
+          style={{
+            height: virtualizer.getTotalSize(),
+            position: 'relative',
+            width: '100%',
+          }}
+        >
+          {virtualizer.getVirtualItems().map((virtualRow) => (
+            <div
+              key={virtualRow.key}
+              ref={virtualizer.measureElement}
+              data-index={virtualRow.index}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                transform: `translateY(${virtualRow.start}px)`,
+              }}
+            >
+              <div className="pb-6">
+                {virtualRow.index < messages.length ? (
+                  <MessageBubble
+                    message={messages[virtualRow.index]}
+                    viewMode={viewMode}
+                    isStreaming={isLoading ? virtualRow.index === messages.length - 1 : undefined}
+                  />
+                ) : (
+                  <LoadingIndicator />
+                )}
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
         </div>
-      )}
+      </div>
     </div>
   );
 }

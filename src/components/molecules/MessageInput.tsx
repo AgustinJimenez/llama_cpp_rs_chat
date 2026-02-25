@@ -59,17 +59,19 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     autoResize(e.target);
   }, [autoResize]);
 
+  const isMultiline = message.includes('\n') || (textareaRef.current?.scrollHeight ?? 0) > 40;
+
   return (
     <form onSubmit={handleSubmit} data-testid="message-form">
-      <div className="flat-input-container flex items-end gap-2 px-4 py-3">
+      <div className={`flat-input-container flex items-end gap-2 px-5 py-2.5 ${isMultiline ? '!rounded-2xl' : ''}`}>
         <textarea
           ref={textareaRef}
           value={message}
           onChange={handleTextareaChange}
           onKeyDown={handleKeyDown}
-          placeholder="Message..."
+          placeholder={disabled && disabledReason ? disabledReason : "Ask anything"}
           disabled={disabled}
-          className="flex-1 bg-transparent border-none outline-none resize-none text-sm text-foreground placeholder:text-muted-foreground min-h-[24px] py-0.5 overflow-y-auto"
+          className="flex-1 bg-transparent border-none outline-none resize-none text-sm text-foreground placeholder:text-muted-foreground min-h-[28px] py-1 overflow-y-auto"
           rows={1}
           data-testid="message-input"
           aria-disabled={disabled}
@@ -83,7 +85,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
             data-testid="stop-button"
             title="Stop generation"
           >
-            <Square className="h-4 w-4" />
+            <Square className="h-3.5 w-3.5" />
           </button>
         ) : (
           <button
