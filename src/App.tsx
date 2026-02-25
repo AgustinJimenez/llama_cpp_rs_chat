@@ -94,8 +94,8 @@ function App() {
         className="flex-1 ml-[240px]"
       >
         <div className="flex flex-col h-full">
-          {/* Header */}
-          <ChatHeader
+          {/* Header — hidden on welcome screen when no model loaded */}
+          {(messages.length > 0 || modelStatus.loaded || isModelLoading) && <ChatHeader
             modelLoaded={modelStatus.loaded}
             modelPath={modelStatus.model_path ?? undefined}
             isModelLoading={isModelLoading}
@@ -112,7 +112,7 @@ function App() {
             onToggleRightSidebar={toggleRightSidebar}
             isConfigSidebarOpen={isConfigSidebarOpen}
             onToggleConfigSidebar={toggleConfigSidebar}
-          />
+          />}
 
           {messages.length === 0 ? (
             /* Centered welcome + input */
@@ -179,7 +179,6 @@ function App() {
         isOpen={isModelConfigOpen}
         onClose={() => setIsModelConfigOpen(false)}
         onSave={handleModelConfigSave}
-        isLoading={isModelLoading}
         initialModelPath={modelStatus.model_path ?? undefined}
       />
 

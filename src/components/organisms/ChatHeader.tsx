@@ -69,13 +69,11 @@ export function ChatHeader({
     <div className="flex items-center justify-between px-4 py-2 border-b border-border" data-testid="chat-header">
       {/* Left: model selector + unload */}
       <div className="flex items-center gap-1 min-w-0">
-        {(modelLoaded || isModelLoading) && (
-          <ModelSelector
-            currentModelPath={modelPath}
-            isLoading={isModelLoading}
-            onOpen={onOpenModelConfig}
-          />
-        )}
+        <ModelSelector
+          currentModelPath={modelPath}
+          isLoading={isModelLoading}
+          onOpen={onOpenModelConfig}
+        />
         {modelLoaded ? <button
             onClick={onModelUnload}
             disabled={isModelLoading}

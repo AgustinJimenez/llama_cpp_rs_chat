@@ -157,7 +157,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onLoadConversation, curren
         {/* Top actions */}
         <div className="px-3 pt-3 pb-2 space-y-0.5">
           <button
-            className="flex items-center gap-2 w-full px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
+            className="flex items-center gap-2 w-full px-3 py-2 text-sm text-foreground/70 hover:text-foreground hover:bg-muted rounded-lg transition-colors"
             onClick={onNewChat}
             data-testid="new-chat-btn"
           >
@@ -165,7 +165,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onLoadConversation, curren
             New conversation
           </button>
           <button
-            className="flex items-center gap-2 w-full px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
+            className="flex items-center gap-2 w-full px-3 py-2 text-sm text-foreground/70 hover:text-foreground hover:bg-muted rounded-lg transition-colors"
             onClick={() => setIsExplorerOpen(true)}
           >
             <Search size={16} />
@@ -175,9 +175,9 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onLoadConversation, curren
 
         {/* Conversations header */}
         <div className="flex items-center justify-between px-4 pt-2 pb-1">
-          <span className="text-xs font-medium text-muted-foreground">Conversations</span>
+          <span className="text-xs font-medium text-foreground/50">Conversations</span>
           <button
-            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+            className="p-1 rounded text-foreground/50 hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
             onClick={fetchConversations}
             disabled={loading}
             data-testid="refresh-conversations"
@@ -190,13 +190,13 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onLoadConversation, curren
         {/* Conversation list — grows to fill space between header and footer */}
         <div className="flex-1 overflow-y-auto px-2 pb-2 min-h-0" data-testid="conversations-list">
           {loading ? (
-            <div className="text-center text-muted-foreground text-xs py-6">Loading...</div>
+            <div className="text-center text-foreground/50 text-xs py-6">Loading...</div>
           ) : conversations.length === 0 ? (
-            <div className="text-center text-muted-foreground text-xs py-6">No conversations yet</div>
+            <div className="text-center text-foreground/50 text-xs py-6">No conversations yet</div>
           ) : (
             groupedEntries.map(({ group, items }) => (
               <div key={group}>
-                <p className="px-3 pt-3 pb-1 text-xs font-medium text-muted-foreground">{group}</p>
+                <p className="px-3 pt-3 pb-1 text-xs font-medium text-foreground/50">{group}</p>
                 {items.map(({ conversation, flatIndex }) => {
                   const isActive = currentConversationId === conversation.name;
                   return (
@@ -206,9 +206,10 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onLoadConversation, curren
                       tabIndex={0}
                       className={`group flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors text-sm ${
                         isActive
-                          ? 'bg-muted text-foreground'
-                          : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+                          ? 'bg-white font-semibold'
+                          : 'text-foreground hover:bg-muted/30'
                       }`}
+                      style={isActive ? { color: '#000' } : undefined}
                       onClick={() => onLoadConversation(conversation.name)}
                       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onLoadConversation(conversation.name); }}
                       data-testid={`conversation-${flatIndex}`}
@@ -217,11 +218,11 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onLoadConversation, curren
                         {conversation.displayName || conversation.name}
                       </span>
                       <div className="flex items-center gap-1 flex-shrink-0 ml-2">
-                        <span className="text-xs text-muted-foreground">
+                        <span className={`text-xs ${isActive ? 'text-black/50' : 'text-foreground/50'}`}>
                           {relativeTime(conversation.timestamp)}
                         </span>
                         <button
-                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-muted-foreground hover:text-destructive transition-all"
+                          className={`opacity-0 group-hover:opacity-100 p-0.5 rounded transition-all ${isActive ? 'text-black/40 hover:text-destructive' : 'text-muted-foreground hover:text-destructive'}`}
                           onClick={(e) => handleDeleteClick(e, conversation)}
                           aria-label="Delete conversation"
                           data-testid={`delete-conversation-${flatIndex}`}
@@ -240,7 +241,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onLoadConversation, curren
         {/* Bottom settings bar */}
         <div className="px-3 pb-3 pt-2 border-t border-border">
           <button
-            className="flex items-center gap-2 w-full px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
+            className="flex items-center gap-2 w-full px-3 py-2 text-sm text-foreground/70 hover:text-foreground hover:bg-muted rounded-lg transition-colors"
             onClick={onOpenAppSettings}
             aria-label="App Settings"
           >

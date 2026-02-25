@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import type { ToolCall } from '../../../types';
 
 interface ToolCallBlockProps {
@@ -112,15 +113,15 @@ function formatToolArguments(args: Record<string, unknown> | string): string {
   return lines.join('\n');
 }
 
-const ExecutingHeader: React.FC<{ name: string; summary: string; hasOutput: boolean; elapsed: number }> = ({ name, summary, hasOutput, elapsed }) => {
+const ExecutingHeader: React.FC<{ name: string; summary: string; hasOutput: boolean; elapsed: number }> = ({ name, summary, elapsed }) => {
   const elapsedStr = formatElapsed(elapsed);
   return (
-    <div className="w-full bg-yellow-950/70 px-3 py-2 flex items-center gap-2">
-      <span className="inline-block w-3 h-3 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
-      <span className="text-xs font-medium text-yellow-300">
-        {hasOutput ? 'Running...' : 'Executing Tool...'}{elapsedStr ? ` (${elapsedStr})` : null}
+    <div className="w-full bg-muted px-3 py-2 flex items-center gap-2">
+      <span className="inline-block w-3 h-3 border-2 border-foreground/50 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+      <span className="text-xs font-medium text-foreground">
+        {formatToolName(name)}{elapsedStr ? ` (${elapsedStr})` : null}
       </span>
-      <span className="text-xs text-yellow-300/50 truncate">{formatToolName(name)}: {summary}</span>
+      <span className="text-xs text-foreground truncate flex-1">{summary}</span>
     </div>
   );
 };
@@ -133,28 +134,18 @@ const StreamingOutput: React.FC<{ output: string }> = ({ output }) => {
   }, [output]);
 
   return (
-    <>
-      <div className="bg-gray-900/50 px-3 py-1 border-t border-yellow-500/20 flex items-center gap-2">
-        <span className="inline-block w-2 h-2 bg-yellow-400 rounded-full animate-pulse" />
-        <span className="text-xs text-yellow-300/70">Live output:</span>
-      </div>
-      <div ref={outputRef} className="bg-black/60 px-3 py-2 max-h-64 overflow-auto">
-        <pre className="text-xs text-yellow-100/80 font-mono whitespace-pre-wrap break-all">{output}</pre>
-      </div>
-    </>
+    <div ref={outputRef} className="bg-card px-3 py-2 max-h-64 overflow-auto" style={{ borderTop: '1px solid hsl(220 8% 28%)' }}>
+      <pre className="text-xs text-foreground font-mono whitespace-pre-wrap break-all">{output}</pre>
+    </div>
   );
 };
 
 const WaitingIndicator: React.FC<{ name: string; elapsed: number }> = ({ name, elapsed }) => {
   const elapsedStr = formatElapsed(elapsed);
   return (
-    <div className="bg-black/60 px-3 py-2.5 flex items-center gap-2.5 border-t border-yellow-500/20">
-      <div className="flex gap-1 items-center">
-        <div className="w-1.5 h-1.5 bg-yellow-400 rounded-full animate-bounce" style={{ animationDelay: '0ms', animationDuration: '1s' }} />
-        <div className="w-1.5 h-1.5 bg-yellow-400 rounded-full animate-bounce" style={{ animationDelay: '200ms', animationDuration: '1s' }} />
-        <div className="w-1.5 h-1.5 bg-yellow-400 rounded-full animate-bounce" style={{ animationDelay: '400ms', animationDuration: '1s' }} />
-      </div>
-      <span className="text-xs text-yellow-300/70">
+    <div className="bg-muted px-3 py-2 flex items-center gap-2" style={{ borderTop: '1px solid hsl(220 8% 28%)' }}>
+      <span className="inline-block w-3 h-3 border-2 border-foreground/50 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+      <span className="text-xs text-foreground">
         Waiting for {formatToolName(name)} result...{elapsedStr ? ` (${elapsedStr})` : null}
       </span>
     </div>
@@ -169,8 +160,8 @@ const CompletedHeader: React.FC<{
     className="w-full bg-muted px-3 py-2 flex items-center gap-2 text-left hover:bg-accent transition-colors"
   >
     <span className="text-xs font-medium text-foreground">{formatToolName(name)}</span>
-    <span className="text-xs text-muted-foreground truncate flex-1">{summary}</span>
-    <span className="text-muted-foreground">{isExpanded ? '\u25BC' : '\u25C0'}</span>
+    <span className="text-xs text-foreground truncate flex-1">{summary}</span>
+    {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-foreground flex-shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 text-foreground flex-shrink-0" />}
   </button>
 );
 
@@ -184,10 +175,10 @@ const CompletedOutput: React.FC<{
       style={{ borderTop: '1px solid hsl(220 8% 28%)' }}
     >
       <span className="text-xs font-medium text-foreground">Output</span>
-      <span className="text-xs text-muted-foreground truncate flex-1">
+      <span className="text-xs text-foreground truncate flex-1">
         {output.length > 80 ? `${output.slice(0, 80)}...` : output}
       </span>
-      <span className="text-muted-foreground">{isExpanded ? '\u25BC' : '\u25C0'}</span>
+      {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-foreground flex-shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 text-foreground flex-shrink-0" />}
     </button>
     {isExpanded ? <pre className="text-xs text-foreground font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto"
         style={{ borderTop: '1px solid hsl(220 8% 28%)' }}>
@@ -207,7 +198,7 @@ const SingleToolCall: React.FC<{ toolCall: ToolCall }> = ({ toolCall }) => {
   return (
     <div
       className="rounded-xl overflow-hidden"
-      style={{ border: `1px solid ${isExecuting ? 'hsl(45 80% 30%)' : 'hsl(220 8% 28%)'}` }}
+      style={{ border: '1px solid hsl(220 8% 28%)' }}
     >
       {isExecuting
         ? <ExecutingHeader name={toolCall.name} summary={summary} hasOutput={hasStreamingOutput} elapsed={elapsed} />

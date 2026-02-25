@@ -71,7 +71,7 @@ const VALID_SORTS: &[&str] = &["downloads", "likes", "lastModified", "createdAt"
 fn search_hf(query: &str, limit: usize, sort: &str) -> Result<Vec<HubModel>, String> {
     let sort_field = if VALID_SORTS.contains(&sort) { sort } else { "downloads" };
     let url = format!(
-        "{}?search={}&filter=gguf&sort={}&direction=-1&limit={}&expand[]=siblings",
+        "{}?search={}&filter=gguf&pipeline_tag=text-generation&sort={}&direction=-1&limit={}&expand[]=siblings",
         HF_API,
         urlencoding::encode(query),
         sort_field,

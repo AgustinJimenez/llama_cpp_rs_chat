@@ -36,7 +36,6 @@ interface ModelConfigModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (config: SamplerConfig) => void;
-  isLoading?: boolean;
   initialModelPath?: string;
 }
 
@@ -45,7 +44,6 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   isOpen,
   onClose,
   onSave,
-  isLoading = false,
   initialModelPath
 }) => {
   const [config, setConfig] = useState<SamplerConfig>({
@@ -395,25 +393,14 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                 </CardContent> : null}
             </Card> : null}
 
-          {isLoading ? <div className="pb-4">
-              <div className="flex items-center justify-center gap-2 py-4">
-                <Loader2 className="h-5 w-5 animate-spin" />
-                <span className="text-sm font-medium">Loading model...</span>
-              </div>
-            </div> : null}
         </div>
 
         <DialogFooter className="px-6 py-4 border-t">
-          <Button variant="outline" onClick={onClose} disabled={isLoading}>
+          <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button data-testid="load-model-button" onClick={handleSave} disabled={!modelPath.trim() || isCheckingFile || isLoading}>
-            {isLoading ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                Loading...
-              </>
-            ) : isCheckingFile ? (
+          <Button data-testid="load-model-button" onClick={handleSave} disabled={!modelPath.trim() || isCheckingFile}>
+            {isCheckingFile ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
                 Reading file...
