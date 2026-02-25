@@ -24,20 +24,16 @@ const KvCacheSection: React.FC<AdvancedContextSectionProps> = ({ config, onConfi
       <div>
         <span className="text-sm font-medium mb-1 flex items-center gap-1.5">
           KV Cache K Type
-          {isQuantized && (
-            <span
+          {isQuantized ? <span
               className="relative"
               onMouseEnter={() => setShowTooltip(true)}
               onMouseLeave={() => setShowTooltip(false)}
             >
               <Info className="h-3.5 w-3.5 text-amber-500 cursor-help" />
-              {showTooltip && (
-                <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1.5 px-2.5 py-1.5 text-xs text-amber-200 bg-popover border border-amber-500/30 rounded-md shadow-lg whitespace-nowrap z-50">
+              {showTooltip ? <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1.5 px-2.5 py-1.5 text-xs text-amber-200 bg-popover border border-amber-500/30 rounded-md shadow-lg whitespace-nowrap z-50">
                   Quantized KV cache saves VRAM but may slightly reduce output quality.
-                </span>
-              )}
-            </span>
-          )}
+                </span> : null}
+            </span> : null}
         </span>
         <select
           className="w-full rounded-md border bg-background px-3 py-1.5 text-sm"

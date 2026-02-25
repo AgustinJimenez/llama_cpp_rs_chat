@@ -127,7 +127,7 @@ const AssistantMessage: React.FC<{
       ) : (
         <>
           {/* Thinking process (for reasoning models) */}
-          {thinkingContent && <ThinkingBlock content={thinkingContent} isStreaming={isThinkingStreaming} />}
+          {thinkingContent ? <ThinkingBlock content={thinkingContent} isStreaming={isThinkingStreaming} /> : null}
 
           {/* Interleaved text, command blocks, tool calls, and thinking in chronological order */}
           {segments.map((segment, index) => {

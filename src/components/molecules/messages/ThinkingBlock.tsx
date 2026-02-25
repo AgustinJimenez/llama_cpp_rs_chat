@@ -33,14 +33,10 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ content, isStreami
           : <ChevronRight className="w-3.5 h-3.5 text-blue-400" />
         }
       </button>
-      {isOpen && (
-        <div className="px-3 pb-3 text-xs text-blue-200 whitespace-pre-wrap leading-relaxed">
+      {isOpen ? <div className="px-3 pb-3 text-xs text-blue-200 whitespace-pre-wrap leading-relaxed">
           {content}
-          {isStreaming && (
-            <span className="inline-block w-1.5 h-3.5 bg-blue-400 ml-0.5 animate-pulse align-middle" />
-          )}
-        </div>
-      )}
+          {isStreaming ? <span className="inline-block w-1.5 h-3.5 bg-blue-400 ml-0.5 animate-pulse align-middle" /> : null}
+        </div> : null}
     </div>
   );
 };

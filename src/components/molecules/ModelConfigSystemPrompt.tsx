@@ -96,8 +96,7 @@ export const SystemPromptSection: React.FC<SystemPromptSectionProps> = ({
         </button>
       </div>
 
-      {isExpanded && (
-        <div className="space-y-2">
+      {isExpanded ? <div className="space-y-2">
           {systemPromptMode === 'custom' ? (
             <textarea
               value={customSystemPrompt}
@@ -121,8 +120,7 @@ export const SystemPromptSection: React.FC<SystemPromptSectionProps> = ({
                 ? 'Agentic mode with command execution. The model can run system commands.'
                 : 'Custom system prompt that will be used instead of the model\'s default.'}
           </p>
-        </div>
-      )}
+        </div> : null}
     </div>
   );
 };

@@ -31,6 +31,7 @@ module.exports = {
     complexity: ['error', { max: 15 }],
     '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
     'react/react-in-jsx-scope': 'off',
+    'react/jsx-no-leaked-render': ['warn', { validStrategies: ['ternary', 'coerce'] }],
     'react-refresh/only-export-components': ['warn', { allowConstantExport: true, allowExportNames: ['buttonVariants'] }],
   },
 };

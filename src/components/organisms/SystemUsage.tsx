@@ -113,11 +113,9 @@ export function SystemUsage({ expanded = false, active = true }: SystemUsageProp
 
     return (
       <div className="relative">
-        {gbText && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        {gbText ? <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <span className="text-lg font-bold text-white">{gbText}</span>
-          </div>
-        )}
+          </div> : null}
         <svg className="w-full h-24 relative" viewBox="0 0 100 100" preserveAspectRatio="none">
           <line x1="0" y1="25" x2="100" y2="25" stroke="currentColor" strokeOpacity="0.1" strokeWidth="0.5" />
           <line x1="0" y1="50" x2="100" y2="50" stroke="currentColor" strokeOpacity="0.1" strokeWidth="0.5" />

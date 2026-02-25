@@ -42,16 +42,13 @@ export const ToolTagsSection: React.FC<ToolTagsSectionProps> = ({
         <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
           <Tag className="h-3.5 w-3.5" />
           Tool Tags
-          {hasOverrides && (
-            <span className="text-[10px] font-normal normal-case tracking-normal text-amber-500">
+          {hasOverrides ? <span className="text-[10px] font-normal normal-case tracking-normal text-amber-500">
               (overridden)
-            </span>
-          )}
+            </span> : null}
         </h4>
       </button>
 
-      {isExpanded && (
-        <div className="space-y-3">
+      {isExpanded ? <div className="space-y-3">
           <p className="text-xs text-muted-foreground">
             Tags used to detect and wrap tool calls in model output. Auto-detected from model name.
             Override only if the model uses non-standard tags.
@@ -67,16 +64,14 @@ export const ToolTagsSection: React.FC<ToolTagsSectionProps> = ({
                 <div key={field.key}>
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-sm font-medium">{field.label}</span>
-                    {value && (
-                      <button
+                    {value ? <button
                         type="button"
                         className="text-muted-foreground hover:text-foreground transition-colors"
                         title="Reset to auto-detected"
                         onClick={() => onConfigChange(field.key, '')}
                       >
                         <RotateCcw className="h-3 w-3" />
-                      </button>
-                    )}
+                      </button> : null}
                   </div>
                   <input
                     type="text"
@@ -89,8 +84,7 @@ export const ToolTagsSection: React.FC<ToolTagsSectionProps> = ({
               );
             })}
           </div>
-        </div>
-      )}
+        </div> : null}
     </div>
   );
 };

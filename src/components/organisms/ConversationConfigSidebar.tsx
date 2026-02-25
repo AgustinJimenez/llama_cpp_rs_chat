@@ -85,15 +85,13 @@ export function ConversationConfigSidebar({
 
   return (
     <>
-      {isOpen && (
-        <div
+      {isOpen ? <div
           className="fixed inset-0 bg-black/50 z-40 md:hidden"
           role="button"
           tabIndex={0}
           onClick={onClose}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClose(); }}
-        />
-      )}
+        /> : null}
 
       <div
         className={`fixed top-0 right-0 h-full bg-card border-l border-border z-50 transition-transform duration-300 flex flex-col ${
@@ -110,10 +108,9 @@ export function ConversationConfigSidebar({
 
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
           {!conversationId && <p className="text-sm text-muted-foreground">No conversation selected</p>}
-          {conversationId && !localConfig && <p className="text-sm text-muted-foreground">Loading...</p>}
+          {conversationId && !localConfig ? <p className="text-sm text-muted-foreground">Loading...</p> : null}
 
-          {showContent && (
-            <>
+          {showContent ? <>
               <ContextSizeSection contextSize={contextSize} setContextSize={setContextSize} modelInfo={null} />
               <GpuLayersSection
                 gpuLayers={localConfig.gpu_layers ?? 0}
@@ -123,12 +120,10 @@ export function ConversationConfigSidebar({
               <AdvancedContextSection config={localConfig} onConfigChange={handleConfigChange} />
               <div className="border-t border-border" />
               <SamplingParametersSection config={localConfig} onConfigChange={handleConfigChange} />
-            </>
-          )}
+            </> : null}
         </div>
 
-        {showContent && (
-          <div className="shrink-0 px-4 py-3 border-t border-border">
+        {showContent ? <div className="shrink-0 px-4 py-3 border-t border-border">
             <button
               onClick={handleSave}
               disabled={isSaving}
@@ -137,8 +132,7 @@ export function ConversationConfigSidebar({
               <Save className="h-4 w-4" />
               {isSaving ? 'Saving...' : 'Save Config'}
             </button>
-          </div>
-        )}
+          </div> : null}
       </div>
     </>
   );

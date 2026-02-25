@@ -119,7 +119,7 @@ export function MessagesArea({
                     <MessageBubble
                       message={messages[virtualRow.index]}
                       viewMode={viewMode}
-                      isStreaming={isLoading && virtualRow.index === messages.length - 1}
+                      isStreaming={isLoading ? virtualRow.index === messages.length - 1 : undefined}
                     />
                   ) : (
                     <LoadingIndicator />

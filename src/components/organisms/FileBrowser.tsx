@@ -115,8 +115,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
 
           {/* Navigation */}
           <div className="flex gap-2">
-            {parentPath && (
-              <Button
+            {parentPath ? <Button
                 variant="outline"
                 size="sm"
                 onClick={goToParent}
@@ -124,8 +123,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
               >
                 <ArrowLeft className="h-4 w-4" />
                 Back
-              </Button>
-            )}
+              </Button> : null}
           </div>
 
           {/* File List */}
@@ -170,17 +168,13 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                         <div className="text-sm font-medium truncate">
                           {file.name}
                         </div>
-                        {!file.is_directory && file.size && (
-                          <div className="text-xs text-muted-foreground">
+                        {!file.is_directory && file.size ? <div className="text-xs text-muted-foreground">
                             {formatFileSize(file.size)}
-                          </div>
-                        )}
+                          </div> : null}
                       </div>
-                      {isSelected && (
-                        <div className="text-xs text-primary font-medium">
+                      {isSelected ? <div className="text-xs text-primary font-medium">
                           Selected
-                        </div>
-                      )}
+                        </div> : null}
                     </div>
                   );
                 })}
@@ -189,14 +183,12 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
           </div>
 
           {/* Selected File Display */}
-          {selectedFile && (
-            <div className="p-3 bg-primary/5 border border-primary/20 rounded-md">
+          {selectedFile ? <div className="p-3 bg-primary/5 border border-primary/20 rounded-md">
               <div className="text-sm font-medium">Selected file:</div>
               <div className="text-sm font-mono text-muted-foreground mt-1">
                 {selectedFile}
               </div>
-            </div>
-          )}
+            </div> : null}
         </div>
 
         <DialogFooter>

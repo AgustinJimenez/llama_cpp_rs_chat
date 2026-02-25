@@ -118,7 +118,7 @@ const ExecutingHeader: React.FC<{ name: string; summary: string; hasOutput: bool
     <div className="w-full bg-yellow-950/70 px-3 py-2 flex items-center gap-2">
       <span className="inline-block w-3 h-3 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
       <span className="text-xs font-medium text-yellow-300">
-        {hasOutput ? 'Running...' : 'Executing Tool...'}{elapsedStr && ` (${elapsedStr})`}
+        {hasOutput ? 'Running...' : 'Executing Tool...'}{elapsedStr ? ` (${elapsedStr})` : null}
       </span>
       <span className="text-xs text-yellow-300/50 truncate">{formatToolName(name)}: {summary}</span>
     </div>
@@ -155,7 +155,7 @@ const WaitingIndicator: React.FC<{ name: string; elapsed: number }> = ({ name, e
         <div className="w-1.5 h-1.5 bg-yellow-400 rounded-full animate-bounce" style={{ animationDelay: '400ms', animationDuration: '1s' }} />
       </div>
       <span className="text-xs text-yellow-300/70">
-        Waiting for {formatToolName(name)} result...{elapsedStr && ` (${elapsedStr})`}
+        Waiting for {formatToolName(name)} result...{elapsedStr ? ` (${elapsedStr})` : null}
       </span>
     </div>
   );
@@ -189,12 +189,10 @@ const CompletedOutput: React.FC<{
       </span>
       <span className="text-muted-foreground">{isExpanded ? '\u25BC' : '\u25C0'}</span>
     </button>
-    {isExpanded && (
-      <pre className="text-xs text-foreground font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto"
+    {isExpanded ? <pre className="text-xs text-foreground font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto"
         style={{ borderTop: '1px solid hsl(220 8% 28%)' }}>
         {output}
-      </pre>
-    )}
+      </pre> : null}
   </>
 );
 
@@ -215,16 +213,12 @@ const SingleToolCall: React.FC<{ toolCall: ToolCall }> = ({ toolCall }) => {
         ? <ExecutingHeader name={toolCall.name} summary={summary} hasOutput={hasStreamingOutput} elapsed={elapsed} />
         : <CompletedHeader name={toolCall.name} summary={summary} isExpanded={isExpanded} onToggle={() => setIsExpanded(!isExpanded)} />
       }
-      {isExpanded && !isExecuting && (
-        <pre className="text-xs text-foreground font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto">
+      {isExpanded && !isExecuting ? <pre className="text-xs text-foreground font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto">
           {formatToolArguments(toolCall.arguments)}
-        </pre>
-      )}
-      {isExecuting && !hasStreamingOutput && <WaitingIndicator name={toolCall.name} elapsed={elapsed} />}
-      {hasStreamingOutput && <StreamingOutput output={toolCall.output!} />}
-      {!isExecuting && toolCall.output && (
-        <CompletedOutput output={toolCall.output} isExpanded={isOutputExpanded} onToggle={() => setIsOutputExpanded(!isOutputExpanded)} />
-      )}
+        </pre> : null}
+      {isExecuting && !hasStreamingOutput ? <WaitingIndicator name={toolCall.name} elapsed={elapsed} /> : null}
+      {hasStreamingOutput ? <StreamingOutput output={toolCall.output!} /> : null}
+      {!isExecuting && toolCall.output ? <CompletedOutput output={toolCall.output} isExpanded={isOutputExpanded} onToggle={() => setIsOutputExpanded(!isOutputExpanded)} /> : null}
     </div>
   );
 };

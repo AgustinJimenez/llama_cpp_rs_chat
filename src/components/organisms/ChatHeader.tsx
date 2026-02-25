@@ -71,8 +71,7 @@ export function ChatHeader({
     <div className="flex items-center justify-between px-4 py-2 border-b border-border" data-testid="chat-header">
       {/* Left: model name */}
       <div className="flex items-center gap-2 min-w-0">
-        {modelLoaded && (
-          <>
+        {modelLoaded ? <>
             <span className="text-sm font-medium truncate">{modelName}</span>
             <button
               onClick={onModelUnload}
@@ -82,10 +81,8 @@ export function ChatHeader({
             >
               <Unplug className="h-4 w-4" />
             </button>
-          </>
-        )}
-        {!modelLoaded && hasStatusError && (
-          <>
+          </> : null}
+        {!modelLoaded && hasStatusError ? <>
             <span className="text-sm text-destructive">Model status unknown</span>
             <button
               onClick={onForceUnload}
@@ -95,13 +92,11 @@ export function ChatHeader({
             >
               <Unplug className="h-4 w-4" />
             </button>
-          </>
-        )}
+          </> : null}
       </div>
 
       {/* Right: context + view toggle + monitor */}
-      {modelLoaded && (
-        <div className="flex items-center gap-3">
+      {modelLoaded ? <div className="flex items-center gap-3">
           {tokensUsed !== undefined && maxTokens !== undefined && (
             <span className="text-xs text-muted-foreground font-mono">
               {tokensUsed}/{maxTokens}
@@ -138,8 +133,7 @@ export function ChatHeader({
           >
             <Activity className="h-3.5 w-3.5" />
           </button>
-        </div>
-      )}
+        </div> : null}
     </div>
   );
 }

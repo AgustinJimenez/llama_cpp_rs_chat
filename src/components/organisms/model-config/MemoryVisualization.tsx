@@ -108,11 +108,9 @@ const VramBar: React.FC<{ vram: MemoryBreakdown['vram'] }> = ({ vram }) => {
         <BarSegment color="bg-orange-500" widthPct={Math.min(cachePct, 100 - modelPct)} label={`${vram.kvCache.toFixed(1)}G`} title={`KV Cache: ${vram.kvCache.toFixed(2)} GB`} />
         <BarSegment color="bg-purple-600" widthPct={Math.min(overheadPct, 100 - modelPct - cachePct)} label={`${vram.overhead.toFixed(1)}G`} title={`Overhead: ${vram.overhead.toFixed(2)} GB`} minPctForLabel={6} />
         {!vram.overcommitted && <BarSegment color="bg-zinc-700/50" widthPct={availablePct} label={`${vram.available.toFixed(1)}G`} title={`Available: ${vram.available.toFixed(2)} GB`} textColor="text-zinc-400" minPctForLabel={10} />}
-        {vram.overcommitted && (
-          <div className="absolute inset-0 bg-red-600/20 border-2 border-red-600 flex items-center justify-center">
+        {vram.overcommitted ? <div className="absolute inset-0 bg-red-600/20 border-2 border-red-600 flex items-center justify-center">
             <span className="text-xs text-black font-bold">OVERCOMMITTED</span>
-          </div>
-        )}
+          </div> : null}
       </div>
     </div>
   );
@@ -138,11 +136,9 @@ const RamBar: React.FC<{ ram: MemoryBreakdown['ram'] }> = ({ ram }) => {
       <div className="h-8 bg-zinc-800 rounded-md overflow-hidden flex relative">
         <BarSegment color="bg-cyan-600" widthPct={Math.min(modelPct, 100)} label={`${ram.modelCpu.toFixed(1)}G`} title={`Model (CPU): ${ram.modelCpu.toFixed(2)} GB`} />
         {!ram.overcommitted && <BarSegment color="bg-zinc-700/50" widthPct={availablePct} label={`${ram.available.toFixed(1)}G`} title={`Available: ${ram.available.toFixed(2)} GB`} textColor="text-zinc-400" minPctForLabel={10} />}
-        {ram.overcommitted && (
-          <div className="absolute inset-0 bg-red-600/20 border-2 border-red-600 flex items-center justify-center">
+        {ram.overcommitted ? <div className="absolute inset-0 bg-red-600/20 border-2 border-red-600 flex items-center justify-center">
             <span className="text-xs text-black font-bold">OVERCOMMITTED</span>
-          </div>
-        )}
+          </div> : null}
       </div>
     </div>
   );
@@ -284,20 +280,14 @@ const MemoryWarnings: React.FC<{ memory: MemoryBreakdown }> = ({ memory }) => {
 
   return (
     <>
-      {(memory.vram.overcommitted || memory.ram.overcommitted) && (
-        <div className="bg-red-900/20 border border-red-600 rounded-md p-3 flex items-start gap-2">
+      {(memory.vram.overcommitted || memory.ram.overcommitted) ? <div className="bg-red-900/20 border border-red-600 rounded-md p-3 flex items-start gap-2">
           <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
           <div className="text-sm text-red-600 dark:text-red-400">
             <p className="font-semibold mb-1">Memory Overcommitted!</p>
-            {memory.vram.overcommitted && (
-              <p className="text-xs">VRAM usage exceeds available GPU memory. Reduce GPU layers or context size.</p>
-            )}
-            {memory.ram.overcommitted && (
-              <p className="text-xs">RAM usage exceeds available system memory. Increase GPU layers or reduce model size.</p>
-            )}
+            {memory.vram.overcommitted ? <p className="text-xs">VRAM usage exceeds available GPU memory. Reduce GPU layers or context size.</p> : null}
+            {memory.ram.overcommitted ? <p className="text-xs">RAM usage exceeds available system memory. Increase GPU layers or reduce model size.</p> : null}
           </div>
-        </div>
-      )}
+        </div> : null}
       {!memory.vram.overcommitted && !memory.ram.overcommitted && vramUtilization > 85 && (
         <div className="bg-yellow-900/20 border border-yellow-600 rounded-md p-3 flex items-start gap-2">
           <Info className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />

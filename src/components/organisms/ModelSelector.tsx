@@ -77,13 +77,11 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       </div>
 
       {/* Error Display */}
-      {error && (
-        <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-md max-w-md">
+      {error ? <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-md max-w-md">
           <p className="text-sm text-red-700">
             <strong>Error:</strong> {error}
           </p>
-        </div>
-      )}
+        </div> : null}
 
       {/* Model Configuration Modal */}
       <ModelConfigModal

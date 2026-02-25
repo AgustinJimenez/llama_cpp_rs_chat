@@ -81,22 +81,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           </DialogDescription>
         </DialogHeader>
         
-        {isLoading && (
-          <div className="flex items-center justify-center py-8">
+        {isLoading ? <div className="flex items-center justify-center py-8">
             <div className="text-sm text-muted-foreground">Loading configuration...</div>
-          </div>
-        )}
+          </div> : null}
         
-        {error && (
-          <Card className="border-destructive">
+        {error ? <Card className="border-destructive">
             <CardContent className="p-4">
               <div className="text-destructive text-sm">Error: {error}</div>
             </CardContent>
-          </Card>
-        )}
+          </Card> : null}
         
-        {localConfig && (
-          <div className="space-y-6">
+        {localConfig ? <div className="space-y-6">
             <ModelPathSection
               modelPath={localConfig.model_path || ''}
               onModelPathChange={(path) => handleInputChange('model_path', path)}
@@ -164,8 +159,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 });
               }}
             />
-          </div>
-        )}
+          </div> : null}
         
         <DialogFooter>
           <button className="flat-button bg-muted px-6 py-2" onClick={onClose}>

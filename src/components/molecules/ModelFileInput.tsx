@@ -59,8 +59,7 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
           </div>
         )}
         {/* Model History Suggestions */}
-        {showHistory && modelHistory.length > 0 && !modelPath.trim() && (
-          <div className="absolute z-10 w-full mt-1 bg-background border border-input rounded-md shadow-lg max-h-60 overflow-y-auto">
+        {showHistory && modelHistory.length > 0 && !modelPath.trim() ? <div className="absolute z-10 w-full mt-1 bg-background border border-input rounded-md shadow-lg max-h-60 overflow-y-auto">
             <div className="p-2 text-xs text-muted-foreground border-b">
               Previously used paths:
             </div>
@@ -77,11 +76,9 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
                 <div className="font-mono text-xs truncate">{path}</div>
               </button>
             ))}
-          </div>
-        )}
+          </div> : null}
       </div>
-      {isTauri && (
-        <Button
+      {isTauri ? <Button
           type="button"
           onClick={handleBrowseFile}
           disabled={isCheckingFile}
@@ -99,8 +96,7 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
               Browse
             </>
           )}
-        </Button>
-      )}
+        </Button> : null}
     </div>
 
     {!isTauri && (

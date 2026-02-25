@@ -10,15 +10,13 @@ export function RightSidebar({ isOpen, onClose }: RightSidebarProps) {
   return (
     <>
       {/* Overlay for mobile */}
-      {isOpen && (
-        <div
+      {isOpen ? <div
           className="fixed inset-0 bg-black/50 z-40 md:hidden"
           role="button"
           tabIndex={0}
           onClick={onClose}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClose(); }}
-        />
-      )}
+        /> : null}
 
       {/* Sidebar */}
       <div

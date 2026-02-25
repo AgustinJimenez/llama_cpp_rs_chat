@@ -320,30 +320,25 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                 handleBrowseFile={handleBrowseFile}
               />
 
-              {isCheckingFile && (
-                <Card className="mt-3">
+              {isCheckingFile ? <Card className="mt-3">
                   <CardContent className="pt-4">
                     <div className="flex items-center gap-2">
                       <Loader2 className="h-4 w-4 animate-spin" />
                       <p className="text-sm text-muted-foreground">Reading GGUF metadata...</p>
                     </div>
                   </CardContent>
-                </Card>
-              )}
+                </Card> : null}
 
-              {modelInfo && (
-                <ModelMetadataDisplay
+              {modelInfo ? <ModelMetadataDisplay
                   modelInfo={modelInfo}
                   isExpanded={isMetadataExpanded}
                   setIsExpanded={setIsMetadataExpanded}
-                />
-              )}
+                /> : null}
             </CardContent>
           </Card>
 
           {/* Configuration Options - Only show when model is valid */}
-          {modelPath && fileExists === true && (
-            <Card>
+          {modelPath && fileExists === true ? <Card>
               <CardHeader className="p-0">
                 <button
                   className={`flex items-center justify-between w-full text-left bg-primary text-white px-6 py-3 hover:opacity-90 transition-opacity ${
@@ -359,8 +354,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                   </CardTitle>
                 </button>
               </CardHeader>
-              {isConfigExpanded && (
-                <CardContent className="space-y-4 pt-6">
+              {isConfigExpanded ? <CardContent className="space-y-4 pt-6">
                   <ModelConfigSystemPrompt
                     systemPromptMode={systemPromptMode}
                     setSystemPromptMode={setSystemPromptMode}
@@ -370,8 +364,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                   />
 
                   {/* Memory Visualization - Real-time VRAM/RAM usage */}
-                  {modelInfo && (
-                    <MemoryVisualization
+                  {modelInfo ? <MemoryVisualization
                       memory={memoryBreakdown}
                       overheadGb={overheadGb}
                       onOverheadChange={setOverheadGb}
@@ -381,8 +374,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                       contextSize={contextSize}
                       onContextSizeChange={setContextSize}
                       maxContextSize={modelInfo?.context_length ? parseInt(modelInfo.context_length.toString().replace(/,/g, '')) || 131072 : 131072}
-                    />
-                  )}
+                    /> : null}
 
                   <AdvancedContextSection
                     config={config}
@@ -401,19 +393,15 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                   />
 
 
-                </CardContent>
-              )}
-            </Card>
-          )}
+                </CardContent> : null}
+            </Card> : null}
 
-          {isLoading && (
-            <div className="pb-4">
+          {isLoading ? <div className="pb-4">
               <div className="flex items-center justify-center gap-2 py-4">
                 <Loader2 className="h-5 w-5 animate-spin" />
                 <span className="text-sm font-medium">Loading model...</span>
               </div>
-            </div>
-          )}
+            </div> : null}
         </div>
 
         <DialogFooter className="px-6 py-4 border-t">

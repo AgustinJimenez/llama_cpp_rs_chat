@@ -41,7 +41,7 @@ const SliderParam: React.FC<SliderParamProps> = ({ label, value, format, descrip
       step={step}
       className="w-full"
     />
-    {description && <p className="text-xs text-muted-foreground">{description}</p>}
+    {description ? <p className="text-xs text-muted-foreground">{description}</p> : null}
   </div>
 );
 
@@ -65,10 +65,9 @@ const PenaltiesSection: React.FC<{ config: SamplerConfig; onConfigChange: Config
       <button type="button" className="flex items-center gap-2 w-full text-left px-3 py-2 text-sm font-medium hover:bg-muted/50 transition-colors rounded-lg" onClick={() => setExpanded(!expanded)}>
         {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
         Advanced Penalties
-        {isActive && <span className="text-xs text-amber-500 ml-1">active</span>}
+        {isActive ? <span className="text-xs text-amber-500 ml-1">active</span> : null}
       </button>
-      {expanded && (
-        <div className="px-3 pb-3 space-y-3">
+      {expanded ? <div className="px-3 pb-3 space-y-3">
           <SliderParam label="Frequency Penalty" value={config.frequency_penalty ?? 0} format={v => v.toFixed(2)}
             description="Penalize tokens based on how often they appear (0 = disabled)"
             onChange={v => onConfigChange('frequency_penalty', v)} min={0} max={2} step={0.05} />
@@ -78,8 +77,7 @@ const PenaltiesSection: React.FC<{ config: SamplerConfig; onConfigChange: Config
           <SliderParam label="Penalty Window" value={config.penalty_last_n ?? 64} format={v => String(v)}
             description="Number of recent tokens to consider for penalties"
             onChange={v => onConfigChange('penalty_last_n', Math.round(v))} min={0} max={256} step={8} />
-        </div>
-      )}
+        </div> : null}
     </div>
   );
 };
@@ -94,15 +92,13 @@ const DrySection: React.FC<{ config: SamplerConfig; onConfigChange: ConfigChange
       <button type="button" className="flex items-center gap-2 w-full text-left px-3 py-2 text-sm font-medium hover:bg-muted/50 transition-colors rounded-lg" onClick={() => setExpanded(!expanded)}>
         {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
         DRY Anti-Repetition
-        {isActive && <span className="text-xs text-amber-500 ml-1">active</span>}
+        {isActive ? <span className="text-xs text-amber-500 ml-1">active</span> : null}
       </button>
-      {expanded && (
-        <div className="px-3 pb-3 space-y-3">
+      {expanded ? <div className="px-3 pb-3 space-y-3">
           <SliderParam label="DRY Multiplier" value={config.dry_multiplier ?? 0} format={v => v.toFixed(1)}
             description="DRY penalty strength (0 = disabled)"
             onChange={v => onConfigChange('dry_multiplier', v)} min={0} max={5} step={0.1} />
-          {isActive && (
-            <>
+          {isActive ? <>
               <SliderParam label="DRY Base" value={config.dry_base ?? 1.75} format={v => v.toFixed(2)}
                 description="Exponential base for DRY penalty growth"
                 onChange={v => onConfigChange('dry_base', v)} min={1} max={4} step={0.05} />
@@ -112,10 +108,8 @@ const DrySection: React.FC<{ config: SamplerConfig; onConfigChange: ConfigChange
               <SliderParam label="DRY Token Window" value={config.dry_penalty_last_n ?? -1} format={v => v < 0 ? 'Full ctx' : String(v)}
                 description="Tokens to scan for repeats (-1 = full context)"
                 onChange={v => onConfigChange('dry_penalty_last_n', Math.round(v))} min={-1} max={512} step={16} />
-            </>
-          )}
-        </div>
-      )}
+            </> : null}
+        </div> : null}
     </div>
   );
 };
@@ -183,11 +177,9 @@ export const SamplingParametersSection: React.FC<SamplingParametersSectionProps>
           onChange={v => onConfigChange('typical_p', v)} min={0.1} max={1} step={0.05} />
       )}
 
-      {showAdvanced && (
-        <SliderParam label="Top-N Sigma" value={config.top_n_sigma ?? -1.0} format={v => v <= 0 ? 'Off' : v.toFixed(1)}
+      {showAdvanced ? <SliderParam label="Top-N Sigma" value={config.top_n_sigma ?? -1.0} format={v => v <= 0 ? 'Off' : v.toFixed(1)}
           description="Keep tokens within N standard deviations of mean logit (-1 = disabled)"
-          onChange={v => onConfigChange('top_n_sigma', v)} min={-1} max={5} step={0.1} />
-      )}
+          onChange={v => onConfigChange('top_n_sigma', v)} min={-1} max={5} step={0.1} /> : null}
 
       {sampler !== 'Mirostat' && (
         <SliderParam label="Repeat Penalty" value={config.repeat_penalty} format={v => v.toFixed(2)}
@@ -204,8 +196,8 @@ export const SamplingParametersSection: React.FC<SamplingParametersSectionProps>
         </div>
       )}
 
-      {showAdvanced && <PenaltiesSection config={config} onConfigChange={onConfigChange} />}
-      {showAdvanced && <DrySection config={config} onConfigChange={onConfigChange} />}
+      {showAdvanced ? <PenaltiesSection config={config} onConfigChange={onConfigChange} /> : null}
+      {showAdvanced ? <DrySection config={config} onConfigChange={onConfigChange} /> : null}
     </>
   );
 };
