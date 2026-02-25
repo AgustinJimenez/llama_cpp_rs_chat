@@ -2,6 +2,8 @@ AGENTS GUIDE
 
 This is the short canonical reference for agents (Claude Code, OpenAI Agents, etc.) working in this repo.
 
+What this is: Local LLM chat app (React + Rust/llama.cpp). Core flow: load GGUF model → auto-calculate GPU layers from available VRAM → extract Jinja2 chat template + model metadata (general.name) from GGUF → resolve model-specific tool format and sampler presets → format prompts via Jinja template → generate tokens with configurable sampler chain (11 types) → stream over WebSocket → detect tool call patterns in output (`<tool_call>`, `[TOOL_CALLS]`, `SYSTEM.EXEC`, etc.) → execute native tools (file I/O, shell, web search/fetch, Python) → inject results back into context for multi-turn agentic loops. KV cache reused between conversation turns for speed. Conversations and config persisted in SQLite. Model runs in an out-of-process worker (child process with JSON Lines IPC) — kill worker to reclaim all VRAM instantly. Runs as web app (Vite + Rust backend) or Tauri desktop app.
+
 Default development (prefer Tauri commands — they handle both frontend and backend together):
 - Desktop app (preferred): "npm run dev:auto:desktop" (automatic GPU detection) or "npm run tauri:dev" (CPU-only)
 - Web app (fallback): "npm run dev:auto" (automatic GPU detection) or "npm run dev" (CPU-only)
