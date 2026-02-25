@@ -106,6 +106,21 @@ CREATE TABLE IF NOT EXISTS conversation_config (
 )
 "#;
 
+const CREATE_HUB_DOWNLOADS_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS hub_downloads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    model_id TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    dest_path TEXT NOT NULL,
+    file_size INTEGER NOT NULL DEFAULT 0,
+    bytes_downloaded INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'pending',
+    etag TEXT,
+    downloaded_at INTEGER NOT NULL,
+    UNIQUE(model_id, filename, dest_path)
+)
+"#;
+
 const CREATE_LOGS_TABLE: &str = r#"
 CREATE TABLE IF NOT EXISTS logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -138,6 +153,7 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         ("config", CREATE_CONFIG_TABLE),
         ("conversation_config", CREATE_CONVERSATION_CONFIG_TABLE),
         ("model_history", CREATE_MODEL_HISTORY_TABLE),
+        ("hub_downloads", CREATE_HUB_DOWNLOADS_TABLE),
         ("logs", CREATE_LOGS_TABLE),
         ("logs_conversation_index", CREATE_LOGS_CONVERSATION_INDEX),
         ("logs_timestamp_index", CREATE_LOGS_TIMESTAMP_INDEX),
@@ -265,6 +281,20 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
     // Add web search provider column if missing
     let _ = conn.execute(
         "ALTER TABLE config ADD COLUMN web_search_provider TEXT DEFAULT 'DuckDuckGo'",
+        [],
+    );
+
+    // Add resume-tracking columns to hub_downloads if missing
+    let _ = conn.execute(
+        "ALTER TABLE hub_downloads ADD COLUMN bytes_downloaded INTEGER NOT NULL DEFAULT 0",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE hub_downloads ADD COLUMN status TEXT NOT NULL DEFAULT 'completed'",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE hub_downloads ADD COLUMN etag TEXT",
         [],
     );
 

@@ -19,18 +19,22 @@ interface FileBrowserProps {
   onSelectFile: (filePath: string) => void;
   filter?: string; // File extension filter (e.g., '.gguf')
   title?: string;
+  mode?: 'file' | 'directory'; // 'directory' shows "Select This Folder" button
+  startPath?: string; // Override default starting path
 }
 
 // eslint-disable-next-line max-lines-per-function
-export const FileBrowser: React.FC<FileBrowserProps> = ({ 
-  isOpen, 
-  onClose, 
-  onSelectFile, 
+export const FileBrowser: React.FC<FileBrowserProps> = ({
+  isOpen,
+  onClose,
+  onSelectFile,
   filter = '.gguf',
-  title = 'Select Model File'
+  title = 'Select Model File',
+  mode = 'file',
+  startPath,
 }) => {
   const [files, setFiles] = useState<FileItem[]>([]);
-  const [currentPath, setCurrentPath] = useState<string>('/app/models');
+  const [currentPath, setCurrentPath] = useState<string>(startPath ?? '/app/models');
   const [parentPath, setParentPath] = useState<string | undefined>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,7 +101,9 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
             {title}
           </DialogTitle>
           <DialogDescription>
-            Browse and select a model file ({filter} files)
+            {mode === 'directory'
+              ? 'Navigate to a folder and click "Select This Folder"'
+              : `Browse and select a model file (${filter} files)`}
           </DialogDescription>
         </DialogHeader>
 
@@ -197,12 +203,18 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button 
-            onClick={handleSelectFile} 
-            disabled={!selectedFile}
-          >
-            Select File
-          </Button>
+          {mode === 'directory' ? (
+            <Button onClick={() => { onSelectFile(currentPath); onClose(); }}>
+              Select This Folder
+            </Button>
+          ) : (
+            <Button
+              onClick={handleSelectFile}
+              disabled={!selectedFile}
+            >
+              Select File
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

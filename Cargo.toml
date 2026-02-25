@@ -95,6 +95,9 @@ ureq = { version = "2.9", default-features = false, features = ["tls"] }
 # HTML to text conversion
 html2text = "0.12"
 
+# Native OS file dialogs (folder picker for web mode)
+rfd = "0.15"
+
 # Headless Chrome for web search (bypasses CAPTCHAs)
 headless_chrome = "1.0"
 

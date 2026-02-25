@@ -22,23 +22,30 @@ pub async fn handle_get_browse(
 ) -> Result<Response<Body>, Infallible> {
     // Parse query parameters for path
     let query = req.uri().query().unwrap_or("");
-    let mut browse_path = "/app/models"; // Default path
+    let mut browse_path_owned = String::from("/app/models"); // Default path
 
     // Simple query parameter parsing
     for param in query.split('&') {
         if let Some((key, value)) = param.split_once('=') {
             if key == "path" {
-                // Simple path assignment (assume already decoded by browser)
-                browse_path = value;
+                // URL-decode the path (frontend sends encodeURIComponent)
+                browse_path_owned = urlencoding::decode(value)
+                    .unwrap_or(std::borrow::Cow::Borrowed(value))
+                    .into_owned();
             }
         }
     }
+    let browse_path = browse_path_owned.as_str();
 
     // Security: ensure path is within allowed directories
+    // On native/Windows (drive letter like E:), allow any path since the app is local-only.
+    // In Docker, restrict to /app paths.
     let allowed_paths = ["/app/models", "/app"];
-    let is_allowed = allowed_paths
-        .iter()
-        .any(|&allowed| browse_path.starts_with(allowed));
+    let is_native = browse_path.chars().nth(1) == Some(':');
+    let is_allowed = is_native
+        || allowed_paths
+            .iter()
+            .any(|&allowed| browse_path.starts_with(allowed));
 
     if !is_allowed {
         return Ok(json_error(StatusCode::FORBIDDEN, "Path not allowed"));
@@ -46,7 +53,12 @@ pub async fn handle_get_browse(
 
     let mut files = Vec::new();
     let current_path = browse_path.to_string();
-    let parent_path = if browse_path != "/app/models" && browse_path != "/app" {
+    // Show parent path unless we're at a root (drive root on Windows, /app on Docker)
+    let is_root = browse_path == "/app/models"
+        || browse_path == "/app"
+        || (browse_path.len() <= 3 && browse_path.ends_with(':'))
+        || (browse_path.len() <= 3 && browse_path.ends_with(":\\"));
+    let parent_path = if !is_root {
         std::path::Path::new(browse_path)
             .parent()
             .and_then(|p| p.to_str())
@@ -98,6 +110,22 @@ pub async fn handle_get_browse(
     };
 
     Ok(json_response(StatusCode::OK, &response))
+}
+
+/// POST /api/browse/pick-directory — open native OS folder picker, return selected path
+pub async fn handle_post_pick_directory(
+    #[cfg(not(feature = "mock"))] _bridge: crate::web::worker::worker_bridge::SharedWorkerBridge,
+    #[cfg(feature = "mock")] _bridge: (),
+) -> Result<Response<Body>, Infallible> {
+    let result = tokio::task::spawn_blocking(|| {
+        rfd::FileDialog::new().pick_folder()
+    })
+    .await
+    .unwrap_or(None);
+
+    let path = result.map(|p| p.to_string_lossy().into_owned());
+    let json = serde_json::json!({ "path": path });
+    Ok(json_raw(StatusCode::OK, json.to_string()))
 }
 
 pub async fn handle_post_upload(

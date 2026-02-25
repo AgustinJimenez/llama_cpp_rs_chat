@@ -2,11 +2,11 @@ AGENTS GUIDE
 
 This is the short canonical reference for agents (Claude Code, OpenAI Agents, etc.) working in this repo.
 
-Default development:
-- Web app: "npm run dev:auto" (automatic GPU detection) or "npm run dev" (CPU-only)
-- Desktop app: "npm run dev:auto:desktop" (automatic GPU detection) or "npm run tauri:dev" (CPU-only)
+Default development (prefer Tauri commands — they handle both frontend and backend together):
+- Desktop app (preferred): "npm run dev:auto:desktop" (automatic GPU detection) or "npm run tauri:dev" (CPU-only)
+- Web app (fallback): "npm run dev:auto" (automatic GPU detection) or "npm run dev" (CPU-only)
 
-Web app runs Vite on port 4000 with Rust backend on port 8000. Access via http://localhost:4000. Desktop app opens native window.
+Web app runs Vite on port 4000 with Rust backend on port 8000. Access via http://localhost:4000. Desktop app opens native window. When building/running, prefer Tauri commands over running backend and Vite separately.
 
 GPU acceleration: "npm run dev:auto" (web) or "npm run dev:auto:desktop" automatically detect the best setup (Metal on macOS, CUDA on Windows, CPU fallback). Manual options: "npm run dev:metal"/"npm run tauri:dev:metal", "npm run dev:cuda"/"npm run tauri:dev:cuda".
 

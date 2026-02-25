@@ -149,8 +149,16 @@ async fn handle_request_impl(
             web::routes::model::handle_post_model_hard_unload(bridge.clone()).await?
         }
 
+        // HuggingFace Hub search & download
+        (&Method::GET, "/api/hub/search") => web::routes::hub::handle_search(req).await?,
+        (&Method::GET, "/api/hub/tree") => web::routes::hub::handle_tree(req).await?,
+        (&Method::POST, "/api/hub/download") => web::routes::download::handle_post_download(req, db.clone()).await?,
+        (&Method::GET, "/api/hub/downloads") => web::routes::download::handle_get_downloads(db.clone()).await?,
+        (&Method::POST, "/api/hub/downloads/verify") => web::routes::download::handle_post_verify(db.clone()).await?,
+
         // File operations
         (&Method::GET, "/api/browse") => web::routes::files::handle_get_browse(req, bridge.clone()).await?,
+        (&Method::POST, "/api/browse/pick-directory") => web::routes::files::handle_post_pick_directory(bridge.clone()).await?,
 
         (&Method::POST, "/api/upload") => {
             web::routes::files::handle_post_upload(req, bridge.clone()).await?

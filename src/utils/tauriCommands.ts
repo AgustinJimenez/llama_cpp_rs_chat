@@ -63,6 +63,21 @@ export interface SystemUsageData {
   cpu_ghz?: number;
 }
 
+export interface HubFile {
+  name: string;
+  size: number;
+}
+
+export interface HubModel {
+  id: string;
+  author: string;
+  downloads: number;
+  likes: number;
+  last_modified: string;
+  pipeline_tag: string;
+  files: HubFile[];
+}
+
 // ─── Helper ───────────────────────────────────────────────────────────
 
 async function invokeCmd<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -252,6 +267,127 @@ export async function webFetch(url: string, maxLength?: number): Promise<Record<
   const params = new URLSearchParams({ url });
   if (maxLength) params.set('max_length', String(maxLength));
   return fetchJson<Record<string, unknown>>(`/api/tools/web-fetch?${params}`);
+}
+
+// ─── Native Directory Picker ─────────────────────────────────────────
+
+export async function pickDirectory(): Promise<string | null> {
+  if (isTauriEnv()) {
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const selected = await open({ directory: true, multiple: false });
+    return typeof selected === 'string' ? selected : null;
+  }
+  const result = await fetchJson<{ path: string | null }>('/api/browse/pick-directory', { method: 'POST' });
+  return result.path;
+}
+
+// ─── HuggingFace Hub ─────────────────────────────────────────────────
+
+export type HubSortField = 'downloads' | 'likes' | 'lastModified' | 'createdAt';
+
+export async function searchHubModels(query: string, limit = 20, sort: HubSortField = 'downloads'): Promise<HubModel[]> {
+  const params = `q=${encodeURIComponent(query)}&limit=${limit}&sort=${sort}`;
+  if (isTauriEnv()) {
+    return invokeCmd<HubModel[]>('search_hub_models', { query, limit, sort });
+  }
+  return fetchJson<HubModel[]>(`/api/hub/search?${params}`);
+}
+
+export async function fetchHubTree(modelId: string): Promise<HubFile[]> {
+  if (isTauriEnv()) {
+    return invokeCmd<HubFile[]>('fetch_hub_tree', { modelId });
+  }
+  return fetchJson<HubFile[]>(`/api/hub/tree?id=${encodeURIComponent(modelId)}`);
+}
+
+// ─── Hub Download History ────────────────────────────────────────────
+
+export interface HubDownloadRecord {
+  id: number;
+  model_id: string;
+  filename: string;
+  dest_path: string;
+  file_size: number;
+  bytes_downloaded: number;
+  status: string; // 'pending' | 'completed'
+  etag: string | null;
+  downloaded_at: number;
+}
+
+/** Verify which downloaded files still exist on disk — prunes missing records from DB */
+export async function verifyHubDownloads(): Promise<HubDownloadRecord[]> {
+  return fetchJson<HubDownloadRecord[]>('/api/hub/downloads/verify', { method: 'POST' });
+}
+
+// ─── Hub Download (SSE) ──────────────────────────────────────────────
+
+export interface DownloadProgress {
+  type: 'progress' | 'done' | 'error';
+  bytes?: number;
+  total?: number;
+  speed_kbps?: number;
+  path?: string;
+  message?: string;
+}
+
+export function startHubDownload(
+  modelId: string,
+  filename: string,
+  destination: string,
+  onProgress: (event: DownloadProgress) => void,
+): AbortController {
+  const controller = new AbortController();
+
+  fetch('/api/hub/download', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model_id: modelId, filename, destination }),
+    signal: controller.signal,
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        const text = await response.text().catch(() => response.statusText);
+        let msg = text;
+        try { msg = JSON.parse(text).error || text; } catch { /* keep raw */ }
+        onProgress({ type: 'error', message: msg });
+        return;
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        onProgress({ type: 'error', message: 'No response body' });
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const event = JSON.parse(line.slice(6)) as DownloadProgress;
+              onProgress(event);
+            } catch { /* skip malformed */ }
+          }
+        }
+      }
+    })
+    .catch((err: unknown) => {
+      if (err instanceof Error && err.name !== 'AbortError') {
+        onProgress({ type: 'error', message: String(err) });
+      }
+    });
+
+  return controller;
 }
 
 // ─── System ───────────────────────────────────────────────────────────

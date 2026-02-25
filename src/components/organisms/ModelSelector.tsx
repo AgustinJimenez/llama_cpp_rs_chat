@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Brain, FolderOpen } from 'lucide-react';
+import { Brain, FolderOpen, Search } from 'lucide-react';
 import { Button } from '../atoms/button';
 import { ModelConfigModal } from './model-config';
+import { HubExplorer } from './HubExplorer';
 import type { SamplerConfig } from '../../types';
 
 interface ModelSelectorProps {
@@ -11,13 +12,14 @@ interface ModelSelectorProps {
   error?: string | null;
 }
 
-export const ModelSelector: React.FC<ModelSelectorProps> = ({ 
-  onModelLoad, 
-  currentModelPath, 
+export const ModelSelector: React.FC<ModelSelectorProps> = ({
+  onModelLoad,
+  currentModelPath,
   isLoading = false,
   error = null
 }) => {
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  const [isExplorerOpen, setIsExplorerOpen] = useState(false);
 
   const handleConfigSave = (config: SamplerConfig) => {
     if (config.model_path) {
@@ -52,16 +54,27 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
 
   return (
     <div className="relative" data-testid="model-selector">
-      <Button
-        data-testid="select-model-button"
-        onClick={handleButtonClick}
-        disabled={isLoading}
-        variant="outline"
-        className="flex items-center gap-2 text-sm"
-      >
-        {getIcon()}
-        {getDisplayText()}
-      </Button>
+      <div className="flex items-center gap-1">
+        <Button
+          data-testid="select-model-button"
+          onClick={handleButtonClick}
+          disabled={isLoading}
+          variant="outline"
+          className="flex items-center gap-2 text-sm"
+        >
+          {getIcon()}
+          {getDisplayText()}
+        </Button>
+
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setIsExplorerOpen(true)}
+          title="Explore HuggingFace models"
+        >
+          <Search className="h-4 w-4" />
+        </Button>
+      </div>
 
       {/* Error Display */}
       {error && (
@@ -79,6 +92,12 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
         onSave={handleConfigSave}
         isLoading={isLoading}
         initialModelPath={currentModelPath}
+      />
+
+      {/* HuggingFace Model Explorer */}
+      <HubExplorer
+        isOpen={isExplorerOpen}
+        onClose={() => setIsExplorerOpen(false)}
       />
     </div>
   );
