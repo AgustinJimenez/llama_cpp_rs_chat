@@ -29,8 +29,10 @@ CMake is required to build llama.cpp. If it's not installed, the build toolchain
 ```bash
 npm run dev:cuda        # NVIDIA GPU (CUDA)
 npm run dev:metal       # Apple GPU (Metal)
-npm run dev             # CPU only
+npm run dev             # CPU only (very slow — use dev:cuda or dev:auto for GPU)
 ```
+
+> **Note:** `npm run dev` and `npm run dev:web` do **not** enable GPU acceleration. Always use `npm run dev:auto` or `npm run dev:cuda` for usable performance.
 
 ### Desktop app (Tauri)
 

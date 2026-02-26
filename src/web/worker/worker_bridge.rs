@@ -22,6 +22,7 @@ pub struct ModelMeta {
     pub context_length: Option<u32>,
     pub chat_template_type: Option<String>,
     pub general_name: Option<String>,
+    pub has_vision: bool,
 }
 
 /// Shared reference to the WorkerBridge.
@@ -137,6 +138,7 @@ impl WorkerBridge {
                 context_length,
                 chat_template_type,
                 general_name,
+                has_vision,
                 ..
             } => {
                 let meta = ModelMeta {
@@ -145,6 +147,7 @@ impl WorkerBridge {
                     context_length,
                     chat_template_type,
                     general_name,
+                    has_vision: has_vision.unwrap_or(false),
                 };
                 *self.model_meta.lock().await = Some(meta.clone());
                 Ok(meta)
@@ -236,6 +239,7 @@ impl WorkerBridge {
         user_message: String,
         conversation_id: Option<String>,
         skip_user_logging: bool,
+        image_data: Option<Vec<String>>,
     ) -> Result<(mpsc::UnboundedReceiver<TokenData>, oneshot::Receiver<GenerationResult>), String>
     {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
@@ -275,6 +279,7 @@ impl WorkerBridge {
                 user_message,
                 conversation_id,
                 skip_user_logging,
+                image_data,
             },
         };
         let json =

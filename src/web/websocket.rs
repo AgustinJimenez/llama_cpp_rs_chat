@@ -125,6 +125,7 @@ pub async fn handle_websocket(
                         chat_request.message.clone(),
                         chat_request.conversation_id.clone(),
                         false, // Worker logs user message
+                        chat_request.image_data.clone(),
                     )
                     .await
                 {

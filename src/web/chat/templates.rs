@@ -58,7 +58,7 @@ After execution, the system will inject the result between {output_open} and {ou
 ### list_directory — List files in a directory
 {exec_open}{{"name": "list_directory", "arguments": {{"path": "."}}}}{exec_close}
 
-### web_search — Search the web using DuckDuckGo
+### web_search — Search the web using the configured provider
 {exec_open}{{"name": "web_search", "arguments": {{"query": "rust async tutorial"}}}}{exec_close}
 
 ### web_fetch — Fetch a web page and return its text content
@@ -115,7 +115,7 @@ to=write_file code<|message|>{{"path": "output.txt", "content": "Hello world"}}<
 ### execute_python — Run Python code (multi-line, imports, regex all work)
 to=execute_python code<|message|>{{"code": "print('hello')"}}<|call|>
 
-### web_search — Search the web using DuckDuckGo
+### web_search — Search the web using the configured provider
 to=web_search code<|message|>{{"query": "rust async tutorial"}}<|call|>
 
 ### web_fetch — Fetch a web page and return its text content

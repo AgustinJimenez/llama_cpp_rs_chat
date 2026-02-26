@@ -1,8 +1,9 @@
+
 use llama_cpp_2::{
     context::params::{KvCacheType, LlamaContextParams},
     context::LlamaContext,
     llama_batch::LlamaBatch,
-    model::{AddBos, Special},
+    model::AddBos,
     token::LlamaToken,
 };
 use std::num::NonZeroU32;
@@ -67,6 +68,7 @@ pub async fn generate_llama_response(
     skip_user_logging: bool,
     db: &Database,
     cancel: Arc<AtomicBool>,
+    image_data: Option<&[String]>,
 ) -> Result<GenerationOutput, String> {
     sys_debug!(
         "[GENERATION] generate_llama_response called, token_sender is {}",
@@ -157,9 +159,12 @@ pub async fn generate_llama_response(
         config.tool_tag_output_close.as_deref(),
     );
     // Get model's actual BOS/EOS token text for Jinja templates
-    let bos_text = model.token_to_str(model.token_bos(), Special::Tokenize)
+    use llama_cpp_2::model::Special;
+    let bos_text = model
+        .token_to_str(model.token_bos(), Special::Tokenize)
         .unwrap_or_else(|_| "<s>".to_string());
-    let eos_text = model.token_to_str(model.token_eos(), Special::Tokenize)
+    let eos_text = model
+        .token_to_str(model.token_eos(), Special::Tokenize)
         .unwrap_or_else(|_| "</s>".to_string());
 
     log_info!(&conversation_id, "=== TEMPLATE DEBUG ===");
@@ -193,17 +198,6 @@ pub async fn generate_llama_response(
         prompt.len()
     );
 
-    // Tokenize
-    log_debug!(&conversation_id, "Step 2: Starting tokenization...");
-    let tokens = model
-        .str_to_token(&prompt, AddBos::Never)
-        .map_err(|e| format!("Tokenization failed: {e}"))?;
-    log_debug!(
-        &conversation_id,
-        "Step 2 complete: Tokenized to {} tokens",
-        tokens.len()
-    );
-
     // Context parameters
     let n_ctx = NonZeroU32::new(context_size).expect("Context size must be non-zero");
     let offload_kqv = state.gpu_layers.unwrap_or(0) > 0;
@@ -230,107 +224,7 @@ pub async fn generate_llama_response(
         );
     }
 
-    // Try to reuse cached inference context for KV cache reuse
-    let cached = state.inference_cache.take();
-    let (mut context, skip_tokens) = match cached {
-        Some(cache)
-            if cache.conversation_id == conversation_id
-                && cache.context_size == context_size
-                && cache.offload_kqv == offload_kqv
-                && cache.flash_attention == flash_attention
-                && cache.cache_type_k == cache_type_k
-                && cache.cache_type_v == cache_type_v =>
-        {
-            // Cache hit: find common prefix between cached and new tokens
-            let common_len = cache
-                .evaluated_tokens
-                .iter()
-                .zip(tokens.iter())
-                .take_while(|(a, b)| a == b)
-                .count();
-
-            if common_len < cache.evaluated_tokens.len() {
-                // Conversation diverged (e.g., message edited/deleted, or tool
-                // output tokens were injected last turn). Partial KV cache clearing
-                // via clear_kv_cache_seq only works for pure-attention models —
-                // hybrid models (Attention + SSM/Mamba like qwen3next) also have
-                // recurrent state memory that doesn't support partial clearing.
-                // Drop the context entirely and create fresh to be safe.
-                log_info!(
-                    &conversation_id,
-                    "KV cache diverged at token {} (cached {}), dropping context and starting fresh",
-                    common_len,
-                    cache.evaluated_tokens.len()
-                );
-                drop(cache.context);
-                // Fall through to fresh context creation below
-                let mut ctx_params = LlamaContextParams::default()
-                    .with_n_ctx(Some(n_ctx))
-                    .with_offload_kqv(offload_kqv)
-                    .with_type_k(parse_kv_cache_type(&cache_type_k))
-                    .with_type_v(parse_kv_cache_type(&cache_type_v))
-                    .with_n_batch(n_batch);
-                if flash_attention {
-                    ctx_params = ctx_params.with_flash_attention_policy(
-                        1, // LLAMA_FLASH_ATTN_TYPE_ENABLED
-                    );
-                }
-                let ctx = unsafe {
-                    let real_ctx = model
-                        .new_context(&state.backend, ctx_params)
-                        .map_err(|e| format!("Context creation failed: {e}"))?;
-                    std::mem::transmute::<LlamaContext<'_>, LlamaContext<'static>>(real_ctx)
-                };
-                (ctx, 0)
-            } else {
-                log_info!(
-                    &conversation_id,
-                    "♻️ Reusing KV cache: {} of {} prompt tokens already evaluated, {} new",
-                    common_len,
-                    tokens.len(),
-                    tokens.len() - common_len
-                );
-                (cache.context, common_len)
-            }
-        }
-        _ => {
-            // Cache miss: create fresh context
-            drop(cached);
-            log_debug!(
-                &conversation_id,
-                "Step 3: Creating fresh context (size={}K tokens)...",
-                context_size / 1024
-            );
-            let mut ctx_params = LlamaContextParams::default()
-                .with_n_ctx(Some(n_ctx))
-                .with_offload_kqv(offload_kqv)
-                .with_type_k(parse_kv_cache_type(&cache_type_k))
-                .with_type_v(parse_kv_cache_type(&cache_type_v))
-                .with_n_batch(n_batch);
-            if flash_attention {
-                ctx_params = ctx_params.with_flash_attention_policy(
-                    1, // LLAMA_FLASH_ATTN_TYPE_ENABLED
-                );
-            }
-
-            // SAFETY: We erase the lifetime to 'static so the context can be stored
-            // in InferenceCache. The model MUST outlive the context — enforced by
-            // clearing inference_cache before any model drop in model_manager.rs.
-            let ctx = unsafe {
-                let real_ctx = model
-                    .new_context(&state.backend, ctx_params)
-                    .map_err(|e| format!("Context creation failed: {e}"))?;
-                std::mem::transmute::<LlamaContext<'_>, LlamaContext<'static>>(real_ctx)
-            };
-            log_debug!(&conversation_id, "Step 3 complete: Fresh context created");
-            (ctx, 0)
-        }
-    };
-
-    // Evaluate only the NEW tokens (skip those already in KV cache)
-    let new_tokens = &tokens[skip_tokens..];
     const PROMPT_BATCH_CAP: usize = 2048;
-    let prompt_tokens = tokens.len();
     let batch_cap = PROMPT_BATCH_CAP;
 
     // Check cancellation before expensive prompt decode
@@ -338,53 +232,253 @@ pub async fn generate_llama_response(
         return Err("Cancelled".to_string());
     }
 
-    let prompt_eval_start = Instant::now();
-    let n_prompt_eval = new_tokens.len();
-
-    if !new_tokens.is_empty() {
-        let new_chunks = new_tokens.len().div_ceil(batch_cap);
-        log_debug!(
-            &conversation_id,
-            "Step 5: Decoding {} new prompt tokens in {} chunks (skipped {})...",
-            new_tokens.len(),
-            new_chunks,
-            skip_tokens
-        );
-
-        let mut batch = LlamaBatch::new(batch_cap, 1);
-        for chunk_idx in 0..new_chunks {
-            let start = chunk_idx * batch_cap;
-            let end = std::cmp::min(start + batch_cap, new_tokens.len());
-
-            batch.clear();
-            for (offset, &token) in new_tokens[start..end].iter().enumerate() {
-                let pos = skip_tokens + start + offset;
-                let is_last = pos == prompt_tokens - 1;
-                batch
-                    .add(token, pos as i32, &[0], is_last)
-                    .map_err(|e| format!("Batch add failed at prompt token {pos}: {e}"))?;
+    // Decode base64 image data if present (supports multiple images)
+    let image_bytes_vec: Vec<Vec<u8>> = if let Some(images) = image_data {
+        use base64::Engine;
+        images.iter().filter_map(|data_str| {
+            // Strip data URI prefix if present (e.g., "data:image/png;base64,...")
+            let b64 = if let Some(comma_pos) = data_str.find(',') {
+                &data_str[comma_pos + 1..]
+            } else {
+                data_str.as_str()
+            };
+            match base64::engine::general_purpose::STANDARD.decode(b64) {
+                Ok(bytes) => {
+                    log_info!(&conversation_id, "Decoded image: {} bytes", bytes.len());
+                    Some(bytes)
+                }
+                Err(e) => {
+                    log_warn!(&conversation_id, "Failed to decode image base64: {}", e);
+                    None
+                }
             }
+        }).collect()
+    } else {
+        Vec::new()
+    };
 
-            context.decode(&mut batch).map_err(|e| {
-                format!(
-                    "Prompt decode failed (chunk {}/{}): {}",
-                    chunk_idx + 1,
-                    new_chunks,
-                    e
-                )
-            })?;
+    // Determine if we should use vision path
+    let use_vision = !image_bytes_vec.is_empty() && state.vision_state.is_some();
+    if use_vision {
+        log_info!(&conversation_id, "Using vision path with {} images", image_bytes_vec.len());
+    }
+
+    let prompt_eval_start = Instant::now();
+
+    // Two code paths: vision (mtmd) or standard text-only
+    let (mut context, prompt_tokens, tokens) = if use_vision {
+        // === VISION PATH: Use MtmdContext to process text + images ===
+        use llama_cpp_2::mtmd::{MtmdBitmap, MtmdInputText};
+
+        let vision = state.vision_state.as_ref().unwrap();
+
+        // Insert <__media__> markers before the user's message in the prompt.
+        // One marker per image tells mtmd where each image's embeddings go in the token stream.
+        let vision_prompt = inject_media_markers(&prompt, user_message, image_bytes_vec.len());
+        log_debug!(&conversation_id, "Vision prompt with {} markers, len={}", image_bytes_vec.len(), vision_prompt.len());
+
+        // Create bitmaps from raw image bytes (supports JPG, PNG, BMP, GIF, etc.)
+        let bitmaps: Vec<MtmdBitmap> = image_bytes_vec.iter().enumerate().map(|(i, bytes)| {
+            log_debug!(&conversation_id, "Creating bitmap {} from {} bytes", i, bytes.len());
+            let bmp = MtmdBitmap::from_buffer(&vision.context, bytes)
+                .map_err(|e| format!("Failed to create image bitmap {}: {e}", i))?;
+            log_debug!(&conversation_id, "Bitmap {}: {}x{}", i, bmp.nx(), bmp.ny());
+            Ok(bmp)
+        }).collect::<Result<Vec<_>, String>>()?;
+        let bitmap_refs: Vec<&MtmdBitmap> = bitmaps.iter().collect();
+
+        // Tokenize the prompt + images into chunks
+        log_debug!(&conversation_id, "Tokenizing with {} bitmaps...", bitmap_refs.len());
+        let text_input = MtmdInputText {
+            text: vision_prompt.clone(),
+            add_special: true,
+            parse_special: true,
+        };
+        let chunks = vision.context.tokenize(text_input, &bitmap_refs)
+            .map_err(|e| format!("Vision tokenization failed: {e}"))?;
+        let n_prompt_tokens = chunks.total_tokens();
+        log_info!(&conversation_id, "Vision tokenized: {} chunks, {} total tokens ({} images)", chunks.len(), n_prompt_tokens, bitmaps.len());
+
+        // Create fresh context (no KV cache reuse for vision — image embeddings can't be cached simply)
+        drop(state.inference_cache.take());
+        let mut ctx_params = LlamaContextParams::default()
+            .with_n_ctx(Some(n_ctx))
+            .with_offload_kqv(offload_kqv)
+            .with_type_k(parse_kv_cache_type(&cache_type_k))
+            .with_type_v(parse_kv_cache_type(&cache_type_v))
+            .with_n_batch(n_batch);
+        if flash_attention {
+            ctx_params = ctx_params.with_flash_attention_policy(1);
         }
+        // Handle non-causal attention for vision models
+        if vision.context.decode_use_non_causal() {
+            ctx_params = ctx_params.with_flash_attention_policy(0); // Must disable flash attention for non-causal
+        }
+
+        log_debug!(&conversation_id, "Creating vision context...");
+        let ctx = unsafe {
+            let real_ctx = model
+                .new_context(&state.backend, ctx_params)
+                .map_err(|e| format!("Context creation failed: {e}"))?;
+            std::mem::transmute::<LlamaContext<'_>, LlamaContext<'static>>(real_ctx)
+        };
+        log_debug!(&conversation_id, "Vision context created, starting eval_chunks...");
+
+        // Evaluate all chunks (text tokens + image embeddings) through the model
+        let n_past = chunks.eval_chunks(&vision.context, &ctx, 0, 0, n_batch as i32, true)
+            .map_err(|e| format!("Vision eval_chunks failed: {e}"))?;
+        log_info!(&conversation_id, "Vision eval_chunks complete: n_past={}", n_past);
+
+        // Create a dummy tokens vec for cache storage (vision doesn't use standard tokens)
+        let dummy_tokens = vec![LlamaToken(0); n_past as usize];
+        (ctx, n_prompt_tokens, dummy_tokens)
+    } else {
+        // === STANDARD TEXT PATH ===
+        // Tokenize
+        log_debug!(&conversation_id, "Step 2: Starting tokenization...");
+        let tokens = model
+            .str_to_token(&prompt, AddBos::Never)
+            .map_err(|e| format!("Tokenization failed: {e}"))?;
         log_debug!(
             &conversation_id,
-            "Step 5 complete: Prompt decode successful"
+            "Step 2 complete: Tokenized to {} tokens",
+            tokens.len()
         );
-    } else {
-        log_info!(
-            &conversation_id,
-            "Step 5: All {} prompt tokens already in KV cache, skipping decode",
-            prompt_tokens
-        );
-    }
+
+        // Try to reuse cached inference context for KV cache reuse
+        let cached = state.inference_cache.take();
+        let (mut ctx, skip_tokens) = match cached {
+            Some(cache)
+                if cache.conversation_id == conversation_id
+                    && cache.context_size == context_size
+                    && cache.offload_kqv == offload_kqv
+                    && cache.flash_attention == flash_attention
+                    && cache.cache_type_k == cache_type_k
+                    && cache.cache_type_v == cache_type_v =>
+            {
+                // Cache hit: find common prefix between cached and new tokens
+                let common_len = cache
+                    .evaluated_tokens
+                    .iter()
+                    .zip(tokens.iter())
+                    .take_while(|(a, b)| a == b)
+                    .count();
+
+                if common_len < cache.evaluated_tokens.len() {
+                    log_info!(
+                        &conversation_id,
+                        "KV cache diverged at token {} (cached {}), dropping context and starting fresh",
+                        common_len,
+                        cache.evaluated_tokens.len()
+                    );
+                    drop(cache.context);
+                    let mut ctx_params = LlamaContextParams::default()
+                        .with_n_ctx(Some(n_ctx))
+                        .with_offload_kqv(offload_kqv)
+                        .with_type_k(parse_kv_cache_type(&cache_type_k))
+                        .with_type_v(parse_kv_cache_type(&cache_type_v))
+                        .with_n_batch(n_batch);
+                    if flash_attention {
+                        ctx_params = ctx_params.with_flash_attention_policy(1);
+                    }
+                    let ctx = unsafe {
+                        let real_ctx = model
+                            .new_context(&state.backend, ctx_params)
+                            .map_err(|e| format!("Context creation failed: {e}"))?;
+                        std::mem::transmute::<LlamaContext<'_>, LlamaContext<'static>>(real_ctx)
+                    };
+                    (ctx, 0)
+                } else {
+                    log_info!(
+                        &conversation_id,
+                        "♻️ Reusing KV cache: {} of {} prompt tokens already evaluated, {} new",
+                        common_len,
+                        tokens.len(),
+                        tokens.len() - common_len
+                    );
+                    (cache.context, common_len)
+                }
+            }
+            _ => {
+                drop(cached);
+                log_debug!(
+                    &conversation_id,
+                    "Step 3: Creating fresh context (size={}K tokens)...",
+                    context_size / 1024
+                );
+                let mut ctx_params = LlamaContextParams::default()
+                    .with_n_ctx(Some(n_ctx))
+                    .with_offload_kqv(offload_kqv)
+                    .with_type_k(parse_kv_cache_type(&cache_type_k))
+                    .with_type_v(parse_kv_cache_type(&cache_type_v))
+                    .with_n_batch(n_batch);
+                if flash_attention {
+                    ctx_params = ctx_params.with_flash_attention_policy(1);
+                }
+                let ctx = unsafe {
+                    let real_ctx = model
+                        .new_context(&state.backend, ctx_params)
+                        .map_err(|e| format!("Context creation failed: {e}"))?;
+                    std::mem::transmute::<LlamaContext<'_>, LlamaContext<'static>>(real_ctx)
+                };
+                log_debug!(&conversation_id, "Step 3 complete: Fresh context created");
+                (ctx, 0)
+            }
+        };
+
+        // Evaluate only the NEW tokens (skip those already in KV cache)
+        let new_tokens = &tokens[skip_tokens..];
+        let prompt_tokens = tokens.len();
+
+        if !new_tokens.is_empty() {
+            let new_chunks = new_tokens.len().div_ceil(batch_cap);
+            log_debug!(
+                &conversation_id,
+                "Step 5: Decoding {} new prompt tokens in {} chunks (skipped {})...",
+                new_tokens.len(),
+                new_chunks,
+                skip_tokens
+            );
+
+            let mut batch = LlamaBatch::new(batch_cap, 1);
+            for chunk_idx in 0..new_chunks {
+                let start = chunk_idx * batch_cap;
+                let end = std::cmp::min(start + batch_cap, new_tokens.len());
+
+                batch.clear();
+                for (offset, &token) in new_tokens[start..end].iter().enumerate() {
+                    let pos = skip_tokens + start + offset;
+                    let is_last = pos == prompt_tokens - 1;
+                    batch
+                        .add(token, pos as i32, &[0], is_last)
+                        .map_err(|e| format!("Batch add failed at prompt token {pos}: {e}"))?;
+                }
+
+                ctx.decode(&mut batch).map_err(|e| {
+                    format!(
+                        "Prompt decode failed (chunk {}/{}): {}",
+                        chunk_idx + 1,
+                        new_chunks,
+                        e
+                    )
+                })?;
+            }
+            log_debug!(
+                &conversation_id,
+                "Step 5 complete: Prompt decode successful"
+            );
+        } else {
+            log_info!(
+                &conversation_id,
+                "Step 5: All {} prompt tokens already in KV cache, skipping decode",
+                prompt_tokens
+            );
+        }
+
+        (ctx, prompt_tokens, tokens)
+    };
+
+    let n_prompt_eval = prompt_tokens;
 
     let prompt_eval_ms = prompt_eval_start.elapsed().as_secs_f64() * 1000.0;
     let gen_start = Instant::now();
@@ -404,7 +498,6 @@ pub async fn generate_llama_response(
     let mut token_pos = tokens.len() as i32;
     let mut total_tokens_generated = 0;
     let mut generated_token_ids: Vec<LlamaToken> = Vec::new();
-
     // Calculate max tokens based on remaining context space
     let remaining_context = (context_size as i32) - token_pos - 128;
     let max_total_tokens = remaining_context.max(512);
@@ -672,7 +765,21 @@ pub async fn generate_llama_response(
             // CRITICAL: This must be inside the inner loop so commands are detected immediately
             // after the closing tag is generated, before the model hallucinates fake output.
             if let Some(exec_result) =
-                check_and_execute_command_with_tags(&response, last_exec_scan_pos, &conversation_id, model, &tags, template_type.as_deref(), config.web_search_provider.as_deref(), &mut recent_commands, &token_sender, token_pos, context_size, Some(cancel.clone()))?
+                check_and_execute_command_with_tags(
+                    &response,
+                    last_exec_scan_pos,
+                    &conversation_id,
+                    model,
+                    &tags,
+                    template_type.as_deref(),
+                    config.web_search_provider.as_deref(),
+                    config.web_search_api_key.as_deref(),
+                    &mut recent_commands,
+                    &token_sender,
+                    token_pos,
+                    context_size,
+                    Some(cancel.clone()),
+                )?
             {
                 // 1. Log to conversation file (CRITICAL: prevents infinite loops)
                 {
@@ -827,4 +934,22 @@ pub async fn generate_llama_response(
         prompt_tok_per_sec,
         gen_tok_per_sec,
     })
+}
+
+/// Insert `<__media__>` markers into a formatted prompt, just before the
+/// last occurrence of the user's message text. One marker per image tells
+/// the mtmd tokenizer where each image's embeddings go in the token stream.
+fn inject_media_markers(prompt: &str, user_message: &str, count: usize) -> String {
+    let markers = "<__media__>\n".repeat(count);
+    // Find the last occurrence of the user message in the prompt
+    if let Some(pos) = prompt.rfind(user_message) {
+        let mut result = String::with_capacity(prompt.len() + markers.len());
+        result.push_str(&prompt[..pos]);
+        result.push_str(&markers);
+        result.push_str(&prompt[pos..]);
+        result
+    } else {
+        // Fallback: prepend markers to the entire prompt
+        format!("{markers}{prompt}")
+    }
 }

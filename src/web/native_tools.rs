@@ -421,7 +421,11 @@ pub fn extract_execute_command(text: &str) -> Option<String> {
 ///
 /// Note: `execute_command` is handled here as a blocking fallback. The command executor
 /// should prefer `extract_execute_command()` + `execute_command_streaming()` for streaming.
-pub fn dispatch_native_tool(text: &str, web_search_provider: Option<&str>) -> Option<String> {
+pub fn dispatch_native_tool(
+    text: &str,
+    web_search_provider: Option<&str>,
+    web_search_api_key: Option<&str>,
+) -> Option<String> {
     let trimmed = text.trim();
 
     let (name, args) = if let Some((n, a)) = try_parse_json_format(trimmed) {
@@ -444,7 +448,7 @@ pub fn dispatch_native_tool(text: &str, web_search_provider: Option<&str>) -> Op
         "write_file" => tool_write_file(&args),
         "execute_python" => tool_execute_python(&args),
         "list_directory" => tool_list_directory(&args),
-        "web_search" => tool_web_search(&args, web_search_provider),
+        "web_search" => tool_web_search(&args, web_search_provider, web_search_api_key),
         "web_fetch" => tool_web_fetch(&args),
         "execute_command" => {
             // Delegate to shell execution via command.rs
@@ -604,7 +608,7 @@ const MAX_SEARCH_RESULT_CHARS: usize = 8_000;
 const MAX_FETCH_CHARS: usize = 15_000;
 
 /// Search the web using DuckDuckGo Instant Answer API, falling back to HTML scraping.
-fn tool_web_search(args: &Value, provider: Option<&str>) -> String {
+fn tool_web_search(args: &Value, provider: Option<&str>, api_key: Option<&str>) -> String {
     let query = match args.get("query").and_then(|v| v.as_str()) {
         Some(q) => q,
         None => return "Error: 'query' argument is required".to_string(),
@@ -616,6 +620,19 @@ fn tool_web_search(args: &Value, provider: Option<&str>) -> String {
         .unwrap_or(8) as usize;
 
     match provider {
+        Some("Brave") => {
+            eprintln!("[WEB_SEARCH] Using Brave Search API");
+            match tool_web_search_brave(query, max_results, api_key) {
+                Ok(output) => output,
+                Err(e) => {
+                    if e.contains("missing") {
+                        return format!("Error: {e}");
+                    }
+                    eprintln!("[WEB_SEARCH] Brave API failed: {e}, falling back to DDG");
+                    tool_web_search_ureq(query, max_results)
+                }
+            }
+        }
         Some("Google") => {
             eprintln!("[WEB_SEARCH] Using Google via headless Chrome");
             tool_web_search_google_chrome(query, max_results)
@@ -634,6 +651,86 @@ fn tool_web_search(args: &Value, provider: Option<&str>) -> String {
             tool_web_search_ureq(query, max_results)
         }
     }
+}
+
+/// Search using Brave Search API.
+fn tool_web_search_brave(
+    query: &str,
+    max_results: usize,
+    api_key: Option<&str>,
+) -> Result<String, String> {
+    let api_key = api_key
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .or_else(|| {
+            std::env::var("BRAVE_SEARCH_API_KEY")
+                .ok()
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty())
+        })
+        .ok_or_else(|| "Error: Brave API key is missing".to_string())?;
+
+    let count = max_results.clamp(1, 20);
+    let url = format!(
+        "https://api.search.brave.com/res/v1/web/search?q={}&count={}",
+        urlencoding::encode(query),
+        count
+    );
+
+    let response = ureq::get(&url)
+        .set("Accept", "application/json")
+        .set("X-Subscription-Token", &api_key)
+        .call()
+        .map_err(|e| format!("Error: Brave API request failed: {e}"))?;
+
+    let body = response
+        .into_string()
+        .map_err(|e| format!("Error: Failed to read Brave API response: {e}"))?;
+
+    let payload: Value = serde_json::from_str(&body)
+        .map_err(|e| format!("Error: Failed to parse Brave API response: {e}"))?;
+
+    let results = payload
+        .get("web")
+        .and_then(|v| v.get("results"))
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    if results.is_empty() {
+        return Ok(format!("Search results for '{query}' (via Brave):\n\n(no results)"));
+    }
+
+    let mut output = String::new();
+    for (i, item) in results.iter().take(max_results).enumerate() {
+        let title = item.get("title").and_then(|v| v.as_str()).unwrap_or("").trim();
+        let url = item.get("url").and_then(|v| v.as_str()).unwrap_or("").trim();
+        let desc = item
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+
+        if title.is_empty() && url.is_empty() {
+            continue;
+        }
+
+        output.push_str(&format!("{}. {}\n", i + 1, if title.is_empty() { url } else { title }));
+        if !url.is_empty() {
+            output.push_str(&format!("   URL: {url}\n"));
+        }
+        if !desc.is_empty() {
+            output.push_str(&format!("   {desc}\n"));
+        }
+        output.push('\n');
+    }
+
+    if output.len() > MAX_SEARCH_RESULT_CHARS {
+        output.truncate(MAX_SEARCH_RESULT_CHARS);
+        output.push_str("\n...[truncated]");
+    }
+
+    Ok(format!("Search results for '{query}' (via Brave):\n\n{output}"))
 }
 
 /// Search using Google via headless Chrome.
@@ -1026,7 +1123,7 @@ mod tests {
             r#"{{"name": "read_file", "arguments": {{"path": "{}"}}}}"#,
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&json, None);
+        let result = dispatch_native_tool(&json, None, None);
         assert!(result.is_some());
         assert!(result.unwrap().contains("hello world"));
 
@@ -1040,7 +1137,7 @@ mod tests {
             r#"{{"name": "write_file", "arguments": {{"path": "{}", "content": "test content"}}}}"#,
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&json, None);
+        let result = dispatch_native_tool(&json, None, None);
         assert!(result.is_some());
         assert!(result.unwrap().contains("Written"));
         assert_eq!(std::fs::read_to_string(&temp).unwrap(), "test content");
@@ -1056,7 +1153,7 @@ mod tests {
             "{{\n  \"name\": \"write_file\",\n  \"arguments\": {{\n    \"path\": \"{}\",\n    \"content\": \"{{\n  \\\"name\\\": \\\"test\\\",\n  \\\"version\\\": \\\"1.0.0\\\"\n}}\"\n  }}\n}}",
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&json, None);
+        let result = dispatch_native_tool(&json, None, None);
         assert!(result.is_some(), "Should parse multiline JSON content: {json}");
         assert!(result.unwrap().contains("Written"));
         let content = std::fs::read_to_string(&temp).unwrap();
@@ -1078,7 +1175,7 @@ line3"}}"#;
     #[test]
     fn test_dispatch_list_directory() {
         let json = r#"{"name": "list_directory", "arguments": {"path": "."}}"#;
-        let result = dispatch_native_tool(json, None);
+        let result = dispatch_native_tool(json, None, None);
         assert!(result.is_some());
         assert!(result.unwrap().contains("Directory listing"));
     }
@@ -1086,13 +1183,13 @@ line3"}}"#;
     #[test]
     fn test_dispatch_unknown_tool_returns_none() {
         let json = r#"{"name": "unknown_tool", "arguments": {}}"#;
-        let result = dispatch_native_tool(json, None);
+        let result = dispatch_native_tool(json, None, None);
         assert!(result.is_none());
     }
 
     #[test]
     fn test_dispatch_non_json_returns_none() {
-        let result = dispatch_native_tool("ls -la", None);
+        let result = dispatch_native_tool("ls -la", None, None);
         assert!(result.is_none());
     }
 
@@ -1105,7 +1202,7 @@ line3"}}"#;
             r#"[{{"name": "read_file", "arguments": {{"path": "{}"}}}}]"#,
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&json, None);
+        let result = dispatch_native_tool(&json, None, None);
         assert!(result.is_some());
         assert!(result.unwrap().contains("mistral test"));
 
@@ -1122,7 +1219,7 @@ line3"}}"#;
             r#"read_file,{{"path": "{}"}}"#,
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&input, None);
+        let result = dispatch_native_tool(&input, None, None);
         assert!(result.is_some(), "Should parse Mistral comma format");
         assert!(result.unwrap().contains("comma format test"));
 
@@ -1133,7 +1230,7 @@ line3"}}"#;
     fn test_dispatch_mistral_comma_execute_command() {
         // Devstral: execute_command,{"command": "echo hello"}
         let input = r#"execute_command,{"command": "echo hello"}"#;
-        let result = dispatch_native_tool(input, None);
+        let result = dispatch_native_tool(input, None, None);
         assert!(result.is_some(), "Should parse comma format execute_command");
         assert!(result.unwrap().contains("hello"));
     }
@@ -1148,7 +1245,7 @@ line3"}}"#;
             "<function=read_file> <parameter=path> {} </parameter> </function>",
             temp.display()
         );
-        let result = dispatch_native_tool(&input, None);
+        let result = dispatch_native_tool(&input, None, None);
         assert!(result.is_some(), "Should parse Llama3 XML format");
         assert!(result.unwrap().contains("xml format test"));
 
@@ -1162,7 +1259,7 @@ line3"}}"#;
             "<function=write_file> <parameter=path> {} </parameter> <parameter=content> hello world </parameter> </function>",
             temp.display()
         );
-        let result = dispatch_native_tool(&input, None);
+        let result = dispatch_native_tool(&input, None, None);
         assert!(result.is_some(), "Should parse Llama3 XML write_file");
         assert!(result.unwrap().contains("Written"));
         assert_eq!(std::fs::read_to_string(&temp).unwrap(), "hello world");
@@ -1174,7 +1271,7 @@ line3"}}"#;
     fn test_dispatch_name_json_format() {
         // Granite outputs: list_directory{"path": "."}
         let input = r#"list_directory{"path": "."}"#;
-        let result = dispatch_native_tool(input, None);
+        let result = dispatch_native_tool(input, None, None);
         assert!(result.is_some(), "Should parse name+JSON format");
         assert!(result.unwrap().contains("Directory listing"));
     }
@@ -1182,7 +1279,7 @@ line3"}}"#;
     #[test]
     fn test_execute_python_simple() {
         let json = r#"{"name": "execute_python", "arguments": {"code": "print('hello from python')"}}"#;
-        let result = dispatch_native_tool(json, None);
+        let result = dispatch_native_tool(json, None, None);
         assert!(result.is_some());
         let output = result.unwrap();
         // If python is available, should contain the output; if not, should contain an error
@@ -1226,7 +1323,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
         // Exact pattern GLM produces: multiline content + missing outer closing }
         let json = "{\"name\": \"write_file\", \"arguments\": {\"path\": \"/tmp/test-autoclose.txt\", \"content\": \"{\n  \\\"name\\\": \\\"test\\\",\n  \\\"version\\\": \\\"1.0.0\\\"\n}\"}}";
         // This should work (has both braces)
-        let result = dispatch_native_tool(json, None);
+        let result = dispatch_native_tool(json, None, None);
         assert!(result.is_some(), "Valid JSON should work: {:?}", result);
         let _ = std::fs::remove_file("/tmp/test-autoclose.txt");
 
@@ -1234,7 +1331,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
         let broken = "{\"name\": \"write_file\", \"arguments\": {\"path\": \"/tmp/test-autoclose2.txt\", \"content\": \"{\n  \\\"name\\\": \\\"test\\\",\n  \\\"version\\\": \\\"1.0.0\\\"\n}\"}}";
         // Remove last }
         let broken = &broken[..broken.len() - 1];
-        let result = dispatch_native_tool(broken, None);
+        let result = dispatch_native_tool(broken, None, None);
         assert!(result.is_some(), "Should auto-close missing brace and dispatch write_file");
         let output = result.unwrap();
         assert!(output.contains("written") || output.contains("success") || output.contains("Written"),
@@ -1270,7 +1367,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
             r#"{{"name":"write_file","arguments":{{"path":"{}","content":"<?php\nnamespace App\Models;\nuse Illuminate\Database\Eloquent\Model;\n\nclass Person extends Model {{\n    protected $fillable = ['name'];\n}}"}}}}"#,
             temp.display()
         );
-        let result = dispatch_native_tool(&json, None);
+        let result = dispatch_native_tool(&json, None, None);
         assert!(result.is_some(), "Should parse PHP namespace JSON via fixup chain");
         let output = result.unwrap();
         assert!(output.contains("Written"), "Should write file: {}", output);
@@ -1314,7 +1411,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
     #[test]
     fn test_dispatch_web_search_missing_query() {
         let json = r#"{"name": "web_search", "arguments": {}}"#;
-        let result = dispatch_native_tool(json, None);
+        let result = dispatch_native_tool(json, None, None);
         assert!(result.is_some());
         assert!(result.unwrap().contains("Error"));
     }
@@ -1322,7 +1419,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
     #[test]
     fn test_dispatch_web_fetch_missing_url() {
         let json = r#"{"name": "web_fetch", "arguments": {}}"#;
-        let result = dispatch_native_tool(json, None);
+        let result = dispatch_native_tool(json, None, None);
         assert!(result.is_some());
         assert!(result.unwrap().contains("Error"));
     }
@@ -1339,3 +1436,4 @@ print(f"Found: {match.group()}" if match else "No match")"#;
         assert!(text.contains("Search results for"), "Should have header");
     }
 }
+

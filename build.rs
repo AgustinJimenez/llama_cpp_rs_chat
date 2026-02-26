@@ -32,7 +32,7 @@ fn ensure_cmake_available() {
     // Check CMAKE env var first (set by ensure_cmake or user)
     if let Ok(cmake_path) = env::var("CMAKE") {
         if Path::new(&cmake_path).exists() {
-            println!("cargo:warning=Setting CMAKE environment variable to: {cmake_path}");
+            eprintln!("Setting CMAKE environment variable to: {cmake_path}");
             return;
         }
     }
@@ -51,13 +51,16 @@ fn ensure_cmake_available() {
     }
 
     // 3. Download portable cmake
-    println!("cargo:warning=CMake not found on system — downloading portable CMake {CMAKE_VERSION}...");
+    eprintln!("CMake not found on system — downloading portable CMake {CMAKE_VERSION}...");
     match download_and_extract_cmake(&cache_dir) {
         Ok(cmake_path) => {
             set_cmake_env(&cmake_path);
             // Write cmake path to a file so wrapper scripts can source it
             write_cmake_env_file(&cache_dir, &cmake_path);
-            println!("cargo:warning=CMake {CMAKE_VERSION} downloaded and ready at: {}", cmake_path.display());
+            eprintln!(
+                "CMake {CMAKE_VERSION} downloaded and ready at: {}",
+                cmake_path.display()
+            );
         }
         Err(e) => {
             eprintln!("\n\
@@ -77,7 +80,7 @@ fn ensure_cmake_available() {
 /// Point the `cmake` crate at the given binary and update PATH.
 fn set_cmake_env(cmake_bin: &Path) {
     let cmake_str = cmake_bin.to_string_lossy();
-    println!("cargo:warning=Setting CMAKE environment variable to: {cmake_str}");
+    eprintln!("Setting CMAKE environment variable to: {cmake_str}");
     env::set_var("CMAKE", &*cmake_str);
 
     // Add parent directory to PATH so child processes also find it
@@ -87,7 +90,7 @@ fn set_cmake_env(cmake_bin: &Path) {
             if !current_path.contains(parent_str) {
                 let sep = if cfg!(windows) { ";" } else { ":" };
                 env::set_var("PATH", format!("{parent_str}{sep}{current_path}"));
-                println!("cargo:warning=Added {parent_str} to PATH");
+                eprintln!("Added {parent_str} to PATH");
             }
         }
     }
@@ -120,7 +123,7 @@ fn find_system_cmake() -> Option<PathBuf> {
     for &path in candidates {
         if let Ok(output) = Command::new(path).arg("--version").output() {
             if output.status.success() {
-                println!("cargo:warning=Found system CMake at: {path}");
+                eprintln!("Found system CMake at: {path}");
                 return Some(PathBuf::from(path));
             }
         }
@@ -185,14 +188,14 @@ fn download_and_extract_cmake(cache_dir: &Path) -> Result<PathBuf, String> {
     let archive_name = format!("cmake-{CMAKE_VERSION}-{platform_tag}.{ext}");
     let url = format!("{CMAKE_URL_BASE}/v{CMAKE_VERSION}/{archive_name}");
 
-    println!("cargo:warning=Downloading {url} ...");
+    eprintln!("Downloading {url} ...");
 
     fs::create_dir_all(cache_dir).map_err(|e| format!("Failed to create {}: {e}", cache_dir.display()))?;
     let archive_path = cache_dir.join(&archive_name);
 
     download_file(&url, &archive_path)?;
 
-    println!("cargo:warning=Extracting {archive_name} ...");
+    eprintln!("Extracting {archive_name} ...");
 
     if ext == "zip" {
         extract_zip(&archive_path, cache_dir)?;

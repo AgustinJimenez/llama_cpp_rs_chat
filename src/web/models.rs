@@ -1,5 +1,6 @@
 use llama_cpp_2::{
-    context::LlamaContext, llama_backend::LlamaBackend, model::LlamaModel, token::LlamaToken,
+    context::LlamaContext, llama_backend::LlamaBackend, model::LlamaModel,
+    mtmd::MtmdContext, token::LlamaToken,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
@@ -37,6 +38,17 @@ pub struct InferenceCache {
 // move between threads as long as it's not used concurrently. We guarantee
 // single-threaded access via the Mutex<Option<LlamaState>> wrapper.
 unsafe impl Send for InferenceCache {}
+
+/// Vision/multimodal context state. Wraps MtmdContext for Send safety.
+/// MUST be dropped before the model (same invariant as InferenceCache).
+pub struct VisionState {
+    pub context: MtmdContext,
+    pub mmproj_path: String,
+}
+
+// SAFETY: Same as InferenceCache — MtmdContext wraps NonNull (!Send) but is safe
+// to move between threads when not used concurrently (protected by Mutex).
+unsafe impl Send for VisionState {}
 
 // Import logging macros
 use crate::sys_debug;
@@ -118,6 +130,8 @@ pub struct SamplerConfig {
     // App settings
     #[serde(default)]
     pub web_search_provider: Option<String>,
+    #[serde(default)]
+    pub web_search_api_key: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -215,6 +229,7 @@ impl Default for SamplerConfig {
             tool_tag_output_open: None,
             tool_tag_output_close: None,
             web_search_provider: None,
+            web_search_api_key: None,
         }
     }
 }
@@ -377,6 +392,10 @@ pub struct TokenData {
 pub struct ChatRequest {
     pub message: String,
     pub conversation_id: Option<String>,
+    /// Base64-encoded image data URIs (e.g., "data:image/png;base64,...") for vision models.
+    /// Supports multiple images per message.
+    #[serde(default)]
+    pub image_data: Option<Vec<String>>,
 }
 
 #[derive(Serialize)]
@@ -434,6 +453,8 @@ pub struct ModelStatus {
     pub model_path: Option<String>,
     pub last_used: Option<String>,
     pub memory_usage_mb: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_vision: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -466,6 +487,8 @@ pub struct LlamaState {
     pub cached_prompt_key: Option<(Option<String>, Option<String>)>, // (system_prompt, general_name)
     /// Cached inference context for KV cache reuse. MUST be dropped before model.
     pub inference_cache: Option<InferenceCache>,
+    /// Vision/multimodal context (if mmproj loaded). MUST be dropped before model.
+    pub vision_state: Option<VisionState>,
 }
 
 pub type SharedLlamaState = Arc<Mutex<Option<LlamaState>>>;

@@ -6,7 +6,7 @@ use llama_cpp_2::{
 use std::fs;
 use std::io::BufReader;
 
-use super::models::{LlamaState, ModelStatus, SharedLlamaState};
+use super::models::{LlamaState, ModelStatus, SharedLlamaState, VisionState};
 use crate::{log_debug, log_info, log_warn};
 
 // Re-export VRAM functions for backward compatibility (used by other modules)
@@ -31,6 +31,7 @@ pub fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
                         model_path,
                         last_used,
                         memory_usage_mb: if loaded { Some(512) } else { None }, // Rough estimate
+                        has_vision: None,
                     }
                 }
                 None => ModelStatus {
@@ -38,6 +39,7 @@ pub fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
                     model_path: None,
                     last_used: None,
                     memory_usage_mb: None,
+                    has_vision: None,
                 },
             }
         }
@@ -46,6 +48,7 @@ pub fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
             model_path: None,
             last_used: None,
             memory_usage_mb: None,
+            has_vision: None,
         },
     }
 }
@@ -77,6 +80,7 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, request
             cached_system_prompt: None,
             cached_prompt_key: None,
             inference_cache: None,
+            vision_state: None,
         });
     }
 
@@ -92,9 +96,10 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, request
         }
     }
 
-    // CRITICAL: Drop inference cache BEFORE dropping the model.
-    // The cached context borrows the model, so it must go first.
+    // CRITICAL: Drop inference cache and vision state BEFORE dropping the model.
+    // Both borrow the model, so they must go first.
     state.inference_cache = None;
+    state.vision_state = None;
     // Unload current model if any
     state.model = None;
     state.current_model_path = None;
@@ -254,6 +259,9 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, request
         );
     }
 
+    // Scan for mmproj companion file for vision support
+    let vision_state = scan_and_init_vision(&model, model_path, optimal_gpu_layers);
+
     state.model = Some(model);
     state.current_model_path = Some(model_path.to_string());
     state.model_context_length = model_context_length;
@@ -267,6 +275,7 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, request
     state.cached_system_prompt = None;
     state.cached_prompt_key = None;
     state.inference_cache = None;
+    state.vision_state = vision_state;
 
     if let Some(ref name) = general_name {
         log_info!("system", "Model general.name: {}", name);
@@ -281,6 +290,67 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, request
     }
 
     Ok(())
+}
+
+/// Scan the model's directory for an mmproj companion GGUF file and initialize
+/// an MtmdContext for vision support. Returns None if no mmproj file found or
+/// initialization fails.
+fn scan_and_init_vision(
+    model: &LlamaModel,
+    model_path: &str,
+    gpu_layers: u32,
+) -> Option<VisionState> {
+    use llama_cpp_2::mtmd::{MtmdContext, MtmdContextParams};
+    use std::ffi::CString;
+    use std::path::Path;
+
+    let model_dir = Path::new(model_path).parent()?;
+
+    // Find the first mmproj file in the same directory
+    let mmproj_path = fs::read_dir(model_dir)
+        .ok()?
+        .filter_map(|entry| entry.ok())
+        .map(|e| e.path())
+        .find(|p| {
+            p.extension().map(|e| e == "gguf").unwrap_or(false)
+                && p.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.contains("mmproj"))
+                    .unwrap_or(false)
+        })?;
+
+    let mmproj_str = mmproj_path.to_string_lossy().to_string();
+    log_info!("system", "Found mmproj file: {}", mmproj_str);
+
+    // Initialize MtmdContext
+    let use_gpu = gpu_layers > 0;
+    log_info!("system", "Vision: attempting to init mmproj from {}, use_gpu={}", mmproj_str, use_gpu);
+    let params = MtmdContextParams {
+        use_gpu,
+        print_timings: false,
+        n_threads: 4,
+        media_marker: CString::new("<__media__>").unwrap(),
+    };
+
+    match MtmdContext::init_from_file(&mmproj_str, model, &params) {
+        Ok(ctx) => {
+            let has_vision = ctx.support_vision();
+            log_info!(
+                "system",
+                "Vision context initialized (vision={}, gpu={})",
+                has_vision,
+                use_gpu
+            );
+            Some(VisionState {
+                context: ctx,
+                mmproj_path: mmproj_str,
+            })
+        }
+        Err(e) => {
+            log_warn!("system", "Failed to init vision context: {}", e);
+            None
+        }
+    }
 }
 
 // Tests moved to vram_calculator.rs

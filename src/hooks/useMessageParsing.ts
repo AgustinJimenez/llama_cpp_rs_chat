@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { autoParseToolCalls, stripToolCalls } from '../utils/toolParser';
+import { stripUnclosedToolCallTail } from '../utils/toolFormatUtils';
 import {
   buildSegments,
   THINKING_REGEX, THINKING_UNCLOSED_REGEX,
@@ -45,7 +46,7 @@ export function useMessageParsing(message: Message): ParsedMessage {
   }, [effectiveContent, message.role]);
 
   const cleanContent = useMemo(() => {
-    let content = effectiveContent;
+    let content = stripUnclosedToolCallTail(effectiveContent);
     if (toolCalls.length > 0) {
       content = stripToolCalls(content);
     } else {

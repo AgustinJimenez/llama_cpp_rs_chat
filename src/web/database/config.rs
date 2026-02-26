@@ -42,6 +42,7 @@ pub struct DbSamplerConfig {
     pub tool_tag_output_close: Option<String>,
     // App settings
     pub web_search_provider: Option<String>,
+    pub web_search_api_key: Option<String>,
 }
 
 impl Default for DbSamplerConfig {
@@ -80,6 +81,7 @@ impl Default for DbSamplerConfig {
             tool_tag_output_open: None,
             tool_tag_output_close: None,
             web_search_provider: None,
+            web_search_api_key: None,
         }
     }
 }
@@ -115,7 +117,8 @@ impl Database {
                         dry_multiplier, dry_base, dry_allowed_length, dry_penalty_last_n,
                         top_n_sigma,
                         tool_tag_exec_open, tool_tag_exec_close, tool_tag_output_open, tool_tag_output_close,
-                        web_search_provider
+                        web_search_provider,
+                        web_search_api_key
                  FROM config WHERE id = 1",
                 [],
                 |row| {
@@ -158,6 +161,7 @@ impl Database {
                         tool_tag_output_open: row.get(29)?,
                         tool_tag_output_close: row.get(30)?,
                         web_search_provider: row.get(31)?,
+                        web_search_api_key: row.get(32)?,
                     })
                 },
             )
@@ -190,9 +194,10 @@ impl Database {
               top_n_sigma,
               tool_tag_exec_open, tool_tag_exec_close, tool_tag_output_open, tool_tag_output_close,
               web_search_provider,
+              web_search_api_key,
               updated_at)
              VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
-                     ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33)",
+                     ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34)",
             params![
                 config.sampler_type,
                 config.temperature,
@@ -226,6 +231,7 @@ impl Database {
                 config.tool_tag_output_open,
                 config.tool_tag_output_close,
                 config.web_search_provider,
+                config.web_search_api_key,
                 current_timestamp_millis(),
             ],
         )
@@ -255,7 +261,8 @@ impl Database {
              tool_tag_exec_open = ?28, tool_tag_exec_close = ?29,
              tool_tag_output_open = ?30, tool_tag_output_close = ?31,
              web_search_provider = ?32,
-             updated_at = ?33
+             web_search_api_key = ?33,
+             updated_at = ?34
              WHERE id = 1",
             params![
                 config.sampler_type,
@@ -290,6 +297,7 @@ impl Database {
                 config.tool_tag_output_open,
                 config.tool_tag_output_close,
                 config.web_search_provider,
+                config.web_search_api_key,
                 current_timestamp_millis(),
             ],
         )
@@ -462,6 +470,7 @@ mod tests {
             tool_tag_output_open: None,
             tool_tag_output_close: None,
             web_search_provider: None,
+            web_search_api_key: None,
         };
 
         db.save_config(&config).unwrap();

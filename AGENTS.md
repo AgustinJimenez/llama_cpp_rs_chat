@@ -6,7 +6,8 @@ What this is: Local LLM chat app (React + Rust/llama.cpp). Core flow: load GGUF 
 
 Default development (prefer Tauri commands — they handle both frontend and backend together):
 - Desktop app (preferred): "npm run dev:auto:desktop" (automatic GPU detection) or "npm run tauri:dev" (CPU-only)
-- Web app (fallback): "npm run dev:auto" (automatic GPU detection) or "npm run dev" (CPU-only)
+- Web app (fallback): "npm run dev:auto" (automatic GPU detection) or "npm run dev:cuda" (manual CUDA)
+- CRITICAL: "npm run dev" and "npm run dev:web" are CPU-ONLY — they do NOT pass --features cuda. Model will run at ~5 tok/s instead of ~1000 tok/s. ALWAYS use "npm run dev:cuda" or "npm run dev:auto" for GPU acceleration.
 
 Web app runs Vite on port 4000 with Rust backend on port 8000. Access via http://localhost:4000. Desktop app opens native window. When building/running, prefer Tauri commands over running backend and Vite separately.
 
@@ -31,8 +32,9 @@ Testing: "npm test" (Playwright E2E; backend must be running on 8000). UI/headed
 Mock mode for tests: build or run with the "mock" feature. Example: "cargo build --features mock --bin llama_chat_web" or "TEST_MODE=true cargo run --bin llama_chat_web".
 
 Tool calling: tool schema is exposed via /api/tools/available and execution via /api/tools/execute. Models see available tools injected into prompts. Safety limit MAX_TOOL_ITERATIONS = 5 on the frontend agent loop. Native tools (src/web/native_tools.rs): web_search (DuckDuckGo Instant Answer API with ureq HTTP fallback), web_fetch (headless Chrome via src/web/browser.rs for JS-rendered pages, falls back to ureq for plain HTTP), read_file, write_file, execute_python, execute_command, list_directory. The Chrome browser is a lazy singleton with 5-minute idle timeout to free memory.
+Brave web_search: users can store their Brave API key in the app settings (persisted in SQLite config as plaintext). The backend will also fall back to `BRAVE_SEARCH_API_KEY` if set.
 
-Browser automation: use the Chrome DevTools MCP (chrome-devtools-mcp) for browser testing, NOT the Claude Chrome extension. Install with: "claude mcp add chrome-devtools --scope user npx chrome-devtools-mcp@latest". Use this to interact with the UI at http://localhost:4000 for testing models, chat, and features.
+Browser automation: use the Chrome DevTools MCP (chrome-devtools-mcp) for browser testing, NOT Playwright or the Claude Chrome extension. Install with: "claude mcp add chrome-devtools --scope user npx chrome-devtools-mcp@latest". Use this to interact with the UI at http://localhost:4000 for testing models, chat, and features.
 
 Common gotchas: use port 4000 for the UI (not 8000), keep backend running for Playwright tests, use Chrome DevTools MCP for browser automation (not Claude Chrome extension), must kill running llama_chat_web.exe before rebuilding on Windows (Access denied), prefer existing modules rather than duplicating code when editing web routes or chat logic.
 

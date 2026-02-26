@@ -4,11 +4,15 @@ export interface Message {
   content: string;
   timestamp: number;
   isSystemPrompt?: boolean;
+  /** Base64 image data URIs attached to this message (user messages only). */
+  image_data?: string[];
 }
 
 export interface ChatRequest {
   message: string;
   conversation_id?: string;
+  /** Base64-encoded image data URIs for vision models. */
+  image_data?: string[];
   tool_tags?: {
     exec_open: string;
     exec_close: string;
@@ -59,6 +63,7 @@ export interface SamplerConfig {
   tool_tag_output_close?: string;
   // App settings
   web_search_provider?: string;
+  web_search_api_key?: string;
 }
 
 export type SamplerType = 

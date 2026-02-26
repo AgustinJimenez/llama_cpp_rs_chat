@@ -128,6 +128,7 @@ function App() {
                   onSendMessage={sendMessage}
                   onStopGeneration={stopGeneration}
                   disabled={isLoading}
+                  hasVision={modelStatus.has_vision}
                 />
               </div>
             </WelcomeMessage>
@@ -145,6 +146,7 @@ function App() {
                     onSendMessage={sendMessage}
                     onStopGeneration={stopGeneration}
                     disabled={isLoading}
+                    hasVision={modelStatus.has_vision}
                   />
                 </div>
               </div>

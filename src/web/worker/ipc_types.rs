@@ -30,6 +30,9 @@ pub enum WorkerCommand {
         user_message: String,
         conversation_id: Option<String>,
         skip_user_logging: bool,
+        /// Base64-encoded image data URIs for vision models (supports multiple).
+        #[serde(default)]
+        image_data: Option<Vec<String>>,
     },
     /// Cancel the in-progress generation.
     CancelGeneration,
@@ -60,6 +63,7 @@ pub enum WorkerPayload {
         gpu_layers: Option<u32>,
         general_name: Option<String>,
         default_system_prompt: Option<String>,
+        has_vision: Option<bool>,
     },
     /// Model unloaded.
     ModelUnloaded,

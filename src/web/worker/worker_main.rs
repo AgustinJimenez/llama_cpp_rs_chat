@@ -22,8 +22,56 @@ use crate::web::database::{Database, SharedDatabase};
 use crate::web::model_manager::{get_model_status, load_model};
 use crate::web::models::{SharedLlamaState, TokenData};
 
+/// Redirect the C-level stdout file descriptor to stderr so that any native
+/// C/C++ code (e.g. llama.cpp's clip_model_loader) that calls `printf` or
+/// `fprintf(stdout, ...)` writes to stderr instead of polluting our JSON
+/// Lines IPC pipe on stdout.
+///
+/// Returns a `File` wrapping the original stdout fd for exclusive IPC use.
+#[cfg(windows)]
+fn steal_stdout_for_ipc() -> std::fs::File {
+    use std::os::windows::io::FromRawHandle;
+    extern "C" {
+        fn _dup(fd: i32) -> i32;
+        fn _dup2(src: i32, dst: i32) -> i32;
+    }
+    unsafe {
+        // 1 = stdout, 2 = stderr
+        let ipc_fd = _dup(1); // duplicate real stdout → new fd for IPC
+        assert!(ipc_fd >= 0, "Failed to _dup stdout");
+        _dup2(2, 1); // redirect C stdout → stderr
+
+        // Convert the raw fd into a File we can write to
+        let handle = libc_fd_to_handle(ipc_fd);
+        std::fs::File::from_raw_handle(handle as *mut _)
+    }
+}
+
+#[cfg(windows)]
+unsafe fn libc_fd_to_handle(fd: i32) -> usize {
+    extern "C" {
+        fn _get_osfhandle(fd: i32) -> isize;
+    }
+    unsafe { _get_osfhandle(fd) as usize }
+}
+
+#[cfg(not(windows))]
+fn steal_stdout_for_ipc() -> std::fs::File {
+    use std::os::unix::io::FromRawFd;
+    unsafe {
+        let ipc_fd = libc::dup(1);
+        assert!(ipc_fd >= 0, "Failed to dup stdout");
+        libc::dup2(2, 1);
+        std::fs::File::from_raw_fd(ipc_fd)
+    }
+}
+
 /// Run the worker process. This function never returns normally.
 pub fn run_worker(db_path: &str) {
+    // CRITICAL: Steal the real stdout fd for IPC before anything else.
+    // After this, C printf/fprintf(stdout) goes to stderr.
+    let ipc_out = steal_stdout_for_ipc();
+
     eprintln!("[WORKER] Starting model worker process (pid={})", std::process::id());
 
     // Open database
@@ -63,8 +111,7 @@ pub fn run_worker(db_path: &str) {
 
     // Main loop (Thread 1)
     let mut generation_thread: Option<thread::JoinHandle<()>> = None;
-    let stdout = io::stdout();
-    let mut stdout = stdout.lock();
+    let mut ipc_writer = io::BufWriter::new(ipc_out);
 
     eprintln!("[WORKER] Ready, waiting for commands...");
 
@@ -73,7 +120,7 @@ pub fn run_worker(db_path: &str) {
         loop {
             match token_rx.try_recv() {
                 Ok(response) => {
-                    write_response(&mut stdout, &response);
+                    write_response(&mut ipc_writer, &response);
                 }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => break,
@@ -103,7 +150,7 @@ pub fn run_worker(db_path: &str) {
             Err(e) => {
                 eprintln!("[WORKER] Failed to parse command: {e}");
                 write_response(
-                    &mut stdout,
+                    &mut ipc_writer,
                     &WorkerResponse::error(0, format!("Parse error: {e}")),
                 );
                 continue;
@@ -114,7 +161,7 @@ pub fn run_worker(db_path: &str) {
 
         match request.command {
             WorkerCommand::Ping => {
-                write_response(&mut stdout, &WorkerResponse::ok(req_id, WorkerPayload::Pong));
+                write_response(&mut ipc_writer, &WorkerResponse::ok(req_id, WorkerPayload::Pong));
             }
 
             WorkerCommand::Shutdown => {
@@ -124,14 +171,14 @@ pub fn run_worker(db_path: &str) {
                 if let Some(handle) = generation_thread.take() {
                     let _ = handle.join();
                 }
-                write_response(&mut stdout, &WorkerResponse::ok(req_id, WorkerPayload::Pong));
+                write_response(&mut ipc_writer, &WorkerResponse::ok(req_id, WorkerPayload::Pong));
                 break;
             }
 
             WorkerCommand::LoadModel { model_path, gpu_layers } => {
                 if generation_thread.is_some() {
                     write_response(
-                        &mut stdout,
+                        &mut ipc_writer,
                         &WorkerResponse::error(req_id, "Cannot load model while generation is in progress"),
                     );
                     continue;
@@ -161,14 +208,15 @@ pub fn run_worker(db_path: &str) {
                             gpu_layers: s.gpu_layers,
                             general_name: s.general_name.clone(),
                             default_system_prompt: s.model_default_system_prompt.clone(),
+                            has_vision: Some(s.vision_state.is_some()),
                         };
                         drop(guard);
                         eprintln!("[WORKER] Model loaded successfully");
-                        write_response(&mut stdout, &WorkerResponse::ok(req_id, payload));
+                        write_response(&mut ipc_writer, &WorkerResponse::ok(req_id, payload));
                     }
                     Err(e) => {
                         eprintln!("[WORKER] Model load failed: {e}");
-                        write_response(&mut stdout, &WorkerResponse::error(req_id, e));
+                        write_response(&mut ipc_writer, &WorkerResponse::error(req_id, e));
                     }
                 }
             }
@@ -185,6 +233,7 @@ pub fn run_worker(db_path: &str) {
                 let mut guard = llama_state.lock().unwrap();
                 if let Some(ref mut state) = *guard {
                     state.inference_cache = None;
+                    state.vision_state = None;
                     state.model = None;
                     state.current_model_path = None;
                     state.cached_system_prompt = None;
@@ -194,7 +243,7 @@ pub fn run_worker(db_path: &str) {
 
                 eprintln!("[WORKER] Model unloaded");
                 write_response(
-                    &mut stdout,
+                    &mut ipc_writer,
                     &WorkerResponse::ok(req_id, WorkerPayload::ModelUnloaded),
                 );
             }
@@ -217,7 +266,7 @@ pub fn run_worker(db_path: &str) {
                         .ok()
                         .and_then(|g| g.as_ref().and_then(|s| s.gpu_layers)),
                 };
-                write_response(&mut stdout, &WorkerResponse::ok(req_id, payload));
+                write_response(&mut ipc_writer, &WorkerResponse::ok(req_id, payload));
             }
 
             WorkerCommand::CancelGeneration => {
@@ -230,10 +279,11 @@ pub fn run_worker(db_path: &str) {
                 user_message,
                 conversation_id,
                 skip_user_logging,
+                image_data,
             } => {
                 if generation_thread.is_some() {
                     write_response(
-                        &mut stdout,
+                        &mut ipc_writer,
                         &WorkerResponse::error(req_id, "Generation already in progress"),
                     );
                     continue;
@@ -261,6 +311,7 @@ pub fn run_worker(db_path: &str) {
                             user_message,
                             conversation_id,
                             skip_user_logging,
+                            image_data,
                             llama_state: state,
                             db,
                             cancel,
@@ -293,6 +344,7 @@ struct GenerationParams {
     user_message: String,
     conversation_id: Option<String>,
     skip_user_logging: bool,
+    image_data: Option<Vec<String>>,
     llama_state: SharedLlamaState,
     db: SharedDatabase,
     cancel: Arc<AtomicBool>,
@@ -317,6 +369,7 @@ fn run_generation(params: GenerationParams) {
         user_message,
         conversation_id,
         skip_user_logging,
+        image_data,
         llama_state,
         db,
         cancel,
@@ -398,6 +451,7 @@ fn run_generation(params: GenerationParams) {
             true, // skip_user_logging — we already logged above
             &db,
             cancel,
+            image_data.as_deref(),
         )
         .await;
 
@@ -440,10 +494,10 @@ fn run_generation(params: GenerationParams) {
     });
 }
 
-/// Write a JSON response line to stdout, flushing immediately.
-fn write_response(stdout: &mut io::StdoutLock, response: &WorkerResponse) {
+/// Write a JSON response line to the IPC pipe, flushing immediately.
+fn write_response(writer: &mut impl Write, response: &WorkerResponse) {
     if let Ok(json) = serde_json::to_string(response) {
-        let _ = writeln!(stdout, "{json}");
-        let _ = stdout.flush();
+        let _ = writeln!(writer, "{json}");
+        let _ = writer.flush();
     }
 }

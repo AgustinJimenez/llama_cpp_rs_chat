@@ -186,6 +186,7 @@ pub fn check_and_execute_command_with_tags(
     tags: &ToolTags,
     template_type: Option<&str>,
     web_search_provider: Option<&str>,
+    web_search_api_key: Option<&str>,
     recent_commands: &mut Vec<String>,
     token_sender: &Option<mpsc::UnboundedSender<TokenData>>,
     token_pos: i32,
@@ -271,7 +272,11 @@ pub fn check_and_execute_command_with_tags(
                 });
             }
         })
-    } else if let Some(native_output) = native_tools::dispatch_native_tool(&command_text, web_search_provider) {
+    } else if let Some(native_output) = native_tools::dispatch_native_tool(
+        &command_text,
+        web_search_provider,
+        web_search_api_key,
+    ) {
         log_info!(conversation_id, "📦 Dispatched to native tool handler");
         // Non-execute tools complete quickly, stream their output at once
         if let Some(ref sender) = token_sender {

@@ -80,6 +80,19 @@ const UserMessage: React.FC<{
     data-message-id={message.id}
   >
     <div className="flat-message-user max-w-[85%] px-4 py-3">
+      {/* Attached images */}
+      {message.image_data && message.image_data.length > 0 ? (
+        <div className="mb-2 flex flex-wrap gap-2">
+          {message.image_data.map((img, i) => (
+            <img
+              key={i}
+              src={img}
+              alt={`Attached ${i + 1}`}
+              className="max-h-64 max-w-full rounded-lg object-contain"
+            />
+          ))}
+        </div>
+      ) : null}
       {viewMode === 'raw' ? (
         <pre className="text-xs whitespace-pre-wrap leading-relaxed font-mono" data-testid="message-content">
           {message.content}

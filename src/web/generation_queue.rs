@@ -103,6 +103,7 @@ async fn generation_worker(
                 req.skip_user_logging,
                 &req.db,
                 cancel,
+                None,
             ))
         })
         .await;

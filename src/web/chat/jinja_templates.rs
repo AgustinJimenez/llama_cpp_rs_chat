@@ -192,7 +192,7 @@ pub fn get_available_tools() -> Vec<Value> {
         }),
         json!({
             "name": "web_search",
-            "description": "Search the web using DuckDuckGo. Returns a list of results with titles, URLs, and descriptions. Use this to find current information, documentation, or answers.",
+            "description": "Search the web using the configured provider. Returns a list of results with titles, URLs, and descriptions. Use this to find current information, documentation, or answers.",
             "parameters": {
                 "type": "object",
                 "properties": {

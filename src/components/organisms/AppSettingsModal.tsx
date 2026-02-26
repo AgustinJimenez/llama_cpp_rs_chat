@@ -34,6 +34,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
   };
 
   const provider = localConfig?.web_search_provider || 'DuckDuckGo';
+  const apiKey = localConfig?.web_search_api_key || '';
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -68,9 +69,34 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
               }
             >
               <option value="DuckDuckGo">DuckDuckGo (API + HTML scraping)</option>
+              <option value="Brave">Brave (API key required)</option>
               <option value="Google">Google (via headless Chrome)</option>
             </select>
           </div>
+
+          {provider === 'Brave' ? (
+            <div className="space-y-2">
+              <label htmlFor="brave-api-key" className="text-sm font-medium text-foreground">
+                Brave API Key
+              </label>
+              <p className="text-xs text-muted-foreground">
+                Stored in your local database and used only for Brave web_search.
+              </p>
+              <input
+                id="brave-api-key"
+                type="password"
+                autoComplete="off"
+                className="w-full px-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground"
+                value={apiKey}
+                placeholder="BRAVE_SEARCH_API_KEY"
+                onChange={(e) =>
+                  setLocalConfig(prev =>
+                    prev ? { ...prev, web_search_api_key: e.target.value } : prev
+                  )
+                }
+              />
+            </div>
+          ) : null}
         </div>
 
         <DialogFooter>

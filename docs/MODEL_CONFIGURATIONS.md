@@ -28,8 +28,9 @@ Parameters sourced from official model cards on HuggingFace and vendor documenta
 | 14 | Qwen3-Coder-30B-A3B-1M-UD | qwen3moe | 30B-A3B | Q8_K_XL | 35.99 GB | ✓ |
 | 15 | Qwen3-30B-A3B-2507 | qwen3moe | 30B-A3B | Q4_K_M | 18.56 GB | ✓ |
 | 16 | Devstral-Small-2507 | llama | 24B | Q4_K_M | 14.33 GB | ✓ |
+| 17 | Qwen3.5-35B-A3B | qwen35moe | 35B-A3B | Q4_K_M | 19.70 GB | ✓ |
 
-*Last updated: 2026-02-06*
+*Last updated: 2026-02-25*
 
 ---
 
@@ -739,6 +740,53 @@ Parameters sourced from official model cards on HuggingFace and vendor documenta
 
 ---
 
+## Vision / Image Handling
+
+Models that support multimodal (image + text) input require a separate **mmproj** (multimodal projection) GGUF file alongside the model. This file contains the CLIP vision encoder that converts images into embeddings the LLM can understand.
+
+### Vision-Capable Models (mmproj available locally)
+
+| Model | Model Size | mmproj File | mmproj Size | Max Images | Status |
+|-------|-----------|-------------|-------------|------------|--------|
+| **Magistral-Small-2509** (24B Q6_K) | 20.2 GB | mmproj-Magistral-Small-2509-F16.gguf | 838 MB | 10 | Untested |
+| **Devstral-Small-2** (24B Q6_K) | 20.2 GB | mmproj-Devstral-Small-2-...-F16.gguf | 838 MB | — | Untested |
+| **Ministral-3-14B-Reasoning** (14B Q8_0) | 15.2 GB | mmproj-Ministral-3-14B-...-F16.gguf | 838 MB | — | Untested |
+| **Ministral-3-3B** (3B Q8_0) | 3.4 GB | mmproj-Ministral-3-3B-...-F16.gguf | 802 MB | — | Untested |
+| **gemma-3-12b-it** (12B Q8_0) | 13.4 GB | mmproj-model-f16.gguf | 815 MB | — | Untested |
+| **GLM-4.6V-Flash** (30B Q4_K_M) | 18.1 GB | mmproj-GLM-4.6V-Flash-F16.gguf | 1.7 GB | — | Untested |
+
+### VRAM Considerations
+
+The mmproj file adds ~0.8–1.7 GB to VRAM usage on top of the model itself. On a 24 GB GPU:
+- **Magistral-Small + mmproj**: ~21 GB (tight fit with 32K context)
+- **Ministral-14B-R + mmproj**: ~16 GB (comfortable)
+- **gemma-3-12b + mmproj**: ~14 GB (plenty of room)
+- **GLM-4.6V-Flash + mmproj**: ~20 GB (larger vision encoder)
+
+### Notes
+- All Mistral-family models (Magistral, Devstral, Ministral) share a similar 838 MB vision encoder
+- GLM-4.6V-Flash has a larger 1.7 GB encoder (different architecture)
+- gemma-3 encodes images at 896x896 resolution → 256 tokens per image
+- Magistral-Small officially supports up to 10 images per prompt
+- mmproj files are located in the same directory as the model GGUF file
+- The app auto-detects mmproj files via `scan_for_mmproj_files()` in `model.rs`
+
+### Models Without Vision
+
+The following models in the inventory are **text-only** (no mmproj available):
+- Qwen3-Coder-Next (80B)
+- Nemotron-3-Nano-30B-A3B
+- MiniCPM4.1-8B
+- Qwen3-8B
+- Qwen3-Coder-30B-A3B
+- Qwen3-30B-A3B
+- Devstral-Small-2507 (older version, text-only)
+- granite-4.0-h-tiny
+- gpt-oss-20b
+- rnj-1-instruct
+
+---
+
 ## Quick Reference
 
 ### Parameter Comparison Across Models (Agentic Config)
@@ -768,6 +816,7 @@ Parameters sourced from official model cards on HuggingFace and vendor documenta
 | Long document processing | Qwen3-Coder Q4_K_S (1M context, lighter) |
 | Maximum output quality | Qwen3-Coder Q8_K_XL (highest precision) |
 | Fastest inference | Qwen3-30B-A3B or Qwen3-Coder (3.3B active) |
+| Vision / image analysis | Magistral-Small (best quality) or Ministral-14B-R (fits easily on 24GB) |
 
 ### Config.json Examples
 
@@ -806,3 +855,74 @@ Parameters sourced from official model cards on HuggingFace and vendor documenta
   "context_size": 262144
 }
 ```
+
+---
+
+## Qwen3.5-35B-A3B (Alibaba)
+
+**File:** `lmstudio-community/Qwen3.5-35B-A3B-GGUF/Qwen3.5-35B-A3B-Q4_K_M.gguf`
+
+| Property | Value |
+|----------|-------|
+| Creator | Alibaba Qwen Team |
+| Architecture | qwen35moe (Gated DeltaNet + MoE) |
+| Total Parameters | 35B |
+| Active Parameters | ~3B (8 routed + 1 shared of 256 experts) |
+| Quantization | Q4_K_M |
+| File Size | 19.70 GB |
+| Context Window | 262,144 tokens (256K, extensible to ~1M via YaRN) |
+| Chat Template | ChatML (`<\|im_start\|>...<\|im_end\|>`) |
+| Thinking Mode | Yes (`<think>...</think>`, on by default) |
+| Vision | Yes (mmproj-Qwen3.5-35B-A3B-BF16.gguf, 861 MB) |
+| Tool Format | Qwen native (`<tool_call>`/`</tool_call>`) |
+| `general.name` | `Qwen3.5-35B-A3B` |
+
+### Official Sampling Parameters (HuggingFace)
+
+**Non-thinking mode (general tasks, recommended for agentic use):**
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| temperature | 0.7 | Official recommendation |
+| top_p | 0.8 | Official recommendation |
+| top_k | 20 | Official recommendation |
+| min_p | 0.0 | Official recommendation |
+| presence_penalty | 1.5 | Important — reduces repetition |
+| repetition_penalty | 1.0 | Not needed |
+
+**Thinking mode (general tasks):**
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| temperature | 1.0 | Official recommendation |
+| top_p | 0.95 | Official recommendation |
+| top_k | 20 | Official recommendation |
+| presence_penalty | 1.5 | Reduces repetition |
+
+**Thinking mode (precise coding):**
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| temperature | 0.6 | Lower for deterministic code |
+| top_p | 0.95 | Official recommendation |
+| top_k | 20 | Official recommendation |
+| presence_penalty | 0.0 | Disabled for coding |
+
+### GGUF Embedded Parameters
+
+| Parameter | Value |
+|-----------|-------|
+| context_length | 262144 |
+
+### Notes
+- Novel hybrid architecture: 3 Gated DeltaNet (linear attention, O(n)) layers per 1 full softmax attention layer, in repeating 4-layer cycles across 40 layers.
+- MoE with 256 experts (8 routed + 1 shared active per token) — only ~3B active parameters for fast inference.
+- Vision-language model with image and video understanding (OCR, document QA, spatial reasoning).
+- `presence_penalty` of 1.5 is officially recommended for general tasks — significantly higher than typical models.
+- **llama.cpp performance warning**: Currently ~35% slower than Qwen3-30B-A3B on CUDA due to incomplete GPU kernel support for DeltaNet layers (llama.cpp issue #19894).
+- **VRAM on 24GB GPU**: Model (19.7 GB) + mmproj (861 MB) ≈ 20.6 GB. Use `context_size` 16384–32768.
+- Released 2026-02-24. llama.cpp support is via b8140/b8145 — may still have bugs.
+
+### Sources
+- https://huggingface.co/Qwen/Qwen3.5-35B-A3B
+- https://github.com/QwenLM/Qwen3.5

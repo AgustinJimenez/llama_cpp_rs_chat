@@ -13,6 +13,7 @@ interface ModelStatus {
   model_path: string | null;
   last_used: string | null;
   memory_usage_mb: number | null;
+  has_vision?: boolean;
 }
 
 interface ModelResponse {

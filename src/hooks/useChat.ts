@@ -165,12 +165,13 @@ export function useChat() {
     );
   }, [currentConversationId, setMessages]);
 
-  // Send message
-  const sendMessage = useCallback(async (content: string, bypassLoadingCheck = false) => {
-    if (!bypassLoadingCheck && (isLoading || !content.trim())) {
+  // Send message (with optional image attachments)
+  const sendMessage = useCallback(async (content: string, imageData?: string[], bypassLoadingCheck = false) => {
+    const hasImages = imageData && imageData.length > 0;
+    if (!bypassLoadingCheck && (isLoading || (!content.trim() && !hasImages))) {
       return;
     }
-    if (!content.trim()) {
+    if (!content.trim() && !hasImages) {
       return;
     }
 
@@ -186,6 +187,7 @@ export function useChat() {
       role: 'user',
       content: content.trim(),
       timestamp: Date.now(),
+      image_data: hasImages ? imageData : undefined,
     };
 
     setMessages(prev => [...prev, userMessage]);
@@ -212,6 +214,7 @@ export function useChat() {
       const request: ChatRequest = {
         message: content.trim(),
         conversation_id: currentConversationId || undefined,
+        image_data: hasImages ? imageData : undefined,
       };
 
       // Mark streaming as active

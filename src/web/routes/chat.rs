@@ -152,6 +152,7 @@ pub async fn handle_post_chat(
                 chat_request.message.clone(),
                 Some(conversation_id.clone()),
                 true, // skip_user_logging — already logged above
+                chat_request.image_data.clone(),
             )
             .await
         {
@@ -221,6 +222,7 @@ pub async fn handle_post_chat_stream(
                 chat_request.message.clone(),
                 None,  // New conversation (worker creates it)
                 false, // Worker logs user message
+                chat_request.image_data.clone(),
             )
             .await
         {

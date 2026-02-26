@@ -481,12 +481,14 @@ pub async fn handle_get_model_status(
                 model_path: Some(meta.model_path),
                 last_used: None,
                 memory_usage_mb: if meta.loaded { Some(512) } else { None },
+                has_vision: Some(meta.has_vision),
             },
             None => crate::web::models::ModelStatus {
                 loaded: false,
                 model_path: None,
                 last_used: None,
                 memory_usage_mb: None,
+                has_vision: None,
             },
         };
 
@@ -564,6 +566,7 @@ pub async fn handle_post_model_load(
                     model_path: Some(meta.model_path),
                     last_used: None,
                     memory_usage_mb: Some(512),
+                    has_vision: Some(meta.has_vision),
                 };
                 let response = ModelResponse {
                     success: true,
@@ -623,6 +626,7 @@ pub async fn handle_post_model_unload(
                     model_path: None,
                     last_used: None,
                     memory_usage_mb: None,
+                    has_vision: None,
                 };
                 let response = ModelResponse {
                     success: true,

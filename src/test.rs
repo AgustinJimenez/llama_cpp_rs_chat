@@ -4,11 +4,12 @@ use std::io::{self, Write};
 use std::num::NonZeroU32;
 use std::process::Command;
 
+
 use llama_cpp_2::{
     context::params::LlamaContextParams,
     llama_backend::LlamaBackend,
     llama_batch::LlamaBatch,
-    model::{params::LlamaModelParams, AddBos, LlamaModel, Special},
+    model::{params::LlamaModelParams, AddBos, LlamaModel},
     sampling::LlamaSampler,
     send_logs_to_tracing, LogOptions,
 };
@@ -831,7 +832,7 @@ fn generate_response(
 
         // Convert to string
         let token_str = model
-            .token_to_str(next_token, Special::Tokenize)
+            .token_to_str(next_token, llama_cpp_2::model::Special::Tokenize)
             .map_err(|e| format!("Token conversion failed: {}", e))?;
 
         // Check for proper stop tokens - more comprehensive

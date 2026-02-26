@@ -4,11 +4,12 @@
 use std::env;
 use std::num::NonZeroU32;
 
+
 use llama_cpp_2::{
     context::params::LlamaContextParams,
     llama_backend::LlamaBackend,
     llama_batch::LlamaBatch,
-    model::{params::LlamaModelParams, AddBos, LlamaModel, Special},
+    model::{params::LlamaModelParams, AddBos, LlamaModel},
     sampling::LlamaSampler,
 };
 
@@ -262,7 +263,7 @@ impl ChatEngine {
             // Convert token to string
             let token_str = self
                 .model
-                .token_to_str(next_token, Special::Tokenize)
+                .token_to_str(next_token, llama_cpp_2::model::Special::Tokenize)
                 .map_err(|e| format!("Token conversion failed: {e}"))?;
 
             response.push_str(&token_str);

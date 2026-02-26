@@ -60,6 +60,8 @@ CREATE TABLE IF NOT EXISTS config (
     system_prompt_type TEXT DEFAULT 'Default',
     context_size INTEGER DEFAULT 32768,
     stop_tokens TEXT,
+    web_search_provider TEXT DEFAULT 'DuckDuckGo',
+    web_search_api_key TEXT,
     updated_at INTEGER NOT NULL
 )
 "#;
@@ -281,6 +283,10 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
     // Add web search provider column if missing
     let _ = conn.execute(
         "ALTER TABLE config ADD COLUMN web_search_provider TEXT DEFAULT 'DuckDuckGo'",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN web_search_api_key TEXT",
         [],
     );
 

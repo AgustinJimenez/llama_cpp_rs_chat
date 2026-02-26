@@ -4,7 +4,7 @@
  * positioned spans for widget rendering in the MD view.
  */
 import type { ToolCall } from '../types';
-import { extractBalancedJson, findStreamingResponse } from './toolFormatUtils';
+import { extractBalancedJson, findStreamingResponse, stripUnclosedToolCallTail } from './toolFormatUtils';
 
 export type MessageSegment =
   | { type: 'text'; content: string }
@@ -334,11 +334,12 @@ export const THINKING_UNCLOSED_REGEX = /<think>([\s\S]*)$/;
 
 export function buildSegments(content: string): MessageSegment[] {
   const cleaned = content.replace(THINKING_REGEX, '').replace(THINKING_UNCLOSED_REGEX, '');
-  const qwenSpans = collectQwenSpans(cleaned);
-  const mistralSpans = qwenSpans.length > 0 ? [] : collectMistralSpans(cleaned);
+  const pruned = stripUnclosedToolCallTail(cleaned);
+  const qwenSpans = collectQwenSpans(pruned);
+  const mistralSpans = qwenSpans.length > 0 ? [] : collectMistralSpans(pruned);
   const toolSpans = qwenSpans.length > 0 ? qwenSpans
-    : mistralSpans.length > 0 ? mistralSpans : collectLlama3Spans(cleaned);
-  const spans = [...collectExecSpans(cleaned), ...toolSpans]
+    : mistralSpans.length > 0 ? mistralSpans : collectLlama3Spans(pruned);
+  const spans = [...collectExecSpans(pruned), ...toolSpans]
     .sort((a, b) => a.start - b.start);
 
   const result: MessageSegment[] = [];
@@ -346,15 +347,15 @@ export function buildSegments(content: string): MessageSegment[] {
 
   for (const span of spans) {
     if (span.start > cursor) {
-      const text = cleaned.slice(cursor, span.start).trim();
+      const text = pruned.slice(cursor, span.start).trim();
       if (text) result.push({ type: 'text', content: text });
     }
     result.push(span.segment);
     cursor = span.end;
   }
 
-  if (cursor < cleaned.length) {
-    const text = cleaned.slice(cursor).trim();
+  if (cursor < pruned.length) {
+    const text = pruned.slice(cursor).trim();
     if (text) result.push({ type: 'text', content: text });
   }
 

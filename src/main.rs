@@ -109,12 +109,14 @@ async fn get_model_status(
             model_path: Some(meta.model_path),
             last_used: None,
             memory_usage_mb: if meta.loaded { Some(512) } else { None },
+            has_vision: Some(meta.has_vision),
         },
         None => ModelStatus {
             loaded: false,
             model_path: None,
             last_used: None,
             memory_usage_mb: None,
+            has_vision: None,
         },
     })
 }
@@ -136,6 +138,7 @@ async fn load_model(
                     model_path: Some(meta.model_path),
                     last_used: None,
                     memory_usage_mb: Some(512),
+                    has_vision: Some(meta.has_vision),
                 }),
             })
         }
@@ -160,6 +163,7 @@ async fn unload_model(
                 model_path: None,
                 last_used: None,
                 memory_usage_mb: None,
+                has_vision: None,
             }),
         }),
         Err(e) => Ok(ModelResponse {
@@ -304,6 +308,7 @@ async fn generate_stream(
             request.message.clone(),
             Some(conversation_id.clone()),
             true,
+            request.image_data.clone(),
         )
         .await?;
 

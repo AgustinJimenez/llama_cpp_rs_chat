@@ -73,6 +73,8 @@ pub struct ModelStatus {
     pub model_path: Option<String>,
     pub last_used: Option<String>,
     pub memory_usage_mb: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_vision: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -274,6 +276,7 @@ pub async fn get_model_status(state: State<'_, AppState>) -> Result<ModelStatus,
         } else {
             None
         }, // Estimate
+        has_vision: None,
     };
 
     Ok(status)
@@ -304,6 +307,7 @@ pub async fn load_model(
                     model_path: Some(request.model_path.clone()),
                     last_used: None,
                     memory_usage_mb: Some(512), // Estimate
+                    has_vision: None,
                 };
 
                 Ok(ModelResponse {
@@ -337,6 +341,7 @@ pub async fn load_model(
                     model_path: Some(request.model_path.clone()),
                     last_used: None,
                     memory_usage_mb: Some(512),
+                    has_vision: None,
                 };
 
                 Ok(ModelResponse {
@@ -375,6 +380,7 @@ pub async fn unload_model(state: State<'_, AppState>) -> Result<ModelResponse, S
         model_path: None,
         last_used: None,
         memory_usage_mb: None,
+        has_vision: None,
     };
 
     Ok(ModelResponse {

@@ -34,10 +34,19 @@ path = "check_gemma_template.rs"
 name = "test_model"
 path = "src/test_model.rs"
 
+# Test binary for vision/mmproj loading
+[[bin]]
+name = "test_vision"
+path = "src/test_vision.rs"
+
 [lints.clippy]
 all = "warn"
 uninlined_format_args = "warn"
 too_many_arguments = "warn"
+
+[profile.dev]
+debug = 0
+incremental = true
 
 [dependencies]
 # Tauri framework
@@ -55,7 +64,8 @@ tokio = { version = "1.0", features = ["full"] }
 regex = "1.10"
 
 # LLaMA dependencies - with conditional CUDA GPU acceleration
-llama-cpp-2 = { version = "0.1.130", features = [] }
+llama-cpp-2 = { version = "=0.1.122", features = ["mtmd"] }
+llama-cpp-sys-2 = { version = "=0.1.122" }  # Pin to match HuggingFace mmproj GGUF format
 anyhow = "1.0"
 uuid = { version = "1.0", features = ["v4"] }
 
@@ -100,6 +110,7 @@ rfd = "0.15"
 
 # Headless Chrome for web search (bypasses CAPTCHAs)
 headless_chrome = "1.0"
+encoding_rs = "0.8.35"
 
 # System monitoring (optional - requires rebuild)
 # sysinfo = "0.30"
@@ -118,4 +129,3 @@ ureq = { version = "2.9", default-features = false, features = ["tls"] }
 zip = { version = "8.1", default-features = false, features = ["deflate"] }
 tar = "0.4"
 flate2 = "1.1"
-
