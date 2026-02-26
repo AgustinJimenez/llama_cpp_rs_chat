@@ -2,19 +2,12 @@ import { useRef, useCallback, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { LoadingIndicator } from '../atoms';
 import { MessageBubble } from '../organisms';
-import type { Message, ViewMode } from '../../types';
+import { useChatContext } from '../../contexts/ChatContext';
+import { useUIContext } from '../../contexts/UIContext';
 
-interface MessagesAreaProps {
-  messages: Message[];
-  isLoading: boolean;
-  viewMode: ViewMode;
-}
-
-export function MessagesArea({
-  messages,
-  isLoading,
-  viewMode,
-}: MessagesAreaProps) {
+export function MessagesArea() {
+  const { messages, isLoading } = useChatContext();
+  const { viewMode } = useUIContext();
   const containerRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
 

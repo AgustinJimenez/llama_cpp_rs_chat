@@ -1,190 +1,64 @@
-import { useState } from 'react';
-import { Toaster, toast } from 'react-hot-toast';
+import { useCallback } from 'react';
+import { Toaster } from 'react-hot-toast';
 import { ChatHeader, Sidebar, RightSidebar, ConversationConfigSidebar, AppSettingsModal } from './components/organisms';
 import { ModelConfigModal } from './components/organisms/model-config';
 import { MessagesArea } from './components/templates';
 import { WelcomeMessage } from './components/atoms';
 import { MessageInput } from './components/molecules';
-import { useChat } from './hooks/useChat';
-import { useModel } from './hooks/useModel';
-import type { SamplerConfig, ViewMode } from './types';
-import { logToastError } from './utils/toastLogger';
+import { useModelContext } from './contexts/ModelContext';
+import { useChatContext } from './contexts/ChatContext';
+import { useUIContext } from './contexts/UIContext';
+import type { SamplerConfig } from './types';
 
-// eslint-disable-next-line max-lines-per-function
 function App() {
-  const { messages, isLoading, sendMessage, stopGeneration, clearMessages, loadConversation, currentConversationId, tokensUsed, maxTokens, lastTimings } = useChat();
-  const { status: modelStatus, isLoading: isModelLoading, loadingAction, hasStatusError, loadModel, unloadModel, hardUnload } = useModel();
+  const { status: modelStatus, loadModel, unloadModel, forceUnload } = useModelContext();
+  const { clearMessages } = useChatContext();
+  const { closeModelConfig } = useUIContext();
 
-  // Compute clean model display name from path
-  const modelName = modelStatus.model_path
-    ? (modelStatus.model_path.split(/[/\\]/).pop() || '').replace(/\.gguf$/i, '')
-    : '';
-  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
-  const [isConfigSidebarOpen, setIsConfigSidebarOpen] = useState(false);
-  const [isAppSettingsOpen, setIsAppSettingsOpen] = useState(false);
-  const [isModelConfigOpen, setIsModelConfigOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>('markdown');
-
-  const handleNewConversation = () => {
+  const handleNewConversation = useCallback(() => {
     clearMessages();
-    // Focus the chat input after React re-renders
     requestAnimationFrame(() => {
       const input = document.querySelector<HTMLTextAreaElement>('[data-testid="message-input"]');
       input?.focus();
     });
-  };
+  }, [clearMessages]);
 
-  const toggleRightSidebar = () => {
-    setIsRightSidebarOpen(!isRightSidebarOpen);
-  };
-
-  const toggleConfigSidebar = () => {
-    setIsConfigSidebarOpen(p => !p);
-  };
-
-  const handleModelConfigSave = (config: SamplerConfig) => {
+  const handleModelConfigSave = useCallback((config: SamplerConfig) => {
     if (config.model_path) {
-      handleModelLoad(config.model_path, config);
+      loadModel(config.model_path, config);
     }
-    setIsModelConfigOpen(false);
-  };
+    closeModelConfig();
+  }, [loadModel, closeModelConfig]);
 
-  const handleModelLoad = async (modelPath: string, config: SamplerConfig) => {
-    const result = await loadModel(modelPath, config);
-    if (result.success) {
-      toast.success('Model loaded successfully!');
-    } else {
-      const display = `Failed to load model: ${result.message}`;
-      logToastError('App.handleModelLoad', display);
-      toast.error(display, { duration: 5000 });
-    }
-  };
-
-  const handleModelUnload = async () => {
-    const result = await unloadModel();
-    if (result.success) {
-      toast.success('Model unloaded successfully');
-      // Clear any existing conversation when model is unloaded
-      clearMessages();
-    } else {
-      const display = `Failed to unload model: ${result.message}`;
-      logToastError('App.handleModelUnload', display);
-      toast.error(display, { duration: 5000 });
-    }
-  };
-
-  const handleForceUnload = async () => {
-    await hardUnload();
-    toast('Force-unloaded backend to free memory', { icon: '🧹' });
+  const handleModelUnload = useCallback(async () => {
+    await unloadModel();
     clearMessages();
-  };
+  }, [unloadModel, clearMessages]);
+
+  const handleForceUnload = useCallback(async () => {
+    await forceUnload();
+    clearMessages();
+  }, [forceUnload, clearMessages]);
+
+  const handleReloadModel = useCallback((modelPath: string, config: SamplerConfig) => {
+    loadModel(modelPath, config);
+  }, [loadModel]);
 
   return (
     <div className="h-screen bg-background flex" data-testid="chat-app">
-      {/* Sidebar */}
-      <Sidebar
-        onNewChat={handleNewConversation}
-        onLoadConversation={loadConversation}
-        currentConversationId={currentConversationId}
-        onOpenAppSettings={() => setIsAppSettingsOpen(true)}
+      <Sidebar onNewChat={handleNewConversation} />
+
+      <MainContent
+        handleModelUnload={handleModelUnload}
+        handleForceUnload={handleForceUnload}
       />
 
-      {/* Main Content */}
-      <div
-        className="flex-1 ml-[240px]"
-      >
-        <div className="flex flex-col h-full">
-          {/* Header — hidden on welcome screen when no model loaded */}
-          {(messages.length > 0 || modelStatus.loaded || isModelLoading) && <ChatHeader
-            modelLoaded={modelStatus.loaded}
-            modelPath={modelStatus.model_path ?? undefined}
-            isModelLoading={isModelLoading}
-            tokensUsed={tokensUsed}
-            maxTokens={maxTokens}
-            genTokPerSec={lastTimings?.genTokPerSec}
-            viewMode={viewMode}
-            isRightSidebarOpen={isRightSidebarOpen}
-            onOpenModelConfig={() => setIsModelConfigOpen(true)}
-            onModelUnload={handleModelUnload}
-            onForceUnload={handleForceUnload}
-            hasStatusError={hasStatusError}
-            onViewModeChange={setViewMode}
-            onToggleRightSidebar={toggleRightSidebar}
-            isConfigSidebarOpen={isConfigSidebarOpen}
-            onToggleConfigSidebar={toggleConfigSidebar}
-          />}
-
-          {messages.length === 0 ? (
-            /* Centered welcome + input */
-            <WelcomeMessage
-              isModelLoading={isModelLoading}
-              loadingAction={loadingAction}
-              modelLoaded={modelStatus.loaded}
-              modelName={modelName}
-              onSelectModel={() => setIsModelConfigOpen(true)}
-            >
-              <div className="w-full max-w-2xl px-6">
-                <MessageInput
-                  onSendMessage={sendMessage}
-                  onStopGeneration={stopGeneration}
-                  disabled={isLoading}
-                  hasVision={modelStatus.has_vision}
-                />
-              </div>
-            </WelcomeMessage>
-          ) : (
-            /* Normal chat layout */
-            <>
-              <MessagesArea
-                messages={messages}
-                isLoading={isLoading}
-                viewMode={viewMode}
-              />
-              <div className="px-6 pb-4 pt-2 animate-in slide-in-from-bottom-4 duration-300" data-testid="input-container">
-                <div className="max-w-3xl mx-auto">
-                  <MessageInput
-                    onSendMessage={sendMessage}
-                    onStopGeneration={stopGeneration}
-                    disabled={isLoading}
-                    hasVision={modelStatus.has_vision}
-                  />
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Right Sidebar - System Monitor */}
-      <RightSidebar
-        isOpen={isRightSidebarOpen}
-        onClose={() => setIsRightSidebarOpen(false)}
+      <Overlays
+        modelPath={modelStatus.model_path ?? undefined}
+        onModelConfigSave={handleModelConfigSave}
+        onReloadModel={handleReloadModel}
       />
 
-      {/* Right Sidebar - Conversation Config */}
-      <ConversationConfigSidebar
-        isOpen={isConfigSidebarOpen}
-        onClose={() => setIsConfigSidebarOpen(false)}
-        conversationId={currentConversationId}
-        currentModelPath={modelStatus.model_path ?? undefined}
-        onReloadModel={handleModelLoad}
-      />
-
-      {/* App Settings Modal */}
-      <AppSettingsModal
-        isOpen={isAppSettingsOpen}
-        onClose={() => setIsAppSettingsOpen(false)}
-      />
-
-      {/* Model Config Modal */}
-      <ModelConfigModal
-        isOpen={isModelConfigOpen}
-        onClose={() => setIsModelConfigOpen(false)}
-        onSave={handleModelConfigSave}
-        initialModelPath={modelStatus.model_path ?? undefined}
-      />
-
-      {/* Toast Notifications */}
       <Toaster
         position="top-right"
         toastOptions={{
@@ -228,6 +102,82 @@ function App() {
         }}
       />
     </div>
+  );
+}
+
+/** Main content area: header + messages/welcome + input */
+function MainContent({
+  handleModelUnload,
+  handleForceUnload,
+}: {
+  handleModelUnload: () => void;
+  handleForceUnload: () => void;
+}) {
+  const { status: modelStatus, isLoading: isModelLoading } = useModelContext();
+  const { messages } = useChatContext();
+
+  return (
+    <div className="flex-1 ml-[240px]">
+      <div className="flex flex-col h-full">
+        {(messages.length > 0 || modelStatus.loaded || isModelLoading) && (
+          <ChatHeader
+            onModelUnload={handleModelUnload}
+            onForceUnload={handleForceUnload}
+          />
+        )}
+
+        {messages.length === 0 ? (
+          <WelcomeMessage>
+            <div className="w-full max-w-2xl px-6">
+              <MessageInput />
+            </div>
+          </WelcomeMessage>
+        ) : (
+          <>
+            <MessagesArea />
+            <div className="px-6 pb-4 pt-2 animate-in slide-in-from-bottom-4 duration-300" data-testid="input-container">
+              <div className="max-w-3xl mx-auto">
+                <MessageInput />
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Sidebars and modals that overlay the main content */
+function Overlays({
+  modelPath,
+  onModelConfigSave,
+  onReloadModel,
+}: {
+  modelPath?: string;
+  onModelConfigSave: (config: SamplerConfig) => void;
+  onReloadModel: (modelPath: string, config: SamplerConfig) => void;
+}) {
+  const { isRightSidebarOpen, closeRightSidebar, isConfigSidebarOpen, closeConfigSidebar, isAppSettingsOpen, closeAppSettings, isModelConfigOpen, closeModelConfig } = useUIContext();
+  const { currentConversationId } = useChatContext();
+
+  return (
+    <>
+      <RightSidebar isOpen={isRightSidebarOpen} onClose={closeRightSidebar} />
+      <ConversationConfigSidebar
+        isOpen={isConfigSidebarOpen}
+        onClose={closeConfigSidebar}
+        conversationId={currentConversationId}
+        currentModelPath={modelPath}
+        onReloadModel={onReloadModel}
+      />
+      <AppSettingsModal isOpen={isAppSettingsOpen} onClose={closeAppSettings} />
+      <ModelConfigModal
+        isOpen={isModelConfigOpen}
+        onClose={closeModelConfig}
+        onSave={onModelConfigSave}
+        initialModelPath={modelPath}
+      />
+    </>
   );
 }
 

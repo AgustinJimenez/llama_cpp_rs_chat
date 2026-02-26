@@ -4,6 +4,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from '../atoms/button';
 import { HubExplorer } from './HubExplorer';
 import { getConversations, deleteConversation } from '../../utils/tauriCommands';
+import { useChatContext } from '../../contexts/ChatContext';
+import { useUIContext } from '../../contexts/UIContext';
 
 interface ConversationFile {
   name: string;
@@ -13,9 +15,6 @@ interface ConversationFile {
 
 interface SidebarProps {
   onNewChat: () => void;
-  onLoadConversation: (filename: string) => void;
-  currentConversationId?: string | null;
-  onOpenAppSettings?: () => void;
 }
 
 function relativeTime(timestamp: string): string {
@@ -70,7 +69,9 @@ function getDateGroup(timestamp: string): string {
 }
 
 // eslint-disable-next-line max-lines-per-function
-const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onLoadConversation, currentConversationId, onOpenAppSettings }) => {
+const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
+  const { loadConversation: onLoadConversation, currentConversationId } = useChatContext();
+  const { openAppSettings: onOpenAppSettings } = useUIContext();
   const [conversations, setConversations] = useState<ConversationFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);

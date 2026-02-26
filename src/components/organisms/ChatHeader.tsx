@@ -1,5 +1,8 @@
 import { Unplug, Activity, SlidersHorizontal } from 'lucide-react';
 import { ModelSelector } from './ModelSelector';
+import { useModelContext } from '../../contexts/ModelContext';
+import { useChatContext } from '../../contexts/ChatContext';
+import { useUIContext } from '../../contexts/UIContext';
 import type { ViewMode } from '../../types';
 
 const VIEW_MODES = [
@@ -28,51 +31,27 @@ function ViewModeToggle({ viewMode, onChange }: { viewMode: ViewMode; onChange: 
 }
 
 interface ChatHeaderProps {
-  modelLoaded: boolean;
-  modelPath?: string;
-  isModelLoading: boolean;
-  tokensUsed?: number;
-  maxTokens?: number;
-  genTokPerSec?: number;
-  viewMode: ViewMode;
-  isRightSidebarOpen: boolean;
-  isConfigSidebarOpen: boolean;
-  onOpenModelConfig: () => void;
   onModelUnload: () => void;
   onForceUnload: () => void;
-  hasStatusError: boolean;
-  onViewModeChange: (mode: ViewMode) => void;
-  onToggleRightSidebar: () => void;
-  onToggleConfigSidebar: () => void;
 }
 
-// eslint-disable-next-line complexity
-export function ChatHeader({
-  modelLoaded,
-  modelPath,
-  isModelLoading,
-  tokensUsed,
-  maxTokens,
-  genTokPerSec,
-  viewMode,
-  isRightSidebarOpen,
-  isConfigSidebarOpen,
-  onOpenModelConfig,
-  onModelUnload,
-  onForceUnload,
-  hasStatusError,
-  onViewModeChange,
-  onToggleRightSidebar,
-  onToggleConfigSidebar,
-}: ChatHeaderProps) {
+export function ChatHeader({ onModelUnload, onForceUnload }: ChatHeaderProps) {
+  const { status: modelStatus, isLoading: isModelLoading, loadingAction, hasStatusError } = useModelContext();
+  const { tokensUsed, maxTokens, lastTimings } = useChatContext();
+  const { viewMode, setViewMode, isRightSidebarOpen, toggleRightSidebar, isConfigSidebarOpen, toggleConfigSidebar, openModelConfig } = useUIContext();
+
+  const modelLoaded = modelStatus.loaded;
+  const genTokPerSec = lastTimings?.genTokPerSec;
+
   return (
     <div className="flex items-center justify-between px-4 py-2 border-b border-border" data-testid="chat-header">
       {/* Left: model selector + unload */}
       <div className="flex items-center gap-1 min-w-0">
         <ModelSelector
-          currentModelPath={modelPath}
+          currentModelPath={modelStatus.model_path ?? undefined}
           isLoading={isModelLoading}
-          onOpen={onOpenModelConfig}
+          loadingAction={loadingAction}
+          onOpen={openModelConfig}
         />
         {modelLoaded ? <button
             onClick={onModelUnload}
@@ -105,10 +84,10 @@ export function ChatHeader({
             </span>
           )}
 
-          <ViewModeToggle viewMode={viewMode} onChange={onViewModeChange} />
+          <ViewModeToggle viewMode={viewMode} onChange={setViewMode} />
 
           <button
-            onClick={onToggleConfigSidebar}
+            onClick={toggleConfigSidebar}
             className={`p-1.5 rounded-md transition-colors ${
               isConfigSidebarOpen
                 ? 'bg-muted text-foreground'
@@ -120,7 +99,7 @@ export function ChatHeader({
           </button>
 
           <button
-            onClick={onToggleRightSidebar}
+            onClick={toggleRightSidebar}
             className={`p-1.5 rounded-md transition-colors ${
               isRightSidebarOpen
                 ? 'bg-muted text-foreground'

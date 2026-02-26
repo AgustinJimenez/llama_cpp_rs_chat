@@ -1,21 +1,18 @@
 import React, { useState, useCallback, KeyboardEvent, useEffect, useRef } from 'react';
 import { ArrowUp, Square, X, Image as ImageIcon } from 'lucide-react';
+import { useChatContext } from '../../contexts/ChatContext';
+import { useModelContext } from '../../contexts/ModelContext';
 
 interface MessageInputProps {
-  onSendMessage: (message: string, imageData?: string[]) => void;
-  onStopGeneration?: () => void;
-  disabled?: boolean;
   disabledReason?: string;
-  hasVision?: boolean;
 }
 
 export const MessageInput: React.FC<MessageInputProps> = ({
-  onSendMessage,
-  onStopGeneration,
-  disabled = false,
   disabledReason,
-  hasVision = false,
 }) => {
+  const { sendMessage: onSendMessage, stopGeneration: onStopGeneration, isLoading: disabled } = useChatContext();
+  const { status } = useModelContext();
+  const hasVision = status.has_vision ?? false;
   const [message, setMessage] = useState('');
   const [attachedImages, setAttachedImages] = useState<string[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
