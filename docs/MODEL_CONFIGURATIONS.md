@@ -875,7 +875,7 @@ The following models in the inventory are **text-only** (no mmproj available):
 | Thinking Mode | Yes (`<think>...</think>`, on by default) |
 | Vision | Yes (mmproj-Qwen3.5-35B-A3B-BF16.gguf, 861 MB) |
 | Tool Format | Qwen native (`<tool_call>`/`</tool_call>`) |
-| `general.name` | `Qwen3.5-35B-A3B` |
+| `general.name` | `Qwen_Qwen3.5 35B A3B` |
 
 ### Official Sampling Parameters (HuggingFace)
 
@@ -914,14 +914,33 @@ The following models in the inventory are **text-only** (no mmproj available):
 |-----------|-------|
 | context_length | 262144 |
 
+### Critical Performance Settings
+
+**These flags are required for full CUDA performance on RTX 3090/4090:**
+
+| Setting | Value | Why |
+|---------|-------|-----|
+| `cache_type_k` | `q8_0` | Quantized KV cache — halves VRAM usage, no quality loss |
+| `cache_type_v` | `q8_0` | Same as above |
+| `-np 1` (llama-server) | 1 | Single parallel slot — default 4 causes CUDA hangs |
+
+**Benchmark results (RTX 4090, 24GB, Q4_K_M, all layers GPU):**
+
+| Setting | Speed | Notes |
+|---------|-------|-------|
+| Default (f16 cache, np=4) | **HANGS** | Inference stalls after prompt eval |
+| q8_0 cache, np=1 | **127 tok/s** | Full speed, 32K context works |
+| CPU-only (no GPU) | 8 tok/s | Works but unusable for real tasks |
+
+Community reports: 122 tok/s on 4090, 100 tok/s on 3090 with same settings.
+
 ### Notes
 - Novel hybrid architecture: 3 Gated DeltaNet (linear attention, O(n)) layers per 1 full softmax attention layer, in repeating 4-layer cycles across 40 layers.
 - MoE with 256 experts (8 routed + 1 shared active per token) — only ~3B active parameters for fast inference.
 - Vision-language model with image and video understanding (OCR, document QA, spatial reasoning).
 - `presence_penalty` of 1.5 is officially recommended for general tasks — significantly higher than typical models.
-- **llama.cpp performance warning**: Currently ~35% slower than Qwen3-30B-A3B on CUDA due to incomplete GPU kernel support for DeltaNet layers (llama.cpp issue #19894).
-- **VRAM on 24GB GPU**: Model (19.7 GB) + mmproj (861 MB) ≈ 20.6 GB. Use `context_size` 16384–32768.
-- Released 2026-02-24. llama.cpp support is via b8140/b8145 — may still have bugs.
+- **VRAM on 24GB GPU (optimized)**: Model (19.7 GB) + q8_0 KV cache (340 MB) + compute (493 MB) ≈ 20.5 GB. Fits comfortably with 32K context.
+- Released 2026-02-24. Requires llama.cpp from source (post Feb 10 2026) — not in llama-cpp-rs crate yet.
 
 ### Sources
 - https://huggingface.co/Qwen/Qwen3.5-35B-A3B

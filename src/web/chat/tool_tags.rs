@@ -119,6 +119,7 @@ const MODEL_TAG_MAP: &[(&str, TagFactory)] = &[
     ("Qwen_Qwen3 30B A3B Instruct 2507", qwen_tags),
     ("Qwen3-Coder-30B-A3B-Instruct-1M", qwen_tags),
     ("Qwen3.5-35B-A3B", qwen_tags),
+    ("Qwen_Qwen3.5 35B A3B", qwen_tags),
     // Mistral models - strong tool calling with native tags
     ("mistralai_Devstral Small 2507", mistral_tags),
     ("mistralai_Devstral Small 2 24B Instruct 2512", mistral_tags),

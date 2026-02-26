@@ -59,6 +59,7 @@ export const MODEL_TOOL_TAGS: Record<string, ToolTags> = {
   "Qwen_Qwen3 30B A3B Instruct 2507": TOOL_TAG_FAMILIES.qwen,
   "Qwen3-Coder-30B-A3B-Instruct-1M": TOOL_TAG_FAMILIES.qwen,
   "Qwen3.5-35B-A3B": TOOL_TAG_FAMILIES.qwen,
+  "Qwen_Qwen3.5 35B A3B": TOOL_TAG_FAMILIES.qwen,
   // Mistral models - strong tool calling with native tags
   "mistralai_Devstral Small 2507": TOOL_TAG_FAMILIES.mistral,
   "mistralai_Devstral Small 2 24B Instruct 2512": TOOL_TAG_FAMILIES.mistral,
@@ -130,6 +131,21 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     presence_penalty: 1.5,
     repeat_penalty: 1.0,
     context_size: 32768,
+    cache_type_k: "q8_0",
+    cache_type_v: "q8_0",
+  },
+  // Alias: GGUF general.name uses this format
+  "Qwen_Qwen3.5 35B A3B": {
+    sampler_type: "Temperature",
+    temperature: 0.7,
+    top_p: 0.8,
+    top_k: 20,
+    min_p: 0.0,
+    presence_penalty: 1.5,
+    repeat_penalty: 1.0,
+    context_size: 32768,
+    cache_type_k: "q8_0",
+    cache_type_v: "q8_0",
   },
 
   // Mistral models
