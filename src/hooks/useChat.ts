@@ -65,6 +65,17 @@ export function useChat() {
     messagesRef.current = messages;
   }, [messages]);
 
+  // Derive lastTimings from the last assistant message so stats persist
+  // across conversation loads and page refreshes.
+  useEffect(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant' && messages[i].timings) {
+        setLastTimings(messages[i].timings);
+        return;
+      }
+    }
+  }, [messages]);
+
   // Load a conversation from the backend
   const loadConversation = useCallback(async (filename: string) => {
     setIsLoading(true);
@@ -78,7 +89,28 @@ export function useChat() {
         setMessages(parseConversationFile(data.content));
         setCurrentConversationId(filename);
       } else if (data.messages) {
-        const filtered = (data.messages as Message[]).filter(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const mapped = (data.messages as any[]).map(msg => {
+          const m: Message = {
+            id: msg.id,
+            role: msg.role,
+            content: msg.content,
+            timestamp: msg.timestamp,
+          };
+          // Map flat backend timing fields into nested timings object
+          if (msg.gen_tok_per_sec != null) {
+            m.timings = {
+              promptTokPerSec: msg.prompt_tok_per_sec,
+              genTokPerSec: msg.gen_tok_per_sec,
+              genEvalMs: msg.gen_eval_ms,
+              genTokens: msg.gen_tokens,
+              promptEvalMs: msg.prompt_eval_ms,
+              promptTokens: msg.prompt_tokens,
+            };
+          }
+          return m;
+        });
+        const filtered = mapped.filter(
           msg => msg.role !== 'system' && !msg.content.startsWith('[TOOL_RESULTS]')
         );
         setMessages(filtered);

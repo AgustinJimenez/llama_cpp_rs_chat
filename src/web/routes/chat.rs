@@ -85,6 +85,12 @@ pub async fn handle_post_chat(
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or_default()
                         .as_secs(),
+                    prompt_tok_per_sec: None,
+                    gen_tok_per_sec: None,
+                    gen_eval_ms: None,
+                    gen_tokens: None,
+                    prompt_eval_ms: None,
+                    prompt_tokens: None,
                 },
                 conversation_id: chat_request
                     .conversation_id
@@ -174,6 +180,12 @@ pub async fn handle_post_chat(
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_secs(),
+                prompt_tok_per_sec: None,
+                gen_tok_per_sec: None,
+                gen_eval_ms: None,
+                gen_tokens: None,
+                prompt_eval_ms: None,
+                prompt_tokens: None,
             },
             conversation_id,
             tokens_used: None, // Will be updated via WebSocket
@@ -191,6 +203,12 @@ pub async fn handle_post_chat(
                 role: "assistant".to_string(),
                 content: "LLaMA integration not available (mock feature enabled)".to_string(),
                 timestamp: 1234567890,
+                prompt_tok_per_sec: None,
+                gen_tok_per_sec: None,
+                gen_eval_ms: None,
+                gen_tokens: None,
+                prompt_eval_ms: None,
+                prompt_tokens: None,
             },
             conversation_id: "test-conversation".to_string(),
             tokens_used: None,

@@ -487,6 +487,10 @@ fn run_generation(params: GenerationParams) {
                         max_tokens: output.max_tokens,
                         prompt_tok_per_sec: output.prompt_tok_per_sec,
                         gen_tok_per_sec: output.gen_tok_per_sec,
+                        gen_eval_ms: output.gen_eval_ms,
+                        gen_tokens: output.gen_tokens,
+                        prompt_eval_ms: output.prompt_eval_ms,
+                        prompt_tokens: output.prompt_tokens,
                     },
                 ));
             }

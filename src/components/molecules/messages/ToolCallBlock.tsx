@@ -126,20 +126,6 @@ const ExecutingHeader: React.FC<{ name: string; summary: string; hasOutput: bool
   );
 };
 
-const StreamingOutput: React.FC<{ output: string }> = ({ output }) => {
-  const outputRef = React.useRef<HTMLDivElement>(null);
-
-  React.useEffect(() => {
-    if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
-  }, [output]);
-
-  return (
-    <div ref={outputRef} className="bg-card px-3 py-2 max-h-64 overflow-auto" style={{ borderTop: '1px solid hsl(220 8% 28%)' }}>
-      <pre className="text-xs text-foreground font-mono whitespace-pre-wrap break-all">{output}</pre>
-    </div>
-  );
-};
-
 
 const CompletedHeader: React.FC<{
   name: string; summary: string; isExpanded: boolean; onToggle: () => void;
@@ -181,7 +167,6 @@ const SingleToolCall: React.FC<{ toolCall: ToolCall }> = ({ toolCall }) => {
   const [isOutputExpanded, setIsOutputExpanded] = useState(false);
   const summary = getToolSummary(toolCall.name, toolCall.arguments);
   const isExecuting = toolCall.isStreaming === true || (toolCall.isPending === true && !toolCall.output);
-  const hasStreamingOutput = toolCall.isStreaming === true && !!toolCall.output && toolCall.output.trim().length > 0;
   const elapsed = useElapsedTime(isExecuting);
 
   return (
@@ -190,14 +175,12 @@ const SingleToolCall: React.FC<{ toolCall: ToolCall }> = ({ toolCall }) => {
       style={{ border: '1px solid hsl(220 8% 28%)' }}
     >
       {isExecuting
-        ? <ExecutingHeader name={toolCall.name} summary={summary} hasOutput={hasStreamingOutput} elapsed={elapsed} />
+        ? <ExecutingHeader name={toolCall.name} summary={summary} hasOutput={false} elapsed={elapsed} />
         : <CompletedHeader name={toolCall.name} summary={summary} isExpanded={isExpanded} onToggle={() => setIsExpanded(!isExpanded)} />
       }
       {isExpanded && !isExecuting ? <pre className="text-xs text-foreground font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto">
           {formatToolArguments(toolCall.arguments)}
         </pre> : null}
-      {/* Spinner in ExecutingHeader is sufficient — no extra waiting indicator needed */}
-      {hasStreamingOutput ? <StreamingOutput output={toolCall.output!} /> : null}
       {!isExecuting && toolCall.output ? <CompletedOutput output={toolCall.output} isExpanded={isOutputExpanded} onToggle={() => setIsOutputExpanded(!isOutputExpanded)} /> : null}
     </div>
   );

@@ -212,6 +212,14 @@ pub struct GenerationOutput {
     pub prompt_tok_per_sec: Option<f64>,
     /// Generation speed in tokens/second.
     pub gen_tok_per_sec: Option<f64>,
+    /// Generation time in milliseconds.
+    pub gen_eval_ms: Option<f64>,
+    /// Number of tokens generated.
+    pub gen_tokens: Option<i32>,
+    /// Prompt evaluation time in milliseconds.
+    pub prompt_eval_ms: Option<f64>,
+    /// Number of prompt tokens evaluated.
+    pub prompt_tokens: Option<i32>,
 }
 
 /// Generate response from LLaMA model with streaming support.
@@ -1080,6 +1088,14 @@ pub async fn generate_llama_response(
             logger.log_message("system", "[Generation stopped by user]");
         }
         logger.log_metrics(prompt_tok_per_sec, gen_tok_per_sec, token_pos, max_total_tokens);
+        logger.store_message_timings(
+            prompt_tok_per_sec,
+            gen_tok_per_sec,
+            if gen_eval_ms > 0.0 { Some(gen_eval_ms) } else { None },
+            if total_tokens_generated > 0 { Some(total_tokens_generated as i32) } else { None },
+            if prompt_eval_ms > 0.0 { Some(prompt_eval_ms) } else { None },
+            if n_prompt_eval > 0 { Some(n_prompt_eval as i32) } else { None },
+        );
     }
 
     // Store context back into inference cache for KV cache reuse on next turn
@@ -1107,9 +1123,13 @@ pub async fn generate_llama_response(
     Ok(GenerationOutput {
         response: response.trim().to_string(),
         tokens_used: token_pos,
-        max_tokens: max_total_tokens,
+        max_tokens: context_size as i32,
         prompt_tok_per_sec,
         gen_tok_per_sec,
+        gen_eval_ms: if gen_eval_ms > 0.0 { Some(gen_eval_ms) } else { None },
+        gen_tokens: if total_tokens_generated > 0 { Some(total_tokens_generated as i32) } else { None },
+        prompt_eval_ms: if prompt_eval_ms > 0.0 { Some(prompt_eval_ms) } else { None },
+        prompt_tokens: if n_prompt_eval > 0 { Some(n_prompt_eval as i32) } else { None },
     })
 }
 

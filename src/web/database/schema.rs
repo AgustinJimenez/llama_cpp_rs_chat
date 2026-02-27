@@ -304,6 +304,32 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         [],
     );
 
+    // Add timing columns to messages table for per-message generation stats
+    let _ = conn.execute(
+        "ALTER TABLE messages ADD COLUMN prompt_tok_per_sec REAL",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE messages ADD COLUMN gen_tok_per_sec REAL",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE messages ADD COLUMN gen_eval_ms REAL",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE messages ADD COLUMN gen_tokens INTEGER",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE messages ADD COLUMN prompt_eval_ms REAL",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE messages ADD COLUMN prompt_tokens INTEGER",
+        [],
+    );
+
     // Insert default config row if it doesn't exist
     conn.execute(
         "INSERT OR IGNORE INTO config (id, updated_at) VALUES (1, ?1)",

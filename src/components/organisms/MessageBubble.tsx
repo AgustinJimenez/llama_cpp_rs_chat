@@ -3,7 +3,7 @@ import type { Message } from '../../types';
 import type { MessageSegment } from '../../hooks/useMessageParsing';
 import { useMessageParsing } from '../../hooks/useMessageParsing';
 import { MarkdownContent } from '../molecules/MarkdownContent';
-import { ThinkingBlock, ToolCallBlock, MessageStatistics } from '../molecules/messages';
+import { ThinkingBlock, ToolCallBlock } from '../molecules/messages';
 
 interface MessageBubbleProps {
   message: Message;
@@ -126,7 +126,7 @@ const AssistantMessage: React.FC<{
   thinkingContent,
   isThinkingStreaming,
   segments,
-  isStreaming,
+  isStreaming: _isStreaming,
 }) => (
   <div
     className="w-full flex justify-start"
@@ -173,10 +173,6 @@ const AssistantMessage: React.FC<{
             );
           })}
 
-          {/* Per-message generation statistics */}
-          {!isStreaming && message.timings ? (
-            <MessageStatistics timings={message.timings} />
-          ) : null}
 
         </>
       )}

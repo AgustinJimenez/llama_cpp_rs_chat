@@ -37,7 +37,7 @@ interface ChatHeaderProps {
 
 export function ChatHeader({ onModelUnload, onForceUnload }: ChatHeaderProps) {
   const { status: modelStatus, isLoading: isModelLoading, loadingAction, hasStatusError } = useModelContext();
-  const { tokensUsed, maxTokens, currentConversationId } = useChatContext();
+  const { currentConversationId } = useChatContext();
   const { viewMode, setViewMode, isRightSidebarOpen, toggleRightSidebar, isConfigSidebarOpen, toggleConfigSidebar, openModelConfig } = useUIContext();
 
   const modelLoaded = modelStatus.loaded;
@@ -72,12 +72,6 @@ export function ChatHeader({ onModelUnload, onForceUnload }: ChatHeaderProps) {
 
       {/* Right: context + view toggle + monitor */}
       {modelLoaded ? <div className="flex items-center gap-3">
-          {tokensUsed !== undefined && maxTokens !== undefined && (
-            <span className="text-xs text-muted-foreground font-mono">
-              {tokensUsed}/{maxTokens}
-            </span>
-          )}
-
           <ViewModeToggle viewMode={viewMode} onChange={setViewMode} />
 
           <button

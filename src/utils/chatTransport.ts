@@ -4,6 +4,10 @@ import { isTauriEnv } from './tauri';
 export interface TimingInfo {
   promptTokPerSec?: number;
   genTokPerSec?: number;
+  genEvalMs?: number;
+  genTokens?: number;
+  promptEvalMs?: number;
+  promptTokens?: number;
 }
 
 export interface StreamingCallbacks {
@@ -63,6 +67,10 @@ function handleStreamMessage(
       const timings: TimingInfo = {
         promptTokPerSec: message.prompt_tok_per_sec,
         genTokPerSec: message.gen_tok_per_sec,
+        genEvalMs: message.gen_eval_ms,
+        genTokens: message.gen_tokens,
+        promptEvalMs: message.prompt_eval_ms,
+        promptTokens: message.prompt_tokens,
       };
       callbacks.onComplete(crypto.randomUUID(), conversationId, state.lastTokensUsed, state.lastMaxTokens, timings);
       settle();
@@ -253,13 +261,21 @@ class TauriChatTransport implements ChatTransport {
       safeOnToken(event.payload.token, event.payload.tokens_used, event.payload.max_tokens);
     });
 
-    const unlistenDone = await listen<{ type: string; conversation_id?: string; tokens_used?: number; max_tokens?: number; error?: string }>('chat-done', (event) => {
+    const unlistenDone = await listen<{ type: string; conversation_id?: string; tokens_used?: number; max_tokens?: number; error?: string; prompt_tok_per_sec?: number; gen_tok_per_sec?: number; gen_eval_ms?: number; gen_tokens?: number; prompt_eval_ms?: number; prompt_tokens?: number }>('chat-done', (event) => {
       if (settled || wasAborted) return;
       const payload = event.payload;
 
       if (payload.type === 'done') {
         const conversationId = payload.conversation_id || request.conversation_id || crypto.randomUUID();
-        safeOnComplete(crypto.randomUUID(), conversationId, payload.tokens_used, payload.max_tokens);
+        const timings: TimingInfo = {
+          promptTokPerSec: payload.prompt_tok_per_sec,
+          genTokPerSec: payload.gen_tok_per_sec,
+          genEvalMs: payload.gen_eval_ms,
+          genTokens: payload.gen_tokens,
+          promptEvalMs: payload.prompt_eval_ms,
+          promptTokens: payload.prompt_tokens,
+        };
+        safeOnComplete(crypto.randomUUID(), conversationId, payload.tokens_used, payload.max_tokens, timings);
         settle();
       } else if (payload.type === 'error') {
         const errorMessage = payload.error || 'Unknown error';

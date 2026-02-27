@@ -29,6 +29,12 @@ fn parse_conversation_to_messages(content: &str) -> Vec<ChatMessage> {
                     role: current_role.to_lowercase(),
                     content: current_content.trim().to_string(),
                     timestamp: sequence,
+                    prompt_tok_per_sec: None,
+                    gen_tok_per_sec: None,
+                    gen_eval_ms: None,
+                    gen_tokens: None,
+                    prompt_eval_ms: None,
+                    prompt_tokens: None,
                 });
                 sequence += 1;
             }
@@ -47,6 +53,12 @@ fn parse_conversation_to_messages(content: &str) -> Vec<ChatMessage> {
             role: current_role.to_lowercase(),
             content: current_content.trim().to_string(),
             timestamp: sequence,
+            prompt_tok_per_sec: None,
+            gen_tok_per_sec: None,
+            gen_eval_ms: None,
+            gen_tokens: None,
+            prompt_eval_ms: None,
+            prompt_tokens: None,
         });
     }
 
@@ -65,11 +77,28 @@ pub async fn handle_get_conversation(
     // Remove .txt extension if present for database lookup
     let conversation_id = filename.trim_end_matches(".txt");
 
-    match db.get_conversation_as_text(conversation_id) {
-        Ok(content) => {
-            let messages = parse_conversation_to_messages(&content);
+    // Load messages directly from DB to preserve timing metadata
+    match db.get_messages(conversation_id) {
+        Ok(records) => {
+            let mut messages = Vec::new();
+            for (i, rec) in records.iter().enumerate() {
+                messages.push(ChatMessage {
+                    id: format!("msg_{i}"),
+                    role: rec.role.to_lowercase(),
+                    content: rec.content.clone(),
+                    timestamp: i as u64,
+                    prompt_tok_per_sec: rec.prompt_tok_per_sec,
+                    gen_tok_per_sec: rec.gen_tok_per_sec,
+                    gen_eval_ms: rec.gen_eval_ms,
+                    gen_tokens: rec.gen_tokens,
+                    prompt_eval_ms: rec.prompt_eval_ms,
+                    prompt_tokens: rec.prompt_tokens,
+                });
+            }
+            // Also provide text content for backward compatibility
+            let content = db.get_conversation_as_text(conversation_id).unwrap_or_default();
             let response = ConversationContentResponse {
-                content: content.clone(),
+                content,
                 messages,
             };
 

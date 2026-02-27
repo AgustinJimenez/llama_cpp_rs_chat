@@ -4,7 +4,7 @@ import { ChatHeader, Sidebar, RightSidebar, ConversationConfigSidebar, AppSettin
 import { ModelConfigModal } from './components/organisms/model-config';
 import { MessagesArea } from './components/templates';
 import { WelcomeMessage } from './components/atoms';
-import { MessageInput } from './components/molecules';
+import { MessageInput, MessageStatistics } from './components/molecules';
 import { useModelContext } from './contexts/ModelContext';
 import { useChatContext } from './contexts/ChatContext';
 import { useUIContext } from './contexts/UIContext';
@@ -114,7 +114,7 @@ function MainContent({
   handleForceUnload: () => void;
 }) {
   const { status: modelStatus, isLoading: isModelLoading } = useModelContext();
-  const { messages } = useChatContext();
+  const { messages, lastTimings, isLoading, tokensUsed, maxTokens } = useChatContext();
 
   return (
     <div className="flex-1 ml-[240px]">
@@ -137,6 +137,9 @@ function MainContent({
             <MessagesArea />
             <div className="px-6 pb-4 pt-2 animate-in slide-in-from-bottom-4 duration-300" data-testid="input-container">
               <div className="max-w-3xl mx-auto">
+                {lastTimings?.genTokPerSec && !isLoading ? (
+                  <MessageStatistics timings={lastTimings} tokensUsed={tokensUsed} maxTokens={maxTokens} />
+                ) : null}
                 <MessageInput />
               </div>
             </div>

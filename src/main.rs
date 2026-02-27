@@ -44,6 +44,10 @@ struct ChatDoneEvent {
     error: Option<String>,
     prompt_tok_per_sec: Option<f64>,
     gen_tok_per_sec: Option<f64>,
+    gen_eval_ms: Option<f64>,
+    gen_tokens: Option<i32>,
+    prompt_eval_ms: Option<f64>,
+    prompt_tokens: Option<i32>,
 }
 
 // ─── Logging ──────────────────────────────────────────────────────────
@@ -346,6 +350,10 @@ async fn generate_stream(
                 max_tokens,
                 prompt_tok_per_sec,
                 gen_tok_per_sec,
+                gen_eval_ms,
+                gen_tokens,
+                prompt_eval_ms,
+                prompt_tokens,
             }) => {
                 let _ = app.emit(
                     "chat-done",
@@ -357,6 +365,10 @@ async fn generate_stream(
                         error: None,
                         prompt_tok_per_sec,
                         gen_tok_per_sec,
+                        gen_eval_ms,
+                        gen_tokens,
+                        prompt_eval_ms,
+                        prompt_tokens,
                     },
                 );
             }
@@ -371,6 +383,10 @@ async fn generate_stream(
                         error: None,
                         prompt_tok_per_sec: None,
                         gen_tok_per_sec: None,
+                        gen_eval_ms: None,
+                        gen_tokens: None,
+                        prompt_eval_ms: None,
+                        prompt_tokens: None,
                     },
                 );
             }
@@ -385,6 +401,10 @@ async fn generate_stream(
                         error: Some(e),
                         prompt_tok_per_sec: None,
                         gen_tok_per_sec: None,
+                        gen_eval_ms: None,
+                        gen_tokens: None,
+                        prompt_eval_ms: None,
+                        prompt_tokens: None,
                     },
                 );
             }
@@ -399,6 +419,10 @@ async fn generate_stream(
                         error: Some("Worker response channel closed".into()),
                         prompt_tok_per_sec: None,
                         gen_tok_per_sec: None,
+                        gen_eval_ms: None,
+                        gen_tokens: None,
+                        prompt_eval_ms: None,
+                        prompt_tokens: None,
                     },
                 );
             }
@@ -679,6 +703,12 @@ fn parse_conversation_to_messages(content: &str) -> Vec<web::models::ChatMessage
                     role: current_role.to_lowercase(),
                     content: current_content.trim().to_string(),
                     timestamp: sequence,
+                    prompt_tok_per_sec: None,
+                    gen_tok_per_sec: None,
+                    gen_eval_ms: None,
+                    gen_tokens: None,
+                    prompt_eval_ms: None,
+                    prompt_tokens: None,
                 });
                 sequence += 1;
             }

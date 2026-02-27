@@ -416,6 +416,18 @@ pub struct ChatMessage {
     pub role: String,
     pub content: String,
     pub timestamp: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_tok_per_sec: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gen_tok_per_sec: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gen_eval_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gen_tokens: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_eval_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_tokens: Option<i32>,
 }
 
 #[derive(Serialize)]

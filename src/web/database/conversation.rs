@@ -24,6 +24,12 @@ pub struct ConversationRecord {
 pub struct MessageRecord {
     pub role: String,
     pub content: String,
+    pub prompt_tok_per_sec: Option<f64>,
+    pub gen_tok_per_sec: Option<f64>,
+    pub gen_eval_ms: Option<f64>,
+    pub gen_tokens: Option<i32>,
+    pub prompt_eval_ms: Option<f64>,
+    pub prompt_tokens: Option<i32>,
 }
 
 impl Database {
@@ -274,6 +280,26 @@ impl Database {
         Ok(())
     }
 
+    /// Store generation timing metrics on a message row.
+    pub fn update_message_timings(
+        &self,
+        message_id: &str,
+        prompt_tok_per_sec: Option<f64>,
+        gen_tok_per_sec: Option<f64>,
+        gen_eval_ms: Option<f64>,
+        gen_tokens: Option<i32>,
+        prompt_eval_ms: Option<f64>,
+        prompt_tokens: Option<i32>,
+    ) -> Result<(), String> {
+        let conn = self.connection();
+        conn.execute(
+            "UPDATE messages SET prompt_tok_per_sec = ?1, gen_tok_per_sec = ?2, gen_eval_ms = ?3, gen_tokens = ?4, prompt_eval_ms = ?5, prompt_tokens = ?6 WHERE id = ?7",
+            params![prompt_tok_per_sec, gen_tok_per_sec, gen_eval_ms, gen_tokens, prompt_eval_ms, prompt_tokens, message_id],
+        )
+        .map_err(db_error("update message timings"))?;
+        Ok(())
+    }
+
     /// Delete streaming buffer for a conversation
     pub fn delete_streaming_buffer(&self, conversation_id: &str) -> Result<(), String> {
         let conn = self.connection();
@@ -306,7 +332,7 @@ impl Database {
         let conn = self.connection();
         let mut stmt = conn
             .prepare(
-                "SELECT role, content FROM messages WHERE conversation_id = ?1 ORDER BY sequence_order ASC",
+                "SELECT role, content, prompt_tok_per_sec, gen_tok_per_sec, gen_eval_ms, gen_tokens, prompt_eval_ms, prompt_tokens FROM messages WHERE conversation_id = ?1 ORDER BY sequence_order ASC",
             )
             .map_err(db_error("prepare statement"))?;
 
@@ -315,6 +341,12 @@ impl Database {
                 Ok(MessageRecord {
                     role: row.get(0)?,
                     content: row.get(1)?,
+                    prompt_tok_per_sec: row.get(2)?,
+                    gen_tok_per_sec: row.get(3)?,
+                    gen_eval_ms: row.get(4)?,
+                    gen_tokens: row.get(5)?,
+                    prompt_eval_ms: row.get(6)?,
+                    prompt_tokens: row.get(7)?,
                 })
             })
             .map_err(db_error("query messages"))?
@@ -368,6 +400,8 @@ pub struct ConversationLogger {
     db: Arc<Database>,
     conversation_id: String,
     current_message_id: Option<String>,
+    /// Preserved after finish_assistant_message so timings can be stored.
+    last_finished_message_id: Option<String>,
     accumulated_content: String,
     sequence_counter: i32,
     last_broadcast_at: Option<Instant>,
@@ -399,6 +433,7 @@ impl ConversationLogger {
             db,
             conversation_id,
             current_message_id: None,
+            last_finished_message_id: None,
             accumulated_content: String::new(),
             sequence_counter,
             last_broadcast_at: None,
@@ -423,6 +458,7 @@ impl ConversationLogger {
             db,
             conversation_id: id.to_string(),
             current_message_id: None,
+            last_finished_message_id: None,
             accumulated_content: String::new(),
             sequence_counter,
             last_broadcast_at: None,
@@ -552,7 +588,7 @@ impl ConversationLogger {
             });
         }
 
-        self.current_message_id = None;
+        self.last_finished_message_id = self.current_message_id.take();
         self.accumulated_content.clear();
 
         // Update conversation timestamp
@@ -579,6 +615,31 @@ impl ConversationLogger {
             &metrics.to_string(),
         ) {
             sys_error!("Failed to log metrics: {}", e);
+        }
+    }
+
+    /// Store generation timing metrics on the last finished assistant message.
+    pub fn store_message_timings(
+        &self,
+        prompt_tok_per_sec: Option<f64>,
+        gen_tok_per_sec: Option<f64>,
+        gen_eval_ms: Option<f64>,
+        gen_tokens: Option<i32>,
+        prompt_eval_ms: Option<f64>,
+        prompt_tokens: Option<i32>,
+    ) {
+        if let Some(ref msg_id) = self.last_finished_message_id {
+            if let Err(e) = self.db.update_message_timings(
+                msg_id,
+                prompt_tok_per_sec,
+                gen_tok_per_sec,
+                gen_eval_ms,
+                gen_tokens,
+                prompt_eval_ms,
+                prompt_tokens,
+            ) {
+                sys_error!("Failed to store message timings: {}", e);
+            }
         }
     }
 

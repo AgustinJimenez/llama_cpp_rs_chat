@@ -191,19 +191,23 @@ pub async fn handle_websocket(
                                     ).await;
 
                                     // Get conversation_id and timings from completion result
-                                    let (conversation_id, prompt_tps, gen_tps) = match done_rx.await {
-                                        Ok(GenerationResult::Complete { conversation_id, prompt_tok_per_sec, gen_tok_per_sec, .. }) => {
-                                            (conversation_id, prompt_tok_per_sec, gen_tok_per_sec)
+                                    let (conversation_id, prompt_tps, gen_tps, gen_ms, gen_tok, prompt_ms, prompt_tok) = match done_rx.await {
+                                        Ok(GenerationResult::Complete { conversation_id, prompt_tok_per_sec, gen_tok_per_sec, gen_eval_ms, gen_tokens, prompt_eval_ms, prompt_tokens, .. }) => {
+                                            (conversation_id, prompt_tok_per_sec, gen_tok_per_sec, gen_eval_ms, gen_tokens, prompt_eval_ms, prompt_tokens)
                                         }
-                                        Ok(GenerationResult::Cancelled) => (String::new(), None, None),
-                                        Ok(GenerationResult::Error(_)) | Err(_) => (String::new(), None, None),
+                                        Ok(GenerationResult::Cancelled) => (String::new(), None, None, None, None, None, None),
+                                        Ok(GenerationResult::Error(_)) | Err(_) => (String::new(), None, None, None, None, None, None),
                                     };
 
                                     let done_msg = serde_json::json!({
                                         "type": "done",
                                         "conversation_id": conversation_id,
                                         "prompt_tok_per_sec": prompt_tps,
-                                        "gen_tok_per_sec": gen_tps
+                                        "gen_tok_per_sec": gen_tps,
+                                        "gen_eval_ms": gen_ms,
+                                        "gen_tokens": gen_tok,
+                                        "prompt_eval_ms": prompt_ms,
+                                        "prompt_tokens": prompt_tok
                                     });
                                     let _ = ws_sender.send(WsMessage::Text(done_msg.to_string())).await;
                                     sys_debug!("[WS_CHAT] Done message sent");

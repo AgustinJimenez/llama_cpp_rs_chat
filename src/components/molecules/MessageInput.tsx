@@ -1,5 +1,5 @@
 import React, { useState, useCallback, KeyboardEvent, useEffect, useRef } from 'react';
-import { ArrowUp, Square, X, Image as ImageIcon } from 'lucide-react';
+import { ArrowUp, X, Image as ImageIcon } from 'lucide-react';
 import { useChatContext } from '../../contexts/ChatContext';
 import { useModelContext } from '../../contexts/ModelContext';
 
@@ -10,7 +10,7 @@ interface MessageInputProps {
 export const MessageInput: React.FC<MessageInputProps> = ({
   disabledReason,
 }) => {
-  const { sendMessage: onSendMessage, stopGeneration: onStopGeneration, isLoading: disabled } = useChatContext();
+  const { sendMessage: onSendMessage, isLoading: disabled } = useChatContext();
   const { status } = useModelContext();
   const hasVision = status.has_vision ?? false;
   const [message, setMessage] = useState('');
@@ -148,27 +148,15 @@ export const MessageInput: React.FC<MessageInputProps> = ({
           aria-disabled={disabled}
           aria-label={disabled && disabledReason ? disabledReason : 'Message input'}
         />
-        {disabled && onStopGeneration ? (
-          <button
-            type="button"
-            onClick={onStopGeneration}
-            className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-white text-black hover:bg-gray-200 transition-colors"
-            data-testid="stop-button"
-            title="Stop generation"
-          >
-            <Square className="h-3.5 w-3.5" />
-          </button>
-        ) : (
-          <button
-            type="submit"
-            disabled={disabled || !hasContent}
-            className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-white text-black hover:bg-gray-200 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            data-testid="send-button"
-            title={disabled && disabledReason ? disabledReason : undefined}
-          >
-            <ArrowUp className="h-4 w-4" />
-          </button>
-        )}
+        <button
+          type="submit"
+          disabled={disabled || !hasContent}
+          className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-white text-black hover:bg-gray-200 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          data-testid="send-button"
+          title={disabled && disabledReason ? disabledReason : undefined}
+        >
+          <ArrowUp className="h-4 w-4" />
+        </button>
       </div>
     </form>
   );

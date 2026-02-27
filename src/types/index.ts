@@ -7,10 +7,7 @@ export interface Message {
   /** Base64 image data URIs attached to this message (user messages only). */
   image_data?: string[];
   /** Generation timing metrics (assistant messages only, set after completion). */
-  timings?: {
-    promptTokPerSec?: number;
-    genTokPerSec?: number;
-  };
+  timings?: import('../utils/chatTransport').TimingInfo;
 }
 
 export interface ChatRequest {

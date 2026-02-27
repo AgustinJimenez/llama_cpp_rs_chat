@@ -1,20 +1,18 @@
 import { useRef, useCallback, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { Square } from 'lucide-react';
 import { LoadingIndicator } from '../atoms';
 import { MessageBubble } from '../organisms';
 import { useChatContext } from '../../contexts/ChatContext';
 import { useUIContext } from '../../contexts/UIContext';
 
 export function MessagesArea() {
-  const { messages, isLoading } = useChatContext();
+  const { messages, isLoading, stopGeneration } = useChatContext();
   const { viewMode } = useUIContext();
   const containerRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
 
-  // Hide the standalone loading spinner when the last message already has inline
-  // streaming indicators (thinking block, processing tool output, etc.)
-  const lastMsg = messages[messages.length - 1];
-  const showLoadingRow = isLoading && !(lastMsg?.role === 'assistant' && lastMsg.content.length > 0);
+  const showLoadingRow = isLoading;
   const itemCount = messages.length + (showLoadingRow ? 1 : 0);
 
   const virtualizer = useVirtualizer({
@@ -105,7 +103,19 @@ export function MessagesArea() {
                     isStreaming={isLoading ? virtualRow.index === messages.length - 1 : undefined}
                   />
                 ) : (
-                  <LoadingIndicator />
+                  <div className="flex items-center justify-between">
+                    <LoadingIndicator />
+                    {stopGeneration ? (
+                      <button
+                        type="button"
+                        onClick={stopGeneration}
+                        className="w-8 h-8 flex items-center justify-center rounded-full bg-white text-black hover:bg-gray-200 transition-colors"
+                        title="Stop generation"
+                      >
+                        <Square className="h-3.5 w-3.5" />
+                      </button>
+                    ) : null}
+                  </div>
                 )}
               </div>
             </div>

@@ -89,6 +89,14 @@ pub enum WorkerPayload {
         prompt_tok_per_sec: Option<f64>,
         /// Generation speed (tokens/second).
         gen_tok_per_sec: Option<f64>,
+        /// Generation time in milliseconds.
+        gen_eval_ms: Option<f64>,
+        /// Number of tokens generated.
+        gen_tokens: Option<i32>,
+        /// Prompt evaluation time in milliseconds.
+        prompt_eval_ms: Option<f64>,
+        /// Number of prompt tokens evaluated.
+        prompt_tokens: Option<i32>,
     },
     /// Generation was cancelled by the user.
     GenerationCancelled,
