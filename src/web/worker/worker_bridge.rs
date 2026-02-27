@@ -425,8 +425,9 @@ async fn stdout_reader_task(
         let payload = response.payload;
 
         // Handle streaming tokens (sent to active generation channel)
+        // Move-destructure to avoid cloning the token String
         if let WorkerPayload::Token {
-            ref token,
+            token,
             tokens_used,
             max_tokens,
         } = payload
@@ -435,13 +436,14 @@ async fn stdout_reader_task(
             if let Some(ref ag) = *gen {
                 if ag.request_id == id {
                     let _ = ag.token_tx.send(TokenData {
-                        token: token.clone(),
+                        token,
                         tokens_used,
                         max_tokens,
                     });
                     continue;
                 }
             }
+            continue;
         }
 
         // Handle model loaded — update cached metadata

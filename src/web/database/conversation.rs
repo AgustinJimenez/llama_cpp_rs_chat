@@ -560,6 +560,39 @@ impl ConversationLogger {
         }
     }
 
+    /// Append a bulk chunk of token content and broadcast if needed.
+    /// More efficient than per-token log_token() — called from periodic sync.
+    pub fn log_token_bulk(&mut self, chunk: &str) {
+        if chunk.is_empty() {
+            return;
+        }
+        self.accumulated_content.push_str(chunk);
+
+        if self.current_message_id.is_some() {
+            let now = Instant::now();
+            let len = self.accumulated_content.len();
+            let should_broadcast = match self.last_broadcast_at {
+                None => true,
+                Some(last_at) => {
+                    now.duration_since(last_at) >= STREAM_BROADCAST_MIN_INTERVAL
+                        && len.saturating_sub(self.last_broadcast_len) >= STREAM_BROADCAST_MIN_CHARS
+                }
+            };
+
+            if should_broadcast {
+                self.last_broadcast_at = Some(now);
+                self.last_broadcast_len = len;
+                self.db.broadcast_streaming_update(StreamingUpdate {
+                    conversation_id: self.conversation_id.clone(),
+                    partial_content: self.accumulated_content.clone(),
+                    tokens_used: self.current_tokens_used,
+                    max_tokens: self.current_max_tokens,
+                    is_complete: false,
+                });
+            }
+        }
+    }
+
     /// Finish the current streaming message
     pub fn finish_assistant_message(&mut self) {
         if let Some(ref msg_id) = self.current_message_id {

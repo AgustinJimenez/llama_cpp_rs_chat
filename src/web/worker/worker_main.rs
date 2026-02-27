@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use crossbeam_channel::{self, Receiver, Sender, TryRecvError};
+use crossbeam_channel::{self, Receiver, Sender};
 
 use super::ipc_types::*;
 use crate::web::chat::{generate_llama_response, warmup_system_prompt};
@@ -116,17 +116,6 @@ pub fn run_worker(db_path: &str) {
     eprintln!("[WORKER] Ready, waiting for commands...");
 
     loop {
-        // Drain token channel → write to stdout
-        loop {
-            match token_rx.try_recv() {
-                Ok(response) => {
-                    write_response(&mut ipc_writer, &response);
-                }
-                Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => break,
-            }
-        }
-
         // Check if generation thread finished
         if let Some(ref handle) = generation_thread {
             if handle.is_finished() {
@@ -134,13 +123,52 @@ pub fn run_worker(db_path: &str) {
             }
         }
 
-        // Try to read a command (with timeout to keep draining tokens)
-        let line = match stdin_rx.recv_timeout(std::time::Duration::from_millis(5)) {
-            Ok(l) => l,
-            Err(crossbeam_channel::RecvTimeoutError::Timeout) => continue,
-            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
-                eprintln!("[WORKER] Stdin channel disconnected, shutting down");
-                break;
+        // Wait for either a token or a command — no polling, no timeout.
+        // crossbeam select! wakes instantly when either channel has data.
+        let line = loop {
+            crossbeam_channel::select! {
+                recv(token_rx) -> msg => {
+                    match msg {
+                        Ok(first) => {
+                            // Batch: drain all available tokens, write, single flush
+                            write_response_no_flush(&mut ipc_writer, &first);
+                            while let Ok(response) = token_rx.try_recv() {
+                                write_response_no_flush(&mut ipc_writer, &response);
+                            }
+                            let _ = ipc_writer.flush();
+                        }
+                        Err(_) => {} // Channel disconnected, generation ended
+                    }
+                },
+                recv(stdin_rx) -> msg => {
+                    match msg {
+                        Ok(l) => {
+                            // Drain any pending tokens before processing command
+                            let mut has_tokens = false;
+                            while let Ok(response) = token_rx.try_recv() {
+                                write_response_no_flush(&mut ipc_writer, &response);
+                                has_tokens = true;
+                            }
+                            if has_tokens {
+                                let _ = ipc_writer.flush();
+                            }
+                            break l;
+                        }
+                        Err(_) => {
+                            eprintln!("[WORKER] Stdin channel disconnected, shutting down");
+                            // Use a sentinel to break the outer loop
+                            write_response(&mut ipc_writer, &WorkerResponse::error(0, "stdin closed".to_string()));
+                            std::process::exit(0);
+                        }
+                    }
+                },
+            }
+            // If only tokens were received, loop back to select
+            // Check generation thread status while we're here
+            if let Some(ref handle) = generation_thread {
+                if handle.is_finished() {
+                    generation_thread = None;
+                }
             }
         };
 
@@ -426,12 +454,12 @@ fn run_generation(params: GenerationParams) {
         // Forward tokens from tokio mpsc → crossbeam on a REAL OS thread.
         // The generation loop is synchronous (no yield points), so a tokio::spawn
         // task on this single-threaded runtime would be starved until generation ends.
-        // A real thread polls try_recv() independently of the tokio runtime.
+        // Uses blocking_recv() which wakes instantly when a token arrives (no polling).
         let tx_clone = tx.clone();
         let forward_thread = thread::spawn(move || {
             loop {
-                match token_receiver.try_recv() {
-                    Ok(token_data) => {
+                match token_receiver.blocking_recv() {
+                    Some(token_data) => {
                         let response = WorkerResponse::ok(
                             req_id,
                             WorkerPayload::Token {
@@ -444,10 +472,7 @@ fn run_generation(params: GenerationParams) {
                             break; // Main loop exited
                         }
                     }
-                    Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
-                        thread::sleep(std::time::Duration::from_millis(1));
-                    }
-                    Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => break,
+                    None => break, // Channel closed — generation ended
                 }
             }
         });
@@ -513,5 +538,12 @@ fn write_response(writer: &mut impl Write, response: &WorkerResponse) {
     if let Ok(json) = serde_json::to_string(response) {
         let _ = writeln!(writer, "{json}");
         let _ = writer.flush();
+    }
+}
+
+/// Write a response without flushing — for batched writes.
+fn write_response_no_flush(writer: &mut impl Write, response: &WorkerResponse) {
+    if let Ok(json) = serde_json::to_string(response) {
+        let _ = writeln!(writer, "{json}");
     }
 }

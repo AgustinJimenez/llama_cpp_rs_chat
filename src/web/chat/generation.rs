@@ -678,6 +678,10 @@ pub async fn generate_llama_response(
     let mut token_pos = tokens.len() as i32;
     let mut total_tokens_generated = 0;
     let mut generated_token_ids: Vec<LlamaToken> = Vec::new();
+    // Local accumulation — avoids locking the logger mutex on every token.
+    // Synced to logger periodically (every 200ms) for watcher broadcasts.
+    let mut logger_synced_len: usize = 0;
+    let mut last_logger_sync = std::time::Instant::now();
     // Calculate max tokens based on remaining context space
     let remaining_context = (context_size as i32) - token_pos - 128;
     let max_total_tokens = remaining_context.max(512);
@@ -742,26 +746,8 @@ pub async fn generate_llama_response(
                 );
             }
 
-            // Extra logging around the 150 token mark
-            if (145..=155).contains(&total_tokens_generated) {
-                log_debug!(
-                    &conversation_id,
-                    "Token #{}: About to sample...",
-                    total_tokens_generated
-                );
-            }
-
             let token_start = Instant::now();
             let next_token = sampler.sample(&context, -1);
-
-            if (145..=155).contains(&total_tokens_generated) {
-                log_debug!(
-                    &conversation_id,
-                    "Token #{}: Sampled token ID {}",
-                    total_tokens_generated,
-                    next_token
-                );
-            }
 
             // Check for end-of-sequence token
             if next_token == model.token_eos() {
@@ -776,14 +762,6 @@ pub async fn generate_llama_response(
             }
 
             // Add token to batch and decode
-            if (145..=155).contains(&total_tokens_generated) {
-                log_debug!(
-                    &conversation_id,
-                    "Token #{}: About to add to batch and decode...",
-                    total_tokens_generated
-                );
-            }
-
             batch.clear();
             batch.add(next_token, token_pos, &[0], true).map_err(|e| {
                 format!(
@@ -820,14 +798,6 @@ pub async fn generate_llama_response(
                 break;
             }
 
-            if (145..=155).contains(&total_tokens_generated) {
-                log_debug!(
-                    &conversation_id,
-                    "Token #{}: Decode successful",
-                    total_tokens_generated
-                );
-            }
-
             token_pos += 1;
             total_tokens_generated += 1;
             generated_token_ids.push(next_token);
@@ -847,25 +817,7 @@ pub async fn generate_llama_response(
                 }
             };
 
-            if (145..=155).contains(&total_tokens_generated) {
-                log_debug!(
-                    &conversation_id,
-                    "Token #{}: Converted to string: {:?}",
-                    total_tokens_generated,
-                    token_str
-                );
-            }
-
             // Check for stop sequences using helper function
-            if (145..=155).contains(&total_tokens_generated) {
-                log_debug!(
-                    &conversation_id,
-                    "Token #{}: Checking {} stop tokens...",
-                    total_tokens_generated,
-                    stop_tokens.len()
-                );
-            }
-
             let stop_result = check_stop_conditions(&response, &token_str, &stop_tokens, exec_tracker.is_inside());
 
             if stop_result.should_stop {
@@ -878,27 +830,12 @@ pub async fn generate_llama_response(
                         partial_to_remove
                     );
                 }
-                if (145..=155).contains(&total_tokens_generated) {
-                    log_debug!(
-                        &conversation_id,
-                        "Token #{}: Should stop = true, breaking loop",
-                        total_tokens_generated
-                    );
-                }
                 if partial_to_remove > 0 {
                     let new_len = response.len().saturating_sub(partial_to_remove);
                     response.truncate(new_len);
                 }
                 hit_stop_condition = true;
                 break;
-            }
-
-            if (145..=155).contains(&total_tokens_generated) {
-                log_debug!(
-                    &conversation_id,
-                    "Token #{}: No stop condition, adding token to response",
-                    total_tokens_generated
-                );
             }
 
             // Add token to response
@@ -936,13 +873,18 @@ pub async fn generate_llama_response(
                 );
             }
 
-            // Log token (with current token counts for WebSocket watchers)
-            {
-                let mut logger = conversation_logger
-                    .lock()
-                    .map_err(|_| "Failed to lock conversation logger")?;
-                logger.set_token_counts(token_pos, context_size as i32);
-                logger.log_token(&token_str);
+            // Periodic sync to logger for watcher broadcasts (every 200ms).
+            // Avoids locking the mutex on every single token.
+            if last_logger_sync.elapsed() >= std::time::Duration::from_millis(200) {
+                if let Ok(mut logger) = conversation_logger.lock() {
+                    logger.set_token_counts(token_pos, context_size as i32);
+                    let new_content = &response[logger_synced_len..];
+                    if !new_content.is_empty() {
+                        logger.log_token_bulk(new_content);
+                    }
+                    logger_synced_len = response.len();
+                }
+                last_logger_sync = std::time::Instant::now();
             }
 
             // Check for and execute any commands in the response (using model-specific tags)
@@ -965,16 +907,25 @@ pub async fn generate_llama_response(
                     Some(cancel.clone()),
                 )?
             {
-                // 1. Log to conversation file (CRITICAL: prevents infinite loops)
+                // 1. Sync accumulated tokens + command output to logger
                 {
                     let mut logger = conversation_logger
                         .lock()
                         .map_err(|_| "Failed to lock conversation logger")?;
+                    logger.set_token_counts(token_pos, context_size as i32);
+                    // Flush any un-synced generation content first
+                    let pending = &response[logger_synced_len..];
+                    if !pending.is_empty() {
+                        logger.log_token_bulk(pending);
+                    }
+                    // Then log the command output block
                     logger.log_token(&exec_result.output_block);
                 }
 
                 // 2. Add to response string
                 response.push_str(&exec_result.output_block);
+                // Update sync position past everything
+                logger_synced_len = response.len();
 
                 // Note: streaming to frontend now happens incrementally inside
                 // check_and_execute_command_with_tags (output_open, lines, output_close)
@@ -1009,6 +960,7 @@ pub async fn generate_llama_response(
                 // Break inner loop so outer loop restarts generation from updated context
                 break;
             }
+
         }
 
         // Break conditions
@@ -1083,6 +1035,12 @@ pub async fn generate_llama_response(
         let mut logger = conversation_logger
             .lock()
             .map_err(|_| "Failed to lock conversation logger")?;
+        // Final sync of any remaining un-synced content
+        let remaining = &response[logger_synced_len..];
+        if !remaining.is_empty() {
+            logger.log_token_bulk(remaining);
+        }
+        logger.set_token_counts(token_pos, context_size as i32);
         logger.finish_assistant_message();
         if was_cancelled {
             logger.log_message("system", "[Generation stopped by user]");
