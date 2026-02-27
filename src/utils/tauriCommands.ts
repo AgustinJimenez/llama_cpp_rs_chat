@@ -219,6 +219,20 @@ export async function deleteConversation(filename: string): Promise<void> {
   if (!response.ok) throw new Error('Failed to delete conversation');
 }
 
+export interface ConversationMetric {
+  level: string;
+  message: string;  // JSON string with prompt_tok_per_sec, gen_tok_per_sec, tokens_used, max_tokens
+  timestamp: number;
+}
+
+export async function getConversationMetrics(conversationId: string): Promise<ConversationMetric[]> {
+  const id = conversationId.replace('.txt', '');
+  if (isTauriEnv()) {
+    return invokeCmd<ConversationMetric[]>('get_conversation_metrics', { conversationId: id });
+  }
+  return fetchJson<ConversationMetric[]>(`/api/conversations/${id}/metrics`);
+}
+
 // ─── Chat ─────────────────────────────────────────────────────────────
 
 export async function cancelGeneration(): Promise<void> {
@@ -278,6 +292,21 @@ export async function pickDirectory(): Promise<string | null> {
     return typeof selected === 'string' ? selected : null;
   }
   const result = await fetchJson<{ path: string | null }>('/api/browse/pick-directory', { method: 'POST' });
+  return result.path;
+}
+
+// ─── Native File Picker ─────────────────────────────────────────────
+
+export async function pickFile(): Promise<string | null> {
+  if (isTauriEnv()) {
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const selected = await open({
+      multiple: false,
+      filters: [{ name: 'GGUF Model Files', extensions: ['gguf'] }],
+    });
+    return selected ?? null;
+  }
+  const result = await fetchJson<{ path: string | null }>('/api/browse/pick-file', { method: 'POST' });
   return result.path;
 }
 

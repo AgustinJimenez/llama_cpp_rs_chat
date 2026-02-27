@@ -42,46 +42,53 @@ impl StopConditionResult {
 /// opens an exec block but never properly closes it.
 const MAX_EXEC_BLOCK_LEN: usize = 1000;
 
-/// Check if we're inside any tool execution block.
-/// Returns true if there's an opening tag without a matching closing tag
-/// AND the unclosed block is within MAX_EXEC_BLOCK_LEN characters.
-/// Supports: SYSTEM.EXEC, <tool_call>, [TOOL_CALLS]
-fn is_inside_exec_block(response: &str) -> bool {
-    let len = response.len();
+/// Tracks exec block state incrementally instead of scanning the full response
+/// with 6x rfind() on every token.
+pub struct ExecBlockTracker {
+    /// Whether we're currently inside an exec block
+    in_block: bool,
+    /// Position where the current block was opened
+    block_open_pos: usize,
+}
 
-    // Helper: check if an unclosed tag is within the safety window
-    let is_recent_unclosed = |last_open: Option<usize>, last_close: Option<usize>| -> bool {
-        match (last_open, last_close) {
-            (Some(open_pos), Some(close_pos)) if open_pos > close_pos => {
-                len - open_pos <= MAX_EXEC_BLOCK_LEN
-            }
-            (Some(open_pos), None) => len - open_pos <= MAX_EXEC_BLOCK_LEN,
-            _ => false,
+impl ExecBlockTracker {
+    pub fn new() -> Self {
+        Self {
+            in_block: false,
+            block_open_pos: 0,
         }
-    };
+    }
 
-    // Check default SYSTEM.EXEC tags
-    let in_system_exec = {
-        let last_open = response.rfind("SYSTEM.EXEC>");
-        let last_close = response.rfind("<SYSTEM.EXEC|");
-        is_recent_unclosed(last_open, last_close)
-    };
+    /// Update state based on the new token. Call this after appending token to response.
+    /// `response_len` is the total response length after appending.
+    pub fn update(&mut self, token: &str, response_len: usize) {
+        if self.in_block {
+            // Check if the new token contains a close tag
+            if token.contains("SYSTEM.EXEC|")
+                || token.contains("</tool_call>")
+                || token.contains("[/TOOL_CALLS]")
+            {
+                self.in_block = false;
+            }
+            // Safety: give up if block is too long
+            if response_len - self.block_open_pos > MAX_EXEC_BLOCK_LEN {
+                self.in_block = false;
+            }
+        } else {
+            // Check if the new token opens a block
+            if token.contains("SYSTEM.EXEC>")
+                || token.contains("<tool_call>")
+                || token.contains("[TOOL_CALLS]")
+            {
+                self.in_block = true;
+                self.block_open_pos = response_len.saturating_sub(token.len());
+            }
+        }
+    }
 
-    // Check Qwen <tool_call> tags
-    let in_tool_call = {
-        let last_open = response.rfind("<tool_call>");
-        let last_close = response.rfind("</tool_call>");
-        is_recent_unclosed(last_open, last_close)
-    };
-
-    // Check Mistral [TOOL_CALLS] tags
-    let in_mistral = {
-        let last_open = response.rfind("[TOOL_CALLS]");
-        let last_close = response.rfind("[/TOOL_CALLS]");
-        is_recent_unclosed(last_open, last_close)
-    };
-
-    in_system_exec || in_tool_call || in_mistral
+    pub fn is_inside(&self) -> bool {
+        self.in_block
+    }
 }
 
 /// Check if the response should stop based on stop tokens
@@ -97,60 +104,90 @@ pub fn check_stop_conditions(
     response: &str,
     new_token: &str,
     stop_tokens: &[String],
+    in_exec_block: bool,
 ) -> StopConditionResult {
-    // Test response with the new token appended
-    let test_response = format!("{response}{new_token}");
-
-    // Don't stop if we're inside an exec block - let it complete
-    let in_exec_block = is_inside_exec_block(response);
+    // Early out: if inside an exec block, never stop
+    if in_exec_block {
+        return StopConditionResult::no_stop();
+    }
 
     for stop_token in stop_tokens {
         if stop_token.is_empty() {
             continue;
         }
 
-        // Skip stop token checking if inside exec block
-        if in_exec_block {
-            continue;
-        }
+        // Quick check: the stop token can only match at the end if response+token ends with it.
+        // Avoid format! allocation by checking the tail of response + new_token directly.
+        let combined_len = response.len() + new_token.len();
+        if combined_len >= stop_token.len() {
+            // Check exact match: does response+new_token end with stop_token?
+            let st_bytes = stop_token.as_bytes();
+            let st_len = st_bytes.len();
+            let nt_bytes = new_token.as_bytes();
+            let r_bytes = response.as_bytes();
 
-        // Check for exact match at the end to avoid false positives in the middle of responses
-        if test_response.trim_end().ends_with(stop_token) {
-            return StopConditionResult::stop_now(stop_token.clone());
-        }
-
-        // Handle partial matches
-        // Skip partial matching for "</s>" as it matches too many HTML/XML tags
-        if stop_token == "</s>" {
-            continue;
-        }
-
-        // Check for partial matches at the end of the response
-        if stop_token.len() > 2 {
-            let trimmed = test_response.trim_end();
-            let max_prefix = stop_token.len().min(trimmed.len());
-            for i in 2..=max_prefix {
-                let prefix = &stop_token[..i];
-                if !trimmed.ends_with(prefix) {
-                    continue;
+            // Build the tail from response + new_token without allocating
+            let mut matches = true;
+            for j in (0..st_len).rev() {
+                let pos_from_end = st_len - 1 - j;
+                let ch = if pos_from_end < nt_bytes.len() {
+                    nt_bytes[nt_bytes.len() - 1 - pos_from_end]
+                } else {
+                    let r_offset = pos_from_end - nt_bytes.len();
+                    if r_offset < r_bytes.len() {
+                        r_bytes[r_bytes.len() - 1 - r_offset]
+                    } else {
+                        matches = false;
+                        break;
+                    }
+                };
+                if ch != st_bytes[j] {
+                    matches = false;
+                    break;
                 }
+            }
 
-                // If the partial match spans previous tokens, remove the portion that was already present
-                if i > new_token.len()
-                    && response
-                        .trim_end()
-                        .ends_with(&stop_token[..i - new_token.len()])
-                {
-                    let partial_to_remove = i - new_token.len();
-                    return StopConditionResult::stop_with_removal(
-                        partial_to_remove,
-                        stop_token.clone(),
-                    );
-                }
-
-                // Partial match detected at the end
+            if matches {
                 return StopConditionResult::stop_now(stop_token.clone());
             }
+        }
+
+        // Handle partial matches (stop token prefix at end of response+token)
+        // Skip for "</s>" as it matches too many HTML/XML tags
+        if stop_token == "</s>" || stop_token.len() <= 2 {
+            continue;
+        }
+
+        // Only check partial matches if the new token could start or extend a match.
+        // Quick heuristic: check if any character in new_token appears in the stop token.
+        let could_match = new_token.bytes().any(|b| stop_token.as_bytes().contains(&b));
+        if !could_match {
+            continue;
+        }
+
+        // Fallback: allocate and check partial matches
+        let test_response = format!("{response}{new_token}");
+        let trimmed = test_response.trim_end();
+        let max_prefix = stop_token.len().min(trimmed.len());
+        for i in 2..=max_prefix {
+            let prefix = &stop_token[..i];
+            if !trimmed.ends_with(prefix) {
+                continue;
+            }
+
+            if i > new_token.len()
+                && response
+                    .trim_end()
+                    .ends_with(&stop_token[..i - new_token.len()])
+            {
+                let partial_to_remove = i - new_token.len();
+                return StopConditionResult::stop_with_removal(
+                    partial_to_remove,
+                    stop_token.clone(),
+                );
+            }
+
+            return StopConditionResult::stop_now(stop_token.clone());
         }
     }
 
@@ -167,7 +204,7 @@ mod tests {
         let response = "Hello, I am an assistant";
         let new_token = "</ASSISTANT>";
 
-        let result = check_stop_conditions(response, new_token, &stop_tokens);
+        let result = check_stop_conditions(response, new_token, &stop_tokens, false);
         assert!(result.should_stop);
         assert_eq!(result.partial_to_remove, 0);
         assert_eq!(result.matched_token.as_deref(), Some("</ASSISTANT>"));
@@ -179,7 +216,7 @@ mod tests {
         let response = "Hello, I am";
         let new_token = " here";
 
-        let result = check_stop_conditions(response, new_token, &stop_tokens);
+        let result = check_stop_conditions(response, new_token, &stop_tokens, false);
         assert!(!result.should_stop);
         assert!(result.matched_token.is_none());
     }
@@ -187,11 +224,10 @@ mod tests {
     #[test]
     fn test_inside_exec_block() {
         let stop_tokens = vec!["</ASSISTANT>".to_string()];
-        let response = "<||SYSTEM.EXEC>Some command output</ASSISTANT>";
         let new_token = "more";
 
-        // Should not stop because we're inside exec block (no closing tag yet)
-        let result = check_stop_conditions(response, new_token, &stop_tokens);
+        // Should not stop because we're inside exec block
+        let result = check_stop_conditions("anything", new_token, &stop_tokens, true);
         assert!(!result.should_stop);
         assert!(result.matched_token.is_none());
     }
@@ -202,8 +238,8 @@ mod tests {
         let response = "<||SYSTEM.EXEC>command<SYSTEM.EXEC||> Done";
         let new_token = "</ASSISTANT>";
 
-        // Should stop because exec block is closed
-        let result = check_stop_conditions(response, new_token, &stop_tokens);
+        // Should stop because exec block is closed (in_exec_block = false)
+        let result = check_stop_conditions(response, new_token, &stop_tokens, false);
         assert!(result.should_stop);
         assert_eq!(result.matched_token.as_deref(), Some("</ASSISTANT>"));
     }

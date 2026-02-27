@@ -6,6 +6,11 @@ export interface Message {
   isSystemPrompt?: boolean;
   /** Base64 image data URIs attached to this message (user messages only). */
   image_data?: string[];
+  /** Generation timing metrics (assistant messages only, set after completion). */
+  timings?: {
+    promptTokPerSec?: number;
+    genTokPerSec?: number;
+  };
 }
 
 export interface ChatRequest {
@@ -153,8 +158,6 @@ export interface ModelMetadata {
   eos_token_id?: string;
   padding_token_id?: string;
   chat_template?: string;
-  default_system_prompt?: string;  // Extracted from chat_template
-
   // Auto-detected tool tags from model name
   detected_tool_tags?: {
     exec_open: string;

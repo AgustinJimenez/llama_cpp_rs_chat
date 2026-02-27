@@ -6,7 +6,9 @@ use llama_cpp_2::{
 use std::fs;
 use std::io::BufReader;
 
-use super::models::{LlamaState, ModelStatus, SharedLlamaState, VisionState};
+use super::models::{LlamaState, ModelStatus, SharedLlamaState};
+#[cfg(feature = "vision")]
+use super::models::VisionState;
 use crate::{log_debug, log_info, log_warn};
 
 // Re-export VRAM functions for backward compatibility (used by other modules)
@@ -75,11 +77,11 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, request
             chat_template_string: None,
             gpu_layers: None,
             last_used: std::time::SystemTime::now(),
-            model_default_system_prompt: None,
             general_name: None,
             cached_system_prompt: None,
             cached_prompt_key: None,
             inference_cache: None,
+            #[cfg(feature = "vision")]
             vision_state: None,
         });
     }
@@ -99,7 +101,8 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, request
     // CRITICAL: Drop inference cache and vision state BEFORE dropping the model.
     // Both borrow the model, so they must go first.
     state.inference_cache = None;
-    state.vision_state = None;
+    #[cfg(feature = "vision")]
+    { state.vision_state = None; }
     // Unload current model if any
     state.model = None;
     state.current_model_path = None;
@@ -122,14 +125,13 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, request
 
     log_info!("system", "Model loaded successfully!");
 
-    // Read model's context length, token IDs, chat template, general name, and default system prompt from GGUF metadata
+    // Read model's context length, token IDs, chat template, and general name from GGUF metadata
     let (
         model_context_length,
         bos_token_id,
         eos_token_id,
         chat_template_type,
         chat_template_string,
-        default_system_prompt,
         general_name,
     ) = if let Ok(file) = fs::File::open(model_path) {
         let mut reader = BufReader::new(file);
@@ -185,42 +187,21 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, request
                     })
                     .unwrap_or((None, None));
 
-                // Extract default system prompt from chat template if available
-                // Look for: {%- set default_system_message = '...' %} in the template
-                let default_prompt =
-                    metadata
-                        .get("tokenizer.chat_template")
-                        .and_then(|v| match v {
-                            Value::String(template) => {
-                                if let Some(start_idx) =
-                                    template.find("set default_system_message = '")
-                                {
-                                    let after_start = &template
-                                        [start_idx + "set default_system_message = '".len()..];
-                                    if let Some(end_idx) = after_start.find("' %}") {
-                                        return Some(after_start[..end_idx].to_string());
-                                    }
-                                }
-                                None
-                            }
-                            _ => None,
-                        });
-
                 // Extract general.name from metadata
                 let gen_name = metadata.get("general.name").and_then(|v| match v {
                     Value::String(s) => Some(s.clone()),
                     _ => None,
                 });
 
-                (ctx_len, bos_id, eos_id, template_type, template_string, default_prompt, gen_name)
+                (ctx_len, bos_id, eos_id, template_type, template_string, gen_name)
             } else {
-                (None, None, None, None, None, None, None)
+                (None, None, None, None, None, None)
             }
         } else {
-            (None, None, None, None, None, None, None)
+            (None, None, None, None, None, None)
         }
     } else {
-        (None, None, None, None, None, None, None)
+        (None, None, None, None, None, None)
     };
 
     if let Some(ctx_len) = model_context_length {
@@ -260,6 +241,7 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, request
     }
 
     // Scan for mmproj companion file for vision support
+    #[cfg(feature = "vision")]
     let vision_state = scan_and_init_vision(&model, model_path, optimal_gpu_layers);
 
     state.model = Some(model);
@@ -269,29 +251,22 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, request
     state.chat_template_string = chat_template_string;
     state.gpu_layers = Some(optimal_gpu_layers);
     state.last_used = std::time::SystemTime::now();
-    state.model_default_system_prompt = default_system_prompt.clone();
     state.general_name = general_name.clone();
     // Invalidate caches (model changed)
     state.cached_system_prompt = None;
     state.cached_prompt_key = None;
     state.inference_cache = None;
-    state.vision_state = vision_state;
+    #[cfg(feature = "vision")]
+    { state.vision_state = vision_state; }
 
     if let Some(ref name) = general_name {
         log_info!("system", "Model general.name: {}", name);
     }
 
-    if let Some(ref prompt) = default_system_prompt {
-        log_info!(
-            "system",
-            "Model default system prompt found: {}...",
-            &prompt.chars().take(50).collect::<String>()
-        );
-    }
-
     Ok(())
 }
 
+#[cfg(feature = "vision")]
 /// Scan the model's directory for an mmproj companion GGUF file and initialize
 /// an MtmdContext for vision support. Returns None if no mmproj file found or
 /// initialization fails.

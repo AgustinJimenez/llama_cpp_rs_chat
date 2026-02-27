@@ -1,4 +1,4 @@
-use llama_cpp_2::context::params::LlamaContextParams;
+use llama_cpp_2::context::params::{KvCacheType, LlamaContextParams};
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::params::LlamaModelParams;
@@ -8,12 +8,12 @@ use std::num::NonZeroU32;
 use std::time::Instant;
 
 fn main() {
-    println!("=== LLaMA Model Test ===\n");
+    println!("=== LLaMA Model Benchmark ===\n");
 
-    // Configuration - matches your exact config
-    let model_path = r"E:\.lmstudio\models\lmstudio-community\Devstral-Small-2507-GGUF\Devstral-Small-2507-Q4_K_M.gguf";
-    let context_size: u32 = 131072; // 128K tokens - your exact config
-    let gpu_layers: u32 = 40; // All layers on GPU
+    // Configuration - Qwen3.5-35B-A3B with optimal settings
+    let model_path = r"E:\.lmstudio\unsloth\Qwen3.5-35B-A3B-GGUF\Qwen3.5-35B-A3B-IQ4_XS.gguf";
+    let context_size: u32 = 262144; // 262K tokens - full context
+    let gpu_layers: u32 = 40; // 40 of 41 layers on GPU
 
     println!("Configuration:");
     println!("  Model: {model_path}");
@@ -52,8 +52,11 @@ fn main() {
     let n_ctx = NonZeroU32::new(context_size).expect("Context size must be non-zero");
     let ctx_params = LlamaContextParams::default()
         .with_n_ctx(Some(n_ctx))
-        .with_n_batch(512)
-        .with_offload_kqv(true); // Offload KV cache to GPU
+        .with_n_batch(2048)
+        .with_offload_kqv(true)
+        .with_type_k(KvCacheType::Q8_0)
+        .with_type_v(KvCacheType::Q8_0)
+        .with_flash_attention_policy(1); // Flash attention ON
 
     let mut ctx = model
         .new_context(&backend, ctx_params)
@@ -64,7 +67,7 @@ fn main() {
 
     // Prepare test prompt - asking for code generation like your real case
     println!("[4/5] Tokenizing test prompt...");
-    let prompt = "[INST] Write me a login page in Svelte with form validation, password hashing, and session management. Include full code with comments. [/INST]";
+    let prompt = "<|im_start|>user\nSay hello in 5 words<|im_end|>\n<|im_start|>assistant\n";
 
     let token_start = Instant::now();
 

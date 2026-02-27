@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { Button } from '../atoms/button';
-import type { ModelMetadata } from '@/types';
 
-export type SystemPromptMode = 'model' | 'system' | 'custom';
+export type SystemPromptMode = 'system' | 'custom';
 
 // Agentic mode system prompt (mirrors backend's get_universal_system_prompt)
 const AGENTIC_SYSTEM_PROMPT = `You are a helpful AI assistant with full system access.
@@ -39,7 +38,6 @@ export interface SystemPromptSectionProps {
   setSystemPromptMode: (mode: SystemPromptMode) => void;
   customSystemPrompt: string;
   setCustomSystemPrompt: (prompt: string) => void;
-  modelInfo: ModelMetadata | null;
 }
 
 export const SystemPromptSection: React.FC<SystemPromptSectionProps> = ({
@@ -47,27 +45,14 @@ export const SystemPromptSection: React.FC<SystemPromptSectionProps> = ({
   setSystemPromptMode,
   customSystemPrompt,
   setCustomSystemPrompt,
-  modelInfo
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
-
-  const readOnlyText = systemPromptMode === 'model'
-    ? (modelInfo?.default_system_prompt || '')
-    : AGENTIC_SYSTEM_PROMPT;
 
   return (
     <div className="space-y-3 pt-2 border-t">
       <span className="text-sm font-medium">System Prompt</span>
 
       <div className="flex gap-2">
-        <Button
-          type="button"
-          variant={systemPromptMode === 'model' ? 'default' : 'outline'}
-          onClick={() => setSystemPromptMode('model')}
-          className="flex-1 text-xs px-2"
-        >
-          Model Default
-        </Button>
         <Button
           type="button"
           variant={systemPromptMode === 'system' ? 'default' : 'outline'}
@@ -104,21 +89,15 @@ export const SystemPromptSection: React.FC<SystemPromptSectionProps> = ({
               placeholder="Enter your custom system prompt..."
               className="w-full px-3 py-2 text-sm border rounded-md min-h-[100px] resize-y bg-background"
             />
-          ) : readOnlyText ? (
-            <pre className="w-full px-3 py-2 text-sm border rounded-md max-h-[200px] overflow-y-auto whitespace-pre-wrap bg-muted text-foreground">
-              {readOnlyText}
-            </pre>
           ) : (
-            <p className="w-full px-3 py-2 text-sm text-muted-foreground italic">
-              (No default system prompt found in model)
-            </p>
+            <pre className="w-full px-3 py-2 text-sm border rounded-md max-h-[200px] overflow-y-auto whitespace-pre-wrap bg-muted text-foreground">
+              {AGENTIC_SYSTEM_PROMPT}
+            </pre>
           )}
           <p className="text-xs text-muted-foreground">
-            {systemPromptMode === 'model'
-              ? "Using the model's built-in default system prompt from GGUF chat template."
-              : systemPromptMode === 'system'
-                ? 'Agentic mode with command execution. The model can run system commands.'
-                : 'Custom system prompt that will be used instead of the model\'s default.'}
+            {systemPromptMode === 'system'
+              ? 'Agentic mode with command execution. The model can run system commands.'
+              : 'Custom system prompt that will be used instead of the agentic prompt.'}
           </p>
         </div> : null}
     </div>

@@ -134,7 +134,7 @@ pub fn add_to_model_history(db: &Database, model_path: &str) {
 ///
 /// Priority: 1. "__AGENTIC__" → universal agentic prompt
 ///           2. Custom string → use as-is
-///           3. None → model's default from GGUF metadata
+///           3. None → fallback to agentic prompt
 #[cfg(not(feature = "mock"))]
 pub fn get_resolved_system_prompt(
     db: &Database,
@@ -162,25 +162,13 @@ pub fn get_resolved_system_prompt(
 
     // Cache miss: resolve
     let resolved = match config.system_prompt.as_deref() {
-        Some("__AGENTIC__") => {
+        Some("__AGENTIC__") | None => {
+            // Both explicit agentic marker and no prompt default to agentic mode
             let general_name = current_key.1.as_deref();
             let tags = get_tool_tags_for_model(general_name);
             Some(get_universal_system_prompt_with_tags(&tags))
         }
         Some(custom) => Some(custom.to_string()),
-        None => {
-            if let Some(ref state_arc) = llama_state {
-                if let Ok(guard) = state_arc.lock() {
-                    guard
-                        .as_ref()
-                        .and_then(|s| s.model_default_system_prompt.clone())
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        }
     };
 
     // Store in cache

@@ -19,7 +19,7 @@ use super::super::models::*;
 use super::command_executor::{
     check_and_execute_command_with_tags, inject_output_tokens,
 };
-use super::stop_conditions::check_stop_conditions;
+use super::stop_conditions::{check_stop_conditions, ExecBlockTracker};
 use super::templates::apply_system_prompt_by_type_with_tags;
 use super::tool_tags::get_tool_tags_for_model;
 use super::sampler::create_sampler;
@@ -43,6 +43,164 @@ fn parse_kv_cache_type(s: &str) -> KvCacheType {
 }
 const MODEL_PATH: &str =
     "/app/models/lmstudio-community/granite-4.0-h-tiny-GGUF/granite-4.0-h-tiny-Q4_K_M.gguf";
+
+/// Special conversation ID for warmup cache (system prompt pre-evaluation).
+pub const WARMUP_CONVERSATION_ID: &str = "__warmup__";
+
+/// Pre-evaluate the system prompt into the KV cache after model load.
+///
+/// Creates a context, tokenizes just the system prompt portion, evaluates it,
+/// and stores the result in `inference_cache` so the first real generation
+/// can skip re-evaluating those tokens.
+pub fn warmup_system_prompt(
+    llama_state: SharedLlamaState,
+    db: &Database,
+) -> Result<(), String> {
+    use super::super::config::{load_config, get_resolved_system_prompt};
+
+    let config = load_config(db);
+    let system_prompt = get_resolved_system_prompt(db, &Some(llama_state.clone()));
+
+    let system_prompt = match system_prompt {
+        Some(p) if !p.is_empty() => p,
+        _ => {
+            sys_debug!("[WARMUP] No system prompt configured, skipping warmup");
+            return Ok(());
+        }
+    };
+
+    let mut state_guard = llama_state
+        .lock()
+        .map_err(|_| "Failed to lock LLaMA state")?;
+    let state = state_guard.as_mut().ok_or("LLaMA state not initialized")?;
+    let model = state.model.as_ref().ok_or("No model loaded")?;
+
+    let context_size = config.context_size.unwrap_or_else(|| {
+        state
+            .model_context_length
+            .map(|ctx| ctx.min(CONTEXT_SIZE))
+            .unwrap_or(CONTEXT_SIZE)
+    });
+
+    // Build a minimal conversation with just the system prompt
+    let conversation_content = format!("SYSTEM:\n{}\n\n", system_prompt);
+
+    let template_type = state.chat_template_type.clone();
+    let chat_template_string = state.chat_template_string.clone();
+    let general_name = state.general_name.clone();
+
+    let tags = get_tool_tags_for_model(general_name.as_deref()).with_overrides(
+        config.tool_tag_exec_open.as_deref(),
+        config.tool_tag_exec_close.as_deref(),
+        config.tool_tag_output_open.as_deref(),
+        config.tool_tag_output_close.as_deref(),
+    );
+
+    #[allow(deprecated)]
+    use llama_cpp_2::model::Special;
+    #[allow(deprecated)]
+    let bos_text = model
+        .token_to_str(model.token_bos(), Special::Tokenize)
+        .unwrap_or_else(|_| "<s>".to_string());
+    #[allow(deprecated)]
+    let eos_text = model
+        .token_to_str(model.token_eos(), Special::Tokenize)
+        .unwrap_or_else(|_| "</s>".to_string());
+
+    // Format using the same template as generation
+    let prompt = apply_system_prompt_by_type_with_tags(
+        &conversation_content,
+        config.system_prompt_type.clone(),
+        template_type.as_deref(),
+        chat_template_string.as_deref(),
+        config.system_prompt.as_deref(),
+        &tags,
+        &bos_text,
+        &eos_text,
+    )?;
+
+    // Tokenize
+    let tokens = model
+        .str_to_token(&prompt, AddBos::Never)
+        .map_err(|e| format!("Warmup tokenization failed: {e}"))?;
+
+    if tokens.is_empty() {
+        sys_debug!("[WARMUP] Empty token list, skipping warmup");
+        return Ok(());
+    }
+
+    // Create context with the same parameters generation would use
+    let n_ctx = NonZeroU32::new(context_size).expect("Context size must be non-zero");
+    let offload_kqv = state.gpu_layers.unwrap_or(0) > 0;
+    let flash_attention = config.flash_attention;
+    let cache_type_k = config.cache_type_k.clone();
+    let cache_type_v = config.cache_type_v.clone();
+    let n_batch = config.n_batch;
+
+    let mut ctx_params = LlamaContextParams::default()
+        .with_n_ctx(Some(n_ctx))
+        .with_offload_kqv(offload_kqv)
+        .with_type_k(parse_kv_cache_type(&cache_type_k))
+        .with_type_v(parse_kv_cache_type(&cache_type_v))
+        .with_n_batch(n_batch);
+    if flash_attention {
+        ctx_params = ctx_params.with_flash_attention_policy(1);
+    }
+
+    let start = Instant::now();
+    let mut context = unsafe {
+        let real_ctx = model
+            .new_context(&state.backend, ctx_params)
+            .map_err(|e| format!("Warmup context creation failed: {e}"))?;
+        std::mem::transmute::<LlamaContext<'_>, LlamaContext<'static>>(real_ctx)
+    };
+
+    // Evaluate system prompt tokens in batches
+    const BATCH_CAP: usize = 2048;
+    let n_chunks = tokens.len().div_ceil(BATCH_CAP);
+    let mut batch = LlamaBatch::new(BATCH_CAP, 1);
+
+    for chunk_idx in 0..n_chunks {
+        let start_tok = chunk_idx * BATCH_CAP;
+        let end_tok = std::cmp::min(start_tok + BATCH_CAP, tokens.len());
+
+        batch.clear();
+        for (offset, &token) in tokens[start_tok..end_tok].iter().enumerate() {
+            let pos = start_tok + offset;
+            let is_last = pos == tokens.len() - 1;
+            batch
+                .add(token, pos as i32, &[0], is_last)
+                .map_err(|e| format!("Warmup batch add failed: {e}"))?;
+        }
+
+        context.decode(&mut batch).map_err(|e| {
+            format!("Warmup decode failed (chunk {}/{}): {e}", chunk_idx + 1, n_chunks)
+        })?;
+    }
+
+    let elapsed = start.elapsed();
+    let tok_per_sec = tokens.len() as f64 / elapsed.as_secs_f64();
+    eprintln!(
+        "[WORKER] System prompt warmup: {} tokens evaluated in {:.2}s ({:.1} tok/s)",
+        tokens.len(),
+        elapsed.as_secs_f64(),
+        tok_per_sec
+    );
+
+    // Store in inference cache for reuse by first generation
+    state.inference_cache = Some(InferenceCache {
+        context,
+        conversation_id: WARMUP_CONVERSATION_ID.to_string(),
+        evaluated_tokens: tokens,
+        context_size,
+        offload_kqv,
+        flash_attention,
+        cache_type_k,
+        cache_type_v,
+    });
+
+    Ok(())
+}
 
 /// Output from a generation run, including timing metrics.
 pub struct GenerationOutput {
@@ -159,10 +317,13 @@ pub async fn generate_llama_response(
         config.tool_tag_output_close.as_deref(),
     );
     // Get model's actual BOS/EOS token text for Jinja templates
+    #[allow(deprecated)]
     use llama_cpp_2::model::Special;
+    #[allow(deprecated)]
     let bos_text = model
         .token_to_str(model.token_bos(), Special::Tokenize)
         .unwrap_or_else(|_| "<s>".to_string());
+    #[allow(deprecated)]
     let eos_text = model
         .token_to_str(model.token_eos(), Special::Tokenize)
         .unwrap_or_else(|_| "</s>".to_string());
@@ -258,7 +419,10 @@ pub async fn generate_llama_response(
     };
 
     // Determine if we should use vision path
+    #[cfg(feature = "vision")]
     let use_vision = !image_bytes_vec.is_empty() && state.vision_state.is_some();
+    #[cfg(not(feature = "vision"))]
+    let use_vision = false;
     if use_vision {
         log_info!(&conversation_id, "Using vision path with {} images", image_bytes_vec.len());
     }
@@ -267,6 +431,8 @@ pub async fn generate_llama_response(
 
     // Two code paths: vision (mtmd) or standard text-only
     let (mut context, prompt_tokens, tokens) = if use_vision {
+        #[cfg(feature = "vision")]
+        {
         // === VISION PATH: Use MtmdContext to process text + images ===
         use llama_cpp_2::mtmd::{MtmdBitmap, MtmdInputText};
 
@@ -332,6 +498,9 @@ pub async fn generate_llama_response(
         // Create a dummy tokens vec for cache storage (vision doesn't use standard tokens)
         let dummy_tokens = vec![LlamaToken(0); n_past as usize];
         (ctx, n_prompt_tokens, dummy_tokens)
+        }
+        #[cfg(not(feature = "vision"))]
+        unreachable!("Vision feature not enabled")
     } else {
         // === STANDARD TEXT PATH ===
         // Tokenize
@@ -346,10 +515,12 @@ pub async fn generate_llama_response(
         );
 
         // Try to reuse cached inference context for KV cache reuse
+        // Also accept warmup caches (system prompt pre-evaluation) for any conversation
         let cached = state.inference_cache.take();
         let (mut ctx, skip_tokens) = match cached {
             Some(cache)
-                if cache.conversation_id == conversation_id
+                if (cache.conversation_id == conversation_id
+                    || cache.conversation_id == WARMUP_CONVERSATION_ID)
                     && cache.context_size == context_size
                     && cache.offload_kqv == offload_kqv
                     && cache.flash_attention == flash_attention
@@ -523,6 +694,8 @@ pub async fn generate_llama_response(
     let mut last_exec_scan_pos: usize = 0;
     // Track recent commands for loop detection
     let mut recent_commands: Vec<String> = Vec::new();
+    // Track exec block state incrementally (avoids 6x rfind per token)
+    let mut exec_tracker = ExecBlockTracker::new();
 
     // Stall detection: if a single token takes longer than this, abort generation.
     // This catches GPU thrashing, stuck inference, or models too large for hardware.
@@ -651,6 +824,7 @@ pub async fn generate_llama_response(
             generated_token_ids.push(next_token);
 
             // Convert to string for display
+            #[allow(deprecated)]
             let token_str = match model.token_to_str(next_token, Special::Tokenize) {
                 Ok(s) => s,
                 Err(e) => {
@@ -683,7 +857,7 @@ pub async fn generate_llama_response(
                 );
             }
 
-            let stop_result = check_stop_conditions(&response, &token_str, &stop_tokens);
+            let stop_result = check_stop_conditions(&response, &token_str, &stop_tokens, exec_tracker.is_inside());
 
             if stop_result.should_stop {
                 let partial_to_remove = stop_result.partial_to_remove;
@@ -720,6 +894,7 @@ pub async fn generate_llama_response(
 
             // Add token to response
             response.push_str(&token_str);
+            exec_tracker.update(&token_str, response.len());
 
             // Stream token
             if let Some(ref sender) = token_sender {
@@ -893,7 +1068,7 @@ pub async fn generate_llama_response(
         gen_eval_ms
     );
 
-    // Finish assistant message
+    // Finish assistant message and persist metrics
     let was_cancelled = cancel.load(Ordering::Relaxed);
     {
         let mut logger = conversation_logger
@@ -903,6 +1078,7 @@ pub async fn generate_llama_response(
         if was_cancelled {
             logger.log_message("system", "[Generation stopped by user]");
         }
+        logger.log_metrics(prompt_tok_per_sec, gen_tok_per_sec, token_pos, max_total_tokens);
     }
 
     // Store context back into inference cache for KV cache reuse on next turn
@@ -939,6 +1115,7 @@ pub async fn generate_llama_response(
 /// Insert `<__media__>` markers into a formatted prompt, just before the
 /// last occurrence of the user's message text. One marker per image tells
 /// the mtmd tokenizer where each image's embeddings go in the token stream.
+#[cfg(feature = "vision")]
 fn inject_media_markers(prompt: &str, user_message: &str, count: usize) -> String {
     let markers = "<__media__>\n".repeat(count);
     // Find the last occurrence of the user message in the prompt

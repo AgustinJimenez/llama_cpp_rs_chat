@@ -1,7 +1,9 @@
 use llama_cpp_2::{
     context::LlamaContext, llama_backend::LlamaBackend, model::LlamaModel,
-    mtmd::MtmdContext, token::LlamaToken,
+    token::LlamaToken,
 };
+#[cfg(feature = "vision")]
+use llama_cpp_2::mtmd::MtmdContext;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
@@ -39,6 +41,7 @@ pub struct InferenceCache {
 // single-threaded access via the Mutex<Option<LlamaState>> wrapper.
 unsafe impl Send for InferenceCache {}
 
+#[cfg(feature = "vision")]
 /// Vision/multimodal context state. Wraps MtmdContext for Send safety.
 /// MUST be dropped before the model (same invariant as InferenceCache).
 pub struct VisionState {
@@ -46,6 +49,7 @@ pub struct VisionState {
     pub mmproj_path: String,
 }
 
+#[cfg(feature = "vision")]
 // SAFETY: Same as InferenceCache — MtmdContext wraps NonNull (!Send) but is safe
 // to move between threads when not used concurrently (protected by Mutex).
 unsafe impl Send for VisionState {}
@@ -480,13 +484,13 @@ pub struct LlamaState {
     pub chat_template_string: Option<String>, // Store full Jinja2 template from model
     pub gpu_layers: Option<u32>,            // Number of GPU layers offloaded
     pub last_used: std::time::SystemTime,
-    pub model_default_system_prompt: Option<String>, // Model's default system prompt from GGUF
     pub general_name: Option<String>,       // Model's general.name from GGUF metadata
     // Cached resolved system prompt (invalidated on config or model change)
     pub cached_system_prompt: Option<String>,
     pub cached_prompt_key: Option<(Option<String>, Option<String>)>, // (system_prompt, general_name)
     /// Cached inference context for KV cache reuse. MUST be dropped before model.
     pub inference_cache: Option<InferenceCache>,
+    #[cfg(feature = "vision")]
     /// Vision/multimodal context (if mmproj loaded). MUST be dropped before model.
     pub vision_state: Option<VisionState>,
 }

@@ -5,6 +5,7 @@ use super::{
     StreamingUpdate,
 };
 use rusqlite::params;
+use serde_json;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -228,6 +229,7 @@ impl Database {
     }
 
     /// Update streaming buffer with new content
+    #[allow(dead_code)]
     pub fn update_streaming_buffer(
         &self,
         conversation_id: &str,
@@ -489,22 +491,14 @@ impl ConversationLogger {
         self.current_max_tokens = max_tokens;
     }
 
-    /// Append a token to the current streaming message
+    /// Append a token to the current streaming message.
+    /// Only accumulates in memory + broadcasts via WebSocket (throttled).
+    /// DB writes happen only at finish_assistant_message() — keeps generation non-blocking.
     pub fn log_token(&mut self, token: &str) {
         self.accumulated_content.push_str(token);
 
         if self.current_message_id.is_some() {
-            // Update streaming buffer
-            if let Err(e) = self.db.update_streaming_buffer(
-                &self.conversation_id,
-                &self.accumulated_content,
-                0, // tokens_used updated separately
-                0, // max_tokens updated separately
-            ) {
-                sys_error!("Failed to update streaming buffer: {}", e);
-            }
-
-            // Broadcast to WebSocket subscribers with throttling to avoid disconnects.
+            // Throttle WebSocket broadcasts to avoid overwhelming clients
             let now = Instant::now();
             let len = self.accumulated_content.len();
             let should_broadcast = match self.last_broadcast_at {
@@ -563,6 +557,29 @@ impl ConversationLogger {
 
         // Update conversation timestamp
         let _ = self.db.update_conversation_timestamp(&self.conversation_id);
+    }
+
+    /// Store generation metrics in the logs table as a JSON entry.
+    pub fn log_metrics(
+        &self,
+        prompt_tok_per_sec: Option<f64>,
+        gen_tok_per_sec: Option<f64>,
+        tokens_used: i32,
+        max_tokens: i32,
+    ) {
+        let metrics = serde_json::json!({
+            "prompt_tok_per_sec": prompt_tok_per_sec,
+            "gen_tok_per_sec": gen_tok_per_sec,
+            "tokens_used": tokens_used,
+            "max_tokens": max_tokens,
+        });
+        if let Err(e) = self.db.insert_log(
+            Some(&self.conversation_id),
+            "metrics",
+            &metrics.to_string(),
+        ) {
+            sys_error!("Failed to log metrics: {}", e);
+        }
     }
 
     /// Get the conversation ID

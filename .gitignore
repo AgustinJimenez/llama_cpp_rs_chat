@@ -45,3 +45,4 @@ test_data/
 # PHP/Composer artifacts (from tool execution tests)
 vendor/
 composer.lock
+libs/

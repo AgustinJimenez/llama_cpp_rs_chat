@@ -107,6 +107,11 @@ async fn handle_request_impl(
             web::routes::config::handle_post_conversation_config(req, path, bridge.clone(), db.clone()).await?
         }
 
+        // Conversation metrics
+        (&Method::GET, path) if path.starts_with("/api/conversations/") && path.ends_with("/metrics") => {
+            web::routes::conversation::handle_get_conversation_metrics(path, db.clone()).await?
+        }
+
         // Conversation endpoints
         (&Method::GET, path) if path.starts_with("/api/conversation/") => {
             web::routes::conversation::handle_get_conversation(path, bridge.clone(), db.clone()).await?
@@ -159,6 +164,7 @@ async fn handle_request_impl(
         // File operations
         (&Method::GET, "/api/browse") => web::routes::files::handle_get_browse(req, bridge.clone()).await?,
         (&Method::POST, "/api/browse/pick-directory") => web::routes::files::handle_post_pick_directory(bridge.clone()).await?,
+        (&Method::POST, "/api/browse/pick-file") => web::routes::files::handle_post_pick_file(bridge.clone()).await?,
 
         (&Method::POST, "/api/upload") => {
             web::routes::files::handle_post_upload(req, bridge.clone()).await?

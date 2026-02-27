@@ -127,7 +127,6 @@ export const useModelPathValidation = ({
             file_path: trimmedPath,
             estimated_layers: d.estimated_layers as number | undefined,
             gguf_metadata: meta,
-            default_system_prompt: d.default_system_prompt as string | undefined,
             general_name: d.general_name as string | undefined,
             recommended_params: d.recommended_params as ModelMetadata['recommended_params'],
             // Extract architecture details from top-level (parsed by backend) or raw GGUF metadata

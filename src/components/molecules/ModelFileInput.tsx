@@ -1,6 +1,5 @@
-import React from 'react';
-import { Loader2, FolderOpen, Clock, CheckCircle, XCircle } from 'lucide-react';
-import { Button } from '../atoms/button';
+import React, { useState } from 'react';
+import { Loader2, FolderOpen, Clock, CheckCircle, XCircle, ChevronDown, ChevronRight } from 'lucide-react';
 
 export interface ModelFileInputProps {
   modelPath: string;
@@ -25,85 +24,50 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
   directoryError,
   directorySuggestions,
   modelHistory,
-  showHistory,
-  setShowHistory,
-  isTauri,
+  showHistory: _showHistory,
+  setShowHistory: _setShowHistory,
+  isTauri: _isTauri,
   handleBrowseFile
-}) => (
-  <div className="space-y-2">
-    <div className="flex gap-2">
-      <div className="flex-1 relative">
-        <input
-          type="text"
-          data-testid="model-path-input"
-          value={modelPath}
-          onChange={(e) => setModelPath(e.target.value.replace(/"/g, ''))}
-          onFocus={() => setShowHistory(true)}
-          onBlur={() => setTimeout(() => setShowHistory(false), 200)}
-          placeholder={isTauri ? "Select a .gguf file or enter full path" : "Enter full path to .gguf file (e.g., C:\\path\\to\\model.gguf)"}
-          className={`w-full px-3 py-2 pr-8 text-sm border rounded-md bg-background ${
-            fileExists === true ? 'border-green-500' :
-            fileExists === false ? 'border-red-500' :
-            'border-input'
-          }`}
-        />
-        {modelPath.trim() && (
-          <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
-            {isCheckingFile ? (
-              <Clock className="h-4 w-4 text-muted-foreground animate-pulse" />
-            ) : fileExists === true ? (
-              <CheckCircle className="h-4 w-4 text-green-500" />
-            ) : fileExists === false ? (
-              <XCircle className="h-4 w-4 text-red-500" />
-            ) : null}
-          </div>
-        )}
-        {/* Model History Suggestions */}
-        {showHistory && modelHistory.length > 0 && !modelPath.trim() ? <div className="absolute z-10 w-full mt-1 bg-background border border-input rounded-md shadow-lg max-h-60 overflow-y-auto">
-            <div className="p-2 text-xs text-muted-foreground border-b">
-              Previously used paths:
-            </div>
-            {modelHistory.map((path, idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => {
-                  setModelPath(path);
-                  setShowHistory(false);
-                }}
-                className="block w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors border-b last:border-b-0"
-              >
-                <div className="font-mono text-xs truncate">{path}</div>
-              </button>
-            ))}
-          </div> : null}
-      </div>
-      {isTauri ? <Button
-          type="button"
-          onClick={handleBrowseFile}
-          disabled={isCheckingFile}
-          variant="outline"
-          className="flex items-center gap-2 px-3"
-        >
-          {isCheckingFile ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Reading...
-            </>
-          ) : (
-            <>
-              <FolderOpen className="h-4 w-4" />
-              Browse
-            </>
-          )}
-        </Button> : null}
-    </div>
+}) => {
+  const [historyExpanded, setHistoryExpanded] = useState(false);
 
-    {!isTauri && (
-      <p className="text-xs text-muted-foreground">
-        📝 Web mode: Please enter the full file path manually (e.g., C:\Users\Name\Documents\model.gguf)
-      </p>
-    )}
+  return (
+  <div className="space-y-2">
+    <div className="relative">
+      <button
+        type="button"
+        data-testid="model-path-input"
+        onClick={handleBrowseFile}
+        disabled={isCheckingFile}
+        className={`w-full px-3 py-2 pr-8 text-sm border rounded-md bg-background text-left flex items-center gap-2 ${
+          fileExists === true ? 'border-green-500' :
+          fileExists === false ? 'border-red-500' :
+          'border-input'
+        } ${isCheckingFile ? 'opacity-60' : 'cursor-pointer hover:bg-accent/50 transition-colors'}`}
+      >
+        {isCheckingFile ? (
+          <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />
+        ) : (
+          <FolderOpen className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+        )}
+        {modelPath ? (
+          <span className="font-mono text-xs truncate">{modelPath}</span>
+        ) : (
+          <span className="text-muted-foreground">Click to select a .gguf model file...</span>
+        )}
+      </button>
+      {modelPath.trim() && (
+        <div className="absolute right-2 top-1/2 transform -translate-y-1/2 pointer-events-none">
+          {isCheckingFile ? (
+            <Clock className="h-4 w-4 text-muted-foreground animate-pulse" />
+          ) : fileExists === true ? (
+            <CheckCircle className="h-4 w-4 text-green-500" />
+          ) : fileExists === false ? (
+            <XCircle className="h-4 w-4 text-red-500" />
+          ) : null}
+        </div>
+      )}
+    </div>
 
     {/* File existence status */}
     {modelPath.trim() && (
@@ -141,7 +105,7 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
                         }}
                         className="block w-full text-left px-3 py-2 text-xs bg-muted hover:bg-accent rounded border border-border transition-colors"
                       >
-                        📄 {suggestion}
+                        {suggestion}
                       </button>
                     ))}
                   </div>
@@ -157,5 +121,35 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
         ) : null}
       </div>
     )}
+
+    {/* Model history — collapsible below input */}
+    {modelHistory.length > 0 ? (
+      <div className="border border-input rounded-md overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setHistoryExpanded(!historyExpanded)}
+          className="w-full px-3 py-1.5 text-xs text-muted-foreground bg-muted/50 flex items-center gap-1.5 hover:bg-muted transition-colors"
+        >
+          {historyExpanded ? (
+            <ChevronDown className="h-3 w-3" />
+          ) : (
+            <ChevronRight className="h-3 w-3" />
+          )}
+          <Clock className="h-3 w-3" />
+          Recent models ({modelHistory.length})
+        </button>
+        {historyExpanded ? modelHistory.map((path, idx) => (
+          <button
+            key={idx}
+            type="button"
+            onClick={() => setModelPath(path)}
+            className="block w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors border-t border-input"
+          >
+            <div className="font-mono text-xs truncate">{path}</div>
+          </button>
+        )) : null}
+      </div>
+    ) : null}
   </div>
-);
+  );
+};

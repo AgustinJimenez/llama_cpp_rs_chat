@@ -17,7 +17,7 @@ use std::thread;
 use crossbeam_channel::{self, Receiver, Sender, TryRecvError};
 
 use super::ipc_types::*;
-use crate::web::chat::generate_llama_response;
+use crate::web::chat::{generate_llama_response, warmup_system_prompt};
 use crate::web::database::{Database, SharedDatabase};
 use crate::web::model_manager::{get_model_status, load_model};
 use crate::web::models::{SharedLlamaState, TokenData};
@@ -207,11 +207,20 @@ pub fn run_worker(db_path: &str) {
                             chat_template_string: s.chat_template_string.clone(),
                             gpu_layers: s.gpu_layers,
                             general_name: s.general_name.clone(),
-                            default_system_prompt: s.model_default_system_prompt.clone(),
+                            #[cfg(feature = "vision")]
                             has_vision: Some(s.vision_state.is_some()),
+                            #[cfg(not(feature = "vision"))]
+                            has_vision: Some(false),
                         };
                         drop(guard);
                         eprintln!("[WORKER] Model loaded successfully");
+
+                        // Pre-evaluate system prompt into KV cache for faster first response
+                        match warmup_system_prompt(state.clone(), &db) {
+                            Ok(()) => eprintln!("[WORKER] System prompt warmup complete"),
+                            Err(e) => eprintln!("[WORKER] System prompt warmup failed (non-fatal): {e}"),
+                        }
+
                         write_response(&mut ipc_writer, &WorkerResponse::ok(req_id, payload));
                     }
                     Err(e) => {
@@ -233,7 +242,8 @@ pub fn run_worker(db_path: &str) {
                 let mut guard = llama_state.lock().unwrap();
                 if let Some(ref mut state) = *guard {
                     state.inference_cache = None;
-                    state.vision_state = None;
+                    #[cfg(feature = "vision")]
+                    { state.vision_state = None; }
                     state.model = None;
                     state.current_model_path = None;
                     state.cached_system_prompt = None;

@@ -155,6 +155,7 @@ impl Database {
     }
 
     /// Update configuration for a specific conversation.
+    #[allow(dead_code)]
     pub fn update_conversation_config(
         &self,
         conversation_id: &str,

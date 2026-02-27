@@ -261,6 +261,7 @@ impl ChatEngine {
             }
 
             // Convert token to string
+            #[allow(deprecated)]
             let token_str = self
                 .model
                 .token_to_str(next_token, llama_cpp_2::model::Special::Tokenize)

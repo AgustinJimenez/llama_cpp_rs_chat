@@ -831,6 +831,7 @@ fn generate_response(
         }
 
         // Convert to string
+        #[allow(deprecated)]
         let token_str = model
             .token_to_str(next_token, llama_cpp_2::model::Special::Tokenize)
             .map_err(|e| format!("Token conversion failed: {}", e))?;

@@ -138,7 +138,13 @@ export function useChat() {
           }
           if (tokenCount !== undefined) setTokensUsed(tokenCount);
           if (maxTokenCount !== undefined) setMaxTokens(maxTokenCount);
-          if (timings) setLastTimings(timings);
+          if (timings) {
+            setLastTimings(timings);
+            // Attach timings to the assistant message for per-message stats display
+            setMessages(prev => prev.map(msg =>
+              msg.id === assistantMessageId ? { ...msg, timings } : msg
+            ));
+          }
 
           setIsLoading(false);
         },
@@ -260,6 +266,8 @@ export function useChat() {
 
   // Stop the current generation
   const stopGeneration = useCallback(() => {
+    // Always tell the backend to cancel, even if WS is already closed
+    fetch('/api/chat/cancel', { method: 'POST' }).catch(() => {});
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;

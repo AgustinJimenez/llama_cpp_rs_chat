@@ -37,7 +37,7 @@ interface ChatHeaderProps {
 
 export function ChatHeader({ onModelUnload, onForceUnload }: ChatHeaderProps) {
   const { status: modelStatus, isLoading: isModelLoading, loadingAction, hasStatusError } = useModelContext();
-  const { tokensUsed, maxTokens, lastTimings } = useChatContext();
+  const { tokensUsed, maxTokens, lastTimings, currentConversationId } = useChatContext();
   const { viewMode, setViewMode, isRightSidebarOpen, toggleRightSidebar, isConfigSidebarOpen, toggleConfigSidebar, openModelConfig } = useUIContext();
 
   const modelLoaded = modelStatus.loaded;
@@ -49,7 +49,7 @@ export function ChatHeader({ onModelUnload, onForceUnload }: ChatHeaderProps) {
       <div className="flex items-center gap-1 min-w-0">
         <ModelSelector
           currentModelPath={modelStatus.model_path ?? undefined}
-          isLoading={isModelLoading}
+          isLoading={isModelLoading && currentConversationId !== null}
           loadingAction={loadingAction}
           onOpen={openModelConfig}
         />

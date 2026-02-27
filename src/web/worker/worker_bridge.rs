@@ -158,6 +158,7 @@ impl WorkerBridge {
     }
 
     /// Unload the model (within the worker process).
+    #[allow(dead_code)] // Used by Tauri binary (main.rs), not llama_chat_web
     pub async fn unload_model(&self) -> Result<(), String> {
         let payload = self.send_and_wait(WorkerCommand::UnloadModel).await?;
         match payload {

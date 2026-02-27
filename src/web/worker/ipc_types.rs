@@ -62,7 +62,6 @@ pub enum WorkerPayload {
         chat_template_string: Option<String>,
         gpu_layers: Option<u32>,
         general_name: Option<String>,
-        default_system_prompt: Option<String>,
         has_vision: Option<bool>,
     },
     /// Model unloaded.

@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Loader2, ChevronDown, ChevronRight } from 'lucide-react';
-import { open } from '@tauri-apps/plugin-dialog';
+import { pickFile } from '@/utils/tauriCommands';
 import {
   Dialog,
   DialogContent,
@@ -26,6 +26,7 @@ import { MemoryVisualization } from './MemoryVisualization';
 
 // Import hooks
 import { useMemoryCalculation } from '@/hooks/useMemoryCalculation';
+import { useVramOptimizer } from '@/hooks/useVramOptimizer';
 import { useModelPathValidation } from '@/hooks/useModelPathValidation';
 import { useSystemResources } from '@/contexts/SystemResourcesContext';
 
@@ -62,10 +63,11 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   const [contextSize, setContextSize] = useState(32768);
   const [modelPath, setModelPath] = useState('');
   const [isMetadataExpanded, setIsMetadataExpanded] = useState(false);
+  const [isPicking, setIsPicking] = useState(false);
   const [isConfigExpanded, setIsConfigExpanded] = useState(true);
   const [modelHistory, setModelHistory] = useState<string[]>([]);
   const [showHistory, setShowHistory] = useState(false);
-  const [systemPromptMode, setSystemPromptMode] = useState<'model' | 'system' | 'custom'>('system');
+  const [systemPromptMode, setSystemPromptMode] = useState<'system' | 'custom'>('system');
   const [customSystemPrompt, setCustomSystemPrompt] = useState('You are a helpful AI assistant.');
 
   const [overheadGb, setOverheadGb] = useState(2.0);
@@ -87,6 +89,47 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     onPathChange: setModelPath,
   });
 
+  // Derive model name and recommended params early (used by optimizer and preset effect)
+  const generalName = modelInfo?.general_name;
+  const recommendedParams = modelInfo?.recommended_params;
+
+  // Resolve preset synchronously for optimizer (avoids race with useEffect-based preset application)
+  // If a model-specific preset exists, it takes priority over GGUF embedded params (it's hand-tuned).
+  // GGUF params only fill in gaps the preset doesn't cover, or serve as the base when no preset exists.
+  const resolvedPreset = useMemo((): Partial<SamplerConfig> => {
+    const specificPreset = findPresetByName(generalName || '');
+    const namedPreset = specificPreset || DEFAULT_PRESET;
+    if (recommendedParams && Object.keys(recommendedParams).length > 0) {
+      const { repetition_penalty, ...rest } = recommendedParams;
+      const ggufParams = {
+        ...rest,
+        ...(repetition_penalty != null ? { repeat_penalty: repetition_penalty } : {}),
+      };
+      // Specific preset wins over GGUF; GGUF wins over DEFAULT
+      return specificPreset
+        ? { ...DEFAULT_PRESET, ...ggufParams, ...specificPreset }
+        : { ...namedPreset, ...ggufParams };
+    }
+    return namedPreset;
+  }, [generalName, recommendedParams]);
+
+  const maxContextSize = useMemo(() => {
+    if (!modelInfo?.context_length) return 131072;
+    const parsed = parseInt(modelInfo.context_length.toString().replace(/,/g, ''));
+    return isNaN(parsed) ? 131072 : parsed;
+  }, [modelInfo?.context_length]);
+
+  // Auto-calculate optimal gpu_layers and context_size for available VRAM
+  const optimized = useVramOptimizer({
+    modelMetadata: modelInfo,
+    availableVramGb,
+    maxLayers,
+    cacheTypeK: resolvedPreset.cache_type_k || 'f16',
+    cacheTypeV: resolvedPreset.cache_type_v || 'f16',
+    presetContextSize: resolvedPreset.context_size,
+    maxContextSize,
+  });
+
   // Calculate memory breakdown in real-time
   const memoryBreakdown = useMemoryCalculation({
     modelMetadata: modelInfo,
@@ -95,6 +138,8 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     availableVramGb,
     availableRamGb,
     overheadGb,
+    cacheTypeK: config.cache_type_k || resolvedPreset.cache_type_k || 'f16',
+    cacheTypeV: config.cache_type_v || resolvedPreset.cache_type_v || 'f16',
   });
 
   // Initialize model path from config when modal opens
@@ -135,42 +180,37 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     if (modelInfo?.context_length) {
       const maxContext = parseInt(modelInfo.context_length.toString().replace(/,/g, ''));
       if (!isNaN(maxContext)) {
-        // Cap at 32K by default to avoid GPU OOM on models with very large context windows
-        setContextSize(Math.min(maxContext, 32768));
+        // Set to model's max — VRAM optimizer will adjust to fit available memory
+        setContextSize(maxContext);
       }
     }
   }, [modelInfo]);
 
   // Auto-apply recommended sampling parameters when model info loads
-  const generalName = modelInfo?.general_name;
-  const recommendedParams = modelInfo?.recommended_params;
   useEffect(() => {
     if (!generalName && !recommendedParams) return;
 
-    // First try GGUF embedded params, then preset lookup, then default
-    let preset: Partial<SamplerConfig> | null = null;
+    // Specific preset = hand-tuned for this model (takes priority over GGUF sampling params)
+    const specificPreset = findPresetByName(generalName || '');
+    const namedPreset = specificPreset || DEFAULT_PRESET;
 
-    // Check for GGUF embedded params
+    // GGUF embedded params (from general.sampling.* keys in the GGUF file)
+    let ggufParams: Partial<SamplerConfig> = {};
     if (recommendedParams && Object.keys(recommendedParams).length > 0) {
       const { repetition_penalty, ...rest } = recommendedParams;
-      preset = {
+      ggufParams = {
         ...rest,
         ...(repetition_penalty != null ? { repeat_penalty: repetition_penalty } : {}),
       };
     }
 
-    // Fallback to preset lookup by model name
-    if (!preset) {
-      preset = findPresetByName(generalName || '');
-    }
-
-    // Final fallback to default
-    if (!preset) {
-      preset = DEFAULT_PRESET;
-    }
+    // Merge: specific preset wins over GGUF; GGUF wins over DEFAULT
+    const merged = specificPreset
+      ? { ...DEFAULT_PRESET, ...ggufParams, ...specificPreset }
+      : { ...namedPreset, ...ggufParams };
 
     // Apply the preset (including context_size if specified)
-    const { context_size: presetContextSize, ...samplerPreset } = preset as Partial<SamplerConfig> & { context_size?: number };
+    const { context_size: presetContextSize, ...samplerPreset } = merged as Partial<SamplerConfig> & { context_size?: number };
     setConfig(prev => ({
       ...prev,
       ...samplerPreset,
@@ -180,8 +220,23 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
       setContextSize(presetContextSize);
     }
 
-    console.log('[ModelConfig] Auto-applied preset for:', generalName, preset);
+    console.log('[ModelConfig] Auto-applied preset for:', generalName, merged);
   }, [generalName, recommendedParams]);
+
+  // Auto-apply VRAM-optimized gpu_layers and context_size once per model
+  const autoOptimizedForPath = useRef('');
+  useEffect(() => {
+    if (optimized.ready && modelPath && autoOptimizedForPath.current !== modelPath) {
+      autoOptimizedForPath.current = modelPath;
+      setConfig(prev => ({ ...prev, gpu_layers: optimized.optimalGpuLayers }));
+      setContextSize(optimized.optimalContextSize);
+      console.log('[ModelConfig] VRAM auto-optimized:', {
+        gpuLayers: optimized.optimalGpuLayers,
+        contextSize: optimized.optimalContextSize,
+        kvAttentionLayers: optimized.kvAttentionLayers,
+      });
+    }
+  }, [optimized, modelPath]);
 
   const handleInputChange = (field: keyof SamplerConfig, value: string | number | boolean) => {
     setConfig(prev => ({
@@ -225,55 +280,33 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     console.log('File exists:', fileExists);
 
     // Determine system prompt based on mode
-    // 'model' = null (use GGUF default), 'system' = '__AGENTIC__' (use universal prompt), 'custom' = user's prompt
-    let systemPrompt: string | null = null;
-    if (systemPromptMode === 'model') {
-      // Use null to let backend use model's default from chat template
-      systemPrompt = null;
-    } else if (systemPromptMode === 'system') {
-      // Use special marker to tell backend to use universal agentic prompt
-      systemPrompt = '__AGENTIC__';
-    } else {
-      // Use custom prompt
-      systemPrompt = customSystemPrompt;
-    }
+    // 'system' = '__AGENTIC__' (use universal agentic prompt), 'custom' = user's prompt
+    const systemPrompt = systemPromptMode === 'system'
+      ? '__AGENTIC__'
+      : customSystemPrompt;
 
     const finalConfig = {
       ...config,
       model_path: modelPath,
       context_size: contextSize,
-      system_prompt: systemPrompt ?? undefined,  // undefined = model default, '__AGENTIC__' = agentic mode, string = custom
+      system_prompt: systemPrompt,
     };
     console.log('[DEBUG] Saving config with system_prompt:', systemPrompt, 'mode:', systemPromptMode);
     onSave(finalConfig);
   };
 
   const handleBrowseFile = async () => {
-    if (!isTauri) {
-      alert('File picker is only available in desktop mode. Please enter the full file path manually.');
-      return;
-    }
-
+    if (isPicking) return;
+    setIsPicking(true);
     try {
-      console.log('Opening file dialog...');
-      const selected = await open({
-        multiple: false,
-        filters: [{
-          name: 'GGUF Model Files',
-          extensions: ['gguf']
-        }]
-      });
-
-      if (selected) {
-        const filePath = Array.isArray(selected) ? selected[0] : selected;
-        console.log('Selected file path:', filePath);
-        // Just set the path - the useModelPathValidation hook will handle
-        // file existence checking and metadata fetching automatically
+      const filePath = await pickFile();
+      if (filePath) {
         setModelPath(filePath);
       }
     } catch (error) {
       console.error('Error opening file dialog:', error);
-      alert(`Failed to open file dialog: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setIsPicking(false);
     }
   };
 
@@ -357,7 +390,6 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                     setSystemPromptMode={setSystemPromptMode}
                     customSystemPrompt={customSystemPrompt}
                     setCustomSystemPrompt={setCustomSystemPrompt}
-                    modelInfo={modelInfo}
                   />
 
                   {/* Memory Visualization - Real-time VRAM/RAM usage */}
@@ -370,7 +402,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                       maxLayers={maxLayers}
                       contextSize={contextSize}
                       onContextSizeChange={setContextSize}
-                      maxContextSize={modelInfo?.context_length ? parseInt(modelInfo.context_length.toString().replace(/,/g, '')) || 131072 : 131072}
+                      maxContextSize={maxContextSize}
                     /> : null}
 
                   <AdvancedContextSection

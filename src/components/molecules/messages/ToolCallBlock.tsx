@@ -140,17 +140,6 @@ const StreamingOutput: React.FC<{ output: string }> = ({ output }) => {
   );
 };
 
-const WaitingIndicator: React.FC<{ name: string; elapsed: number }> = ({ name, elapsed }) => {
-  const elapsedStr = formatElapsed(elapsed);
-  return (
-    <div className="bg-muted px-3 py-2 flex items-center gap-2" style={{ borderTop: '1px solid hsl(220 8% 28%)' }}>
-      <span className="inline-block w-3 h-3 border-2 border-foreground/50 border-t-transparent rounded-full animate-spin flex-shrink-0" />
-      <span className="text-xs text-foreground">
-        Waiting for {formatToolName(name)} result...{elapsedStr ? ` (${elapsedStr})` : null}
-      </span>
-    </div>
-  );
-};
 
 const CompletedHeader: React.FC<{
   name: string; summary: string; isExpanded: boolean; onToggle: () => void;
@@ -207,7 +196,7 @@ const SingleToolCall: React.FC<{ toolCall: ToolCall }> = ({ toolCall }) => {
       {isExpanded && !isExecuting ? <pre className="text-xs text-foreground font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto">
           {formatToolArguments(toolCall.arguments)}
         </pre> : null}
-      {isExecuting && !hasStreamingOutput ? <WaitingIndicator name={toolCall.name} elapsed={elapsed} /> : null}
+      {/* Spinner in ExecutingHeader is sufficient — no extra waiting indicator needed */}
       {hasStreamingOutput ? <StreamingOutput output={toolCall.output!} /> : null}
       {!isExecuting && toolCall.output ? <CompletedOutput output={toolCall.output} isExpanded={isOutputExpanded} onToggle={() => setIsOutputExpanded(!isOutputExpanded)} /> : null}
     </div>

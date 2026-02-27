@@ -15,5 +15,6 @@ mod templates;
 pub mod tool_tags;
 
 pub use generation::generate_llama_response;
+pub use generation::warmup_system_prompt;
 pub use templates::get_universal_system_prompt_with_tags;
 pub use tool_tags::get_tool_tags_for_model;

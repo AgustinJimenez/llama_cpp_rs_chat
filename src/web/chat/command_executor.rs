@@ -200,6 +200,17 @@ pub fn check_and_execute_command_with_tags(
         return Ok(None);
     };
 
+    // Fast path: skip expensive regex checks unless we see a closing tag character.
+    // Command blocks always end with '>' (SYSTEM.EXEC, </tool_call>, </function>)
+    // or ']' ([/TOOL_CALLS], [ARGS]{...}) or '}' (JSON tool calls).
+    // This avoids running 6 regex patterns on every single token.
+    if !response_to_scan.contains('>')
+        && !response_to_scan.contains(']')
+        && !response_to_scan.ends_with('}')
+    {
+        return Ok(None);
+    }
+
     // Try each format detector in priority order (first match wins)
     let command_text = {
         let mut found: Option<String> = None;
@@ -358,8 +369,8 @@ pub fn check_and_execute_command_with_tags(
 /// Inject command output tokens into the LLM context.
 pub fn inject_output_tokens(
     tokens: &[i32],
-    batch: &mut LlamaBatch,
-    context: &mut llama_cpp_2::context::LlamaContext,
+    batch: &mut LlamaBatch<'_>,
+    context: &mut llama_cpp_2::context::LlamaContext<'_>,
     token_pos: &mut i32,
     conversation_id: &str,
 ) -> Result<(), String> {

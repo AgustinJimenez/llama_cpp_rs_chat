@@ -119,6 +119,38 @@ pub async fn handle_get_conversations(
     Ok(json_raw(StatusCode::OK, response_json))
 }
 
+/// GET /api/conversations/:id/metrics — return generation metrics logs for a conversation
+pub async fn handle_get_conversation_metrics(
+    path: &str,
+    db: SharedDatabase,
+) -> Result<Response<Body>, Infallible> {
+    // Extract conversation ID from path: /api/conversations/{id}/metrics
+    let stripped = match path.strip_prefix("/api/conversations/") {
+        Some(s) => s,
+        None => return Ok(json_error(StatusCode::BAD_REQUEST, "Invalid path")),
+    };
+    let conv_id = match stripped.strip_suffix("/metrics") {
+        Some(s) => s.trim_end_matches(".txt"),
+        None => return Ok(json_error(StatusCode::BAD_REQUEST, "Invalid path")),
+    };
+
+    match db.get_logs_for_conversation(conv_id) {
+        Ok(logs) => {
+            // Filter to metrics entries only
+            let metrics: Vec<_> = logs.into_iter().filter(|l| l.level == "metrics").collect();
+            let response_json = serialize_with_fallback(&metrics, "[]");
+            Ok(json_raw(StatusCode::OK, response_json))
+        }
+        Err(e) => {
+            sys_error!("Failed to get metrics for {}: {}", conv_id, e);
+            Ok(json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to retrieve metrics",
+            ))
+        }
+    }
+}
+
 pub async fn handle_delete_conversation(
     path: &str,
     #[cfg(not(feature = "mock"))] _llama_state: crate::web::worker::worker_bridge::SharedWorkerBridge,

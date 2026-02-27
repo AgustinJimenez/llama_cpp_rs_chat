@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { MemoryBreakdown } from '@/components/organisms/model-config/MemoryVisualization';
 import type { ModelMetadata } from '@/types';
+import { getKvCacheLayers, calculateKvCacheGb } from '@/utils/vramUtils';
 
 interface MemoryCalculationParams {
   modelMetadata: ModelMetadata | null;
@@ -9,10 +10,13 @@ interface MemoryCalculationParams {
   availableVramGb: number;
   availableRamGb: number;
   overheadGb?: number;
+  cacheTypeK?: string;
+  cacheTypeV?: string;
 }
 
 interface ArchitectureParams {
   totalLayers: number;
+  kvAttentionLayers: number;
   modelSizeGb: number;
   qHeads: number;
   kvHeads: number;
@@ -27,7 +31,7 @@ function parseField(value: string | undefined): number | null {
 }
 
 /** Extract architecture parameters from model metadata with fallbacks */
-function extractArchitectureParams(meta: ModelMetadata): ArchitectureParams {
+export function extractArchitectureParams(meta: ModelMetadata): ArchitectureParams {
   const totalLayers =
     meta.architecture_details?.block_count ||
     parseField(meta.block_count) ||
@@ -49,30 +53,16 @@ function extractArchitectureParams(meta: ModelMetadata): ArchitectureParams {
     parseField(meta.embedding_length) ||
     4096;
 
+  const kvAttentionLayers = getKvCacheLayers(meta);
+
   return {
     totalLayers,
+    kvAttentionLayers,
     modelSizeGb: meta.file_size_gb || 0,
     qHeads,
     kvHeads,
     embeddingLength,
   };
-}
-
-/**
- * Calculate KV cache size in GB
- * Formula: context × layers × kv_heads × head_dim × 2 (K+V) × 2 bytes (fp16)
- * where head_dim = embedding_length / q_heads (NOT kv_heads)
- */
-function calculateKvCacheGb(
-  contextSize: number,
-  totalLayers: number,
-  kvHeads: number,
-  qHeads: number,
-  embeddingLength: number
-): number {
-  const headDim = embeddingLength / qHeads;
-  const bytes = contextSize * totalLayers * kvHeads * headDim * 2 * 2;
-  return bytes / (1024 * 1024 * 1024);
 }
 
 const EMPTY_BREAKDOWN = (vramGb: number, ramGb: number): MemoryBreakdown => ({
@@ -103,13 +93,15 @@ export function useMemoryCalculation({
   availableVramGb,
   availableRamGb,
   overheadGb: overheadParam = 2.0,
+  cacheTypeK = 'f16',
+  cacheTypeV = 'f16',
 }: MemoryCalculationParams): MemoryBreakdown {
   return useMemo(() => {
     if (!modelMetadata) {
       return EMPTY_BREAKDOWN(availableVramGb, availableRamGb);
     }
 
-    const { totalLayers, modelSizeGb, qHeads, kvHeads, embeddingLength } =
+    const { totalLayers, kvAttentionLayers, modelSizeGb, qHeads, kvHeads, embeddingLength } =
       extractArchitectureParams(modelMetadata);
 
     // Calculate how much of model goes to GPU vs CPU
@@ -120,7 +112,8 @@ export function useMemoryCalculation({
     const modelCpuSizeGb = modelSizeGb * (1 - gpuFraction);
 
     const kvCacheSizeGb = calculateKvCacheGb(
-      contextSize, totalLayers, kvHeads, qHeads, embeddingLength
+      contextSize, kvAttentionLayers, kvHeads, qHeads, embeddingLength,
+      cacheTypeK, cacheTypeV,
     );
 
     const vramUsed = modelGpuSizeGb + kvCacheSizeGb + overheadParam;
@@ -142,5 +135,5 @@ export function useMemoryCalculation({
         overcommitted: ramUsed > availableRamGb,
       },
     };
-  }, [modelMetadata, gpuLayers, contextSize, availableVramGb, availableRamGb, overheadParam]);
+  }, [modelMetadata, gpuLayers, contextSize, availableVramGb, availableRamGb, overheadParam, cacheTypeK, cacheTypeV]);
 }

@@ -128,6 +128,24 @@ pub async fn handle_post_pick_directory(
     Ok(json_raw(StatusCode::OK, json.to_string()))
 }
 
+/// POST /api/browse/pick-file — open native OS file picker filtered to .gguf, return selected path
+pub async fn handle_post_pick_file(
+    #[cfg(not(feature = "mock"))] _bridge: crate::web::worker::worker_bridge::SharedWorkerBridge,
+    #[cfg(feature = "mock")] _bridge: (),
+) -> Result<Response<Body>, Infallible> {
+    let result = tokio::task::spawn_blocking(|| {
+        rfd::FileDialog::new()
+            .add_filter("GGUF Model Files", &["gguf"])
+            .pick_file()
+    })
+    .await
+    .unwrap_or(None);
+
+    let path = result.map(|p| p.to_string_lossy().into_owned());
+    let json = serde_json::json!({ "path": path });
+    Ok(json_raw(StatusCode::OK, json.to_string()))
+}
+
 pub async fn handle_post_upload(
     req: Request<Body>,
     #[cfg(not(feature = "mock"))] _llama_state: crate::web::worker::worker_bridge::SharedWorkerBridge,

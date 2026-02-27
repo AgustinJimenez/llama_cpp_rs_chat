@@ -42,6 +42,8 @@ struct ChatDoneEvent {
     tokens_used: Option<i32>,
     max_tokens: Option<i32>,
     error: Option<String>,
+    prompt_tok_per_sec: Option<f64>,
+    gen_tok_per_sec: Option<f64>,
 }
 
 // ─── Logging ──────────────────────────────────────────────────────────
@@ -253,6 +255,17 @@ async fn delete_conversation(
     Ok(serde_json::json!({"success": true}))
 }
 
+#[tauri::command]
+async fn get_conversation_metrics(
+    conversation_id: String,
+    db: tauri::State<'_, SharedDatabase>,
+) -> Result<serde_json::Value, String> {
+    let conv_id = conversation_id.trim_end_matches(".txt");
+    let logs = db.get_logs_for_conversation(conv_id)?;
+    let metrics: Vec<_> = logs.into_iter().filter(|l| l.level == "metrics").collect();
+    Ok(serde_json::to_value(&metrics).unwrap_or_default())
+}
+
 // ─── Chat Commands ────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -331,7 +344,8 @@ async fn generate_stream(
                 conversation_id,
                 tokens_used,
                 max_tokens,
-                ..
+                prompt_tok_per_sec,
+                gen_tok_per_sec,
             }) => {
                 let _ = app.emit(
                     "chat-done",
@@ -341,6 +355,8 @@ async fn generate_stream(
                         tokens_used: Some(tokens_used),
                         max_tokens: Some(max_tokens),
                         error: None,
+                        prompt_tok_per_sec,
+                        gen_tok_per_sec,
                     },
                 );
             }
@@ -353,6 +369,8 @@ async fn generate_stream(
                         tokens_used: None,
                         max_tokens: None,
                         error: None,
+                        prompt_tok_per_sec: None,
+                        gen_tok_per_sec: None,
                     },
                 );
             }
@@ -365,6 +383,8 @@ async fn generate_stream(
                         tokens_used: None,
                         max_tokens: None,
                         error: Some(e),
+                        prompt_tok_per_sec: None,
+                        gen_tok_per_sec: None,
                     },
                 );
             }
@@ -377,6 +397,8 @@ async fn generate_stream(
                         tokens_used: None,
                         max_tokens: None,
                         error: Some("Worker response channel closed".into()),
+                        prompt_tok_per_sec: None,
+                        gen_tok_per_sec: None,
                     },
                 );
             }
@@ -801,6 +823,7 @@ fn main() {
             get_conversations,
             get_conversation,
             delete_conversation,
+            get_conversation_metrics,
             // Chat
             generate_stream,
             cancel_generation,

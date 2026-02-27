@@ -6,6 +6,34 @@ import { isTauriEnv } from '../utils/tauri';
 import { getConversation } from '../utils/tauriCommands';
 import type { Message } from '../types';
 
+/**
+ * Check if the content has an unclosed tool response/output tag, indicating
+ * a command is still executing. Used to avoid prematurely declaring generation done.
+ */
+function hasUnclosedToolExecution(content: string): boolean {
+  // Qwen/generic: <tool_response> without matching </tool_response>
+  const lastTrOpen = content.lastIndexOf('<tool_response>');
+  const lastTrClose = content.lastIndexOf('</tool_response>');
+  if (lastTrOpen !== -1 && lastTrOpen > lastTrClose) return true;
+
+  // SYSTEM.EXEC format: <||SYSTEM.OUTPUT> without closing
+  const lastSoOpen = content.lastIndexOf('SYSTEM.OUTPUT>');
+  const lastSoClose = content.lastIndexOf('SYSTEM.OUTPUT||>');
+  if (lastSoOpen !== -1 && lastSoOpen > lastSoClose) return true;
+
+  // Mistral: [TOOL_RESULTS] without [/TOOL_RESULTS]
+  const lastMrOpen = content.lastIndexOf('[TOOL_RESULTS]');
+  const lastMrClose = content.lastIndexOf('[/TOOL_RESULTS]');
+  if (lastMrOpen !== -1 && lastMrOpen > lastMrClose) return true;
+
+  // Unclosed tool call (model still generating the call, before execution)
+  const lastTcOpen = content.lastIndexOf('<tool_call>');
+  const lastTcClose = content.lastIndexOf('</tool_call>');
+  if (lastTcOpen !== -1 && lastTcOpen > lastTcClose) return true;
+
+  return false;
+}
+
 interface UseConversationWatcherOptions {
   currentConversationId: string | null;
   isStreamingRef: React.MutableRefObject<boolean>;
@@ -89,10 +117,15 @@ export function useConversationWatcher({
         return;
       }
 
-      if (lastMessage.content.trim().length > 0) {
-        isStreamingRef.current = false;
-        setIsLoading(false);
-      }
+      const content = lastMessage.content.trim();
+      if (content.length === 0) return;
+
+      // Don't declare generation "done" if there's an unclosed tool response tag —
+      // that means a command is still executing and we're waiting for output.
+      if (hasUnclosedToolExecution(content)) return;
+
+      isStreamingRef.current = false;
+      setIsLoading(false);
     };
 
     const fetchConversation = async () => {

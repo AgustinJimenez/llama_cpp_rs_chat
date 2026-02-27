@@ -3,6 +3,7 @@ name = "llama_cpp_chat"
 version = "0.1.0"
 edition = "2021"
 default-run = "llama_chat_app"
+exclude = ["libs/"]
 
 # Tauri expects a lib.rs with the lib target
 [lib]
@@ -34,10 +35,11 @@ path = "check_gemma_template.rs"
 name = "test_model"
 path = "src/test_model.rs"
 
-# Test binary for vision/mmproj loading
+# Test binary for vision/mmproj loading (requires: --features vision)
 [[bin]]
 name = "test_vision"
 path = "src/test_vision.rs"
+required-features = ["vision"]
 
 [lints.clippy]
 all = "warn"
@@ -64,8 +66,8 @@ tokio = { version = "1.0", features = ["full"] }
 regex = "1.10"
 
 # LLaMA dependencies - with conditional CUDA GPU acceleration
-llama-cpp-2 = { version = "=0.1.122", features = ["mtmd"] }
-llama-cpp-sys-2 = { version = "=0.1.122" }  # Pin to match HuggingFace mmproj GGUF format
+llama-cpp-2 = { path = "deps/llama-cpp-rs/llama-cpp-2" }
+llama-cpp-sys-2 = { path = "deps/llama-cpp-rs/llama-cpp-sys-2" }
 anyhow = "1.0"
 uuid = { version = "1.0", features = ["v4"] }
 
@@ -121,6 +123,7 @@ default = []
 mock = []  # Mock implementation for E2E tests
 cuda = ["llama-cpp-2/cuda"]  # CUDA support feature
 metal = ["llama-cpp-2/metal"]  # Metal support feature for macOS
+vision = ["llama-cpp-2/mtmd"]  # Vision/multimodal support (disabled by default, re-enable later)
 
 [build-dependencies]
 tauri-build = { version = "2.0", features = [] }

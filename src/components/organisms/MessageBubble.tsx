@@ -3,7 +3,7 @@ import type { Message } from '../../types';
 import type { MessageSegment } from '../../hooks/useMessageParsing';
 import { useMessageParsing } from '../../hooks/useMessageParsing';
 import { MarkdownContent } from '../molecules/MarkdownContent';
-import { ThinkingBlock, ToolCallBlock } from '../molecules/messages';
+import { ThinkingBlock, ToolCallBlock, MessageStatistics } from '../molecules/messages';
 
 interface MessageBubbleProps {
   message: Message;
@@ -119,12 +119,14 @@ const AssistantMessage: React.FC<{
   thinkingContent: string | null;
   isThinkingStreaming?: boolean;
   segments: MessageSegment[];
+  isStreaming?: boolean;
 }> = ({
   message,
   viewMode,
   thinkingContent,
   isThinkingStreaming,
   segments,
+  isStreaming,
 }) => (
   <div
     className="w-full flex justify-start"
@@ -171,6 +173,11 @@ const AssistantMessage: React.FC<{
             );
           })}
 
+          {/* Per-message generation statistics */}
+          {!isStreaming && message.timings ? (
+            <MessageStatistics timings={message.timings} />
+          ) : null}
+
         </>
       )}
 
@@ -181,7 +188,7 @@ const AssistantMessage: React.FC<{
 /**
  * Message bubble component - renders user, assistant, or system messages.
  */
-export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode = 'text', isStreaming: _isStreaming }) => {
+export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode = 'text', isStreaming }) => {
   const {
     cleanContent,
     thinkingContent,
@@ -212,6 +219,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode 
       thinkingContent={thinkingContent}
       isThinkingStreaming={isThinkingStreaming}
       segments={segments}
+      isStreaming={isStreaming}
     />
   );
 };
