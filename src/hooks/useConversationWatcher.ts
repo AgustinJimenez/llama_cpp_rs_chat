@@ -53,7 +53,27 @@ const WS_STUCK_STREAMING_POLL_MS = 15_000;
  * During streaming, prefer whichever has more content to avoid flickering.
  */
 function reconcileMessages(incoming: Message[], local: Message[], isStreaming: boolean): Message[] {
-  if (!isStreaming || local.length === 0) return incoming;
+  if (!isStreaming || local.length === 0) {
+    // Preserve timings from local messages (attached by onComplete) that
+    // the file-parsed incoming messages don't have.
+    // Match by index+role since IDs differ between local and parsed messages.
+    if (local.length > 0 && incoming.length > 0) {
+      let hasTimings = false;
+      for (const msg of local) {
+        if (msg.timings) { hasTimings = true; break; }
+      }
+      if (hasTimings) {
+        return incoming.map((msg, i) => {
+          const localMsg = local[i];
+          if (localMsg?.timings && localMsg.role === msg.role) {
+            return { ...msg, timings: localMsg.timings };
+          }
+          return msg;
+        });
+      }
+    }
+    return incoming;
+  }
 
   const localLast = local[local.length - 1];
   const incomingLast = incoming[incoming.length - 1];

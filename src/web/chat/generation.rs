@@ -430,7 +430,7 @@ pub async fn generate_llama_response(
     let prompt_eval_start = Instant::now();
 
     // Two code paths: vision (mtmd) or standard text-only
-    let (mut context, prompt_tokens, tokens) = if use_vision {
+    let (mut context, prompt_tokens, tokens, actually_evaluated) = if use_vision {
         #[cfg(feature = "vision")]
         {
         // === VISION PATH: Use MtmdContext to process text + images ===
@@ -497,7 +497,7 @@ pub async fn generate_llama_response(
 
         // Create a dummy tokens vec for cache storage (vision doesn't use standard tokens)
         let dummy_tokens = vec![LlamaToken(0); n_past as usize];
-        (ctx, n_prompt_tokens, dummy_tokens)
+        (ctx, n_prompt_tokens, dummy_tokens, n_prompt_tokens)
         }
         #[cfg(not(feature = "vision"))]
         unreachable!("Vision feature not enabled")
@@ -646,10 +646,11 @@ pub async fn generate_llama_response(
             );
         }
 
-        (ctx, prompt_tokens, tokens)
+        let actually_evaluated = prompt_tokens - skip_tokens;
+        (ctx, prompt_tokens, tokens, actually_evaluated)
     };
 
-    let n_prompt_eval = prompt_tokens;
+    let n_prompt_eval = actually_evaluated;
 
     let prompt_eval_ms = prompt_eval_start.elapsed().as_secs_f64() * 1000.0;
     let gen_start = Instant::now();

@@ -37,11 +37,10 @@ interface ChatHeaderProps {
 
 export function ChatHeader({ onModelUnload, onForceUnload }: ChatHeaderProps) {
   const { status: modelStatus, isLoading: isModelLoading, loadingAction, hasStatusError } = useModelContext();
-  const { tokensUsed, maxTokens, lastTimings, currentConversationId } = useChatContext();
+  const { tokensUsed, maxTokens, currentConversationId } = useChatContext();
   const { viewMode, setViewMode, isRightSidebarOpen, toggleRightSidebar, isConfigSidebarOpen, toggleConfigSidebar, openModelConfig } = useUIContext();
 
   const modelLoaded = modelStatus.loaded;
-  const genTokPerSec = lastTimings?.genTokPerSec;
 
   return (
     <div className="flex items-center justify-between px-4 py-2 border-b border-border" data-testid="chat-header">
@@ -76,11 +75,6 @@ export function ChatHeader({ onModelUnload, onForceUnload }: ChatHeaderProps) {
           {tokensUsed !== undefined && maxTokens !== undefined && (
             <span className="text-xs text-muted-foreground font-mono">
               {tokensUsed}/{maxTokens}
-            </span>
-          )}
-          {genTokPerSec !== undefined && genTokPerSec > 0 && (
-            <span className="text-xs text-muted-foreground font-mono" title="Generation speed">
-              {genTokPerSec.toFixed(1)} tok/s
             </span>
           )}
 
