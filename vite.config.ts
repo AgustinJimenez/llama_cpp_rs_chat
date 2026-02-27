@@ -64,6 +64,15 @@ export default defineConfig({
     target: 'esnext',
     minify: !process.env.TAURI_DEBUG ? 'esbuild' : false,
     sourcemap: !!process.env.TAURI_DEBUG,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom'],
+          'vendor-markdown': ['react-markdown', 'remark-gfm', 'react-syntax-highlighter'],
+          'vendor-ui': ['@radix-ui/react-dialog', '@radix-ui/react-select', '@radix-ui/react-slider'],
+        },
+      },
+    },
   },
   resolve: {
     alias: {

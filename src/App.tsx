@@ -1,7 +1,6 @@
-import { useCallback } from 'react';
+import React, { useCallback, Suspense } from 'react';
 import { Toaster } from 'react-hot-toast';
-import { ChatHeader, Sidebar, RightSidebar, ConversationConfigSidebar, AppSettingsModal } from './components/organisms';
-import { ModelConfigModal } from './components/organisms/model-config';
+import { ChatHeader, Sidebar } from './components/organisms';
 import { MessagesArea } from './components/templates';
 import { WelcomeMessage } from './components/atoms';
 import { MessageInput, MessageStatistics } from './components/molecules';
@@ -9,6 +8,12 @@ import { useModelContext } from './contexts/ModelContext';
 import { useChatContext } from './contexts/ChatContext';
 import { useUIContext } from './contexts/UIContext';
 import type { SamplerConfig } from './types';
+
+// Lazy-load overlay components (only rendered when opened)
+const RightSidebar = React.lazy(() => import('./components/organisms/RightSidebar').then(m => ({ default: m.RightSidebar })));
+const ConversationConfigSidebar = React.lazy(() => import('./components/organisms/ConversationConfigSidebar').then(m => ({ default: m.ConversationConfigSidebar })));
+const AppSettingsModal = React.lazy(() => import('./components/organisms/AppSettingsModal').then(m => ({ default: m.AppSettingsModal })));
+const ModelConfigModal = React.lazy(() => import('./components/organisms/model-config').then(m => ({ default: m.ModelConfigModal })));
 
 function App() {
   const { status: modelStatus, loadModel, unloadModel, forceUnload } = useModelContext();
@@ -119,12 +124,12 @@ function MainContent({
   return (
     <div className="flex-1 ml-[240px]">
       <div className="flex flex-col h-full">
-        {(messages.length > 0 || modelStatus.loaded || isModelLoading) && (
+        {(messages.length > 0 || modelStatus.loaded || isModelLoading) ? (
           <ChatHeader
             onModelUnload={handleModelUnload}
             onForceUnload={handleForceUnload}
           />
-        )}
+        ) : null}
 
         {messages.length === 0 ? (
           <WelcomeMessage>
@@ -165,21 +170,37 @@ function Overlays({
 
   return (
     <>
-      <RightSidebar isOpen={isRightSidebarOpen} onClose={closeRightSidebar} />
-      <ConversationConfigSidebar
-        isOpen={isConfigSidebarOpen}
-        onClose={closeConfigSidebar}
-        conversationId={currentConversationId}
-        currentModelPath={modelPath}
-        onReloadModel={onReloadModel}
-      />
-      <AppSettingsModal isOpen={isAppSettingsOpen} onClose={closeAppSettings} />
-      <ModelConfigModal
-        isOpen={isModelConfigOpen}
-        onClose={closeModelConfig}
-        onSave={onModelConfigSave}
-        initialModelPath={modelPath}
-      />
+      {isRightSidebarOpen ? (
+        <Suspense fallback={null}>
+          <RightSidebar isOpen={isRightSidebarOpen} onClose={closeRightSidebar} />
+        </Suspense>
+      ) : null}
+      {isConfigSidebarOpen ? (
+        <Suspense fallback={null}>
+          <ConversationConfigSidebar
+            isOpen={isConfigSidebarOpen}
+            onClose={closeConfigSidebar}
+            conversationId={currentConversationId}
+            currentModelPath={modelPath}
+            onReloadModel={onReloadModel}
+          />
+        </Suspense>
+      ) : null}
+      {isAppSettingsOpen ? (
+        <Suspense fallback={null}>
+          <AppSettingsModal isOpen={isAppSettingsOpen} onClose={closeAppSettings} />
+        </Suspense>
+      ) : null}
+      {isModelConfigOpen ? (
+        <Suspense fallback={null}>
+          <ModelConfigModal
+            isOpen={isModelConfigOpen}
+            onClose={closeModelConfig}
+            onSave={onModelConfigSave}
+            initialModelPath={modelPath}
+          />
+        </Suspense>
+      ) : null}
     </>
   );
 }

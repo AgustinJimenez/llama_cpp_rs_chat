@@ -106,10 +106,13 @@ pub fn fetch_url_as_text(url: &str, max_chars: usize) -> serde_json::Value {
         body_str
     };
 
-    // Truncate to max_chars
+    // Truncate to max_chars (find valid UTF-8 boundary)
     let truncated = if text.len() > max_chars {
-        let cut = &text[..max_chars];
-        format!("{}...\n[TRUNCATED - showing first {} of {} chars]", cut, max_chars, text.len())
+        let mut end = max_chars;
+        while end > 0 && !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}...\n[TRUNCATED - showing first {} of {} chars]", &text[..end], end, text.len())
     } else {
         text.clone()
     };

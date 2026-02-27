@@ -7,6 +7,31 @@ interface MessageInputProps {
   disabledReason?: string;
 }
 
+function ImagePreviews({ images, onRemove }: { images: string[]; onRemove: (i: number) => void }) {
+  if (images.length === 0) return null;
+  return (
+    <div className="px-5 pt-2 pb-1 flex flex-wrap gap-2">
+      {images.map((img, i) => (
+        <div key={i} className="relative inline-block">
+          <img
+            src={img}
+            alt="Attached"
+            className="max-h-24 max-w-48 rounded-lg border border-border object-cover"
+          />
+          <button
+            type="button"
+            onClick={() => onRemove(i)}
+            className="absolute -top-2 -right-2 w-5 h-5 flex items-center justify-center rounded-full bg-red-500 text-white hover:bg-red-600 transition-colors"
+            title="Remove image"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export const MessageInput: React.FC<MessageInputProps> = ({
   disabledReason,
 }) => {
@@ -32,16 +57,15 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
     const hasContent = message.trim() || attachedImages.length > 0;
-    if (hasContent && !disabled) {
-      onSendMessage(
-        message.trim() || 'What is in this image?',
-        attachedImages.length > 0 ? attachedImages : undefined,
-      );
-      setMessage('');
-      setAttachedImages([]);
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto';
-      }
+    if (!hasContent || disabled) return;
+    onSendMessage(
+      message.trim() || 'What is in this image?',
+      attachedImages.length > 0 ? attachedImages : undefined,
+    );
+    setMessage('');
+    setAttachedImages([]);
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
     }
   }, [message, attachedImages, disabled, onSendMessage]);
 
@@ -54,8 +78,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
 
   const autoResize = useCallback((el: HTMLTextAreaElement) => {
     el.style.height = 'auto';
-    const lineHeight = 20;
-    const maxHeight = lineHeight * 7;
+    const maxHeight = 20 * 7;
     el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
   }, []);
 
@@ -64,10 +87,8 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     autoResize(e.target);
   }, [autoResize]);
 
-  // Handle clipboard paste for images
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     if (!hasVision) return;
-
     const items = e.clipboardData?.items;
     if (!items) return;
 
@@ -78,7 +99,6 @@ export const MessageInput: React.FC<MessageInputProps> = ({
         if (file) imageFiles.push(file);
       }
     }
-
     if (imageFiles.length === 0) return;
     e.preventDefault();
 
@@ -86,9 +106,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
       const reader = new FileReader();
       reader.onload = (ev) => {
         const dataUrl = ev.target?.result as string;
-        if (dataUrl) {
-          setAttachedImages(prev => [...prev, dataUrl]);
-        }
+        if (dataUrl) setAttachedImages(prev => [...prev, dataUrl]);
       };
       reader.readAsDataURL(file);
     }
@@ -100,47 +118,24 @@ export const MessageInput: React.FC<MessageInputProps> = ({
 
   const isMultiline = message.includes('\n') || (textareaRef.current?.scrollHeight ?? 0) > 40;
   const hasContent = message.trim() || attachedImages.length > 0;
+  const placeholder = disabled && disabledReason ? disabledReason : "Ask anything";
 
   return (
     <form onSubmit={handleSubmit} data-testid="message-form">
-      {/* Image previews */}
-      {attachedImages.length > 0 ? (
-        <div className="px-5 pt-2 pb-1 flex flex-wrap gap-2">
-          {attachedImages.map((img, i) => (
-            <div key={i} className="relative inline-block">
-              <img
-                src={img}
-                alt="Attached"
-                className="max-h-24 max-w-48 rounded-lg border border-border object-cover"
-              />
-              <button
-                type="button"
-                onClick={() => removeImage(i)}
-                className="absolute -top-2 -right-2 w-5 h-5 flex items-center justify-center rounded-full bg-red-500 text-white hover:bg-red-600 transition-colors"
-                title="Remove image"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
+      <ImagePreviews images={attachedImages} onRemove={removeImage} />
       <div className={`flat-input-container flex items-end gap-2 px-5 py-2.5 ${isMultiline ? '!rounded-2xl' : ''}`}>
-        {/* Vision indicator */}
         {hasVision && attachedImages.length === 0 ? (
           <div className="flex-shrink-0 flex items-center py-1 opacity-30" title="Paste an image (Ctrl+V)">
             <ImageIcon className="h-4 w-4" />
           </div>
         ) : null}
-
         <textarea
           ref={textareaRef}
           value={message}
           onChange={handleTextareaChange}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={disabled && disabledReason ? disabledReason : "Ask anything"}
+          placeholder={placeholder}
           disabled={disabled}
           className="flex-1 bg-transparent border-none outline-none resize-none text-sm text-foreground placeholder:text-muted-foreground min-h-[28px] py-1 overflow-y-auto"
           rows={1}

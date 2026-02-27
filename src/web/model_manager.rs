@@ -12,7 +12,7 @@ use super::models::VisionState;
 use crate::{log_debug, log_info, log_warn};
 
 // Re-export VRAM functions for backward compatibility (used by other modules)
-pub use super::vram_calculator::calculate_optimal_gpu_layers;
+pub use super::vram_calculator::{calculate_optimal_gpu_layers, read_gguf_block_count};
 
 // Helper function to get model status
 pub fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
@@ -108,7 +108,22 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, request
     state.current_model_path = None;
 
     // Use requested GPU layers if provided, otherwise auto-calculate
-    let optimal_gpu_layers = requested_gpu_layers.unwrap_or_else(|| calculate_optimal_gpu_layers(model_path));
+    let mut optimal_gpu_layers = requested_gpu_layers.unwrap_or_else(|| calculate_optimal_gpu_layers(model_path));
+
+    // CRITICAL: Cap gpu_layers at model's actual layer count to avoid offloading
+    // the output/embedding layer to GPU. ngl > n_layers causes llama_decode to hang
+    // on Qwen3.5 (hybrid MoE+recurrent) with large context sizes.
+    if let Some(n_layers) = super::vram_calculator::read_gguf_block_count(model_path) {
+        if optimal_gpu_layers > n_layers {
+            log_warn!(
+                "system",
+                "Capping gpu_layers from {} to {} (model block_count) to avoid output layer GPU offload hang",
+                optimal_gpu_layers,
+                n_layers
+            );
+            optimal_gpu_layers = n_layers;
+        }
+    }
 
     // Load new model with configured GPU acceleration
     let model_params = LlamaModelParams::default().with_n_gpu_layers(optimal_gpu_layers);

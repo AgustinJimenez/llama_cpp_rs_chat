@@ -82,7 +82,64 @@ pub fn calculate_kv_cache_size_gb(
     bytes / BYTES_TO_GB // Convert to GB
 }
 
+/// Read the block_count (number of transformer layers) from GGUF metadata.
+/// Uses `general.architecture` to find the correct `{arch}.block_count` key.
+pub fn read_gguf_block_count(model_path: &str) -> Option<u32> {
+    let file = fs::File::open(model_path).ok()?;
+    let mut reader = BufReader::new(file);
+    let header = GgufHeader::parse(&mut reader).ok()?;
+    let metadata = GgufReader::read_metadata(&mut reader, header.n_kv).ok()?;
+
+    // Get architecture name to find the right key
+    let arch = metadata
+        .get("general.architecture")
+        .and_then(|v| match v {
+            Value::String(s) => Some(s.clone()),
+            _ => None,
+        });
+
+    // Try {arch}.block_count first
+    if let Some(ref arch_name) = arch {
+        let key = format!("{}.block_count", arch_name);
+        if let Some(val) = metadata.get(&key) {
+            return match val {
+                Value::Uint32(n) => Some(*n),
+                Value::Uint64(n) => Some(*n as u32),
+                _ => None,
+            };
+        }
+    }
+
+    // Fallback: try common architecture prefixes
+    for prefix in &[
+        "llama",
+        "gemma3",
+        "qwen2moe",
+        "qwen35moe",
+        "phi3",
+        "gpt2",
+        "mamba",
+        "mistral",
+    ] {
+        let key = format!("{}.block_count", prefix);
+        if let Some(val) = metadata.get(&key) {
+            return match val {
+                Value::Uint32(n) => Some(*n),
+                Value::Uint64(n) => Some(*n as u32),
+                _ => None,
+            };
+        }
+    }
+
+    None
+}
+
 /// Calculate optimal GPU layers based on model file size and available VRAM.
+///
+/// CRITICAL: Never returns more than the model's actual layer count (block_count)
+/// to avoid offloading the output/embedding layer to GPU. ngl > n_layers causes
+/// llama_decode to hang on some architectures (e.g., Qwen3.5 hybrid MoE+recurrent
+/// with large context sizes).
 pub fn calculate_optimal_gpu_layers(model_path: &str) -> u32 {
     // Get model file size to estimate memory requirements
     let model_size_bytes = match fs::metadata(model_path) {
@@ -98,6 +155,12 @@ pub fn calculate_optimal_gpu_layers(model_path: &str) -> u32 {
 
     let model_size_gb = model_size_bytes as f64 / BYTES_TO_GB;
     log_info!("system", "Model file size: {:.2} GB", model_size_gb);
+
+    // Read actual layer count from GGUF metadata
+    let actual_layers = read_gguf_block_count(model_path);
+    if let Some(n_layers) = actual_layers {
+        log_info!("system", "Actual model layers from GGUF: {}", n_layers);
+    }
 
     // Try to get available GPU VRAM
     // For NVIDIA GPUs, we can estimate based on typical model requirements
@@ -119,27 +182,46 @@ pub fn calculate_optimal_gpu_layers(model_path: &str) -> u32 {
     // Calculate what percentage of the model fits in VRAM
     let vram_ratio = (available_vram_gb / model_size_gb).min(1.0);
 
-    // Estimate typical layer count based on model size
-    // Small models (~7B params, <8GB): ~32 layers
-    // Medium models (~13B params, 8-15GB): ~48 layers
-    // Large models (~30B params, 15-25GB): ~60 layers
-    // XLarge models (~70B+ params, >25GB): ~80 layers
-    let estimated_total_layers = if model_size_gb < SMALL_MODEL_GB {
-        SMALL_MODEL_LAYERS
-    } else if model_size_gb < MEDIUM_MODEL_GB {
-        MEDIUM_MODEL_LAYERS
-    } else if model_size_gb < LARGE_MODEL_GB {
-        LARGE_MODEL_LAYERS
-    } else {
-        XLARGE_MODEL_LAYERS
-    };
+    // Use actual layer count if available, otherwise estimate from model size
+    let total_layers = actual_layers.unwrap_or_else(|| {
+        if model_size_gb < SMALL_MODEL_GB {
+            SMALL_MODEL_LAYERS
+        } else if model_size_gb < MEDIUM_MODEL_GB {
+            MEDIUM_MODEL_LAYERS
+        } else if model_size_gb < LARGE_MODEL_GB {
+            LARGE_MODEL_LAYERS
+        } else {
+            XLARGE_MODEL_LAYERS
+        }
+    });
 
-    let optimal_layers = (estimated_total_layers as f64 * vram_ratio).floor() as u32;
+    let mut optimal_layers = (total_layers as f64 * vram_ratio).floor() as u32;
+
+    // CRITICAL: Cap at actual layer count to avoid offloading the output layer.
+    // ngl > n_layers offloads the output/embedding layer to GPU, which causes
+    // llama_decode to hang on Qwen3.5 (hybrid MoE+Mamba2/DeltaNet) with 262K context.
+    // Using ngl = n_layers keeps all transformer layers on GPU but output layer on CPU.
+    if let Some(n_layers) = actual_layers {
+        if optimal_layers > n_layers {
+            log_info!(
+                "system",
+                "Capping GPU layers from {} to {} (actual layer count) to keep output layer on CPU",
+                optimal_layers,
+                n_layers
+            );
+            optimal_layers = n_layers;
+        }
+    }
 
     log_info!(
         "system",
-        "Estimated total layers: {}",
-        estimated_total_layers
+        "Total layers: {} ({})",
+        total_layers,
+        if actual_layers.is_some() {
+            "from GGUF"
+        } else {
+            "estimated"
+        }
     );
     log_info!(
         "system",
@@ -150,7 +232,7 @@ pub fn calculate_optimal_gpu_layers(model_path: &str) -> u32 {
         "system",
         "Optimal GPU layers: {} ({}% of model)",
         optimal_layers,
-        (optimal_layers as f64 / estimated_total_layers as f64 * 100.0) as u32
+        (optimal_layers as f64 / total_layers as f64 * 100.0) as u32
     );
 
     // Ensure at least 1 layer on GPU if model is small enough

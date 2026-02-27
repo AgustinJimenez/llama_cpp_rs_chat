@@ -155,10 +155,15 @@ fn do_fetch(tab: &Tab, url: &str, max_chars: usize) -> Result<String, String> {
     let text = html2text::from_read(html.as_bytes(), 120);
 
     if text.len() > max_chars {
+        // Find a valid UTF-8 char boundary at or before max_chars
+        let mut truncate_at = max_chars;
+        while truncate_at > 0 && !text.is_char_boundary(truncate_at) {
+            truncate_at -= 1;
+        }
         Ok(format!(
             "{}...\n[Truncated: first {} of {} chars]",
-            &text[..max_chars],
-            max_chars,
+            &text[..truncate_at],
+            truncate_at,
             text.len()
         ))
     } else {

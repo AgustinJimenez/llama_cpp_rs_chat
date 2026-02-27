@@ -177,6 +177,43 @@ pub struct CommandExecutionResult {
 /// Maximum number of times the same command can be repeated before blocking.
 const MAX_COMMAND_REPEATS: usize = 2;
 
+/// Timeout for native tool execution (web_search, web_fetch, etc.)
+const NATIVE_TOOL_TIMEOUT_SECS: u64 = 30;
+
+/// Run a native tool with a timeout to prevent blocking the generation thread indefinitely.
+fn run_native_tool_with_timeout(
+    command_text: &str,
+    web_search_provider: Option<&str>,
+    web_search_api_key: Option<&str>,
+    conversation_id: &str,
+) -> Option<String> {
+    let cmd = command_text.to_string();
+    let provider = web_search_provider.map(|s| s.to_string());
+    let api_key = web_search_api_key.map(|s| s.to_string());
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let result = native_tools::dispatch_native_tool(
+            &cmd,
+            provider.as_deref(),
+            api_key.as_deref(),
+        );
+        let _ = tx.send(result);
+    });
+
+    match rx.recv_timeout(std::time::Duration::from_secs(NATIVE_TOOL_TIMEOUT_SECS)) {
+        Ok(result) => result,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            log_info!(conversation_id, "⏱️ Native tool timed out after {}s", NATIVE_TOOL_TIMEOUT_SECS);
+            Some(format!("Error: Tool execution timed out after {} seconds. The network request may be slow or unresponsive. Please try again.", NATIVE_TOOL_TIMEOUT_SECS))
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            log_info!(conversation_id, "⚠️ Native tool thread panicked");
+            Some("Error: Tool execution failed unexpectedly.".to_string())
+        }
+    }
+}
+
 /// Check for and execute commands using model-specific tool tags.
 pub fn check_and_execute_command_with_tags(
     response: &str,
@@ -283,10 +320,11 @@ pub fn check_and_execute_command_with_tags(
                 });
             }
         })
-    } else if let Some(native_output) = native_tools::dispatch_native_tool(
+    } else if let Some(native_output) = run_native_tool_with_timeout(
         &command_text,
         web_search_provider,
         web_search_api_key,
+        conversation_id,
     ) {
         log_info!(conversation_id, "📦 Dispatched to native tool handler");
         // Non-execute tools complete quickly, stream their output at once

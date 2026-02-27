@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, Suspense } from 'react';
 import { Plus, RotateCcw, Trash2, Settings, Search } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../atoms/dialog';
 import { Button } from '../atoms/button';
-import { HubExplorer } from './HubExplorer';
 import { getConversations, deleteConversation } from '../../utils/tauriCommands';
+
+const HubExplorer = React.lazy(() => import('./HubExplorer').then(m => ({ default: m.HubExplorer })));
 import { useChatContext } from '../../contexts/ChatContext';
 import { useUIContext } from '../../contexts/UIContext';
 
@@ -269,10 +270,14 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
       </Dialog>
 
       {/* HuggingFace Model Explorer */}
-      <HubExplorer
-        isOpen={isExplorerOpen}
-        onClose={() => setIsExplorerOpen(false)}
-      />
+      {isExplorerOpen ? (
+        <Suspense fallback={null}>
+          <HubExplorer
+            isOpen={isExplorerOpen}
+            onClose={() => setIsExplorerOpen(false)}
+          />
+        </Suspense>
+      ) : null}
     </>
   );
 };

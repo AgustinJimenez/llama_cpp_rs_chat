@@ -23,6 +23,32 @@ function removeEmptyAssistantMessage(
   );
 }
 
+function handleStreamError(
+  err: unknown,
+  streamSeq: number,
+  streamSeqRef: React.MutableRefObject<number>,
+  isStreamingRef: React.MutableRefObject<boolean>,
+  setError: (e: string | null) => void,
+  setIsLoading: (v: boolean) => void,
+  setMessages: React.Dispatch<React.SetStateAction<Message[]>>,
+  assistantMessageId: string,
+) {
+  if (streamSeqRef.current !== streamSeq) return;
+  isStreamingRef.current = false;
+  const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
+  const isAbort = isAbortErrorMessage(errorMessage);
+  setError(errorMessage);
+  if (!isAbort) {
+    const display = `Chat error: ${errorMessage}`;
+    toast.error(display, { duration: 5000 });
+    logToastError('useChat.sendMessage', display, err);
+  }
+  setIsLoading(false);
+  if (isAbort) {
+    removeEmptyAssistantMessage(setMessages, assistantMessageId);
+  }
+}
+
 /**
  * Main chat hook - orchestrates messaging and streaming.
  *
@@ -206,76 +232,46 @@ export function useChat() {
   // Send message (with optional image attachments)
   const sendMessage = useCallback(async (content: string, imageData?: string[], bypassLoadingCheck = false) => {
     const hasImages = imageData && imageData.length > 0;
-    if (!bypassLoadingCheck && (isLoading || (!content.trim() && !hasImages))) {
-      return;
-    }
-    if (!content.trim() && !hasImages) {
-      return;
-    }
+    const trimmed = content.trim();
+    if (!bypassLoadingCheck && (isLoading || (!trimmed && !hasImages))) return;
+    if (!trimmed && !hasImages) return;
 
     // Abort any previous request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
+    abortControllerRef.current?.abort();
     abortControllerRef.current = new AbortController();
 
-    // Create user message
-    const userMessage: Message = {
+    setMessages(prev => [...prev, {
       id: crypto.randomUUID(),
-      role: 'user',
-      content: content.trim(),
+      role: 'user' as const,
+      content: trimmed,
       timestamp: Date.now(),
       image_data: hasImages ? imageData : undefined,
-    };
-
-    setMessages(prev => [...prev, userMessage]);
+    }]);
     setIsLoading(true);
     setError(null);
 
-    // Create placeholder assistant message for streaming
     const assistantMessageId = crypto.randomUUID();
-    const assistantMessage: Message = {
-      id: assistantMessageId,
-      role: 'assistant',
-      content: '',
-      timestamp: Date.now(),
-    };
-
     const streamSeq = (streamSeqRef.current += 1);
 
-    // Use flushSync to ensure state is committed before streaming starts
     flushSync(() => {
-      setMessages(prev => [...prev, assistantMessage]);
+      setMessages(prev => [...prev, {
+        id: assistantMessageId,
+        role: 'assistant' as const,
+        content: '',
+        timestamp: Date.now(),
+      }]);
     });
 
     try {
-      const request: ChatRequest = {
-        message: content.trim(),
-        conversation_id: currentConversationId || undefined,
-        image_data: hasImages ? imageData : undefined,
-      };
-
-      // Mark streaming as active
       isStreamingRef.current = true;
       console.log('[useChat] Streaming started');
-
-      await runStream({ request, assistantMessageId, streamSeq });
+      await runStream({
+        request: { message: trimmed, conversation_id: currentConversationId || undefined, image_data: hasImages ? imageData : undefined },
+        assistantMessageId,
+        streamSeq,
+      });
     } catch (err) {
-      if (streamSeqRef.current !== streamSeq) return;
-      isStreamingRef.current = false;
-      const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
-      const isAbort = isAbortErrorMessage(errorMessage);
-      setError(errorMessage);
-      if (!isAbort) {
-        const display = `Chat error: ${errorMessage}`;
-        toast.error(display, { duration: 5000 });
-        logToastError('useChat.sendMessage', display, err);
-      }
-      setIsLoading(false);
-
-      if (isAbort) {
-        removeEmptyAssistantMessage(setMessages, assistantMessageId);
-      }
+      handleStreamError(err, streamSeq, streamSeqRef, isStreamingRef, setError, setIsLoading, setMessages, assistantMessageId);
     }
   }, [isLoading, currentConversationId, runStream]);
 

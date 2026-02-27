@@ -34,6 +34,16 @@ export function findStreamingResponse(content: string, afterPos: number): { outp
   return { output: partialTrMatch[1] || '', end: content.length };
 }
 
+/** Check if a Mistral [TOOL_CALLS] block has complete JSON arguments. */
+function isMistralToolCallComplete(content: string, openIdx: number): boolean {
+  const afterStart = openIdx + '[TOOL_CALLS]'.length;
+  const argsIdx = content.indexOf('[ARGS]', afterStart);
+  const searchFrom = argsIdx !== -1 ? argsIdx + '[ARGS]'.length : afterStart;
+  const braceIdx = content.indexOf('{', searchFrom);
+  if (braceIdx === -1) return false;
+  return extractBalancedJson(content, braceIdx) !== null;
+}
+
 /**
  * Remove trailing, unclosed tool-call markup so raw tags don't flash in the UI
  * during streaming. This only trims the incomplete tail; completed tool calls
@@ -60,24 +70,8 @@ export function stripUnclosedToolCallTail(content: string): string {
   const lastMistralOpen = content.lastIndexOf('[TOOL_CALLS]');
   if (lastMistralOpen !== -1) {
     const closeIdx = content.indexOf('[/TOOL_CALLS]', lastMistralOpen);
-    if (closeIdx === -1) {
-      let complete = false;
-      const afterStart = lastMistralOpen + '[TOOL_CALLS]'.length;
-      const argsIdx = content.indexOf('[ARGS]', afterStart);
-      if (argsIdx !== -1) {
-        const braceIdx = content.indexOf('{', argsIdx + '[ARGS]'.length);
-        if (braceIdx !== -1) {
-          const balanced = extractBalancedJson(content, braceIdx);
-          if (balanced) complete = true;
-        }
-      } else {
-        const braceIdx = content.indexOf('{', afterStart);
-        if (braceIdx !== -1) {
-          const balanced = extractBalancedJson(content, braceIdx);
-          if (balanced) complete = true;
-        }
-      }
-      if (!complete) cutoff = Math.min(cutoff, lastMistralOpen);
+    if (closeIdx === -1 && !isMistralToolCallComplete(content, lastMistralOpen)) {
+      cutoff = Math.min(cutoff, lastMistralOpen);
     }
   }
 

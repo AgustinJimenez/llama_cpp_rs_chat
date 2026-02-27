@@ -34,8 +34,8 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
         variant="ghost"
         className="flex items-center gap-1.5 text-sm font-medium px-2"
       >
-        {isLoading ? <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin" /> : <FolderOpen className="h-4 w-4 flex-shrink-0" />}
-        <span className="truncate max-w-[260px]">{getDisplayText()}</span>
+        {isLoading ? <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin text-white" /> : <FolderOpen className="h-4 w-4 flex-shrink-0" />}
+        <span className={`truncate max-w-[260px] ${isLoading ? 'text-white' : ''}`}>{getDisplayText()}</span>
         <ChevronDown className="h-3 w-3 text-muted-foreground flex-shrink-0" />
       </Button>
     </div>

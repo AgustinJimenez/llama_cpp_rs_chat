@@ -48,7 +48,7 @@ export function ChatHeader({ onModelUnload, onForceUnload }: ChatHeaderProps) {
       <div className="flex items-center gap-1 min-w-0">
         <ModelSelector
           currentModelPath={modelStatus.model_path ?? undefined}
-          isLoading={isModelLoading && currentConversationId !== null}
+          isLoading={Boolean(isModelLoading && currentConversationId !== null)}
           loadingAction={loadingAction}
           onOpen={openModelConfig}
         />
