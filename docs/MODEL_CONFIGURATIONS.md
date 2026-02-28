@@ -29,8 +29,9 @@ Parameters sourced from official model cards on HuggingFace and vendor documenta
 | 15 | Qwen3-30B-A3B-2507 | qwen3moe | 30B-A3B | Q4_K_M | 18.56 GB | ✓ |
 | 16 | Devstral-Small-2507 | llama | 24B | Q4_K_M | 14.33 GB | ✓ |
 | 17 | Qwen3.5-35B-A3B | qwen35moe | 35B-A3B | Q4_K_M | 19.70 GB | ✓ |
+| 18 | GLM-4.6V-Flash | glm4 | 9B | Q8_0 | ~9 GB | ✓ |
 
-*Last updated: 2026-02-25*
+*Last updated: 2026-02-27*
 
 ---
 
@@ -141,6 +142,87 @@ Parameters sourced from official model cards on HuggingFace and vendor documenta
 - https://huggingface.co/zai-org/GLM-4.7-Flash
 - https://huggingface.co/zai-org/GLM-4.7-Flash/discussions/6
 - https://unsloth.ai/docs/models/glm-4.7-flash
+
+---
+
+## GLM-4.6V-Flash (Zai/THUDM) — Vision
+
+**File:** `lmstudio-community/GLM-4.6V-Flash-GGUF/GLM-4.6V-Flash-Q8_0.gguf`
+**Vision projector:** `mmproj-GLM-4.6V-Flash-F16.gguf` (1.7 GB)
+
+| Property | Value |
+|----------|-------|
+| Creator | Zai / THUDM |
+| Architecture | glm4 (dense transformer) |
+| Total Parameters | 9B |
+| Quantization | Q8_0 |
+| Context Window | 128K tokens |
+| Chat Template | Custom GLM (`[gMASK]<sop>`) |
+| Vision | Yes (multimodal) |
+
+### Official Sampling Parameters (HuggingFace model card)
+
+**General use:**
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| temperature | 0.8 | Official default |
+| top_p | 0.6 | Official default |
+| top_k | 2 | Official default |
+| repeat_penalty | 1.1 | Official default |
+| max_new_tokens | 16384 | Official default |
+
+### Recommended Agentic Preset (used as default)
+
+Based on GLM-4.7-Flash agentic config (same model family):
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| temperature | 0.7 | Following GLM-4.7 SWE/agentic config |
+| top_p | 1.0 | Following GLM-4.7 SWE/agentic config |
+| top_k | 0 | Disabled |
+| min_p | 0.01 | Recommended for llama.cpp |
+| repeat_penalty | 1.0 | Disabled — avoids looping (confirmed for GLM family) |
+| context_size | 32768 | Safe for 24GB VRAM with Q8_0 |
+
+### Special Tokens
+
+| Token | ID | Purpose |
+|-------|-----|---------|
+| `<think>` | 151350 | Reasoning block open |
+| `</think>` | 151351 | Reasoning block close |
+| `/nothink` | 151360 | Disable thinking mode |
+| `<tool_call>` | 151352 | Native tool call open |
+| `</tool_call>` | 151353 | Native tool call close |
+| `<|observation|>` | 151338 | Tool result role marker (EOS/stop token) |
+
+### Native Tool Call Format
+
+The model's native format uses XML-style arg tags (NOT JSON):
+
+```xml
+<tool_call>function_name
+<arg_key>param1</arg_key>
+<arg_value>value1</arg_value>
+</tool_call>
+```
+
+**Note:** Our app uses SYSTEM.EXEC with JSON instead, because the model produces malformed XML closing tags (documented in Ollama #13820). The model adapts to JSON format via system prompt instructions.
+
+### Known Issues
+
+1. **Tool calls inside `<think>` blocks** — the model frequently places tool calls inside thinking tags without closing `</think>` first. This is a known issue across the GLM-4 family (OpenCode #6708, vLLM #31319). Worsens beyond 100K context.
+2. **Re-thinking loops** — model may continue generating inside `<think>` after `</think>` in GGUF implementations (llama.cpp #19613).
+3. **Malformed XML** — `<tool_call>` closed by `</arg_key>` instead of `</tool_call>` (Ollama #13820).
+4. **Chinese reasoning** — may output reasoning in Chinese even for English conversations. Workaround: add "Reason in English" to system prompt.
+5. **Thinking can be disabled** — append `/nothink` to user messages or use `enable_thinking: false` in chat template kwargs.
+
+### Sources
+- https://huggingface.co/zai-org/GLM-4.6V-Flash
+- https://huggingface.co/zai-org/GLM-4.6V-Flash/blob/main/chat_template.jinja
+- https://github.com/ggml-org/llama.cpp/issues/19613
+- https://github.com/ollama/ollama/issues/13820
+- https://github.com/anomalyco/opencode/issues/6708
 
 ---
 

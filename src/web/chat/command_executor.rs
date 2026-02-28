@@ -8,7 +8,7 @@ use super::super::command::execute_command_streaming;
 use super::super::models::*;
 use super::super::native_tools;
 use super::tool_tags::ToolTags;
-use crate::log_info;
+use crate::{log_info, log_debug};
 
 // Default SYSTEM.EXEC regex (always tried as fallback)
 // (?s) enables DOTALL mode so . matches newlines (multi-line commands)
@@ -99,7 +99,17 @@ fn build_model_exec_regex(tags: &ToolTags) -> Option<Regex> {
 
     // Build pattern: open_tag(.+?)close_tag
     // (?s) enables DOTALL mode so . matches newlines (multi-line commands like python -c)
-    let pattern = format!(r"(?s){open}(.+?){close}");
+    //
+    // GLM quirk: model sometimes generates output_open (<|begin_of_box|>) instead of
+    // exec_open (<tool_call>) to open a tool call. When both tags share the same close
+    // tag, also accept output_open as an alternative open tag. This is safe because
+    // system-injected output blocks are skipped by scan position advancement.
+    let pattern = if tags.output_open != tags.exec_open && tags.output_close == tags.exec_close {
+        let alt_open = regex::escape(&tags.output_open);
+        format!(r"(?s)(?:{open}|{alt_open})(.+?){close}")
+    } else {
+        format!(r"(?s){open}(.+?){close}")
+    };
     Regex::new(&pattern).ok()
 }
 
@@ -214,6 +224,69 @@ fn run_native_tool_with_timeout(
     }
 }
 
+/// Execute a single tool call given its parsed name and arguments.
+/// Used by the batch execution path to dispatch each call individually.
+fn execute_single_tool(
+    name: &str,
+    args: &serde_json::Value,
+    tool_json: &str,
+    conversation_id: &str,
+    web_search_provider: Option<&str>,
+    web_search_api_key: Option<&str>,
+    token_sender: &Option<mpsc::UnboundedSender<TokenData>>,
+    token_pos: i32,
+    context_size: u32,
+    cancel: Option<Arc<AtomicBool>>,
+) -> String {
+    // execute_command gets streaming treatment
+    if name == "execute_command" {
+        if let Some(cmd) = args.get("command").and_then(|v| v.as_str()) {
+            if !cmd.is_empty() {
+                log_info!(conversation_id, "🐚 Batch: streaming execute_command: {}", cmd);
+                let sender_clone = token_sender.clone();
+                return execute_command_streaming(cmd, cancel, |line| {
+                    if let Some(ref sender) = sender_clone {
+                        let _ = sender.send(TokenData {
+                            token: format!("{line}\n"),
+                            tokens_used: token_pos,
+                            max_tokens: context_size as i32,
+                        });
+                    }
+                });
+            }
+        }
+    }
+
+    // Try native tool dispatch
+    if let Some(native_output) = run_native_tool_with_timeout(
+        tool_json,
+        web_search_provider,
+        web_search_api_key,
+        conversation_id,
+    ) {
+        log_info!(conversation_id, "📦 Batch: native tool '{}' dispatched", name);
+        if let Some(ref sender) = token_sender {
+            let _ = sender.send(TokenData {
+                token: native_output.trim().to_string(),
+                tokens_used: token_pos,
+                max_tokens: context_size as i32,
+            });
+        }
+        return native_output;
+    }
+
+    // Fallback: unknown tool
+    let err = format!("Error: Unknown or unsupported tool '{}'", name);
+    if let Some(ref sender) = token_sender {
+        let _ = sender.send(TokenData {
+            token: err.clone(),
+            tokens_used: token_pos,
+            max_tokens: context_size as i32,
+        });
+    }
+    err
+}
+
 /// Check for and execute commands using model-specific tool tags.
 pub fn check_and_execute_command_with_tags(
     response: &str,
@@ -241,25 +314,38 @@ pub fn check_and_execute_command_with_tags(
     // Command blocks always end with '>' (SYSTEM.EXEC, </tool_call>, </function>)
     // or ']' ([/TOOL_CALLS], [ARGS]{...}) or '}' (JSON tool calls).
     // This avoids running 6 regex patterns on every single token.
-    if !response_to_scan.contains('>')
-        && !response_to_scan.contains(']')
-        && !response_to_scan.ends_with('}')
-    {
+    let has_gt = response_to_scan.contains('>');
+    let has_bracket = response_to_scan.contains(']');
+    let ends_brace = response_to_scan.ends_with('}');
+    if !has_gt && !has_bracket && !ends_brace {
         return Ok(None);
     }
 
     // Try each format detector in priority order (first match wins)
     let command_text = {
-        let mut found: Option<String> = None;
-        for &(_name, detect) in FORMAT_PRIORITY {
+        let mut found: Option<(&str, String)> = None;
+        for &(name, detect) in FORMAT_PRIORITY {
             if let Some(cmd) = detect(response_to_scan, tags) {
-                found = Some(cmd);
+                log_debug!(conversation_id, "tool_detect: format='{}' matched, cmd_len={}", name, cmd.len());
+                found = Some((name, cmd));
                 break;
             }
         }
         match found {
-            Some(cmd) => cmd,
-            None => return Ok(None),
+            Some((_name, cmd)) => cmd,
+            None => {
+                // Log periodically when we have tag characters but no format matches
+                // (helps debug cases where model uses unexpected tool call format)
+                if response_to_scan.contains("tool_call") || response_to_scan.contains("SYSTEM.EXEC") {
+                    log_debug!(
+                        conversation_id,
+                        "tool_detect: no format matched but tool-related text found. scan_len={}, tail={:?}",
+                        response_to_scan.len(),
+                        &response_to_scan[response_to_scan.len().saturating_sub(200)..]
+                    );
+                }
+                return Ok(None);
+            }
         }
     };
 
@@ -294,6 +380,18 @@ pub fn check_and_execute_command_with_tags(
     }
     recent_commands.push(normalized_cmd);
 
+    // Parse all tool calls from the command text (supports JSON arrays for batch calls)
+    let all_calls = native_tools::try_parse_all_from_raw(&command_text);
+    let is_batch = all_calls.len() > 1;
+
+    if is_batch {
+        log_info!(
+            conversation_id,
+            "📦 Batch tool call: {} tools detected",
+            all_calls.len()
+        );
+    }
+
     // Stream the output_open tag to frontend immediately so the UI shows the block
     let output_open = format!("\n{}\n", tags.output_open);
     let output_close = format!("\n{}\n", tags.output_close);
@@ -306,55 +404,65 @@ pub fn check_and_execute_command_with_tags(
         });
     }
 
-    // Check if this is an `execute_command` tool call — route through streaming path
-    // so the UI shows line-by-line output for long-running commands (composer, npm, etc.)
-    let output = if let Some(cmd) = native_tools::extract_execute_command(&command_text) {
-        log_info!(conversation_id, "🐚 Streaming execute_command: {}", cmd);
-        let sender_clone = token_sender.clone();
-        execute_command_streaming(&cmd, cancel.clone(), |line| {
-            if let Some(ref sender) = sender_clone {
-                let _ = sender.send(TokenData {
-                    token: format!("{line}\n"),
-                    tokens_used: token_pos,
-                    max_tokens: context_size as i32,
-                });
-            }
-        })
-    } else if let Some(native_output) = run_native_tool_with_timeout(
-        &command_text,
-        web_search_provider,
-        web_search_api_key,
-        conversation_id,
-    ) {
-        log_info!(conversation_id, "📦 Dispatched to native tool handler");
-        // Non-execute tools complete quickly, stream their output at once
-        if let Some(ref sender) = token_sender {
-            let _ = sender.send(TokenData {
-                token: native_output.trim().to_string(),
-                tokens_used: token_pos,
-                max_tokens: context_size as i32,
-            });
-        }
-        native_output
-    } else {
-        let trimmed_cmd = command_text.trim();
-        if trimmed_cmd.starts_with('{') || trimmed_cmd.starts_with('[') {
-            // Looks like a JSON tool call that failed to parse — don't execute as shell.
-            log_info!(conversation_id, "⚠️ JSON-like tool call failed to parse, returning error to model");
-            let err_msg = "Error: Failed to parse tool call JSON. The JSON may be malformed (check for unescaped backslashes, missing braces, or literal newlines in strings). Please try the execute_command tool to write files instead.".to_string();
+    let output = if is_batch {
+        // === Batch execution path: multiple tool calls in one block ===
+        let mut combined_output = String::new();
+
+        for (i, (name, args)) in all_calls.iter().enumerate() {
+            let header = format!("[Tool {}: {}]\n", i + 1, name);
             if let Some(ref sender) = token_sender {
                 let _ = sender.send(TokenData {
-                    token: err_msg.clone(),
+                    token: header.clone(),
                     tokens_used: token_pos,
                     max_tokens: context_size as i32,
                 });
             }
-            err_msg
-        } else {
-            log_info!(conversation_id, "🐚 Falling back to streaming shell execution");
-            // Use streaming execution — each line is sent to frontend as it arrives
+            combined_output.push_str(&header);
+
+            // Re-serialize this single call for dispatch
+            let single_json = serde_json::json!({"name": name, "arguments": args}).to_string();
+
+            let tool_output = execute_single_tool(
+                &name, &args, &single_json,
+                conversation_id,
+                web_search_provider,
+                web_search_api_key,
+                token_sender,
+                token_pos,
+                context_size,
+                cancel.clone(),
+            );
+
+            log_info!(
+                conversation_id,
+                "📤 Tool {} ({}) output: {} chars",
+                i + 1,
+                name,
+                tool_output.len()
+            );
+
+            combined_output.push_str(tool_output.trim());
+            if i < all_calls.len() - 1 {
+                combined_output.push_str("\n\n");
+                if let Some(ref sender) = token_sender {
+                    let _ = sender.send(TokenData {
+                        token: "\n\n".to_string(),
+                        tokens_used: token_pos,
+                        max_tokens: context_size as i32,
+                    });
+                }
+            }
+        }
+
+        combined_output
+    } else {
+        // === Single execution path (existing logic) ===
+        // Check if this is an `execute_command` tool call — route through streaming path
+        // so the UI shows line-by-line output for long-running commands (composer, npm, etc.)
+        if let Some(cmd) = native_tools::extract_execute_command(&command_text) {
+            log_info!(conversation_id, "🐚 Streaming execute_command: {}", cmd);
             let sender_clone = token_sender.clone();
-            execute_command_streaming(&command_text, cancel.clone(), |line| {
+            execute_command_streaming(&cmd, cancel.clone(), |line| {
                 if let Some(ref sender) = sender_clone {
                     let _ = sender.send(TokenData {
                         token: format!("{line}\n"),
@@ -363,6 +471,50 @@ pub fn check_and_execute_command_with_tags(
                     });
                 }
             })
+        } else if let Some(native_output) = run_native_tool_with_timeout(
+            &command_text,
+            web_search_provider,
+            web_search_api_key,
+            conversation_id,
+        ) {
+            log_info!(conversation_id, "📦 Dispatched to native tool handler");
+            // Non-execute tools complete quickly, stream their output at once
+            if let Some(ref sender) = token_sender {
+                let _ = sender.send(TokenData {
+                    token: native_output.trim().to_string(),
+                    tokens_used: token_pos,
+                    max_tokens: context_size as i32,
+                });
+            }
+            native_output
+        } else {
+            let trimmed_cmd = command_text.trim();
+            if trimmed_cmd.starts_with('{') || trimmed_cmd.starts_with('[') {
+                // Looks like a JSON tool call that failed to parse — don't execute as shell.
+                log_info!(conversation_id, "⚠️ JSON-like tool call failed to parse, returning error to model");
+                let err_msg = "Error: Failed to parse tool call JSON. The JSON may be malformed (check for unescaped backslashes, missing braces, or literal newlines in strings). Please try the execute_command tool to write files instead.".to_string();
+                if let Some(ref sender) = token_sender {
+                    let _ = sender.send(TokenData {
+                        token: err_msg.clone(),
+                        tokens_used: token_pos,
+                        max_tokens: context_size as i32,
+                    });
+                }
+                err_msg
+            } else {
+                log_info!(conversation_id, "🐚 Falling back to streaming shell execution");
+                // Use streaming execution — each line is sent to frontend as it arrives
+                let sender_clone = token_sender.clone();
+                execute_command_streaming(&command_text, cancel.clone(), |line| {
+                    if let Some(ref sender) = sender_clone {
+                        let _ = sender.send(TokenData {
+                            token: format!("{line}\n"),
+                            tokens_used: token_pos,
+                            max_tokens: context_size as i32,
+                        });
+                    }
+                })
+            }
         }
     };
     log_info!(

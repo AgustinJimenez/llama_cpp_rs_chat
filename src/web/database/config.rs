@@ -71,7 +71,7 @@ impl Default for DbSamplerConfig {
             n_batch: 2048,
             model_path: None,
             system_prompt: None,
-            system_prompt_type: SystemPromptType::Default,
+            system_prompt_type: SystemPromptType::Custom,
             context_size: Some(32768),
             stop_tokens: None,
             model_history: Vec::new(),
@@ -88,15 +88,13 @@ impl Default for DbSamplerConfig {
 
 fn parse_system_prompt_type(s: Option<String>) -> SystemPromptType {
     match s.as_deref() {
-        Some("Custom") => SystemPromptType::Custom,
         Some("UserDefined") => SystemPromptType::UserDefined,
-        _ => SystemPromptType::Default,
+        _ => SystemPromptType::Custom, // "Default" and "Custom" both map to agentic mode
     }
 }
 
 fn system_prompt_type_to_str(spt: &SystemPromptType) -> &'static str {
     match spt {
-        SystemPromptType::Default => "Default",
         SystemPromptType::Custom => "Custom",
         SystemPromptType::UserDefined => "UserDefined",
     }

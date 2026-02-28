@@ -292,6 +292,18 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
       system_prompt: systemPrompt,
     };
     console.log('[DEBUG] Saving config with system_prompt:', systemPrompt, 'mode:', systemPromptMode);
+
+    // Warn if model's native tool format was not detected (fell back to default SYSTEM.EXEC)
+    const detectedTags = modelInfo?.detected_tool_tags;
+    if (detectedTags && detectedTags.exec_open === '<||SYSTEM.EXEC>') {
+      setTimeout(() => {
+        toast('Tool call format not detected for this model. Using default format — this may affect agentic tasks.', {
+          icon: '\u26A0\uFE0F',
+          duration: 6000,
+        });
+      }, 1500); // Delay so it appears after the "loaded successfully" toast
+    }
+
     onSave(finalConfig);
   };
 

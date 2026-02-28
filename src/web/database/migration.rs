@@ -227,7 +227,7 @@ pub fn migrate_config(db: &Database) -> Result<bool, String> {
     let system_prompt_type = match json_config.system_prompt_type.as_deref() {
         Some("Custom") => crate::web::models::SystemPromptType::Custom,
         Some("UserDefined") => crate::web::models::SystemPromptType::UserDefined,
-        _ => crate::web::models::SystemPromptType::Default,
+        _ => crate::web::models::SystemPromptType::Custom,
     };
 
     let db_config = DbSamplerConfig {

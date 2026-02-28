@@ -7,15 +7,13 @@ use rusqlite::params;
 
 fn parse_system_prompt_type(s: Option<String>) -> SystemPromptType {
     match s.as_deref() {
-        Some("Custom") => SystemPromptType::Custom,
         Some("UserDefined") => SystemPromptType::UserDefined,
-        _ => SystemPromptType::Default,
+        _ => SystemPromptType::Custom, // "Default" and "Custom" both map to agentic mode
     }
 }
 
 fn system_prompt_type_to_str(spt: &SystemPromptType) -> &'static str {
     match spt {
-        SystemPromptType::Default => "Default",
         SystemPromptType::Custom => "Custom",
         SystemPromptType::UserDefined => "UserDefined",
     }

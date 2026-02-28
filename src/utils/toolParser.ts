@@ -141,30 +141,38 @@ const llama3Parser: ToolParser = {
 /**
  * Qwen tool parser
  * Format: <tool_call>{"name": "func", "arguments": {...}}</tool_call>
+ * GLM sometimes confuses <|begin_of_box|> (output wrapper) with <tool_call> — accept both.
  */
 const qwenParser: ToolParser = {
   detect(text: string): boolean {
-    return text.includes('<tool_call>');
+    return text.includes('<tool_call>') || text.includes('<|begin_of_box|>');
   },
 
   parse(text: string): ToolCall[] {
     const toolCalls: ToolCall[] = [];
 
-    // Regex to match <tool_call>{...}</tool_call> with proper JSON handling
-    // Use [\s\S]*? for non-greedy match of any character including newlines
-    const regex = /<tool_call>([\s\S]*?)<\/tool_call>/g;
+    // Regex to match <tool_call>{...}</tool_call> or <tool_call>{...}<|end_of_box|> (GLM)
+    // Also matches <|begin_of_box|>{...}<|end_of_box|> for GLM's confused tag usage.
+    // False positives (output text) are filtered by JSON.parse + name check below.
+    const regex = /(?:<tool_call>|<\|begin_of_box\|>)([\s\S]*?)(?:<\/tool_call>|<\|end_of_box\|>)/g;
     let match;
 
     while ((match = regex.exec(text)) !== null) {
       const callJson = match[1].trim();
 
       try {
-        const call = JSON.parse(callJson);
-        toolCalls.push({
-          id: crypto.randomUUID(),
-          name: call.name,
-          arguments: call.arguments || {},
-        });
+        const parsed = JSON.parse(callJson);
+        // Handle JSON arrays: multiple tool calls in one block
+        const items = Array.isArray(parsed) ? parsed : [parsed];
+        for (const call of items) {
+          if (call?.name) {
+            toolCalls.push({
+              id: crypto.randomUUID(),
+              name: call.name,
+              arguments: call.arguments || {},
+            });
+          }
+        }
       } catch (e) {
         console.error('Failed to parse tool call:', e, callJson);
       }
@@ -227,7 +235,7 @@ export function stripToolCalls(text: string): string {
     .replace(/\[TOOL_CALLS\][\s\S]*?\[\/TOOL_CALLS\]/g, '') // Mistral calls
     .replace(/\[TOOL_RESULTS\][\s\S]*?\[\/TOOL_RESULTS\]/g, '') // Mistral results
     .replace(/<function=[^>]+>[\s\S]*?<\/function>/g, '') // Llama3
-    .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '') // Qwen tool calls
-    .replace(/<tool_response>[\s\S]*?<\/tool_response>/g, '') // Qwen tool responses
+    .replace(/<tool_call>[\s\S]*?(?:<\/tool_call>|<\|end_of_box\|>)/g, '') // Qwen/GLM tool calls
+    .replace(/(?:<tool_response>|<\|begin_of_box\|>)[\s\S]*?(?:<\/tool_response>|<\|end_of_box\|>)/g, '') // Qwen/GLM tool responses
     .trim();
 }

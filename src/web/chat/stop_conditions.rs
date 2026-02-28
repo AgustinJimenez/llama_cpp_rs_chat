@@ -62,11 +62,13 @@ impl ExecBlockTracker {
     /// Update state based on the new token. Call this after appending token to response.
     /// `response_len` is the total response length after appending.
     pub fn update(&mut self, token: &str, response_len: usize) {
+        let was_in_block = self.in_block;
         if self.in_block {
             // Check if the new token contains a close tag
             if token.contains("SYSTEM.EXEC|")
                 || token.contains("</tool_call>")
                 || token.contains("[/TOOL_CALLS]")
+                || token.contains("<|end_of_box|>")
             {
                 self.in_block = false;
             }
@@ -76,13 +78,25 @@ impl ExecBlockTracker {
             }
         } else {
             // Check if the new token opens a block
+            // NOTE: <|begin_of_box|> is GLM's output wrapper tag, but the model sometimes
+            // uses it instead of <tool_call> to open tool calls. Track it here so EOS is
+            // suppressed inside the confused block. Safe: only model-generated tokens pass
+            // through this tracker; system-injected output is prompt-eval'd, not sampled.
             if token.contains("SYSTEM.EXEC>")
                 || token.contains("<tool_call>")
                 || token.contains("[TOOL_CALLS]")
+                || token.contains("<|begin_of_box|>")
             {
                 self.in_block = true;
                 self.block_open_pos = response_len.saturating_sub(token.len());
             }
+        }
+        // Log state transitions for debugging tool call detection
+        if was_in_block != self.in_block {
+            eprintln!(
+                "[EXEC_TRACKER] State change: in_block {} → {} (token={:?}, response_len={})",
+                was_in_block, self.in_block, token, response_len
+            );
         }
     }
 

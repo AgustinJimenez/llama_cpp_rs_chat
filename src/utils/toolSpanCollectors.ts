@@ -14,7 +14,8 @@ export type MessageSegment =
 export type Span = { start: number; end: number; segment: MessageSegment };
 
 // --- Regexes ---
-const TOOL_RESPONSE_REGEX = /<tool_response>([\s\S]*?)<\/tool_response>/g;
+// Matches both Qwen (<tool_response>...</tool_response>) and GLM (<|begin_of_box|>...<|end_of_box|>) response tags
+const TOOL_RESPONSE_REGEX = /(?:<tool_response>|<\|begin_of_box\|>)([\s\S]*?)(?:<\/tool_response>|<\|end_of_box\|>)/g;
 const LLAMA3_FUNC_REGEX = /<function=([^>]+)>([\s\S]*?)<\/function>/g;
 const MISTRAL_CALL_REGEX = /\[TOOL_CALLS\]([\s\S]*?)\[\/TOOL_CALLS\]/g;
 const MISTRAL_BRACKET_PREFIX = /\[TOOL_CALLS\](\w+)\[ARGS\]/g;
@@ -103,21 +104,26 @@ function buildToolSpans(
 
 // --- Mistral: [TOOL_CALLS]...[/TOOL_CALLS] + [TOOL_RESULTS]...[/TOOL_RESULTS] ---
 
-function parseMistralBody(body: string): { name: string; args: Record<string, unknown> } | null {
+function parseMistralBody(body: string): { name: string; args: Record<string, unknown> }[] {
+  // Mistral comma format: name,{json}
   const commaIdx = body.indexOf(',{');
   if (commaIdx > 0) {
     const name = body.slice(0, commaIdx).trim();
     try {
       const args = JSON.parse(body.slice(commaIdx + 1));
-      if (name && !name.includes(' ')) return { name, args };
+      if (name && !name.includes(' ')) return [{ name, args }];
     } catch { /* fall through */ }
   }
+  // JSON object or array
   try {
     const parsed = JSON.parse(body);
-    const item = Array.isArray(parsed) ? parsed[0] : parsed;
-    if (item?.name) return { name: item.name, args: item.arguments || {} };
+    const items = Array.isArray(parsed) ? parsed : [parsed];
+    const calls = items
+      .filter((item: Record<string, unknown>) => item?.name)
+      .map((item: Record<string, unknown>) => ({ name: item.name as string, args: (item.arguments || {}) as Record<string, unknown> }));
+    if (calls.length > 0) return calls;
   } catch { /* skip */ }
-  return null;
+  return [];
 }
 
 /** Bracket format spans: [TOOL_CALLS]name[ARGS]{json} */
@@ -140,8 +146,10 @@ function mistralClosedTagCalls(content: string): ParsedCall[] {
   const calls: ParsedCall[] = [];
   let match;
   while ((match = MISTRAL_CALL_REGEX.exec(content)) !== null) {
-    const parsed = parseMistralBody(match[1].trim());
-    if (parsed) calls.push({ start: match.index, end: match.index + match[0].length, ...parsed });
+    const parsedCalls = parseMistralBody(match[1].trim());
+    for (const parsed of parsedCalls) {
+      calls.push({ start: match.index, end: match.index + match[0].length, ...parsed });
+    }
   }
   return calls;
 }
@@ -185,19 +193,26 @@ export function collectMistralSpans(content: string): Span[] {
 const EXEC_REGEX = /(?:<\|\|)?SYSTEM\.EXEC>([\s\S]*?)<(?:\|\|)?SYSTEM\.EXEC\|\|>/g;
 const SYS_OUTPUT_REGEX = /(?:<\|\|)?SYSTEM\.OUTPUT>([\s\S]*?)<(?:\|\|)?SYSTEM\.OUTPUT\|\|>/g;
 
-/** Convert a raw command string to a ToolCall-compatible name + arguments. */
-export function parseExecCommand(command: string): { name: string; args: Record<string, unknown> } {
+/** Convert a raw command string to one or more ToolCall-compatible name + arguments. */
+export function parseExecCommand(command: string): { name: string; args: Record<string, unknown> }[] {
   try {
     const parsed = JSON.parse(command);
-    if (parsed.name) return { name: parsed.name, args: parsed.arguments || {} };
+    // Handle JSON arrays: multiple tool calls
+    if (Array.isArray(parsed)) {
+      const calls = parsed
+        .filter((item: Record<string, unknown>) => item?.name)
+        .map((item: Record<string, unknown>) => ({ name: item.name as string, args: (item.arguments || {}) as Record<string, unknown> }));
+      if (calls.length > 0) return calls;
+    }
+    if (parsed.name) return [{ name: parsed.name, args: parsed.arguments || {} }];
   } catch { /* not JSON */ }
   const funcMatch = command.match(/^(\w+)\((\{[\s\S]*\})\)$/);
   if (funcMatch) {
     try {
-      return { name: funcMatch[1], args: JSON.parse(funcMatch[2]) };
+      return [{ name: funcMatch[1], args: JSON.parse(funcMatch[2]) }];
     } catch { /* fall through */ }
   }
-  return { name: 'execute_command', args: { command } };
+  return [{ name: 'execute_command', args: { command } }];
 }
 
 export function collectExecSpans(content: string): Span[] {
@@ -216,35 +231,38 @@ export function collectExecSpans(content: string): Span[] {
 
   for (let i = 0; i < execMatches.length; i++) {
     const exec = execMatches[i];
-    const { name, args } = parseExecCommand(exec.command);
+    const parsedCalls = parseExecCommand(exec.command);
     const output = i < outputMatches.length ? outputMatches[i] : null;
-    if (output) {
-      spans.push({
-        start: exec.start, end: output.end,
-        segment: { type: 'tool_call', toolCall: {
-          id: crypto.randomUUID(), name, arguments: args,
-          output: output.output,
-        } },
-      });
-    } else {
-      const partialMatch = content.match(/(?:<\|\|)?SYSTEM\.OUTPUT>([\s\S]*)$/);
-      const lastCompleteEnd = content.lastIndexOf('<SYSTEM.OUTPUT||>');
-      const partialStart = content.lastIndexOf('SYSTEM.OUTPUT>');
-      if (partialMatch && partialStart > lastCompleteEnd) {
+
+    for (const { name, args } of parsedCalls) {
+      if (output) {
         spans.push({
-          start: exec.start, end: content.length,
+          start: exec.start, end: output.end,
           segment: { type: 'tool_call', toolCall: {
             id: crypto.randomUUID(), name, arguments: args,
-            output: partialMatch[1] || '', isStreaming: true, isPending: true,
+            output: output.output,
           } },
         });
       } else {
-        spans.push({
-          start: exec.start, end: exec.end,
-          segment: { type: 'tool_call', toolCall: {
-            id: crypto.randomUUID(), name, arguments: args, isPending: true,
-          } },
-        });
+        const partialMatch = content.match(/(?:<\|\|)?SYSTEM\.OUTPUT>([\s\S]*)$/);
+        const lastCompleteEnd = content.lastIndexOf('<SYSTEM.OUTPUT||>');
+        const partialStart = content.lastIndexOf('SYSTEM.OUTPUT>');
+        if (partialMatch && partialStart > lastCompleteEnd) {
+          spans.push({
+            start: exec.start, end: content.length,
+            segment: { type: 'tool_call', toolCall: {
+              id: crypto.randomUUID(), name, arguments: args,
+              output: partialMatch[1] || '', isStreaming: true, isPending: true,
+            } },
+          });
+        } else {
+          spans.push({
+            start: exec.start, end: exec.end,
+            segment: { type: 'tool_call', toolCall: {
+              id: crypto.randomUUID(), name, arguments: args, isPending: true,
+            } },
+          });
+        }
       }
     }
   }
@@ -252,29 +270,60 @@ export function collectExecSpans(content: string): Span[] {
   return spans;
 }
 
-// --- Qwen: <tool_call>{"name":"...","arguments":{...}}</tool_call> ---
+// --- Qwen/GLM: <tool_call>{"name":"...","arguments":{...}}</tool_call> or <|end_of_box|> ---
+// GLM uses <tool_call> to open but <|end_of_box|> to close (different special tokens).
+// GLM sometimes confuses <|begin_of_box|> (output wrapper) with <tool_call> — accept both.
+// False positives (output text matched as tool call) are filtered by JSON.parse + name check.
 
-const TOOL_CALL_REGEX = /<tool_call>([\s\S]*?)<\/tool_call>/g;
+const TOOL_CALL_REGEX = /(?:<tool_call>|<\|begin_of_box\|>)([\s\S]*?)(?:<\/tool_call>|<\|end_of_box\|>)/g;
+
+type QwenTcMatch = { start: number; end: number; json: string };
+type QwenTrMatch = { start: number; end: number; content: string };
+
+/** Resolve output/streaming state for a paired tool call + response. */
+function resolveQwenOutput(
+  content: string,
+  tc: QwenTcMatch,
+  tr: QwenTrMatch | null,
+  isLastUnmatched: boolean,
+): { output?: string; isStreaming: boolean; spanEnd: number } {
+  let output: string | undefined = tr ? tr.content : undefined;
+  let isStreaming = false;
+  let spanEnd = tr ? tr.end : tc.end;
+  if (isLastUnmatched) {
+    const streaming = findStreamingResponse(content, tc.end);
+    if (streaming) { output = streaming.output; isStreaming = true; spanEnd = streaming.end; }
+  }
+  return { output, isStreaming, spanEnd };
+}
 
 export function collectQwenSpans(content: string): Span[] {
   const spans: Span[] = [];
   let match;
 
-  const tcMatches: { start: number; end: number; json: string }[] = [];
+  const tcMatches: QwenTcMatch[] = [];
   while ((match = TOOL_CALL_REGEX.exec(content)) !== null) {
-    tcMatches.push({ start: match.index, end: match.index + match[0].length, json: match[1].trim() });
+    const json = match[1].trim();
+    // Since TOOL_CALL_REGEX also matches <|begin_of_box|> (GLM confused tag), we must
+    // filter out matches that aren't valid tool call JSON. Otherwise, tool RESPONSE
+    // blocks get consumed as tcMatches and break the pairing with actual tool calls.
+    try {
+      const parsed = JSON.parse(json);
+      const items = Array.isArray(parsed) ? parsed : [parsed];
+      if (!items.some((item: Record<string, unknown>) => item?.name)) continue;
+    } catch {
+      continue;
+    }
+    tcMatches.push({ start: match.index, end: match.index + match[0].length, json });
   }
 
-  const trMatches: { start: number; end: number; content: string }[] = [];
+  const trMatches: QwenTrMatch[] = [];
   const trRe = new RegExp(TOOL_RESPONSE_REGEX.source, 'g');
   while ((match = trRe.exec(content)) !== null) {
     trMatches.push({ start: match.index, end: match.index + match[0].length, content: (match[1] || '').trim() });
   }
 
-  type TcMatch = typeof tcMatches[number];
-  type TrMatch = typeof trMatches[number];
-  const paired: { tc: TcMatch; tr: TrMatch | null }[] = [];
-
+  const paired: { tc: QwenTcMatch; tr: QwenTrMatch | null }[] = [];
   for (const tc of tcMatches) {
     const tr = trMatches.find(r => r.start > tc.end);
     if (tr) trMatches.splice(trMatches.indexOf(tr), 1);
@@ -289,36 +338,20 @@ export function collectQwenSpans(content: string): Span[] {
     const { tc, tr } = paired[i];
     try {
       const parsed = JSON.parse(tc.json);
-
+      const items = Array.isArray(parsed) ? parsed : [parsed];
       const isLastUnmatched = !tr && i === lastUnmatchedIdx;
-      let output: string | undefined = tr ? tr.content : undefined;
-      let isStreaming = false;
-      let spanEnd = tr ? tr.end : tc.end;
+      const resolved = resolveQwenOutput(content, tc, tr, isLastUnmatched);
 
-      if (isLastUnmatched) {
-        const streaming = findStreamingResponse(content, tc.end);
-        if (streaming) {
-          output = streaming.output;
-          isStreaming = true;
-          spanEnd = streaming.end;
-        }
+      for (const item of items) {
+        if (!item?.name) continue;
+        spans.push({
+          start: tc.start, end: resolved.spanEnd,
+          segment: { type: 'tool_call', toolCall: {
+            id: crypto.randomUUID(), name: item.name, arguments: item.arguments || {},
+            output: resolved.output, isStreaming: resolved.isStreaming, isPending: isLastUnmatched,
+          } },
+        });
       }
-
-      spans.push({
-        start: tc.start,
-        end: spanEnd,
-        segment: {
-          type: 'tool_call',
-          toolCall: {
-            id: crypto.randomUUID(),
-            name: parsed.name,
-            arguments: parsed.arguments || {},
-            output,
-            isStreaming,
-            isPending: isLastUnmatched,
-          },
-        },
-      });
     } catch {
       // Skip unparseable tool calls
     }
@@ -332,8 +365,44 @@ export function collectQwenSpans(content: string): Span[] {
 export const THINKING_REGEX = /<think>[\s\S]*?<\/think>/g;
 export const THINKING_UNCLOSED_REGEX = /<think>([\s\S]*)$/;
 
+// Regexes for tool call+response pairs inside thinking blocks
+const EXEC_PAIR_RE = /(?:<\|\|)?SYSTEM\.EXEC>[\s\S]*?<(?:\|\|)?SYSTEM\.EXEC\|\|>(?:\s*(?:<\|\|)?SYSTEM\.OUTPUT>[\s\S]*?<(?:\|\|)?SYSTEM\.OUTPUT\|\|>)?/g;
+const TOOL_CALL_PAIR_RE = /(?:<tool_call>|<\|begin_of_box\|>)[\s\S]*?(?:<\/tool_call>|<\|end_of_box\|>)(?:\s*(?:<tool_response>|<\|begin_of_box\|>)[\s\S]*?(?:<\/tool_response>|<\|end_of_box\|>))?/g;
+const MISTRAL_PAIR_RE = /\[TOOL_CALLS\][\s\S]*?(?:\[\/TOOL_CALLS\]|\})(?:\s*\[TOOL_RESULTS\][\s\S]*?\[\/TOOL_RESULTS\])?/g;
+
+/**
+ * Move tool call+response pairs out of `<think>` blocks so they render as widgets.
+ * Returns content with tool calls placed after each thinking section instead of inside.
+ */
+export function moveToolsOutOfThinking(content: string): string {
+  return content.replace(/<think>([\s\S]*?)<\/think>/g, (_match, inner: string) => {
+    // Collect all tool call+response pairs from inside the thinking block
+    const toolParts: string[] = [];
+    let cleaned = inner;
+
+    for (const re of [EXEC_PAIR_RE, TOOL_CALL_PAIR_RE, MISTRAL_PAIR_RE]) {
+      // Reset lastIndex for each regex
+      re.lastIndex = 0;
+      const matches = [...cleaned.matchAll(new RegExp(re.source, re.flags))];
+      for (const m of matches) {
+        toolParts.push(m[0]);
+        cleaned = cleaned.replace(m[0], '');
+      }
+    }
+
+    if (toolParts.length === 0) return `<think>${inner}</think>`;
+
+    // Rebuild: thinking (cleaned) + tool calls placed after
+    const trimmedThinking = cleaned.trim();
+    const thinkBlock = trimmedThinking ? `<think>${trimmedThinking}</think>\n` : '';
+    return thinkBlock + toolParts.join('\n') + '\n';
+  });
+}
+
 export function buildSegments(content: string): MessageSegment[] {
-  const cleaned = content.replace(THINKING_REGEX, '').replace(THINKING_UNCLOSED_REGEX, '');
+  // Preprocess: move tool calls out of thinking blocks so they become widgets
+  const preprocessed = moveToolsOutOfThinking(content);
+  const cleaned = preprocessed.replace(THINKING_REGEX, '').replace(THINKING_UNCLOSED_REGEX, '');
   const pruned = stripUnclosedToolCallTail(cleaned);
   const qwenSpans = collectQwenSpans(pruned);
   const mistralSpans = qwenSpans.length > 0 ? [] : collectMistralSpans(pruned);

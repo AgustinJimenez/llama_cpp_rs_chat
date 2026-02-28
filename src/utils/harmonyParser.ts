@@ -62,7 +62,7 @@ function processToolOutput(acc: HarmonyAccumulator, body: string) {
     .trim();
 
   if (acc.pendingCommand) {
-    const { name, args } = parseExecCommand(acc.pendingCommand);
+    const [{ name, args }] = parseExecCommand(acc.pendingCommand);
     acc.segments.push({ type: 'tool_call', toolCall: {
       id: crypto.randomUUID(), name, arguments: args, output: outputText,
     } });
@@ -136,7 +136,7 @@ export function parseHarmonyContent(raw: string): HarmonyParsed | null {
   }
 
   if (acc.pendingCommand) {
-    const { name: pName, args: pArgs } = parseExecCommand(acc.pendingCommand);
+    const [{ name: pName, args: pArgs }] = parseExecCommand(acc.pendingCommand);
     acc.segments.push({ type: 'tool_call', toolCall: {
       id: crypto.randomUUID(), name: pName, arguments: pArgs, isPending: true,
     } });

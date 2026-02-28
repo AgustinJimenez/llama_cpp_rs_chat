@@ -1,6 +1,4 @@
-// OLD: use super::super::utils::get_available_tools_json;
 use crate::log_debug;
-use super::jinja_templates::{apply_native_chat_template, parse_conversation_to_messages, get_available_tools};
 use super::super::models::SystemPromptType;
 use super::tool_tags::ToolTags;
 
@@ -63,6 +61,17 @@ After execution, the system will inject the result between {output_open} and {ou
 
 ### web_fetch — Fetch a web page and return its text content
 {exec_open}{{"name": "web_fetch", "arguments": {{"url": "https://example.com"}}}}{exec_close}
+
+## Parallel Tool Calls
+
+To call multiple tools at once, use a JSON array inside the tool tags:
+
+{exec_open}[
+  {{"name": "web_search", "arguments": {{"query": "latest news topic A"}}}},
+  {{"name": "web_search", "arguments": {{"query": "latest news topic B"}}}}
+]{exec_close}
+
+All tools in the array execute sequentially and their results are returned together in a single {output_open}...{output_close} block. Use this when you need multiple independent pieces of information at the same time (e.g., searching for multiple topics, reading multiple files).
 
 ## Behavior
 - Be autonomous and resourceful. Complete tasks fully without asking the user for help.
@@ -158,39 +167,9 @@ pub fn apply_system_prompt_by_type_with_tags(
     eos_token: &str,
 ) -> Result<String, String> {
     match prompt_type {
-        SystemPromptType::Default => {
-            // Try to use model's native Jinja2 template first
-            if let Some(template) = chat_template_string {
-                log_debug!("templates", "Using native Jinja2 chat template");
-
-                let messages = parse_conversation_to_messages(conversation);
-                let tools = Some(get_available_tools());
-
-                match apply_native_chat_template(
-                    template,
-                    messages,
-                    tools,
-                    None, // documents
-                    true, // add_generation_prompt
-                    bos_token,
-                    eos_token,
-                ) {
-                    Ok(result) => return Ok(result),
-                    Err(e) => {
-                        log_debug!("templates", "Jinja2 template failed: {}, falling back to custom logic", e);
-                        // Fall back to custom implementation
-                    }
-                }
-            }
-
-            // Fallback to your existing custom template logic
-            log_debug!("templates", "Using fallback custom template logic");
-            apply_model_chat_template_with_tags(conversation, template_type, tags)
-        }
-
         SystemPromptType::Custom => {
-            // Use your curated universal system prompt
-            log_debug!("templates", "Using custom universal system prompt");
+            // Use curated agentic system prompt with native tool tags
+            log_debug!("templates", "Using agentic system prompt with native tool tags");
             apply_model_chat_template_with_tags(conversation, template_type, tags)
         }
 

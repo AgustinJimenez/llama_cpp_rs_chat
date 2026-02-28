@@ -98,12 +98,16 @@ fn harmony_tags() -> ToolTags {
 }
 
 /// GLM-family native tool tags.
-/// GLM uses `<tool_call>`/`</tool_call>` for calls and `<|observation|>` for results.
-/// The output_close is empty because `wrap_output_for_model()` adds `<|assistant|>`
-/// for model injection to re-open the assistant turn.
-#[allow(dead_code)]
+/// GLM opens with `<tool_call>` (special token 151352) but closes with
+/// `<|end_of_box|>` (NOT `</tool_call>`). Verified via token generation logs.
+/// Output uses `<|begin_of_box|>`/`<|end_of_box|>` for response wrapping.
 fn glm_tags() -> ToolTags {
-    ToolTags::new("<tool_call>", "</tool_call>", "<|observation|>", "")
+    ToolTags::new(
+        "<tool_call>",
+        "<|end_of_box|>",
+        "<|begin_of_box|>",
+        "<|end_of_box|>",
+    )
 }
 
 /// Tag factory function type for the model map.
@@ -128,10 +132,9 @@ const MODEL_TAG_MAP: &[(&str, TagFactory)] = &[
     ("mistralai_Ministral 3 14B Reasoning 2512", mistral_tags),
     // Harmony models - native Harmony format tool calling
     ("Openai_Gpt Oss 20b", harmony_tags),
-    // GLM models - use default SYSTEM.EXEC tags (model doesn't close <tool_call> properly)
-    // glm_tags kept for reference but not used - model generates <|end_of_box|> instead of </tool_call>
-    ("Zai org_GLM 4.6V Flash", default_tags),
-    ("Zai org_GLM 4.7 Flash", default_tags),
+    // GLM models - native <tool_call> tags (same special tokens as Qwen)
+    ("Zai org_GLM 4.6V Flash", glm_tags),
+    ("Zai org_GLM 4.7 Flash", glm_tags),
 ];
 
 /// Normalize a model name for fuzzy matching.

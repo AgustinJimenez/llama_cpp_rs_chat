@@ -61,10 +61,8 @@ use crate::sys_debug;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[derive(Default)]
 pub enum SystemPromptType {
-    /// Use model's native Jinja2 chat template
+    /// Use curated agentic system prompt with native tool tags
     #[default]
-    Default,
-    /// Use custom curated prompts
     Custom,
     /// User-defined manual prompt
     UserDefined,

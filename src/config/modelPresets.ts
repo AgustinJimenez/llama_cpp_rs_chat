@@ -38,12 +38,13 @@ const TOOL_TAG_FAMILIES = {
     outputOpen: '[TOOL_RESULTS]',
     outputClose: '[/TOOL_RESULTS]',
   } as ToolTags,
-  // GLM models use <tool_call> with <|observation|> for results
+  // GLM models open with <tool_call> but close with <|end_of_box|>
+  // Output wrapping uses <|begin_of_box|>/<|end_of_box|>
   glm: {
     execOpen: '<tool_call>',
-    execClose: '</tool_call>',
-    outputOpen: '<|observation|>',
-    outputClose: '',
+    execClose: '<|end_of_box|>',
+    outputOpen: '<|begin_of_box|>',
+    outputClose: '<|end_of_box|>',
   } as ToolTags,
   // Default for models without native tool format
   default: DEFAULT_TOOL_TAGS,
@@ -66,9 +67,9 @@ export const MODEL_TOOL_TAGS: Record<string, ToolTags> = {
   "Magistral-Small-2509": TOOL_TAG_FAMILIES.mistral,
   "mistralai_Ministral 3 3B Instruct 2512 BF16": TOOL_TAG_FAMILIES.mistral,
   "mistralai_Ministral 3 14B Reasoning 2512": TOOL_TAG_FAMILIES.mistral,
-  // GLM models - use default SYSTEM.EXEC (model doesn't follow <tool_call> closing tags)
-  "Zai org_GLM 4.6V Flash": TOOL_TAG_FAMILIES.default,
-  "Zai org_GLM 4.7 Flash": TOOL_TAG_FAMILIES.default,
+  // GLM models - <tool_call> open, <|end_of_box|> close
+  "Zai org_GLM 4.6V Flash": TOOL_TAG_FAMILIES.glm,
+  "Zai org_GLM 4.7 Flash": TOOL_TAG_FAMILIES.glm,
   // Other models - use default SYSTEM.EXEC (no strong native tool format)
   // MiniCPM, Gemma, Granite, Nemotron, GPT-OSS, RNJ all use default
 };
@@ -265,11 +266,12 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
   },
   "Zai org_GLM 4.6V Flash": {
     sampler_type: "Temperature",
-    temperature: 0.8,
-    top_p: 0.6,
-    top_k: 2,
-    repeat_penalty: 1.1,
-    context_size: 16384,
+    temperature: 0.7,
+    top_p: 1.0,
+    top_k: 0,
+    min_p: 0.01,
+    repeat_penalty: 1.0,
+    context_size: 32768,
   },
 };
 

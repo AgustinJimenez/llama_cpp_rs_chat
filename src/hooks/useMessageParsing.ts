@@ -3,6 +3,7 @@ import { autoParseToolCalls, stripToolCalls } from '../utils/toolParser';
 import { stripUnclosedToolCallTail } from '../utils/toolFormatUtils';
 import {
   buildSegments,
+  moveToolsOutOfThinking,
   THINKING_REGEX, THINKING_UNCLOSED_REGEX,
 } from '../utils/toolSpanCollectors';
 import { parseHarmonyContent } from '../utils/harmonyParser';
@@ -57,9 +58,11 @@ export function useMessageParsing(message: Message): ParsedMessage {
 
   const thinkingContent = useMemo(() => {
     if (harmony) return null;
-    const thinkMatch = message.content.match(/<think>([\s\S]*?)<\/think>/);
+    // Preprocess: move tool calls out of thinking blocks so they don't show as raw text
+    const preprocessed = moveToolsOutOfThinking(message.content);
+    const thinkMatch = preprocessed.match(/<think>([\s\S]*?)<\/think>/);
     if (thinkMatch) return thinkMatch[1].trim();
-    const unclosedMatch = message.content.match(THINKING_UNCLOSED_REGEX);
+    const unclosedMatch = preprocessed.match(THINKING_UNCLOSED_REGEX);
     return unclosedMatch ? unclosedMatch[1].trim() || null : null;
   }, [message.content, harmony]);
 

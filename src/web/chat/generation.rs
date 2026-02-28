@@ -703,6 +703,22 @@ pub async fn generate_llama_response(
         }
     );
 
+    log_debug!(
+        &conversation_id,
+        "Tool tags: exec_open={:?}, exec_close={:?}, output_open={:?}, output_close={:?}",
+        tags.exec_open, tags.exec_close, tags.output_open, tags.output_close
+    );
+    log_debug!(
+        &conversation_id,
+        "Stop tokens configured: {:?}",
+        stop_tokens
+    );
+    log_debug!(
+        &conversation_id,
+        "EOS token ID: {}",
+        model.token_eos()
+    );
+
     // Track position in response after last executed command to prevent re-matching
     let mut last_exec_scan_pos: usize = 0;
     // Track recent commands for loop detection
@@ -753,9 +769,18 @@ pub async fn generate_llama_response(
             if next_token == model.token_eos() {
                 log_debug!(
                     &conversation_id,
-                    "Stopping generation - EOS token detected (token ID: {}) at position {}",
+                    "Stopping generation - EOS token detected (token ID: {}) at position {} (in_exec_block: {}, response_len: {})",
                     next_token,
-                    total_tokens_generated
+                    total_tokens_generated,
+                    exec_tracker.is_inside(),
+                    response.len()
+                );
+                // Log the last 200 chars of response for context
+                let tail: String = response.chars().rev().take(200).collect::<String>().chars().rev().collect();
+                log_debug!(
+                    &conversation_id,
+                    "EOS context (last 200 chars): {:?}",
+                    tail
                 );
                 hit_stop_condition = true;
                 break;
@@ -816,6 +841,32 @@ pub async fn generate_llama_response(
                     continue;
                 }
             };
+
+            // Log first 10 tokens for every generation to understand what model starts with
+            if total_tokens_generated <= 10 {
+                log_debug!(
+                    &conversation_id,
+                    "Token #{}: id={}, str={:?}",
+                    total_tokens_generated,
+                    next_token,
+                    token_str
+                );
+            }
+
+            // Log tokens that might be tool-call related (for debugging tool call detection)
+            if token_str.contains("tool_call") || token_str.contains("SYSTEM.EXEC")
+                || token_str.contains("TOOL_CALLS") || token_str.contains("function=")
+                || token_str.contains("<tool") || token_str.contains("</tool")
+            {
+                log_debug!(
+                    &conversation_id,
+                    "🔍 Tool-related token #{}: id={}, str={:?}, in_exec_block={}",
+                    total_tokens_generated,
+                    next_token,
+                    token_str,
+                    exec_tracker.is_inside()
+                );
+            }
 
             // Check for stop sequences using helper function
             let stop_result = check_stop_conditions(&response, &token_str, &stop_tokens, exec_tracker.is_inside());

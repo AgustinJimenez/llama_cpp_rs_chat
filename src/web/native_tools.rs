@@ -229,21 +229,43 @@ fn try_parse_with_fixups(input: &str) -> Option<Value> {
     serde_json::from_str::<Value>(&all_closed).ok()
 }
 
-/// Parse standard JSON format: `{"name":"...","arguments":{...}}` or array `[{...}]`
-fn try_parse_json_format(trimmed: &str) -> Option<(String, Value)> {
-    let parsed: Value = if trimmed.starts_with('[') {
-        let arr = try_parse_with_fixups(trimmed)?;
-        arr.as_array()?.first()?.clone()
-    } else {
-        try_parse_with_fixups(trimmed)?
-    };
-
-    let name = parsed.get("name")?.as_str()?.to_string();
-    let args = parsed
+/// Extract (name, arguments) from a single JSON object that has "name" and optional "arguments".
+fn extract_name_args(obj: &Value) -> Option<(String, Value)> {
+    let name = obj.get("name")?.as_str()?.to_string();
+    let args = obj
         .get("arguments")
         .cloned()
         .unwrap_or(Value::Object(serde_json::Map::new()));
     Some((name, args))
+}
+
+/// Parse standard JSON format: `{"name":"...","arguments":{...}}` or array `[{...}]`
+/// Returns only the first tool call (backward compat).
+fn try_parse_json_format(trimmed: &str) -> Option<(String, Value)> {
+    try_parse_all_json_calls(trimmed)
+        .and_then(|v| v.into_iter().next())
+}
+
+/// Parse ALL tool calls from JSON: single object or array of objects.
+/// Returns `Vec<(name, arguments)>` with one or more entries.
+fn try_parse_all_json_calls(trimmed: &str) -> Option<Vec<(String, Value)>> {
+    let parsed = try_parse_with_fixups(trimmed)?;
+
+    if let Some(arr) = parsed.as_array() {
+        let calls: Vec<(String, Value)> = arr
+            .iter()
+            .filter_map(|item| extract_name_args(item))
+            .collect();
+        if calls.is_empty() {
+            None
+        } else {
+            Some(calls)
+        }
+    } else {
+        // Single object
+        let call = extract_name_args(&parsed)?;
+        Some(vec![call])
+    }
 }
 
 /// Parse Mistral comma-delimited format: `tool_name,{"arg":"val"}`
@@ -379,6 +401,36 @@ pub fn try_parse_tool_call(text: &str) -> Option<(String, Value)> {
     } else {
         None
     }
+}
+
+/// Parse ALL tool calls from raw text, supporting batch JSON arrays.
+///
+/// Tries JSON array/object first (can return multiple calls), then falls back
+/// to single-call formats (Mistral comma, Llama3 XML, Name+JSON, bare args).
+/// Returns empty vec if nothing could be parsed.
+pub fn try_parse_all_from_raw(text: &str) -> Vec<(String, Value)> {
+    let trimmed = text.trim();
+
+    // JSON array/object — may contain multiple calls
+    if let Some(calls) = try_parse_all_json_calls(trimmed) {
+        return calls;
+    }
+
+    // Single-call formats — return as vec of 1
+    if let Some(result) = try_parse_mistral_comma_format(trimmed) {
+        return vec![result];
+    }
+    if let Some(result) = try_parse_llama3_xml_format(trimmed) {
+        return vec![result];
+    }
+    if let Some(result) = try_parse_name_json_format(trimmed) {
+        return vec![result];
+    }
+    if let Some(result) = try_infer_tool_from_bare_args(trimmed) {
+        return vec![result];
+    }
+
+    Vec::new()
 }
 
 /// If the text is an `execute_command` tool call, extract and return the command string.

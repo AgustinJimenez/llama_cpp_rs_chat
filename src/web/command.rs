@@ -90,6 +90,7 @@ fn execute_windows(cmd: &str, parts: &[String]) -> std::io::Result<std::process:
         return Command::new("powershell")
             .args(["-NoProfile", "-NonInteractive", "-Command", &escaped])
             .env("PATH", &path)
+            .stdin(Stdio::null())
             .output();
     }
 
@@ -97,6 +98,7 @@ fn execute_windows(cmd: &str, parts: &[String]) -> std::io::Result<std::process:
     let result = Command::new(&parts[0])
         .args(&parts[1..])
         .env("PATH", &path)
+        .stdin(Stdio::null())
         .output();
 
     match &result {
@@ -108,6 +110,7 @@ fn execute_windows(cmd: &str, parts: &[String]) -> std::io::Result<std::process:
             Command::new("powershell")
                 .args(["-NoProfile", "-NonInteractive", "-Command", &escaped])
                 .env("PATH", &path)
+                .stdin(Stdio::null())
                 .output()
         }
         Err(_) => result,
@@ -144,9 +147,10 @@ pub fn execute_command(cmd: &str) -> String {
         let output = Command::new("cmd")
             .raw_arg(format!("/C {trimmed}"))
             .env("PATH", enriched_windows_path())
+            .stdin(Stdio::null())
             .output();
         #[cfg(not(target_os = "windows"))]
-        let output = Command::new("sh").arg("-c").arg(trimmed).output();
+        let output = Command::new("sh").arg("-c").arg(trimmed).stdin(Stdio::null()).output();
         return match output {
             Ok(o) => {
                 let stdout = String::from_utf8_lossy(&o.stdout);
@@ -311,7 +315,10 @@ pub fn execute_command_streaming(
         for (k, v) in &env_vars {
             cmd.env(k, v);
         }
-        cmd.stdout(Stdio::piped()).stderr(Stdio::null()).spawn()
+        // CRITICAL: null stdin so child doesn't inherit the worker's IPC pipe.
+        // Without this, MSYS2 tools (wc, grep, etc.) hang forever waiting on
+        // the inherited pipe even when given a file argument.
+        cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()
     };
 
     #[cfg(not(target_os = "windows"))]
@@ -321,7 +328,7 @@ pub fn execute_command_streaming(
         for (k, v) in &env_vars {
             cmd.env(k, v);
         }
-        cmd.stdout(Stdio::piped()).stderr(Stdio::null()).spawn()
+        cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()
     };
 
     match child_result {
