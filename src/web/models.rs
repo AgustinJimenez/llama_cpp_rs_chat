@@ -134,6 +134,27 @@ pub struct SamplerConfig {
     pub web_search_provider: Option<String>,
     #[serde(default)]
     pub web_search_api_key: Option<String>,
+    // Hardware / context / sampler params
+    #[serde(default = "default_seed")]
+    pub seed: i32,
+    #[serde(default = "default_n_ubatch")]
+    pub n_ubatch: u32,
+    #[serde(default)]
+    pub n_threads: i32,
+    #[serde(default)]
+    pub n_threads_batch: i32,
+    #[serde(default)]
+    pub rope_freq_base: f32,
+    #[serde(default)]
+    pub rope_freq_scale: f32,
+    #[serde(default)]
+    pub use_mlock: bool,
+    #[serde(default = "default_true")]
+    pub use_mmap: bool,
+    #[serde(default)]
+    pub main_gpu: i32,
+    #[serde(default = "default_split_mode")]
+    pub split_mode: String,
 }
 
 fn default_true() -> bool {
@@ -176,6 +197,18 @@ fn default_top_n_sigma() -> f64 {
     -1.0
 }
 
+fn default_seed() -> i32 {
+    -1
+}
+
+fn default_n_ubatch() -> u32 {
+    512
+}
+
+fn default_split_mode() -> String {
+    "layer".to_string()
+}
+
 // Common stop tokens for different model providers
 pub fn get_common_stop_tokens() -> Vec<String> {
     vec![
@@ -215,7 +248,7 @@ impl Default for SamplerConfig {
             dry_allowed_length: 2,
             dry_penalty_last_n: -1,
             top_n_sigma: -1.0,
-            flash_attention: false,
+            flash_attention: true,
             cache_type_k: "f16".to_string(),
             cache_type_v: "f16".to_string(),
             n_batch: 2048,
@@ -232,6 +265,16 @@ impl Default for SamplerConfig {
             tool_tag_output_close: None,
             web_search_provider: None,
             web_search_api_key: None,
+            seed: -1,
+            n_ubatch: 512,
+            n_threads: 0,
+            n_threads_batch: 0,
+            rope_freq_base: 0.0,
+            rope_freq_scale: 0.0,
+            use_mlock: false,
+            use_mmap: true,
+            main_gpu: 0,
+            split_mode: "layer".to_string(),
         }
     }
 }

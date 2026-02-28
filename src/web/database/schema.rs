@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS conversation_config (
     dry_allowed_length INTEGER DEFAULT 2,
     dry_penalty_last_n INTEGER DEFAULT -1,
     top_n_sigma REAL DEFAULT -1.0,
-    flash_attention INTEGER DEFAULT 0,
+    flash_attention INTEGER DEFAULT 1,
     cache_type_k TEXT DEFAULT 'f16',
     cache_type_v TEXT DEFAULT 'f16',
     n_batch INTEGER DEFAULT 2048,
@@ -301,6 +301,90 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
     );
     let _ = conn.execute(
         "ALTER TABLE hub_downloads ADD COLUMN etag TEXT",
+        [],
+    );
+
+    // Add hardware / context / sampler params columns if missing
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN seed INTEGER DEFAULT -1",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN n_ubatch INTEGER DEFAULT 512",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN n_threads INTEGER DEFAULT 0",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN n_threads_batch INTEGER DEFAULT 0",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN rope_freq_base REAL DEFAULT 0.0",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN rope_freq_scale REAL DEFAULT 0.0",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN use_mlock INTEGER DEFAULT 0",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN use_mmap INTEGER DEFAULT 1",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN main_gpu INTEGER DEFAULT 0",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN split_mode TEXT DEFAULT 'layer'",
+        [],
+    );
+
+    // Same columns for conversation_config
+    let _ = conn.execute(
+        "ALTER TABLE conversation_config ADD COLUMN seed INTEGER DEFAULT -1",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE conversation_config ADD COLUMN n_ubatch INTEGER DEFAULT 512",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE conversation_config ADD COLUMN n_threads INTEGER DEFAULT 0",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE conversation_config ADD COLUMN n_threads_batch INTEGER DEFAULT 0",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE conversation_config ADD COLUMN rope_freq_base REAL DEFAULT 0.0",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE conversation_config ADD COLUMN rope_freq_scale REAL DEFAULT 0.0",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE conversation_config ADD COLUMN use_mlock INTEGER DEFAULT 0",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE conversation_config ADD COLUMN use_mmap INTEGER DEFAULT 1",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE conversation_config ADD COLUMN main_gpu INTEGER DEFAULT 0",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE conversation_config ADD COLUMN split_mode TEXT DEFAULT 'layer'",
         [],
     );
 

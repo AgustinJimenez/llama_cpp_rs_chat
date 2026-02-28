@@ -3,6 +3,10 @@ import type { MemoryBreakdown } from '@/components/organisms/model-config/Memory
 import type { ModelMetadata } from '@/types';
 import { getKvCacheLayers, calculateKvCacheGb } from '@/utils/vramUtils';
 
+/** Default VRAM overhead for CUDA context (~0.5 GB), compute buffers (~0.5-1.5 GB),
+ *  and scratch/activation memory. Typical range is 1.5-2.8 GB in llama.cpp. */
+const DEFAULT_OVERHEAD_GB = 1.5;
+
 interface MemoryCalculationParams {
   modelMetadata: ModelMetadata | null;
   gpuLayers: number;
@@ -70,8 +74,8 @@ const EMPTY_BREAKDOWN = (vramGb: number, ramGb: number): MemoryBreakdown => ({
     total: vramGb,
     modelGpu: 0,
     kvCache: 0,
-    overhead: 2.0,
-    available: vramGb - 2.0,
+    overhead: DEFAULT_OVERHEAD_GB,
+    available: vramGb - DEFAULT_OVERHEAD_GB,
     overcommitted: false,
   },
   ram: {
@@ -92,7 +96,7 @@ export function useMemoryCalculation({
   contextSize,
   availableVramGb,
   availableRamGb,
-  overheadGb: overheadParam = 2.0,
+  overheadGb = DEFAULT_OVERHEAD_GB,
   cacheTypeK = 'f16',
   cacheTypeV = 'f16',
 }: MemoryCalculationParams): MemoryBreakdown {
@@ -116,7 +120,7 @@ export function useMemoryCalculation({
       cacheTypeK, cacheTypeV,
     );
 
-    const vramUsed = modelGpuSizeGb + kvCacheSizeGb + overheadParam;
+    const vramUsed = modelGpuSizeGb + kvCacheSizeGb + overheadGb;
     const ramUsed = modelCpuSizeGb;
 
     return {
@@ -124,7 +128,7 @@ export function useMemoryCalculation({
         total: availableVramGb,
         modelGpu: modelGpuSizeGb,
         kvCache: kvCacheSizeGb,
-        overhead: overheadParam,
+        overhead: overheadGb,
         available: Math.max(0, availableVramGb - vramUsed),
         overcommitted: vramUsed > availableVramGb,
       },
@@ -135,5 +139,5 @@ export function useMemoryCalculation({
         overcommitted: ramUsed > availableRamGb,
       },
     };
-  }, [modelMetadata, gpuLayers, contextSize, availableVramGb, availableRamGb, overheadParam, cacheTypeK, cacheTypeV]);
+  }, [modelMetadata, gpuLayers, contextSize, availableVramGb, availableRamGb, overheadGb, cacheTypeK, cacheTypeV]);
 }

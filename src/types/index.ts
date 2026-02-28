@@ -66,6 +66,17 @@ export interface SamplerConfig {
   // App settings
   web_search_provider?: string;
   web_search_api_key?: string;
+  // Hardware / context / sampler params
+  seed?: number;           // -1 = random
+  n_ubatch?: number;       // default 512
+  n_threads?: number;      // 0 = auto
+  n_threads_batch?: number; // 0 = auto
+  rope_freq_base?: number; // 0 = auto
+  rope_freq_scale?: number; // 0 = auto
+  use_mlock?: boolean;     // false
+  use_mmap?: boolean;      // true
+  main_gpu?: number;       // 0
+  split_mode?: string;     // "layer" | "row" | "none"
 }
 
 export type SamplerType = 

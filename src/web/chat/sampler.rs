@@ -6,6 +6,19 @@ use crate::log_info;
 /// Common sequence breakers for the DRY anti-repetition sampler.
 const DRY_SEQ_BREAKERS: &[&[u8]] = &[b"\n", b".", b",", b"!", b"?", b";", b":", b" "];
 
+/// Resolve the seed from config: >=0 means fixed, <0 means random.
+fn resolve_seed(config: &SamplerConfig) -> u32 {
+    if config.seed >= 0 {
+        config.seed as u32
+    } else {
+        // Use system time as a simple random seed
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u32)
+            .unwrap_or(1234)
+    }
+}
+
 /// Create a sampler based on the configuration.
 ///
 /// `model` is needed only for the DRY sampler; pass `None` if unavailable.
@@ -14,6 +27,10 @@ pub(crate) fn create_sampler(
     conversation_id: &str,
     model: Option<&LlamaModel>,
 ) -> LlamaSampler {
+    let seed = resolve_seed(config);
+    if config.seed >= 0 {
+        log_info!(conversation_id, "Using fixed seed: {}", seed);
+    }
     let use_penalties = config.repeat_penalty > 1.0
         || config.frequency_penalty > 0.0
         || config.presence_penalty > 0.0;
@@ -83,7 +100,7 @@ pub(crate) fn create_sampler(
             if config.min_p > 0.0 {
                 s.push(LlamaSampler::min_p(config.min_p as f32, 1));
             }
-            s.push(LlamaSampler::dist(1234));
+            s.push(LlamaSampler::dist(seed));
             LlamaSampler::chain_simple(s)
         }
 
@@ -96,7 +113,7 @@ pub(crate) fn create_sampler(
             // Mirostat is a standalone sampler (doesn't chain well with penalties)
             LlamaSampler::mirostat(
                 0,    // n_vocab (0 = auto)
-                1234, // seed
+                seed,
                 config.mirostat_tau as f32,
                 config.mirostat_eta as f32,
                 100,  // m
@@ -110,7 +127,7 @@ pub(crate) fn create_sampler(
             push_dry(&mut s, config, model);
             push_top_n_sigma(&mut s, config);
             s.push(LlamaSampler::top_p(config.top_p as f32, 1));
-            s.push(LlamaSampler::dist(1234));
+            s.push(LlamaSampler::dist(seed));
             LlamaSampler::chain_simple(s)
         }
 
@@ -121,7 +138,7 @@ pub(crate) fn create_sampler(
             push_dry(&mut s, config, model);
             push_top_n_sigma(&mut s, config);
             s.push(LlamaSampler::top_k(config.top_k as i32));
-            s.push(LlamaSampler::dist(1234));
+            s.push(LlamaSampler::dist(seed));
             LlamaSampler::chain_simple(s)
         }
 
@@ -132,7 +149,7 @@ pub(crate) fn create_sampler(
             push_dry(&mut s, config, model);
             push_top_n_sigma(&mut s, config);
             s.push(LlamaSampler::typical(config.typical_p as f32, 1));
-            s.push(LlamaSampler::dist(1234));
+            s.push(LlamaSampler::dist(seed));
             LlamaSampler::chain_simple(s)
         }
 
@@ -143,7 +160,7 @@ pub(crate) fn create_sampler(
             push_dry(&mut s, config, model);
             push_top_n_sigma(&mut s, config);
             s.push(LlamaSampler::min_p(config.min_p as f32, 1));
-            s.push(LlamaSampler::dist(1234));
+            s.push(LlamaSampler::dist(seed));
             LlamaSampler::chain_simple(s)
         }
 
@@ -159,7 +176,7 @@ pub(crate) fn create_sampler(
             push_top_n_sigma(&mut s, config);
             // temp_ext(t, delta, exponent) — delta/exponent not yet exposed in UI
             s.push(LlamaSampler::temp_ext(config.temperature as f32, 0.0, 1.0));
-            s.push(LlamaSampler::dist(1234));
+            s.push(LlamaSampler::dist(seed));
             LlamaSampler::chain_simple(s)
         }
 
@@ -175,7 +192,7 @@ pub(crate) fn create_sampler(
             push_top_n_sigma(&mut s, config);
             s.push(LlamaSampler::temp(config.temperature as f32));
             s.push(LlamaSampler::top_p(config.top_p as f32, 1));
-            s.push(LlamaSampler::dist(1234));
+            s.push(LlamaSampler::dist(seed));
             LlamaSampler::chain_simple(s)
         }
 
@@ -191,7 +208,7 @@ pub(crate) fn create_sampler(
             push_top_n_sigma(&mut s, config);
             s.push(LlamaSampler::temp(config.temperature as f32));
             s.push(LlamaSampler::top_k(config.top_k as i32));
-            s.push(LlamaSampler::dist(1234));
+            s.push(LlamaSampler::dist(seed));
             LlamaSampler::chain_simple(s)
         }
 
@@ -214,7 +231,7 @@ pub(crate) fn create_sampler(
             if config.typical_p < 1.0 {
                 s.push(LlamaSampler::typical(config.typical_p as f32, 1));
             }
-            s.push(LlamaSampler::dist(1234));
+            s.push(LlamaSampler::dist(seed));
             LlamaSampler::chain_simple(s)
         }
 

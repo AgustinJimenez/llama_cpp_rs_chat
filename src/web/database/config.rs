@@ -43,6 +43,17 @@ pub struct DbSamplerConfig {
     // App settings
     pub web_search_provider: Option<String>,
     pub web_search_api_key: Option<String>,
+    // Hardware / context / sampler params
+    pub seed: i32,
+    pub n_ubatch: u32,
+    pub n_threads: i32,
+    pub n_threads_batch: i32,
+    pub rope_freq_base: f32,
+    pub rope_freq_scale: f32,
+    pub use_mlock: bool,
+    pub use_mmap: bool,
+    pub main_gpu: i32,
+    pub split_mode: String,
 }
 
 impl Default for DbSamplerConfig {
@@ -65,7 +76,7 @@ impl Default for DbSamplerConfig {
             dry_allowed_length: 2,
             dry_penalty_last_n: -1,
             top_n_sigma: -1.0,
-            flash_attention: false,
+            flash_attention: true,
             cache_type_k: "f16".to_string(),
             cache_type_v: "f16".to_string(),
             n_batch: 2048,
@@ -82,6 +93,16 @@ impl Default for DbSamplerConfig {
             tool_tag_output_close: None,
             web_search_provider: None,
             web_search_api_key: None,
+            seed: -1,
+            n_ubatch: 512,
+            n_threads: 0,
+            n_threads_batch: 0,
+            rope_freq_base: 0.0,
+            rope_freq_scale: 0.0,
+            use_mlock: false,
+            use_mmap: true,
+            main_gpu: 0,
+            split_mode: "layer".to_string(),
         }
     }
 }
@@ -116,7 +137,10 @@ impl Database {
                         top_n_sigma,
                         tool_tag_exec_open, tool_tag_exec_close, tool_tag_output_open, tool_tag_output_close,
                         web_search_provider,
-                        web_search_api_key
+                        web_search_api_key,
+                        seed, n_ubatch, n_threads, n_threads_batch,
+                        rope_freq_base, rope_freq_scale,
+                        use_mlock, use_mmap, main_gpu, split_mode
                  FROM config WHERE id = 1",
                 [],
                 |row| {
@@ -160,6 +184,16 @@ impl Database {
                         tool_tag_output_close: row.get(30)?,
                         web_search_provider: row.get(31)?,
                         web_search_api_key: row.get(32)?,
+                        seed: row.get::<_, Option<i32>>(33)?.unwrap_or(-1),
+                        n_ubatch: row.get::<_, Option<u32>>(34)?.unwrap_or(512),
+                        n_threads: row.get::<_, Option<i32>>(35)?.unwrap_or(0),
+                        n_threads_batch: row.get::<_, Option<i32>>(36)?.unwrap_or(0),
+                        rope_freq_base: row.get::<_, Option<f64>>(37)?.unwrap_or(0.0) as f32,
+                        rope_freq_scale: row.get::<_, Option<f64>>(38)?.unwrap_or(0.0) as f32,
+                        use_mlock: row.get::<_, Option<i32>>(39)?.unwrap_or(0) != 0,
+                        use_mmap: row.get::<_, Option<i32>>(40)?.unwrap_or(1) != 0,
+                        main_gpu: row.get::<_, Option<i32>>(41)?.unwrap_or(0),
+                        split_mode: row.get::<_, Option<String>>(42)?.unwrap_or_else(|| "layer".to_string()),
                     })
                 },
             )
@@ -193,9 +227,13 @@ impl Database {
               tool_tag_exec_open, tool_tag_exec_close, tool_tag_output_open, tool_tag_output_close,
               web_search_provider,
               web_search_api_key,
+              seed, n_ubatch, n_threads, n_threads_batch,
+              rope_freq_base, rope_freq_scale,
+              use_mlock, use_mmap, main_gpu, split_mode,
               updated_at)
              VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
-                     ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34)",
+                     ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33,
+                     ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44)",
             params![
                 config.sampler_type,
                 config.temperature,
@@ -230,6 +268,16 @@ impl Database {
                 config.tool_tag_output_close,
                 config.web_search_provider,
                 config.web_search_api_key,
+                config.seed,
+                config.n_ubatch,
+                config.n_threads,
+                config.n_threads_batch,
+                config.rope_freq_base as f64,
+                config.rope_freq_scale as f64,
+                config.use_mlock as i32,
+                config.use_mmap as i32,
+                config.main_gpu,
+                config.split_mode,
                 current_timestamp_millis(),
             ],
         )
@@ -260,7 +308,10 @@ impl Database {
              tool_tag_output_open = ?30, tool_tag_output_close = ?31,
              web_search_provider = ?32,
              web_search_api_key = ?33,
-             updated_at = ?34
+             seed = ?34, n_ubatch = ?35, n_threads = ?36, n_threads_batch = ?37,
+             rope_freq_base = ?38, rope_freq_scale = ?39,
+             use_mlock = ?40, use_mmap = ?41, main_gpu = ?42, split_mode = ?43,
+             updated_at = ?44
              WHERE id = 1",
             params![
                 config.sampler_type,
@@ -296,6 +347,16 @@ impl Database {
                 config.tool_tag_output_close,
                 config.web_search_provider,
                 config.web_search_api_key,
+                config.seed,
+                config.n_ubatch,
+                config.n_threads,
+                config.n_threads_batch,
+                config.rope_freq_base as f64,
+                config.rope_freq_scale as f64,
+                config.use_mlock as i32,
+                config.use_mmap as i32,
+                config.main_gpu,
+                config.split_mode,
                 current_timestamp_millis(),
             ],
         )
@@ -449,7 +510,7 @@ mod tests {
             dry_allowed_length: 2,
             dry_penalty_last_n: -1,
             top_n_sigma: -1.0,
-            flash_attention: false,
+            flash_attention: true,
             cache_type_k: "f16".to_string(),
             cache_type_v: "f16".to_string(),
             n_batch: 2048,
@@ -466,6 +527,16 @@ mod tests {
             tool_tag_output_close: None,
             web_search_provider: None,
             web_search_api_key: None,
+            seed: -1,
+            n_ubatch: 512,
+            n_threads: 0,
+            n_threads_batch: 0,
+            rope_freq_base: 0.0,
+            rope_freq_scale: 0.0,
+            use_mlock: false,
+            use_mmap: true,
+            main_gpu: 0,
+            split_mode: "layer".to_string(),
         };
 
         db.save_config(&config).unwrap();

@@ -19,7 +19,7 @@ use crossbeam_channel::{self, Receiver, Sender};
 use super::ipc_types::*;
 use crate::web::chat::{generate_llama_response, warmup_system_prompt};
 use crate::web::database::{Database, SharedDatabase};
-use crate::web::model_manager::{get_model_status, load_model};
+use crate::web::model_manager::{get_model_status, load_model, ModelParams};
 use crate::web::models::{SharedLlamaState, TokenData};
 
 /// Redirect the C-level stdout file descriptor to stderr so that any native
@@ -215,13 +215,22 @@ pub fn run_worker(db_path: &str) {
                 eprintln!("[WORKER] Loading model: {model_path} (gpu_layers: {gpu_layers:?})");
                 let state = llama_state.clone();
 
+                // Read model-level params from config DB
+                let db_config = db.load_config();
+                let model_params = ModelParams {
+                    use_mlock: db_config.use_mlock,
+                    use_mmap: db_config.use_mmap,
+                    main_gpu: db_config.main_gpu,
+                    split_mode: db_config.split_mode.clone(),
+                };
+
                 // Load model synchronously (blocking is fine, no generation running)
                 let rt = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
                     .expect("Failed to create tokio runtime");
 
-                let result = rt.block_on(load_model(state.clone(), &model_path, gpu_layers));
+                let result = rt.block_on(load_model(state.clone(), &model_path, gpu_layers, Some(&model_params)));
 
                 match result {
                     Ok(()) => {

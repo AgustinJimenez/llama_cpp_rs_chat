@@ -1,7 +1,7 @@
 use gguf_llms::{GgufHeader, GgufReader, Value};
 use llama_cpp_2::{
     llama_backend::LlamaBackend,
-    model::{params::LlamaModelParams, LlamaModel},
+    model::{params::{LlamaModelParams, LlamaSplitMode}, LlamaModel},
 };
 use std::fs;
 use std::io::BufReader;
@@ -55,8 +55,36 @@ pub fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
     }
 }
 
+/// Extra model-level parameters applied at load time.
+#[derive(Debug, Clone)]
+pub struct ModelParams {
+    pub use_mlock: bool,
+    pub use_mmap: bool,
+    pub main_gpu: i32,
+    pub split_mode: String,
+}
+
+impl Default for ModelParams {
+    fn default() -> Self {
+        Self {
+            use_mlock: false,
+            use_mmap: true,
+            main_gpu: 0,
+            split_mode: "layer".to_string(),
+        }
+    }
+}
+
+fn parse_split_mode(s: &str) -> LlamaSplitMode {
+    match s.to_lowercase().as_str() {
+        "none" => LlamaSplitMode::None,
+        "row" => LlamaSplitMode::Row,
+        _ => LlamaSplitMode::Layer,
+    }
+}
+
 // Helper function to load a model
-pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, requested_gpu_layers: Option<u32>) -> Result<(), String> {
+pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, requested_gpu_layers: Option<u32>, model_params: Option<&ModelParams>) -> Result<(), String> {
     log_debug!("system", "load_model called with path: {}", model_path);
 
     // Handle poisoned mutex by recovering from panic
@@ -125,8 +153,15 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, request
         }
     }
 
-    // Load new model with configured GPU acceleration
-    let model_params = LlamaModelParams::default().with_n_gpu_layers(optimal_gpu_layers);
+    // Load new model with configured GPU acceleration and model params
+    let defaults = ModelParams::default();
+    let mp = model_params.unwrap_or(&defaults);
+    let llama_model_params = LlamaModelParams::default()
+        .with_n_gpu_layers(optimal_gpu_layers)
+        .with_use_mlock(mp.use_mlock)
+        .with_use_mmap(mp.use_mmap)
+        .with_main_gpu(mp.main_gpu)
+        .with_split_mode(parse_split_mode(&mp.split_mode));
 
     log_info!("system", "Loading model from: {}", model_path);
     log_info!(
@@ -134,8 +169,20 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, request
         "GPU layers configured: {} layers will be offloaded to GPU",
         optimal_gpu_layers
     );
+    if mp.use_mlock {
+        log_info!("system", "mlock enabled (force model in RAM)");
+    }
+    if !mp.use_mmap {
+        log_info!("system", "mmap disabled (no memory-mapped loading)");
+    }
+    if mp.main_gpu != 0 {
+        log_info!("system", "Main GPU: {}", mp.main_gpu);
+    }
+    if mp.split_mode != "layer" {
+        log_info!("system", "Split mode: {}", mp.split_mode);
+    }
 
-    let model = LlamaModel::load_from_file(&state.backend, model_path, &model_params)
+    let model = LlamaModel::load_from_file(&state.backend, model_path, &llama_model_params)
         .map_err(|e| format!("Failed to load model: {e}"))?;
 
     log_info!("system", "Model loaded successfully!");

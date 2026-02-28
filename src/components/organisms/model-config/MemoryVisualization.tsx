@@ -263,8 +263,8 @@ const MemorySliders: React.FC<MemorySlidersProps> = ({ gpuLayers, onGpuLayersCha
       color="bg-purple-600"
       hexColor="#9333ea"
       label="Overhead:"
-      min={0}
-      max={60}
+      min={15}
+      max={28}
       value={Math.round(overheadGb * 10)}
       onChange={(v) => onOverheadChange(v / 10)}
       display={`${overheadGb.toFixed(1)} GB`}

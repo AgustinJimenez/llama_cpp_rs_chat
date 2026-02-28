@@ -44,6 +44,38 @@ fn parse_kv_cache_type(s: &str) -> KvCacheType {
 const MODEL_PATH: &str =
     "/app/models/lmstudio-community/granite-4.0-h-tiny-GGUF/granite-4.0-h-tiny-Q4_K_M.gguf";
 
+/// Build LlamaContextParams from config, applying all context-level settings.
+fn build_context_params(
+    n_ctx: NonZeroU32,
+    offload_kqv: bool,
+    config: &SamplerConfig,
+) -> LlamaContextParams {
+    let mut params = LlamaContextParams::default()
+        .with_n_ctx(Some(n_ctx))
+        .with_offload_kqv(offload_kqv)
+        .with_type_k(parse_kv_cache_type(&config.cache_type_k))
+        .with_type_v(parse_kv_cache_type(&config.cache_type_v))
+        .with_n_batch(config.n_batch)
+        .with_n_ubatch(config.n_ubatch);
+
+    if config.flash_attention {
+        params = params.with_flash_attention_policy(1);
+    }
+    if config.n_threads > 0 {
+        params = params.with_n_threads(config.n_threads);
+    }
+    if config.n_threads_batch > 0 {
+        params = params.with_n_threads_batch(config.n_threads_batch);
+    }
+    if config.rope_freq_base > 0.0 {
+        params = params.with_rope_freq_base(config.rope_freq_base);
+    }
+    if config.rope_freq_scale > 0.0 {
+        params = params.with_rope_freq_scale(config.rope_freq_scale);
+    }
+    params
+}
+
 /// Special conversation ID for warmup cache (system prompt pre-evaluation).
 pub const WARMUP_CONVERSATION_ID: &str = "__warmup__";
 
@@ -135,17 +167,8 @@ pub fn warmup_system_prompt(
     let flash_attention = config.flash_attention;
     let cache_type_k = config.cache_type_k.clone();
     let cache_type_v = config.cache_type_v.clone();
-    let n_batch = config.n_batch;
 
-    let mut ctx_params = LlamaContextParams::default()
-        .with_n_ctx(Some(n_ctx))
-        .with_offload_kqv(offload_kqv)
-        .with_type_k(parse_kv_cache_type(&cache_type_k))
-        .with_type_v(parse_kv_cache_type(&cache_type_v))
-        .with_n_batch(n_batch);
-    if flash_attention {
-        ctx_params = ctx_params.with_flash_attention_policy(1);
-    }
+    let ctx_params = build_context_params(n_ctx, offload_kqv, &config);
 
     let start = Instant::now();
     let mut context = unsafe {
@@ -272,7 +295,7 @@ pub async fn generate_llama_response(
         .unwrap_or_else(get_common_stop_tokens);
 
     // Ensure model is loaded
-    load_model(llama_state.clone(), model_path, None).await?;
+    load_model(llama_state.clone(), model_path, None, None).await?;
 
     // Now use the shared state for generation (mutable for inference cache)
     let mut state_guard = llama_state
@@ -475,15 +498,7 @@ pub async fn generate_llama_response(
 
         // Create fresh context (no KV cache reuse for vision — image embeddings can't be cached simply)
         drop(state.inference_cache.take());
-        let mut ctx_params = LlamaContextParams::default()
-            .with_n_ctx(Some(n_ctx))
-            .with_offload_kqv(offload_kqv)
-            .with_type_k(parse_kv_cache_type(&cache_type_k))
-            .with_type_v(parse_kv_cache_type(&cache_type_v))
-            .with_n_batch(n_batch);
-        if flash_attention {
-            ctx_params = ctx_params.with_flash_attention_policy(1);
-        }
+        let mut ctx_params = build_context_params(n_ctx, offload_kqv, &config);
         // Handle non-causal attention for vision models
         if vision.context.decode_use_non_causal() {
             ctx_params = ctx_params.with_flash_attention_policy(0); // Must disable flash attention for non-causal
@@ -551,15 +566,7 @@ pub async fn generate_llama_response(
                         cache.evaluated_tokens.len()
                     );
                     drop(cache.context);
-                    let mut ctx_params = LlamaContextParams::default()
-                        .with_n_ctx(Some(n_ctx))
-                        .with_offload_kqv(offload_kqv)
-                        .with_type_k(parse_kv_cache_type(&cache_type_k))
-                        .with_type_v(parse_kv_cache_type(&cache_type_v))
-                        .with_n_batch(n_batch);
-                    if flash_attention {
-                        ctx_params = ctx_params.with_flash_attention_policy(1);
-                    }
+                    let ctx_params = build_context_params(n_ctx, offload_kqv, &config);
                     let ctx = unsafe {
                         let real_ctx = model
                             .new_context(&state.backend, ctx_params)
@@ -585,15 +592,7 @@ pub async fn generate_llama_response(
                     "Step 3: Creating fresh context (size={}K tokens)...",
                     context_size / 1024
                 );
-                let mut ctx_params = LlamaContextParams::default()
-                    .with_n_ctx(Some(n_ctx))
-                    .with_offload_kqv(offload_kqv)
-                    .with_type_k(parse_kv_cache_type(&cache_type_k))
-                    .with_type_v(parse_kv_cache_type(&cache_type_v))
-                    .with_n_batch(n_batch);
-                if flash_attention {
-                    ctx_params = ctx_params.with_flash_attention_policy(1);
-                }
+                let ctx_params = build_context_params(n_ctx, offload_kqv, &config);
                 let ctx = unsafe {
                     let real_ctx = model
                         .new_context(&state.backend, ctx_params)

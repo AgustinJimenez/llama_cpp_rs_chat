@@ -250,7 +250,7 @@ pub fn migrate_config(db: &Database) -> Result<bool, String> {
         dry_allowed_length: 2,
         dry_penalty_last_n: -1,
         top_n_sigma: -1.0,
-        flash_attention: false,
+        flash_attention: true,
         cache_type_k: "f16".to_string(),
         cache_type_v: "f16".to_string(),
         n_batch: 2048,
@@ -267,6 +267,16 @@ pub fn migrate_config(db: &Database) -> Result<bool, String> {
         tool_tag_output_close: None,
         web_search_provider: None,
         web_search_api_key: None,
+        seed: -1,
+        n_ubatch: 512,
+        n_threads: 0,
+        n_threads_batch: 0,
+        rope_freq_base: 0.0,
+        rope_freq_scale: 0.0,
+        use_mlock: false,
+        use_mmap: true,
+        main_gpu: 0,
+        split_mode: "layer".to_string(),
     };
 
     // Save to database

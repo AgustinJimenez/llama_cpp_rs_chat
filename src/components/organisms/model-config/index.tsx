@@ -62,7 +62,6 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
 
   const [contextSize, setContextSize] = useState(32768);
   const [modelPath, setModelPath] = useState('');
-  const [isMetadataExpanded, setIsMetadataExpanded] = useState(false);
   const [isPicking, setIsPicking] = useState(false);
   const [isConfigExpanded, setIsConfigExpanded] = useState(true);
   const [modelHistory, setModelHistory] = useState<string[]>([]);
@@ -70,7 +69,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   const [systemPromptMode, setSystemPromptMode] = useState<'system' | 'custom'>('system');
   const [customSystemPrompt, setCustomSystemPrompt] = useState('You are a helpful AI assistant.');
 
-  const [overheadGb, setOverheadGb] = useState(2.0);
+  const [overheadGb, setOverheadGb] = useState(1.5);
 
   // Use global system resources (fetched at app startup)
   const { totalVramGb: availableVramGb, totalRamGb: availableRamGb } = useSystemResources();
@@ -373,8 +372,6 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
 
               {modelInfo ? <ModelMetadataDisplay
                   modelInfo={modelInfo}
-                  isExpanded={isMetadataExpanded}
-                  setIsExpanded={setIsMetadataExpanded}
                 /> : null}
             </CardContent>
           </Card>
@@ -397,13 +394,6 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                 </button>
               </CardHeader>
               {isConfigExpanded ? <CardContent className="space-y-4 pt-6">
-                  <ModelConfigSystemPrompt
-                    systemPromptMode={systemPromptMode}
-                    setSystemPromptMode={setSystemPromptMode}
-                    customSystemPrompt={customSystemPrompt}
-                    setCustomSystemPrompt={setCustomSystemPrompt}
-                  />
-
                   {/* Memory Visualization - Real-time VRAM/RAM usage */}
                   {modelInfo ? <MemoryVisualization
                       memory={memoryBreakdown}
@@ -417,7 +407,19 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                       maxContextSize={maxContextSize}
                     /> : null}
 
+                  <ModelConfigSystemPrompt
+                    systemPromptMode={systemPromptMode}
+                    setSystemPromptMode={setSystemPromptMode}
+                    customSystemPrompt={customSystemPrompt}
+                    setCustomSystemPrompt={setCustomSystemPrompt}
+                  />
+
                   <AdvancedContextSection
+                    config={config}
+                    onConfigChange={handleInputChange}
+                  />
+
+                  <SamplingParametersSection
                     config={config}
                     onConfigChange={handleInputChange}
                   />
@@ -426,11 +428,6 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                     config={config}
                     onConfigChange={handleInputChange}
                     modelInfo={modelInfo}
-                  />
-
-                  <SamplingParametersSection
-                    config={config}
-                    onConfigChange={handleInputChange}
                   />
 
 
