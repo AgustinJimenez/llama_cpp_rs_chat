@@ -292,7 +292,7 @@ async fn generate_stream(
     db: tauri::State<'_, SharedDatabase>,
 ) -> Result<serde_json::Value, String> {
     use std::sync::Mutex;
-    use web::chat_handler::{get_tool_tags_for_model, get_universal_system_prompt_with_tags};
+    use web::chat::{get_tool_tags_for_model, get_universal_system_prompt_with_tags};
     use web::database::conversation::ConversationLogger;
 
     // Resolve system prompt

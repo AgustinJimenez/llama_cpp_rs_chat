@@ -61,7 +61,18 @@ export function stripUnclosedToolCallTail(content: string, toolTags?: ToolTags):
     const lastOpen = content.lastIndexOf(toolTags.exec_open);
     if (lastOpen !== -1) {
       const lastClose = content.lastIndexOf(toolTags.exec_close);
-      if (lastClose < lastOpen) cutoff = Math.min(cutoff, lastOpen);
+      if (lastClose < lastOpen) {
+        // For Mistral bracket format ([TOOL_CALLS]name[ARGS]{json}), the close tag
+        // [/TOOL_CALLS] is never used. Check if the tool call has complete JSON
+        // arguments before treating it as unclosed.
+        if (toolTags.exec_open === '[TOOL_CALLS]') {
+          if (!isMistralToolCallComplete(content, lastOpen)) {
+            cutoff = Math.min(cutoff, lastOpen);
+          }
+        } else {
+          cutoff = Math.min(cutoff, lastOpen);
+        }
+      }
     }
   } else {
     // Fallback: check all known formats when no model tags are available

@@ -5,7 +5,7 @@ use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 
 use crate::web::{
-    chat_handler::{get_tool_tags_for_model, get_universal_system_prompt_with_tags},
+    chat::{get_tool_tags_for_model, get_universal_system_prompt_with_tags},
     config::load_config,
     database::{conversation::ConversationLogger, SharedDatabase},
     models::{ChatMessage, ChatRequest, ChatResponse},

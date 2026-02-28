@@ -8,7 +8,7 @@ use super::models::SharedLlamaState;
 #[cfg(feature = "mock")]
 use super::models::SharedLlamaState;
 
-use super::chat_handler::{get_tool_tags_for_model, get_universal_system_prompt_with_tags};
+use super::chat::{get_tool_tags_for_model, get_universal_system_prompt_with_tags};
 
 // Import logging macro
 use crate::sys_warn;

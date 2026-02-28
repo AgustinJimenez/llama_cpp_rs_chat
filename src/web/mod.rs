@@ -1,8 +1,7 @@
 // Web server modules for LLaMA Chat
 
 pub mod browser; // Headless Chrome for web search/fetch
-pub mod chat; // New modular chat implementation
-pub mod chat_handler; // Legacy re-exports for backward compatibility
+pub mod chat;
 pub mod command;
 pub mod config;
 pub mod database;

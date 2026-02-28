@@ -45,6 +45,8 @@ required-features = ["vision"]
 all = "warn"
 uninlined_format_args = "warn"
 too_many_arguments = "warn"
+too_many_lines = "warn"
+cognitive_complexity = "warn"
 
 [profile.dev]
 debug = 0
