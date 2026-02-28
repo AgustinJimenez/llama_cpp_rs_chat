@@ -21,6 +21,7 @@ use web::models::{
     BrowseFilesResponse, ChatRequest, ConversationContentResponse, ConversationFile,
     ConversationsResponse, FileItem, ModelLoadRequest, ModelResponse, ModelStatus, SamplerConfig,
 };
+use web::chat::tool_tags::get_tool_tags_for_model;
 use web::gguf_info::extract_model_info;
 use web::worker::process_manager::ProcessManager;
 use web::worker::worker_bridge::{GenerationResult, SharedWorkerBridge, WorkerBridge};
@@ -110,19 +111,28 @@ async fn get_model_status(
     bridge: tauri::State<'_, SharedWorkerBridge>,
 ) -> Result<ModelStatus, String> {
     Ok(match bridge.model_status().await {
-        Some(meta) => ModelStatus {
-            loaded: meta.loaded,
-            model_path: Some(meta.model_path),
-            last_used: None,
-            memory_usage_mb: if meta.loaded { Some(512) } else { None },
-            has_vision: Some(meta.has_vision),
-        },
+        Some(meta) => {
+            let tags = if meta.loaded {
+                Some(get_tool_tags_for_model(meta.general_name.as_deref()))
+            } else {
+                None
+            };
+            ModelStatus {
+                loaded: meta.loaded,
+                model_path: Some(meta.model_path),
+                last_used: None,
+                memory_usage_mb: if meta.loaded { Some(512) } else { None },
+                has_vision: Some(meta.has_vision),
+                tool_tags: tags,
+            }
+        }
         None => ModelStatus {
             loaded: false,
             model_path: None,
             last_used: None,
             memory_usage_mb: None,
             has_vision: None,
+            tool_tags: None,
         },
     })
 }
@@ -145,6 +155,7 @@ async fn load_model(
                     last_used: None,
                     memory_usage_mb: Some(512),
                     has_vision: Some(meta.has_vision),
+                    tool_tags: Some(get_tool_tags_for_model(meta.general_name.as_deref())),
                 }),
             })
         }
@@ -170,6 +181,7 @@ async fn unload_model(
                 last_used: None,
                 memory_usage_mb: None,
                 has_vision: None,
+                tool_tags: None,
             }),
         }),
         Err(e) => Ok(ModelResponse {

@@ -10,5 +10,6 @@ pub mod health;
 pub mod hub;
 pub mod model;
 pub mod static_files;
+pub mod status;
 pub mod system;
 pub mod tools;

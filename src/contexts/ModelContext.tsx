@@ -1,7 +1,7 @@
 import { createContext, useContext, useCallback, type ReactNode } from 'react';
 import { toast } from 'react-hot-toast';
 import { useModel, type LoadingAction } from '../hooks/useModel';
-import type { SamplerConfig } from '../types';
+import type { SamplerConfig, ToolTags } from '../types';
 import { logToastError } from '../utils/toastLogger';
 
 interface ModelStatus {
@@ -10,6 +10,7 @@ interface ModelStatus {
   last_used: string | null;
   memory_usage_mb: number | null;
   has_vision?: boolean;
+  tool_tags?: ToolTags;
 }
 
 interface ModelContextValue {

@@ -3,7 +3,7 @@
  * Each collector finds tool call/response pairs in model output and returns
  * positioned spans for widget rendering in the MD view.
  */
-import type { ToolCall } from '../types';
+import type { ToolCall, ToolTags } from '../types';
 import { extractBalancedJson, findStreamingResponse, stripUnclosedToolCallTail } from './toolFormatUtils';
 
 export type MessageSegment =
@@ -399,11 +399,11 @@ export function moveToolsOutOfThinking(content: string): string {
   });
 }
 
-export function buildSegments(content: string): MessageSegment[] {
+export function buildSegments(content: string, toolTags?: ToolTags): MessageSegment[] {
   // Preprocess: move tool calls out of thinking blocks so they become widgets
   const preprocessed = moveToolsOutOfThinking(content);
   const cleaned = preprocessed.replace(THINKING_REGEX, '').replace(THINKING_UNCLOSED_REGEX, '');
-  const pruned = stripUnclosedToolCallTail(cleaned);
+  const pruned = stripUnclosedToolCallTail(cleaned, toolTags);
   const qwenSpans = collectQwenSpans(pruned);
   const mistralSpans = qwenSpans.length > 0 ? [] : collectMistralSpans(pruned);
   const toolSpans = qwenSpans.length > 0 ? qwenSpans

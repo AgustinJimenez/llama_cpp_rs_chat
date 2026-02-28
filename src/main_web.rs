@@ -89,6 +89,10 @@ async fn handle_request_impl(
                 .await?
         }
 
+        (&Method::GET, "/ws/status") => {
+            web::routes::status::handle_status_websocket(req, bridge.clone()).await?
+        }
+
         // Configuration endpoints
         (&Method::GET, "/api/config") => {
             web::routes::config::handle_get_config(bridge.clone(), db.clone()).await?

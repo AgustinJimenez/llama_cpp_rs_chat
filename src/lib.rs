@@ -75,6 +75,8 @@ pub struct ModelStatus {
     pub memory_usage_mb: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub has_vision: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_tags: Option<serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -277,6 +279,7 @@ pub async fn get_model_status(state: State<'_, AppState>) -> Result<ModelStatus,
             None
         }, // Estimate
         has_vision: None,
+        tool_tags: None,
     };
 
     Ok(status)
@@ -308,6 +311,7 @@ pub async fn load_model(
                     last_used: None,
                     memory_usage_mb: Some(512), // Estimate
                     has_vision: None,
+                    tool_tags: None,
                 };
 
                 Ok(ModelResponse {
@@ -342,6 +346,7 @@ pub async fn load_model(
                     last_used: None,
                     memory_usage_mb: Some(512),
                     has_vision: None,
+                    tool_tags: None,
                 };
 
                 Ok(ModelResponse {
@@ -381,6 +386,7 @@ pub async fn unload_model(state: State<'_, AppState>) -> Result<ModelResponse, S
         last_used: None,
         memory_usage_mb: None,
         has_vision: None,
+        tool_tags: None,
     };
 
     Ok(ModelResponse {

@@ -7,7 +7,7 @@ import {
   THINKING_REGEX, THINKING_UNCLOSED_REGEX,
 } from '../utils/toolSpanCollectors';
 import { parseHarmonyContent } from '../utils/harmonyParser';
-import type { Message, ToolCall } from '../types';
+import type { Message, ToolCall, ToolTags } from '../types';
 
 export type { MessageSegment } from '../utils/toolSpanCollectors';
 
@@ -37,7 +37,7 @@ const MISTRAL_RESULT_CLEANUP = /\[TOOL_RESULTS\][\s\S]*?\[\/TOOL_RESULTS\]/g;
  * - Ordered segments (text + commands + tool calls interleaved chronologically)
  * - Clean content without special tags
  */
-export function useMessageParsing(message: Message): ParsedMessage {
+export function useMessageParsing(message: Message, toolTags?: ToolTags): ParsedMessage {
   const harmony = useMemo(() => parseHarmonyContent(message.content), [message.content]);
   const effectiveContent = harmony ? harmony.finalContent : message.content;
 
@@ -47,14 +47,14 @@ export function useMessageParsing(message: Message): ParsedMessage {
   }, [effectiveContent, message.role]);
 
   const cleanContent = useMemo(() => {
-    let content = stripUnclosedToolCallTail(effectiveContent);
+    let content = stripUnclosedToolCallTail(effectiveContent, toolTags);
     if (toolCalls.length > 0) {
       content = stripToolCalls(content);
     } else {
       content = content.replace(/<tool_response>[\s\S]*?<\/tool_response>/g, '');
     }
     return content;
-  }, [effectiveContent, toolCalls.length]);
+  }, [effectiveContent, toolCalls.length, toolTags]);
 
   const thinkingContent = useMemo(() => {
     if (harmony) return null;
@@ -73,8 +73,8 @@ export function useMessageParsing(message: Message): ParsedMessage {
 
   const segments = useMemo(() => {
     if (harmony) return harmony.segments;
-    return buildSegments(effectiveContent);
-  }, [effectiveContent, harmony]);
+    return buildSegments(effectiveContent, toolTags);
+  }, [effectiveContent, harmony, toolTags]);
 
   const contentWithoutThinking = useMemo(() => {
     return cleanContent

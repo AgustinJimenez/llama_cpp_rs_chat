@@ -7,19 +7,22 @@ import { SystemResourcesProvider } from './contexts/SystemResourcesContext.tsx';
 import { ModelProvider } from './contexts/ModelContext.tsx';
 import { ChatProvider } from './contexts/ChatContext.tsx';
 import { UIProvider } from './contexts/UIContext.tsx';
+import { ConnectionProvider } from './contexts/ConnectionContext.tsx';
 
 setupFrontendLogging();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <SystemResourcesProvider>
-      <ModelProvider>
-        <ChatProvider>
-          <UIProvider>
-            <App />
-          </UIProvider>
-        </ChatProvider>
-      </ModelProvider>
-    </SystemResourcesProvider>
+    <ConnectionProvider>
+      <SystemResourcesProvider>
+        <ModelProvider>
+          <ChatProvider>
+            <UIProvider>
+              <App />
+            </UIProvider>
+          </ChatProvider>
+        </ModelProvider>
+      </SystemResourcesProvider>
+    </ConnectionProvider>
   </React.StrictMode>,
 );

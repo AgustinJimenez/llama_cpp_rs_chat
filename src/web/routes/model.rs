@@ -476,19 +476,28 @@ pub async fn handle_get_model_status(
     {
         // Get model status from worker bridge cached metadata (no IPC round-trip)
         let status = match bridge.model_status().await {
-            Some(meta) => crate::web::models::ModelStatus {
-                loaded: meta.loaded,
-                model_path: Some(meta.model_path),
-                last_used: None,
-                memory_usage_mb: if meta.loaded { Some(512) } else { None },
-                has_vision: Some(meta.has_vision),
-            },
+            Some(meta) => {
+                let tags = if meta.loaded {
+                    Some(get_tool_tags_for_model(meta.general_name.as_deref()))
+                } else {
+                    None
+                };
+                crate::web::models::ModelStatus {
+                    loaded: meta.loaded,
+                    model_path: Some(meta.model_path),
+                    last_used: None,
+                    memory_usage_mb: if meta.loaded { Some(512) } else { None },
+                    has_vision: Some(meta.has_vision),
+                    tool_tags: tags,
+                }
+            }
             None => crate::web::models::ModelStatus {
                 loaded: false,
                 model_path: None,
                 last_used: None,
                 memory_usage_mb: None,
                 has_vision: None,
+                tool_tags: None,
             },
         };
 
@@ -561,12 +570,14 @@ pub async fn handle_post_model_load(
                 // Add to model history on successful load
                 add_to_model_history(&db, &load_request.model_path);
 
+                let tags = Some(get_tool_tags_for_model(meta.general_name.as_deref()));
                 let status = crate::web::models::ModelStatus {
                     loaded: true,
                     model_path: Some(meta.model_path),
                     last_used: None,
                     memory_usage_mb: Some(512),
                     has_vision: Some(meta.has_vision),
+                    tool_tags: tags,
                 };
                 let response = ModelResponse {
                     success: true,
@@ -627,6 +638,7 @@ pub async fn handle_post_model_unload(
                     last_used: None,
                     memory_usage_mb: None,
                     has_vision: None,
+                    tool_tags: None,
                 };
                 let response = ModelResponse {
                     success: true,

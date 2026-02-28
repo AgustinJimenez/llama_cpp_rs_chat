@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Button } from '../atoms/button';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 
 export type SystemPromptMode = 'system' | 'custom';
 
@@ -49,57 +49,56 @@ export const SystemPromptSection: React.FC<SystemPromptSectionProps> = ({
   const [isExpanded, setIsExpanded] = useState(false);
 
   return (
-    <div className="space-y-3 pt-2 border-t">
-      <span className="text-sm font-medium">System Prompt</span>
-
-      <div className="flex gap-2">
-        <Button
-          type="button"
-          variant={systemPromptMode === 'system' ? 'default' : 'outline'}
-          onClick={() => setSystemPromptMode('system')}
-          className="flex-1 text-xs px-2"
-        >
-          Agentic Mode
-        </Button>
-        <Button
-          type="button"
-          variant={systemPromptMode === 'custom' ? 'default' : 'outline'}
-          onClick={() => setSystemPromptMode('custom')}
-          className="flex-1 text-xs px-2"
-        >
-          Custom
-        </Button>
-      </div>
-
-      <div className="flex justify-end">
+    <div className="space-y-1">
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-medium">System Prompt</span>
+        <div className="flex rounded-full border border-input overflow-hidden">
+          <button
+            type="button"
+            className={`px-3 py-0.5 text-xs transition-colors ${
+              systemPromptMode === 'system'
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-background hover:bg-muted text-muted-foreground'
+            }`}
+            onClick={() => setSystemPromptMode('system')}
+          >
+            Agentic
+          </button>
+          <button
+            type="button"
+            className={`px-3 py-0.5 text-xs transition-colors ${
+              systemPromptMode === 'custom'
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-background hover:bg-muted text-muted-foreground'
+            }`}
+            onClick={() => setSystemPromptMode('custom')}
+          >
+            Custom
+          </button>
+        </div>
         <button
           type="button"
           onClick={() => setIsExpanded(!isExpanded)}
-          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+          className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
         >
-          {isExpanded ? '▼ Hide prompt' : '◀ Show prompt'}
+          {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
         </button>
       </div>
 
-      {isExpanded ? <div className="space-y-2">
-          {systemPromptMode === 'custom' ? (
-            <textarea
-              value={customSystemPrompt}
-              onChange={(e) => setCustomSystemPrompt(e.target.value)}
-              placeholder="Enter your custom system prompt..."
-              className="w-full px-3 py-2 text-sm border rounded-md min-h-[100px] resize-y bg-background"
-            />
-          ) : (
-            <pre className="w-full px-3 py-2 text-sm border rounded-md max-h-[200px] overflow-y-auto whitespace-pre-wrap bg-muted text-foreground">
-              {AGENTIC_SYSTEM_PROMPT}
-            </pre>
-          )}
-          <p className="text-xs text-muted-foreground">
-            {systemPromptMode === 'system'
-              ? 'Agentic mode with command execution. The model can run system commands.'
-              : 'Custom system prompt that will be used instead of the agentic prompt.'}
-          </p>
-        </div> : null}
+      {isExpanded && (
+        systemPromptMode === 'custom' ? (
+          <textarea
+            value={customSystemPrompt}
+            onChange={(e) => setCustomSystemPrompt(e.target.value)}
+            placeholder="Enter your custom system prompt..."
+            className="w-full px-2 py-1.5 text-xs border rounded-md min-h-[80px] resize-y bg-background"
+          />
+        ) : (
+          <pre className="w-full px-2 py-1.5 text-xs border rounded-md max-h-[150px] overflow-y-auto whitespace-pre-wrap bg-muted text-foreground">
+            {AGENTIC_SYSTEM_PROMPT}
+          </pre>
+        )
+      )}
     </div>
   );
 };

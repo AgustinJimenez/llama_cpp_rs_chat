@@ -3,7 +3,7 @@ import { Toaster } from 'react-hot-toast';
 import { ChatHeader, Sidebar } from './components/organisms';
 import { MessagesArea } from './components/templates';
 import { WelcomeMessage } from './components/atoms';
-import { MessageInput, MessageStatistics } from './components/molecules';
+import { ConnectionBanner, MessageInput, MessageStatistics } from './components/molecules';
 import { useModelContext } from './contexts/ModelContext';
 import { useChatContext } from './contexts/ChatContext';
 import { useUIContext } from './contexts/UIContext';
@@ -124,6 +124,7 @@ function MainContent({
   return (
     <div className="flex-1 ml-[240px]">
       <div className="flex flex-col h-full">
+        <ConnectionBanner />
         {(messages.length > 0 || modelStatus.loaded || isModelLoading) ? (
           <ChatHeader
             onModelUnload={handleModelUnload}

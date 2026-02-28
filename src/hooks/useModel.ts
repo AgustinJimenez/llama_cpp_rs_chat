@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { SamplerConfig } from '../types';
+import type { SamplerConfig, ToolTags } from '../types';
 import {
   getModelStatus,
   loadModel as loadModelCmd,
@@ -14,6 +14,7 @@ interface ModelStatus {
   last_used: string | null;
   memory_usage_mb: number | null;
   has_vision?: boolean;
+  tool_tags?: ToolTags;
 }
 
 interface ModelResponse {

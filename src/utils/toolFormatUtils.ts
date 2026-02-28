@@ -2,6 +2,7 @@
  * Shared utility functions for tool format parsing.
  * Deduplicated from toolParser.ts, toolSpanCollectors.ts, and useMessageParsing.ts.
  */
+import type { ToolTags } from '../types';
 
 /** Extract balanced JSON starting at text[start]. Returns { end, json } or null. */
 export function extractBalancedJson(text: string, start: number): { end: number; json: string } | null {
@@ -48,44 +49,62 @@ function isMistralToolCallComplete(content: string, openIdx: number): boolean {
  * Remove trailing, unclosed tool-call markup so raw tags don't flash in the UI
  * during streaming. This only trims the incomplete tail; completed tool calls
  * remain intact for parsing and rendering.
+ *
+ * When `toolTags` is provided (model loaded), uses the model's actual exec tags.
+ * When absent (viewing old conversations), falls back to multi-format detection.
  */
-export function stripUnclosedToolCallTail(content: string): string {
+export function stripUnclosedToolCallTail(content: string, toolTags?: ToolTags): string {
   let cutoff = content.length;
 
-  // Qwen: <tool_call> ... (no closing tag yet)
-  const lastToolOpen = content.lastIndexOf('<tool_call>');
-  if (lastToolOpen !== -1) {
-    const lastToolClose = content.lastIndexOf('</tool_call>');
-    if (lastToolClose < lastToolOpen) cutoff = Math.min(cutoff, lastToolOpen);
+  if (toolTags) {
+    // Dynamic: use the model's actual exec_open / exec_close tags
+    const lastOpen = content.lastIndexOf(toolTags.exec_open);
+    if (lastOpen !== -1) {
+      const lastClose = content.lastIndexOf(toolTags.exec_close);
+      if (lastClose < lastOpen) cutoff = Math.min(cutoff, lastOpen);
+    }
+  } else {
+    // Fallback: check all known formats when no model tags are available
+
+    // Qwen/GLM: <tool_call> ... (no closing tag yet)
+    // GLM uses <|end_of_box|> instead of </tool_call> as closing tag
+    const lastToolOpen = content.lastIndexOf('<tool_call>');
+    if (lastToolOpen !== -1) {
+      const lastToolClose = Math.max(
+        content.lastIndexOf('</tool_call>'),
+        content.lastIndexOf('<|end_of_box|>'),
+      );
+      if (lastToolClose < lastToolOpen) cutoff = Math.min(cutoff, lastToolOpen);
+    }
+
+    // Mistral: [TOOL_CALLS] ... (no closing tag and incomplete JSON)
+    const lastMistralOpen = content.lastIndexOf('[TOOL_CALLS]');
+    if (lastMistralOpen !== -1) {
+      const closeIdx = content.indexOf('[/TOOL_CALLS]', lastMistralOpen);
+      if (closeIdx === -1 && !isMistralToolCallComplete(content, lastMistralOpen)) {
+        cutoff = Math.min(cutoff, lastMistralOpen);
+      }
+    }
+
+    // SYSTEM.EXEC: <||SYSTEM.EXEC> ... (no closing tag yet)
+    const lastExecOpen = Math.max(
+      content.lastIndexOf('<||SYSTEM.EXEC>'),
+      content.lastIndexOf('SYSTEM.EXEC>')
+    );
+    if (lastExecOpen !== -1) {
+      const lastExecClose = Math.max(
+        content.lastIndexOf('<SYSTEM.EXEC||>'),
+        content.lastIndexOf('SYSTEM.EXEC||>')
+      );
+      if (lastExecClose < lastExecOpen) cutoff = Math.min(cutoff, lastExecOpen);
+    }
   }
 
-  // Llama 3: <function=...> ... (no closing tag yet)
+  // Llama 3: <function=...> ... (no closing tag yet) — always check, not covered by toolTags
   const lastFuncOpen = content.lastIndexOf('<function=');
   if (lastFuncOpen !== -1) {
     const lastFuncClose = content.lastIndexOf('</function>');
     if (lastFuncClose < lastFuncOpen) cutoff = Math.min(cutoff, lastFuncOpen);
-  }
-
-  // Mistral: [TOOL_CALLS] ... (no closing tag and incomplete JSON)
-  const lastMistralOpen = content.lastIndexOf('[TOOL_CALLS]');
-  if (lastMistralOpen !== -1) {
-    const closeIdx = content.indexOf('[/TOOL_CALLS]', lastMistralOpen);
-    if (closeIdx === -1 && !isMistralToolCallComplete(content, lastMistralOpen)) {
-      cutoff = Math.min(cutoff, lastMistralOpen);
-    }
-  }
-
-  // SYSTEM.EXEC: <||SYSTEM.EXEC> ... (no closing tag yet)
-  const lastExecOpen = Math.max(
-    content.lastIndexOf('<||SYSTEM.EXEC>'),
-    content.lastIndexOf('SYSTEM.EXEC>')
-  );
-  if (lastExecOpen !== -1) {
-    const lastExecClose = Math.max(
-      content.lastIndexOf('<SYSTEM.EXEC||>'),
-      content.lastIndexOf('SYSTEM.EXEC||>')
-    );
-    if (lastExecClose < lastExecOpen) cutoff = Math.min(cutoff, lastExecOpen);
   }
 
   return cutoff < content.length ? content.slice(0, cutoff).trimEnd() : content;

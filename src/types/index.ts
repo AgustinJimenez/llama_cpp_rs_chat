@@ -10,17 +10,20 @@ export interface Message {
   timings?: import('../utils/chatTransport').TimingInfo;
 }
 
+/** Tool tag delimiters auto-detected from the loaded model. */
+export interface ToolTags {
+  exec_open: string;
+  exec_close: string;
+  output_open: string;
+  output_close: string;
+}
+
 export interface ChatRequest {
   message: string;
   conversation_id?: string;
   /** Base64-encoded image data URIs for vision models. */
   image_data?: string[];
-  tool_tags?: {
-    exec_open: string;
-    exec_close: string;
-    output_open: string;
-    output_close: string;
-  };
+  tool_tags?: ToolTags;
 }
 
 export interface ChatResponse {

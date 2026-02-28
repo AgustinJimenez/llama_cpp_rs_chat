@@ -3,7 +3,7 @@
  * Each function branches between Tauri invoke() and HTTP fetch().
  */
 import { isTauriEnv } from './tauri';
-import type { SamplerConfig, ToolCall } from '../types';
+import type { SamplerConfig, ToolCall, ToolTags } from '../types';
 
 // ─── Types ────────────────────────────────────────────────────────────
 
@@ -12,6 +12,7 @@ interface ModelStatus {
   model_path: string | null;
   last_used: string | null;
   memory_usage_mb: number | null;
+  tool_tags?: ToolTags;
 }
 
 interface ModelResponse {

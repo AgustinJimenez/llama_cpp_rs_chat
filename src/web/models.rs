@@ -512,6 +512,8 @@ pub struct ModelStatus {
     pub memory_usage_mb: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub has_vision: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_tags: Option<crate::web::chat::tool_tags::ToolTags>,
 }
 
 #[derive(Deserialize)]

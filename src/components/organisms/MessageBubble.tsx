@@ -2,6 +2,7 @@ import React from 'react';
 import type { Message } from '../../types';
 import type { MessageSegment } from '../../hooks/useMessageParsing';
 import { useMessageParsing } from '../../hooks/useMessageParsing';
+import { useModelContext } from '../../contexts/ModelContext';
 import { MarkdownContent } from '../molecules/MarkdownContent';
 import { ThinkingBlock, ToolCallBlock } from '../molecules/messages';
 
@@ -185,13 +186,14 @@ const AssistantMessage: React.FC<{
  * Message bubble component - renders user, assistant, or system messages.
  */
 export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode = 'text', isStreaming }) => {
+  const { status } = useModelContext();
   const {
     cleanContent,
     thinkingContent,
     isThinkingStreaming,
     segments,
     isError,
-  } = useMessageParsing(message);
+  } = useMessageParsing(message, status.tool_tags);
 
   // System messages
   const displayContent = viewMode === 'raw' ? message.content : cleanContent;

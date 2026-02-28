@@ -5,7 +5,7 @@
 //! to follow tool-calling instructions than using generic custom tags.
 
 /// Tool tag delimiters used in the system prompt and command detection.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct ToolTags {
     pub exec_open: String,
     pub exec_close: String,
