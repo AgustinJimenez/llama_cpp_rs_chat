@@ -1,5 +1,7 @@
+import { useEffect } from 'react';
 import { X } from 'lucide-react';
 import { SystemUsage } from './SystemUsage';
+import { useSystemResources } from '../../contexts/SystemResourcesContext';
 
 interface RightSidebarProps {
   isOpen: boolean;
@@ -7,6 +9,13 @@ interface RightSidebarProps {
 }
 
 export function RightSidebar({ isOpen, onClose }: RightSidebarProps) {
+  const { setMonitorActive } = useSystemResources();
+
+  useEffect(() => {
+    setMonitorActive(isOpen);
+    return () => setMonitorActive(false);
+  }, [isOpen, setMonitorActive]);
+
   return (
     <>
       {/* Overlay for mobile */}
@@ -39,7 +48,7 @@ export function RightSidebar({ isOpen, onClose }: RightSidebarProps) {
 
         {/* Content */}
         <div className="p-4">
-          <SystemUsage expanded active={isOpen} />
+          <SystemUsage expanded />
         </div>
       </div>
     </>

@@ -1,77 +1,20 @@
-import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
-import { getSystemUsage } from '../../utils/tauriCommands';
 import { useSystemResources } from '../../contexts/SystemResourcesContext';
-
-interface UsageData {
-  cpu: number;
-  gpu: number;
-  ram: number;
-  total_ram_gb?: number;
-  total_vram_gb?: number;
-  cpu_cores?: number;
-  cpu_ghz?: number;
-}
 
 interface SystemUsageProps {
   expanded?: boolean;
-  active?: boolean;
 }
 
 // eslint-disable-next-line max-lines-per-function
-export function SystemUsage({ expanded = false, active = true }: SystemUsageProps) {
-  const [usage, setUsage] = useState<UsageData>({ cpu: 0, gpu: 0, ram: 0 });
-  const [history, setHistory] = useState<UsageData[]>([]);
-  const [hasData, setHasData] = useState(false);
-  const isFetchingRef = useRef(false);
-
-  useEffect(() => {
-    if (!active) {
-      return undefined;
-    }
-
-    const fetchUsage = async () => {
-      if (isFetchingRef.current) return;
-      isFetchingRef.current = true;
-
-      try {
-        const data = await getSystemUsage();
-        setUsage(data);
-        setHasData(true);
-
-        // Keep last 20 data points for mini graph
-        setHistory(prev => {
-          const updated = [...prev, data];
-          return updated.slice(-20);
-        });
-      } catch (error) {
-        const isAbort =
-          error instanceof DOMException &&
-          (error.name === 'AbortError' || error.message.toLowerCase().includes('aborted'));
-        if (!isAbort) {
-          console.error('Failed to fetch system usage:', error);
-        }
-      } finally {
-        isFetchingRef.current = false;
-      }
-    };
-
-    // Fetch immediately
-    fetchUsage();
-
-    // Then poll every 3s to avoid piling requests
-    const interval = setInterval(fetchUsage, 3000);
-
-    return () => clearInterval(interval);
-  }, [active]);
+export function SystemUsage({ expanded = false }: SystemUsageProps) {
+  const { usage, history, hasData, totalVramGb, totalRamGb } = useSystemResources();
 
   const renderMiniGraph = (data: number[], color: string) => {
     if (data.length === 0) return null;
 
-    // Always scale to 100% for accurate representation
     const points = data.map((value, index) => {
       const x = (index / (data.length - 1)) * 100;
-      const y = 100 - value; // Direct mapping: 0% = bottom (100), 100% = top (0)
+      const y = 100 - value;
       return `${x},${y}`;
     }).join(' ');
 
@@ -88,7 +31,6 @@ export function SystemUsage({ expanded = false, active = true }: SystemUsageProp
     );
   };
 
-  const { totalVramGb, totalRamGb } = useSystemResources();
   const effectiveVramGb = usage.total_vram_gb && usage.total_vram_gb > 0 ? usage.total_vram_gb : totalVramGb;
   const effectiveRamGb = usage.total_ram_gb && usage.total_ram_gb > 0 ? usage.total_ram_gb : totalRamGb;
   const cpuGhz = usage.cpu_ghz || 0;
@@ -108,7 +50,6 @@ export function SystemUsage({ expanded = false, active = true }: SystemUsageProp
       return `${x},${y}`;
     }).join(' ');
 
-    // Create filled area points
     const areaPoints = `0,100 ${points} 100,100`;
 
     return (
