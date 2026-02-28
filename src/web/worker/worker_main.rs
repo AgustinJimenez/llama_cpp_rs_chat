@@ -328,12 +328,20 @@ pub fn run_worker(db_path: &str) {
                 skip_user_logging,
                 image_data,
             } => {
-                if generation_thread.is_some() {
-                    write_response(
-                        &mut ipc_writer,
-                        &WorkerResponse::error(req_id, "Generation already in progress"),
-                    );
-                    continue;
+                // Clean up finished generation thread before checking availability.
+                // Fixes race where thread sent GenerationComplete but hasn't exited yet.
+                if let Some(handle) = generation_thread.take() {
+                    if handle.is_finished() {
+                        let _ = handle.join();
+                    } else {
+                        // Still actually running — put it back and reject
+                        generation_thread = Some(handle);
+                        write_response(
+                            &mut ipc_writer,
+                            &WorkerResponse::error(req_id, "Generation already in progress"),
+                        );
+                        continue;
+                    }
                 }
 
                 // Reset cancel flag

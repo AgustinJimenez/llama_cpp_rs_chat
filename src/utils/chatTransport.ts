@@ -31,6 +31,7 @@ const buildWsUrl = (path: string): string => {
 };
 
 const WS_CONNECT_TIMEOUT_MS = 10000;
+const WS_GENERATION_TIMEOUT_MS = 30000; // No tokens received for 30s → error
 
 type StreamState = {
   isCompleted: boolean;
@@ -111,11 +112,23 @@ function streamViaWebSocket(
     const ws = new WebSocket(buildWsUrl('/ws/chat/stream'));
     const state: StreamState = { isCompleted: false, wasAborted: false };
     let connectTimer: ReturnType<typeof setTimeout> | null = null;
+    let genTimer: ReturnType<typeof setTimeout> | null = null;
     let settled = false;
+
+    const resetGenTimer = () => {
+      if (genTimer) clearTimeout(genTimer);
+      genTimer = setTimeout(() => {
+        if (state.isCompleted || state.wasAborted || settled) return;
+        const errorMessage = 'Generation timeout: no response from model for 30 seconds';
+        safeOnError(errorMessage);
+        settle(new Error(errorMessage));
+      }, WS_GENERATION_TIMEOUT_MS);
+    };
 
     const settle = (error?: Error) => {
       if (settled) return;
       settled = true;
+      if (genTimer) clearTimeout(genTimer);
       try {
         ws.close();
       } catch {
@@ -163,10 +176,13 @@ function streamViaWebSocket(
         markAborted();
         return;
       }
+      console.log('[WS_STREAM] Connected, sending request');
       ws.send(JSON.stringify(request));
+      resetGenTimer();
     };
 
     ws.onmessage = (event) => {
+      resetGenTimer();
       handleStreamMessage(
         event.data,
         request,
@@ -184,6 +200,7 @@ function streamViaWebSocket(
       }
       if (!state.isCompleted) {
         const errorMessage = 'WebSocket connection error';
+        console.error('[WS_STREAM] Connection error');
         safeOnError(errorMessage);
         settle(new Error(errorMessage));
       }
@@ -194,15 +211,21 @@ function streamViaWebSocket(
         clearTimeout(connectTimer);
         connectTimer = null;
       }
+      if (genTimer) {
+        clearTimeout(genTimer);
+        genTimer = null;
+      }
       if (state.wasAborted) {
         markAborted();
         return;
       }
       if (!state.isCompleted && event.code !== 1000) {
         const errorMessage = `Connection closed unexpectedly: ${event.reason || 'Unknown reason'}`;
+        console.error(`[WS_STREAM] Closed unexpectedly: code=${event.code} reason=${event.reason}`);
         safeOnError(errorMessage);
         settle(new Error(errorMessage));
       } else if (!state.isCompleted) {
+        console.log('[WS_STREAM] Closed normally (no completion received)');
         settle();
       }
     };

@@ -1,13 +1,12 @@
 import { useRef, useCallback, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Square } from 'lucide-react';
 import { LoadingIndicator } from '../atoms';
 import { MessageBubble } from '../organisms';
 import { useChatContext } from '../../contexts/ChatContext';
 import { useUIContext } from '../../contexts/UIContext';
 
 export function MessagesArea() {
-  const { messages, isLoading, stopGeneration } = useChatContext();
+  const { messages, isLoading } = useChatContext();
   const { viewMode } = useUIContext();
   const containerRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
@@ -103,19 +102,7 @@ export function MessagesArea() {
                     isStreaming={isLoading ? virtualRow.index === messages.length - 1 : undefined}
                   />
                 ) : (
-                  <div className="flex items-center justify-between">
-                    <LoadingIndicator />
-                    {stopGeneration ? (
-                      <button
-                        type="button"
-                        onClick={stopGeneration}
-                        className="w-8 h-8 flex items-center justify-center rounded-full bg-white text-black hover:bg-gray-200 transition-colors"
-                        title="Stop generation"
-                      >
-                        <Square className="h-3.5 w-3.5" />
-                      </button>
-                    ) : null}
-                  </div>
+                  <LoadingIndicator />
                 )}
               </div>
             </div>
