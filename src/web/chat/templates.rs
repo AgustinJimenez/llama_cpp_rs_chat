@@ -1,6 +1,80 @@
 use crate::log_debug;
 use super::super::models::SystemPromptType;
+use super::jinja_templates::{
+    apply_native_chat_template, get_available_tools_openai, parse_conversation_for_jinja,
+};
 use super::tool_tags::ToolTags;
+
+/// Get a behavioral-only system prompt for Jinja template mode.
+///
+/// This is a stripped-down version of the universal system prompt that contains
+/// only behavioral instructions and environment info. Tool format and tool
+/// definitions are NOT included — the Jinja template injects those natively
+/// via its `{% if tools %}` block.
+pub fn get_behavioral_system_prompt() -> String {
+    let os_name = std::env::consts::OS;
+    let cwd = std::env::current_dir()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| ".".to_string());
+
+    let shell = if os_name == "windows" {
+        "cmd/powershell"
+    } else {
+        "bash"
+    };
+
+    format!(
+        r#"You are a helpful AI assistant with full system access.
+
+## Behavior
+- Be autonomous and resourceful. Complete tasks fully without asking the user for help.
+- If a command fails, try a DIFFERENT alternative approach. Do NOT retry the same failing command.
+- If a tool is not in PATH, use its full path (e.g., `E:\php\php.exe` instead of `php`), or download it to a known location and reference it by full path.
+- After downloading a tool, use its full path to run it. Do NOT assume it is in PATH.
+- Do NOT tell the user to run commands manually — use your tools to solve problems yourself.
+- NEVER repeat the same failing command more than once. If it failed, change your approach.
+- When creating files, use `write_file` to create them directly. Do not just show the code and ask the user to copy it.
+- When a task requires multiple steps, execute them one by one using your tools. Do not skip steps.
+
+## Important Notes
+- Use `read_file` instead of cat/type to read files
+- Use `write_file` instead of echo/python to write files
+- Use `execute_python` for any Python code (avoids shell quoting issues)
+- Use `execute_command` for shell tools like git, npm, curl, etc.
+- Use `web_search` to find information online, then `web_fetch` to read specific pages
+- After calling a tool, the system will inject the result automatically. Wait for it before continuing.
+
+## Current Environment
+- OS: {os_name}
+- Working Directory: {cwd}
+- Shell: {shell}
+"#
+    )
+}
+
+/// Try to render a prompt using the model's native Jinja2 chat template.
+///
+/// Returns Ok(prompt) on success, or Err(reason) to trigger fallback to hardcoded templates.
+fn try_jinja_render(
+    template_str: &str,
+    conversation: &str,
+    bos_token: &str,
+    eos_token: &str,
+) -> Result<String, String> {
+    let system_prompt = get_behavioral_system_prompt();
+    let messages = parse_conversation_for_jinja(conversation, &system_prompt);
+    let tools = get_available_tools_openai();
+
+    apply_native_chat_template(
+        template_str,
+        messages,
+        Some(tools),
+        None,
+        true,
+        bos_token,
+        eos_token,
+    )
+}
 
 /// Get the universal system prompt using model-specific tool tags.
 pub fn get_universal_system_prompt_with_tags(tags: &ToolTags) -> String {
@@ -168,8 +242,25 @@ pub fn apply_system_prompt_by_type_with_tags(
 ) -> Result<String, String> {
     match prompt_type {
         SystemPromptType::Custom => {
-            // Use curated agentic system prompt with native tool tags
-            log_debug!("templates", "Using agentic system prompt with native tool tags");
+            // Try Jinja template first (primary path), fall back to hardcoded templates
+            if let Some(template_str) = chat_template_string {
+                log_debug!("templates", "Trying Jinja template rendering (primary path)");
+                match try_jinja_render(template_str, conversation, bos_token, eos_token) {
+                    Ok(prompt) => {
+                        log_debug!("templates", "Jinja template rendered successfully");
+                        return Ok(prompt);
+                    }
+                    Err(e) => {
+                        log_debug!(
+                            "templates",
+                            "Jinja render failed ({}), falling back to hardcoded templates",
+                            e
+                        );
+                    }
+                }
+            }
+            // Fallback: hardcoded template with tool tags in system prompt
+            log_debug!("templates", "Using hardcoded agentic template with tool tags");
             apply_model_chat_template_with_tags(conversation, template_type, tags)
         }
 
