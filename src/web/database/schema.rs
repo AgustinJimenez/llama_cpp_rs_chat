@@ -346,6 +346,16 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         [],
     );
 
+    // Add tag_pairs JSON column if missing
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN tag_pairs TEXT",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE conversation_config ADD COLUMN tag_pairs TEXT",
+        [],
+    );
+
     // Same columns for conversation_config
     let _ = conn.execute(
         "ALTER TABLE conversation_config ADD COLUMN seed INTEGER DEFAULT -1",

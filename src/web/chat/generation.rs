@@ -22,7 +22,7 @@ use super::command_executor::{
 };
 use super::stop_conditions::{check_stop_conditions, ExecBlockTracker};
 use super::templates::apply_system_prompt_by_type_with_tags;
-use super::tool_tags::{get_tool_tags_for_model, ToolTags};
+use super::tool_tags::{derive_tool_tags_from_pairs, get_tool_tags_for_model, ToolTags};
 use super::sampler::create_sampler;
 use crate::{log_debug, log_info, log_warn, sys_debug, sys_error, sys_warn};
 
@@ -274,6 +274,10 @@ struct TokenGenConfig<'a> {
 /// Stall detection: if a single token takes longer than this, abort generation.
 const TOKEN_STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// Maximum number of tool call rounds before forcing generation to stop.
+/// Prevents infinite loops when models keep generating tool calls.
+const MAX_TOOL_CALL_ROUNDS: usize = 15;
+
 /// Run the outer generation loop: generates tokens, detects/executes commands, resumes.
 ///
 /// Returns the final response and token counts. The `context` is mutated in place
@@ -300,6 +304,8 @@ fn run_generation_loop(
     );
     log_debug!(cfg.conversation_id, "Stop tokens configured: {:?}", cfg.stop_tokens);
     log_debug!(cfg.conversation_id, "EOS token ID: {}", model.token_eos());
+
+    let mut tool_call_rounds: usize = 0;
 
     loop {
         let mut command_executed = false;
@@ -444,6 +450,7 @@ fn run_generation_loop(
 
                 gen.generated_token_ids.extend(exec_result.model_tokens.iter().map(|&id| LlamaToken(id)));
                 command_executed = true;
+                tool_call_rounds += 1;
                 hit_stop_condition = false;
                 gen.last_exec_scan_pos = gen.response.len();
                 break;
@@ -451,6 +458,25 @@ fn run_generation_loop(
         }
 
         if hit_stop_condition || gen.total_tokens_generated >= cfg.max_total_tokens {
+            break;
+        }
+
+        if tool_call_rounds >= MAX_TOOL_CALL_ROUNDS {
+            log_info!(
+                cfg.conversation_id,
+                "🛑 Max tool call rounds ({}) reached, stopping generation",
+                MAX_TOOL_CALL_ROUNDS
+            );
+            if let Some(ref sender) = token_sender {
+                let _ = sender.send(TokenData {
+                    token: format!(
+                        "\n\n[Generation stopped: reached {} tool call rounds limit]",
+                        MAX_TOOL_CALL_ROUNDS
+                    ),
+                    tokens_used: gen.token_pos,
+                    max_tokens: cfg.context_size as i32,
+                });
+            }
             break;
         }
 
@@ -565,6 +591,23 @@ fn create_fresh_context(
     }
 }
 
+/// Resolve ToolTags from config: saved tag_pairs → old override fields → model name lookup.
+fn resolve_tool_tags(config: &SamplerConfig, general_name: Option<&str>) -> ToolTags {
+    // Priority 1: Derive from saved tag_pairs (user-edited in UI)
+    if let Some(pairs) = &config.tag_pairs {
+        if let Some(tags) = derive_tool_tags_from_pairs(pairs) {
+            return tags;
+        }
+    }
+    // Priority 2: Old override fields + model name lookup (backward compat)
+    get_tool_tags_for_model(general_name).with_overrides(
+        config.tool_tag_exec_open.as_deref(),
+        config.tool_tag_exec_close.as_deref(),
+        config.tool_tag_output_open.as_deref(),
+        config.tool_tag_output_close.as_deref(),
+    )
+}
+
 /// Generate response from LLaMA model with streaming support.
 ///
 /// Handles token generation, stop conditions, command execution, and conversation logging.
@@ -659,14 +702,8 @@ pub async fn generate_llama_response(
     let chat_template_string = state.chat_template_string.clone();
     let general_name = state.general_name.clone();
 
-    // Look up model-specific tool tags based on general.name from GGUF metadata,
-    // then apply any user overrides from config
-    let tags = get_tool_tags_for_model(general_name.as_deref()).with_overrides(
-        config.tool_tag_exec_open.as_deref(),
-        config.tool_tag_exec_close.as_deref(),
-        config.tool_tag_output_open.as_deref(),
-        config.tool_tag_output_close.as_deref(),
-    );
+    // Resolve tool tags: saved tag_pairs → old override fields → model name lookup
+    let tags = resolve_tool_tags(&config, general_name.as_deref());
     // Get model's actual BOS/EOS token text for Jinja templates
     #[allow(deprecated)]
     use llama_cpp_2::model::Special;

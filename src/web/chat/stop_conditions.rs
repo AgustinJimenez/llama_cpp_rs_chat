@@ -65,10 +65,12 @@ impl ExecBlockTracker {
         let was_in_block = self.in_block;
         if self.in_block {
             // Check if the new token contains a close tag
+            // NOTE: GLM models open with <tool_call> but close with <|end_of_box|>
+            // (a vision bounding box marker they repurpose as tool call terminator)
             if token.contains("SYSTEM.EXEC|")
                 || token.contains("</tool_call>")
-                || token.contains("[/TOOL_CALLS]")
                 || token.contains("<|end_of_box|>")
+                || token.contains("[/TOOL_CALLS]")
             {
                 self.in_block = false;
             }
@@ -78,14 +80,9 @@ impl ExecBlockTracker {
             }
         } else {
             // Check if the new token opens a block
-            // NOTE: <|begin_of_box|> is GLM's output wrapper tag, but the model sometimes
-            // uses it instead of <tool_call> to open tool calls. Track it here so EOS is
-            // suppressed inside the confused block. Safe: only model-generated tokens pass
-            // through this tracker; system-injected output is prompt-eval'd, not sampled.
             if token.contains("SYSTEM.EXEC>")
                 || token.contains("<tool_call>")
                 || token.contains("[TOOL_CALLS]")
-                || token.contains("<|begin_of_box|>")
             {
                 self.in_block = true;
                 self.block_open_pos = response_len.saturating_sub(token.len());

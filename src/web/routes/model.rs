@@ -9,7 +9,7 @@ use std::io::BufReader;
 use tokio::task::spawn_blocking;
 
 use crate::web::{
-    chat::get_tool_tags_for_model,
+    chat::{get_tool_tags_for_model, tool_tags::get_tag_pairs_for_model},
     config::add_to_model_history,
     database::SharedDatabase,
     filename_patterns::{detect_architecture, detect_parameters, detect_quantization},
@@ -123,6 +123,7 @@ fn enrich_model_info_from_gguf(
         "output_open": detected_tags.output_open,
         "output_close": detected_tags.output_close,
     });
+    model_info["detected_tag_pairs"] = serde_json::json!(get_tag_pairs_for_model(Some(&model_name)));
 
     // Core model information
     let string_fields = [

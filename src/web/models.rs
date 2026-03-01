@@ -155,6 +155,8 @@ pub struct SamplerConfig {
     pub main_gpu: i32,
     #[serde(default = "default_split_mode")]
     pub split_mode: String,
+    #[serde(default)]
+    pub tag_pairs: Option<Vec<crate::web::chat::tool_tags::TagPair>>,
 }
 
 fn default_true() -> bool {
@@ -222,6 +224,8 @@ pub fn get_common_stop_tokens() -> Vec<String> {
         "<|end|>".to_string(),        // Phi-3/Phi-4 turn separator
         "<|user|>".to_string(),        // GLM/Phi role boundary (stop before next user turn)
         "<|observation|>".to_string(), // GLM tool result boundary
+        "<|system|>".to_string(),      // GLM/Phi system role (model hallucinating turns)
+        "<|assistant|>".to_string(),   // GLM/Phi assistant role (model hallucinating turns)
     ]
 }
 
@@ -275,6 +279,7 @@ impl Default for SamplerConfig {
             use_mmap: true,
             main_gpu: 0,
             split_mode: "layer".to_string(),
+            tag_pairs: None,
         }
     }
 }

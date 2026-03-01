@@ -351,6 +351,62 @@ fn try_parse_llama3_xml_format(trimmed: &str) -> Option<(String, Value)> {
     Some((name, Value::Object(args)))
 }
 
+/// Parse GLM native XML format: `tool_name\n<arg_key>key</arg_key>\n<arg_value>val</arg_value>`
+///
+/// GLM models can emit this format from their chat template instead of JSON.
+/// The function name is on the first line, followed by `<arg_key>`/`<arg_value>` pairs.
+fn try_parse_glm_xml_format(trimmed: &str) -> Option<(String, Value)> {
+    // Must contain <arg_key> to be this format
+    if !trimmed.contains("<arg_key>") {
+        return None;
+    }
+
+    // Function name is the text before the first <arg_key> (or the whole first line)
+    let first_arg_pos = trimmed.find("<arg_key>")?;
+    let name = trimmed[..first_arg_pos].trim().to_string();
+    if name.is_empty() || name.contains(' ') || name.contains('{') {
+        return None;
+    }
+
+    // Extract all <arg_key>NAME</arg_key>\n<arg_value>VALUE</arg_value> pairs
+    let mut args = serde_json::Map::new();
+    let mut search_pos = first_arg_pos;
+
+    while let Some(key_start) = trimmed[search_pos..].find("<arg_key>") {
+        let abs_key_start = search_pos + key_start + "<arg_key>".len();
+        let key_end = match trimmed[abs_key_start..].find("</arg_key>") {
+            Some(i) => abs_key_start + i,
+            None => break,
+        };
+        let key = trimmed[abs_key_start..key_end].trim().to_string();
+
+        // Find the matching <arg_value>
+        let after_key = key_end + "</arg_key>".len();
+        let val_start = match trimmed[after_key..].find("<arg_value>") {
+            Some(i) => after_key + i + "<arg_value>".len(),
+            None => break,
+        };
+        let val_end = match trimmed[val_start..].find("</arg_value>") {
+            Some(i) => val_start + i,
+            None => break,
+        };
+        let value = trimmed[val_start..val_end].trim().to_string();
+
+        // Try to parse as JSON first (for non-string values), fall back to string
+        let json_value = serde_json::from_str::<Value>(&value)
+            .unwrap_or_else(|_| Value::String(value));
+        args.insert(key, json_value);
+
+        search_pos = val_end + "</arg_value>".len();
+    }
+
+    if args.is_empty() {
+        return None;
+    }
+
+    Some((name, Value::Object(args)))
+}
+
 /// Fallback: infer tool name from bare argument keys.
 ///
 /// Some models (GLM) put just the arguments without the name/arguments wrapper inside
@@ -396,6 +452,8 @@ pub fn try_parse_tool_call(text: &str) -> Option<(String, Value)> {
         Some(result)
     } else if let Some(result) = try_parse_llama3_xml_format(trimmed) {
         Some(result)
+    } else if let Some(result) = try_parse_glm_xml_format(trimmed) {
+        Some(result)
     } else if let Some(result) = try_parse_name_json_format(trimmed) {
         Some(result)
     } else {
@@ -421,6 +479,9 @@ pub fn try_parse_all_from_raw(text: &str) -> Vec<(String, Value)> {
         return vec![result];
     }
     if let Some(result) = try_parse_llama3_xml_format(trimmed) {
+        return vec![result];
+    }
+    if let Some(result) = try_parse_glm_xml_format(trimmed) {
         return vec![result];
     }
     if let Some(result) = try_parse_name_json_format(trimmed) {
@@ -485,6 +546,8 @@ pub fn dispatch_native_tool(
     } else if let Some((n, a)) = try_parse_mistral_comma_format(trimmed) {
         (n, a)
     } else if let Some((n, a)) = try_parse_llama3_xml_format(trimmed) {
+        (n, a)
+    } else if let Some((n, a)) = try_parse_glm_xml_format(trimmed) {
         (n, a)
     } else if let Some((n, a)) = try_parse_name_json_format(trimmed) {
         (n, a)

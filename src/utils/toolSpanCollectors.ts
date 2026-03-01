@@ -14,8 +14,8 @@ export type MessageSegment =
 export type Span = { start: number; end: number; segment: MessageSegment };
 
 // --- Regexes ---
-// Matches both Qwen (<tool_response>...</tool_response>) and GLM (<|begin_of_box|>...<|end_of_box|>) response tags
-const TOOL_RESPONSE_REGEX = /(?:<tool_response>|<\|begin_of_box\|>)([\s\S]*?)(?:<\/tool_response>|<\|end_of_box\|>)/g;
+// Matches Qwen/GLM tool response tags (<tool_response>...</tool_response>)
+const TOOL_RESPONSE_REGEX = /<tool_response>([\s\S]*?)<\/tool_response>/g;
 const LLAMA3_FUNC_REGEX = /<function=([^>]+)>([\s\S]*?)<\/function>/g;
 const MISTRAL_CALL_REGEX = /\[TOOL_CALLS\]([\s\S]*?)\[\/TOOL_CALLS\]/g;
 const MISTRAL_BRACKET_PREFIX = /\[TOOL_CALLS\](\w+)\[ARGS\]/g;
@@ -270,12 +270,13 @@ export function collectExecSpans(content: string): Span[] {
   return spans;
 }
 
-// --- Qwen/GLM: <tool_call>{"name":"...","arguments":{...}}</tool_call> or <|end_of_box|> ---
-// GLM uses <tool_call> to open but <|end_of_box|> to close (different special tokens).
-// GLM sometimes confuses <|begin_of_box|> (output wrapper) with <tool_call> — accept both.
-// False positives (output text matched as tool call) are filtered by JSON.parse + name check.
+// --- Qwen/GLM: <tool_call>{"name":"...","arguments":{...}}</tool_call> ---
+// Both Qwen and GLM use <tool_call>...</tool_call> as native tool call tags.
+// NOTE: GLM models sometimes close with <|end_of_box|> instead of </tool_call>
+// (<|begin_of_box|>/<|end_of_box|> are vision bounding box markers, but GLM
+// repurposes <|end_of_box|> as a tool call terminator).
 
-const TOOL_CALL_REGEX = /(?:<tool_call>|<\|begin_of_box\|>)([\s\S]*?)(?:<\/tool_call>|<\|end_of_box\|>)/g;
+const TOOL_CALL_REGEX = /<tool_call>([\s\S]*?)(?:<\/tool_call>|<\|end_of_box\|>)/g;
 
 type QwenTcMatch = { start: number; end: number; json: string };
 type QwenTrMatch = { start: number; end: number; content: string };
@@ -297,24 +298,55 @@ function resolveQwenOutput(
   return { output, isStreaming, spanEnd };
 }
 
+/** Parse GLM native XML arg format: `name\n<arg_key>k</arg_key>\n<arg_value>v</arg_value>` */
+function parseGlmXmlArgs(body: string): { name: string; args: Record<string, unknown> } | null {
+  if (!body.includes('<arg_key>')) return null;
+  const firstArgPos = body.indexOf('<arg_key>');
+  const name = body.slice(0, firstArgPos).trim();
+  if (!name || name.includes(' ') || name.includes('{')) return null;
+  const args: Record<string, unknown> = {};
+  const re = /<arg_key>([\s\S]*?)<\/arg_key>\s*<arg_value>([\s\S]*?)<\/arg_value>/g;
+  let m;
+  while ((m = re.exec(body)) !== null) {
+    const key = m[1].trim();
+    const val = m[2].trim();
+    try { args[key] = JSON.parse(val); } catch { args[key] = val; }
+  }
+  return Object.keys(args).length > 0 ? { name, args } : null;
+}
+
 export function collectQwenSpans(content: string): Span[] {
   const spans: Span[] = [];
   let match;
 
   const tcMatches: QwenTcMatch[] = [];
   while ((match = TOOL_CALL_REGEX.exec(content)) !== null) {
-    const json = match[1].trim();
-    // Since TOOL_CALL_REGEX also matches <|begin_of_box|> (GLM confused tag), we must
-    // filter out matches that aren't valid tool call JSON. Otherwise, tool RESPONSE
-    // blocks get consumed as tcMatches and break the pairing with actual tool calls.
+    const body = match[1].trim();
+    // Try JSON first (standard Qwen format)
     try {
-      const parsed = JSON.parse(json);
+      const parsed = JSON.parse(body);
       const items = Array.isArray(parsed) ? parsed : [parsed];
       if (!items.some((item: Record<string, unknown>) => item?.name)) continue;
-    } catch {
+      tcMatches.push({ start: match.index, end: match.index + match[0].length, json: body });
       continue;
+    } catch { /* not JSON, try GLM XML format below */ }
+    // Fallback 1: GLM-4.7 "name{json}" format — function name directly followed by JSON args
+    // e.g. <tool_call>web_search{"query": "hello"}</tool_call>
+    const nameJsonMatch = body.match(/^(\w+)(\{[\s\S]*\})$/);
+    if (nameJsonMatch) {
+      try {
+        const args = JSON.parse(nameJsonMatch[2]);
+        const wrapped = JSON.stringify({ name: nameJsonMatch[1], arguments: args });
+        tcMatches.push({ start: match.index, end: match.index + match[0].length, json: wrapped });
+        continue;
+      } catch { /* fall through to XML format */ }
     }
-    tcMatches.push({ start: match.index, end: match.index + match[0].length, json });
+    // Fallback 2: GLM native XML format — name\n<arg_key>k</arg_key>\n<arg_value>v</arg_value>
+    const glmParsed = parseGlmXmlArgs(body);
+    if (glmParsed) {
+      const wrapped = JSON.stringify({ name: glmParsed.name, arguments: glmParsed.args });
+      tcMatches.push({ start: match.index, end: match.index + match[0].length, json: wrapped });
+    }
   }
 
   const trMatches: QwenTrMatch[] = [];
@@ -364,10 +396,12 @@ export function collectQwenSpans(content: string): Span[] {
 
 export const THINKING_REGEX = /<think>[\s\S]*?<\/think>/g;
 export const THINKING_UNCLOSED_REGEX = /<think>([\s\S]*)$/;
+/** Strip orphan </think> tags that have no matching <think> open. */
+export const THINKING_ORPHAN_CLOSE_REGEX = /<\/think>/g;
 
 // Regexes for tool call+response pairs inside thinking blocks
 const EXEC_PAIR_RE = /(?:<\|\|)?SYSTEM\.EXEC>[\s\S]*?<(?:\|\|)?SYSTEM\.EXEC\|\|>(?:\s*(?:<\|\|)?SYSTEM\.OUTPUT>[\s\S]*?<(?:\|\|)?SYSTEM\.OUTPUT\|\|>)?/g;
-const TOOL_CALL_PAIR_RE = /(?:<tool_call>|<\|begin_of_box\|>)[\s\S]*?(?:<\/tool_call>|<\|end_of_box\|>)(?:\s*(?:<tool_response>|<\|begin_of_box\|>)[\s\S]*?(?:<\/tool_response>|<\|end_of_box\|>))?/g;
+const TOOL_CALL_PAIR_RE = /<tool_call>[\s\S]*?(?:<\/tool_call>|<\|end_of_box\|>)(?:\s*<tool_response>[\s\S]*?<\/tool_response>)?/g;
 const MISTRAL_PAIR_RE = /\[TOOL_CALLS\][\s\S]*?(?:\[\/TOOL_CALLS\]|\})(?:\s*\[TOOL_RESULTS\][\s\S]*?\[\/TOOL_RESULTS\])?/g;
 
 /**
@@ -402,7 +436,10 @@ export function moveToolsOutOfThinking(content: string): string {
 export function buildSegments(content: string, toolTags?: ToolTags): MessageSegment[] {
   // Preprocess: move tool calls out of thinking blocks so they become widgets
   const preprocessed = moveToolsOutOfThinking(content);
-  const cleaned = preprocessed.replace(THINKING_REGEX, '').replace(THINKING_UNCLOSED_REGEX, '');
+  const cleaned = preprocessed
+    .replace(THINKING_REGEX, '')
+    .replace(THINKING_UNCLOSED_REGEX, '')
+    .replace(THINKING_ORPHAN_CLOSE_REGEX, '');
   const pruned = stripUnclosedToolCallTail(cleaned, toolTags);
   const qwenSpans = collectQwenSpans(pruned);
   const mistralSpans = qwenSpans.length > 0 ? [] : collectMistralSpans(pruned);

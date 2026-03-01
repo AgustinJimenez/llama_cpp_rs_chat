@@ -139,22 +139,20 @@ const llama3Parser: ToolParser = {
 };
 
 /**
- * Qwen tool parser
+ * Qwen/GLM tool parser
  * Format: <tool_call>{"name": "func", "arguments": {...}}</tool_call>
- * GLM sometimes confuses <|begin_of_box|> (output wrapper) with <tool_call> — accept both.
  */
 const qwenParser: ToolParser = {
   detect(text: string): boolean {
-    return text.includes('<tool_call>') || text.includes('<|begin_of_box|>');
+    return text.includes('<tool_call>');
   },
 
   parse(text: string): ToolCall[] {
     const toolCalls: ToolCall[] = [];
 
-    // Regex to match <tool_call>{...}</tool_call> or <tool_call>{...}<|end_of_box|> (GLM)
-    // Also matches <|begin_of_box|>{...}<|end_of_box|> for GLM's confused tag usage.
-    // False positives (output text) are filtered by JSON.parse + name check below.
-    const regex = /(?:<tool_call>|<\|begin_of_box\|>)([\s\S]*?)(?:<\/tool_call>|<\|end_of_box\|>)/g;
+    // Regex to match <tool_call>{...}</tool_call> or <tool_call>{...}<|end_of_box|>
+    // GLM models sometimes close with <|end_of_box|> instead of </tool_call>
+    const regex = /<tool_call>([\s\S]*?)(?:<\/tool_call>|<\|end_of_box\|>)/g;
     let match;
 
     while ((match = regex.exec(text)) !== null) {
@@ -173,8 +171,25 @@ const qwenParser: ToolParser = {
             });
           }
         }
-      } catch (e) {
-        console.error('Failed to parse tool call:', e, callJson);
+      } catch {
+        // Fallback: GLM native XML format — name\n<arg_key>k</arg_key>\n<arg_value>v</arg_value>
+        if (callJson.includes('<arg_key>')) {
+          const firstArgPos = callJson.indexOf('<arg_key>');
+          const name = callJson.slice(0, firstArgPos).trim();
+          if (name && !name.includes(' ') && !name.includes('{')) {
+            const args: Record<string, unknown> = {};
+            const argRe = /<arg_key>([\s\S]*?)<\/arg_key>\s*<arg_value>([\s\S]*?)<\/arg_value>/g;
+            let am;
+            while ((am = argRe.exec(callJson)) !== null) {
+              const k = am[1].trim();
+              const v = am[2].trim();
+              try { args[k] = JSON.parse(v); } catch { args[k] = v; }
+            }
+            if (Object.keys(args).length > 0) {
+              toolCalls.push({ id: crypto.randomUUID(), name, arguments: args });
+            }
+          }
+        }
       }
     }
 
@@ -236,6 +251,6 @@ export function stripToolCalls(text: string): string {
     .replace(/\[TOOL_RESULTS\][\s\S]*?\[\/TOOL_RESULTS\]/g, '') // Mistral results
     .replace(/<function=[^>]+>[\s\S]*?<\/function>/g, '') // Llama3
     .replace(/<tool_call>[\s\S]*?(?:<\/tool_call>|<\|end_of_box\|>)/g, '') // Qwen/GLM tool calls
-    .replace(/(?:<tool_response>|<\|begin_of_box\|>)[\s\S]*?(?:<\/tool_response>|<\|end_of_box\|>)/g, '') // Qwen/GLM tool responses
+    .replace(/<tool_response>[\s\S]*?<\/tool_response>/g, '') // Qwen/GLM tool responses
     .trim();
 }

@@ -38,13 +38,13 @@ const TOOL_TAG_FAMILIES = {
     outputOpen: '[TOOL_RESULTS]',
     outputClose: '[/TOOL_RESULTS]',
   } as ToolTags,
-  // GLM models open with <tool_call> but close with <|end_of_box|>
-  // Output wrapping uses <|begin_of_box|>/<|end_of_box|>
+  // GLM models use same tags as Qwen: <tool_call>/<tool_response>
+  // NOTE: <|begin_of_box|>/<|end_of_box|> are VISION bounding box markers, NOT tool tags
   glm: {
     execOpen: '<tool_call>',
-    execClose: '<|end_of_box|>',
-    outputOpen: '<|begin_of_box|>',
-    outputClose: '<|end_of_box|>',
+    execClose: '</tool_call>',
+    outputOpen: '<tool_response>',
+    outputClose: '</tool_response>',
   } as ToolTags,
   // Default for models without native tool format
   default: DEFAULT_TOOL_TAGS,
@@ -67,7 +67,7 @@ export const MODEL_TOOL_TAGS: Record<string, ToolTags> = {
   "Magistral-Small-2509": TOOL_TAG_FAMILIES.mistral,
   "mistralai_Ministral 3 3B Instruct 2512 BF16": TOOL_TAG_FAMILIES.mistral,
   "mistralai_Ministral 3 14B Reasoning 2512": TOOL_TAG_FAMILIES.mistral,
-  // GLM models - <tool_call> open, <|end_of_box|> close
+  // GLM models - same tags as Qwen
   "Zai org_GLM 4.6V Flash": TOOL_TAG_FAMILIES.glm,
   "Zai org_GLM 4.7 Flash": TOOL_TAG_FAMILIES.glm,
   // Other models - use default SYSTEM.EXEC (no strong native tool format)

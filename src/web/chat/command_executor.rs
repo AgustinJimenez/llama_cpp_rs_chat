@@ -100,16 +100,18 @@ fn build_model_exec_regex(tags: &ToolTags) -> Option<Regex> {
     // Build pattern: open_tag(.+?)close_tag
     // (?s) enables DOTALL mode so . matches newlines (multi-line commands like python -c)
     //
-    // GLM quirk: model sometimes generates output_open (<|begin_of_box|>) instead of
-    // exec_open (<tool_call>) to open a tool call. When both tags share the same close
-    // tag, also accept output_open as an alternative open tag. This is safe because
-    // system-injected output blocks are skipped by scan position advancement.
-    let pattern = if tags.output_open != tags.exec_open && tags.output_close == tags.exec_close {
-        let alt_open = regex::escape(&tags.output_open);
-        format!(r"(?s)(?:{open}|{alt_open})(.+?){close}")
+    // NOTE: GLM models open tool calls with <tool_call> but close with <|end_of_box|>
+    // (a vision bounding box marker they repurpose as tool call terminator).
+    // We accept <|end_of_box|> as an alternative close ONLY when open is <tool_call>,
+    // since using <|begin_of_box|> as an alternative *open* tag caused false positives
+    // (GLM uses <|begin_of_box|> for thinking boxes → matched non-tool text).
+    let close_alt = if tags.exec_open == "<tool_call>" {
+        let ebox = regex::escape("<|end_of_box|>");
+        format!("(?:{close}|{ebox})")
     } else {
-        format!(r"(?s){open}(.+?){close}")
+        close.to_string()
     };
+    let pattern = format!(r"(?s){open}(.+?){close_alt}");
     Regex::new(&pattern).ok()
 }
 
@@ -646,9 +648,10 @@ fn wrap_output_for_model(output_block: &str, template_type: Option<&str>) -> Str
             )
         }
         Some("GLM") => {
-            // GLM-4 family: output_block contains <|observation|>\n{result}\n
-            // Re-open assistant turn so model continues generating
-            format!("{}\n<|assistant|>\n", output_block)
+            // GLM-4 family: inject tool result with <|observation|> role marker,
+            // then re-open assistant turn so model continues generating.
+            // Format: <|observation|>\n<tool_response>\nresult\n</tool_response>\n<|assistant|>\n
+            format!("\n<|observation|>\n{}\n<|assistant|>\n", output_block.trim())
         }
         Some("Mistral") | _ => {
             // Mistral and default: output tags are sufficient, no extra turn wrapping needed.

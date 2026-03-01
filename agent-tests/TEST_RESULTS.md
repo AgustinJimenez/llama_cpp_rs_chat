@@ -20,7 +20,7 @@ Test suite: 6 tests (read/summarize, extract JSON, answer from JSON, multi-file 
 | GLM-4.7-Flash | 17G | Q4_K_M | 5.5/6 | 21.7 | SYSTEM.EXEC | T3: math error on avg salary ($123,875 vs $127,875). T5: minor JSON syntax. All 6 files written correctly. Agentic config (temp=0.7, top_p=1.0, min_p=0.01). See retest section below |
 
 ## PARTIAL
-| GLM-4.6V-Flash | 9.4G | Q8_0 | 2/6 | — | `</think><\|begin_of_box\|>` tokens leaked into JSON output. Wrong salary calc. T6 missing |
+| GLM-4.6V-Flash | 9.4G | Q8_0 | 2/6 | 41.6 | `<tool_call>{json}<\|end_of_box\|>` format. T1 PASS, T2 FAIL (single quotes in JSON, unescaped `"` in content), T3 PASS (all 4 answers correct), T4 FAIL (correct analysis but malformed write_file JSON), T5-T6 not attempted. Uses `<\|end_of_box\|>` as close tag (handled). ctx=131072, temp=0.7 |
 | Qwen3-30B-A3B-2507 | 18G | Q4_K_M | — | ~0.04 | Correct Qwen `<tool_call>` format but unusably slow (~0.04 tok/s) |
 
 ## FAIL

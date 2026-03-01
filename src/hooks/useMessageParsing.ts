@@ -4,7 +4,7 @@ import { stripUnclosedToolCallTail } from '../utils/toolFormatUtils';
 import {
   buildSegments,
   moveToolsOutOfThinking,
-  THINKING_REGEX, THINKING_UNCLOSED_REGEX,
+  THINKING_REGEX, THINKING_UNCLOSED_REGEX, THINKING_ORPHAN_CLOSE_REGEX,
 } from '../utils/toolSpanCollectors';
 import { parseHarmonyContent } from '../utils/harmonyParser';
 import type { Message, ToolCall, ToolTags } from '../types';
@@ -28,6 +28,8 @@ const EXEC_CLEANUP = /(?:<\|\|)?SYSTEM\.EXEC>[\s\S]*?<(?:\|\|)?SYSTEM\.EXEC\|\|>
 const SYS_OUTPUT_CLEANUP = /(?:<\|\|)?SYSTEM\.OUTPUT>[\s\S]*?<(?:\|\|)?SYSTEM\.OUTPUT\|\|>/g;
 const MISTRAL_CALL_CLEANUP = /(?:\[TOOL_CALLS\][\s\S]*?\[\/TOOL_CALLS\]|\[TOOL_CALLS\]\w+\[ARGS\]\{[\s\S]*?\}|\[TOOL_CALLS\]\s*\{[^}]*"name"[^}]*"arguments"[\s\S]*?\}\s*\})/g;
 const MISTRAL_RESULT_CLEANUP = /\[TOOL_RESULTS\][\s\S]*?\[\/TOOL_RESULTS\]/g;
+// GLM vision/media tags — strip hallucinated image/video/box markers from display
+const GLM_VISION_CLEANUP = /<\|(?:begin_of_image|image|end_of_image|begin_of_video|video|end_of_video|begin_of_box|end_of_box)\|>/g;
 
 /**
  * Parse a message and extract various components:
@@ -80,11 +82,13 @@ export function useMessageParsing(message: Message, toolTags?: ToolTags): Parsed
     return cleanContent
       .replace(THINKING_REGEX, '')
       .replace(THINKING_UNCLOSED_REGEX, '')
+      .replace(THINKING_ORPHAN_CLOSE_REGEX, '')
       .replace(EXEC_CLEANUP, '')
       .replace(SYS_OUTPUT_CLEANUP, '')
       .replace(/<tool_response>[\s\S]*?<\/tool_response>/g, '')
       .replace(MISTRAL_CALL_CLEANUP, '')
       .replace(MISTRAL_RESULT_CLEANUP, '')
+      .replace(GLM_VISION_CLEANUP, '')
       .trim();
   }, [cleanContent]);
 

@@ -27,8 +27,12 @@ function hasUnclosedToolExecution(content: string): boolean {
   if (lastMrOpen !== -1 && lastMrOpen > lastMrClose) return true;
 
   // Unclosed tool call (model still generating the call, before execution)
+  // GLM models close <tool_call> with <|end_of_box|> instead of </tool_call>
   const lastTcOpen = content.lastIndexOf('<tool_call>');
-  const lastTcClose = content.lastIndexOf('</tool_call>');
+  const lastTcClose = Math.max(
+    content.lastIndexOf('</tool_call>'),
+    content.lastIndexOf('<|end_of_box|>'),
+  );
   if (lastTcOpen !== -1 && lastTcOpen > lastTcClose) return true;
 
   return false;

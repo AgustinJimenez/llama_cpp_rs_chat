@@ -60,7 +60,11 @@ export function stripUnclosedToolCallTail(content: string, toolTags?: ToolTags):
     // Dynamic: use the model's actual exec_open / exec_close tags
     const lastOpen = content.lastIndexOf(toolTags.exec_open);
     if (lastOpen !== -1) {
-      const lastClose = content.lastIndexOf(toolTags.exec_close);
+      let lastClose = content.lastIndexOf(toolTags.exec_close);
+      // GLM models close <tool_call> with <|end_of_box|> instead of </tool_call>
+      if (toolTags.exec_open === '<tool_call>') {
+        lastClose = Math.max(lastClose, content.lastIndexOf('<|end_of_box|>'));
+      }
       if (lastClose < lastOpen) {
         // For Mistral bracket format ([TOOL_CALLS]name[ARGS]{json}), the close tag
         // [/TOOL_CALLS] is never used. Check if the tool call has complete JSON
@@ -78,7 +82,7 @@ export function stripUnclosedToolCallTail(content: string, toolTags?: ToolTags):
     // Fallback: check all known formats when no model tags are available
 
     // Qwen/GLM: <tool_call> ... (no closing tag yet)
-    // GLM uses <|end_of_box|> instead of </tool_call> as closing tag
+    // GLM may close with <|end_of_box|> instead of </tool_call>
     const lastToolOpen = content.lastIndexOf('<tool_call>');
     if (lastToolOpen !== -1) {
       const lastToolClose = Math.max(

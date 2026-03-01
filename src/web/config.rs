@@ -15,6 +15,12 @@ use crate::sys_warn;
 
 /// Convert DbSamplerConfig to the JSON-serializable SamplerConfig
 pub fn db_config_to_sampler_config(db_config: &DbSamplerConfig) -> SamplerConfig {
+    use crate::web::chat::tool_tags::TagPair;
+
+    let tag_pairs: Option<Vec<TagPair>> = db_config.tag_pairs.as_ref().and_then(|json_str| {
+        serde_json::from_str(json_str).ok()
+    });
+
     SamplerConfig {
         sampler_type: db_config.sampler_type.clone(),
         temperature: db_config.temperature,
@@ -60,11 +66,16 @@ pub fn db_config_to_sampler_config(db_config: &DbSamplerConfig) -> SamplerConfig
         use_mmap: db_config.use_mmap,
         main_gpu: db_config.main_gpu,
         split_mode: db_config.split_mode.clone(),
+        tag_pairs,
     }
 }
 
 /// Convert SamplerConfig to DbSamplerConfig
 pub fn sampler_config_to_db(config: &SamplerConfig) -> DbSamplerConfig {
+    let tag_pairs_json: Option<String> = config.tag_pairs.as_ref().and_then(|pairs| {
+        serde_json::to_string(pairs).ok()
+    });
+
     DbSamplerConfig {
         sampler_type: config.sampler_type.clone(),
         temperature: config.temperature,
@@ -110,6 +121,7 @@ pub fn sampler_config_to_db(config: &SamplerConfig) -> DbSamplerConfig {
         use_mmap: config.use_mmap,
         main_gpu: config.main_gpu,
         split_mode: config.split_mode.clone(),
+        tag_pairs: tag_pairs_json,
     }
 }
 

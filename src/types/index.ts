@@ -10,6 +10,15 @@ export interface Message {
   timings?: import('../utils/chatTransport').TimingInfo;
 }
 
+/** Dynamic tag pair for per-model tag configuration. */
+export interface TagPair {
+  category: string;
+  name: string;
+  open_tag: string;
+  close_tag: string;
+  enabled: boolean;
+}
+
 /** Tool tag delimiters auto-detected from the loaded model. */
 export interface ToolTags {
   exec_open: string;
@@ -80,6 +89,8 @@ export interface SamplerConfig {
   use_mmap?: boolean;      // true
   main_gpu?: number;       // 0
   split_mode?: string;     // "layer" | "row" | "none"
+  // Dynamic tag pairs (Stage 1 — stored in config, not yet used by pipeline)
+  tag_pairs?: TagPair[];
 }
 
 export type SamplerType = 
@@ -176,6 +187,8 @@ export interface ModelMetadata {
     output_open: string;
     output_close: string;
   };
+  // Auto-detected tag pairs from model name (Stage 1)
+  detected_tag_pairs?: TagPair[];
 
   // Vision/multimodal support (detected via mmproj companion files)
   has_vision?: boolean;

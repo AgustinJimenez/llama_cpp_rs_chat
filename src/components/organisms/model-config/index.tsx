@@ -13,14 +13,14 @@ import { Button } from '../../atoms/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../atoms/card';
 import type { SamplerConfig } from '@/types';
 import { toast } from 'react-hot-toast';
-import { getModelHistory } from '@/utils/tauriCommands';
+import { getModelHistory, getConfig } from '@/utils/tauriCommands';
 
 // Import extracted components
 import { ModelFileInput, ModelConfigSystemPrompt } from '../../molecules';
 import { ModelMetadataDisplay } from './ModelMetadataDisplay';
 import { SamplingParametersSection } from './SamplingParametersSection';
 import { AdvancedContextSection } from './AdvancedContextSection';
-import { ToolTagsSection } from './ToolTagsSection';
+import { TagPairsSection } from './TagPairsSection';
 
 import { MemoryVisualization } from './MemoryVisualization';
 
@@ -68,6 +68,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   const [showHistory, setShowHistory] = useState(false);
   const [systemPromptMode, setSystemPromptMode] = useState<'system' | 'custom'>('system');
   const [customSystemPrompt, setCustomSystemPrompt] = useState('You are a helpful AI assistant.');
+  const savedConfigLoaded = useRef(false);
 
   const [overheadGb, setOverheadGb] = useState(1.5);
 
@@ -148,7 +149,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     }
   }, [isOpen, initialModelPath, modelPath]);
 
-  // Fetch model history when modal opens
+  // Fetch model history and saved config when modal opens
   useEffect(() => {
     if (!isOpen) return;
 
@@ -161,7 +162,21 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
       }
     };
 
+    const fetchSavedConfig = async () => {
+      try {
+        const saved = await getConfig();
+        if (saved.tag_pairs?.length) {
+          setConfig(prev => ({ ...prev, tag_pairs: saved.tag_pairs }));
+          console.log('[ModelConfig] Loaded saved tag_pairs from DB:', saved.tag_pairs.length, 'pairs');
+        }
+      } catch (error) {
+        console.error('Failed to fetch saved config:', error);
+      }
+      savedConfigLoaded.current = true;
+    };
+
     fetchHistory();
+    fetchSavedConfig();
   }, [isOpen]);
 
   useEffect(() => {
@@ -221,6 +236,29 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
 
     console.log('[ModelConfig] Auto-applied preset for:', generalName, merged);
   }, [generalName, recommendedParams]);
+
+  // Auto-populate tag_pairs from detected_tag_pairs only when config has none yet
+  // Wait for saved config to load first to avoid overwriting DB-saved pairs
+  useEffect(() => {
+    if (!modelInfo?.detected_tag_pairs?.length) return;
+    if (!savedConfigLoaded.current) {
+      // Saved config not loaded yet — schedule a retry
+      const timer = setTimeout(() => {
+        if (!savedConfigLoaded.current) return; // still not ready, give up
+        setConfig(prev => {
+          if (prev.tag_pairs?.length) return prev; // DB had saved pairs
+          return { ...prev, tag_pairs: modelInfo.detected_tag_pairs };
+        });
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+    // Saved config already loaded — only populate if empty
+    setConfig(prev => {
+      if (prev.tag_pairs?.length) return prev;
+      console.log('[ModelConfig] Auto-populated tag pairs:', modelInfo.detected_tag_pairs!.length, 'pairs');
+      return { ...prev, tag_pairs: modelInfo.detected_tag_pairs };
+    });
+  }, [modelInfo?.detected_tag_pairs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-apply VRAM-optimized gpu_layers and context_size once per model
   const autoOptimizedForPath = useRef('');
@@ -284,11 +322,18 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
       ? '__AGENTIC__'
       : customSystemPrompt;
 
+    // Derive tool_tag_* fields from tag_pairs for backward compatibility
+    const tagPairs = config.tag_pairs || [];
+    const execPair = tagPairs.find(p => p.category === 'tool' && p.name === 'exec' && p.enabled);
+    const respPair = tagPairs.find(p => p.category === 'tool' && p.name === 'response' && p.enabled);
+
     const finalConfig = {
       ...config,
       model_path: modelPath,
       context_size: contextSize,
       system_prompt: systemPrompt,
+      ...(execPair ? { tool_tag_exec_open: execPair.open_tag, tool_tag_exec_close: execPair.close_tag } : {}),
+      ...(respPair ? { tool_tag_output_open: respPair.open_tag, tool_tag_output_close: respPair.close_tag } : {}),
     };
     console.log('[DEBUG] Saving config with system_prompt:', systemPrompt, 'mode:', systemPromptMode);
 
@@ -424,10 +469,10 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                     onConfigChange={handleInputChange}
                   />
 
-                  <ToolTagsSection
-                    config={config}
-                    onConfigChange={handleInputChange}
-                    modelInfo={modelInfo}
+                  <TagPairsSection
+                    tagPairs={config.tag_pairs || []}
+                    detectedTagPairs={modelInfo?.detected_tag_pairs}
+                    onTagPairsChange={(pairs) => setConfig(prev => ({ ...prev, tag_pairs: pairs }))}
                   />
 
 
