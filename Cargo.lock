@@ -2458,6 +2458,7 @@ dependencies = [
  "html2text",
  "hyper 0.14.32",
  "lazy_static",
+ "libc",
  "llama-cpp-2",
  "llama-cpp-sys-2",
  "log",
