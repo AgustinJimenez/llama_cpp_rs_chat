@@ -453,6 +453,10 @@ fn run_generation_loop(
                 tool_call_rounds += 1;
                 hit_stop_condition = false;
                 gen.last_exec_scan_pos = gen.response.len();
+                // Reset exec block tracker after tool execution — the tool call
+                // block is now closed (result injected), so we must allow stop
+                // tokens to fire again for the model's continuation text.
+                gen.exec_tracker = ExecBlockTracker::new();
                 break;
             }
         }
