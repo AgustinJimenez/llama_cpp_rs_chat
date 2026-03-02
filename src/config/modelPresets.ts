@@ -59,6 +59,7 @@ export const MODEL_TOOL_TAGS: Record<string, ToolTags> = {
   "Qwen3 8B": TOOL_TAG_FAMILIES.qwen,
   "Qwen_Qwen3 30B A3B Instruct 2507": TOOL_TAG_FAMILIES.qwen,
   "Qwen3-Coder-30B-A3B-Instruct-1M": TOOL_TAG_FAMILIES.qwen,
+  "Qwen3.5-9B": TOOL_TAG_FAMILIES.qwen,
   "Qwen3.5-35B-A3B": TOOL_TAG_FAMILIES.qwen,
   "Qwen_Qwen3.5 35B A3B": TOOL_TAG_FAMILIES.qwen,
   // Mistral models - strong tool calling with native tags
@@ -132,6 +133,20 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     presence_penalty: 1.5,
     repeat_penalty: 1.0,
     context_size: 262144,
+    flash_attention: true,
+    cache_type_k: "q8_0",
+    cache_type_v: "q8_0",
+  },
+  // Qwen3.5-9B (dense, 9.5GB Q8)
+  "Qwen3.5-9B": {
+    sampler_type: "Temperature",
+    temperature: 0.7,
+    top_p: 0.8,
+    top_k: 20,
+    min_p: 0.0,
+    presence_penalty: 1.5,
+    repeat_penalty: 1.0,
+    context_size: 32768,
     flash_attention: true,
     cache_type_k: "q8_0",
     cache_type_v: "q8_0",

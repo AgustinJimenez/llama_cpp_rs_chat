@@ -179,6 +179,7 @@ const MODEL_TAG_MAP: &[(&str, TagFactory)] = &[
     ("Qwen3 8B", qwen_tags),
     ("Qwen_Qwen3 30B A3B Instruct 2507", qwen_tags),
     ("Qwen3-Coder-30B-A3B-Instruct-1M", qwen_tags),
+    ("Qwen3.5-9B", qwen_tags),
     ("Qwen3.5-35B-A3B", qwen_tags),
     ("Qwen_Qwen3.5 35B A3B", qwen_tags),
     // Mistral models - strong tool calling with native tags
@@ -341,6 +342,7 @@ const MODEL_TAG_PAIR_MAP: &[(&str, TagPairFactory)] = &[
     ("Qwen3 8B", qwen_tag_pairs),
     ("Qwen_Qwen3 30B A3B Instruct 2507", qwen_tag_pairs),
     ("Qwen3-Coder-30B-A3B-Instruct-1M", qwen_tag_pairs),
+    ("Qwen3.5-9B", qwen_tag_pairs),
     ("Qwen3.5-35B-A3B", qwen_tag_pairs),
     ("Qwen_Qwen3.5 35B A3B", qwen_tag_pairs),
     // Mistral models

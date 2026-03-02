@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { ArrowDownToLine, X, Play, ChevronDown, ChevronUp } from 'lucide-react';
+import { ArrowDownToLine, X, Play, ChevronDown } from 'lucide-react';
 import { useDownloadContext } from '@/contexts/DownloadContext';
 import { pickDirectory } from '@/utils/tauriCommands';
 import type { HubDownloadRecord } from '@/utils/tauriCommands';
@@ -178,7 +178,6 @@ export function DownloadFloat() {
         <span className="text-xs font-medium text-foreground">
           {activeCount > 0 ? `${overallPct}%` : `${pendingCount} paused`}
         </span>
-        {expanded ? <ChevronDown size={12} className="text-muted-foreground" /> : <ChevronUp size={12} className="text-muted-foreground" />}
       </button>
     </div>
   );
