@@ -1,5 +1,4 @@
-use crate::log_debug;
-use super::super::models::SystemPromptType;
+use crate::{log_debug, sys_info, sys_warn};
 use super::jinja_templates::{
     apply_native_chat_template, get_available_tools_openai, parse_conversation_for_jinja,
 };
@@ -230,116 +229,35 @@ to=web_fetch code<|message|>{{"url": "https://example.com"}}<|call|>
 }
 
 /// Apply system prompt with model-specific tool tags.
+///
+/// Primary path: render using the model's native Jinja2 chat template.
+/// Fallback: hardcoded template branches with tool tags in system prompt.
 pub fn apply_system_prompt_by_type_with_tags(
     conversation: &str,
-    prompt_type: SystemPromptType,
     template_type: Option<&str>,
     chat_template_string: Option<&str>,
-    user_system_prompt: Option<&str>,
     tags: &ToolTags,
     bos_token: &str,
     eos_token: &str,
 ) -> Result<String, String> {
-    match prompt_type {
-        SystemPromptType::Custom => {
-            // Try Jinja template first (primary path), fall back to hardcoded templates
-            if let Some(template_str) = chat_template_string {
-                log_debug!("templates", "Trying Jinja template rendering (primary path)");
-                match try_jinja_render(template_str, conversation, bos_token, eos_token) {
-                    Ok(prompt) => {
-                        log_debug!("templates", "Jinja template rendered successfully");
-                        return Ok(prompt);
-                    }
-                    Err(e) => {
-                        log_debug!(
-                            "templates",
-                            "Jinja render failed ({}), falling back to hardcoded templates",
-                            e
-                        );
-                    }
-                }
+    // Try Jinja template first (primary path), fall back to hardcoded templates
+    if let Some(template_str) = chat_template_string {
+        sys_info!("Trying Jinja template rendering (primary path, template len={})", template_str.len());
+        match try_jinja_render(template_str, conversation, bos_token, eos_token) {
+            Ok(prompt) => {
+                sys_info!("Jinja template rendered successfully ({} chars)", prompt.len());
+                return Ok(prompt);
             }
-            // Fallback: hardcoded template with tool tags in system prompt
-            log_debug!("templates", "Using hardcoded agentic template with tool tags");
-            apply_model_chat_template_with_tags(conversation, template_type, tags)
-        }
-
-        SystemPromptType::UserDefined => {
-            // Use user-provided system prompt
-            log_debug!("templates", "Using user-defined system prompt");
-            if let Some(user_prompt) = user_system_prompt {
-                apply_user_defined_template(conversation, user_prompt)
-            } else {
-                // Fallback if no user prompt provided
-                apply_model_chat_template_with_tags(conversation, template_type, tags)
+            Err(e) => {
+                sys_warn!("Jinja render failed ({}), falling back to hardcoded templates", e);
             }
         }
+    } else {
+        sys_info!("No Jinja template available, using hardcoded path");
     }
-}
-
-/// Apply user-defined system prompt
-fn apply_user_defined_template(conversation: &str, user_system_prompt: &str) -> Result<String, String> {
-    // Parse conversation into messages  
-    let mut user_messages = Vec::new();
-    let mut assistant_messages = Vec::new();
-    let mut current_role = "";
-    let mut current_content = String::new();
-
-    for line in conversation.lines() {
-        if line.ends_with(":")
-            && (line.starts_with("SYSTEM:")
-                || line.starts_with("USER:")
-                || line.starts_with("ASSISTANT:"))
-        {
-            // Save previous role's content
-            if !current_role.is_empty() && !current_content.trim().is_empty() {
-                match current_role {
-                    "SYSTEM" => {
-                        // Override with user-defined prompt instead
-                    }
-                    "USER" => user_messages.push(current_content.trim().to_string()),
-                    "ASSISTANT" => assistant_messages.push(current_content.trim().to_string()),
-                    _ => {}
-                }
-            }
-
-            current_role = line.trim_end_matches(':');
-            current_content.clear();
-        } else if !current_role.is_empty() {
-            if !current_content.is_empty() {
-                current_content.push('\n');
-            }
-            current_content.push_str(line);
-        }
-    }
-
-    // Add final message
-    if !current_role.is_empty() && !current_content.trim().is_empty() {
-        match current_role {
-            "USER" => user_messages.push(current_content.trim().to_string()),
-            "ASSISTANT" => assistant_messages.push(current_content.trim().to_string()),
-            _ => {}
-        }
-    }
-
-    // Format using simple template with user's system prompt
-    let mut formatted = String::new();
-    
-    formatted.push_str(&format!("<|start_of_role|>system<|end_of_role|>{user_system_prompt}<|end_of_text|>\n"));
-
-    // Interleave user and assistant messages
-    let max_len = user_messages.len().max(assistant_messages.len());
-    for i in 0..max_len {
-        if i < user_messages.len() {
-            formatted.push_str(&format!("<|start_of_role|>user<|end_of_role|>{}<|end_of_text|>\n", user_messages[i]));
-        }
-        if i < assistant_messages.len() {
-            formatted.push_str(&format!("<|start_of_role|>assistant<|end_of_role|>{}<|end_of_text|>\n", assistant_messages[i]));
-        }
-    }
-
-    formatted.push_str("<|start_of_role|>assistant<|end_of_role|>");
-    Ok(formatted)
+    // Fallback: hardcoded template with tool tags in system prompt
+    sys_info!("Using hardcoded template (type={:?})", template_type);
+    apply_model_chat_template_with_tags(conversation, template_type, tags)
 }
 
 /// Apply chat template formatting to conversation history (uses default tags).

@@ -237,25 +237,12 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     console.log('[ModelConfig] Auto-applied preset for:', generalName, merged);
   }, [generalName, recommendedParams]);
 
-  // Auto-populate tag_pairs from detected_tag_pairs only when config has none yet
-  // Wait for saved config to load first to avoid overwriting DB-saved pairs
+  // Always update tag_pairs when model changes (detected_tag_pairs reflects new model)
+  // Stale pairs from a previous model would cause wrong tool format in prompts
   useEffect(() => {
     if (!modelInfo?.detected_tag_pairs?.length) return;
-    if (!savedConfigLoaded.current) {
-      // Saved config not loaded yet — schedule a retry
-      const timer = setTimeout(() => {
-        if (!savedConfigLoaded.current) return; // still not ready, give up
-        setConfig(prev => {
-          if (prev.tag_pairs?.length) return prev; // DB had saved pairs
-          return { ...prev, tag_pairs: modelInfo.detected_tag_pairs };
-        });
-      }, 300);
-      return () => clearTimeout(timer);
-    }
-    // Saved config already loaded — only populate if empty
     setConfig(prev => {
-      if (prev.tag_pairs?.length) return prev;
-      console.log('[ModelConfig] Auto-populated tag pairs:', modelInfo.detected_tag_pairs!.length, 'pairs');
+      console.log('[ModelConfig] Updated tag pairs for model:', modelInfo.detected_tag_pairs!.length, 'pairs');
       return { ...prev, tag_pairs: modelInfo.detected_tag_pairs };
     });
   }, [modelInfo?.detected_tag_pairs]); // eslint-disable-line react-hooks/exhaustive-deps

@@ -5,7 +5,7 @@ use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 
 use crate::web::{
-    chat::{get_tool_tags_for_model, get_universal_system_prompt_with_tags, tool_tags::derive_tool_tags_from_pairs},
+    chat::{get_universal_system_prompt_with_tags, tool_tags::{default_tags, derive_tool_tags_from_pairs, try_get_tool_tags_for_model}},
     config::load_config,
     database::{conversation::ConversationLogger, SharedDatabase},
     models::{ChatMessage, ChatRequest, ChatResponse},
@@ -46,10 +46,10 @@ fn resolve_system_prompt(
     let config = load_config(db);
     match config.system_prompt.as_deref() {
         Some("__AGENTIC__") => {
-            // Derive ToolTags from saved tag_pairs first, fall back to model name lookup
-            let tags = config.tag_pairs.as_ref()
-                .and_then(|pairs| derive_tool_tags_from_pairs(pairs))
-                .unwrap_or_else(|| get_tool_tags_for_model(general_name));
+            // Known models use native tags; unknown fall back to saved tag_pairs
+            let tags = try_get_tool_tags_for_model(general_name)
+                .or_else(|| config.tag_pairs.as_ref().and_then(|pairs| derive_tool_tags_from_pairs(pairs)))
+                .unwrap_or_else(default_tags);
             Some(get_universal_system_prompt_with_tags(&tags))
         }
         Some(custom) => Some(custom.to_string()),

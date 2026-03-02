@@ -22,7 +22,7 @@ use super::command_executor::{
 };
 use super::stop_conditions::{check_stop_conditions, ExecBlockTracker};
 use super::templates::apply_system_prompt_by_type_with_tags;
-use super::tool_tags::{derive_tool_tags_from_pairs, get_tool_tags_for_model, ToolTags};
+use super::tool_tags::{default_tags, derive_tool_tags_from_pairs, get_tool_tags_for_model, try_get_tool_tags_for_model, ToolTags};
 use super::sampler::create_sampler;
 use crate::{log_debug, log_info, log_warn, sys_debug, sys_error, sys_warn};
 
@@ -143,10 +143,8 @@ pub fn warmup_system_prompt(
     // Format using the same template as generation
     let prompt = apply_system_prompt_by_type_with_tags(
         &conversation_content,
-        config.system_prompt_type.clone(),
         template_type.as_deref(),
         chat_template_string.as_deref(),
-        config.system_prompt.as_deref(),
         &tags,
         &bos_text,
         &eos_text,
@@ -595,16 +593,23 @@ fn create_fresh_context(
     }
 }
 
-/// Resolve ToolTags from config: saved tag_pairs → old override fields → model name lookup.
+/// Resolve ToolTags from config: model name lookup → saved tag_pairs → old override fields.
+///
+/// Known models always use their native tags (model name lookup).
+/// Saved tag_pairs are only used for unknown models (custom user configuration).
 fn resolve_tool_tags(config: &SamplerConfig, general_name: Option<&str>) -> ToolTags {
-    // Priority 1: Derive from saved tag_pairs (user-edited in UI)
+    // Priority 1: Model name lookup (always correct for known models)
+    if let Some(tags) = try_get_tool_tags_for_model(general_name) {
+        return tags;
+    }
+    // Priority 2: Derive from saved tag_pairs (user-edited in UI, for unknown models)
     if let Some(pairs) = &config.tag_pairs {
         if let Some(tags) = derive_tool_tags_from_pairs(pairs) {
             return tags;
         }
     }
-    // Priority 2: Old override fields + model name lookup (backward compat)
-    get_tool_tags_for_model(general_name).with_overrides(
+    // Priority 3: Old override fields + default tags (backward compat)
+    default_tags().with_overrides(
         config.tool_tag_exec_open.as_deref(),
         config.tool_tag_exec_close.as_deref(),
         config.tool_tag_output_open.as_deref(),
@@ -706,6 +711,15 @@ pub async fn generate_llama_response(
     let chat_template_string = state.chat_template_string.clone();
     let general_name = state.general_name.clone();
 
+    // Harmony models use <|end|> as a sub-turn separator (analysis→commentary→final),
+    // NOT as a generation stop. Remove it so the model can produce multi-channel responses
+    // including tool calls on the "commentary" channel.
+    let stop_tokens = if template_type.as_deref() == Some("Harmony") {
+        stop_tokens.into_iter().filter(|t| t != "<|end|>").collect()
+    } else {
+        stop_tokens
+    };
+
     // Resolve tool tags: saved tag_pairs → old override fields → model name lookup
     let tags = resolve_tool_tags(&config, general_name.as_deref());
     // Get model's actual BOS/EOS token text for Jinja templates
@@ -725,7 +739,6 @@ pub async fn generate_llama_response(
     log_info!(&conversation_id, "General name: {:?}", general_name);
     log_info!(&conversation_id, "BOS token text: {:?}, EOS token text: {:?}", bos_text, eos_text);
     log_info!(&conversation_id, "Tool tags: exec_open={}, exec_close={}", tags.exec_open, tags.exec_close);
-    log_info!(&conversation_id, "System prompt type: {:?}", config.system_prompt_type);
     log_info!(
         &conversation_id,
         "Conversation content:\n{}",
@@ -735,10 +748,8 @@ pub async fn generate_llama_response(
     // Use the 3-system prompt dispatcher with model-specific tool tags
     let prompt = apply_system_prompt_by_type_with_tags(
         &conversation_content,
-        config.system_prompt_type.clone(),
         template_type.as_deref(),
         chat_template_string.as_deref(),
-        config.system_prompt.as_deref(),
         &tags,
         &bos_text,
         &eos_text,

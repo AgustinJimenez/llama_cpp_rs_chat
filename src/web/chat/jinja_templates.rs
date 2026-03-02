@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 /// - `.endswith("x")` → ` is endingwith("x")` (Python method → minijinja test)
 /// - `.startswith("x")` → ` is startingwith("x")` (Python method → minijinja test)
 /// - `.strip()` → ` | trim` (Python method → minijinja filter)
+/// - `.items()` → ` | items` (Python dict method → minijinja filter)
 fn preprocess_template(template: &str) -> String {
     use regex::Regex;
 
@@ -28,6 +29,10 @@ fn preprocess_template(template: &str) -> String {
 
     // Convert .strip() → | trim (Python str.strip → Jinja trim filter)
     result = result.replace(".strip()", " | trim");
+
+    // Convert .items() → | items (Python dict.items() → minijinja filter)
+    // Used by Harmony templates: `for key, val in dict.items()`
+    result = result.replace(".items()", " | items");
 
     result
 }
@@ -145,50 +150,6 @@ pub struct ToolCall {
 pub struct ToolFunction {
     pub name: String,
     pub arguments: String,
-}
-
-/// Parse conversation text into ChatMessage format
-pub fn parse_conversation_to_messages(conversation: &str) -> Vec<ChatMessage> {
-    let mut messages = Vec::new();
-    let mut current_role = "";
-    let mut current_content = String::new();
-
-    for line in conversation.lines() {
-        if line.ends_with(":")
-            && (line.starts_with("SYSTEM:")
-                || line.starts_with("USER:")
-                || line.starts_with("ASSISTANT:"))
-        {
-            // Save previous role's content
-            if !current_role.is_empty() && !current_content.trim().is_empty() {
-                messages.push(ChatMessage {
-                    role: current_role.to_lowercase(),
-                    content: current_content.trim().to_string(),
-                    tool_calls: None,
-                });
-            }
-
-            // Set new role
-            current_role = line.trim_end_matches(':');
-            current_content.clear();
-        } else if !current_role.is_empty() {
-            if !current_content.is_empty() {
-                current_content.push('\n');
-            }
-            current_content.push_str(line);
-        }
-    }
-
-    // Add final message
-    if !current_role.is_empty() && !current_content.trim().is_empty() {
-        messages.push(ChatMessage {
-            role: current_role.to_lowercase(),
-            content: current_content.trim().to_string(),
-            tool_calls: None,
-        });
-    }
-
-    messages
 }
 
 /// Get available tools in OpenAI function-calling format for Jinja templates.
@@ -391,27 +352,6 @@ pub fn get_available_tools() -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_parse_conversation() {
-        let conversation = r#"USER:
-Hello, how are you?
-
-ASSISTANT:
-I'm doing well, thank you for asking!
-
-USER:
-Can you help me with something?"#;
-
-        let messages = parse_conversation_to_messages(conversation);
-        assert_eq!(messages.len(), 3);
-        assert_eq!(messages[0].role, "user");
-        assert_eq!(messages[0].content, "Hello, how are you?");
-        assert_eq!(messages[1].role, "assistant");
-        assert_eq!(messages[1].content, "I'm doing well, thank you for asking!");
-        assert_eq!(messages[2].role, "user");
-        assert_eq!(messages[2].content, "Can you help me with something?");
-    }
 
     #[test]
     fn test_parse_conversation_for_jinja_replaces_system() {

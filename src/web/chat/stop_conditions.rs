@@ -71,6 +71,7 @@ impl ExecBlockTracker {
                 || token.contains("</tool_call>")
                 || token.contains("<|end_of_box|>")
                 || token.contains("[/TOOL_CALLS]")
+                || token.contains("<|call|>")  // Harmony Jinja format close
             {
                 self.in_block = false;
             }
@@ -83,6 +84,7 @@ impl ExecBlockTracker {
             if token.contains("SYSTEM.EXEC>")
                 || token.contains("<tool_call>")
                 || token.contains("[TOOL_CALLS]")
+                || token.contains("<|constrain|>")  // Harmony Jinja format: to=functions.X <|constrain|>json<|message|>...
             {
                 self.in_block = true;
                 self.block_open_pos = response_len.saturating_sub(token.len());

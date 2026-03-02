@@ -193,20 +193,20 @@ fn normalize(name: &str) -> String {
         .join(" ")
 }
 
-/// Look up tool tags for a model by its `general.name` from GGUF metadata.
+/// Try to look up tool tags for a known model by its `general.name` from GGUF metadata.
 ///
+/// Returns `Some(tags)` if the model matches a known entry, `None` for unknown models.
 /// Tries exact match first, then fuzzy (normalized substring) match.
-/// Returns default tags if no match is found.
-pub fn get_tool_tags_for_model(general_name: Option<&str>) -> ToolTags {
+pub fn try_get_tool_tags_for_model(general_name: Option<&str>) -> Option<ToolTags> {
     let name = match general_name {
         Some(n) if !n.is_empty() => n,
-        _ => return default_tags(),
+        _ => return None,
     };
 
     // Exact match
     for &(key, factory) in MODEL_TAG_MAP {
         if key == name {
-            return factory();
+            return Some(factory());
         }
     }
 
@@ -215,11 +215,19 @@ pub fn get_tool_tags_for_model(general_name: Option<&str>) -> ToolTags {
     for &(key, factory) in MODEL_TAG_MAP {
         let normalized_key = normalize(key);
         if normalized.contains(&normalized_key) || normalized_key.contains(&normalized) {
-            return factory();
+            return Some(factory());
         }
     }
 
-    default_tags()
+    None
+}
+
+/// Look up tool tags for a model by its `general.name` from GGUF metadata.
+///
+/// Tries exact match first, then fuzzy (normalized substring) match.
+/// Returns default tags if no match is found.
+pub fn get_tool_tags_for_model(general_name: Option<&str>) -> ToolTags {
+    try_get_tool_tags_for_model(general_name).unwrap_or_else(default_tags)
 }
 
 // ── Tag pair preset factories ─────────────────────────────────────────────────

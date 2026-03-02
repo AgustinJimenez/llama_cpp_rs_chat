@@ -24,10 +24,12 @@ lazy_static::lazy_static! {
         r"(?s)(<function=[a-z_]+>.*?</function>)"
     ).unwrap();
 
-    // Harmony format (gpt-oss-20b): to= tool_name ... code<|message|>{...}<|call|>
-    // Note: model may emit space after "to=" (e.g. "to= list_directory")
+    // Harmony format (gpt-oss-20b):
+    //   Hardcoded path: to= tool_name code<|message|>{...}<|call|>
+    //   Jinja path:     to=functions.tool_name <|constrain|>json<|message|>{...}<|call|>
+    // Both end with <|message|>JSON<|call|>, differ in prefix and middle.
     static ref HARMONY_CALL_PATTERN: Regex = Regex::new(
-        r"(?s)to=\s*(\w+)[\s\S]*?code<\|message\|>(.*?)<\|call\|>"
+        r"(?s)to=\s*(?:functions\.)?(\w+)[\s\S]*?<\|message\|>(.*?)<\|call\|>"
     ).unwrap();
 
     // Mistral v2 bracket format (Devstral-Small-2-2512):

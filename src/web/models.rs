@@ -64,8 +64,6 @@ pub enum SystemPromptType {
     /// Use curated agentic system prompt with native tool tags
     #[default]
     Custom,
-    /// User-defined manual prompt
-    UserDefined,
 }
 
 

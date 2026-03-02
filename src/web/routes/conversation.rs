@@ -12,59 +12,6 @@ use crate::web::{
 // Import logging macros
 use crate::{sys_error, sys_info};
 
-/// Parse conversation content (from database) to ChatMessage array
-fn parse_conversation_to_messages(content: &str) -> Vec<ChatMessage> {
-    let mut messages = Vec::new();
-    let mut current_role = String::new();
-    let mut current_content = String::new();
-    let mut sequence = 0u64;
-
-    for line in content.lines() {
-        // Check for role headers (uppercase followed by colon)
-        if line == "SYSTEM:" || line == "USER:" || line == "ASSISTANT:" {
-            // Save previous message if any
-            if !current_role.is_empty() && !current_content.trim().is_empty() {
-                messages.push(ChatMessage {
-                    id: format!("msg_{sequence}"),
-                    role: current_role.to_lowercase(),
-                    content: current_content.trim().to_string(),
-                    timestamp: sequence,
-                    prompt_tok_per_sec: None,
-                    gen_tok_per_sec: None,
-                    gen_eval_ms: None,
-                    gen_tokens: None,
-                    prompt_eval_ms: None,
-                    prompt_tokens: None,
-                });
-                sequence += 1;
-            }
-            current_role = line.trim_end_matches(':').to_string();
-            current_content.clear();
-        } else {
-            current_content.push_str(line);
-            current_content.push('\n');
-        }
-    }
-
-    // Don't forget the last message
-    if !current_role.is_empty() && !current_content.trim().is_empty() {
-        messages.push(ChatMessage {
-            id: format!("msg_{sequence}"),
-            role: current_role.to_lowercase(),
-            content: current_content.trim().to_string(),
-            timestamp: sequence,
-            prompt_tok_per_sec: None,
-            gen_tok_per_sec: None,
-            gen_eval_ms: None,
-            gen_tokens: None,
-            prompt_eval_ms: None,
-            prompt_tokens: None,
-        });
-    }
-
-    messages
-}
-
 pub async fn handle_get_conversation(
     path: &str,
     #[cfg(not(feature = "mock"))] _llama_state: crate::web::worker::worker_bridge::SharedWorkerBridge,

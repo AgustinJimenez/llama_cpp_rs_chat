@@ -205,6 +205,7 @@ pub fn migrate_config(db: &Database) -> Result<bool, String> {
         .map_err(|e| format!("Failed to read config.json: {e}"))?;
 
     #[derive(serde::Deserialize)]
+    #[allow(dead_code)]
     struct JsonConfig {
         sampler_type: Option<String>,
         temperature: Option<f64>,
@@ -214,7 +215,7 @@ pub fn migrate_config(db: &Database) -> Result<bool, String> {
         mirostat_eta: Option<f64>,
         model_path: Option<String>,
         system_prompt: Option<String>,
-        system_prompt_type: Option<String>,
+        system_prompt_type: Option<String>, // Legacy field, kept for old config.json compat
         context_size: Option<u32>,
         stop_tokens: Option<Vec<String>>,
         model_history: Option<Vec<String>>,
@@ -224,11 +225,8 @@ pub fn migrate_config(db: &Database) -> Result<bool, String> {
         .map_err(|e| format!("Failed to parse config.json: {e}"))?;
 
     // Convert to DbSamplerConfig
-    let system_prompt_type = match json_config.system_prompt_type.as_deref() {
-        Some("Custom") => crate::web::models::SystemPromptType::Custom,
-        Some("UserDefined") => crate::web::models::SystemPromptType::UserDefined,
-        _ => crate::web::models::SystemPromptType::Custom,
-    };
+    // "UserDefined" was removed — all legacy values map to Custom
+    let system_prompt_type = crate::web::models::SystemPromptType::Custom;
 
     let db_config = DbSamplerConfig {
         sampler_type: json_config
