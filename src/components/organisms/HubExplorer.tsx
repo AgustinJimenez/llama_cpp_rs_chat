@@ -1,13 +1,14 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Loader2, ExternalLink, ChevronDown, ChevronRight, Download, Heart, ArrowUpDown, ArrowDownToLine, Play, FolderOpen } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Search, Loader2, ExternalLink, ChevronDown, ChevronRight, Download, Heart, ArrowUpDown, ArrowDownToLine, Play, FolderOpen, X } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '../atoms/dialog';
 import { Button } from '../atoms/button';
-import { fetchHubTree, startHubDownload, verifyHubDownloads, pickDirectory, loadModel } from '@/utils/tauriCommands';
+import { fetchHubTree, pickDirectory, loadModel } from '@/utils/tauriCommands';
 import { useHubSearch } from '@/hooks/useHubSearch';
 import type { HubModel, HubSortField } from '@/hooks/useHubSearch';
 import type { HubFile, DownloadProgress, HubDownloadRecord } from '@/utils/tauriCommands';
+import { useDownloadContext } from '@/contexts/DownloadContext';
 
 interface HubExplorerProps {
   isOpen: boolean;
@@ -250,11 +251,12 @@ function ModelCard({ model, onDownload, downloads, downloadedSet, pendingDownloa
 
 // ─── Downloads Tab ──────────────────────────────────────────────────
 
-function DownloadRow({ record, progress, onResume, onLoad }: {
+function DownloadRow({ record, progress, onResume, onLoad, onCancel }: {
   record: HubDownloadRecord;
   progress?: DownloadProgress | null;
   onResume: (record: HubDownloadRecord) => void;
   onLoad: (record: HubDownloadRecord) => void;
+  onCancel: (key: string) => void;
 }) {
   const shortName = record.filename.split('/').pop() ?? record.filename;
   const quant = extractQuant(record.filename);
@@ -306,7 +308,7 @@ function DownloadRow({ record, progress, onResume, onLoad }: {
         ) : null}
       </div>
 
-      <div className="relative z-10 shrink-0">
+      <div className="relative z-10 shrink-0 flex items-center gap-1">
         {isCompleted ? (
           <button
             type="button"
@@ -328,17 +330,26 @@ function DownloadRow({ record, progress, onResume, onLoad }: {
             <ArrowDownToLine className="h-4 w-4" />
           </button>
         )}
+        <button
+          type="button"
+          onClick={() => onCancel(`${record.model_id}/${record.filename}`)}
+          className="text-muted-foreground hover:text-destructive"
+          title="Cancel and delete"
+        >
+          <X className="h-4 w-4" />
+        </button>
       </div>
     </div>
   );
 }
 
-function DownloadsTab({ completedDownloads, pendingDownloads, downloads, onResume, onLoad }: {
+function DownloadsTab({ completedDownloads, pendingDownloads, downloads, onResume, onLoad, onCancel }: {
   completedDownloads: Map<string, HubDownloadRecord>;
   pendingDownloads: Map<string, HubDownloadRecord>;
   downloads: Map<string, DownloadProgress>;
   onResume: (record: HubDownloadRecord) => void;
   onLoad: (record: HubDownloadRecord) => void;
+  onCancel: (key: string) => void;
 }) {
   const pendingList = Array.from(pendingDownloads.values());
   const completedList = Array.from(completedDownloads.values());
@@ -371,6 +382,7 @@ function DownloadsTab({ completedDownloads, pendingDownloads, downloads, onResum
                   progress={downloads.get(key)}
                   onResume={onResume}
                   onLoad={onLoad}
+                  onCancel={onCancel}
                 />
               );
             })}
@@ -393,6 +405,7 @@ function DownloadsTab({ completedDownloads, pendingDownloads, downloads, onResum
                   progress={downloads.get(key)}
                   onResume={onResume}
                   onLoad={onLoad}
+                  onCancel={onCancel}
                 />
               );
             })}
@@ -410,50 +423,21 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
   const [activeTab, setActiveTab] = useState<TabId>('explore');
   const [query, setQuery] = useState('');
   const { models, isLoading, error, sort, searchModels, debouncedSearch, changeSort } = useHubSearch();
-
-  // Download state
-  const [downloads, setDownloads] = useState<Map<string, DownloadProgress>>(new Map());
-  const [downloadedSet, setDownloadedSet] = useState<Set<string>>(new Set());
-  const [completedDownloads, setCompletedDownloads] = useState<Map<string, HubDownloadRecord>>(new Map());
-  const [pendingDownloads, setPendingDownloads] = useState<Map<string, HubDownloadRecord>>(new Map());
-  const abortRef = useRef<AbortController | null>(null);
-
-  const refreshDownloadRecords = useCallback(() => {
-    verifyHubDownloads()
-      .then((records) => {
-        const completedSet = new Set<string>();
-        const completedMap = new Map<string, HubDownloadRecord>();
-        const pending = new Map<string, HubDownloadRecord>();
-        for (const r of records) {
-          const key = `${r.model_id}/${r.filename}`;
-          if (r.status === 'completed') {
-            completedSet.add(key);
-            completedMap.set(key, r);
-          } else {
-            pending.set(key, r);
-          }
-        }
-        setDownloadedSet(completedSet);
-        setCompletedDownloads(completedMap);
-        setPendingDownloads(pending);
-      })
-      .catch(() => { /* ignore */ });
-  }, []);
+  const { downloads, downloadedSet, completedDownloads, pendingDownloads, startDownload, cancelDownload, refreshRecords } = useDownloadContext();
 
   useEffect(() => {
     if (isOpen) {
       searchModels('');
-      setDownloads(new Map());
-      refreshDownloadRecords();
+      refreshRecords();
     }
-  }, [isOpen, searchModels, refreshDownloadRecords]);
+  }, [isOpen, searchModels, refreshRecords]);
 
   // Refresh download records when switching to Downloads tab
   useEffect(() => {
     if (isOpen && activeTab === 'downloads') {
-      refreshDownloadRecords();
+      refreshRecords();
     }
-  }, [isOpen, activeTab, refreshDownloadRecords]);
+  }, [isOpen, activeTab, refreshRecords]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') searchModels(query);
@@ -465,56 +449,14 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
   };
 
   const handleDownloadClick = useCallback(async (modelId: string, file: HubFile, resumeDest?: string) => {
-    // If resuming, use stored destination; otherwise ask user to pick
     const dirPath = resumeDest ?? await pickDirectory();
-    if (!dirPath) return; // user cancelled
-
-    const key = `${modelId}/${file.name}`;
-    // Clear pending state for this file since we're actively downloading now
-    setPendingDownloads(prev => {
-      const next = new Map(prev);
-      next.delete(key);
-      return next;
-    });
-
-    const controller = startHubDownload(
-      modelId,
-      file.name,
-      dirPath,
-      (event) => {
-        setDownloads(prev => {
-          const next = new Map(prev);
-          next.set(key, event);
-          return next;
-        });
-        // When done, add to persistent set and completed map
-        if (event.type === 'done') {
-          setDownloadedSet(prev => new Set(prev).add(key));
-          // Refresh from DB to get the full record
-          verifyHubDownloads()
-            .then((records) => {
-              const completedMap = new Map<string, HubDownloadRecord>();
-              for (const r of records) {
-                if (r.status === 'completed') {
-                  completedMap.set(`${r.model_id}/${r.filename}`, r);
-                }
-              }
-              setCompletedDownloads(completedMap);
-            })
-            .catch(() => { /* ignore */ });
-        }
-      },
-    );
-    abortRef.current = controller;
-  }, []);
+    if (!dirPath) return;
+    startDownload(modelId, file, dirPath);
+  }, [startDownload]);
 
   const handleResume = useCallback((record: HubDownloadRecord) => {
-    handleDownloadClick(
-      record.model_id,
-      { name: record.filename, size: record.file_size },
-      record.dest_path,
-    );
-  }, [handleDownloadClick]);
+    startDownload(record.model_id, { name: record.filename, size: record.file_size }, record.dest_path);
+  }, [startDownload]);
 
   const handleLoad = useCallback((record: HubDownloadRecord) => {
     // Construct full path: dest_path is the directory, filename is the file
@@ -641,6 +583,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
               downloads={downloads}
               onResume={handleResume}
               onLoad={handleLoad}
+              onCancel={cancelDownload}
             />
           </div>
         ) : null}

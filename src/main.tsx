@@ -8,6 +8,7 @@ import { ModelProvider } from './contexts/ModelContext.tsx';
 import { ChatProvider } from './contexts/ChatContext.tsx';
 import { UIProvider } from './contexts/UIContext.tsx';
 import { ConnectionProvider } from './contexts/ConnectionContext.tsx';
+import { DownloadProvider } from './contexts/DownloadContext.tsx';
 
 setupFrontendLogging();
 
@@ -16,11 +17,13 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <ConnectionProvider>
       <SystemResourcesProvider>
         <ModelProvider>
-          <ChatProvider>
-            <UIProvider>
-              <App />
-            </UIProvider>
-          </ChatProvider>
+          <DownloadProvider>
+            <ChatProvider>
+              <UIProvider>
+                <App />
+              </UIProvider>
+            </ChatProvider>
+          </DownloadProvider>
         </ModelProvider>
       </SystemResourcesProvider>
     </ConnectionProvider>

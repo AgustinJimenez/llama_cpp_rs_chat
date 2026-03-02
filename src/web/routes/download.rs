@@ -18,7 +18,7 @@ use tokio::task::spawn_blocking;
 
 use crate::web::database::SharedDatabase;
 use crate::web::request_parsing::parse_json_body;
-use crate::web::response_helpers::{json_error, json_raw};
+use crate::web::response_helpers::{json_error, json_raw, json_response};
 
 #[derive(Deserialize)]
 struct DownloadRequest {
@@ -383,6 +383,61 @@ pub async fn handle_post_download(
         .header("x-accel-buffering", "no")
         .body(body)
         .unwrap())
+}
+
+/// DELETE /api/hub/downloads?id=123 — cancel/delete a download record and its files
+pub async fn handle_delete_download(
+    req: Request<Body>,
+    db: SharedDatabase,
+) -> Result<Response<Body>, Infallible> {
+    // Extract id from query string
+    let id_str = req
+        .uri()
+        .query()
+        .and_then(|q| {
+            q.split('&').find_map(|pair| {
+                let (k, v) = pair.split_once('=')?;
+                if k == "id" { Some(v.to_string()) } else { None }
+            })
+        });
+
+    let id: i64 = match id_str.and_then(|s| s.parse().ok()) {
+        Some(v) => v,
+        None => return Ok(json_error(StatusCode::BAD_REQUEST, "Missing or invalid ?id= parameter")),
+    };
+
+    let db2 = db.clone();
+    let result = tokio::task::spawn_blocking(move || -> Result<(), String> {
+        // Find the record first to know what files to delete
+        let records = db2.get_hub_downloads().map_err(|e| format!("DB error: {e}"))?;
+        let rec = records.into_iter().find(|r| r.id == id);
+
+        if let Some(rec) = rec {
+            let sanitized_name = Path::new(&rec.filename)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(&rec.filename);
+
+            // Delete .part file
+            let part_path = PathBuf::from(&rec.dest_path).join(format!("{sanitized_name}.part"));
+            let _ = std::fs::remove_file(&part_path);
+
+            // Delete final file if it exists
+            let final_path = PathBuf::from(&rec.dest_path).join(sanitized_name);
+            let _ = std::fs::remove_file(&final_path);
+        }
+
+        // Delete DB record
+        db2.delete_hub_downloads_by_ids(&[id]).map_err(|e| format!("DB delete error: {e}"))?;
+        Ok(())
+    })
+    .await;
+
+    match result {
+        Ok(Ok(())) => Ok(json_response(StatusCode::OK, &serde_json::json!({"ok": true}))),
+        Ok(Err(e)) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &e)),
+        Err(e) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Task failed: {e}"))),
+    }
 }
 
 /// GET /api/hub/downloads — return all download records

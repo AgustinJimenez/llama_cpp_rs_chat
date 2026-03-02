@@ -163,6 +163,7 @@ async fn handle_request_impl(
         (&Method::GET, "/api/hub/tree") => web::routes::hub::handle_tree(req).await?,
         (&Method::POST, "/api/hub/download") => web::routes::download::handle_post_download(req, db.clone()).await?,
         (&Method::GET, "/api/hub/downloads") => web::routes::download::handle_get_downloads(db.clone()).await?,
+        (&Method::DELETE, "/api/hub/downloads") => web::routes::download::handle_delete_download(req, db.clone()).await?,
         (&Method::POST, "/api/hub/downloads/verify") => web::routes::download::handle_post_verify(db.clone()).await?,
 
         // File operations

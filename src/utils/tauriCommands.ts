@@ -349,6 +349,11 @@ export async function verifyHubDownloads(): Promise<HubDownloadRecord[]> {
   return fetchJson<HubDownloadRecord[]>('/api/hub/downloads/verify', { method: 'POST' });
 }
 
+/** Delete a download record and its files (.part and final) from disk */
+export async function deleteHubDownload(id: number): Promise<void> {
+  await fetchJson(`/api/hub/downloads?id=${id}`, { method: 'DELETE' });
+}
+
 // ─── Hub Download (SSE) ──────────────────────────────────────────────
 
 export interface DownloadProgress {

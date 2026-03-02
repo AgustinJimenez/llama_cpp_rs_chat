@@ -8,6 +8,7 @@ import { useModelContext } from './contexts/ModelContext';
 import { useChatContext } from './contexts/ChatContext';
 import { useUIContext } from './contexts/UIContext';
 import type { SamplerConfig } from './types';
+import { DownloadFloat } from './components/organisms/DownloadFloat';
 
 // Lazy-load overlay components (only rendered when opened)
 const RightSidebar = React.lazy(() => import('./components/organisms/RightSidebar').then(m => ({ default: m.RightSidebar })));
@@ -202,6 +203,7 @@ function Overlays({
           />
         </Suspense>
       ) : null}
+      <DownloadFloat />
     </>
   );
 }

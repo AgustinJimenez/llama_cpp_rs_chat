@@ -7,6 +7,7 @@ import { getConversations, deleteConversation } from '../../utils/tauriCommands'
 const HubExplorer = React.lazy(() => import('./HubExplorer').then(m => ({ default: m.HubExplorer })));
 import { useChatContext } from '../../contexts/ChatContext';
 import { useUIContext } from '../../contexts/UIContext';
+import { useDownloadContext } from '../../contexts/DownloadContext';
 
 interface ConversationFile {
   name: string;
@@ -73,6 +74,7 @@ function getDateGroup(timestamp: string): string {
 const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
   const { loadConversation: onLoadConversation, currentConversationId } = useChatContext();
   const { openAppSettings: onOpenAppSettings } = useUIContext();
+  const { activeCount: downloadActiveCount } = useDownloadContext();
   const [conversations, setConversations] = useState<ConversationFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -172,6 +174,12 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
           >
             <Search size={16} />
             Explore models
+            {downloadActiveCount > 0 ? (
+              <span className="ml-auto flex items-center gap-1 text-[10px] text-blue-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse" />
+                {downloadActiveCount}
+              </span>
+            ) : null}
           </button>
         </div>
 
