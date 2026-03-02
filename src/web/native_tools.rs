@@ -441,12 +441,125 @@ fn try_infer_tool_from_bare_args(trimmed: &str) -> Option<(String, Value)> {
     Some((name.to_string(), parsed))
 }
 
+/// Parse LFM2 (Liquid AI) Python function call syntax.
+///
+/// Format: `[func_name(key="value", key2="value2")]`
+/// Examples:
+/// - `[read_file(path="agent-tests/TEST_PLAN.md")]`
+/// - `[write_file(path="output.txt", content="Hello world")]`
+/// - `[execute_python(code="print(\"hello\")\nresult = func()")]`
+///
+/// Handles unescaped quotes inside values (common with code parameters) by using
+/// the LAST quote before `)` or `, next_key=` as the value terminator.
+///
+/// Returns `Some((name, args_json))` if parsed.
+fn try_parse_lfm2_python_call_format(trimmed: &str) -> Option<(String, Value)> {
+    // Must start with '[' and end with ']'
+    let inner = trimmed.strip_prefix('[')?.strip_suffix(']')?.trim();
+
+    // Split function name from args: "func_name(args...)"
+    let paren_pos = inner.find('(')?;
+    let name = &inner[..paren_pos];
+
+    // Validate function name: must be a simple identifier
+    if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+        return None;
+    }
+
+    // Extract content between first '(' and LAST ')'.
+    // This handles code with ')' inside (like `f.read()`).
+    let after_paren = &inner[paren_pos + 1..];
+    let last_close = after_paren.rfind(')')?;
+    let args_str = after_paren[..last_close].trim();
+
+    if args_str.is_empty() {
+        return Some((name.to_string(), serde_json::json!({})));
+    }
+
+    // Strategy: find all `key=` boundaries, then extract values between them.
+    // This avoids quote-matching issues with unescaped quotes in code.
+    let mut key_positions: Vec<(usize, &str)> = Vec::new();
+    let mut scan = 0;
+    while scan < args_str.len() {
+        // Look for pattern: word_chars followed by '=' followed by '"' or "'"
+        if let Some(eq_pos) = args_str[scan..].find('=') {
+            let abs_eq = scan + eq_pos;
+            // Check: char after '=' should be a quote
+            let after_eq = abs_eq + 1;
+            if after_eq < args_str.len() {
+                let next_ch = args_str.as_bytes()[after_eq];
+                if next_ch == b'"' || next_ch == b'\'' {
+                    // Check: chars before '=' should be a simple identifier
+                    let key_start = args_str[..abs_eq].rfind(|c: char| c == ',' || c == ' ' || c == '\n')
+                        .map(|p| p + 1)
+                        .unwrap_or(0);
+                    let key = args_str[key_start..abs_eq].trim();
+                    if !key.is_empty() && key.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                        key_positions.push((key_start, key));
+                    }
+                }
+            }
+            scan = abs_eq + 1;
+        } else {
+            break;
+        }
+    }
+
+    if key_positions.is_empty() {
+        return None;
+    }
+
+    let mut args = serde_json::Map::new();
+    for (i, &(key_start, key)) in key_positions.iter().enumerate() {
+        // Value starts after `key="`
+        let val_open = key_start + key.len() + 1; // position of opening quote
+        if val_open >= args_str.len() {
+            continue;
+        }
+        let quote_char = args_str.as_bytes()[val_open];
+        let val_content_start = val_open + 1; // position after opening quote
+
+        // Value ends at the last quote before the NEXT key (or end of args_str)
+        let val_region_end = if i + 1 < key_positions.len() {
+            key_positions[i + 1].0
+        } else {
+            args_str.len()
+        };
+
+        // Find the LAST occurrence of the quote char in this region
+        let val_region = &args_str[val_content_start..val_region_end];
+        let last_quote = val_region.rfind(quote_char as char);
+        let value = match last_quote {
+            Some(pos) => &val_region[..pos],
+            None => val_region.trim(), // No closing quote found — take everything
+        };
+
+        // Unescape common sequences
+        let unescaped = value
+            .replace("\\n", "\n")
+            .replace("\\t", "\t")
+            .replace("\\\"", "\"")
+            .replace("\\'", "'")
+            .replace("\\\\", "\\");
+
+        args.insert(key.to_string(), serde_json::json!(unescaped));
+    }
+
+    if args.is_empty() {
+        return None;
+    }
+
+    Some((name.to_string(), Value::Object(args)))
+}
+
 /// Try to parse a tool call text into (name, arguments) using all supported formats.
 ///
 /// Returns `Some((name, args))` if parsed, `None` otherwise.
 pub fn try_parse_tool_call(text: &str) -> Option<(String, Value)> {
     let trimmed = text.trim();
     if let Some(result) = try_parse_json_format(trimmed) {
+        Some(result)
+    } else if let Some(result) = try_parse_lfm2_python_call_format(trimmed) {
         Some(result)
     } else if let Some(result) = try_parse_mistral_comma_format(trimmed) {
         Some(result)
@@ -475,6 +588,9 @@ pub fn try_parse_all_from_raw(text: &str) -> Vec<(String, Value)> {
     }
 
     // Single-call formats — return as vec of 1
+    if let Some(result) = try_parse_lfm2_python_call_format(trimmed) {
+        return vec![result];
+    }
     if let Some(result) = try_parse_mistral_comma_format(trimmed) {
         return vec![result];
     }
@@ -542,6 +658,8 @@ pub fn dispatch_native_tool(
     let trimmed = text.trim();
 
     let (name, args) = if let Some((n, a)) = try_parse_json_format(trimmed) {
+        (n, a)
+    } else if let Some((n, a)) = try_parse_lfm2_python_call_format(trimmed) {
         (n, a)
     } else if let Some((n, a)) = try_parse_mistral_comma_format(trimmed) {
         (n, a)
@@ -860,6 +978,16 @@ fn tool_web_search_google_chrome(query: &str, max_results: usize) -> String {
     // Use Chrome to fetch the search results page
     match super::browser::chrome_web_fetch(&url, 50_000) {
         Ok(content) if !content.is_empty() => {
+            // Detect CAPTCHA / bot block before parsing
+            let content_lower = content.to_lowercase();
+            if content_lower.contains("unusual traffic")
+                || content_lower.contains("captcha")
+                || content_lower.contains("please verify you are a human")
+            {
+                eprintln!("[WEB_SEARCH] Google CAPTCHA detected, falling back to DDG");
+                return tool_web_search_ureq(query, max_results);
+            }
+
             // Parse the text output for search results
             // Chrome returns html2text-formatted content from Google's SERP
             let mut output = String::new();

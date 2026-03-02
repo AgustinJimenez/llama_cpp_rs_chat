@@ -139,6 +139,14 @@ fn chrome_web_fetch_inner(url: &str, max_chars: usize) -> Result<String, String>
 
 fn do_fetch(tab: &Tab, url: &str, max_chars: usize) -> Result<String, String> {
     tab.set_default_timeout(NAV_TIMEOUT);
+
+    // Inject stealth scripts BEFORE navigation so page scripts never see bot fingerprints.
+    // Covers: user-agent cleanup, navigator.webdriver=undefined, window.chrome.runtime,
+    // navigator.permissions.query, fake browser plugins, WebGL vendor spoofing.
+    if let Err(e) = tab.enable_stealth_mode() {
+        eprintln!("[BROWSER] Stealth mode failed (non-fatal): {e}");
+    }
+
     tab.navigate_to(url)
         .map_err(|e| format!("Navigation failed: {e}"))?;
     tab.wait_until_navigated()
@@ -204,6 +212,60 @@ mod tests {
                 panic!("Chrome fetch failed: {e}");
             }
         }
+        shutdown_browser();
+    }
+
+    /// Stealth test: verify stealth mode fools bot-detection sites.
+    /// Run with: cargo test --bin llama_chat_web stealth_detection -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn stealth_detection() {
+        eprintln!("--- Stealth detection test ---");
+        let result = chrome_web_fetch("https://arh.antoinevastel.com/bots/areyouheadless", 5000);
+        match &result {
+            Ok(content) => {
+                eprintln!("areyouheadless ({} chars):\n{}", content.len(), content);
+                assert!(
+                    content.contains("not") && content.contains("headless"),
+                    "Stealth failed: site detected headless Chrome"
+                );
+                eprintln!("✓ STEALTH PASS: Site thinks we are a real browser!");
+            }
+            Err(e) => panic!("areyouheadless FAILED: {e}"),
+        }
+        shutdown_browser();
+    }
+
+    /// Search engine test: verify DuckDuckGo and Bing work via headless Chrome.
+    /// (Google blocks by IP/TLS fingerprint regardless of JS stealth.)
+    /// Run with: cargo test --bin llama_chat_web search_engines -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn search_engines() {
+        eprintln!("--- Search engine test ---");
+
+        // DuckDuckGo HTML (our primary fallback when Brave API unavailable)
+        let ddg = chrome_web_fetch("https://html.duckduckgo.com/html/?q=rust+programming+language", 30000);
+        match &ddg {
+            Ok(content) => {
+                assert!(content.contains("rust") || content.contains("Rust"),
+                    "DuckDuckGo returned no results");
+                eprintln!("✓ DuckDuckGo: {} chars", content.len());
+            }
+            Err(e) => panic!("DuckDuckGo FAILED: {e}"),
+        }
+
+        // Bing
+        let bing = chrome_web_fetch("https://www.bing.com/search?q=rust+programming+language", 30000);
+        match &bing {
+            Ok(content) => {
+                assert!(content.contains("rust") || content.contains("Rust"),
+                    "Bing returned no results");
+                eprintln!("✓ Bing: {} chars", content.len());
+            }
+            Err(e) => panic!("Bing FAILED: {e}"),
+        }
+
         shutdown_browser();
     }
 }

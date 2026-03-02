@@ -135,6 +135,18 @@ fn harmony_tags() -> ToolTags {
     )
 }
 
+/// LFM2 (Liquid Foundation Model 2) native tool tags.
+/// Uses special tokens `<|tool_call_start|>` / `<|tool_call_end|>` with Python function call syntax inside.
+/// Tool call format: `<|tool_call_start|>[func_name(key="value")]<|tool_call_end|>`
+fn lfm2_tags() -> ToolTags {
+    ToolTags::new(
+        "<|tool_call_start|>",
+        "<|tool_call_end|>",
+        "<|tool_response_start|>",
+        "<|tool_response_end|>",
+    )
+}
+
 /// GLM-family native tool tags.
 /// GLM uses the same `<tool_call>`/`</tool_call>` format as Qwen (tokens 151352/151353).
 /// Tool responses use `<tool_response>`/`</tool_response>` (tokens 151354/151355).
@@ -180,6 +192,8 @@ const MODEL_TAG_MAP: &[(&str, TagFactory)] = &[
     // GLM models - native <tool_call> tags (same special tokens as Qwen)
     ("Zai org_GLM 4.6V Flash", glm_tags),
     ("Zai org_GLM 4.7 Flash", glm_tags),
+    // LFM2 (Liquid AI) - native <|tool_call_start|> special tokens
+    ("Ef218A605E23739A1302869B9B3618C8B3F7Eb0D", lfm2_tags),
 ];
 
 /// Normalize a model name for fuzzy matching.
@@ -295,6 +309,19 @@ fn harmony_tag_pairs() -> Vec<TagPair> {
     ]
 }
 
+/// All known tag pairs for LFM2 (Liquid AI) family models.
+fn lfm2_tag_pairs() -> Vec<TagPair> {
+    vec![
+        TagPair::pair("tool", "exec", "<|tool_call_start|>", "<|tool_call_end|>"),
+        TagPair::pair("tool", "response", "<|tool_response_start|>", "<|tool_response_end|>"),
+        TagPair::pair("thinking", "think", "<think>", "</think>"),
+        TagPair::single("role", "system", "<|im_start|>system"),
+        TagPair::single("role", "user", "<|im_start|>user"),
+        TagPair::single("role", "assistant", "<|im_start|>assistant"),
+        TagPair::single("control", "im_end", "<|im_end|>"),
+    ]
+}
+
 /// Default tag pairs for unknown models — just the 4 SYSTEM.EXEC tool tags.
 fn default_tag_pairs() -> Vec<TagPair> {
     vec![
@@ -327,6 +354,8 @@ const MODEL_TAG_PAIR_MAP: &[(&str, TagPairFactory)] = &[
     // GLM models
     ("Zai org_GLM 4.6V Flash", glm_tag_pairs),
     ("Zai org_GLM 4.7 Flash", glm_tag_pairs),
+    // LFM2 (Liquid AI)
+    ("Ef218A605E23739A1302869B9B3618C8B3F7Eb0D", lfm2_tag_pairs),
 ];
 
 /// Look up tag pairs for a model by its `general.name` from GGUF metadata.
