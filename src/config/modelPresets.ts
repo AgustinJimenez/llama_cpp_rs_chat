@@ -243,6 +243,16 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     repeat_penalty: 1.0,
   },
 
+  // LiquidAI LFM2
+  // Source: https://huggingface.co/LiquidAI/LFM2-24B-A2B
+  "Ef218A605E23739A1302869B9B3618C8B3F7Eb0D": {
+    sampler_type: "Temperature",
+    temperature: 0.1,
+    top_k: 50,
+    repeat_penalty: 1.05,
+    context_size: 32768,
+  },
+
   // Microsoft Phi
   "Phi 4 Mini Reasoning": {
     sampler_type: "Temperature",
