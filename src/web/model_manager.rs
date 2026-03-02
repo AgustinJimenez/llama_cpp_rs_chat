@@ -162,7 +162,6 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, request
     let llama_model_params = LlamaModelParams::default()
         .with_n_gpu_layers(optimal_gpu_layers)
         .with_use_mlock(mp.use_mlock)
-        .with_use_mmap(mp.use_mmap)
         .with_main_gpu(mp.main_gpu)
         .with_split_mode(parse_split_mode(&mp.split_mode));
 

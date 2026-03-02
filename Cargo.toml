@@ -120,6 +120,10 @@ rfd = "0.15"
 headless_chrome = "1.0"
 encoding_rs = "0.8.35"
 
+# libc for Unix fd operations (dup/dup2 in worker IPC)
+[target.'cfg(not(windows))'.dependencies]
+libc = "0.2"
+
 # System monitoring (optional - requires rebuild)
 # sysinfo = "0.30"
 # nvml-wrapper = { version = "0.9", optional = true }
