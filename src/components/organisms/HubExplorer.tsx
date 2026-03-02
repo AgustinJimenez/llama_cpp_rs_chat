@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Loader2, ExternalLink, ChevronDown, ChevronRight, Download, Heart, ArrowUpDown, ArrowDownToLine } from 'lucide-react';
+import { Search, Loader2, ExternalLink, ChevronDown, ChevronRight, Download, Heart, ArrowUpDown, ArrowDownToLine, Play, FolderOpen } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '../atoms/dialog';
 import { Button } from '../atoms/button';
-import { fetchHubTree, startHubDownload, verifyHubDownloads, pickDirectory } from '@/utils/tauriCommands';
+import { fetchHubTree, startHubDownload, verifyHubDownloads, pickDirectory, loadModel } from '@/utils/tauriCommands';
 import { useHubSearch } from '@/hooks/useHubSearch';
 import type { HubModel, HubSortField } from '@/hooks/useHubSearch';
 import type { HubFile, DownloadProgress, HubDownloadRecord } from '@/utils/tauriCommands';
@@ -13,6 +13,8 @@ interface HubExplorerProps {
   isOpen: boolean;
   onClose: () => void;
 }
+
+type TabId = 'explore' | 'downloads';
 
 const SORT_OPTIONS: { value: HubSortField; label: string }[] = [
   { value: 'downloads', label: 'Downloads' },
@@ -35,6 +37,19 @@ function formatNumber(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return String(n);
+}
+
+function formatRelativeTime(timestampMs: number): string {
+  const now = Date.now();
+  const diff = now - timestampMs;
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  return new Date(timestampMs).toLocaleDateString();
 }
 
 /** Extract quantization type from a GGUF filename */
@@ -233,41 +248,212 @@ function ModelCard({ model, onDownload, downloads, downloadedSet, pendingDownloa
   );
 }
 
+// ─── Downloads Tab ──────────────────────────────────────────────────
+
+function DownloadRow({ record, progress, onResume, onLoad }: {
+  record: HubDownloadRecord;
+  progress?: DownloadProgress | null;
+  onResume: (record: HubDownloadRecord) => void;
+  onLoad: (record: HubDownloadRecord) => void;
+}) {
+  const shortName = record.filename.split('/').pop() ?? record.filename;
+  const quant = extractQuant(record.filename);
+  const isCompleted = record.status === 'completed';
+  const isDownloading = progress?.type === 'progress';
+  const pct = isDownloading && progress.total && progress.total > 0
+    ? Math.round((progress.bytes! / progress.total) * 100)
+    : isCompleted ? 100
+    : record.file_size > 0 ? Math.round((record.bytes_downloaded / record.file_size) * 100)
+    : 0;
+
+  return (
+    <div className="flex items-center gap-2 py-2 px-2 rounded hover:bg-accent/30 transition-colors relative overflow-hidden">
+      {/* Progress bar background */}
+      {isDownloading ? <div
+          className="absolute inset-0 bg-primary/10 rounded transition-all duration-300"
+          style={{ width: `${pct}%` }}
+        /> : null}
+      {!isCompleted && !isDownloading && record.file_size > 0 ? <div
+          className="absolute inset-0 bg-yellow-500/10 rounded"
+          style={{ width: `${pct}%` }}
+        /> : null}
+
+      <div className="flex-1 min-w-0 relative z-10">
+        <div className="text-sm font-medium truncate">{shortName}</div>
+        <div className="flex items-center gap-2 mt-0.5">
+          {quant ? <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-primary/15 text-primary">
+              {quant}
+            </span> : null}
+          <span className="text-xs text-muted-foreground truncate">{record.model_id}</span>
+          <span className="text-xs text-muted-foreground">{formatSize(record.file_size)}</span>
+          {isCompleted ? (
+            <span className="text-xs text-green-500 font-medium">{formatRelativeTime(record.downloaded_at)}</span>
+          ) : isDownloading ? (
+            <span className="text-xs text-primary font-medium">
+              {pct}% &middot; {formatSize((progress.speed_kbps ?? 0) * 1024)}/s
+            </span>
+          ) : (
+            <span className="text-xs text-yellow-600 font-medium">
+              Paused &middot; {formatSize(record.bytes_downloaded)} / {formatSize(record.file_size)}
+            </span>
+          )}
+        </div>
+        {isCompleted ? (
+          <div className="flex items-center gap-1 mt-0.5">
+            <FolderOpen className="h-3 w-3 text-muted-foreground shrink-0" />
+            <span className="text-[11px] text-muted-foreground truncate">{record.dest_path}</span>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="relative z-10 shrink-0">
+        {isCompleted ? (
+          <button
+            type="button"
+            onClick={() => onLoad(record)}
+            className="text-muted-foreground hover:text-foreground"
+            title="Load this model"
+          >
+            <Play className="h-4 w-4" />
+          </button>
+        ) : isDownloading ? (
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        ) : (
+          <button
+            type="button"
+            onClick={() => onResume(record)}
+            className="text-muted-foreground hover:text-foreground"
+            title="Resume download"
+          >
+            <ArrowDownToLine className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DownloadsTab({ completedDownloads, pendingDownloads, downloads, onResume, onLoad }: {
+  completedDownloads: Map<string, HubDownloadRecord>;
+  pendingDownloads: Map<string, HubDownloadRecord>;
+  downloads: Map<string, DownloadProgress>;
+  onResume: (record: HubDownloadRecord) => void;
+  onLoad: (record: HubDownloadRecord) => void;
+}) {
+  const pendingList = Array.from(pendingDownloads.values());
+  const completedList = Array.from(completedDownloads.values());
+  const isEmpty = pendingList.length === 0 && completedList.length === 0;
+
+  if (isEmpty) {
+    return (
+      <div className="text-center py-12 text-muted-foreground text-sm">
+        <ArrowDownToLine className="h-8 w-8 mx-auto mb-3 opacity-40" />
+        <p>No downloads yet</p>
+        <p className="text-xs mt-1">Search and download models from the Explore tab</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {pendingList.length > 0 ? (
+        <div>
+          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5 px-1">
+            Pending ({pendingList.length})
+          </div>
+          <div className="space-y-0.5">
+            {pendingList.map((r) => {
+              const key = `${r.model_id}/${r.filename}`;
+              return (
+                <DownloadRow
+                  key={key}
+                  record={r}
+                  progress={downloads.get(key)}
+                  onResume={onResume}
+                  onLoad={onLoad}
+                />
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      {completedList.length > 0 ? (
+        <div>
+          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5 px-1">
+            Completed ({completedList.length})
+          </div>
+          <div className="space-y-0.5">
+            {completedList.map((r) => {
+              const key = `${r.model_id}/${r.filename}`;
+              return (
+                <DownloadRow
+                  key={key}
+                  record={r}
+                  progress={downloads.get(key)}
+                  onResume={onResume}
+                  onLoad={onLoad}
+                />
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// ─── Main HubExplorer ───────────────────────────────────────────────
+
 // eslint-disable-next-line max-lines-per-function
 export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => {
+  const [activeTab, setActiveTab] = useState<TabId>('explore');
   const [query, setQuery] = useState('');
   const { models, isLoading, error, sort, searchModels, debouncedSearch, changeSort } = useHubSearch();
 
   // Download state
   const [downloads, setDownloads] = useState<Map<string, DownloadProgress>>(new Map());
   const [downloadedSet, setDownloadedSet] = useState<Set<string>>(new Set());
+  const [completedDownloads, setCompletedDownloads] = useState<Map<string, HubDownloadRecord>>(new Map());
   const [pendingDownloads, setPendingDownloads] = useState<Map<string, HubDownloadRecord>>(new Map());
   const abortRef = useRef<AbortController | null>(null);
+
+  const refreshDownloadRecords = useCallback(() => {
+    verifyHubDownloads()
+      .then((records) => {
+        const completedSet = new Set<string>();
+        const completedMap = new Map<string, HubDownloadRecord>();
+        const pending = new Map<string, HubDownloadRecord>();
+        for (const r of records) {
+          const key = `${r.model_id}/${r.filename}`;
+          if (r.status === 'completed') {
+            completedSet.add(key);
+            completedMap.set(key, r);
+          } else {
+            pending.set(key, r);
+          }
+        }
+        setDownloadedSet(completedSet);
+        setCompletedDownloads(completedMap);
+        setPendingDownloads(pending);
+      })
+      .catch(() => { /* ignore */ });
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
       searchModels('');
-      // Clear stale in-memory progress so only DB-backed labels survive across opens
       setDownloads(new Map());
-      // Load persisted download records and verify files still exist on disk
-      verifyHubDownloads()
-        .then((records) => {
-          const completed = new Set<string>();
-          const pending = new Map<string, HubDownloadRecord>();
-          for (const r of records) {
-            const key = `${r.model_id}/${r.filename}`;
-            if (r.status === 'completed') {
-              completed.add(key);
-            } else {
-              pending.set(key, r);
-            }
-          }
-          setDownloadedSet(completed);
-          setPendingDownloads(pending);
-        })
-        .catch(() => { /* ignore — just won't show persisted labels */ });
+      refreshDownloadRecords();
     }
-  }, [isOpen, searchModels]);
+  }, [isOpen, searchModels, refreshDownloadRecords]);
+
+  // Refresh download records when switching to Downloads tab
+  useEffect(() => {
+    if (isOpen && activeTab === 'downloads') {
+      refreshDownloadRecords();
+    }
+  }, [isOpen, activeTab, refreshDownloadRecords]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') searchModels(query);
@@ -301,14 +487,50 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
           next.set(key, event);
           return next;
         });
-        // When done, add to persistent set so label survives across sessions
+        // When done, add to persistent set and completed map
         if (event.type === 'done') {
           setDownloadedSet(prev => new Set(prev).add(key));
+          // Refresh from DB to get the full record
+          verifyHubDownloads()
+            .then((records) => {
+              const completedMap = new Map<string, HubDownloadRecord>();
+              for (const r of records) {
+                if (r.status === 'completed') {
+                  completedMap.set(`${r.model_id}/${r.filename}`, r);
+                }
+              }
+              setCompletedDownloads(completedMap);
+            })
+            .catch(() => { /* ignore */ });
         }
       },
     );
     abortRef.current = controller;
   }, []);
+
+  const handleResume = useCallback((record: HubDownloadRecord) => {
+    handleDownloadClick(
+      record.model_id,
+      { name: record.filename, size: record.file_size },
+      record.dest_path,
+    );
+  }, [handleDownloadClick]);
+
+  const handleLoad = useCallback((record: HubDownloadRecord) => {
+    // Construct full path: dest_path is the directory, filename is the file
+    // dest_path from DB already includes the directory
+    const sep = record.dest_path.includes('\\') ? '\\' : '/';
+    const fullPath = `${record.dest_path}${sep}${record.filename}`;
+    loadModel(fullPath).then(() => {
+      onClose();
+    }).catch((err) => {
+      console.error('Failed to load model:', err);
+    });
+  }, [onClose]);
+
+  const pendingCount = pendingDownloads.size;
+  const completedCount = completedDownloads.size;
+  const totalDownloads = pendingCount + completedCount;
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -317,60 +539,111 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
           <DialogTitle>Explore GGUF Models</DialogTitle>
         </DialogHeader>
 
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <input
-              value={query}
-              onChange={handleChange}
-              onKeyDown={handleKeyDown}
-              placeholder="Search HuggingFace models..."
-              className="w-full pl-9 pr-3 py-2 border rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              // eslint-disable-next-line jsx-a11y/no-autofocus
-              autoFocus
-            />
-          </div>
-          <div className="relative shrink-0">
-            <ArrowUpDown className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-            <select
-              value={sort}
-              onChange={(e) => changeSort(e.target.value as HubSortField, query)}
-              className="pl-8 pr-2 py-2 border rounded-md bg-background text-sm appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring"
-            >
-              {SORT_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
-          </div>
+        {/* Tab bar */}
+        <div className="flex border-b">
+          <button
+            type="button"
+            onClick={() => setActiveTab('explore')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'explore'
+                ? 'border-primary text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Explore
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('downloads')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+              activeTab === 'downloads'
+                ? 'border-primary text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Downloads
+            {totalDownloads > 0 ? (
+              <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full ${
+                pendingCount > 0 ? 'bg-yellow-500/20 text-yellow-600' : 'bg-muted text-muted-foreground'
+              }`}>
+                {totalDownloads}
+              </span>
+            ) : null}
+          </button>
         </div>
 
-        <div className="relative flex-1 min-h-0 overflow-y-auto space-y-2" style={{ maxHeight: '400px' }}>
-          {isLoading ? <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60 rounded-md">
-              <Loader2 className="h-5 w-5 animate-spin mr-2 text-muted-foreground" />
-              <span className="text-muted-foreground text-sm">Searching...</span>
-            </div> : null}
-
-          {error ? <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-md text-sm text-destructive">
-              {error}
-            </div> : null}
-
-          {!error && models.length === 0 && !isLoading && (
-            <div className="text-center py-8 text-muted-foreground text-sm">
-              {query ? <>No GGUF models found for &ldquo;{query}&rdquo;</> : 'No models found'}
+        {/* Explore tab */}
+        {activeTab === 'explore' ? (
+          <>
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <input
+                  value={query}
+                  onChange={handleChange}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Search HuggingFace models..."
+                  className="w-full pl-9 pr-3 py-2 border rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  // eslint-disable-next-line jsx-a11y/no-autofocus
+                  autoFocus
+                />
+              </div>
+              <div className="relative shrink-0">
+                <ArrowUpDown className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                <select
+                  value={sort}
+                  onChange={(e) => changeSort(e.target.value as HubSortField, query)}
+                  className="pl-8 pr-2 py-2 border rounded-md bg-background text-sm appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  {SORT_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
             </div>
-          )}
 
-          {models.map((m) => (
-            <ModelCard
-              key={m.id}
-              model={m}
-              onDownload={handleDownloadClick}
-              downloads={downloads}
-              downloadedSet={downloadedSet}
+            <div className="relative flex-1 min-h-0 overflow-y-auto space-y-2" style={{ maxHeight: '400px' }}>
+              {isLoading ? <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60 rounded-md">
+                  <Loader2 className="h-5 w-5 animate-spin mr-2 text-muted-foreground" />
+                  <span className="text-muted-foreground text-sm">Searching...</span>
+                </div> : null}
+
+              {error ? <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-md text-sm text-destructive">
+                  {error}
+                </div> : null}
+
+              {!error && models.length === 0 && !isLoading && (
+                <div className="text-center py-8 text-muted-foreground text-sm">
+                  {query ? <>No GGUF models found for &ldquo;{query}&rdquo;</> : 'No models found'}
+                </div>
+              )}
+
+              {models.map((m) => (
+                <ModelCard
+                  key={m.id}
+                  model={m}
+                  onDownload={handleDownloadClick}
+                  downloads={downloads}
+                  downloadedSet={downloadedSet}
+                  pendingDownloads={pendingDownloads}
+                />
+              ))}
+            </div>
+          </>
+        ) : null}
+
+        {/* Downloads tab */}
+        {activeTab === 'downloads' ? (
+          <div className="relative flex-1 min-h-0 overflow-y-auto" style={{ maxHeight: '400px' }}>
+            <DownloadsTab
+              completedDownloads={completedDownloads}
               pendingDownloads={pendingDownloads}
+              downloads={downloads}
+              onResume={handleResume}
+              onLoad={handleLoad}
             />
-          ))}
-        </div>
+          </div>
+        ) : null}
 
         <div className="flex justify-end pt-2 border-t">
           <Button variant="outline" onClick={onClose}>Close</Button>
