@@ -276,7 +276,9 @@ export function collectExecSpans(content: string): Span[] {
 // (<|begin_of_box|>/<|end_of_box|> are vision bounding box markers, but GLM
 // repurposes <|end_of_box|> as a tool call terminator).
 
-const TOOL_CALL_REGEX = /<tool_call>([\s\S]*?)(?:<\/tool_call>|<\|end_of_box\|>)/g;
+// Also match unclosed <tool_call> where </function> ends the block (Qwen3-Coder Jinja format:
+// the backend tool detector matches </function> before </tool_call> is generated)
+const TOOL_CALL_REGEX = /<tool_call>([\s\S]*?)(?:<\/tool_call>|<\|end_of_box\|>|(?=\s*<tool_response>))/g;
 
 type QwenTcMatch = { start: number; end: number; json: string };
 type QwenTrMatch = { start: number; end: number; content: string };
@@ -345,6 +347,15 @@ export function collectQwenSpans(content: string): Span[] {
     const glmParsed = parseGlmXmlArgs(body);
     if (glmParsed) {
       const wrapped = JSON.stringify({ name: glmParsed.name, arguments: glmParsed.args });
+      tcMatches.push({ start: match.index, end: match.index + match[0].length, json: wrapped });
+      continue;
+    }
+    // Fallback 3: Llama3 XML format — <function=name><parameter=key>value</parameter></function>
+    // Used by models like Qwen3-Coder whose Jinja template nests this inside <tool_call>
+    const funcMatch = body.match(/<function=([^>]+)>([\s\S]*)<\/function>/);
+    if (funcMatch) {
+      const args = parseXmlParams(funcMatch[2]);
+      const wrapped = JSON.stringify({ name: funcMatch[1].trim(), arguments: args });
       tcMatches.push({ start: match.index, end: match.index + match[0].length, json: wrapped });
     }
   }

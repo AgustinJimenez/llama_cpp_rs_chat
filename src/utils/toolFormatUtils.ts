@@ -74,7 +74,13 @@ export function stripUnclosedToolCallTail(content: string, toolTags?: ToolTags):
             cutoff = Math.min(cutoff, lastOpen);
           }
         } else {
-          cutoff = Math.min(cutoff, lastOpen);
+          // Check if there's a <tool_response> after the open tag — if so, the tool
+          // call was completed (e.g. Qwen3-Coder: <tool_call><function=...></function>
+          // has no </tool_call> but tool executed and response was injected)
+          const hasResponse = content.indexOf('<tool_response>', lastOpen) !== -1;
+          if (!hasResponse) {
+            cutoff = Math.min(cutoff, lastOpen);
+          }
         }
       }
     }
@@ -89,7 +95,11 @@ export function stripUnclosedToolCallTail(content: string, toolTags?: ToolTags):
         content.lastIndexOf('</tool_call>'),
         content.lastIndexOf('<|end_of_box|>'),
       );
-      if (lastToolClose < lastToolOpen) cutoff = Math.min(cutoff, lastToolOpen);
+      if (lastToolClose < lastToolOpen) {
+        // Don't strip if a <tool_response> exists after the open tag (tool completed)
+        const hasResponse = content.indexOf('<tool_response>', lastToolOpen) !== -1;
+        if (!hasResponse) cutoff = Math.min(cutoff, lastToolOpen);
+      }
     }
 
     // Mistral: [TOOL_CALLS] ... (no closing tag and incomplete JSON)
