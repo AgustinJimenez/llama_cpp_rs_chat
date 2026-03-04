@@ -20,8 +20,6 @@ fn main() -> ExitCode {
     if args.is_empty() {
         if let Some(bin_dir) = &cmake.bin_dir {
             println!("{}", bin_dir.display());
-        } else {
-            eprintln!("cmake already on PATH");
         }
         return ExitCode::SUCCESS;
     }

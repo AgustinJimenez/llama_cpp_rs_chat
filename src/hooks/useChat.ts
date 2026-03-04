@@ -77,6 +77,10 @@ export function useChat() {
   const streamSeqRef = useRef(0);
   const transportRef = useRef<ChatTransport>(createChatTransport());
 
+  // Auto-continue: when generation hits max_tokens (not EOS), re-send "Continue"
+  const MAX_AUTO_CONTINUES = 3;
+  const autoContinueCountRef = useRef(0);
+
   // Clear all messages and reset state
   const clearMessages = useCallback(() => {
     setMessages([]);
@@ -188,8 +192,7 @@ export function useChat() {
         onComplete: (_messageId, conversationId, tokenCount, maxTokenCount, timings) => {
           if (streamSeqRef.current !== streamSeq) return;
           isStreamingRef.current = false;
-          console.log('[useChat] Streaming complete', timings ? `gen=${timings.genTokPerSec?.toFixed(1)} tok/s` : '');
-          notifyIfUnfocused('Generation complete', 'Your AI response is ready.');
+          console.log('[useChat] Streaming complete', timings ? `gen=${timings.genTokPerSec?.toFixed(1)} tok/s finish=${timings.finishReason ?? '?'}` : '');
 
           if (!currentConversationId) {
             setCurrentConversationId(conversationId);
@@ -198,12 +201,47 @@ export function useChat() {
           if (maxTokenCount !== undefined) setMaxTokens(maxTokenCount);
           if (timings) {
             setLastTimings(timings);
-            // Attach timings to the assistant message for per-message stats display
             setMessages(prev => prev.map(msg =>
               msg.id === assistantMessageId ? { ...msg, timings } : msg
             ));
           }
 
+          // Auto-continue: if generation was cut off by max_tokens, re-send "Continue"
+          const finishReason = timings?.finishReason;
+          if (finishReason === 'length' && autoContinueCountRef.current < MAX_AUTO_CONTINUES) {
+            autoContinueCountRef.current += 1;
+            const continueNum = autoContinueCountRef.current;
+            console.log(`[useChat] Auto-continue ${continueNum}/${MAX_AUTO_CONTINUES} (finish_reason=length)`);
+
+            // Append a visual indicator to the current assistant message
+            setMessages(prev => prev.map(msg =>
+              msg.id === assistantMessageId
+                ? { ...msg, content: msg.content + `\n\n*[Continuing... (${continueNum}/${MAX_AUTO_CONTINUES})]*\n\n` }
+                : msg
+            ));
+
+            // Brief delay then re-send
+            setTimeout(() => {
+              const convId = conversationId || currentConversationId;
+              // Re-use the same assistant message — create a new stream sequence
+              const newStreamSeq = (streamSeqRef.current += 1);
+              isStreamingRef.current = true;
+              abortControllerRef.current = new AbortController();
+
+              runStream({
+                request: { message: 'Continue', conversation_id: convId || undefined },
+                assistantMessageId,
+                streamSeq: newStreamSeq,
+              }).catch(err => {
+                handleStreamError(err, newStreamSeq, streamSeqRef, isStreamingRef, setError, setIsLoading, setMessages, assistantMessageId);
+              });
+            }, 150);
+            return; // Don't set isLoading=false — we're continuing
+          }
+
+          // Normal completion — reset auto-continue counter
+          autoContinueCountRef.current = 0;
+          notifyIfUnfocused('Generation complete', 'Your AI response is ready.');
           setIsLoading(false);
         },
         onError: (errorMsg) => {
@@ -235,6 +273,9 @@ export function useChat() {
     const trimmed = content.trim();
     if (!bypassLoadingCheck && (isLoading || (!trimmed && !hasImages))) return;
     if (!trimmed && !hasImages) return;
+
+    // Reset auto-continue counter on new user message
+    autoContinueCountRef.current = 0;
 
     // Abort any previous request
     abortControllerRef.current?.abort();

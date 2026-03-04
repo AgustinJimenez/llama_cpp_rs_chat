@@ -68,9 +68,12 @@ async function main() {
         }
         
         log('🎯', `Mode: ${mode.toUpperCase()}`, 'blue');
-        
+
         const { platform } = detectPlatform();
         const projectRoot = path.dirname(__dirname);
+
+        // Ensure cmake is available before any build/run scripts
+        await runScript('npm run ensure-cmake');
         
         let scriptPath;
         
@@ -109,7 +112,7 @@ async function main() {
                 
             default:
                 log('❓', `Unknown platform: ${platform}, falling back to CPU mode`, 'yellow');
-                scriptPath = 'npm run dev';
+                scriptPath = 'npm run dev:cpu';
                 break;
         }
         
@@ -126,7 +129,7 @@ async function main() {
         
         // Fallback to basic dev command
         try {
-            await runScript('npm run dev');
+            await runScript('npm run dev:cpu');
         } catch (fallbackError) {
             log('💥', `Fallback failed: ${fallbackError.message}`, 'red');
             process.exit(1);

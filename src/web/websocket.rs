@@ -156,6 +156,12 @@ pub async fn handle_websocket(
                     chars_sent: 0,
                 };
 
+                // Heartbeat: send a keepalive message every 15s when idle.
+                // Long-running commands (composer, npm install) can go silent for
+                // 30+ seconds during dependency resolution, which would otherwise
+                // trigger the frontend's generation timeout and close the WebSocket.
+                let mut heartbeat_deadline = Instant::now() + Duration::from_secs(15);
+
                 loop {
                     tokio::select! {
                         // Receive tokens from the worker via bridge
@@ -165,6 +171,7 @@ pub async fn handle_websocket(
                                     pending_tokens.push_str(&token_data.token);
                                     pending_tokens_used = Some(token_data.tokens_used);
                                     pending_max_tokens = Some(token_data.max_tokens);
+                                    heartbeat_deadline = Instant::now() + Duration::from_secs(15);
 
                                     if pending_tokens.len() >= WS_TOKEN_FLUSH_MAX_CHARS
                                         && flush_pending_tokens(
@@ -192,7 +199,7 @@ pub async fn handle_websocket(
 
                                     // Get conversation_id and timings from completion result
                                     match done_rx.await {
-                                        Ok(GenerationResult::Complete { conversation_id, prompt_tok_per_sec, gen_tok_per_sec, gen_eval_ms, gen_tokens, prompt_eval_ms, prompt_tokens, .. }) => {
+                                        Ok(GenerationResult::Complete { conversation_id, prompt_tok_per_sec, gen_tok_per_sec, gen_eval_ms, gen_tokens, prompt_eval_ms, prompt_tokens, finish_reason, .. }) => {
                                             let done_msg = serde_json::json!({
                                                 "type": "done",
                                                 "conversation_id": conversation_id,
@@ -201,7 +208,8 @@ pub async fn handle_websocket(
                                                 "gen_eval_ms": gen_eval_ms,
                                                 "gen_tokens": gen_tokens,
                                                 "prompt_eval_ms": prompt_eval_ms,
-                                                "prompt_tokens": prompt_tokens
+                                                "prompt_tokens": prompt_tokens,
+                                                "finish_reason": finish_reason
                                             });
                                             let _ = ws_sender.send(WsMessage::Text(done_msg.to_string())).await;
                                             sys_debug!("[WS_CHAT] Done message sent");
@@ -243,6 +251,14 @@ pub async fn handle_websocket(
                             ).await.is_err() {
                                 break;
                             }
+                        }
+                        // Heartbeat: keep frontend alive during long-running silent commands
+                        _ = tokio::time::sleep_until(heartbeat_deadline) => {
+                            let hb = serde_json::json!({ "type": "heartbeat" });
+                            if ws_sender.send(WsMessage::Text(hb.to_string())).await.is_err() {
+                                break;
+                            }
+                            heartbeat_deadline = Instant::now() + Duration::from_secs(15);
                         }
                         // Handle client disconnection or close messages
                         ws_msg = ws_receiver.next() => {

@@ -97,6 +97,8 @@ pub enum WorkerPayload {
         prompt_eval_ms: Option<f64>,
         /// Number of prompt tokens evaluated.
         prompt_tokens: Option<i32>,
+        /// Why generation stopped: "stop", "length", "cancelled", "tool_calls", "error".
+        finish_reason: Option<String>,
     },
     /// Generation was cancelled by the user.
     GenerationCancelled,

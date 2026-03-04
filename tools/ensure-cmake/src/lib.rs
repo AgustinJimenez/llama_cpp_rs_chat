@@ -1,7 +1,6 @@
 //! CMake resolution library.
 //!
-//! Finds cmake on PATH, in well-known locations, in a cached download,
-//! or downloads a portable copy from GitHub releases.
+//! Uses a cached download or downloads a portable copy from GitHub releases.
 
 use std::env;
 use std::fs;
@@ -15,7 +14,7 @@ const CMAKE_URL_BASE: &str = "https://github.com/Kitware/CMake/releases/download
 
 /// Result of cmake resolution.
 pub struct CmakeResult {
-    /// Directory containing the cmake binary. None if cmake is already on PATH.
+    /// Directory containing the cmake binary.
     pub bin_dir: Option<PathBuf>,
 }
 
@@ -32,26 +31,12 @@ impl CmakeResult {
     }
 }
 
-/// Ensure cmake is available. Downloads if necessary.
+/// Ensure cmake is available. Uses cache or downloads if necessary.
 ///
 /// `cache_root` is the directory to store downloaded cmake (e.g. `target/cmake/`).
 /// If None, auto-detects from current exe location.
 pub fn ensure_cmake(cache_root: Option<&Path>) -> Result<CmakeResult, String> {
-    // 1. System cmake on PATH
-    if let Some(cmake_path) = find_system_cmake() {
-        if cmake_path.to_str() == Some("cmake") {
-            eprintln!("CMake found on system PATH");
-            return Ok(CmakeResult { bin_dir: None });
-        }
-        if let Some(bin_dir) = cmake_path.parent() {
-            eprintln!("CMake found at {}, injecting into PATH", cmake_path.display());
-            return Ok(CmakeResult {
-                bin_dir: Some(bin_dir.to_path_buf()),
-            });
-        }
-    }
-
-    // 2. Cached download
+    // 1. Cached download
     let cache_dir = match cache_root {
         Some(root) => root.join("cmake"),
         None => auto_cmake_cache_dir(),
@@ -63,34 +48,13 @@ pub fn ensure_cmake(cache_root: Option<&Path>) -> Result<CmakeResult, String> {
         });
     }
 
-    // 3. Download
+    // 2. Download
     eprintln!("CMake not found — downloading portable CMake {CMAKE_VERSION}...");
     let bin_dir = download_and_extract_cmake(&cache_dir)?;
     eprintln!("CMake {CMAKE_VERSION} ready at {}", bin_dir.display());
     Ok(CmakeResult {
         bin_dir: Some(bin_dir),
     })
-}
-
-fn find_system_cmake() -> Option<PathBuf> {
-    let candidates: &[&str] = if cfg!(windows) {
-        &[
-            "cmake",
-            "C:\\Program Files\\CMake\\bin\\cmake.exe",
-            "C:\\Program Files (x86)\\CMake\\bin\\cmake.exe",
-        ]
-    } else {
-        &["cmake", "/usr/local/bin/cmake", "/opt/homebrew/bin/cmake"]
-    };
-
-    for &path in candidates {
-        if let Ok(output) = Command::new(path).arg("--version").output() {
-            if output.status.success() {
-                return Some(PathBuf::from(path));
-            }
-        }
-    }
-    None
 }
 
 fn auto_cmake_cache_dir() -> PathBuf {

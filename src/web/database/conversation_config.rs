@@ -178,6 +178,7 @@ impl Database {
                     disable_file_logging: true,
                     web_search_provider: None,
                     web_search_api_key: None,
+                    use_rtk: false,
                 })
             },
         )

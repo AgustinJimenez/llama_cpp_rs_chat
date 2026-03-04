@@ -275,6 +275,7 @@ pub fn migrate_config(db: &Database) -> Result<bool, String> {
         use_mmap: true,
         main_gpu: 0,
         split_mode: "layer".to_string(),
+        use_rtk: false,
         tag_pairs: None,
     };
 

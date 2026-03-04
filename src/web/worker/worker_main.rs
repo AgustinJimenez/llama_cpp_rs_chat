@@ -533,6 +533,7 @@ fn run_generation(params: GenerationParams) {
                         gen_tokens: output.gen_tokens,
                         prompt_eval_ms: output.prompt_eval_ms,
                         prompt_tokens: output.prompt_tokens,
+                        finish_reason: Some(output.finish_reason),
                     },
                 ));
             }

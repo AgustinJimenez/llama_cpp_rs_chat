@@ -610,27 +610,47 @@ pub fn try_parse_all_from_raw(text: &str) -> Vec<(String, Value)> {
     Vec::new()
 }
 
-/// If the text is an `execute_command` tool call, extract and return the command string.
-/// Used by the command executor to route `execute_command` through the streaming path.
-pub fn extract_execute_command(text: &str) -> Option<String> {
-    // First try the standard tool call format: {"name":"execute_command","arguments":{"command":"..."}}
+/// Extract a boolean from a JSON value that may be a real bool or a string like "True"/"true"/"false".
+/// Models using XML-based tool formats (Llama3 XML, GLM) emit parameter values as strings,
+/// so "True" needs to be recognized as `true`.
+fn value_as_bool_flexible(v: &Value) -> Option<bool> {
+    if let Some(b) = v.as_bool() {
+        return Some(b);
+    }
+    if let Some(s) = v.as_str() {
+        match s.trim().to_lowercase().as_str() {
+            "true" | "1" | "yes" => return Some(true),
+            "false" | "0" | "no" => return Some(false),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// If the text is an `execute_command` tool call, extract the command string and background flag.
+/// Returns `(command, is_background)`.
+/// Used by the command executor to route `execute_command` through streaming or background path.
+pub fn extract_execute_command_with_opts(text: &str) -> Option<(String, bool)> {
+    // First try the standard tool call format: {"name":"execute_command","arguments":{"command":"...","background":true}}
     if let Some((name, args)) = try_parse_tool_call(text) {
         if name == "execute_command" {
             let command = args.get("command").and_then(|v| v.as_str())?;
             if !command.is_empty() {
-                return Some(command.to_string());
+                let background = args.get("background").and_then(value_as_bool_flexible).unwrap_or(false);
+                return Some((command.to_string(), background));
             }
         }
         return None;
     }
 
     // Fallback: some models (GLM) put bare arguments without the name/arguments wrapper,
-    // e.g. {"command": "..."} inside SYSTEM.EXEC tags
+    // e.g. {"command": "...", "background": true} inside SYSTEM.EXEC tags
     let trimmed = text.trim();
     if let Some(parsed) = try_parse_with_fixups(trimmed) {
         if let Some(command) = parsed.get("command").and_then(|v| v.as_str()) {
             if !command.is_empty() {
-                return Some(command.to_string());
+                let background = parsed.get("background").and_then(value_as_bool_flexible).unwrap_or(false);
+                return Some((command.to_string(), background));
             }
         }
     }
@@ -649,7 +669,7 @@ pub fn extract_execute_command(text: &str) -> Option<String> {
 /// Returns `Some(output)` if recognized, `None` to fall back to shell.
 ///
 /// Note: `execute_command` is handled here as a blocking fallback. The command executor
-/// should prefer `extract_execute_command()` + `execute_command_streaming()` for streaming.
+/// should prefer `extract_execute_command_with_opts()` + streaming/background path.
 pub fn dispatch_native_tool(
     text: &str,
     web_search_provider: Option<&str>,
@@ -679,6 +699,11 @@ pub fn dispatch_native_tool(
     Some(match name.as_str() {
         "read_file" => tool_read_file(&args),
         "write_file" => tool_write_file(&args),
+        "edit_file" => tool_edit_file(&args),
+        "undo_edit" => tool_undo_edit(&args),
+        "insert_text" => tool_insert_text(&args),
+        "search_files" => tool_search_files(&args),
+        "find_files" => tool_find_files(&args),
         "execute_python" => tool_execute_python(&args),
         "list_directory" => tool_list_directory(&args),
         "web_search" => tool_web_search(&args, web_search_provider, web_search_api_key),
@@ -691,6 +716,19 @@ pub fn dispatch_native_tool(
             }
             super::command::execute_command(command)
         }
+        "check_background_process" => {
+            // PID may be a JSON number or a string (Llama3 XML format returns strings)
+            let pid = args.get("pid").and_then(|v| {
+                v.as_u64().or_else(|| v.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
+            }).unwrap_or(0) as u32;
+            if pid == 0 {
+                return Some("Error: 'pid' argument is required and must be a positive integer".to_string());
+            }
+            super::command::check_background_process(pid)
+        }
+        "git_status" => tool_git_status(&args),
+        "git_diff" => tool_git_diff(&args),
+        "git_commit" => tool_git_commit(&args),
         _ => return None, // Unknown tool → fall back to shell
     })
 }
@@ -706,10 +744,12 @@ fn tool_read_file(args: &Value) -> String {
         Ok(content) => {
             let total_bytes = content.len();
             if total_bytes > MAX_READ_SIZE {
+                let mut end = MAX_READ_SIZE;
+                while end > 0 && !content.is_char_boundary(end) { end -= 1; }
                 format!(
                     "{}\n\n[Truncated: showing first {} of {} bytes]",
-                    &content[..MAX_READ_SIZE],
-                    MAX_READ_SIZE,
+                    &content[..end],
+                    end,
                     total_bytes
                 )
             } else {
@@ -744,6 +784,309 @@ fn tool_write_file(args: &Value) -> String {
         Ok(()) => format!("Written {} bytes to {}", content.len(), path),
         Err(e) => format!("Error writing '{path}': {e}"),
     }
+}
+
+/// Edit a file by replacing an exact string match.
+/// `old_string` must appear exactly once in the file (uniqueness check).
+fn tool_edit_file(args: &Value) -> String {
+    let path = match args.get("path").and_then(|v| v.as_str()) {
+        Some(p) => p,
+        None => return "Error: 'path' argument is required".to_string(),
+    };
+    let old_string = match args.get("old_string").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => return "Error: 'old_string' argument is required".to_string(),
+    };
+    let new_string = args.get("new_string").and_then(|v| v.as_str()).unwrap_or("");
+
+    if old_string.is_empty() {
+        return "Error: 'old_string' cannot be empty".to_string();
+    }
+
+    // Read the file
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) => return format!("Error reading '{path}': {e}"),
+    };
+
+    // Count occurrences
+    let match_count = content.matches(old_string).count();
+    if match_count == 0 {
+        return format!("Error: old_string not found in {path}. Make sure the text matches exactly (including whitespace and newlines).");
+    }
+    if match_count > 1 {
+        return format!("Error: old_string found {match_count} times in {path}. Include more surrounding context to make it unique.");
+    }
+
+    // Find the line number of the match for the success message
+    let match_pos = content.find(old_string).unwrap();
+    let line_num = content[..match_pos].lines().count().max(1);
+
+    // Perform the replacement
+    let new_content = content.replacen(old_string, new_string, 1);
+
+    // Save backup for undo_edit
+    let backup_path = format!("{path}.llama_bak");
+    let _ = std::fs::write(&backup_path, &content);
+
+    match std::fs::write(path, &new_content) {
+        Ok(()) => format!("Edited {path}: replaced {} chars with {} chars at line {line_num}", old_string.len(), new_string.len()),
+        Err(e) => format!("Error writing '{path}': {e}"),
+    }
+}
+
+/// Undo the last edit_file operation by restoring the backup.
+fn tool_undo_edit(args: &Value) -> String {
+    let path = match args.get("path").and_then(|v| v.as_str()) {
+        Some(p) => p,
+        None => return "Error: 'path' argument is required".to_string(),
+    };
+
+    let backup_path = format!("{path}.llama_bak");
+    let backup_content = match std::fs::read_to_string(&backup_path) {
+        Ok(c) => c,
+        Err(_) => return format!("Error: no backup found for {path}. Only the most recent edit_file can be undone."),
+    };
+
+    match std::fs::write(path, &backup_content) {
+        Ok(()) => {
+            let _ = std::fs::remove_file(&backup_path);
+            format!("Restored {path} to its state before the last edit")
+        }
+        Err(e) => format!("Error restoring '{path}': {e}"),
+    }
+}
+
+/// Insert text at a specific line number in a file.
+fn tool_insert_text(args: &Value) -> String {
+    let path = match args.get("path").and_then(|v| v.as_str()) {
+        Some(p) => p,
+        None => return "Error: 'path' argument is required".to_string(),
+    };
+    let text = match args.get("text").and_then(|v| v.as_str()) {
+        Some(t) => t,
+        None => return "Error: 'text' argument is required".to_string(),
+    };
+    // Line number may be JSON number or string
+    let line = args.get("line").and_then(|v| {
+        v.as_u64().or_else(|| v.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
+    }).unwrap_or(0) as usize;
+    if line == 0 {
+        return "Error: 'line' argument is required and must be >= 1".to_string();
+    }
+
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) => return format!("Error reading '{path}': {e}"),
+    };
+
+    let mut lines: Vec<&str> = content.lines().collect();
+    let total_lines = lines.len();
+
+    // Clamp insertion point: line 1 = before first line, line N+1 = after last line
+    let insert_idx = (line - 1).min(total_lines);
+
+    // Split the inserted text into lines
+    let new_lines: Vec<&str> = text.lines().collect();
+    let inserted_count = new_lines.len();
+
+    for (i, new_line) in new_lines.into_iter().enumerate() {
+        lines.insert(insert_idx + i, new_line);
+    }
+
+    // Preserve trailing newline if original had one
+    let mut new_content = lines.join("\n");
+    if content.ends_with('\n') {
+        new_content.push('\n');
+    }
+
+    match std::fs::write(path, &new_content) {
+        Ok(()) => format!("Inserted {inserted_count} line(s) at line {line} in {path}"),
+        Err(e) => format!("Error writing '{path}': {e}"),
+    }
+}
+
+const MAX_SEARCH_MATCHES: usize = 50;
+const MAX_SEARCH_OUTPUT_CHARS: usize = 8000;
+
+/// Search file contents by pattern (literal or regex) across a directory.
+fn tool_search_files(args: &Value) -> String {
+    let pattern = match args.get("pattern").and_then(|v| v.as_str()) {
+        Some(p) => p,
+        None => return "Error: 'pattern' argument is required".to_string(),
+    };
+    let search_path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
+    let include = args.get("include").and_then(|v| v.as_str()).unwrap_or("");
+
+    // Try as regex first, fall back to literal
+    let re = match regex::Regex::new(pattern) {
+        Ok(r) => r,
+        Err(_) => match regex::Regex::new(&regex::escape(pattern)) {
+            Ok(r) => r,
+            Err(e) => return format!("Error: invalid pattern: {e}"),
+        },
+    };
+
+    let mut results = Vec::new();
+    let mut total_matches = 0;
+    search_files_recursive(
+        std::path::Path::new(search_path),
+        &re,
+        include,
+        &mut results,
+        &mut total_matches,
+    );
+
+    if results.is_empty() {
+        return format!("No matches found for '{pattern}' in {search_path}");
+    }
+
+    let mut output = format!("Found {total_matches} match(es) for '{pattern}':\n\n");
+    let mut chars = output.len();
+    for line in &results {
+        if chars + line.len() > MAX_SEARCH_OUTPUT_CHARS {
+            output.push_str(&format!("\n... (output truncated, {total_matches} total matches)"));
+            break;
+        }
+        output.push_str(line);
+        output.push('\n');
+        chars += line.len() + 1;
+    }
+    output
+}
+
+fn search_files_recursive(
+    dir: &std::path::Path,
+    re: &regex::Regex,
+    include: &str,
+    results: &mut Vec<String>,
+    total_matches: &mut usize,
+) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+
+        // Skip hidden dirs and common noise
+        if name.starts_with('.') || name == "node_modules" || name == "vendor" || name == "target" {
+            continue;
+        }
+
+        if path.is_dir() {
+            search_files_recursive(&path, re, include, results, total_matches);
+        } else if path.is_file() {
+            // Apply include filter
+            if !include.is_empty() {
+                let matches_filter = include.split(',').any(|pat| {
+                    let pat = pat.trim();
+                    if let Some(ext) = pat.strip_prefix("*.") {
+                        name.ends_with(&format!(".{ext}"))
+                    } else {
+                        name.contains(pat)
+                    }
+                });
+                if !matches_filter { continue; }
+            }
+
+            // Skip binary files (check first 512 bytes)
+            if let Ok(bytes) = std::fs::read(&path) {
+                let check_len = bytes.len().min(512);
+                if bytes[..check_len].contains(&0) { continue; }
+            }
+
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                let display_path = path.to_string_lossy();
+                for (line_num, line) in content.lines().enumerate() {
+                    if *total_matches >= MAX_SEARCH_MATCHES { return; }
+                    if re.is_match(line) {
+                        *total_matches += 1;
+                        results.push(format!("{display_path}:{}: {}", line_num + 1, line.chars().take(200).collect::<String>()));
+                    }
+                }
+            }
+        }
+    }
+}
+
+const MAX_FIND_RESULTS: usize = 100;
+
+/// Find files by glob-like pattern recursively.
+fn tool_find_files(args: &Value) -> String {
+    let pattern = match args.get("pattern").and_then(|v| v.as_str()) {
+        Some(p) => p,
+        None => return "Error: 'pattern' argument is required".to_string(),
+    };
+    let search_path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
+
+    let mut results = Vec::new();
+    find_files_recursive(std::path::Path::new(search_path), pattern, &mut results);
+
+    if results.is_empty() {
+        return format!("No files matching '{pattern}' found in {search_path}");
+    }
+
+    let total = results.len();
+    let mut output = format!("Found {total} file(s) matching '{pattern}':\n");
+    for path in &results {
+        output.push_str(path);
+        output.push('\n');
+    }
+    output
+}
+
+fn find_files_recursive(dir: &std::path::Path, pattern: &str, results: &mut Vec<String>) {
+    if results.len() >= MAX_FIND_RESULTS { return; }
+
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+
+    for entry in entries.flatten() {
+        if results.len() >= MAX_FIND_RESULTS { return; }
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+
+        // Skip hidden dirs and common noise
+        if name.starts_with('.') || name == "node_modules" || name == "vendor" || name == "target" {
+            continue;
+        }
+
+        if path.is_dir() {
+            find_files_recursive(&path, pattern, results);
+        } else if path.is_file() && matches_glob_pattern(&name, pattern) {
+            results.push(path.to_string_lossy().to_string());
+        }
+    }
+}
+
+/// Simple glob pattern matching: supports *.ext, prefix*, *substring*
+fn matches_glob_pattern(name: &str, pattern: &str) -> bool {
+    // Handle **/*.ext → just match *.ext against filename
+    let pat = pattern.rsplit('/').next().unwrap_or(pattern);
+    let pat = pat.rsplit('\\').next().unwrap_or(pat);
+
+    if pat == "*" {
+        return true;
+    }
+    if let Some(ext) = pat.strip_prefix("*.") {
+        return name.ends_with(&format!(".{ext}"));
+    }
+    if pat.starts_with('*') && pat.ends_with('*') {
+        let inner = &pat[1..pat.len()-1];
+        return name.contains(inner);
+    }
+    if let Some(prefix) = pat.strip_suffix('*') {
+        return name.starts_with(prefix);
+    }
+    if let Some(suffix) = pat.strip_prefix('*') {
+        return name.ends_with(suffix);
+    }
+    name == pat
 }
 
 /// Execute Python code by writing to a temp file and running it.
@@ -1042,10 +1385,12 @@ fn tool_web_search_google_chrome(query: &str, max_results: usize) -> String {
             if output.is_empty() {
                 // Fallback: return raw text content (truncated) if parsing failed
                 let truncated = if content.len() > MAX_SEARCH_RESULT_CHARS {
+                    let mut end = MAX_SEARCH_RESULT_CHARS;
+                    while end > 0 && !content.is_char_boundary(end) { end -= 1; }
                     format!(
                         "{}...\n[Truncated: {} of {} chars]",
-                        &content[..MAX_SEARCH_RESULT_CHARS],
-                        MAX_SEARCH_RESULT_CHARS,
+                        &content[..end],
+                        end,
                         content.len()
                     )
                 } else {
@@ -1207,10 +1552,12 @@ fn tool_web_search_ureq(query: &str, max_results: usize) -> String {
     // Fallback: use html2text for raw conversion
     let text = html2text::from_read(body.as_bytes(), 120);
     let truncated = if text.len() > MAX_SEARCH_RESULT_CHARS {
+        let mut end = MAX_SEARCH_RESULT_CHARS;
+        while end > 0 && !text.is_char_boundary(end) { end -= 1; }
         format!(
             "{}...\n[Truncated: first {} of {} chars]",
-            &text[..MAX_SEARCH_RESULT_CHARS],
-            MAX_SEARCH_RESULT_CHARS,
+            &text[..end],
+            end,
             text.len()
         )
     } else {
@@ -1348,6 +1695,99 @@ fn tool_web_fetch_ureq(url: &str, max_chars: usize) -> String {
             .and_then(|v| v.as_str())
             .unwrap_or("Unknown error");
         format!("Error fetching URL: {error}")
+    }
+}
+
+/// Show git status of a repository.
+fn tool_git_status(args: &Value) -> String {
+    let path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
+    let mut cmd = std::process::Command::new("git");
+    cmd.arg("status").arg("--short");
+    cmd.current_dir(path);
+    cmd.stdin(std::process::Stdio::null());
+    match cmd.output() {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if !output.status.success() {
+                return format!("Error (exit {}): {}", output.status.code().unwrap_or(-1), stderr.trim());
+            }
+            if stdout.trim().is_empty() {
+                "Working tree clean (no changes)".to_string()
+            } else {
+                format!("Git status:\n{}", stdout)
+            }
+        }
+        Err(e) => format!("Error running git: {e}"),
+    }
+}
+
+/// Show git diff for files.
+fn tool_git_diff(args: &Value) -> String {
+    let path = args.get("path").and_then(|v| v.as_str());
+    let staged = args.get("staged").and_then(|v| {
+        v.as_bool().or_else(|| v.as_str().map(|s| s.eq_ignore_ascii_case("true")))
+    }).unwrap_or(false);
+
+    let mut cmd = std::process::Command::new("git");
+    cmd.arg("diff");
+    if staged {
+        cmd.arg("--staged");
+    }
+    if let Some(p) = path {
+        // If path looks like a repo dir, use current_dir; otherwise it's a file arg
+        if std::path::Path::new(p).is_dir() {
+            cmd.current_dir(p);
+        } else {
+            cmd.arg("--").arg(p);
+        }
+    }
+    cmd.stdin(std::process::Stdio::null());
+    match cmd.output() {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if !output.status.success() {
+                return format!("Error (exit {}): {}", output.status.code().unwrap_or(-1), stderr.trim());
+            }
+            if stdout.trim().is_empty() {
+                "No differences found".to_string()
+            } else {
+                stdout.to_string()
+            }
+        }
+        Err(e) => format!("Error running git: {e}"),
+    }
+}
+
+/// Commit staged changes with a message.
+fn tool_git_commit(args: &Value) -> String {
+    let message = match args.get("message").and_then(|v| v.as_str()) {
+        Some(m) if !m.is_empty() => m,
+        _ => return "Error: 'message' argument is required".to_string(),
+    };
+    let all = args.get("all").and_then(|v| {
+        v.as_bool().or_else(|| v.as_str().map(|s| s.eq_ignore_ascii_case("true")))
+    }).unwrap_or(false);
+
+    let mut cmd = std::process::Command::new("git");
+    cmd.arg("commit");
+    if all {
+        cmd.arg("-a");
+    }
+    cmd.arg("-m").arg(message);
+    cmd.stdin(std::process::Stdio::null());
+    match cmd.output() {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if !output.status.success() {
+                format!("Error (exit {}): {}\n{}", output.status.code().unwrap_or(-1), stderr.trim(), stdout.trim())
+            } else {
+                stdout.to_string()
+            }
+        }
+        Err(e) => format!("Error running git: {e}"),
     }
 }
 

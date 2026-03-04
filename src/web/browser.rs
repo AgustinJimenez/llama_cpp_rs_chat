@@ -204,7 +204,7 @@ mod tests {
         match &result {
             Ok(content) => {
                 eprintln!("SUCCESS: Got {} chars of content", content.len());
-                eprintln!("First 300 chars:\n{}", &content[..content.len().min(300)]);
+                eprintln!("First 300 chars:\n{}", { let mut e = content.len().min(300); while e > 0 && !content.is_char_boundary(e) { e -= 1; } &content[..e] });
                 assert!(content.contains("Example"), "Expected 'Example' in page content");
             }
             Err(e) => {

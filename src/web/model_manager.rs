@@ -12,7 +12,7 @@ use super::models::VisionState;
 use crate::{log_debug, log_info, log_warn};
 
 // Re-export VRAM functions for backward compatibility (used by other modules)
-pub use super::vram_calculator::{calculate_optimal_gpu_layers, read_gguf_block_count};
+pub use super::vram_calculator::calculate_optimal_gpu_layers;
 
 // Helper function to get model status
 pub fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {

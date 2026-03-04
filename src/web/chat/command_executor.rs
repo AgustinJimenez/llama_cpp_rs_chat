@@ -4,11 +4,20 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-use super::super::command::execute_command_streaming;
+use super::super::command::{execute_command_streaming, execute_command_background, sanitize_command_output, strip_ansi_codes};
 use super::super::models::*;
 use super::super::native_tools;
 use super::tool_tags::ToolTags;
 use crate::{log_info, log_debug};
+
+/// Prefix a command with `rtk` for output compression, if RTK mode is enabled.
+fn maybe_rtk_prefix(cmd: &str, use_rtk: bool) -> String {
+    if use_rtk {
+        format!("rtk {}", cmd)
+    } else {
+        cmd.to_string()
+    }
+}
 
 // Default SYSTEM.EXEC regex (always tried as fallback)
 // (?s) enables DOTALL mode so . matches newlines (multi-line commands)
@@ -241,22 +250,43 @@ fn execute_single_tool(
     token_pos: i32,
     context_size: u32,
     cancel: Option<Arc<AtomicBool>>,
+    use_rtk: bool,
 ) -> String {
-    // execute_command gets streaming treatment
+    // execute_command gets streaming or background treatment
     if name == "execute_command" {
         if let Some(cmd) = args.get("command").and_then(|v| v.as_str()) {
             if !cmd.is_empty() {
-                log_info!(conversation_id, "🐚 Batch: streaming execute_command: {}", cmd);
-                let sender_clone = token_sender.clone();
-                return execute_command_streaming(cmd, cancel, |line| {
-                    if let Some(ref sender) = sender_clone {
-                        let _ = sender.send(TokenData {
-                            token: format!("{line}\n"),
-                            tokens_used: token_pos,
-                            max_tokens: context_size as i32,
-                        });
-                    }
-                });
+                let is_background = args.get("background").map(|v| {
+                    v.as_bool().unwrap_or_else(|| {
+                        v.as_str().map(|s| matches!(s.trim().to_lowercase().as_str(), "true" | "1" | "yes")).unwrap_or(false)
+                    })
+                }).unwrap_or(false);
+                let rtk_cmd = maybe_rtk_prefix(cmd, use_rtk);
+                if is_background {
+                    log_info!(conversation_id, "🐚 Batch: background execute_command: {}", rtk_cmd);
+                    let sender_clone = token_sender.clone();
+                    return execute_command_background(&rtk_cmd, |line| {
+                        if let Some(ref sender) = sender_clone {
+                            let _ = sender.send(TokenData {
+                                token: format!("{}\n", strip_ansi_codes(line)),
+                                tokens_used: token_pos,
+                                max_tokens: context_size as i32,
+                            });
+                        }
+                    });
+                } else {
+                    log_info!(conversation_id, "🐚 Batch: streaming execute_command: {}", rtk_cmd);
+                    let sender_clone = token_sender.clone();
+                    return execute_command_streaming(&rtk_cmd, cancel, |line| {
+                        if let Some(ref sender) = sender_clone {
+                            let _ = sender.send(TokenData {
+                                token: format!("{}\n", strip_ansi_codes(line)),
+                                tokens_used: token_pos,
+                                max_tokens: context_size as i32,
+                            });
+                        }
+                    });
+                }
             }
         }
     }
@@ -306,10 +336,16 @@ pub fn check_and_execute_command_with_tags(
     token_pos: i32,
     context_size: u32,
     cancel: Option<Arc<AtomicBool>>,
+    use_rtk: bool,
 ) -> Result<Option<CommandExecutionResult>, String> {
     // Only scan new content since last command execution
     let response_to_scan = if last_scan_pos < response.len() {
-        &response[last_scan_pos..]
+        // Adjust to char boundary to avoid panicking on multi-byte UTF-8
+        let mut pos = last_scan_pos;
+        while pos < response.len() && !response.is_char_boundary(pos) {
+            pos += 1;
+        }
+        &response[pos..]
     } else {
         return Ok(None);
     };
@@ -338,14 +374,21 @@ pub fn check_and_execute_command_with_tags(
         match found {
             Some((_name, cmd)) => cmd,
             None => {
-                // Log periodically when we have tag characters but no format matches
-                // (helps debug cases where model uses unexpected tool call format)
-                if response_to_scan.contains("tool_call") || response_to_scan.contains("SYSTEM.EXEC") {
+                // Log when we have tag characters but no format matches — throttled to
+                // avoid flooding logs (previously caused 12K+ lines during repetition loops).
+                let slen = response_to_scan.len();
+                if (slen <= 300 || slen % 500 == 0)
+                    && (response_to_scan.contains("tool_call") || response_to_scan.contains("SYSTEM.EXEC"))
+                {
                     log_debug!(
                         conversation_id,
                         "tool_detect: no format matched but tool-related text found. scan_len={}, tail={:?}",
-                        response_to_scan.len(),
-                        &response_to_scan[response_to_scan.len().saturating_sub(200)..]
+                        slen,
+                        {
+                            let mut tail = slen.saturating_sub(200);
+                            while tail > 0 && !response_to_scan.is_char_boundary(tail) { tail += 1; }
+                            &response_to_scan[tail..]
+                        }
                     );
                 }
                 return Ok(None);
@@ -356,9 +399,12 @@ pub fn check_and_execute_command_with_tags(
     log_info!(conversation_id, "🔧 Command detected: {}", command_text);
 
     // Loop detection: check if this command was recently executed
+    // Exempt check_background_process and list_background_processes — polling is their purpose
     let normalized_cmd = command_text.trim().to_string();
+    let is_polling_tool = normalized_cmd.contains("check_background_process")
+        || normalized_cmd.contains("list_background_processes");
     let repeat_count = recent_commands.iter().filter(|c| *c == &normalized_cmd).count();
-    if repeat_count >= MAX_COMMAND_REPEATS {
+    if !is_polling_tool && repeat_count >= MAX_COMMAND_REPEATS {
         log_info!(
             conversation_id,
             "🔁 Loop detected! Command repeated {} times: {}",
@@ -409,10 +455,90 @@ pub fn check_and_execute_command_with_tags(
     }
 
     let output = if is_batch {
-        // === Batch execution path: multiple tool calls in one block ===
+        // === Batch execution path: parallel for native tools, sequential for execute_command ===
         let mut combined_output = String::new();
 
-        for (i, (name, args)) in all_calls.iter().enumerate() {
+        // Partition tool calls into parallel (native) and sequential (execute_command)
+        let mut parallel_indices: Vec<usize> = Vec::new();
+        let mut sequential_indices: Vec<usize> = Vec::new();
+        for (i, (name, _args)) in all_calls.iter().enumerate() {
+            if name == "execute_command" {
+                sequential_indices.push(i);
+            } else {
+                parallel_indices.push(i);
+            }
+        }
+
+        // Pre-allocate result slots
+        let mut results: Vec<Option<String>> = vec![None; all_calls.len()];
+
+        // Execute parallel (native) tools concurrently via thread::scope
+        if !parallel_indices.is_empty() {
+            log_info!(
+                conversation_id,
+                "⚡ Executing {} native tools in parallel",
+                parallel_indices.len()
+            );
+
+            // Prepare owned data for threads
+            let thread_data: Vec<(usize, String, Option<String>, Option<String>, String)> = parallel_indices
+                .iter()
+                .map(|&i| {
+                    let (name, args) = &all_calls[i];
+                    let single_json = serde_json::json!({"name": name, "arguments": args}).to_string();
+                    let provider = web_search_provider.map(|s| s.to_string());
+                    let api_key = web_search_api_key.map(|s| s.to_string());
+                    let conv_id = conversation_id.to_string();
+                    (i, single_json, provider, api_key, conv_id)
+                })
+                .collect();
+
+            std::thread::scope(|s| {
+                let handles: Vec<_> = thread_data
+                    .iter()
+                    .map(|(idx, json, provider, api_key, conv_id)| {
+                        let idx = *idx;
+                        let tool_name = all_calls[idx].0.clone();
+                        s.spawn(move || {
+                            let result = run_native_tool_with_timeout(
+                                json,
+                                provider.as_deref(),
+                                api_key.as_deref(),
+                                conv_id,
+                            );
+                            (idx, result.unwrap_or_else(|| format!("Error: Tool '{}' returned no output", tool_name)))
+                        })
+                    })
+                    .collect();
+
+                for handle in handles {
+                    if let Ok((idx, output)) = handle.join() {
+                        results[idx] = Some(output);
+                    }
+                }
+            });
+        }
+
+        // Execute sequential tools (execute_command) in order
+        for &i in &sequential_indices {
+            let (name, args) = &all_calls[i];
+            let single_json = serde_json::json!({"name": name, "arguments": args}).to_string();
+            let tool_output = execute_single_tool(
+                name, args, &single_json,
+                conversation_id,
+                web_search_provider,
+                web_search_api_key,
+                token_sender,
+                token_pos,
+                context_size,
+                cancel.clone(),
+                use_rtk,
+            );
+            results[i] = Some(tool_output);
+        }
+
+        // Merge results in original order, streaming to frontend
+        for (i, (name, _args)) in all_calls.iter().enumerate() {
             let header = format!("[Tool {}: {}]\n", i + 1, name);
             if let Some(ref sender) = token_sender {
                 let _ = sender.send(TokenData {
@@ -423,20 +549,7 @@ pub fn check_and_execute_command_with_tags(
             }
             combined_output.push_str(&header);
 
-            // Re-serialize this single call for dispatch
-            let single_json = serde_json::json!({"name": name, "arguments": args}).to_string();
-
-            let tool_output = execute_single_tool(
-                &name, &args, &single_json,
-                conversation_id,
-                web_search_provider,
-                web_search_api_key,
-                token_sender,
-                token_pos,
-                context_size,
-                cancel.clone(),
-            );
-
+            let tool_output = results[i].take().unwrap_or_default();
             log_info!(
                 conversation_id,
                 "📤 Tool {} ({}) output: {} chars",
@@ -445,6 +558,13 @@ pub fn check_and_execute_command_with_tags(
                 tool_output.len()
             );
 
+            if let Some(ref sender) = token_sender {
+                let _ = sender.send(TokenData {
+                    token: tool_output.trim().to_string(),
+                    tokens_used: token_pos,
+                    max_tokens: context_size as i32,
+                });
+            }
             combined_output.push_str(tool_output.trim());
             if i < all_calls.len() - 1 {
                 combined_output.push_str("\n\n");
@@ -461,20 +581,35 @@ pub fn check_and_execute_command_with_tags(
         combined_output
     } else {
         // === Single execution path (existing logic) ===
-        // Check if this is an `execute_command` tool call — route through streaming path
+        // Check if this is an `execute_command` tool call — route through streaming or background path
         // so the UI shows line-by-line output for long-running commands (composer, npm, etc.)
-        if let Some(cmd) = native_tools::extract_execute_command(&command_text) {
-            log_info!(conversation_id, "🐚 Streaming execute_command: {}", cmd);
-            let sender_clone = token_sender.clone();
-            execute_command_streaming(&cmd, cancel.clone(), |line| {
-                if let Some(ref sender) = sender_clone {
-                    let _ = sender.send(TokenData {
-                        token: format!("{line}\n"),
-                        tokens_used: token_pos,
-                        max_tokens: context_size as i32,
-                    });
-                }
-            })
+        if let Some((cmd, is_background)) = native_tools::extract_execute_command_with_opts(&command_text) {
+            let rtk_cmd = maybe_rtk_prefix(&cmd, use_rtk);
+            if is_background {
+                log_info!(conversation_id, "🐚 Background execute_command: {}", rtk_cmd);
+                let sender_clone = token_sender.clone();
+                execute_command_background(&rtk_cmd, |line| {
+                    if let Some(ref sender) = sender_clone {
+                        let _ = sender.send(TokenData {
+                            token: format!("{}\n", strip_ansi_codes(line)),
+                            tokens_used: token_pos,
+                            max_tokens: context_size as i32,
+                        });
+                    }
+                })
+            } else {
+                log_info!(conversation_id, "🐚 Streaming execute_command: {}", rtk_cmd);
+                let sender_clone = token_sender.clone();
+                execute_command_streaming(&rtk_cmd, cancel.clone(), |line| {
+                    if let Some(ref sender) = sender_clone {
+                        let _ = sender.send(TokenData {
+                            token: format!("{}\n", strip_ansi_codes(line)),
+                            tokens_used: token_pos,
+                            max_tokens: context_size as i32,
+                        });
+                    }
+                })
+            }
         } else if let Some(native_output) = run_native_tool_with_timeout(
             &command_text,
             web_search_provider,
@@ -508,11 +643,12 @@ pub fn check_and_execute_command_with_tags(
             } else {
                 log_info!(conversation_id, "🐚 Falling back to streaming shell execution");
                 // Use streaming execution — each line is sent to frontend as it arrives
+                let rtk_cmd = maybe_rtk_prefix(&command_text, use_rtk);
                 let sender_clone = token_sender.clone();
-                execute_command_streaming(&command_text, cancel.clone(), |line| {
+                execute_command_streaming(&rtk_cmd, cancel.clone(), |line| {
                     if let Some(ref sender) = sender_clone {
                         let _ = sender.send(TokenData {
-                            token: format!("{line}\n"),
+                            token: format!("{}\n", strip_ansi_codes(line)),
                             tokens_used: token_pos,
                             max_tokens: context_size as i32,
                         });
@@ -535,6 +671,11 @@ pub fn check_and_execute_command_with_tags(
             max_tokens: context_size as i32,
         });
     }
+
+    // Sanitize output for model context: strip ANSI codes + truncate long output.
+    // The raw output was already streamed to the frontend above; this only affects
+    // what the model sees in its context window.
+    let output = sanitize_command_output(&output);
 
     // Format the full output block for model injection and logging
     let output_block = format!("{}{}{}", output_open, output.trim(), output_close);

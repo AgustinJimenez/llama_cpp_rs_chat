@@ -1,10 +1,15 @@
 import React, { useState, useCallback, KeyboardEvent, useEffect, useRef } from 'react';
-import { ArrowUp, X, Image as ImageIcon } from 'lucide-react';
+import { ArrowUp, Square, X, Image as ImageIcon } from 'lucide-react';
 import { useChatContext } from '../../contexts/ChatContext';
 import { useModelContext } from '../../contexts/ModelContext';
+import { MessageStatistics } from './messages/MessageStatistics';
+import type { TimingInfo } from '../../utils/chatTransport';
 
 interface MessageInputProps {
   disabledReason?: string;
+  timings?: TimingInfo;
+  tokensUsed?: number;
+  maxTokens?: number;
 }
 
 function ImagePreviews({ images, onRemove }: { images: string[]; onRemove: (i: number) => void }) {
@@ -34,10 +39,15 @@ function ImagePreviews({ images, onRemove }: { images: string[]; onRemove: (i: n
 
 export const MessageInput: React.FC<MessageInputProps> = ({
   disabledReason,
+  timings,
+  tokensUsed,
+  maxTokens,
 }) => {
-  const { sendMessage: onSendMessage, isLoading: disabled } = useChatContext();
+  const { sendMessage: onSendMessage, isLoading, stopGeneration } = useChatContext();
   const { status } = useModelContext();
   const hasVision = status.has_vision ?? false;
+
+  const disabled = isLoading;
   const [message, setMessage] = useState('');
   const [attachedImages, setAttachedImages] = useState<string[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -122,6 +132,27 @@ export const MessageInput: React.FC<MessageInputProps> = ({
 
   return (
     <form onSubmit={handleSubmit} data-testid="message-form">
+      {(timings?.genTokPerSec || disabled) ? (
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex-1">
+            {timings?.genTokPerSec ? (
+              <MessageStatistics timings={timings} tokensUsed={tokensUsed} maxTokens={maxTokens} />
+            ) : null}
+          </div>
+          {disabled ? (
+            <button
+              type="button"
+              onClick={stopGeneration ?? undefined}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-muted hover:bg-accent text-foreground transition-colors"
+              data-testid="stop-button"
+              title="Stop generation"
+            >
+              <Square className="h-3 w-3 fill-current" />
+              Stop
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       <ImagePreviews images={attachedImages} onRemove={removeImage} />
       <div className={`flat-input-container flex items-end gap-2 px-5 py-2.5 ${isMultiline ? '!rounded-2xl' : ''}`}>
         {hasVision && attachedImages.length === 0 ? (
@@ -148,7 +179,6 @@ export const MessageInput: React.FC<MessageInputProps> = ({
           disabled={disabled || !hasContent}
           className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-white text-black hover:bg-gray-200 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           data-testid="send-button"
-          title={disabled && disabledReason ? disabledReason : undefined}
         >
           <ArrowUp className="h-4 w-4" />
         </button>

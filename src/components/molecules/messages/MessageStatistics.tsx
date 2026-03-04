@@ -22,7 +22,7 @@ export function MessageStatistics({ timings, tokensUsed, maxTokens }: MessageSta
   if (!genTokPerSec) return null;
 
   return (
-    <div className="flex items-center gap-3 mb-1 text-xs text-white font-mono">
+    <div className="flex items-center gap-3 text-xs text-white font-mono">
       {genTokens ? (
         <span className="inline-flex items-center gap-1" title="Tokens generated">
           <Hash className="h-3 w-3" />
@@ -43,6 +43,11 @@ export function MessageStatistics({ timings, tokensUsed, maxTokens }: MessageSta
         <span className="inline-flex items-center gap-1" title="Context usage">
           <Database className="h-3 w-3" />
           {formatNumber(tokensUsed)}/{formatNumber(maxTokens)}
+        </span>
+      ) : null}
+      {timings.finishReason === 'length' ? (
+        <span className="inline-flex items-center gap-1 text-yellow-400" title="Generation was cut off by max_tokens limit">
+          truncated
         </span>
       ) : null}
     </div>

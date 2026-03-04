@@ -24,14 +24,123 @@ export function extractBalancedJson(text: string, start: number): { end: number;
   return null;
 }
 
-/** Check if there's an unclosed <tool_response> after a given position. */
-export function findStreamingResponse(content: string, afterPos: number): { output: string; end: number } | null {
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function parsePythonValue(raw: string): unknown {
+  const value = raw.trim();
+  if (!value) return '';
+  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+    const unquoted = value.slice(1, -1);
+    return unquoted.replace(/\\(['"\\nrt])/g, (_, ch) => {
+      if (ch === 'n') return '\n';
+      if (ch === 'r') return '\r';
+      if (ch === 't') return '\t';
+      return ch;
+    });
+  }
+  if (value === 'true' || value === 'True') return true;
+  if (value === 'false' || value === 'False') return false;
+  if (value === 'null' || value === 'None') return null;
+  if (/^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(value)) return Number(value);
+  if ((value.startsWith('{') && value.endsWith('}')) || (value.startsWith('[') && value.endsWith(']'))) {
+    try {
+      return JSON.parse(value);
+    } catch {
+      try {
+        const replaced = value.includes('"') ? value : value.replace(/'/g, '"');
+        return JSON.parse(replaced);
+      } catch {
+        return value;
+      }
+    }
+  }
+  return value;
+}
+
+function splitPythonArgs(argList: string): string[] {
+  const parts: string[] = [];
+  let current = '';
+  let depth = 0;
+  let quote: '"' | "'" | null = null;
+  let prevBackslash = false;
+
+  for (let i = 0; i < argList.length; i++) {
+    const ch = argList[i];
+    if (quote) {
+      current += ch;
+      if (ch === quote && !prevBackslash) quote = null;
+      prevBackslash = ch === '\\' && !prevBackslash;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      current += ch;
+      prevBackslash = false;
+      continue;
+    }
+
+    if (ch === '(' || ch === '[' || ch === '{') depth++;
+    if (ch === ')' || ch === ']' || ch === '}') depth = Math.max(0, depth - 1);
+
+    if (ch === ',' && depth === 0) {
+      if (current.trim()) parts.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+
+  if (current.trim()) parts.push(current.trim());
+  return parts;
+}
+
+export function parsePythonFunctionCall(body: string): { name: string; args: Record<string, unknown> } | null {
+  let trimmed = body.trim();
+  if (trimmed.startsWith('[') && trimmed.endsWith(']')) trimmed = trimmed.slice(1, -1).trim();
+
+  const callMatch = trimmed.match(/^([a-zA-Z_]\w*)\s*\(([\s\S]*)\)\s*$/);
+  if (!callMatch) return null;
+
+  const name = callMatch[1].trim();
+  const argsRaw = callMatch[2].trim();
+  if (!name) return null;
+
+  const args: Record<string, unknown> = {};
+  if (!argsRaw) return { name, args };
+
+  for (const part of splitPythonArgs(argsRaw)) {
+    const eqIdx = part.indexOf('=');
+    if (eqIdx === -1) continue;
+    const key = part.slice(0, eqIdx).trim();
+    const value = part.slice(eqIdx + 1);
+    if (!key) continue;
+    args[key] = parsePythonValue(value);
+  }
+
+  return { name, args };
+}
+
+/** Check if there's an unclosed tool response tag after a given position. */
+export function findStreamingResponse(
+  content: string,
+  afterPos: number,
+  toolTags?: ToolTags,
+): { output: string; end: number } | null {
   const afterTc = content.slice(afterPos);
-  const partialTrMatch = afterTc.match(/^[\s\S]*?<tool_response>([\s\S]*)$/);
+  const openTag = toolTags?.output_open || '<tool_response>';
+  const closeTag = toolTags?.output_close || '</tool_response>';
+  const openRe = new RegExp(`^[\\s\\S]*?${escapeRegExp(openTag)}([\\s\\S]*)$`);
+
+  const partialTrMatch = afterTc.match(openRe);
   if (!partialTrMatch) return null;
-  const lastCompleteTrEnd = content.lastIndexOf('</tool_response>');
-  const partialTrStart = content.lastIndexOf('<tool_response>');
+
+  const lastCompleteTrEnd = content.lastIndexOf(closeTag);
+  const partialTrStart = content.lastIndexOf(openTag);
   if (partialTrStart <= lastCompleteTrEnd) return null;
+
   return { output: partialTrMatch[1] || '', end: content.length };
 }
 

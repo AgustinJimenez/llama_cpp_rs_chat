@@ -154,6 +154,8 @@ pub struct SamplerConfig {
     #[serde(default = "default_split_mode")]
     pub split_mode: String,
     #[serde(default)]
+    pub use_rtk: bool,
+    #[serde(default)]
     pub tag_pairs: Option<Vec<crate::web::chat::tool_tags::TagPair>>,
 }
 
@@ -277,6 +279,7 @@ impl Default for SamplerConfig {
             use_mmap: true,
             main_gpu: 0,
             split_mode: "layer".to_string(),
+            use_rtk: false,
             tag_pairs: None,
         }
     }

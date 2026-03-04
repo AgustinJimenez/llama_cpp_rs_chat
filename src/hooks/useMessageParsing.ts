@@ -28,6 +28,7 @@ const EXEC_CLEANUP = /(?:<\|\|)?SYSTEM\.EXEC>[\s\S]*?<(?:\|\|)?SYSTEM\.EXEC\|\|>
 const SYS_OUTPUT_CLEANUP = /(?:<\|\|)?SYSTEM\.OUTPUT>[\s\S]*?<(?:\|\|)?SYSTEM\.OUTPUT\|\|>/g;
 const MISTRAL_CALL_CLEANUP = /(?:\[TOOL_CALLS\][\s\S]*?\[\/TOOL_CALLS\]|\[TOOL_CALLS\]\w+\[ARGS\]\{[\s\S]*?\}|\[TOOL_CALLS\]\s*\{[^}]*"name"[^}]*"arguments"[\s\S]*?\}\s*\})/g;
 const MISTRAL_RESULT_CLEANUP = /\[TOOL_RESULTS\][\s\S]*?\[\/TOOL_RESULTS\]/g;
+const LFM2_RESULT_CLEANUP = /<\|tool_response_start\|>[\s\S]*?<\|tool_response_end\|>/g;
 // GLM vision/media tags — strip hallucinated image/video/box markers from display
 const GLM_VISION_CLEANUP = /<\|(?:begin_of_image|image|end_of_image|begin_of_video|video|end_of_video|begin_of_box|end_of_box)\|>/g;
 
@@ -53,7 +54,9 @@ export function useMessageParsing(message: Message, toolTags?: ToolTags): Parsed
     if (toolCalls.length > 0) {
       content = stripToolCalls(content);
     } else {
-      content = content.replace(/<tool_response>[\s\S]*?<\/tool_response>/g, '');
+      content = content
+        .replace(/<tool_response>[\s\S]*?<\/tool_response>/g, '')
+        .replace(LFM2_RESULT_CLEANUP, '');
     }
     return content;
   }, [effectiveContent, toolCalls.length, toolTags]);
@@ -86,6 +89,7 @@ export function useMessageParsing(message: Message, toolTags?: ToolTags): Parsed
       .replace(EXEC_CLEANUP, '')
       .replace(SYS_OUTPUT_CLEANUP, '')
       .replace(/<tool_response>[\s\S]*?<\/tool_response>/g, '')
+      .replace(LFM2_RESULT_CLEANUP, '')
       .replace(MISTRAL_CALL_CLEANUP, '')
       .replace(MISTRAL_RESULT_CLEANUP, '')
       .replace(GLM_VISION_CLEANUP, '')

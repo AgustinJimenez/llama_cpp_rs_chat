@@ -1,5 +1,5 @@
 import type { ToolCall, ToolFormat } from '../types';
-import { extractBalancedJson } from './toolFormatUtils';
+import { extractBalancedJson, parsePythonFunctionCall } from './toolFormatUtils';
 
 /**
  * Tool parser interface for different model formats
@@ -198,6 +198,36 @@ const qwenParser: ToolParser = {
 };
 
 /**
+ * LFM2 tool parser
+ * Format: <|tool_call_start|>[func_name(key="value")]<|tool_call_end|>
+ */
+const lfm2Parser: ToolParser = {
+  detect(text: string): boolean {
+    return text.includes('<|tool_call_start|>');
+  },
+
+  parse(text: string): ToolCall[] {
+    const toolCalls: ToolCall[] = [];
+    const regex = /<\|tool_call_start\|>([\s\S]*?)<\|tool_call_end\|>/g;
+    let match;
+
+    while ((match = regex.exec(text)) !== null) {
+      const body = match[1].trim();
+      const parsed = parsePythonFunctionCall(body);
+      if (parsed) {
+        toolCalls.push({
+          id: crypto.randomUUID(),
+          name: parsed.name,
+          arguments: parsed.args,
+        });
+      }
+    }
+
+    return toolCalls;
+  },
+};
+
+/**
  * Parser registry mapping tool formats to parsers
  */
 const parserRegistry: Record<ToolFormat, ToolParser | null> = {
@@ -230,7 +260,7 @@ export function parseToolCalls(text: string, format: ToolFormat): ToolCall[] {
  * Tries all parsers until one matches
  */
 export function autoParseToolCalls(text: string): ToolCall[] {
-  const parsers = [mistralParser, llama3Parser, qwenParser];
+  const parsers = [lfm2Parser, mistralParser, llama3Parser, qwenParser];
 
   for (const parser of parsers) {
     if (parser.detect(text)) {
@@ -252,5 +282,7 @@ export function stripToolCalls(text: string): string {
     .replace(/<function=[^>]+>[\s\S]*?<\/function>/g, '') // Llama3
     .replace(/<tool_call>[\s\S]*?(?:<\/tool_call>|<\|end_of_box\|>)/g, '') // Qwen/GLM tool calls
     .replace(/<tool_response>[\s\S]*?<\/tool_response>/g, '') // Qwen/GLM tool responses
+    .replace(/<\|tool_call_start\|>[\s\S]*?<\|tool_call_end\|>/g, '') // LFM2 tool calls
+    .replace(/<\|tool_response_start\|>[\s\S]*?<\|tool_response_end\|>/g, '') // LFM2 tool responses
     .trim();
 }

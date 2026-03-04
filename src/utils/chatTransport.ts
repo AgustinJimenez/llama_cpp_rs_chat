@@ -8,6 +8,7 @@ export interface TimingInfo {
   genTokens?: number;
   promptEvalMs?: number;
   promptTokens?: number;
+  finishReason?: string;
 }
 
 export interface StreamingCallbacks {
@@ -31,7 +32,7 @@ const buildWsUrl = (path: string): string => {
 };
 
 const WS_CONNECT_TIMEOUT_MS = 10000;
-const WS_GENERATION_TIMEOUT_MS = 30000; // No tokens received for 30s → error
+const WS_GENERATION_TIMEOUT_MS = 300000; // No tokens/heartbeat received for 5min → error
 
 type StreamState = {
   isCompleted: boolean;
@@ -72,6 +73,7 @@ function handleStreamMessage(
         genTokens: message.gen_tokens,
         promptEvalMs: message.prompt_eval_ms,
         promptTokens: message.prompt_tokens,
+        finishReason: message.finish_reason,
       };
       callbacks.onComplete(crypto.randomUUID(), conversationId, state.lastTokensUsed, state.lastMaxTokens, timings);
       settle();
@@ -284,7 +286,7 @@ class TauriChatTransport implements ChatTransport {
       safeOnToken(event.payload.token, event.payload.tokens_used, event.payload.max_tokens);
     });
 
-    const unlistenDone = await listen<{ type: string; conversation_id?: string; tokens_used?: number; max_tokens?: number; error?: string; prompt_tok_per_sec?: number; gen_tok_per_sec?: number; gen_eval_ms?: number; gen_tokens?: number; prompt_eval_ms?: number; prompt_tokens?: number }>('chat-done', (event) => {
+    const unlistenDone = await listen<{ type: string; conversation_id?: string; tokens_used?: number; max_tokens?: number; error?: string; prompt_tok_per_sec?: number; gen_tok_per_sec?: number; gen_eval_ms?: number; gen_tokens?: number; prompt_eval_ms?: number; prompt_tokens?: number; finish_reason?: string }>('chat-done', (event) => {
       if (settled || wasAborted) return;
       const payload = event.payload;
 
@@ -297,6 +299,7 @@ class TauriChatTransport implements ChatTransport {
           genTokens: payload.gen_tokens,
           promptEvalMs: payload.prompt_eval_ms,
           promptTokens: payload.prompt_tokens,
+          finishReason: payload.finish_reason,
         };
         safeOnComplete(crypto.randomUUID(), conversationId, payload.tokens_used, payload.max_tokens, timings);
         settle();

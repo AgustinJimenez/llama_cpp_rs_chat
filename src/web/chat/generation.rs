@@ -24,7 +24,7 @@ use super::stop_conditions::{check_stop_conditions, ExecBlockTracker};
 use super::templates::apply_system_prompt_by_type_with_tags;
 use super::tool_tags::{default_tags, derive_tool_tags_from_pairs, get_tool_tags_for_model, try_get_tool_tags_for_model, ToolTags};
 use super::sampler::create_sampler;
-use crate::{log_debug, log_info, log_warn, sys_debug, sys_error, sys_warn};
+use crate::{log_debug, log_info, log_warn, sys_debug};
 
 // Constants for LLaMA configuration
 const CONTEXT_SIZE: u32 = 32768;
@@ -230,6 +230,8 @@ pub struct GenerationOutput {
     pub response: String,
     pub tokens_used: i32,
     pub max_tokens: i32,
+    /// Why generation stopped: "stop" (EOS), "length" (max_tokens), "cancelled", "tool_calls", "error".
+    pub finish_reason: String,
     /// Prompt evaluation speed in tokens/second.
     pub prompt_tok_per_sec: Option<f64>,
     /// Generation speed in tokens/second.
@@ -255,6 +257,8 @@ struct TokenGenState {
     exec_tracker: ExecBlockTracker,
     recent_commands: Vec<String>,
     last_exec_scan_pos: usize,
+    /// Why generation stopped: "stop", "length", "cancelled", "tool_calls", "error".
+    finish_reason: String,
 }
 
 /// Read-only configuration for the token generation loop.
@@ -267,6 +271,7 @@ struct TokenGenConfig<'a> {
     max_total_tokens: i32,
     web_search_provider: Option<&'a str>,
     web_search_api_key: Option<&'a str>,
+    use_rtk: bool,
 }
 
 /// Stall detection: if a single token takes longer than this, abort generation.
@@ -274,7 +279,45 @@ const TOKEN_STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(
 
 /// Maximum number of tool call rounds before forcing generation to stop.
 /// Prevents infinite loops when models keep generating tool calls.
-const MAX_TOOL_CALL_ROUNDS: usize = 15;
+const MAX_TOOL_CALL_ROUNDS: usize = 50;
+
+/// Minimum tokens generated before repetition detection kicks in.
+const REPETITION_CHECK_MIN_TOKENS: i32 = 500;
+
+/// Check every N tokens for repetition loops.
+const REPETITION_CHECK_INTERVAL: i32 = 256;
+
+/// Detect repetition loops by measuring trigram diversity in the tail of the response.
+///
+/// When a model enters a degenerate loop (e.g., "1a1b1c1d..." repeating), the
+/// character-level diversity drops dramatically. We measure the ratio of unique
+/// 3-character sequences (trigrams) to total trigrams in the last 500 chars.
+/// Normal text/code has >30% unique trigrams; repetitive garbage has <15%.
+fn detect_repetition_loop(text: &str) -> bool {
+    const TAIL_LEN: usize = 2000;
+    const THRESHOLD: f64 = 0.10; // 10% unique trigrams = definitely repeating
+
+    if text.len() < TAIL_LEN {
+        return false;
+    }
+
+    // Work on the tail bytes directly — avoids panicking on multi-byte UTF-8 boundaries
+    let bytes = text.as_bytes();
+    let start = bytes.len() - TAIL_LEN;
+    let tail = &bytes[start..];
+    let total_trigrams = tail.len().saturating_sub(2);
+    if total_trigrams == 0 {
+        return false;
+    }
+
+    let mut seen = std::collections::HashSet::with_capacity(128);
+    for i in 0..total_trigrams {
+        seen.insert([tail[i], tail[i + 1], tail[i + 2]]);
+    }
+
+    let ratio = seen.len() as f64 / total_trigrams as f64;
+    ratio < THRESHOLD
+}
 
 /// Run the outer generation loop: generates tokens, detects/executes commands, resumes.
 ///
@@ -319,6 +362,7 @@ fn run_generation_loop(
         for i in 0..tokens_to_generate {
             if i % 4 == 0 && cancel.load(Ordering::Relaxed) {
                 log_info!(cfg.conversation_id, "Generation cancelled by user");
+                gen.finish_reason = "cancelled".to_string();
                 hit_stop_condition = true;
                 break;
             }
@@ -361,6 +405,7 @@ fn run_generation_loop(
                         max_tokens: cfg.max_total_tokens,
                     });
                 }
+                gen.finish_reason = "error".to_string();
                 hit_stop_condition = true;
                 break;
             }
@@ -396,6 +441,28 @@ fn run_generation_loop(
             gen.response.push_str(&token_str);
             gen.exec_tracker.update(&token_str, gen.response.len());
 
+            // Periodic repetition loop detection
+            if gen.total_tokens_generated > REPETITION_CHECK_MIN_TOKENS
+                && gen.total_tokens_generated % REPETITION_CHECK_INTERVAL == 0
+                && detect_repetition_loop(&gen.response)
+            {
+                log_info!(
+                    cfg.conversation_id,
+                    "🛑 Repetition loop detected at token {}, stopping generation",
+                    gen.total_tokens_generated
+                );
+                if let Some(ref sender) = token_sender {
+                    let _ = sender.send(TokenData {
+                        token: "\n\n[Generation stopped: repetition loop detected]".to_string(),
+                        tokens_used: gen.token_pos,
+                        max_tokens: cfg.context_size as i32,
+                    });
+                }
+                gen.finish_reason = "error".to_string();
+                hit_stop_condition = true;
+                break;
+            }
+
             // Stream token to frontend
             if let Some(ref sender) = token_sender {
                 let _ = sender.send(TokenData {
@@ -423,7 +490,7 @@ fn run_generation_loop(
                 &gen.response, gen.last_exec_scan_pos, cfg.conversation_id, model, cfg.tags,
                 cfg.template_type, cfg.web_search_provider, cfg.web_search_api_key,
                 &mut gen.recent_commands, token_sender, gen.token_pos, cfg.context_size,
-                Some(cancel.clone()),
+                Some(cancel.clone()), cfg.use_rtk,
             )? {
                 // Sync accumulated content + command output to logger
                 {
@@ -459,7 +526,11 @@ fn run_generation_loop(
             }
         }
 
-        if hit_stop_condition || gen.total_tokens_generated >= cfg.max_total_tokens {
+        if hit_stop_condition {
+            break;
+        }
+        if gen.total_tokens_generated >= cfg.max_total_tokens {
+            gen.finish_reason = "length".to_string();
             break;
         }
 
@@ -479,6 +550,7 @@ fn run_generation_loop(
                     max_tokens: cfg.context_size as i32,
                 });
             }
+            gen.finish_reason = "tool_calls".to_string();
             break;
         }
 
@@ -762,12 +834,14 @@ pub async fn generate_llama_response(
         prompt.len()
     );
 
-    // Context parameters
+    // Context parameters (n_ctx/n_batch used by vision feature)
+    #[allow(unused_variables)]
     let n_ctx = NonZeroU32::new(context_size).expect("Context size must be non-zero");
     let offload_kqv = state.gpu_layers.unwrap_or(0) > 0;
     let flash_attention = config.flash_attention;
     let cache_type_k = config.cache_type_k.clone();
     let cache_type_v = config.cache_type_v.clone();
+    #[allow(unused_variables)]
     let n_batch = config.n_batch;
     if offload_kqv {
         log_info!(
@@ -833,7 +907,7 @@ pub async fn generate_llama_response(
     let prompt_eval_start = Instant::now();
 
     // Two code paths: vision (mtmd) or standard text-only
-    let (mut context, prompt_tokens, tokens, actually_evaluated) = if use_vision {
+    let (mut context, _prompt_tokens, tokens, actually_evaluated) = if use_vision {
         #[cfg(feature = "vision")]
         {
         // === VISION PATH: Use MtmdContext to process text + images ===
@@ -949,6 +1023,7 @@ pub async fn generate_llama_response(
         exec_tracker: ExecBlockTracker::new(),
         recent_commands: Vec::new(),
         last_exec_scan_pos: 0,
+        finish_reason: "stop".to_string(),
     };
 
     let cfg = TokenGenConfig {
@@ -960,6 +1035,7 @@ pub async fn generate_llama_response(
         max_total_tokens,
         web_search_provider: config.web_search_provider.as_deref(),
         web_search_api_key: config.web_search_api_key.as_deref(),
+        use_rtk: config.use_rtk,
     };
 
     run_generation_loop(
@@ -1046,6 +1122,7 @@ pub async fn generate_llama_response(
         response: gen.response.trim().to_string(),
         tokens_used: token_pos,
         max_tokens: context_size as i32,
+        finish_reason: gen.finish_reason,
         prompt_tok_per_sec,
         gen_tok_per_sec,
         gen_eval_ms: if gen_eval_ms > 0.0 { Some(gen_eval_ms) } else { None },

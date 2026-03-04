@@ -4,7 +4,12 @@
  * positioned spans for widget rendering in the MD view.
  */
 import type { ToolCall, ToolTags } from '../types';
-import { extractBalancedJson, findStreamingResponse, stripUnclosedToolCallTail } from './toolFormatUtils';
+import {
+  extractBalancedJson,
+  findStreamingResponse,
+  parsePythonFunctionCall,
+  stripUnclosedToolCallTail,
+} from './toolFormatUtils';
 
 export type MessageSegment =
   | { type: 'text'; content: string }
@@ -40,7 +45,7 @@ function parseXmlParams(body: string): Record<string, unknown> {
   return args;
 }
 
-export function collectLlama3Spans(content: string): Span[] {
+export function collectLlama3Spans(content: string, toolTags?: ToolTags): Span[] {
   const spans: Span[] = [];
   let match;
   type F = { start: number; end: number; name: string; args: Record<string, unknown> };
@@ -63,7 +68,7 @@ export function collectLlama3Spans(content: string): Span[] {
     let isStreaming = false;
     let spanEnd = tr ? tr.end : func.end;
     if (!tr && isLast) {
-      const streaming = findStreamingResponse(content, func.end);
+      const streaming = findStreamingResponse(content, func.end, toolTags);
       if (streaming) { output = streaming.output; isStreaming = true; spanEnd = streaming.end; }
     }
     spans.push({ start: spanStart, end: spanEnd, segment: { type: 'tool_call', toolCall: {
@@ -80,7 +85,10 @@ type ParsedCall = { start: number; end: number; name: string; args: Record<strin
 type ParsedResult = { start: number; end: number; content: string };
 
 function buildToolSpans(
-  content: string, calls: ParsedCall[], results: ParsedResult[],
+  content: string,
+  calls: ParsedCall[],
+  results: ParsedResult[],
+  toolTags?: ToolTags,
 ): Span[] {
   const spans: Span[] = [];
   for (const call of calls) {
@@ -91,7 +99,7 @@ function buildToolSpans(
     let isStreaming = false;
     let spanEnd = res ? res.end : call.end;
     if (!res && isLast) {
-      const streaming = findStreamingResponse(content, call.end);
+      const streaming = findStreamingResponse(content, call.end, toolTags);
       if (streaming) { output = streaming.output; isStreaming = true; spanEnd = streaming.end; }
     }
     spans.push({ start: call.start, end: spanEnd, segment: { type: 'tool_call', toolCall: {
@@ -170,7 +178,7 @@ function mistralBareJsonCalls(content: string): ParsedCall[] {
   return calls;
 }
 
-export function collectMistralSpans(content: string): Span[] {
+export function collectMistralSpans(content: string, toolTags?: ToolTags): Span[] {
   const bracket = mistralBracketCalls(content);
   const closed = bracket.length > 0 ? [] : mistralClosedTagCalls(content);
   const calls = bracket.length > 0 ? bracket : closed.length > 0 ? closed : mistralBareJsonCalls(content);
@@ -185,7 +193,7 @@ export function collectMistralSpans(content: string): Span[] {
   results.push(...freshResponseMatches(content));
   results.sort((a, b) => a.start - b.start);
 
-  return buildToolSpans(content, calls, results);
+  return buildToolSpans(content, calls, results, toolTags);
 }
 
 // --- SYSTEM.EXEC: <||SYSTEM.EXEC>...<SYSTEM.EXEC||> ---
@@ -279,6 +287,8 @@ export function collectExecSpans(content: string): Span[] {
 // Also match unclosed <tool_call> where </function> ends the block (Qwen3-Coder Jinja format:
 // the backend tool detector matches </function> before </tool_call> is generated)
 const TOOL_CALL_REGEX = /<tool_call>([\s\S]*?)(?:<\/tool_call>|<\|end_of_box\|>|(?=\s*<tool_response>))/g;
+const LFM2_CALL_REGEX = /<\|tool_call_start\|>([\s\S]*?)<\|tool_call_end\|>/g;
+const LFM2_RESPONSE_REGEX = /<\|tool_response_start\|>([\s\S]*?)<\|tool_response_end\|>/g;
 
 type QwenTcMatch = { start: number; end: number; json: string };
 type QwenTrMatch = { start: number; end: number; content: string };
@@ -289,12 +299,13 @@ function resolveQwenOutput(
   tc: QwenTcMatch,
   tr: QwenTrMatch | null,
   isLastUnmatched: boolean,
+  toolTags?: ToolTags,
 ): { output?: string; isStreaming: boolean; spanEnd: number } {
   let output: string | undefined = tr ? tr.content : undefined;
   let isStreaming = false;
   let spanEnd = tr ? tr.end : tc.end;
   if (isLastUnmatched) {
-    const streaming = findStreamingResponse(content, tc.end);
+    const streaming = findStreamingResponse(content, tc.end, toolTags);
     if (streaming) { output = streaming.output; isStreaming = true; spanEnd = streaming.end; }
   }
   return { output, isStreaming, spanEnd };
@@ -317,7 +328,7 @@ function parseGlmXmlArgs(body: string): { name: string; args: Record<string, unk
   return Object.keys(args).length > 0 ? { name, args } : null;
 }
 
-export function collectQwenSpans(content: string): Span[] {
+export function collectQwenSpans(content: string, toolTags?: ToolTags): Span[] {
   const spans: Span[] = [];
   let match;
 
@@ -383,7 +394,7 @@ export function collectQwenSpans(content: string): Span[] {
       const parsed = JSON.parse(tc.json);
       const items = Array.isArray(parsed) ? parsed : [parsed];
       const isLastUnmatched = !tr && i === lastUnmatchedIdx;
-      const resolved = resolveQwenOutput(content, tc, tr, isLastUnmatched);
+      const resolved = resolveQwenOutput(content, tc, tr, isLastUnmatched, toolTags);
 
       for (const item of items) {
         if (!item?.name) continue;
@@ -403,6 +414,75 @@ export function collectQwenSpans(content: string): Span[] {
   return spans;
 }
 
+// --- LFM2: <|tool_call_start|>[func_name(key="value")]<|tool_call_end|> ---
+type Lfm2TcMatch = { start: number; end: number; name: string; args: Record<string, unknown> };
+type Lfm2TrMatch = { start: number; end: number; content: string };
+
+export function collectLfm2Spans(content: string, toolTags?: ToolTags): Span[] {
+  const spans: Span[] = [];
+  let match;
+
+  const tcMatches: Lfm2TcMatch[] = [];
+  while ((match = LFM2_CALL_REGEX.exec(content)) !== null) {
+    const body = match[1].trim();
+    const parsed = parsePythonFunctionCall(body);
+    if (!parsed) continue;
+    tcMatches.push({
+      start: match.index,
+      end: match.index + match[0].length,
+      name: parsed.name,
+      args: parsed.args,
+    });
+  }
+
+  const trMatches: Lfm2TrMatch[] = [];
+  const trRe = new RegExp(LFM2_RESPONSE_REGEX.source, 'g');
+  while ((match = trRe.exec(content)) !== null) {
+    trMatches.push({
+      start: match.index,
+      end: match.index + match[0].length,
+      content: (match[1] || '').trim(),
+    });
+  }
+
+  const paired: { tc: Lfm2TcMatch; tr: Lfm2TrMatch | null }[] = [];
+  for (const tc of tcMatches) {
+    const tr = trMatches.find(r => r.start > tc.end);
+    if (tr) trMatches.splice(trMatches.indexOf(tr), 1);
+    paired.push({ tc, tr: tr || null });
+  }
+
+  const lastUnmatchedIdx = paired.reduce(
+    (acc, p, i) => (p.tr === null ? i : acc), -1
+  );
+
+  for (let i = 0; i < paired.length; i++) {
+    const { tc, tr } = paired[i];
+    const isLastUnmatched = !tr && i === lastUnmatchedIdx;
+    const resolved = resolveQwenOutput(
+      content,
+      { start: tc.start, end: tc.end, json: '' },
+      tr ? { start: tr.start, end: tr.end, content: tr.content } : null,
+      isLastUnmatched,
+      toolTags,
+    );
+    spans.push({
+      start: tc.start,
+      end: resolved.spanEnd,
+      segment: { type: 'tool_call', toolCall: {
+        id: crypto.randomUUID(),
+        name: tc.name,
+        arguments: tc.args,
+        output: resolved.output,
+        isStreaming: resolved.isStreaming,
+        isPending: isLastUnmatched,
+      } },
+    });
+  }
+
+  return spans;
+}
+
 // --- Segment builder: combines all collectors into ordered segments ---
 
 export const THINKING_REGEX = /<think>[\s\S]*?<\/think>/g;
@@ -413,6 +493,7 @@ export const THINKING_ORPHAN_CLOSE_REGEX = /<\/think>/g;
 // Regexes for tool call+response pairs inside thinking blocks
 const EXEC_PAIR_RE = /(?:<\|\|)?SYSTEM\.EXEC>[\s\S]*?<(?:\|\|)?SYSTEM\.EXEC\|\|>(?:\s*(?:<\|\|)?SYSTEM\.OUTPUT>[\s\S]*?<(?:\|\|)?SYSTEM\.OUTPUT\|\|>)?/g;
 const TOOL_CALL_PAIR_RE = /<tool_call>[\s\S]*?(?:<\/tool_call>|<\|end_of_box\|>)(?:\s*<tool_response>[\s\S]*?<\/tool_response>)?/g;
+const LFM2_PAIR_RE = /<\|tool_call_start\|>[\s\S]*?<\|tool_call_end\|>(?:\s*<\|tool_response_start\|>[\s\S]*?<\|tool_response_end\|>)?/g;
 const MISTRAL_PAIR_RE = /\[TOOL_CALLS\][\s\S]*?(?:\[\/TOOL_CALLS\]|\})(?:\s*\[TOOL_RESULTS\][\s\S]*?\[\/TOOL_RESULTS\])?/g;
 
 /**
@@ -425,7 +506,7 @@ export function moveToolsOutOfThinking(content: string): string {
     const toolParts: string[] = [];
     let cleaned = inner;
 
-    for (const re of [EXEC_PAIR_RE, TOOL_CALL_PAIR_RE, MISTRAL_PAIR_RE]) {
+    for (const re of [EXEC_PAIR_RE, TOOL_CALL_PAIR_RE, LFM2_PAIR_RE, MISTRAL_PAIR_RE]) {
       // Reset lastIndex for each regex
       re.lastIndex = 0;
       const matches = [...cleaned.matchAll(new RegExp(re.source, re.flags))];
@@ -452,10 +533,17 @@ export function buildSegments(content: string, toolTags?: ToolTags): MessageSegm
     .replace(THINKING_UNCLOSED_REGEX, '')
     .replace(THINKING_ORPHAN_CLOSE_REGEX, '');
   const pruned = stripUnclosedToolCallTail(cleaned, toolTags);
-  const qwenSpans = collectQwenSpans(pruned);
-  const mistralSpans = qwenSpans.length > 0 ? [] : collectMistralSpans(pruned);
-  const toolSpans = qwenSpans.length > 0 ? qwenSpans
-    : mistralSpans.length > 0 ? mistralSpans : collectLlama3Spans(pruned);
+  const lfm2Spans = toolTags?.exec_open === '<|tool_call_start|>'
+    ? collectLfm2Spans(pruned, toolTags)
+    : [];
+  const qwenSpans = lfm2Spans.length > 0 ? [] : collectQwenSpans(pruned, toolTags);
+  const mistralSpans = lfm2Spans.length > 0 || qwenSpans.length > 0
+    ? []
+    : collectMistralSpans(pruned, toolTags);
+  const toolSpans = lfm2Spans.length > 0 ? lfm2Spans
+    : qwenSpans.length > 0 ? qwenSpans
+    : mistralSpans.length > 0 ? mistralSpans
+    : collectLlama3Spans(pruned, toolTags);
   const spans = [...collectExecSpans(pruned), ...toolSpans]
     .sort((a, b) => a.start - b.start);
 

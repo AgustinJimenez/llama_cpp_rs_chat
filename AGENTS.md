@@ -7,7 +7,7 @@ What this is: Local LLM chat app (React + Rust/llama.cpp). Core flow: load GGUF 
 Default development (prefer Tauri commands — they handle both frontend and backend together):
 - Desktop app (preferred): "npm run dev:auto:desktop" (automatic GPU detection) or "npm run tauri:dev" (CPU-only)
 - Web app (fallback): "npm run dev:auto" (automatic GPU detection) or "npm run dev:cuda" (manual CUDA)
-- CRITICAL: "npm run dev" and "npm run dev:web" are CPU-ONLY — they do NOT pass --features cuda. Model will run at ~5 tok/s instead of ~1000 tok/s. ALWAYS use "npm run dev:cuda" or "npm run dev:auto" for GPU acceleration.
+- CRITICAL: "npm run dev:cpu" is CPU-ONLY — it does NOT pass --features cuda. Model will run at ~5 tok/s instead of ~1000 tok/s. ALWAYS use "npm run dev:cuda" or "npm run dev:auto" for GPU acceleration.
 
 Web app runs Vite on port 4000 with Rust backend on port 8000. Access via http://localhost:4000. Desktop app opens native window. When building/running, prefer Tauri commands over running backend and Vite separately.
 

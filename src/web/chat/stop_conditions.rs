@@ -8,6 +8,7 @@ pub struct StopConditionResult {
     /// Number of characters to remove from the end of the response (for partial matches)
     pub partial_to_remove: usize,
     /// Stop token that triggered the stop (for debugging/telemetry)
+    #[allow(dead_code)]
     pub matched_token: Option<String>,
 }
 

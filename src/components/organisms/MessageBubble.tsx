@@ -127,7 +127,7 @@ const AssistantMessage: React.FC<{
   thinkingContent,
   isThinkingStreaming,
   segments,
-  isStreaming: _isStreaming,
+  isStreaming,
 }) => (
   <div
     className="w-full flex justify-start"
@@ -143,7 +143,7 @@ const AssistantMessage: React.FC<{
       ) : (
         <>
           {/* Thinking process (for reasoning models) */}
-          {thinkingContent ? <ThinkingBlock content={thinkingContent} isStreaming={isThinkingStreaming} /> : null}
+          {thinkingContent ? <ThinkingBlock content={thinkingContent} isStreaming={isThinkingStreaming && isStreaming} /> : null}
 
           {/* Interleaved text, command blocks, tool calls, and thinking in chronological order */}
           {segments.map((segment, index) => {

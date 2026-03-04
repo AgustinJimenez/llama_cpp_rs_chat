@@ -314,6 +314,7 @@ pub enum GenerationResult {
         gen_tokens: Option<i32>,
         prompt_eval_ms: Option<f64>,
         prompt_tokens: Option<i32>,
+        finish_reason: Option<String>,
     },
     Cancelled,
     Error(String),
@@ -342,6 +343,7 @@ fn oneshot_adapter(
                     gen_tokens,
                     prompt_eval_ms,
                     prompt_tokens,
+                    finish_reason,
                 } => GenerationResult::Complete {
                     conversation_id,
                     tokens_used,
@@ -352,6 +354,7 @@ fn oneshot_adapter(
                     gen_tokens,
                     prompt_eval_ms,
                     prompt_tokens,
+                    finish_reason,
                 },
                 WorkerPayload::GenerationCancelled => GenerationResult::Cancelled,
                 WorkerPayload::Error { message } => GenerationResult::Error(message),

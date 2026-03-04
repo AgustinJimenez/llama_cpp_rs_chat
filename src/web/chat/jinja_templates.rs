@@ -269,6 +269,104 @@ pub fn get_available_tools() -> Vec<Value> {
             }
         }),
         json!({
+            "name": "edit_file",
+            "description": "Replace exact text in a file. old_string must match exactly once in the file. Use this for small edits instead of rewriting the whole file with write_file.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the file to edit"
+                    },
+                    "old_string": {
+                        "type": "string",
+                        "description": "Exact text to find in the file (must appear exactly once)"
+                    },
+                    "new_string": {
+                        "type": "string",
+                        "description": "Text to replace it with"
+                    }
+                },
+                "required": ["path", "old_string", "new_string"]
+            }
+        }),
+        json!({
+            "name": "undo_edit",
+            "description": "Revert the last edit_file operation on a file. Restores the file from its backup.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the file to restore"
+                    }
+                },
+                "required": ["path"]
+            }
+        }),
+        json!({
+            "name": "insert_text",
+            "description": "Insert text at a specific line number in a file. Line is 1-based. The text is inserted before the specified line.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the file"
+                    },
+                    "line": {
+                        "type": "integer",
+                        "description": "Line number to insert at (1-based)"
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "Text to insert"
+                    }
+                },
+                "required": ["path", "line", "text"]
+            }
+        }),
+        json!({
+            "name": "search_files",
+            "description": "Search file contents across a directory by regex or literal pattern. Returns matching lines with file paths and line numbers. Use include to filter by file type (e.g. \"*.rs\").",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "Regex or literal pattern to search for"
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Directory to search in (default: current directory)"
+                    },
+                    "include": {
+                        "type": "string",
+                        "description": "Glob filter for file names (e.g. \"*.py\", \"*.rs\")"
+                    }
+                },
+                "required": ["pattern"]
+            }
+        }),
+        json!({
+            "name": "find_files",
+            "description": "Find files by name pattern recursively. Returns a list of matching file paths.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "File name pattern (e.g. \"*.tsx\", \"Cargo.*\", \"README*\")"
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Directory to search in (default: current directory)"
+                    }
+                },
+                "required": ["pattern"]
+            }
+        }),
+        json!({
             "name": "execute_python",
             "description": "Execute Python code. The code is written to a temp file and run with the Python interpreter. Supports multi-line code, imports, regex, and any valid Python. Returns stdout and stderr.",
             "parameters": {
@@ -284,13 +382,17 @@ pub fn get_available_tools() -> Vec<Value> {
         }),
         json!({
             "name": "execute_command",
-            "description": "Execute a shell command (git, npm, curl, etc.). Use this for commands that are not covered by other tools.",
+            "description": "Execute a shell command (git, npm, curl, etc.). Set background=true for commands that run indefinitely (dev servers, watchers, listeners) to avoid blocking.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "command": {
                         "type": "string",
                         "description": "The shell command to execute"
+                    },
+                    "background": {
+                        "type": "boolean",
+                        "description": "Run in background for long-running processes (dev servers, watchers). Returns after 5s with initial output and the PID. Use check_background_process to check on it later."
                     }
                 },
                 "required": ["command"]
@@ -344,6 +446,70 @@ pub fn get_available_tools() -> Vec<Value> {
                     }
                 },
                 "required": ["url"]
+            }
+        }),
+        json!({
+            "name": "git_status",
+            "description": "Show the working tree status. Returns modified, staged, and untracked files.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Repository path (defaults to current directory)"
+                    }
+                },
+                "required": []
+            }
+        }),
+        json!({
+            "name": "git_diff",
+            "description": "Show git diff. By default shows unstaged changes. Set staged=true for staged changes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "File path to diff, or omit for all changes"
+                    },
+                    "staged": {
+                        "type": "boolean",
+                        "description": "If true, show staged changes instead of unstaged (default: false)"
+                    }
+                },
+                "required": []
+            }
+        }),
+        json!({
+            "name": "git_commit",
+            "description": "Commit changes with a message. By default commits staged changes only. Use all=true to auto-stage tracked modified files.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "description": "Commit message"
+                    },
+                    "all": {
+                        "type": "boolean",
+                        "description": "If true, auto-stage tracked modified files before committing (git commit -a)"
+                    }
+                },
+                "required": ["message"]
+            }
+        }),
+        json!({
+            "name": "check_background_process",
+            "description": "Check on a background process launched with execute_command(background=true). Returns whether it is still running and any new output since last check.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pid": {
+                        "type": "integer",
+                        "description": "The PID returned by execute_command with background=true"
+                    }
+                },
+                "required": ["pid"]
             }
         }),
     ]

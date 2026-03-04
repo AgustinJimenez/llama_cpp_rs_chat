@@ -54,6 +54,8 @@ pub struct DbSamplerConfig {
     pub use_mmap: bool,
     pub main_gpu: i32,
     pub split_mode: String,
+    // RTK output compression
+    pub use_rtk: bool,
     // Tag pairs (stored as JSON string in DB)
     pub tag_pairs: Option<String>,
 }
@@ -105,6 +107,7 @@ impl Default for DbSamplerConfig {
             use_mmap: true,
             main_gpu: 0,
             split_mode: "layer".to_string(),
+            use_rtk: false,
             tag_pairs: None,
         }
     }
@@ -141,6 +144,7 @@ impl Database {
                         seed, n_ubatch, n_threads, n_threads_batch,
                         rope_freq_base, rope_freq_scale,
                         use_mlock, use_mmap, main_gpu, split_mode,
+                        use_rtk,
                         tag_pairs
                  FROM config WHERE id = 1",
                 [],
@@ -195,7 +199,8 @@ impl Database {
                         use_mmap: row.get::<_, Option<i32>>(40)?.unwrap_or(1) != 0,
                         main_gpu: row.get::<_, Option<i32>>(41)?.unwrap_or(0),
                         split_mode: row.get::<_, Option<String>>(42)?.unwrap_or_else(|| "layer".to_string()),
-                        tag_pairs: row.get(43)?,
+                        use_rtk: row.get::<_, Option<i32>>(43)?.unwrap_or(0) != 0,
+                        tag_pairs: row.get(44)?,
                     })
                 },
             )
@@ -237,11 +242,12 @@ impl Database {
               seed, n_ubatch, n_threads, n_threads_batch,
               rope_freq_base, rope_freq_scale,
               use_mlock, use_mmap, main_gpu, split_mode,
+              use_rtk,
               tag_pairs,
               updated_at)
              VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
                      ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33,
-                     ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45)",
+                     ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46)",
             params![
                 config.sampler_type,
                 config.temperature,
@@ -286,6 +292,7 @@ impl Database {
                 config.use_mmap as i32,
                 config.main_gpu,
                 config.split_mode,
+                config.use_rtk as i32,
                 tag_pairs_json,
                 current_timestamp_millis(),
             ],
@@ -324,8 +331,9 @@ impl Database {
              seed = ?34, n_ubatch = ?35, n_threads = ?36, n_threads_batch = ?37,
              rope_freq_base = ?38, rope_freq_scale = ?39,
              use_mlock = ?40, use_mmap = ?41, main_gpu = ?42, split_mode = ?43,
-             tag_pairs = ?44,
-             updated_at = ?45
+             use_rtk = ?44,
+             tag_pairs = ?45,
+             updated_at = ?46
              WHERE id = 1",
             params![
                 config.sampler_type,
@@ -371,6 +379,7 @@ impl Database {
                 config.use_mmap as i32,
                 config.main_gpu,
                 config.split_mode,
+                config.use_rtk as i32,
                 tag_pairs_json,
                 current_timestamp_millis(),
             ],
@@ -552,6 +561,7 @@ mod tests {
             use_mmap: true,
             main_gpu: 0,
             split_mode: "layer".to_string(),
+            use_rtk: false,
             tag_pairs: None,
         };
 

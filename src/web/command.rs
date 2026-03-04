@@ -1,11 +1,58 @@
 use std::env;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+
+// ── Process tree kill (Windows) ─────────────────────────────────────────────
+// On Windows, `child.kill()` only terminates the top-level process (cmd.exe).
+// Child processes (e.g. php.exe spawned by cmd) inherit the stdout pipe handle,
+// so the pipe stays open and `read()` blocks forever. `taskkill /T` terminates
+// the entire process tree.
+
+/// Kill a process and all its children. On Windows uses `taskkill /T /F`,
+/// on other platforms falls back to regular kill (which covers process groups).
+fn kill_process_tree(pid: u32) {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = Command::new("taskkill")
+            .args(["/T", "/F", "/PID", &pid.to_string()])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .status();
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Send SIGTERM to process group
+        unsafe { libc::kill(-(pid as i32), libc::SIGTERM); }
+    }
+}
+
+// ── Background process infrastructure ──────────────────────────────────────
+
+/// How long to capture initial output before returning (seconds).
+const BACKGROUND_CAPTURE_SECS: u64 = 5;
+
+/// A background process tracked by the global registry.
+struct BackgroundProcess {
+    pid: u32,
+    command: String,
+    /// Lines appended continuously by the reader thread.
+    output_buffer: Arc<StdMutex<Vec<String>>>,
+    /// Index into output_buffer: lines before this were already returned by check().
+    cursor: Arc<AtomicUsize>,
+    /// Set to false by the reader thread when the process exits.
+    running: Arc<AtomicBool>,
+}
+
+lazy_static::lazy_static! {
+    static ref BACKGROUND_PROCESSES: StdMutex<Vec<BackgroundProcess>> = StdMutex::new(Vec::new());
+}
 
 // Helper function to parse command with proper quote handling
 pub fn parse_command_with_quotes(cmd: &str) -> Vec<String> {
@@ -71,6 +118,7 @@ fn enriched_windows_path() -> String {
         r"C:\Program Files\Git\cmd",
         r"C:\Program Files\nodejs",
         r"C:\ProgramData\chocolatey\bin",
+        r"C:\php",
     ];
     extra_dirs
         .iter()
@@ -335,33 +383,54 @@ pub fn execute_command_streaming(
         Ok(mut child) => {
             let mut output = String::new();
 
+            // Capture PID before sharing child — needed for process tree kill on Windows.
+            let child_pid = child.id();
+
             // Take stdout before sharing child with monitor thread
             let stdout_pipe = child.stdout.take();
 
-            // Wrap child so the cancel-monitor thread can kill it.
-            // The monitor checks `cancel` every 100ms and calls child.kill() if set.
+            // Wrap child so the cancel/timeout-monitor thread can kill it.
+            // The monitor uses kill_process_tree() to terminate the entire tree
+            // (cmd.exe + child processes like php.exe) — prevents pipe handle leaks.
             // A `done_flag` tells the monitor to exit on normal completion.
             let child_cell = Arc::new(StdMutex::new(child));
             let done_flag = Arc::new(AtomicBool::new(false));
+            // Track last time output was received — used for inactivity timeout
+            let last_activity = Arc::new(StdMutex::new(std::time::Instant::now()));
 
-            let monitor_handle = cancel.map(|cancel_flag| {
-                let child_ref = child_cell.clone();
+            const INACTIVITY_TIMEOUT_SECS: u64 = 30;
+            let inactivity_killed = Arc::new(AtomicBool::new(false));
+
+            let monitor_handle = {
                 let done_ref = done_flag.clone();
+                let activity_ref = last_activity.clone();
+                let inactivity_ref = inactivity_killed.clone();
+                let cancel_flag = cancel;
                 std::thread::spawn(move || -> bool {
                     loop {
-                        if cancel_flag.load(Ordering::Relaxed) {
-                            if let Ok(mut guard) = child_ref.lock() {
-                                let _ = guard.kill();
+                        // Check user cancellation
+                        if let Some(ref flag) = cancel_flag {
+                            if flag.load(Ordering::Relaxed) {
+                                kill_process_tree(child_pid);
+                                return true; // was cancelled
                             }
-                            return true; // was cancelled
                         }
                         if done_ref.load(Ordering::Relaxed) {
                             return false; // normal completion
                         }
+                        // Check inactivity timeout
+                        if let Ok(guard) = activity_ref.lock() {
+                            if guard.elapsed().as_secs() >= INACTIVITY_TIMEOUT_SECS {
+                                eprintln!("[STREAM] Inactivity timeout ({}s), killing process tree (pid={})", INACTIVITY_TIMEOUT_SECS, child_pid);
+                                inactivity_ref.store(true, Ordering::Relaxed);
+                                kill_process_tree(child_pid);
+                                return false;
+                            }
+                        }
                         std::thread::sleep(std::time::Duration::from_millis(100));
                     }
                 })
-            });
+            };
 
             // Read stdout and stream output as it arrives.
             // stderr is merged into stdout via 2>&1, so all output comes through here.
@@ -378,6 +447,10 @@ pub fn execute_command_streaming(
                     match std::io::Read::read(&mut reader, &mut byte_buf) {
                         Ok(0) => break, // EOF (child exited or was killed)
                         Ok(n) => {
+                            // Update last activity time for inactivity monitor
+                            if let Ok(mut guard) = last_activity.lock() {
+                                *guard = std::time::Instant::now();
+                            }
                             let chunk = String::from_utf8_lossy(&byte_buf[..n]);
                             for ch in chunk.chars() {
                                 if ch == '\n' || ch == '\r' {
@@ -410,12 +483,15 @@ pub fn execute_command_streaming(
             let exit_code = status.as_ref().ok().and_then(|s| s.code()).unwrap_or(-1);
             let success = status.as_ref().map(|s| s.success()).unwrap_or(false);
 
-            let was_cancelled = monitor_handle
-                .map(|h| h.join().unwrap_or(false))
-                .unwrap_or(false);
+            let was_cancelled = monitor_handle.join().unwrap_or(false);
 
             if was_cancelled {
                 output.push_str("\n[Cancelled by user]\n");
+            } else if inactivity_killed.load(Ordering::Relaxed) {
+                output.push_str(&format!(
+                    "\n[Process killed: no output for {}s — likely waiting for input]\n",
+                    INACTIVITY_TIMEOUT_SECS
+                ));
             }
 
             if output.trim().is_empty() {
@@ -438,6 +514,316 @@ pub fn execute_command_streaming(
             }
         }
     }
+}
+
+/// Execute a command in the background. Captures initial output for `BACKGROUND_CAPTURE_SECS`,
+/// then returns immediately while the process keeps running. A persistent reader thread
+/// continues buffering output so `check_background_process()` can retrieve it later.
+pub fn execute_command_background(
+    cmd: &str,
+    mut on_line: impl FnMut(&str),
+) -> String {
+    let trimmed = cmd.trim();
+
+    // Env vars for unbuffered output
+    let env_vars = [
+        ("PYTHONUNBUFFERED", "1"),
+        ("COMPOSER_PROCESS_TIMEOUT", "0"),
+        ("GIT_FLUSH", "1"),
+        ("CI", "true"),
+    ];
+
+    #[cfg(target_os = "windows")]
+    let child_result = {
+        let path = enriched_windows_path();
+        let mut c = Command::new("cmd");
+        c.raw_arg(format!("/C {trimmed} 2>&1"))
+            .env("PATH", &path);
+        for (k, v) in &env_vars {
+            c.env(k, v);
+        }
+        // CREATE_NEW_PROCESS_GROUP (0x200) so child survives parent exit
+        c.creation_flags(0x200);
+        c.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()
+    };
+
+    #[cfg(not(target_os = "windows"))]
+    let child_result = {
+        let mut c = Command::new("sh");
+        c.arg("-c").arg(format!("{trimmed} 2>&1"));
+        for (k, v) in &env_vars {
+            c.env(k, v);
+        }
+        c.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()
+    };
+
+    match child_result {
+        Ok(mut child) => {
+            let pid = child.id();
+            let stdout_pipe = match child.stdout.take() {
+                Some(p) => p,
+                None => {
+                    return format!("Error: Could not capture stdout for background process (PID: {pid})");
+                }
+            };
+
+            // Shared state between reader thread, initial capture, and later check() calls
+            let output_buffer: Arc<StdMutex<Vec<String>>> = Arc::new(StdMutex::new(Vec::new()));
+            let running = Arc::new(AtomicBool::new(true));
+            let cursor = Arc::new(AtomicUsize::new(0));
+
+            // Channel for initial capture: reader thread sends lines here too
+            let (tx, rx) = std::sync::mpsc::channel::<String>();
+
+            // Persistent reader thread — runs until process exits (EOF)
+            let buf_ref = output_buffer.clone();
+            let running_ref = running.clone();
+            std::thread::spawn(move || {
+                let mut reader = std::io::BufReader::new(stdout_pipe);
+                let mut line_buf = String::new();
+                let mut byte_buf = [0u8; 4096];
+
+                loop {
+                    match std::io::Read::read(&mut reader, &mut byte_buf) {
+                        Ok(0) => break, // EOF
+                        Ok(n) => {
+                            let chunk = String::from_utf8_lossy(&byte_buf[..n]);
+                            for ch in chunk.chars() {
+                                if ch == '\n' || ch == '\r' {
+                                    if !line_buf.is_empty() {
+                                        // Append to shared buffer (always)
+                                        if let Ok(mut buf) = buf_ref.lock() {
+                                            buf.push(line_buf.clone());
+                                        }
+                                        // Also try to send to initial capture channel (may be closed)
+                                        let _ = tx.send(line_buf.clone());
+                                        line_buf.clear();
+                                    }
+                                } else {
+                                    line_buf.push(ch);
+                                }
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+                // Flush remaining
+                if !line_buf.is_empty() {
+                    if let Ok(mut buf) = buf_ref.lock() {
+                        buf.push(line_buf.clone());
+                    }
+                    let _ = tx.send(line_buf);
+                }
+                running_ref.store(false, Ordering::Relaxed);
+            });
+
+            // Collect initial output for BACKGROUND_CAPTURE_SECS
+            let deadline = std::time::Instant::now()
+                + std::time::Duration::from_secs(BACKGROUND_CAPTURE_SECS);
+            let mut initial_output = String::new();
+            let mut exited_early = false;
+
+            loop {
+                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                if remaining.is_zero() {
+                    break;
+                }
+                match rx.recv_timeout(remaining) {
+                    Ok(line) => {
+                        on_line(&line);
+                        initial_output.push_str(&line);
+                        initial_output.push('\n');
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        exited_early = true;
+                        break;
+                    }
+                }
+            }
+
+            // Set cursor past initial output so check() only returns NEW lines
+            if let Ok(buf) = output_buffer.lock() {
+                cursor.store(buf.len(), Ordering::Relaxed);
+            }
+
+            if exited_early {
+                // Process already exited within the capture window
+                return format!(
+                    "{}\n(Process exited within {}s, PID: {})",
+                    initial_output.trim(),
+                    BACKGROUND_CAPTURE_SECS,
+                    pid
+                );
+            }
+
+            // Register in global registry
+            if let Ok(mut procs) = BACKGROUND_PROCESSES.lock() {
+                procs.push(BackgroundProcess {
+                    pid,
+                    command: trimmed.to_string(),
+                    output_buffer,
+                    cursor,
+                    running,
+                });
+            }
+
+            // Forget the child handle so dropping it doesn't kill the process
+            std::mem::forget(child);
+
+            format!(
+                "{}\n(Process running in background, PID: {})",
+                initial_output.trim(),
+                pid
+            )
+        }
+        Err(e) => format!("Failed to start background process: {e}"),
+    }
+}
+
+/// Check on a background process by PID. Returns status and any new output since last check.
+pub fn check_background_process(pid: u32) -> String {
+    let procs = match BACKGROUND_PROCESSES.lock() {
+        Ok(p) => p,
+        Err(_) => return "Error: Failed to access background process registry".to_string(),
+    };
+
+    let proc = match procs.iter().find(|p| p.pid == pid) {
+        Some(p) => p,
+        None => {
+            // List available PIDs for convenience
+            let available: Vec<String> = procs.iter().map(|p| format!("{}", p.pid)).collect();
+            if available.is_empty() {
+                return format!("No background process with PID {} found. No background processes are currently tracked.", pid);
+            }
+            return format!(
+                "No background process with PID {} found. Tracked PIDs: {}",
+                pid,
+                available.join(", ")
+            );
+        }
+    };
+
+    let is_running = proc.running.load(Ordering::Relaxed);
+    let status = if is_running { "running" } else { "exited" };
+
+    let buf = match proc.output_buffer.lock() {
+        Ok(b) => b,
+        Err(_) => return format!("PID {}: {}\nStatus: {}\nError: could not read output buffer", pid, proc.command, status),
+    };
+
+    let prev_cursor = proc.cursor.load(Ordering::Relaxed);
+    let new_lines: Vec<String> = buf[prev_cursor..].to_vec();
+    proc.cursor.store(buf.len(), Ordering::Relaxed);
+
+    if new_lines.is_empty() {
+        format!(
+            "PID {}: {}\nStatus: {}\nNo new output since last check.",
+            pid, proc.command, status
+        )
+    } else {
+        format!(
+            "PID {}: {}\nStatus: {}\nNew output ({} lines):\n{}",
+            pid,
+            proc.command,
+            status,
+            new_lines.len(),
+            new_lines.join("\n")
+        )
+    }
+}
+
+// ── Command output sanitization ──────────────────────────────────────────────
+
+/// Maximum lines of command output to keep for model context.
+const MAX_COMMAND_OUTPUT_LINES: usize = 80;
+/// Maximum characters of command output to keep for model context.
+const MAX_COMMAND_OUTPUT_CHARS: usize = 8000;
+/// Lines to keep from the beginning of truncated output.
+const HEAD_LINES: usize = 15;
+/// Lines to keep from the end of truncated output.
+const TAIL_LINES: usize = 25;
+
+/// Remove ANSI escape codes (colors, cursor movement, OSC sequences) from text.
+/// Uses a simple state-machine parser instead of regex to avoid potential segfaults
+/// from lazy_static regex compilation in the worker process.
+pub fn strip_ansi_codes(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let bytes = text.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+
+    while i < len {
+        if bytes[i] == 0x1b {
+            // ESC character — start of escape sequence
+            i += 1;
+            if i >= len { break; }
+
+            if bytes[i] == b'[' {
+                // CSI sequence: ESC [ ... final_byte (letter)
+                i += 1;
+                while i < len && (bytes[i] == b';' || bytes[i].is_ascii_digit()) {
+                    i += 1;
+                }
+                // Skip the final byte (letter)
+                if i < len && bytes[i].is_ascii_alphabetic() {
+                    i += 1;
+                }
+            } else if bytes[i] == b']' {
+                // OSC sequence: ESC ] ... (BEL or ESC \)
+                i += 1;
+                while i < len {
+                    if bytes[i] == 0x07 {
+                        i += 1;
+                        break;
+                    }
+                    if bytes[i] == 0x1b && i + 1 < len && bytes[i + 1] == b'\\' {
+                        i += 2;
+                        break;
+                    }
+                    i += 1;
+                }
+            } else {
+                // Other escape: skip ESC + next char
+                i += 1;
+            }
+        } else {
+            result.push(bytes[i] as char);
+            i += 1;
+        }
+    }
+
+    result
+}
+
+/// Truncate long output: keep first HEAD_LINES + last TAIL_LINES, omit middle.
+/// Also enforces a hard character limit.
+pub fn truncate_command_output(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+
+    let mut result = if lines.len() > MAX_COMMAND_OUTPUT_LINES {
+        let omitted = lines.len() - HEAD_LINES - TAIL_LINES;
+        let head = lines[..HEAD_LINES].join("\n");
+        let tail = lines[lines.len() - TAIL_LINES..].join("\n");
+        format!("{}\n\n... ({} lines omitted) ...\n\n{}", head, omitted, tail)
+    } else {
+        text.to_string()
+    };
+
+    // Hard character limit
+    if result.len() > MAX_COMMAND_OUTPUT_CHARS {
+        result.truncate(MAX_COMMAND_OUTPUT_CHARS);
+        result.push_str("\n... (output truncated)");
+    }
+
+    result
+}
+
+/// Strip ANSI codes and truncate long command output for model context injection.
+/// The raw output is still streamed to the frontend; this only affects what the model sees.
+pub fn sanitize_command_output(text: &str) -> String {
+    let clean = strip_ansi_codes(text);
+    truncate_command_output(&clean)
 }
 
 /// Find the position of the last `>` redirect operator that is NOT inside quotes.
