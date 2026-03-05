@@ -33,7 +33,7 @@ pub fn get_available_tools_json() -> String {
             "type": "function",
             "function": {
                 "name": "read_file",
-                "description": format!("Read the complete contents of any file from anywhere in the local filesystem. Supports PDF, DOCX, XLSX, PPTX, and non-UTF8 encoded files. You have full read access to the entire system. OS: {}", os_name),
+                "description": format!("Read the complete contents of any file from anywhere in the local filesystem. Supports PDF, DOCX, XLSX, PPTX, EPUB, ODT, RTF, CSV, EML, ZIP, and non-UTF8 encoded files. You have full read access to the entire system. OS: {}", os_name),
                 "parameters": {
                     "type": "object",
                     "properties": {

@@ -792,3 +792,80 @@ pub async fn handle_get_web_fetch(
 
     Ok(json_raw(StatusCode::OK, result.to_string()))
 }
+
+/// POST /api/file/extract-text?filename=report.xlsx
+/// Accepts raw file bytes in body, detects type by extension, returns extracted text.
+pub async fn handle_post_extract_text(
+    req: Request<Body>,
+) -> Result<Response<Body>, Infallible> {
+    let filename = get_query_param(req.uri(), "filename")
+        .unwrap_or_default();
+
+    if filename.is_empty() {
+        return Ok(json_error(StatusCode::BAD_REQUEST, "Missing 'filename' query parameter"));
+    }
+
+    // Read raw body bytes
+    let body_bytes = match hyper::body::to_bytes(req.into_body()).await {
+        Ok(b) => b,
+        Err(e) => return Ok(json_error(StatusCode::BAD_REQUEST, &format!("Failed to read body: {e}"))),
+    };
+
+    if body_bytes.is_empty() {
+        return Ok(json_error(StatusCode::BAD_REQUEST, "Empty file body"));
+    }
+
+    const MAX_EXTRACT_CHARS: usize = 100_000;
+    let fname_lower = filename.to_ascii_lowercase();
+    let bytes = body_bytes.to_vec();
+
+    let result = spawn_blocking(move || {
+        use crate::web::native_tools::{
+            extract_pdf_text, extract_docx_text, extract_pptx_text,
+            extract_xlsx_text, extract_epub_text, extract_odt_text,
+            extract_rtf_text, extract_zip_listing, extract_csv_structured,
+            extract_eml_text, read_with_encoding_detection, truncate_text_content,
+        };
+
+        if fname_lower.ends_with(".pdf") {
+            extract_pdf_text(&bytes, MAX_EXTRACT_CHARS)
+        } else if fname_lower.ends_with(".docx") {
+            extract_docx_text(&bytes, MAX_EXTRACT_CHARS)
+        } else if fname_lower.ends_with(".pptx") {
+            extract_pptx_text(&bytes, MAX_EXTRACT_CHARS)
+        } else if fname_lower.ends_with(".xlsx") || fname_lower.ends_with(".xls") || fname_lower.ends_with(".xlsm") {
+            extract_xlsx_text(&bytes, MAX_EXTRACT_CHARS)
+        } else if fname_lower.ends_with(".epub") {
+            extract_epub_text(&bytes, MAX_EXTRACT_CHARS)
+        } else if fname_lower.ends_with(".odt") {
+            extract_odt_text(&bytes, MAX_EXTRACT_CHARS)
+        } else if fname_lower.ends_with(".rtf") {
+            extract_rtf_text(&bytes, MAX_EXTRACT_CHARS)
+        } else if fname_lower.ends_with(".zip") {
+            extract_zip_listing(&bytes, MAX_EXTRACT_CHARS)
+        } else if fname_lower.ends_with(".csv") {
+            extract_csv_structured(&bytes, MAX_EXTRACT_CHARS)
+        } else if fname_lower.ends_with(".eml") {
+            extract_eml_text(&bytes, MAX_EXTRACT_CHARS)
+        } else {
+            // Try as text (UTF-8 first, then encoding detection)
+            match String::from_utf8(bytes.clone()) {
+                Ok(text) => truncate_text_content(&text, MAX_EXTRACT_CHARS),
+                Err(_) => read_with_encoding_detection(&bytes, MAX_EXTRACT_CHARS),
+            }
+        }
+    }).await;
+
+    match result {
+        Ok(text) => {
+            let json = serde_json::json!({
+                "success": true,
+                "filename": filename,
+                "text": text,
+                "chars": text.len(),
+            });
+            Ok(json_raw(StatusCode::OK, json.to_string()))
+        }
+        Err(e) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Extraction failed: {e}"))),
+    }
+}

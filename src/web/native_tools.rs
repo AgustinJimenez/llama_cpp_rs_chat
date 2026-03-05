@@ -794,6 +794,54 @@ fn tool_read_file(args: &Value) -> String {
         };
     }
 
+    // EPUB ebooks: extract text from XHTML content files
+    if path_lower.ends_with(".epub") {
+        return match std::fs::read(path) {
+            Ok(bytes) => extract_epub_text(&bytes, MAX_READ_SIZE),
+            Err(e) => format!("Error reading '{path}': {e}"),
+        };
+    }
+
+    // ODT (LibreOffice Writer): extract text from content.xml
+    if path_lower.ends_with(".odt") {
+        return match std::fs::read(path) {
+            Ok(bytes) => extract_odt_text(&bytes, MAX_READ_SIZE),
+            Err(e) => format!("Error reading '{path}': {e}"),
+        };
+    }
+
+    // RTF: extract plain text
+    if path_lower.ends_with(".rtf") {
+        return match std::fs::read(path) {
+            Ok(bytes) => extract_rtf_text(&bytes, MAX_READ_SIZE),
+            Err(e) => format!("Error reading '{path}': {e}"),
+        };
+    }
+
+    // ZIP archives: list contents
+    if path_lower.ends_with(".zip") || path_lower.ends_with(".7z") || path_lower.ends_with(".tar.gz") || path_lower.ends_with(".tgz") {
+        return match std::fs::read(path) {
+            Ok(bytes) => extract_zip_listing(&bytes, MAX_READ_SIZE),
+            Err(e) => format!("Error reading '{path}': {e}"),
+        };
+    }
+
+    // CSV files: structured parsing with headers
+    if path_lower.ends_with(".csv") {
+        return match std::fs::read(path) {
+            Ok(bytes) => extract_csv_structured(&bytes, MAX_READ_SIZE),
+            Err(e) => format!("Error reading '{path}': {e}"),
+        };
+    }
+
+    // Email files: extract headers, body, attachment listing
+    if path_lower.ends_with(".eml") || path_lower.ends_with(".msg") {
+        return match std::fs::read(path) {
+            Ok(bytes) => extract_eml_text(&bytes, MAX_READ_SIZE),
+            Err(e) => format!("Error reading '{path}': {e}"),
+        };
+    }
+
     // Try UTF-8 first, fall back to encoding detection for non-UTF8 files
     match std::fs::read_to_string(path) {
         Ok(content) => truncate_text_content(&content, MAX_READ_SIZE),
@@ -812,7 +860,7 @@ fn tool_read_file(args: &Value) -> String {
 }
 
 /// Truncate text content to max_chars with a notice.
-fn truncate_text_content(content: &str, max_chars: usize) -> String {
+pub fn truncate_text_content(content: &str, max_chars: usize) -> String {
     let total_bytes = content.len();
     if total_bytes > max_chars {
         let mut end = max_chars;
@@ -827,7 +875,7 @@ fn truncate_text_content(content: &str, max_chars: usize) -> String {
 }
 
 /// Read non-UTF8 bytes using encoding_rs auto-detection (Latin-1, Shift-JIS, etc.).
-fn read_with_encoding_detection(bytes: &[u8], max_chars: usize) -> String {
+pub fn read_with_encoding_detection(bytes: &[u8], max_chars: usize) -> String {
     // Try common encodings: UTF-8 BOM, then let encoding_rs detect
     let (decoded, encoding_used, had_errors) = encoding_rs::Encoding::for_bom(bytes)
         .map(|(enc, _)| enc.decode(bytes))
@@ -1853,7 +1901,7 @@ fn fetch_pdf_text(url: &str, max_chars: usize) -> String {
 }
 
 /// Extract text from PDF bytes using pdf-extract.
-fn extract_pdf_text(bytes: &[u8], max_chars: usize) -> String {
+pub fn extract_pdf_text(bytes: &[u8], max_chars: usize) -> String {
     match pdf_extract::extract_text_from_mem(bytes) {
         Ok(text) => {
             let text = text.trim().to_string();
@@ -1876,7 +1924,7 @@ fn extract_pdf_text(bytes: &[u8], max_chars: usize) -> String {
 }
 
 /// Extract plain text from DOCX bytes (ZIP containing word/document.xml with <w:t> tags).
-fn extract_docx_text(bytes: &[u8], max_chars: usize) -> String {
+pub fn extract_docx_text(bytes: &[u8], max_chars: usize) -> String {
     let cursor = std::io::Cursor::new(bytes);
     let mut archive = match zip::ZipArchive::new(cursor) {
         Ok(a) => a,
@@ -1939,7 +1987,7 @@ fn extract_docx_text(bytes: &[u8], max_chars: usize) -> String {
 }
 
 /// Extract plain text from PPTX bytes (ZIP containing ppt/slide*.xml with <a:t> tags).
-fn extract_pptx_text(bytes: &[u8], max_chars: usize) -> String {
+pub fn extract_pptx_text(bytes: &[u8], max_chars: usize) -> String {
     let cursor = std::io::Cursor::new(bytes);
     let mut archive = match zip::ZipArchive::new(cursor) {
         Ok(a) => a,
@@ -2007,7 +2055,7 @@ fn extract_pptx_text(bytes: &[u8], max_chars: usize) -> String {
 }
 
 /// Extract spreadsheet data as tab-separated text from XLSX/XLS/XLSM bytes.
-fn extract_xlsx_text(bytes: &[u8], max_chars: usize) -> String {
+pub fn extract_xlsx_text(bytes: &[u8], max_chars: usize) -> String {
     use calamine::{Reader, Data};
 
     let cursor = std::io::Cursor::new(bytes);
@@ -2054,6 +2102,314 @@ fn extract_xlsx_text(bytes: &[u8], max_chars: usize) -> String {
     }
 
     eprintln!("[READ_FILE/XLSX] Extracted {} chars from {} sheets", text.len(), sheet_names.len());
+    truncate_text_content(&text, max_chars)
+}
+
+/// Extract plain text from EPUB bytes (ZIP containing XHTML content files).
+pub fn extract_epub_text(bytes: &[u8], max_chars: usize) -> String {
+    let cursor = std::io::Cursor::new(bytes);
+    let mut archive = match zip::ZipArchive::new(cursor) {
+        Ok(a) => a,
+        Err(e) => return format!("Error reading EPUB archive: {e}"),
+    };
+
+    // Collect XHTML/HTML content files (skip images, CSS, etc.)
+    let mut content_files: Vec<String> = Vec::new();
+    for i in 0..archive.len() {
+        if let Ok(entry) = archive.by_index(i) {
+            let name = entry.name().to_string();
+            let lower = name.to_ascii_lowercase();
+            if lower.ends_with(".xhtml") || lower.ends_with(".html") || lower.ends_with(".htm") {
+                content_files.push(name);
+            }
+        }
+    }
+    content_files.sort();
+
+    let mut text = String::new();
+    for name in &content_files {
+        if let Ok(mut entry) = archive.by_name(name) {
+            let mut html = String::new();
+            if entry.read_to_string(&mut html).is_ok() {
+                // Strip HTML tags to get plain text
+                let plain = html2text::from_read(html.as_bytes(), 120);
+                let trimmed = plain.trim();
+                if !trimmed.is_empty() {
+                    if !text.is_empty() { text.push_str("\n\n"); }
+                    text.push_str(trimmed);
+                }
+            }
+        }
+        if text.len() > max_chars { break; }
+    }
+
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        return "(EPUB contains no readable text)".to_string();
+    }
+
+    eprintln!("[READ_FILE/EPUB] Extracted {} chars from {} content files", text.len(), content_files.len());
+    truncate_text_content(&text, max_chars)
+}
+
+/// Extract plain text from ODT bytes (OpenDocument Text: ZIP with content.xml containing <text:p> tags).
+pub fn extract_odt_text(bytes: &[u8], max_chars: usize) -> String {
+    use quick_xml::events::Event;
+    use quick_xml::Reader;
+
+    let cursor = std::io::Cursor::new(bytes);
+    let mut archive = match zip::ZipArchive::new(cursor) {
+        Ok(a) => a,
+        Err(e) => return format!("Error reading ODT archive: {e}"),
+    };
+
+    let mut xml_content = String::new();
+    match archive.by_name("content.xml") {
+        Ok(mut entry) => {
+            if let Err(e) = entry.read_to_string(&mut xml_content) {
+                return format!("Error reading content.xml: {e}");
+            }
+        }
+        Err(e) => return format!("Error finding content.xml in ODT: {e}"),
+    }
+
+    let mut reader = Reader::from_str(&xml_content);
+    let mut text = String::new();
+    let mut in_text_element = false;
+    let mut buf = Vec::new();
+
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e)) | Ok(Event::Empty(ref e)) => {
+                let local = e.local_name();
+                let name = std::str::from_utf8(local.as_ref()).unwrap_or("");
+                // <text:p>, <text:h>, <text:span> contain text
+                if name == "p" || name == "h" || name == "span" {
+                    in_text_element = true;
+                    if name == "p" || name == "h" {
+                        if !text.is_empty() && !text.ends_with('\n') {
+                            text.push('\n');
+                        }
+                    }
+                }
+                // <text:tab/> → tab, <text:line-break/> → newline
+                if name == "tab" { text.push('\t'); }
+                if name == "line-break" { text.push('\n'); }
+            }
+            Ok(Event::Text(ref e)) if in_text_element => {
+                if let Ok(t) = e.unescape() {
+                    text.push_str(&t);
+                }
+            }
+            Ok(Event::End(ref e)) => {
+                let local = e.local_name();
+                let name = std::str::from_utf8(local.as_ref()).unwrap_or("");
+                if name == "p" || name == "h" || name == "span" {
+                    in_text_element = false;
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(e) => {
+                eprintln!("[READ_FILE/ODT] XML parse error: {e}");
+                break;
+            }
+            _ => {}
+        }
+        buf.clear();
+    }
+
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        return "(ODT document contains no text)".to_string();
+    }
+
+    eprintln!("[READ_FILE/ODT] Extracted {} chars", text.len());
+    truncate_text_content(&text, max_chars)
+}
+
+/// Extract plain text from RTF bytes.
+pub fn extract_rtf_text(bytes: &[u8], max_chars: usize) -> String {
+    let content = String::from_utf8_lossy(bytes);
+    let tokens = match rtf_parser::lexer::Lexer::scan(&content) {
+        Ok(t) => t,
+        Err(e) => return format!("Error lexing RTF: {e}"),
+    };
+    let mut parser = rtf_parser::parser::Parser::new(tokens);
+    match parser.parse() {
+        Ok(doc) => {
+            let text = doc.get_text();
+            let text = text.trim().to_string();
+            if text.is_empty() {
+                return "(RTF document contains no text)".to_string();
+            }
+            eprintln!("[READ_FILE/RTF] Extracted {} chars", text.len());
+            truncate_text_content(&text, max_chars)
+        }
+        Err(e) => format!("Error parsing RTF: {e}"),
+    }
+}
+
+/// List contents of a ZIP archive (file names and sizes).
+pub fn extract_zip_listing(bytes: &[u8], max_chars: usize) -> String {
+    let cursor = std::io::Cursor::new(bytes);
+    let mut archive = match zip::ZipArchive::new(cursor) {
+        Ok(a) => a,
+        Err(e) => return format!("Error reading ZIP archive: {e}"),
+    };
+
+    let mut text = format!("ZIP archive: {} entries\n\n", archive.len());
+    let mut total_size: u64 = 0;
+
+    for i in 0..archive.len() {
+        if let Ok(entry) = archive.by_index(i) {
+            let size = entry.size();
+            total_size += size;
+            let kind = if entry.is_dir() { "DIR " } else { "FILE" };
+            // Format size human-readable
+            let size_str = if size >= 1_048_576 {
+                format!("{:.1}MB", size as f64 / 1_048_576.0)
+            } else if size >= 1024 {
+                format!("{:.1}KB", size as f64 / 1024.0)
+            } else {
+                format!("{}B", size)
+            };
+            text.push_str(&format!("{} {:>8}  {}\n", kind, size_str, entry.name()));
+        }
+        if text.len() > max_chars { break; }
+    }
+
+    let total_str = if total_size >= 1_048_576 {
+        format!("{:.1}MB", total_size as f64 / 1_048_576.0)
+    } else if total_size >= 1024 {
+        format!("{:.1}KB", total_size as f64 / 1024.0)
+    } else {
+        format!("{}B", total_size)
+    };
+    text.push_str(&format!("\nTotal uncompressed: {total_str}"));
+
+    eprintln!("[READ_FILE/ZIP] Listed {} entries, total {}", archive.len(), total_str);
+    truncate_text_content(&text, max_chars)
+}
+
+/// Parse CSV file into a structured text representation with headers.
+pub fn extract_csv_structured(bytes: &[u8], max_chars: usize) -> String {
+    let mut reader = csv::ReaderBuilder::new()
+        .flexible(true)
+        .from_reader(bytes);
+
+    let mut text = String::new();
+
+    // Headers
+    if let Ok(headers) = reader.headers() {
+        if !headers.is_empty() {
+            text.push_str(&headers.iter().collect::<Vec<_>>().join("\t"));
+            text.push('\n');
+            // Separator line
+            text.push_str(&headers.iter().map(|h| "-".repeat(h.len().max(3))).collect::<Vec<_>>().join("\t"));
+            text.push('\n');
+        }
+    }
+
+    // Rows
+    let mut row_count = 0;
+    for result in reader.records() {
+        match result {
+            Ok(record) => {
+                text.push_str(&record.iter().collect::<Vec<_>>().join("\t"));
+                text.push('\n');
+                row_count += 1;
+            }
+            Err(e) => {
+                text.push_str(&format!("[CSV parse error: {e}]\n"));
+                break;
+            }
+        }
+        if text.len() > max_chars { break; }
+    }
+
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        return "(CSV file is empty)".to_string();
+    }
+
+    eprintln!("[READ_FILE/CSV] Parsed {} rows", row_count);
+    truncate_text_content(&text, max_chars)
+}
+
+/// Extract text from .eml email files (headers + body + attachment listing).
+pub fn extract_eml_text(bytes: &[u8], max_chars: usize) -> String {
+    let parsed = match mailparse::parse_mail(bytes) {
+        Ok(m) => m,
+        Err(e) => return format!("Error parsing email: {e}"),
+    };
+
+    let mut text = String::new();
+
+    // Extract key headers
+    for key in &["From", "To", "Cc", "Subject", "Date"] {
+        for header in &parsed.headers {
+            if header.get_key().eq_ignore_ascii_case(key) {
+                let val = header.get_value();
+                if !val.is_empty() {
+                    text.push_str(&format!("{}: {}\n", key, val));
+                }
+                break;
+            }
+        }
+    }
+    text.push_str("\n---\n\n");
+
+    // Extract body text
+    fn collect_body(part: &mailparse::ParsedMail, out: &mut String) {
+        let ctype = part.ctype.mimetype.to_ascii_lowercase();
+        if ctype == "text/plain" || ctype == "text/html" {
+            if let Ok(body) = part.get_body() {
+                let body_text = if ctype == "text/html" {
+                    html2text::from_read(body.as_bytes(), 120)
+                } else {
+                    body
+                };
+                let trimmed = body_text.trim();
+                if !trimmed.is_empty() {
+                    out.push_str(trimmed);
+                    out.push_str("\n\n");
+                }
+            }
+        }
+        for sub in &part.subparts {
+            collect_body(sub, out);
+        }
+    }
+    collect_body(&parsed, &mut text);
+
+    // List attachments
+    fn collect_attachments(part: &mailparse::ParsedMail, atts: &mut Vec<String>) {
+        let disp = part.get_content_disposition();
+        if disp.disposition == mailparse::DispositionType::Attachment {
+            let name = disp.params.get("filename")
+                .cloned()
+                .unwrap_or_else(|| "(unnamed)".to_string());
+            atts.push(format!("{} ({})", name, part.ctype.mimetype));
+        }
+        for sub in &part.subparts {
+            collect_attachments(sub, atts);
+        }
+    }
+    let mut attachments = Vec::new();
+    collect_attachments(&parsed, &mut attachments);
+    if !attachments.is_empty() {
+        text.push_str("Attachments:\n");
+        for att in &attachments {
+            text.push_str(&format!("  - {att}\n"));
+        }
+    }
+
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        return "(Email contains no readable content)".to_string();
+    }
+
+    eprintln!("[READ_FILE/EML] Extracted {} chars, {} attachments", text.len(), attachments.len());
     truncate_text_content(&text, max_chars)
 }
 

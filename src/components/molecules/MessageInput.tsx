@@ -1,5 +1,5 @@
 import React, { useState, useCallback, KeyboardEvent, useEffect, useRef } from 'react';
-import { ArrowUp, Square, X, Image as ImageIcon } from 'lucide-react';
+import { ArrowUp, Square, X, Image as ImageIcon, FileText, Loader2, Paperclip } from 'lucide-react';
 import { useChatContext } from '../../contexts/ChatContext';
 import { useModelContext } from '../../contexts/ModelContext';
 import { MessageStatistics } from './messages/MessageStatistics';
@@ -10,6 +10,32 @@ interface MessageInputProps {
   timings?: TimingInfo;
   tokensUsed?: number;
   maxTokens?: number;
+}
+
+interface AttachedFile {
+  name: string;
+  text: string;
+}
+
+const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp']);
+const TEXT_EXTENSIONS = new Set([
+  '.txt', '.json', '.xml', '.md', '.rs', '.py', '.js', '.ts', '.tsx',
+  '.jsx', '.html', '.css', '.toml', '.yaml', '.yml', '.sh', '.bat', '.c',
+  '.cpp', '.h', '.go', '.java', '.rb', '.php', '.sql', '.log', '.cfg', '.ini',
+]);
+const DOCUMENT_EXTENSIONS = new Set([
+  '.pdf', '.docx', '.pptx', '.xlsx', '.xls', '.xlsm',
+  '.epub', '.odt', '.rtf', '.zip', '.csv', '.eml',
+]);
+
+function getFileExtension(name: string): string {
+  const dot = name.lastIndexOf('.');
+  return dot >= 0 ? name.slice(dot).toLowerCase() : '';
+}
+
+function formatCharCount(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return `${n}`;
 }
 
 function ImagePreviews({ images, onRemove }: { images: string[]; onRemove: (i: number) => void }) {
@@ -37,6 +63,29 @@ function ImagePreviews({ images, onRemove }: { images: string[]; onRemove: (i: n
   );
 }
 
+function FilePreviews({ files, onRemove }: { files: AttachedFile[]; onRemove: (i: number) => void }) {
+  if (files.length === 0) return null;
+  return (
+    <div className="px-5 pt-2 pb-1 flex flex-wrap gap-2">
+      {files.map((file, i) => (
+        <div key={i} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-muted/60 border border-border text-xs">
+          <FileText className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+          <span className="font-medium truncate max-w-[150px]" title={file.name}>{file.name}</span>
+          <span className="text-muted-foreground">{formatCharCount(file.text.length)} chars</span>
+          <button
+            type="button"
+            onClick={() => onRemove(i)}
+            className="ml-0.5 w-4 h-4 flex items-center justify-center rounded-full hover:bg-red-500/20 text-muted-foreground hover:text-red-500 transition-colors"
+            title="Remove file"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export const MessageInput: React.FC<MessageInputProps> = ({
   disabledReason,
   timings,
@@ -50,7 +99,12 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   const disabled = isLoading;
   const [message, setMessage] = useState('');
   const [attachedImages, setAttachedImages] = useState<string[]>([]);
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isExtracting, setIsExtracting] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragCounterRef = useRef(0);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -64,20 +118,85 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     }
   }, [disabled]);
 
+  const processFiles = useCallback(async (files: File[]) => {
+    for (const file of files) {
+      const ext = getFileExtension(file.name);
+
+      // Images → existing vision pipeline
+      if (IMAGE_EXTENSIONS.has(ext) && hasVision) {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const dataUrl = ev.target?.result as string;
+          if (dataUrl) setAttachedImages(prev => [...prev, dataUrl]);
+        };
+        reader.readAsDataURL(file);
+        continue;
+      }
+
+      // Text/code files → read directly in browser
+      if (TEXT_EXTENSIONS.has(ext)) {
+        const text = await file.text();
+        setAttachedFiles(prev => [...prev, { name: file.name, text }]);
+        continue;
+      }
+
+      // Documents → send to backend for extraction
+      if (DOCUMENT_EXTENSIONS.has(ext)) {
+        setIsExtracting(prev => prev + 1);
+        try {
+          const buf = await file.arrayBuffer();
+          const res = await fetch(`/api/file/extract-text?filename=${encodeURIComponent(file.name)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/octet-stream' },
+            body: buf,
+          });
+          const data = await res.json();
+          if (data.success && data.text) {
+            setAttachedFiles(prev => [...prev, { name: file.name, text: data.text }]);
+          }
+        } catch (err) {
+          console.error('File extraction failed:', err);
+        } finally {
+          setIsExtracting(prev => prev - 1);
+        }
+        continue;
+      }
+
+      // Unknown extension — try as text
+      try {
+        const text = await file.text();
+        setAttachedFiles(prev => [...prev, { name: file.name, text }]);
+      } catch {
+        console.warn('Could not read file:', file.name);
+      }
+    }
+  }, [hasVision]);
+
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
-    const hasContent = message.trim() || attachedImages.length > 0;
-    if (!hasContent || disabled) return;
+    const hasContent = message.trim() || attachedImages.length > 0 || attachedFiles.length > 0;
+    if (!hasContent || disabled || isExtracting > 0) return;
+
+    // Build message with file context prepended
+    let finalMessage = '';
+    if (attachedFiles.length > 0) {
+      for (const f of attachedFiles) {
+        finalMessage += `[File: ${f.name}]\n${f.text}\n\n`;
+      }
+    }
+    finalMessage += message.trim() || (attachedImages.length > 0 ? 'What is in this image?' : '');
+
     onSendMessage(
-      message.trim() || 'What is in this image?',
+      finalMessage,
       attachedImages.length > 0 ? attachedImages : undefined,
     );
     setMessage('');
     setAttachedImages([]);
+    setAttachedFiles([]);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
-  }, [message, attachedImages, disabled, onSendMessage]);
+  }, [message, attachedImages, attachedFiles, disabled, isExtracting, onSendMessage]);
 
   const handleKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -98,40 +217,109 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   }, [autoResize]);
 
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    if (!hasVision) return;
     const items = e.clipboardData?.items;
     if (!items) return;
 
-    const imageFiles: File[] = [];
+    // Check for files (images or documents)
+    const pastedFiles: File[] = [];
     for (const item of items) {
-      if (item.type.startsWith('image/')) {
+      if (item.kind === 'file') {
         const file = item.getAsFile();
-        if (file) imageFiles.push(file);
+        if (file) pastedFiles.push(file);
       }
     }
-    if (imageFiles.length === 0) return;
-    e.preventDefault();
+    if (pastedFiles.length === 0) return;
 
-    for (const file of imageFiles) {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const dataUrl = ev.target?.result as string;
-        if (dataUrl) setAttachedImages(prev => [...prev, dataUrl]);
-      };
-      reader.readAsDataURL(file);
+    // Only handle images if vision is available, or handle document files
+    const relevantFiles = pastedFiles.filter(f => {
+      const ext = getFileExtension(f.name);
+      if (IMAGE_EXTENSIONS.has(ext)) return hasVision;
+      return true; // documents and text always accepted
+    });
+    if (relevantFiles.length === 0) return;
+
+    e.preventDefault();
+    processFiles(relevantFiles);
+  }, [hasVision, processFiles]);
+
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current++;
+    if (e.dataTransfer.types.includes('Files')) {
+      setIsDragging(true);
     }
-  }, [hasVision]);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) {
+      setIsDragging(false);
+    }
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current = 0;
+    setIsDragging(false);
+
+    const droppedFiles = Array.from(e.dataTransfer.files);
+    if (droppedFiles.length > 0) {
+      processFiles(droppedFiles);
+    }
+  }, [processFiles]);
+
+  const handleFileButtonClick = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(e.target.files || []);
+    if (selectedFiles.length > 0) {
+      processFiles(selectedFiles);
+    }
+    // Reset input so the same file can be selected again
+    e.target.value = '';
+  }, [processFiles]);
 
   const removeImage = useCallback((index: number) => {
     setAttachedImages(prev => prev.filter((_, i) => i !== index));
   }, []);
 
+  const removeFile = useCallback((index: number) => {
+    setAttachedFiles(prev => prev.filter((_, i) => i !== index));
+  }, []);
+
   const isMultiline = message.includes('\n') || (textareaRef.current?.scrollHeight ?? 0) > 40;
-  const hasContent = message.trim() || attachedImages.length > 0;
-  const placeholder = disabled && disabledReason ? disabledReason : "Ask anything";
+  const hasContent = message.trim() || attachedImages.length > 0 || attachedFiles.length > 0;
+  const placeholder = disabled && disabledReason ? disabledReason : "Ask anything — drop files here";
 
   return (
-    <form onSubmit={handleSubmit} data-testid="message-form">
+    <form
+      onSubmit={handleSubmit}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+      data-testid="message-form"
+      className="relative"
+    >
+      {isDragging ? (
+        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary/50 bg-primary/5 backdrop-blur-sm pointer-events-none">
+          <div className="flex items-center gap-2 text-sm font-medium text-primary">
+            <FileText className="h-5 w-5" />
+            Drop files here
+          </div>
+        </div>
+      ) : null}
       {(timings?.genTokPerSec || disabled) ? (
         <div className="flex items-center justify-between mb-1">
           <div className="flex-1">
@@ -154,7 +342,30 @@ export const MessageInput: React.FC<MessageInputProps> = ({
         </div>
       ) : null}
       <ImagePreviews images={attachedImages} onRemove={removeImage} />
+      <FilePreviews files={attachedFiles} onRemove={removeFile} />
+      {isExtracting > 0 ? (
+        <div className="px-5 pt-1 pb-1 flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          Extracting text from {isExtracting} file{isExtracting > 1 ? 's' : ''}...
+        </div>
+      ) : null}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={handleFileInputChange}
+        accept=".pdf,.docx,.pptx,.xlsx,.xls,.xlsm,.epub,.odt,.rtf,.zip,.csv,.eml,.txt,.json,.xml,.md,.rs,.py,.js,.ts,.tsx,.jsx,.html,.css,.toml,.yaml,.yml,.sh,.bat,.c,.cpp,.h,.go,.java,.rb,.php,.sql,.log,.png,.jpg,.jpeg,.gif,.webp"
+      />
       <div className={`flat-input-container flex items-end gap-2 px-5 py-2.5 ${isMultiline ? '!rounded-2xl' : ''}`}>
+        <button
+          type="button"
+          onClick={handleFileButtonClick}
+          className="flex-shrink-0 flex items-center py-1 opacity-40 hover:opacity-70 transition-opacity"
+          title="Attach files"
+        >
+          <Paperclip className="h-4 w-4" />
+        </button>
         {hasVision && attachedImages.length === 0 ? (
           <div className="flex-shrink-0 flex items-center py-1 opacity-30" title="Paste an image (Ctrl+V)">
             <ImageIcon className="h-4 w-4" />
@@ -176,7 +387,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
         />
         <button
           type="submit"
-          disabled={disabled || !hasContent}
+          disabled={disabled || !hasContent || isExtracting > 0}
           className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-white text-black hover:bg-gray-200 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           data-testid="send-button"
         >

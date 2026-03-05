@@ -185,6 +185,11 @@ async fn handle_request_impl(
             web::routes::tools::handle_get_web_fetch(req).await?
         }
 
+        // File text extraction (for drag-and-drop attachments)
+        (&Method::POST, "/api/file/extract-text") => {
+            web::routes::tools::handle_post_extract_text(req).await?
+        }
+
         // CORS preflight
         (&Method::OPTIONS, _) => web::routes::static_files::handle_options(bridge.clone()).await?,
 

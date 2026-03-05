@@ -126,6 +126,15 @@ quick-xml = "0.37"
 # XLSX/XLS spreadsheet reading (pure Rust)
 calamine = "0.26"
 
+# CSV structured parsing
+csv = "1.3"
+
+# Email (.eml) parsing
+mailparse = "0.15"
+
+# RTF text extraction
+rtf-parser = "0.3"
+
 # HTML to text conversion
 html2text = "0.12"
 
