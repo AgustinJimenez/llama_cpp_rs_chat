@@ -3,6 +3,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
+use std::time::Instant;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -48,6 +49,10 @@ struct BackgroundProcess {
     cursor: Arc<AtomicUsize>,
     /// Set to false by the reader thread when the process exits.
     running: Arc<AtomicBool>,
+    /// When the process was started (for elapsed time display).
+    started_at: Instant,
+    /// Consecutive checks with no new output (reset when output appears or process exits).
+    no_output_checks: AtomicUsize,
 }
 
 lazy_static::lazy_static! {
@@ -665,6 +670,8 @@ pub fn execute_command_background(
                     output_buffer,
                     cursor,
                     running,
+                    started_at: Instant::now(),
+                    no_output_checks: AtomicUsize::new(0),
                 });
             }
 
@@ -716,20 +723,53 @@ pub fn check_background_process(pid: u32) -> String {
     let new_lines: Vec<String> = buf[prev_cursor..].to_vec();
     proc.cursor.store(buf.len(), Ordering::Relaxed);
 
-    if new_lines.is_empty() {
-        format!(
-            "PID {}: {}\nStatus: {}\nNo new output since last check.",
-            pid, proc.command, status
-        )
+    // Track elapsed time since process started for context
+    let elapsed = proc.started_at.elapsed();
+    let elapsed_str = if elapsed.as_secs() >= 60 {
+        format!("{}m{}s", elapsed.as_secs() / 60, elapsed.as_secs() % 60)
     } else {
-        format!(
-            "PID {}: {}\nStatus: {}\nNew output ({} lines):\n{}",
+        format!("{}s", elapsed.as_secs())
+    };
+
+    if new_lines.is_empty() {
+        if is_running {
+            // Increment no-output check counter
+            let checks = proc.no_output_checks.fetch_add(1, Ordering::Relaxed) + 1;
+            if checks >= 5 {
+                // Hard refusal after 5 consecutive checks with no new output
+                return format!(
+                    "ERROR: check_background_process blocked — you already checked PID {} {} times with no new output. \
+                    The process is still running ({}). STOP calling this tool. \
+                    Tell the user the process is running and wait for them to ask you to check again.",
+                    pid, checks, elapsed_str
+                );
+            }
+        }
+        let mut result = format!(
+            "PID {}: {}\nStatus: {} (running for {})\nNo new output since last check.",
+            pid, proc.command, status, elapsed_str
+        );
+        if is_running {
+            result.push_str("\n\nUse the `wait` tool to pause 15 seconds before checking again.");
+        }
+        result
+    } else {
+        // New output found — reset the counter
+        proc.no_output_checks.store(0, Ordering::Relaxed);
+
+        let mut result = format!(
+            "PID {}: {}\nStatus: {} (running for {})\nNew output ({} lines):\n{}",
             pid,
             proc.command,
             status,
+            elapsed_str,
             new_lines.len(),
             new_lines.join("\n")
-        )
+        );
+        if is_running {
+            result.push_str("\n\nProcess is still running. Use the `wait` tool to pause 15 seconds, then check again.");
+        }
+        result
     }
 }
 

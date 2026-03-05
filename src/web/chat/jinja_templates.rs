@@ -500,7 +500,7 @@ pub fn get_available_tools() -> Vec<Value> {
         }),
         json!({
             "name": "check_background_process",
-            "description": "Check on a background process launched with execute_command(background=true). Returns whether it is still running and any new output since last check.",
+            "description": "Check on a background process launched with execute_command(background=true). Returns whether it is still running and any new output since last check. Use the `wait` tool to pause between checks.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -510,6 +510,20 @@ pub fn get_available_tools() -> Vec<Value> {
                     }
                 },
                 "required": ["pid"]
+            }
+        }),
+        json!({
+            "name": "wait",
+            "description": "Pause execution for a specified number of seconds (max 30). Use this between check_background_process calls to avoid instant polling.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "seconds": {
+                        "type": "integer",
+                        "description": "Number of seconds to wait (1-30)"
+                    }
+                },
+                "required": ["seconds"]
             }
         }),
     ]

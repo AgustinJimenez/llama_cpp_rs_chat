@@ -404,12 +404,16 @@ pub fn check_and_execute_command_with_tags(
     log_info!(conversation_id, "🔧 Command detected: {}", command_text);
 
     // Loop detection: check if this command was recently executed
-    // Exempt check_background_process and list_background_processes — polling is their purpose
+    // Exempt wait/sleep (intentional delays) and check_background_process (throttled by wait + no_output_checks)
     let normalized_cmd = command_text.trim().to_string();
-    let is_polling_tool = normalized_cmd.contains("check_background_process")
-        || normalized_cmd.contains("list_background_processes");
+    // Match tool names across all model formats:
+    // JSON: "name": "wait"  |  Llama3 XML: <function=wait>  |  GLM: wait\n<arg_key>  |  Mistral: wait,{
+    let cmd_lower = normalized_cmd.to_lowercase();
+    let is_wait_or_poll = cmd_lower.contains("wait")
+        || cmd_lower.contains("sleep")
+        || cmd_lower.contains("check_background_process");
     let repeat_count = recent_commands.iter().filter(|c| *c == &normalized_cmd).count();
-    if !is_polling_tool && repeat_count >= MAX_COMMAND_REPEATS {
+    if !is_wait_or_poll && repeat_count >= MAX_COMMAND_REPEATS {
         log_info!(
             conversation_id,
             "🔁 Loop detected! Command repeated {} times: {}",

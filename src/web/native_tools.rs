@@ -746,6 +746,15 @@ pub fn dispatch_native_tool(
             }
             super::command::check_background_process(pid)
         }
+        "wait" => {
+            // Parse seconds (number or string), cap at 30
+            let seconds = args.get("seconds").and_then(|v| {
+                v.as_u64().or_else(|| v.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
+            }).unwrap_or(10);
+            let seconds = seconds.min(30);
+            std::thread::sleep(std::time::Duration::from_secs(seconds));
+            format!("Waited {} seconds. You can now check on background processes or continue.", seconds)
+        }
         "git_status" => tool_git_status(&args),
         "git_diff" => tool_git_diff(&args),
         "git_commit" => tool_git_commit(&args),

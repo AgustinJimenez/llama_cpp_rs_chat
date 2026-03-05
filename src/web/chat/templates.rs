@@ -34,7 +34,8 @@ pub fn get_behavioral_system_prompt() -> String {
 - NEVER repeat the same failing command more than once. If it failed, change your approach.
 - When creating files, use `write_file` to create them directly. Do not just show the code and ask the user to copy it.
 - When a task requires multiple steps, execute them one by one using your tools. Do not skip steps.
-- For any command that might take over 30 seconds (package installs like `composer create-project`, `npm install`, builds, downloads), use `execute_command` with `"background": true`. This returns after 5s with the PID. Then use `check_background_process` with the PID to poll for completion — you can do other work in between.
+- For any command that might take over 30 seconds (package installs like `composer create-project`, `npm install`, builds, downloads), use `execute_command` with `"background": true`. This returns after 5s with the PID.
+- To poll background processes: call `check_background_process` → if still running, call `wait` for 15 seconds → then check again. Repeat until it reports "exited".
 
 ## Important Notes
 - Use `read_file` instead of cat/type to read files
@@ -42,7 +43,8 @@ pub fn get_behavioral_system_prompt() -> String {
 - Use `execute_python` for any Python code (avoids shell quoting issues)
 - Use `execute_command` for shell tools like git, npm, curl, etc.
 - For long-running commands (dev servers, watchers, package installs, builds), use `execute_command` with `"background": true` — this returns after 5s with initial output and the PID.
-- Use `check_background_process` with the PID to poll progress. When it reports "exited", the command is done.
+- Use `check_background_process` with the PID to check progress. When it reports "exited", the command is done. Always use `wait` between checks to avoid instant polling.
+- Use `wait` to pause for N seconds (max 30) between background process checks.
 - Use `web_search` to find information online, then `web_fetch` to read specific pages
 - After calling a tool, the system will inject the result automatically. Wait for it before continuing.
 
@@ -159,8 +161,11 @@ After execution, the system will inject the result between {output_open} and {ou
 {exec_open}{{"name": "execute_command", "arguments": {{"command": "{list_cmd}"}}}}{exec_close}
 Background example (returns after 5s with PID): {exec_open}{{"name": "execute_command", "arguments": {{"command": "composer create-project laravel/laravel myapp", "background": true}}}}{exec_close}
 
-### check_background_process — Poll a background process by PID (new output + running/exited status)
+### check_background_process — Check a background process by PID (new output + running/exited status)
 {exec_open}{{"name": "check_background_process", "arguments": {{"pid": 12345}}}}{exec_close}
+
+### wait — Pause for N seconds (max 30). Use between check_background_process calls.
+{exec_open}{{"name": "wait", "arguments": {{"seconds": 15}}}}{exec_close}
 
 ### list_directory — List files in a directory
 {exec_open}{{"name": "list_directory", "arguments": {{"path": "."}}}}{exec_close}
@@ -192,7 +197,8 @@ Independent tools in the array execute concurrently for faster results. Their ou
 - When creating files, use `write_file` to create them directly. Do not just show the code and ask the user to copy it.
 - Use `edit_file` for small changes to existing files instead of rewriting them entirely with `write_file`.
 - When a task requires multiple steps, execute them one by one using your tools. Do not skip steps.
-- For any command that might take over 30 seconds (package installs like `composer create-project`, `npm install`, builds, downloads), use `execute_command` with `"background": true`. This returns after 5s with the PID. Then use `check_background_process` to poll for completion.
+- For any command that might take over 30 seconds (package installs like `composer create-project`, `npm install`, builds, downloads), use `execute_command` with `"background": true`. This returns after 5s with the PID.
+- To poll background processes: call `check_background_process` → if still running, call `wait` for 15 seconds → then check again. Repeat until it reports "exited".
 
 ## Important Notes
 - Use `read_file` instead of cat/type to read files
@@ -204,7 +210,8 @@ Independent tools in the array execute concurrently for faster results. Their ou
 - Use `git_status`, `git_diff`, `git_commit` for git operations instead of `execute_command`
 - Use `execute_python` for any Python code (avoids shell quoting issues)
 - Use `execute_command` for shell tools like npm, curl, etc. Use `"background": true` for long commands (installs, builds, servers).
-- Use `check_background_process` to poll background processes. When it reports "exited", the command is done.
+- Use `check_background_process` to check on background processes. When it reports "exited", the command is done. Always use `wait` between checks.
+- Use `wait` to pause for N seconds (max 30) between background process checks.
 - Use `web_search` to find information online, then `web_fetch` to read specific pages
 - You can also put raw shell commands directly: {exec_open}{list_cmd}{exec_close}
 
@@ -230,8 +237,11 @@ You have these tools available. To call a tool, use the Harmony tool call format
 to=execute_command code<|message|>{{"command": "{list_cmd}"}}<|call|>
 Background example (returns after 5s with PID): to=execute_command code<|message|>{{"command": "composer create-project laravel/laravel myapp", "background": true}}<|call|>
 
-### check_background_process — Poll a background process by PID (new output + running/exited status)
+### check_background_process — Check a background process by PID (new output + running/exited status)
 to=check_background_process code<|message|>{{"pid": 12345}}<|call|>
+
+### wait — Pause for N seconds (max 30). Use between check_background_process calls.
+to=wait code<|message|>{{"seconds": 15}}<|call|>
 
 ### list_directory — List files in a directory
 to=list_directory code<|message|>{{"path": "."}}<|call|>
@@ -284,7 +294,8 @@ to=web_fetch code<|message|>{{"url": "https://example.com"}}<|call|>
 - NEVER repeat the same failing command more than once. If it failed, change your approach.
 - When creating files, use `write_file` to create them directly. Do not just show the code and ask the user to copy it.
 - When a task requires multiple steps, execute them one by one using your tools. Do not skip steps.
-- For any command that might take over 30 seconds (package installs like `composer create-project`, `npm install`, builds, downloads), use `execute_command` with `"background": true`. Then use `check_background_process` to poll for completion.
+- For any command that might take over 30 seconds (package installs like `composer create-project`, `npm install`, builds, downloads), use `execute_command` with `"background": true`.
+- To poll background processes: call `check_background_process` → if still running, call `wait` for 15 seconds → then check again. Repeat until it reports "exited".
 
 ## Important Notes
 - Always use these tools when the user asks you to interact with the filesystem or run commands.
@@ -296,7 +307,8 @@ to=web_fetch code<|message|>{{"url": "https://example.com"}}<|call|>
 - Use `search_files` to find patterns across code. Use `find_files` to locate files by name.
 - Use `git_status`, `git_diff`, `git_commit` for git operations instead of `execute_command`.
 - Use `execute_command` for shell tools like npm, curl, etc. Use `"background": true` for long commands (installs, builds, servers).
-- Use `check_background_process` to poll background processes. When it reports "exited", the command is done.
+- Use `check_background_process` to check on background processes. When it reports "exited", the command is done. Always use `wait` between checks.
+- Use `wait` to pause for N seconds (max 30) between background process checks.
 - Use `web_search` to find information online, then `web_fetch` to read specific pages.
 
 ## Current Environment

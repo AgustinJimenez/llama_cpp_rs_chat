@@ -300,7 +300,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
 
   const isMultiline = message.includes('\n') || (textareaRef.current?.scrollHeight ?? 0) > 40;
   const hasContent = message.trim() || attachedImages.length > 0 || attachedFiles.length > 0;
-  const placeholder = disabled && disabledReason ? disabledReason : "Ask anything — drop files here";
+  const placeholder = disabled && disabledReason ? disabledReason : "Ask anything";
 
   return (
     <form
