@@ -516,6 +516,20 @@ pub fn get_available_tools() -> Vec<Value> {
                 "required": ["pid"]
             }
         }),
+        json!({
+            "name": "take_screenshot",
+            "description": "Capture a screenshot of the user's screen. Returns the file path and image dimensions. Use monitor=-1 to list available monitors without capturing.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "monitor": {
+                        "type": "integer",
+                        "description": "Monitor index (0=primary, 1,2..=other monitors). Use -1 to list available monitors."
+                    }
+                },
+                "required": []
+            }
+        }),
     ]
 }
 

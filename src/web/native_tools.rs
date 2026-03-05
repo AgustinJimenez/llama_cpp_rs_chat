@@ -744,10 +744,14 @@ pub fn dispatch_native_tool(
             if pid == 0 {
                 return Some("Error: 'pid' argument is required and must be a positive integer".to_string());
             }
-            super::command::check_background_process(pid)
+            // Optional wait_seconds: sleep before checking (merges wait + check into one call)
+            let wait_seconds = args.get("wait_seconds").and_then(|v| {
+                v.as_u64().or_else(|| v.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
+            }).unwrap_or(0);
+            super::command::check_background_process(pid, wait_seconds)
         }
         "wait" => {
-            // Parse seconds (number or string), cap at 30
+            // Legacy: still supported but models should prefer check_background_process(wait_seconds=N)
             let seconds = args.get("seconds").and_then(|v| {
                 v.as_u64().or_else(|| v.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
             }).unwrap_or(10);
@@ -758,6 +762,7 @@ pub fn dispatch_native_tool(
         "git_status" => tool_git_status(&args),
         "git_diff" => tool_git_diff(&args),
         "git_commit" => tool_git_commit(&args),
+        "take_screenshot" => tool_take_screenshot(&args),
         _ => return None, // Unknown tool → fall back to shell
     })
 }
@@ -2501,25 +2506,6 @@ fn extract_body_content(html: &str) -> String {
 }
 
 /// Fetch raw HTML via ureq (no html2text conversion).
-fn fetch_html_raw(url: &str) -> Result<String, String> {
-    let agent = ureq::AgentBuilder::new()
-        .timeout_read(std::time::Duration::from_secs(15))
-        .timeout_connect(std::time::Duration::from_secs(10))
-        .user_agent("Mozilla/5.0 (compatible; LlamaChat/1.0)")
-        .build();
-
-    let response = agent.get(url).call().map_err(|e| format!("{e}"))?;
-
-    let mut body_buf = Vec::with_capacity(100_000);
-    response
-        .into_reader()
-        .take(100_000)
-        .read_to_end(&mut body_buf)
-        .map_err(|e| format!("{e}"))?;
-
-    Ok(String::from_utf8_lossy(&body_buf).to_string())
-}
-
 /// Fallback web fetch via ureq HTTP client (used when Chrome is unavailable).
 fn tool_web_fetch_ureq(url: &str, max_chars: usize) -> String {
     let result = crate::web::routes::tools::fetch_url_as_text(url, max_chars);
@@ -2630,6 +2616,93 @@ fn tool_git_commit(args: &Value) -> String {
         }
         Err(e) => format!("Error running git: {e}"),
     }
+}
+
+/// Capture a screenshot of the user's screen.
+fn tool_take_screenshot(args: &Value) -> String {
+    let monitor_idx = args
+        .get("monitor")
+        .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok())))
+        .unwrap_or(0);
+
+    let monitors = match xcap::Monitor::all() {
+        Ok(m) => m,
+        Err(e) => return format!("Error: Failed to enumerate monitors: {e}"),
+    };
+
+    if monitors.is_empty() {
+        return "Error: No monitors detected".to_string();
+    }
+
+    // List monitors mode
+    if monitor_idx == -1 {
+        let mut result = format!("Available monitors ({}):\n", monitors.len());
+        for (i, mon) in monitors.iter().enumerate() {
+            let name = mon.name().unwrap_or_else(|_| "Unknown".to_string());
+            let w = mon.width().unwrap_or(0);
+            let h = mon.height().unwrap_or(0);
+            let primary = mon.is_primary().unwrap_or(false);
+            result.push_str(&format!(
+                "  [{}] {} - {}x{}{}\n",
+                i, name, w, h,
+                if primary { " (primary)" } else { "" }
+            ));
+        }
+        return result;
+    }
+
+    // Select monitor
+    let monitor = if monitor_idx == 0 {
+        // Default: find primary, fallback to first
+        monitors
+            .iter()
+            .find(|m| m.is_primary().unwrap_or(false))
+            .unwrap_or(&monitors[0])
+    } else {
+        let idx = monitor_idx as usize;
+        if idx >= monitors.len() {
+            return format!(
+                "Error: Monitor index {} out of range (0-{})",
+                idx,
+                monitors.len() - 1
+            );
+        }
+        &monitors[idx]
+    };
+
+    // Capture
+    let image = match monitor.capture_image() {
+        Ok(img) => img,
+        Err(e) => return format!("Error: Screenshot capture failed: {e}"),
+    };
+
+    let width = image.width();
+    let height = image.height();
+    let mon_name = monitor.name().unwrap_or_else(|_| "Unknown".to_string());
+    let is_primary = monitor.is_primary().unwrap_or(false);
+
+    // Save to temp directory
+    let screenshots_dir = std::env::temp_dir().join("llama_screenshots");
+    if let Err(e) = std::fs::create_dir_all(&screenshots_dir) {
+        return format!("Error: Failed to create screenshots directory: {e}");
+    }
+
+    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+    let filename = format!("screenshot_{timestamp}.png");
+    let filepath = screenshots_dir.join(&filename);
+
+    if let Err(e) = image.save(&filepath) {
+        return format!("Error: Failed to save screenshot: {e}");
+    }
+
+    format!(
+        "Screenshot saved: {}\nResolution: {}x{}\nMonitor: {} (primary: {})",
+        filepath.display(),
+        width,
+        height,
+        mon_name,
+        if is_primary { "yes" } else { "no" }
+    )
 }
 
 #[cfg(test)]

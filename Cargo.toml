@@ -41,6 +41,9 @@ name = "test_vision"
 path = "src/test_vision.rs"
 required-features = ["vision"]
 
+[lints.rust]
+warnings = "deny"
+
 [lints.clippy]
 all = "warn"
 uninlined_format_args = "warn"
@@ -144,6 +147,9 @@ rfd = "0.15"
 # Headless Chrome for web search (bypasses CAPTCHAs)
 headless_chrome = "1.0"
 encoding_rs = "0.8.35"
+
+# Cross-platform screen capture (Windows, macOS, Linux X11)
+xcap = "0.8"
 
 # libc for Unix fd operations (dup/dup2 in worker IPC)
 [target.'cfg(not(windows))'.dependencies]
