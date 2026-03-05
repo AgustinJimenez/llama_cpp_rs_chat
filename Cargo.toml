@@ -116,6 +116,9 @@ htmd = "0.1"
 # Readability article extraction (Mozilla algorithm — strips nav, ads, footer)
 dom_smoothie = "0.15"
 
+# PDF text extraction (pure Rust, no external dependencies)
+pdf-extract = "0.10"
+
 # HTML to text conversion
 html2text = "0.12"
 

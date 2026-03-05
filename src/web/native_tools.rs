@@ -5,9 +5,27 @@
 //! This eliminates shell quoting issues that break `python -c "..."` on Windows.
 
 use serde_json::Value;
+use std::collections::HashMap;
 use std::io::Read;
 use std::path::Path;
 use std::process::Command;
+use std::sync::Mutex;
+
+use lazy_static::lazy_static;
+
+lazy_static! {
+    /// Per-URL cache for web_fetch results within a session.
+    /// Prevents re-fetching the same URL multiple times in a conversation.
+    /// Key: URL, Value: fetched content string.
+    static ref WEB_FETCH_CACHE: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
+}
+
+/// Clear the web fetch cache (call on new conversation or model reload).
+pub fn clear_web_fetch_cache() {
+    if let Ok(mut cache) = WEB_FETCH_CACHE.lock() {
+        cache.clear();
+    }
+}
 
 /// Maximum file size to return inline (100 KB).
 const MAX_READ_SIZE: usize = 100 * 1024;
@@ -1644,6 +1662,7 @@ fn parse_ddg_results(html: &str, max_results: usize) -> String {
 }
 
 /// Fetch a web page using headless Chrome (JS-rendered), falling back to ureq.
+/// Includes per-session URL cache and PDF text extraction.
 fn tool_web_fetch(args: &Value, use_htmd: bool) -> String {
     let url = match args.get("url").and_then(|v| v.as_str()) {
         Some(u) => u,
@@ -1655,28 +1674,59 @@ fn tool_web_fetch(args: &Value, use_htmd: bool) -> String {
         .and_then(|v| v.as_u64())
         .unwrap_or(MAX_FETCH_CHARS as u64) as usize;
 
+    // --- Cache check: return cached result if URL was already fetched this session ---
+    if let Ok(cache) = WEB_FETCH_CACHE.lock() {
+        if let Some(cached) = cache.get(url) {
+            eprintln!("[WEB_FETCH] Cache hit for {url}");
+            return cached.clone();
+        }
+    }
+
+    // --- PDF detection: fetch raw bytes and extract text ---
+    let url_lower = url.to_ascii_lowercase();
+    if url_lower.ends_with(".pdf") || url_lower.contains(".pdf?") || url_lower.contains(".pdf#") {
+        let result = fetch_pdf_text(url, max_chars);
+        cache_result(url, &result);
+        return result;
+    }
+
     // When use_htmd is enabled, use htmd (HTML→Markdown) instead of html2text (HTML→plaintext)
     // This produces LLM-optimized markdown with links, headers, and formatting preserved
     if use_htmd {
         // Try Chrome first for JS-rendered content, convert to markdown via htmd
         match super::browser::chrome_web_fetch_html(url) {
             Ok(html) if !html.is_empty() => {
-                return html_to_markdown_truncated(&html, max_chars);
+                let result = html_to_markdown_truncated(&html, max_chars);
+                cache_result(url, &result);
+                return result;
             }
             Ok(_) => eprintln!("[WEB_FETCH/MD] Chrome returned empty HTML, trying ureq"),
             Err(e) => eprintln!("[WEB_FETCH/MD] Chrome failed: {e}, trying ureq"),
         }
 
-        // Fallback: ureq fetch, convert to markdown
-        match fetch_html_raw(url) {
-            Ok(html) => return html_to_markdown_truncated(&html, max_chars),
+        // Fallback: ureq fetch — check content-type for PDF before converting
+        match fetch_bytes_with_content_type(url) {
+            Ok((bytes, content_type)) => {
+                if content_type.contains("application/pdf") {
+                    let result = extract_pdf_text(&bytes, max_chars);
+                    cache_result(url, &result);
+                    return result;
+                }
+                let html = String::from_utf8_lossy(&bytes).to_string();
+                let result = html_to_markdown_truncated(&html, max_chars);
+                cache_result(url, &result);
+                return result;
+            }
             Err(e) => eprintln!("[WEB_FETCH/MD] ureq also failed: {e}, falling back to plain text"),
         }
     }
 
     // Default path: Try headless Chrome first (gets JS-rendered content)
     let chrome_timed_out = match super::browser::chrome_web_fetch(url, max_chars) {
-        Ok(content) if !content.is_empty() => return content,
+        Ok(content) if !content.is_empty() => {
+            cache_result(url, &content);
+            return content;
+        }
         Ok(_) => {
             eprintln!("[WEB_FETCH] Chrome returned empty content, falling back to ureq");
             false
@@ -1693,10 +1743,73 @@ fn tool_web_fetch(args: &Value, use_htmd: bool) -> String {
     let result = tool_web_fetch_ureq(url, max_chars);
 
     // If both Chrome and ureq failed, prepend a clear timeout notice
-    if chrome_timed_out && result.starts_with("Error") {
+    let result = if chrome_timed_out && result.starts_with("Error") {
         format!("Error: Request timed out. The URL '{url}' did not respond within the timeout period. {result}")
     } else {
         result
+    };
+
+    cache_result(url, &result);
+    result
+}
+
+/// Store a web_fetch result in the per-session cache.
+fn cache_result(url: &str, content: &str) {
+    if let Ok(mut cache) = WEB_FETCH_CACHE.lock() {
+        cache.insert(url.to_string(), content.to_string());
+    }
+}
+
+/// Fetch a URL as raw bytes and return (bytes, content-type).
+fn fetch_bytes_with_content_type(url: &str) -> Result<(Vec<u8>, String), String> {
+    let agent = ureq::AgentBuilder::new()
+        .timeout_read(std::time::Duration::from_secs(15))
+        .timeout_connect(std::time::Duration::from_secs(10))
+        .user_agent("Mozilla/5.0 (compatible; LlamaChat/1.0)")
+        .build();
+
+    let response = agent.get(url).call().map_err(|e| format!("{e}"))?;
+    let content_type = response.content_type().to_string();
+
+    let mut buf = Vec::with_capacity(500_000);
+    response
+        .into_reader()
+        .take(2_000_000) // 2MB limit for PDFs
+        .read_to_end(&mut buf)
+        .map_err(|e| format!("{e}"))?;
+
+    Ok((buf, content_type))
+}
+
+/// Fetch a PDF URL and extract text.
+fn fetch_pdf_text(url: &str, max_chars: usize) -> String {
+    eprintln!("[WEB_FETCH/PDF] Detected PDF URL: {url}");
+    match fetch_bytes_with_content_type(url) {
+        Ok((bytes, _)) => extract_pdf_text(&bytes, max_chars),
+        Err(e) => format!("Error fetching PDF: {e}"),
+    }
+}
+
+/// Extract text from PDF bytes using pdf-extract.
+fn extract_pdf_text(bytes: &[u8], max_chars: usize) -> String {
+    match pdf_extract::extract_text_from_mem(bytes) {
+        Ok(text) => {
+            let text = text.trim().to_string();
+            if text.is_empty() {
+                return "(PDF contains no extractable text — may be scanned/image-based)".to_string();
+            }
+            eprintln!("[WEB_FETCH/PDF] Extracted {} chars from PDF", text.len());
+            if text.len() > max_chars {
+                let mut end = max_chars;
+                while end > 0 && !text.is_char_boundary(end) {
+                    end -= 1;
+                }
+                format!("{}\n\n[PDF truncated at {} chars]", &text[..end], max_chars)
+            } else {
+                text
+            }
+        }
+        Err(e) => format!("Error extracting PDF text: {e}"),
     }
 }
 
