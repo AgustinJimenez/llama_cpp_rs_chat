@@ -382,7 +382,7 @@ pub fn get_available_tools() -> Vec<Value> {
         }),
         json!({
             "name": "execute_command",
-            "description": "Execute a shell command (git, npm, curl, etc.). Set background=true for commands that run indefinitely (dev servers, watchers, listeners) to avoid blocking.",
+            "description": "Execute a shell command (git, npm, curl, etc.). Set background=true ONLY for processes that run indefinitely (dev servers, watchers). Do NOT use background for package installs (composer, npm install, pip) — they run in foreground with streaming output.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -392,7 +392,7 @@ pub fn get_available_tools() -> Vec<Value> {
                     },
                     "background": {
                         "type": "boolean",
-                        "description": "Run in background for long-running processes (dev servers, watchers). Returns after 5s with initial output and the PID. Use check_background_process to check on it later."
+                        "description": "Run in background ONLY for dev servers, watchers, daemons. NOT for package installs or builds. Returns after 5s with initial output and the PID."
                     }
                 },
                 "required": ["command"]
@@ -500,30 +500,20 @@ pub fn get_available_tools() -> Vec<Value> {
         }),
         json!({
             "name": "check_background_process",
-            "description": "Check on a background process launched with execute_command(background=true). Returns whether it is still running and any new output since last check. Use the `wait` tool to pause between checks.",
+            "description": "Check on a background process launched with execute_command(background=true). Returns whether it is still running and any new output since last check. Use wait_seconds to pause before checking (combines wait + check in one call).",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "pid": {
                         "type": "integer",
                         "description": "The PID returned by execute_command with background=true"
+                    },
+                    "wait_seconds": {
+                        "type": "integer",
+                        "description": "Seconds to wait before checking (1-30). Use this instead of calling wait separately."
                     }
                 },
                 "required": ["pid"]
-            }
-        }),
-        json!({
-            "name": "wait",
-            "description": "Pause execution for a specified number of seconds (max 30). Use this between check_background_process calls to avoid instant polling.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "seconds": {
-                        "type": "integer",
-                        "description": "Number of seconds to wait (1-30)"
-                    }
-                },
-                "required": ["seconds"]
             }
         }),
     ]

@@ -19,13 +19,24 @@ use std::os::windows::process::CommandExt;
 fn kill_process_tree(pid: u32) {
     #[cfg(target_os = "windows")]
     {
-        let _ = Command::new("taskkill")
+        match Command::new("taskkill")
             .args(["/T", "/F", "/PID", &pid.to_string()])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .creation_flags(0x08000000) // CREATE_NO_WINDOW
-            .status();
+            .status()
+        {
+            Ok(status) if status.success() => {
+                eprintln!("[KILL] Process tree killed (pid={})", pid);
+            }
+            Ok(status) => {
+                eprintln!("[KILL] taskkill exited with {} for pid={}", status, pid);
+            }
+            Err(e) => {
+                eprintln!("[KILL] Failed to run taskkill for pid={}: {}", pid, e);
+            }
+        }
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -53,6 +64,8 @@ struct BackgroundProcess {
     started_at: Instant,
     /// Consecutive checks with no new output (reset when output appears or process exits).
     no_output_checks: AtomicUsize,
+    /// Total number of check_background_process calls (never resets).
+    total_checks: AtomicUsize,
 }
 
 lazy_static::lazy_static! {
@@ -387,76 +400,58 @@ pub fn execute_command_streaming(
     match child_result {
         Ok(mut child) => {
             let mut output = String::new();
-
-            // Capture PID before sharing child — needed for process tree kill on Windows.
             let child_pid = child.id();
-
-            // Take stdout before sharing child with monitor thread
             let stdout_pipe = child.stdout.take();
 
-            // Wrap child so the cancel/timeout-monitor thread can kill it.
-            // The monitor uses kill_process_tree() to terminate the entire tree
-            // (cmd.exe + child processes like php.exe) — prevents pipe handle leaks.
-            // A `done_flag` tells the monitor to exit on normal completion.
-            let child_cell = Arc::new(StdMutex::new(child));
-            let done_flag = Arc::new(AtomicBool::new(false));
-            // Track last time output was received — used for inactivity timeout
-            let last_activity = Arc::new(StdMutex::new(std::time::Instant::now()));
+            const INACTIVITY_TIMEOUT_SECS: u64 = 120;
+            // Check cancellation every 200ms — responsive enough without busy-waiting
+            const POLL_INTERVAL_MS: u64 = 200;
 
-            const INACTIVITY_TIMEOUT_SECS: u64 = 30;
-            let inactivity_killed = Arc::new(AtomicBool::new(false));
+            let mut was_cancelled = false;
+            let mut inactivity_killed = false;
 
-            let monitor_handle = {
-                let done_ref = done_flag.clone();
-                let activity_ref = last_activity.clone();
-                let inactivity_ref = inactivity_killed.clone();
-                let cancel_flag = cancel;
-                std::thread::spawn(move || -> bool {
-                    loop {
-                        // Check user cancellation
-                        if let Some(ref flag) = cancel_flag {
-                            if flag.load(Ordering::Relaxed) {
-                                kill_process_tree(child_pid);
-                                return true; // was cancelled
-                            }
-                        }
-                        if done_ref.load(Ordering::Relaxed) {
-                            return false; // normal completion
-                        }
-                        // Check inactivity timeout
-                        if let Ok(guard) = activity_ref.lock() {
-                            if guard.elapsed().as_secs() >= INACTIVITY_TIMEOUT_SECS {
-                                eprintln!("[STREAM] Inactivity timeout ({}s), killing process tree (pid={})", INACTIVITY_TIMEOUT_SECS, child_pid);
-                                inactivity_ref.store(true, Ordering::Relaxed);
-                                kill_process_tree(child_pid);
-                                return false;
-                            }
-                        }
-                        std::thread::sleep(std::time::Duration::from_millis(100));
-                    }
-                })
-            };
-
-            // Read stdout and stream output as it arrives.
-            // stderr is merged into stdout via 2>&1, so all output comes through here.
-            // We use byte-level reading instead of BufReader::lines() because:
-            // 1. lines() only splits on \n — progress bars using \r would be missed
-            // 2. When pipe data arrives in bursts (from child's buffer flush), we want
-            //    to emit each line immediately rather than waiting for more \n
             if let Some(stdout) = stdout_pipe {
-                let mut reader = std::io::BufReader::new(stdout);
+                // Channel-based reader: a dedicated thread reads from the pipe and
+                // sends chunks through a channel. The main thread uses recv_timeout()
+                // to reliably detect inactivity — unlike the old monitor-thread approach
+                // where a blocking read() could prevent the timeout from taking effect
+                // (e.g. if kill_process_tree failed silently, the monitor exited and
+                // nobody was left to retry, leaving read() blocked forever).
+                let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+                std::thread::spawn(move || {
+                    let mut reader = std::io::BufReader::new(stdout);
+                    let mut buf = [0u8; 4096];
+                    loop {
+                        match std::io::Read::read(&mut reader, &mut buf) {
+                            Ok(0) => break, // EOF
+                            Ok(n) => {
+                                if tx.send(buf[..n].to_vec()).is_err() {
+                                    break; // receiver dropped
+                                }
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                });
+
                 let mut line_buf = String::new();
-                let mut byte_buf = [0u8; 4096];
+                let mut last_data = Instant::now();
 
                 loop {
-                    match std::io::Read::read(&mut reader, &mut byte_buf) {
-                        Ok(0) => break, // EOF (child exited or was killed)
-                        Ok(n) => {
-                            // Update last activity time for inactivity monitor
-                            if let Ok(mut guard) = last_activity.lock() {
-                                *guard = std::time::Instant::now();
-                            }
-                            let chunk = String::from_utf8_lossy(&byte_buf[..n]);
+                    // Check user cancellation
+                    if let Some(ref flag) = cancel {
+                        if flag.load(Ordering::Relaxed) {
+                            eprintln!("[STREAM] Cancelled by user, killing pid={}", child_pid);
+                            kill_process_tree(child_pid);
+                            was_cancelled = true;
+                            break;
+                        }
+                    }
+
+                    match rx.recv_timeout(std::time::Duration::from_millis(POLL_INTERVAL_MS)) {
+                        Ok(data) => {
+                            last_data = Instant::now();
+                            let chunk = String::from_utf8_lossy(&data);
                             for ch in chunk.chars() {
                                 if ch == '\n' || ch == '\r' {
                                     if !line_buf.is_empty() {
@@ -470,10 +465,25 @@ pub fn execute_command_streaming(
                                 }
                             }
                         }
-                        Err(_) => break,
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                            // No data — check inactivity threshold
+                            if last_data.elapsed().as_secs() >= INACTIVITY_TIMEOUT_SECS {
+                                eprintln!(
+                                    "[STREAM] Inactivity timeout ({}s), killing pid={}",
+                                    INACTIVITY_TIMEOUT_SECS, child_pid
+                                );
+                                kill_process_tree(child_pid);
+                                inactivity_killed = true;
+                                break;
+                            }
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                            break; // Reader thread exited (pipe closed / process exited)
+                        }
                     }
                 }
-                // Flush any remaining content
+
+                // Flush remaining content in line buffer
                 if !line_buf.is_empty() {
                     on_line(&line_buf);
                     output.push_str(&line_buf);
@@ -481,18 +491,14 @@ pub fn execute_command_streaming(
                 }
             }
 
-            // Signal monitor thread to exit, then wait for child + monitor
-            done_flag.store(true, Ordering::Relaxed);
-
-            let status = child_cell.lock().unwrap().wait();
+            // Reap child process
+            let status = child.wait();
             let exit_code = status.as_ref().ok().and_then(|s| s.code()).unwrap_or(-1);
             let success = status.as_ref().map(|s| s.success()).unwrap_or(false);
 
-            let was_cancelled = monitor_handle.join().unwrap_or(false);
-
             if was_cancelled {
                 output.push_str("\n[Cancelled by user]\n");
-            } else if inactivity_killed.load(Ordering::Relaxed) {
+            } else if inactivity_killed {
                 output.push_str(&format!(
                     "\n[Process killed: no output for {}s — likely waiting for input]\n",
                     INACTIVITY_TIMEOUT_SECS
@@ -672,6 +678,7 @@ pub fn execute_command_background(
                     running,
                     started_at: Instant::now(),
                     no_output_checks: AtomicUsize::new(0),
+                    total_checks: AtomicUsize::new(0),
                 });
             }
 
@@ -689,7 +696,13 @@ pub fn execute_command_background(
 }
 
 /// Check on a background process by PID. Returns status and any new output since last check.
-pub fn check_background_process(pid: u32) -> String {
+/// If `wait_seconds > 0`, sleeps first before checking (merges wait + check into one call).
+pub fn check_background_process(pid: u32, wait_seconds: u64) -> String {
+    // Optional built-in wait before checking (saves a separate tool call)
+    if wait_seconds > 0 {
+        let capped = wait_seconds.min(30);
+        std::thread::sleep(std::time::Duration::from_secs(capped));
+    }
     let procs = match BACKGROUND_PROCESSES.lock() {
         Ok(p) => p,
         Err(_) => return "Error: Failed to access background process registry".to_string(),
@@ -731,17 +744,23 @@ pub fn check_background_process(pid: u32) -> String {
         format!("{}s", elapsed.as_secs())
     };
 
+    // Track total checks (never resets) — prevents infinite polling loops
+    let total = proc.total_checks.fetch_add(1, Ordering::Relaxed) + 1;
+    const MAX_TOTAL_CHECKS: usize = 5;
+
     if new_lines.is_empty() {
         if is_running {
             // Increment no-output check counter
             let checks = proc.no_output_checks.fetch_add(1, Ordering::Relaxed) + 1;
-            if checks >= 5 {
-                // Hard refusal after 5 consecutive checks with no new output
+            if checks >= 5 || total >= MAX_TOTAL_CHECKS {
                 return format!(
-                    "ERROR: check_background_process blocked — you already checked PID {} {} times with no new output. \
-                    The process is still running ({}). STOP calling this tool. \
-                    Tell the user the process is running and wait for them to ask you to check again.",
-                    pid, checks, elapsed_str
+                    "PID {}: {}\nStatus: running ({})\n\
+                    STOP POLLING. You have checked this process {} times. \
+                    The process is still running in the background and will complete on its own. \
+                    ASSUME IT WILL SUCCEED and continue with the next steps immediately. \
+                    Do NOT check this PID again. Do NOT re-run the same command. \
+                    Proceed as if the command completed successfully.",
+                    pid, proc.command, elapsed_str, total
                 );
             }
         }
@@ -750,11 +769,11 @@ pub fn check_background_process(pid: u32) -> String {
             pid, proc.command, status, elapsed_str
         );
         if is_running {
-            result.push_str("\n\nUse the `wait` tool to pause 15 seconds before checking again.");
+            result.push_str("\n\nUse the `wait_seconds` parameter (e.g. 15) on your next check_background_process call to pause before checking again.");
         }
         result
     } else {
-        // New output found — reset the counter
+        // New output found — reset the no-output counter (but NOT total_checks)
         proc.no_output_checks.store(0, Ordering::Relaxed);
 
         let mut result = format!(
@@ -767,7 +786,18 @@ pub fn check_background_process(pid: u32) -> String {
             new_lines.join("\n")
         );
         if is_running {
-            result.push_str("\n\nProcess is still running. Use the `wait` tool to pause 15 seconds, then check again.");
+            if total >= MAX_TOTAL_CHECKS {
+                result.push_str(&format!(
+                    "\n\nSTOP POLLING. You have checked this process {} times. \
+                    The process is still running and will complete on its own. \
+                    ASSUME IT WILL SUCCEED and continue with the next steps immediately. \
+                    Do NOT check this PID again. Do NOT re-run the same command. \
+                    Proceed as if the command completed successfully.",
+                    total
+                ));
+            } else {
+                result.push_str("\n\nProcess is still running. Use `wait_seconds: 15` on your next check_background_process call to pause before checking.");
+            }
         }
         result
     }
