@@ -5,6 +5,7 @@
 //! This eliminates shell quoting issues that break `python -c "..."` on Windows.
 
 use serde_json::Value;
+use std::io::Read;
 use std::path::Path;
 use std::process::Command;
 
@@ -674,6 +675,7 @@ pub fn dispatch_native_tool(
     text: &str,
     web_search_provider: Option<&str>,
     web_search_api_key: Option<&str>,
+    use_htmd: bool,
 ) -> Option<String> {
     let trimmed = text.trim();
 
@@ -707,7 +709,7 @@ pub fn dispatch_native_tool(
         "execute_python" => tool_execute_python(&args),
         "list_directory" => tool_list_directory(&args),
         "web_search" => tool_web_search(&args, web_search_provider, web_search_api_key),
-        "web_fetch" => tool_web_fetch(&args),
+        "web_fetch" => tool_web_fetch(&args, use_htmd),
         "execute_command" => {
             // Delegate to shell execution via command.rs
             let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
@@ -1642,7 +1644,7 @@ fn parse_ddg_results(html: &str, max_results: usize) -> String {
 }
 
 /// Fetch a web page using headless Chrome (JS-rendered), falling back to ureq.
-fn tool_web_fetch(args: &Value) -> String {
+fn tool_web_fetch(args: &Value, use_htmd: bool) -> String {
     let url = match args.get("url").and_then(|v| v.as_str()) {
         Some(u) => u,
         None => return "Error: 'url' argument is required".to_string(),
@@ -1653,7 +1655,26 @@ fn tool_web_fetch(args: &Value) -> String {
         .and_then(|v| v.as_u64())
         .unwrap_or(MAX_FETCH_CHARS as u64) as usize;
 
-    // Try headless Chrome first (gets JS-rendered content)
+    // When use_htmd is enabled, use htmd (HTML→Markdown) instead of html2text (HTML→plaintext)
+    // This produces LLM-optimized markdown with links, headers, and formatting preserved
+    if use_htmd {
+        // Try Chrome first for JS-rendered content, convert to markdown via htmd
+        match super::browser::chrome_web_fetch_html(url) {
+            Ok(html) if !html.is_empty() => {
+                return html_to_markdown_truncated(&html, max_chars);
+            }
+            Ok(_) => eprintln!("[WEB_FETCH/MD] Chrome returned empty HTML, trying ureq"),
+            Err(e) => eprintln!("[WEB_FETCH/MD] Chrome failed: {e}, trying ureq"),
+        }
+
+        // Fallback: ureq fetch, convert to markdown
+        match fetch_html_raw(url) {
+            Ok(html) => return html_to_markdown_truncated(&html, max_chars),
+            Err(e) => eprintln!("[WEB_FETCH/MD] ureq also failed: {e}, falling back to plain text"),
+        }
+    }
+
+    // Default path: Try headless Chrome first (gets JS-rendered content)
     let chrome_timed_out = match super::browser::chrome_web_fetch(url, max_chars) {
         Ok(content) if !content.is_empty() => return content,
         Ok(_) => {
@@ -1677,6 +1698,65 @@ fn tool_web_fetch(args: &Value) -> String {
     } else {
         result
     }
+}
+
+/// Convert HTML to LLM-optimized markdown using htmd, then truncate.
+fn html_to_markdown_truncated(html: &str, max_chars: usize) -> String {
+    // Extract <body> content only — htmd converts everything including <head>
+    // which leaks <link>, <style>, <meta> tags into the markdown output.
+    let body_html = extract_body_content(html);
+    let source = if body_html.is_empty() { html } else { &body_html };
+
+    let converter = htmd::HtmlToMarkdown::new();
+    let markdown = converter.convert(source).unwrap_or_else(|e| {
+        eprintln!("[WEB_FETCH/MD] htmd conversion failed: {e}, using raw html2text");
+        html2text::from_read(source.as_bytes(), 120)
+    });
+
+    if markdown.is_empty() {
+        return "(empty page)".to_string();
+    }
+
+    if markdown.len() > max_chars {
+        let mut end = max_chars;
+        while end > 0 && !markdown.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}\n\n[Truncated at {} chars]", &markdown[..end], max_chars)
+    } else {
+        markdown
+    }
+}
+
+/// Extract content between <body> and </body> tags (case-insensitive).
+fn extract_body_content(html: &str) -> String {
+    let lower = html.to_ascii_lowercase();
+    let start = lower.find("<body").and_then(|i| lower[i..].find('>').map(|j| i + j + 1));
+    let end = lower.rfind("</body>");
+    match (start, end) {
+        (Some(s), Some(e)) if s < e => html[s..e].to_string(),
+        _ => String::new(), // fallback: convert whole HTML
+    }
+}
+
+/// Fetch raw HTML via ureq (no html2text conversion).
+fn fetch_html_raw(url: &str) -> Result<String, String> {
+    let agent = ureq::AgentBuilder::new()
+        .timeout_read(std::time::Duration::from_secs(15))
+        .timeout_connect(std::time::Duration::from_secs(10))
+        .user_agent("Mozilla/5.0 (compatible; LlamaChat/1.0)")
+        .build();
+
+    let response = agent.get(url).call().map_err(|e| format!("{e}"))?;
+
+    let mut body_buf = Vec::with_capacity(100_000);
+    response
+        .into_reader()
+        .take(100_000)
+        .read_to_end(&mut body_buf)
+        .map_err(|e| format!("{e}"))?;
+
+    Ok(String::from_utf8_lossy(&body_buf).to_string())
 }
 
 /// Fallback web fetch via ureq HTTP client (used when Chrome is unavailable).

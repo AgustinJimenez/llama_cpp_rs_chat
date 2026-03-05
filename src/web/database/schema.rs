@@ -352,6 +352,12 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         [],
     );
 
+    // htmd web fetch (better markdown extraction)
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN use_htmd INTEGER DEFAULT 0",
+        [],
+    );
+
     // Add tag_pairs JSON column if missing
     let _ = conn.execute(
         "ALTER TABLE config ADD COLUMN tag_pairs TEXT",

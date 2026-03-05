@@ -90,6 +90,7 @@ export interface SamplerConfig {
   main_gpu?: number;       // 0
   split_mode?: string;     // "layer" | "row" | "none"
   use_rtk?: boolean;       // RTK output compression for tool commands
+  use_htmd?: boolean; // htmd web fetch (better markdown extraction)
   // Dynamic tag pairs (Stage 1 — stored in config, not yet used by pipeline)
   tag_pairs?: TagPair[];
 }

@@ -179,6 +179,52 @@ fn do_fetch(tab: &Tab, url: &str, max_chars: usize) -> Result<String, String> {
     }
 }
 
+/// Fetch raw HTML from a URL using headless Chrome (no html2text conversion).
+/// Used by the markdown fetch path (htmd converts HTML→markdown separately).
+pub fn chrome_web_fetch_html(url: &str) -> Result<String, String> {
+    let url_owned = url.to_string();
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    std::thread::spawn(move || {
+        let result = chrome_web_fetch_html_inner(&url_owned);
+        let _ = tx.send(result);
+    });
+
+    match rx.recv_timeout(FETCH_HARD_TIMEOUT) {
+        Ok(result) => result,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            eprintln!("[BROWSER] chrome_web_fetch_html hard timeout ({}s)", FETCH_HARD_TIMEOUT.as_secs());
+            shutdown_browser();
+            Err(format!("Chrome fetch timed out after {}s", FETCH_HARD_TIMEOUT.as_secs()))
+        }
+        Err(e) => Err(format!("Chrome fetch thread error: {e}")),
+    }
+}
+
+fn chrome_web_fetch_html_inner(url: &str) -> Result<String, String> {
+    get_or_init_browser()?;
+    let tab = new_tab()?;
+
+    tab.set_default_timeout(NAV_TIMEOUT);
+    if let Err(e) = tab.enable_stealth_mode() {
+        eprintln!("[BROWSER] Stealth mode failed (non-fatal): {e}");
+    }
+
+    tab.navigate_to(url)
+        .map_err(|e| format!("Navigation failed: {e}"))?;
+    tab.wait_until_navigated()
+        .map_err(|e| format!("Navigation wait failed: {e}"))?;
+
+    std::thread::sleep(Duration::from_millis(500));
+
+    let html = tab
+        .get_content()
+        .map_err(|e| format!("Failed to get page content: {e}"))?;
+
+    let _ = tab.close(true);
+    Ok(html)
+}
+
 /// Explicitly shut down the browser to free memory.
 #[allow(dead_code)]
 pub fn shutdown_browser() {

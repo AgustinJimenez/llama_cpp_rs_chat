@@ -272,6 +272,7 @@ struct TokenGenConfig<'a> {
     web_search_provider: Option<&'a str>,
     web_search_api_key: Option<&'a str>,
     use_rtk: bool,
+    use_htmd: bool,
 }
 
 /// Stall detection: if a single token takes longer than this, abort generation.
@@ -490,7 +491,7 @@ fn run_generation_loop(
                 &gen.response, gen.last_exec_scan_pos, cfg.conversation_id, model, cfg.tags,
                 cfg.template_type, cfg.web_search_provider, cfg.web_search_api_key,
                 &mut gen.recent_commands, token_sender, gen.token_pos, cfg.context_size,
-                Some(cancel.clone()), cfg.use_rtk,
+                Some(cancel.clone()), cfg.use_rtk, cfg.use_htmd,
             )? {
                 // Sync accumulated content + command output to logger
                 {
@@ -1036,6 +1037,7 @@ pub async fn generate_llama_response(
         web_search_provider: config.web_search_provider.as_deref(),
         web_search_api_key: config.web_search_api_key.as_deref(),
         use_rtk: config.use_rtk,
+        use_htmd: config.use_htmd,
     };
 
     run_generation_loop(

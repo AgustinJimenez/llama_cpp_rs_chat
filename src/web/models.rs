@@ -156,6 +156,8 @@ pub struct SamplerConfig {
     #[serde(default)]
     pub use_rtk: bool,
     #[serde(default)]
+    pub use_htmd: bool,
+    #[serde(default)]
     pub tag_pairs: Option<Vec<crate::web::chat::tool_tags::TagPair>>,
 }
 
@@ -280,6 +282,7 @@ impl Default for SamplerConfig {
             main_gpu: 0,
             split_mode: "layer".to_string(),
             use_rtk: false,
+            use_htmd: false,
             tag_pairs: None,
         }
     }

@@ -67,6 +67,7 @@ pub fn db_config_to_sampler_config(db_config: &DbSamplerConfig) -> SamplerConfig
         main_gpu: db_config.main_gpu,
         split_mode: db_config.split_mode.clone(),
         use_rtk: db_config.use_rtk,
+        use_htmd: db_config.use_htmd,
         tag_pairs,
     }
 }
@@ -123,6 +124,7 @@ pub fn sampler_config_to_db(config: &SamplerConfig) -> DbSamplerConfig {
         main_gpu: config.main_gpu,
         split_mode: config.split_mode.clone(),
         use_rtk: config.use_rtk,
+        use_htmd: config.use_htmd,
         tag_pairs: tag_pairs_json,
     }
 }

@@ -179,6 +179,7 @@ impl Database {
                     web_search_provider: None,
                     web_search_api_key: None,
                     use_rtk: false,
+                    use_htmd: false,
                 })
             },
         )

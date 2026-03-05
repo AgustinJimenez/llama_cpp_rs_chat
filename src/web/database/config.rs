@@ -56,6 +56,8 @@ pub struct DbSamplerConfig {
     pub split_mode: String,
     // RTK output compression
     pub use_rtk: bool,
+    // htmd web fetch (better markdown extraction)
+    pub use_htmd: bool,
     // Tag pairs (stored as JSON string in DB)
     pub tag_pairs: Option<String>,
 }
@@ -108,6 +110,7 @@ impl Default for DbSamplerConfig {
             main_gpu: 0,
             split_mode: "layer".to_string(),
             use_rtk: false,
+            use_htmd: false,
             tag_pairs: None,
         }
     }
@@ -145,6 +148,7 @@ impl Database {
                         rope_freq_base, rope_freq_scale,
                         use_mlock, use_mmap, main_gpu, split_mode,
                         use_rtk,
+                        use_htmd,
                         tag_pairs
                  FROM config WHERE id = 1",
                 [],
@@ -200,7 +204,8 @@ impl Database {
                         main_gpu: row.get::<_, Option<i32>>(41)?.unwrap_or(0),
                         split_mode: row.get::<_, Option<String>>(42)?.unwrap_or_else(|| "layer".to_string()),
                         use_rtk: row.get::<_, Option<i32>>(43)?.unwrap_or(0) != 0,
-                        tag_pairs: row.get(44)?,
+                        use_htmd: row.get::<_, Option<i32>>(44)?.unwrap_or(0) != 0,
+                        tag_pairs: row.get(45)?,
                     })
                 },
             )
@@ -243,11 +248,12 @@ impl Database {
               rope_freq_base, rope_freq_scale,
               use_mlock, use_mmap, main_gpu, split_mode,
               use_rtk,
+              use_htmd,
               tag_pairs,
               updated_at)
              VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
                      ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33,
-                     ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46)",
+                     ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47)",
             params![
                 config.sampler_type,
                 config.temperature,
@@ -293,6 +299,7 @@ impl Database {
                 config.main_gpu,
                 config.split_mode,
                 config.use_rtk as i32,
+                config.use_htmd as i32,
                 tag_pairs_json,
                 current_timestamp_millis(),
             ],
@@ -332,8 +339,9 @@ impl Database {
              rope_freq_base = ?38, rope_freq_scale = ?39,
              use_mlock = ?40, use_mmap = ?41, main_gpu = ?42, split_mode = ?43,
              use_rtk = ?44,
-             tag_pairs = ?45,
-             updated_at = ?46
+             use_htmd = ?45,
+             tag_pairs = ?46,
+             updated_at = ?47
              WHERE id = 1",
             params![
                 config.sampler_type,
@@ -380,6 +388,7 @@ impl Database {
                 config.main_gpu,
                 config.split_mode,
                 config.use_rtk as i32,
+                config.use_htmd as i32,
                 tag_pairs_json,
                 current_timestamp_millis(),
             ],
