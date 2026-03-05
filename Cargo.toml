@@ -113,6 +113,9 @@ ureq = { version = "2.9", default-features = false, features = ["tls"] }
 # HTML to Markdown conversion (LLM-optimized output, replaces html2text when enabled)
 htmd = "0.1"
 
+# Readability article extraction (Mozilla algorithm — strips nav, ads, footer)
+dom_smoothie = "0.15"
+
 # HTML to text conversion
 html2text = "0.12"
 

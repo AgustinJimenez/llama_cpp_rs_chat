@@ -1700,13 +1700,52 @@ fn tool_web_fetch(args: &Value, use_htmd: bool) -> String {
     }
 }
 
-/// Convert HTML to LLM-optimized markdown using htmd, then truncate.
+/// Convert HTML to LLM-optimized markdown using dom_smoothie + htmd, then truncate.
+///
+/// Pipeline: full HTML → dom_smoothie (extract article) → htmd (HTML→markdown)
+/// Fallback: if readability fails → extract <body> → htmd → html2text
 fn html_to_markdown_truncated(html: &str, max_chars: usize) -> String {
-    // Extract <body> content only — htmd converts everything including <head>
-    // which leaks <link>, <style>, <meta> tags into the markdown output.
-    let body_html = extract_body_content(html);
-    let source = if body_html.is_empty() { html } else { &body_html };
+    // Step 1: Try dom_smoothie readability extraction (strips nav, ads, footer)
+    let article_html = match dom_smoothie::Readability::new(html, None, None) {
+        Ok(mut reader) => match reader.parse() {
+            Ok(article) => {
+                let content = article.content;
+                if content.trim().is_empty() {
+                    eprintln!("[WEB_FETCH/MD] readability returned empty content, falling back");
+                    None
+                } else {
+                    Some(content)
+                }
+            }
+            Err(e) => {
+                eprintln!("[WEB_FETCH/MD] readability parse failed: {e}, falling back");
+                None
+            }
+        },
+        Err(e) => {
+            eprintln!("[WEB_FETCH/MD] readability init failed: {e}, falling back");
+            None
+        }
+    };
 
+    // Step 2: Convert to markdown via htmd
+    let source = match &article_html {
+        Some(article) => article,
+        None => {
+            // Fallback: extract <body> only (avoids <head> tag leakage)
+            let body = extract_body_content(html);
+            if body.is_empty() { html } else {
+                // Need to return owned string — use a leak-free approach
+                return convert_and_truncate(&body, max_chars);
+            }
+        }
+    };
+
+    convert_and_truncate(source, max_chars)
+}
+
+/// Convert HTML source to markdown and truncate.
+fn convert_and_truncate(source: &str, max_chars: usize) -> String {
     let converter = htmd::HtmlToMarkdown::new();
     let markdown = converter.convert(source).unwrap_or_else(|e| {
         eprintln!("[WEB_FETCH/MD] htmd conversion failed: {e}, using raw html2text");
