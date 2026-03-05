@@ -760,6 +760,14 @@ fn tool_read_file(args: &Value) -> String {
         None => return "Error: 'path' argument is required".to_string(),
     };
 
+    // PDF files: extract text instead of returning binary garbage
+    if path.to_ascii_lowercase().ends_with(".pdf") {
+        return match std::fs::read(path) {
+            Ok(bytes) => extract_pdf_text(&bytes, MAX_READ_SIZE),
+            Err(e) => format!("Error reading '{path}': {e}"),
+        };
+    }
+
     match std::fs::read_to_string(path) {
         Ok(content) => {
             let total_bytes = content.len();
