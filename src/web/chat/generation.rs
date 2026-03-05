@@ -1152,3 +1152,129 @@ fn inject_media_markers(prompt: &str, user_message: &str, count: usize) -> Strin
         format!("{markers}{prompt}")
     }
 }
+
+/// Generate a short title for a conversation using the loaded model.
+///
+/// Uses a temporary context (does NOT touch the inference cache) so the
+/// main conversation's KV cache is preserved. Generates up to 30 tokens
+/// with temperature 0.7.
+pub fn generate_title_text(
+    llama_state: &SharedLlamaState,
+    prompt: &str,
+) -> Result<String, String> {
+    let mut state_guard = llama_state
+        .lock()
+        .map_err(|_| "Failed to lock LLaMA state")?;
+    let state = state_guard.as_mut().ok_or("No model loaded")?;
+    let model = state.model.as_ref().ok_or("No model loaded")?;
+
+    // Format a minimal [system, user] prompt using the model's chat template
+    let system_msg = "Generate a concise title (3-6 words) for this conversation. Respond with ONLY the title, nothing else.";
+
+    #[allow(deprecated)]
+    use llama_cpp_2::model::Special;
+    #[allow(deprecated)]
+    let bos_text = model
+        .token_to_str(model.token_bos(), Special::Tokenize)
+        .unwrap_or_else(|_| "<s>".to_string());
+    #[allow(deprecated)]
+    let eos_text = model
+        .token_to_str(model.token_eos(), Special::Tokenize)
+        .unwrap_or_else(|_| "</s>".to_string());
+
+    let formatted_prompt = if let Some(ref template_str) = state.chat_template_string {
+        // Use Jinja template (no tools, no behavioral prompt)
+        use super::jinja_templates::{apply_native_chat_template, ChatMessage};
+        let messages = vec![
+            ChatMessage { role: "system".into(), content: system_msg.into(), tool_calls: None },
+            ChatMessage { role: "user".into(), content: prompt.into(), tool_calls: None },
+        ];
+        apply_native_chat_template(template_str, messages, None, None, true, &bos_text, &eos_text)
+            .unwrap_or_else(|_| format!("SYSTEM:\n{system_msg}\n\nUSER:\n{prompt}\n\nASSISTANT:\n"))
+    } else {
+        // Simple fallback format
+        format!("SYSTEM:\n{system_msg}\n\nUSER:\n{prompt}\n\nASSISTANT:\n")
+    };
+
+    // Tokenize
+    let tokens = model
+        .str_to_token(&formatted_prompt, AddBos::Never)
+        .map_err(|e| format!("Title tokenization failed: {e}"))?;
+
+    eprintln!("[WORKER] Title generation: {} prompt tokens", tokens.len());
+
+    // Create a temporary context (small size, doesn't touch inference_cache)
+    let title_ctx_size = 2048u32;
+    let n_ctx = NonZeroU32::new(title_ctx_size).unwrap();
+    let offload_kqv = state.gpu_layers.unwrap_or(0) > 0;
+    let config = SamplerConfig::default();
+    let mut ctx = create_fresh_context(model, &state.backend, n_ctx, offload_kqv, &config)?;
+
+    // Evaluate prompt tokens in batches
+    let batch_cap = 512usize;
+    let n_chunks = tokens.len().div_ceil(batch_cap);
+    let mut batch = LlamaBatch::new(batch_cap, 1);
+    for chunk_idx in 0..n_chunks {
+        let start = chunk_idx * batch_cap;
+        let end = std::cmp::min(start + batch_cap, tokens.len());
+        batch.clear();
+        for (offset, &token) in tokens[start..end].iter().enumerate() {
+            let pos = (start + offset) as i32;
+            let is_last = start + offset == tokens.len() - 1;
+            batch.add(token, pos, &[0], is_last)
+                .map_err(|e| format!("Title batch add failed: {e}"))?;
+        }
+        ctx.decode(&mut batch)
+            .map_err(|e| format!("Title prompt decode failed: {e}"))?;
+    }
+
+    // Create a simple sampler: temp(0.7) + dist
+    let mut sampler = LlamaSampler::chain_simple(vec![
+        LlamaSampler::temp(0.7),
+        LlamaSampler::dist(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos() as u32)
+                .unwrap_or(42),
+        ),
+    ]);
+
+    // Generate up to 30 tokens
+    let mut title = String::new();
+    let mut token_pos = tokens.len() as i32;
+    let eos_token = model.token_eos();
+
+    for _ in 0..30 {
+        let next_token = sampler.sample(&ctx, -1);
+        if next_token == eos_token {
+            break;
+        }
+
+        #[allow(deprecated)]
+        let token_str = model
+            .token_to_str(next_token, Special::Tokenize)
+            .unwrap_or_default();
+
+        // Stop on newlines (title should be single line)
+        if token_str.contains('\n') {
+            break;
+        }
+
+        title.push_str(&token_str);
+
+        batch.clear();
+        batch.add(next_token, token_pos, &[0], true)
+            .map_err(|e| format!("Title gen batch add failed: {e}"))?;
+        ctx.decode(&mut batch)
+            .map_err(|e| format!("Title gen decode failed: {e}"))?;
+        token_pos += 1;
+    }
+
+    // Drop the temporary context (inference_cache untouched)
+    drop(ctx);
+    drop(state_guard);
+
+    let result = title.trim().to_string();
+    eprintln!("[WORKER] Title generated: {:?}", result);
+    Ok(result)
+}

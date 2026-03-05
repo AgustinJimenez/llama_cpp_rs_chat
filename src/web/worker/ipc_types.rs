@@ -36,6 +36,11 @@ pub enum WorkerCommand {
     },
     /// Cancel the in-progress generation.
     CancelGeneration,
+    /// Generate a short title for a conversation (no conversation logging).
+    GenerateTitle {
+        conversation_id: String,
+        prompt: String,
+    },
     /// Health check.
     Ping,
     /// Graceful shutdown.
@@ -102,6 +107,11 @@ pub enum WorkerPayload {
     },
     /// Generation was cancelled by the user.
     GenerationCancelled,
+    /// Title generated for a conversation.
+    TitleGenerated {
+        conversation_id: String,
+        title: String,
+    },
     /// Health check response.
     Pong,
     /// An error occurred.

@@ -8,11 +8,13 @@ const HubExplorer = React.lazy(() => import('./HubExplorer').then(m => ({ defaul
 import { useChatContext } from '../../contexts/ChatContext';
 import { useUIContext } from '../../contexts/UIContext';
 import { useDownloadContext } from '../../contexts/DownloadContext';
+import { useConnection } from '../../contexts/ConnectionContext';
 
 interface ConversationFile {
   name: string;
-  displayName: string;
+  display_name: string;
   timestamp: string;
+  title?: string;
 }
 
 interface SidebarProps {
@@ -75,6 +77,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
   const { loadConversation: onLoadConversation, currentConversationId } = useChatContext();
   const { openAppSettings: onOpenAppSettings } = useUIContext();
   const { activeCount: downloadActiveCount } = useDownloadContext();
+  const { connected } = useConnection();
   const [conversations, setConversations] = useState<ConversationFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -97,15 +100,23 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
     }
   };
 
+  // Fetch conversations on mount and when server reconnects
   useEffect(() => {
-    fetchConversations();
-  }, []);
+    if (connected) fetchConversations();
+  }, [connected]);
 
   useEffect(() => {
-    if (currentConversationId) {
+    if (currentConversationId && connected) {
       fetchConversations();
     }
-  }, [currentConversationId]);
+  }, [currentConversationId, connected]);
+
+  // Listen for background title generation completing
+  useEffect(() => {
+    const handler = () => { fetchConversations(); };
+    window.addEventListener('conversation-title-updated', handler);
+    return () => window.removeEventListener('conversation-title-updated', handler);
+  }, []);
 
   // Group conversations by date
   const groupedEntries = useMemo(() => {
@@ -224,8 +235,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
                       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onLoadConversation(conversation.name); }}
                       data-testid={`conversation-${flatIndex}`}
                     >
-                      <span className="truncate flex-1 min-w-0">
-                        {conversation.displayName || conversation.name}
+                      <span className="truncate flex-1 min-w-0" title={conversation.title || conversation.display_name || conversation.name}>
+                        {conversation.title || conversation.display_name || conversation.name}
                       </span>
                       <div className="flex items-center gap-1 flex-shrink-0 ml-2">
                         <span className={`text-xs ${isActive ? 'text-black/50' : 'text-foreground/50'}`}>

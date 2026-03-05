@@ -76,10 +76,18 @@ pub async fn handle_get_conversations(
                     .unwrap_or(&record.id)
                     .to_string();
 
+                // Use DB title for display_name when available
+                let title = db.get_conversation_title(&record.id).ok().flatten();
+                let display_name = title
+                    .as_deref()
+                    .map(|t| t.to_string())
+                    .unwrap_or_else(|| format!("Chat {timestamp_part}"));
+
                 conversations.push(ConversationFile {
-                    name: format!("{}.txt", record.id), // Keep .txt extension for API compatibility
-                    display_name: format!("Chat {timestamp_part}"),
+                    name: format!("{}.txt", record.id),
+                    display_name,
                     timestamp: timestamp_part,
+                    title,
                 });
             }
         }

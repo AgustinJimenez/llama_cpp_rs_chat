@@ -206,6 +206,10 @@ export function useChat() {
           if (!currentConversationId) {
             setCurrentConversationId(conversationId);
           }
+          // Trigger delayed sidebar refresh to pick up auto-generated/updated title
+          setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('conversation-title-updated'));
+          }, 4000);
           if (tokenCount !== undefined) setTokensUsed(tokenCount);
           if (maxTokenCount !== undefined) setMaxTokens(maxTokenCount);
           if (timings) {

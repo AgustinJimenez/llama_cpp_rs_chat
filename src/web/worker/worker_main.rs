@@ -17,7 +17,7 @@ use std::thread;
 use crossbeam_channel::{self, Receiver, Sender};
 
 use super::ipc_types::*;
-use crate::web::chat::{generate_llama_response, warmup_system_prompt};
+use crate::web::chat::{generate_llama_response, generate_title_text, warmup_system_prompt};
 use crate::web::database::{Database, SharedDatabase};
 use crate::web::model_manager::{get_model_status, load_model, ModelParams};
 use crate::web::models::{SharedLlamaState, TokenData};
@@ -320,6 +320,50 @@ pub fn run_worker(db_path: &str) {
                 cancel_flag.store(true, Ordering::SeqCst);
                 eprintln!("[WORKER] Cancellation flag set");
                 // No response needed for cancel (fire-and-forget)
+            }
+
+            WorkerCommand::GenerateTitle {
+                conversation_id,
+                prompt,
+            } => {
+                // Clean up finished generation thread before checking availability
+                // (same pattern as Generate handler — fixes race where thread sent
+                // GenerationComplete but hasn't been joined yet)
+                if let Some(handle) = generation_thread.take() {
+                    if handle.is_finished() {
+                        let _ = handle.join();
+                    } else {
+                        // Still actually running — put it back and reject
+                        generation_thread = Some(handle);
+                        write_response(
+                            &mut ipc_writer,
+                            &WorkerResponse::error(req_id, "Cannot generate title while generation is in progress"),
+                        );
+                        continue;
+                    }
+                }
+
+                eprintln!("[WORKER] Generating title for conv={}", conversation_id);
+                let state = llama_state.clone();
+
+                match generate_title_text(&state, &prompt) {
+                    Ok(title) => {
+                        write_response(
+                            &mut ipc_writer,
+                            &WorkerResponse::ok(
+                                req_id,
+                                WorkerPayload::TitleGenerated {
+                                    conversation_id,
+                                    title,
+                                },
+                            ),
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!("[WORKER] Title generation failed: {e}");
+                        write_response(&mut ipc_writer, &WorkerResponse::error(req_id, e));
+                    }
+                }
             }
 
             WorkerCommand::Generate {

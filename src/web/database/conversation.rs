@@ -172,6 +172,32 @@ impl Database {
         Ok(())
     }
 
+    /// Update conversation title
+    pub fn update_conversation_title(&self, id: &str, title: &str) -> Result<(), String> {
+        let conn = self.connection();
+        conn.execute(
+            "UPDATE conversations SET title = ?1 WHERE id = ?2",
+            params![title, id],
+        )
+        .map_err(db_error("update conversation title"))?;
+        Ok(())
+    }
+
+    /// Get conversation title (returns None if not set)
+    pub fn get_conversation_title(&self, id: &str) -> Result<Option<String>, String> {
+        let conn = self.connection();
+        let result = conn.query_row(
+            "SELECT title FROM conversations WHERE id = ?1",
+            [id],
+            |row| row.get::<_, Option<String>>(0),
+        );
+        match result {
+            Ok(title) => Ok(title),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(format!("Failed to get conversation title: {e}")),
+        }
+    }
+
     /// Insert a complete message
     pub fn insert_message(
         &self,

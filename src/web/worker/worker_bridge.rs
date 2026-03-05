@@ -228,6 +228,22 @@ impl WorkerBridge {
         }
     }
 
+    /// Generate a short title for a conversation using the loaded model.
+    pub async fn generate_title(&self, conversation_id: &str, prompt: &str) -> Result<String, String> {
+        let payload = self
+            .send_and_wait(WorkerCommand::GenerateTitle {
+                conversation_id: conversation_id.to_string(),
+                prompt: prompt.to_string(),
+            })
+            .await?;
+
+        match payload {
+            WorkerPayload::TitleGenerated { title, .. } => Ok(title),
+            WorkerPayload::Error { message } => Err(message),
+            _ => Err("Unexpected response to GenerateTitle".to_string()),
+        }
+    }
+
     /// Get cached model status (no IPC round-trip).
     pub async fn model_status(&self) -> Option<ModelMeta> {
         self.model_meta.lock().await.clone()

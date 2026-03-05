@@ -80,7 +80,7 @@ async fn flush_pending_tokens(
 pub async fn handle_websocket(
     upgraded: Upgraded,
     bridge: SharedWorkerBridge,
-    _db: SharedDatabase,
+    db: SharedDatabase,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Convert the upgraded connection to a WebSocket stream
     let ws_stream = WebSocketStream::from_raw_socket(
@@ -213,6 +213,54 @@ pub async fn handle_websocket(
                                             });
                                             let _ = ws_sender.send(WsMessage::Text(done_msg.to_string())).await;
                                             sys_debug!("[WS_CHAT] Done message sent");
+
+                                            // Background: auto-generate/update title after each response
+                                            {
+                                                let conv_id_clean = conversation_id.trim_end_matches(".txt").to_string();
+                                                let db_bg = db.clone();
+                                                let bridge_bg = bridge.clone();
+                                                tokio::spawn(async move {
+                                                    let messages = match db_bg.get_messages(&conv_id_clean) {
+                                                        Ok(m) => m,
+                                                        Err(_) => return,
+                                                    };
+                                                    // Need at least one user + one assistant message
+                                                    let first_user = messages.iter().find(|m| m.role == "user");
+                                                    let first_assistant = messages.iter().find(|m| m.role == "assistant");
+                                                    if first_user.is_none() || first_assistant.is_none() {
+                                                        return;
+                                                    }
+                                                    // Build prompt from first + last exchange (if different)
+                                                    let last_user = messages.iter().rev().find(|m| m.role == "user");
+                                                    let last_assistant = messages.iter().rev().find(|m| m.role == "assistant");
+                                                    let mut prompt = String::new();
+                                                    let fu = first_user.unwrap();
+                                                    let fa = first_assistant.unwrap();
+                                                    let fu_trunc: String = fu.content.chars().take(200).collect();
+                                                    let fa_trunc: String = fa.content.chars().take(200).collect();
+                                                    prompt.push_str(&format!("User: {fu_trunc}\nAssistant: {fa_trunc}"));
+                                                    // Append latest exchange if it's different from the first
+                                                    if let (Some(lu), Some(la)) = (last_user, last_assistant) {
+                                                        if lu.content != fu.content {
+                                                            let lu_trunc: String = lu.content.chars().take(200).collect();
+                                                            let la_trunc: String = la.content.chars().take(200).collect();
+                                                            prompt.push_str(&format!("\n\n[Latest]\nUser: {lu_trunc}\nAssistant: {la_trunc}"));
+                                                        }
+                                                    }
+
+                                                    match bridge_bg.generate_title(&conv_id_clean, &prompt).await {
+                                                        Ok(raw_title) => {
+                                                            let title = sanitize_title(&raw_title);
+                                                            if !title.is_empty() {
+                                                                if let Err(e) = db_bg.update_conversation_title(&conv_id_clean, &title) {
+                                                                    eprintln!("[WS_CHAT] Failed to store title: {e}");
+                                                                }
+                                                            }
+                                                        }
+                                                        Err(e) => eprintln!("[WS_CHAT] Title generation failed: {e}"),
+                                                    }
+                                                });
+                                            }
                                         }
                                         Ok(GenerationResult::Cancelled) => {
                                             sys_info!("[WS_CHAT] Generation was cancelled");
@@ -524,4 +572,30 @@ pub async fn handle_status_ws(
     let _ = ACTIVE_WS_CONNECTIONS.fetch_sub(1, Ordering::SeqCst);
     sys_info!("[WS_STATUS] Status WebSocket disconnected");
     Ok(())
+}
+
+/// Clean up model-generated title: strip quotes, markdown, "Title:" prefix, truncate.
+fn sanitize_title(raw: &str) -> String {
+    let mut s = raw.trim().to_string();
+    // Strip leading "Title:" or "title:" prefix
+    if let Some(rest) = s.strip_prefix("Title:").or_else(|| s.strip_prefix("title:")) {
+        s = rest.trim().to_string();
+    }
+    // Strip surrounding quotes
+    if (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')) {
+        s = s[1..s.len() - 1].to_string();
+    }
+    // Strip markdown bold/italic
+    s = s.replace("**", "").replace("__", "");
+    // Take first line only
+    if let Some(pos) = s.find('\n') {
+        s.truncate(pos);
+    }
+    // Truncate to 60 chars
+    let s = s.trim().to_string();
+    if s.chars().count() > 60 {
+        s.chars().take(60).collect::<String>().trim_end().to_string()
+    } else {
+        s
+    }
 }
