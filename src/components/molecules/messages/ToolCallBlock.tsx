@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { SyntaxHighlighter, dracula } from '../../../utils/syntaxHighlighterSetup';
 import { detectLanguageFromPath } from '../../../utils/languageDetect';
@@ -171,9 +171,55 @@ const CompletedHeader: React.FC<{
   </button>
 );
 
+/** Scrollable output container with overscroll containment and streaming auto-scroll. */
+const ScrollableOutput: React.FC<{
+  output: string; isStreaming?: boolean; language?: string | null;
+}> = ({ output, isStreaming, language }) => {
+  const scrollRef = useRef<HTMLElement>(null);
+  const userScrolledRef = useRef(false);
+
+  // Auto-scroll to bottom during streaming, unless user scrolled up
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !isStreaming || userScrolledRef.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [output, isStreaming]);
+
+  // Reset user-scrolled flag when streaming starts
+  useEffect(() => {
+    if (isStreaming) userScrolledRef.current = false;
+  }, [isStreaming]);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el || !isStreaming) return;
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    userScrolledRef.current = distFromBottom > 30;
+  }, [isStreaming]);
+
+  const containStyle = { borderTop: '1px solid hsl(220 8% 28%)', overscrollBehavior: 'contain' as const };
+
+  if (language && output.length < 50000) {
+    return (
+      <div ref={scrollRef as React.RefObject<HTMLDivElement>} onScroll={handleScroll}
+        style={containStyle} className="max-h-64 overflow-y-auto">
+        <SyntaxHighlighter
+          style={dracula} language={language}
+          customStyle={{ margin: 0, padding: '0.5rem 0.75rem', fontSize: '0.75rem', background: 'transparent' }}
+        >{output}</SyntaxHighlighter>
+      </div>
+    );
+  }
+  return (
+    <pre ref={scrollRef as React.RefObject<HTMLPreElement>} onScroll={handleScroll}
+      className="text-xs text-foreground font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto"
+      style={containStyle}>{output}</pre>
+  );
+};
+
 const CompletedOutput: React.FC<{
-  output: string; isExpanded: boolean; onToggle: () => void; language?: string | null;
-}> = ({ output, isExpanded, onToggle, language }) => (
+  output: string; isExpanded: boolean; onToggle: () => void; language?: string | null; isStreaming?: boolean;
+}> = ({ output, isExpanded, onToggle, language, isStreaming }) => (
   <>
     <button
       onClick={onToggle}
@@ -186,24 +232,7 @@ const CompletedOutput: React.FC<{
       </span>
       {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-foreground flex-shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 text-foreground flex-shrink-0" />}
     </button>
-    {isExpanded ? (
-      language && output.length < 50000 ? (
-        <div style={{ borderTop: '1px solid hsl(220 8% 28%)' }} className="max-h-64 overflow-y-auto">
-          <SyntaxHighlighter
-            style={dracula}
-            language={language}
-            customStyle={{ margin: 0, padding: '0.5rem 0.75rem', fontSize: '0.75rem', background: 'transparent' }}
-          >
-            {output}
-          </SyntaxHighlighter>
-        </div>
-      ) : (
-        <pre className="text-xs text-foreground font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto"
-          style={{ borderTop: '1px solid hsl(220 8% 28%)' }}>
-          {output}
-        </pre>
-      )
-    ) : null}
+    {isExpanded ? <ScrollableOutput output={output} isStreaming={isStreaming} language={language} /> : null}
   </>
 );
 
@@ -219,7 +248,7 @@ const EditFileDiff: React.FC<{ args: Record<string, unknown> }> = ({ args }) => 
 
   return (
     <pre className="text-xs font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto"
-      style={{ borderTop: '1px solid hsl(220 8% 28%)' }}>
+      style={{ borderTop: '1px solid hsl(220 8% 28%)', overscrollBehavior: 'contain' }}>
       <div className="text-muted-foreground mb-1">{String(args.path || '')}</div>
       {oldLines.map((line, i) => (
         <div key={`old-${i}`} style={{ backgroundColor: 'rgba(248, 81, 73, 0.15)', color: '#f85149' }}>
@@ -275,11 +304,12 @@ const SingleToolCall: React.FC<{ toolCall: ToolCall }> = ({ toolCall }) => {
       {isExpanded ? (
         toolCall.name === 'edit_file' && typeof toolCall.arguments === 'object'
           ? <EditFileDiff args={toolCall.arguments as Record<string, unknown>} />
-          : <pre className="text-xs text-foreground font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto">
+          : <pre className="text-xs text-foreground font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto"
+              style={{ overscrollBehavior: 'contain' }}>
               {formatToolArguments(toolCall.arguments)}
             </pre>
       ) : null}
-      {toolCall.output ? <CompletedOutput output={toolCall.output} isExpanded={isOutputExpanded} onToggle={() => setIsOutputExpanded(!isOutputExpanded)} language={outputLanguage} /> : null}
+      {toolCall.output ? <CompletedOutput output={toolCall.output} isExpanded={isOutputExpanded} onToggle={() => setIsOutputExpanded(!isOutputExpanded)} language={outputLanguage} isStreaming={isExecuting} /> : null}
     </div>
   );
 };
