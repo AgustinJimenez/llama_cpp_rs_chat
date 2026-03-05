@@ -122,7 +122,7 @@ After execution, the system will inject the result between {output_open} and {ou
 
 ## Available Tools
 
-### read_file — Read a file's contents (supports PDF text extraction)
+### read_file — Read a file's contents (supports PDF and DOCX text extraction)
 {exec_open}{{"name": "read_file", "arguments": {{"path": "filename.txt"}}}}{exec_close}
 
 ### write_file — Write content to a file (creates parent dirs)
@@ -236,7 +236,7 @@ to=check_background_process code<|message|>{{"pid": 12345}}<|call|>
 ### list_directory — List files in a directory
 to=list_directory code<|message|>{{"path": "."}}<|call|>
 
-### read_file — Read a file's contents (supports PDF text extraction)
+### read_file — Read a file's contents (supports PDF and DOCX text extraction)
 to=read_file code<|message|>{{"path": "filename.txt"}}<|call|>
 
 ### write_file — Write content to a file (creates parent dirs)

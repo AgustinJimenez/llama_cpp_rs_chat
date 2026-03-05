@@ -760,10 +760,20 @@ fn tool_read_file(args: &Value) -> String {
         None => return "Error: 'path' argument is required".to_string(),
     };
 
+    let path_lower = path.to_ascii_lowercase();
+
     // PDF files: extract text instead of returning binary garbage
-    if path.to_ascii_lowercase().ends_with(".pdf") {
+    if path_lower.ends_with(".pdf") {
         return match std::fs::read(path) {
             Ok(bytes) => extract_pdf_text(&bytes, MAX_READ_SIZE),
+            Err(e) => format!("Error reading '{path}': {e}"),
+        };
+    }
+
+    // DOCX files: extract text from ZIP/XML structure
+    if path_lower.ends_with(".docx") {
+        return match std::fs::read(path) {
+            Ok(bytes) => extract_docx_text(&bytes, MAX_READ_SIZE),
             Err(e) => format!("Error reading '{path}': {e}"),
         };
     }
@@ -1818,6 +1828,69 @@ fn extract_pdf_text(bytes: &[u8], max_chars: usize) -> String {
             }
         }
         Err(e) => format!("Error extracting PDF text: {e}"),
+    }
+}
+
+/// Extract plain text from DOCX bytes (ZIP containing word/document.xml with <w:t> tags).
+fn extract_docx_text(bytes: &[u8], max_chars: usize) -> String {
+    let cursor = std::io::Cursor::new(bytes);
+    let mut archive = match zip::ZipArchive::new(cursor) {
+        Ok(a) => a,
+        Err(e) => return format!("Error reading DOCX archive: {e}"),
+    };
+
+    let mut xml_content = String::new();
+    match archive.by_name("word/document.xml") {
+        Ok(mut entry) => {
+            if let Err(e) = entry.read_to_string(&mut xml_content) {
+                return format!("Error reading DOCX document.xml: {e}");
+            }
+        }
+        Err(e) => return format!("Error: not a valid DOCX file (missing word/document.xml): {e}"),
+    }
+
+    let mut reader = quick_xml::Reader::from_str(&xml_content);
+    let mut text = String::new();
+    let mut in_t = false;
+
+    loop {
+        match reader.read_event() {
+            Ok(quick_xml::events::Event::Start(e)) | Ok(quick_xml::events::Event::Empty(e)) => {
+                let local = e.local_name();
+                if local.as_ref() == b"p" && !text.is_empty() {
+                    text.push('\n');
+                } else if local.as_ref() == b"t" {
+                    in_t = true;
+                }
+            }
+            Ok(quick_xml::events::Event::End(e)) => {
+                if e.local_name().as_ref() == b"t" {
+                    in_t = false;
+                }
+            }
+            Ok(quick_xml::events::Event::Text(e)) if in_t => {
+                if let Ok(s) = e.unescape() {
+                    text.push_str(&s);
+                }
+            }
+            Ok(quick_xml::events::Event::Eof) => break,
+            Err(e) => return format!("Error parsing DOCX XML: {e}"),
+            _ => {}
+        }
+    }
+
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        return "(DOCX contains no extractable text)".to_string();
+    }
+
+    eprintln!("[READ_FILE/DOCX] Extracted {} chars from DOCX", text.len());
+    if text.len() > max_chars {
+        let mut end = max_chars;
+        while end > 0 && !text.is_char_boundary(end) { end -= 1; }
+        format!("{}\n\n[DOCX truncated at {} chars]", &text[..end], max_chars)
+    } else {
+        text
     }
 }
 

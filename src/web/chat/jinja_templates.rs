@@ -238,7 +238,7 @@ pub fn get_available_tools() -> Vec<Value> {
     vec![
         json!({
             "name": "read_file",
-            "description": "Read the contents of a file. Supports PDF text extraction. Returns the file text (truncated at 100KB for large files).",
+            "description": "Read the contents of a file. Supports PDF and DOCX text extraction. Returns the file text (truncated at 100KB for large files).",
             "parameters": {
                 "type": "object",
                 "properties": {

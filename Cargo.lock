@@ -2664,6 +2664,7 @@ dependencies = [
  "log4rs",
  "minijinja",
  "pdf-extract",
+ "quick-xml 0.37.5",
  "regex",
  "rfd 0.15.4",
  "rusqlite",
