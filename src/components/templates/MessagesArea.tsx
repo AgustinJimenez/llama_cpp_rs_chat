@@ -7,7 +7,7 @@ import { useChatContext } from '../../contexts/ChatContext';
 import { useUIContext } from '../../contexts/UIContext';
 
 export function MessagesArea() {
-  const { messages, isLoading } = useChatContext();
+  const { messages, isLoading, editMessage } = useChatContext();
   const { viewMode } = useUIContext();
   const containerRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
@@ -117,6 +117,9 @@ export function MessagesArea() {
                     message={messages[virtualRow.index]}
                     viewMode={viewMode}
                     isStreaming={isLoading ? virtualRow.index === messages.length - 1 : undefined}
+                    messageIndex={virtualRow.index}
+                    onEditMessage={editMessage}
+                    isGenerating={isLoading}
                   />
                 ) : (
                   <LoadingIndicator />

@@ -127,6 +127,62 @@ pub async fn handle_get_conversation_metrics(
     }
 }
 
+/// POST /api/conversations/:id/truncate — delete messages from a given sequence_order onward
+pub async fn handle_truncate_conversation(
+    req: hyper::Request<Body>,
+    path: &str,
+    db: SharedDatabase,
+) -> Result<Response<Body>, Infallible> {
+    let stripped = match path.strip_prefix("/api/conversations/") {
+        Some(s) => s,
+        None => return Ok(json_error(StatusCode::BAD_REQUEST, "Invalid path")),
+    };
+    let conv_id = match stripped.strip_suffix("/truncate") {
+        Some(s) => s.trim_end_matches(".txt"),
+        None => return Ok(json_error(StatusCode::BAD_REQUEST, "Invalid path")),
+    };
+
+    // Parse request body
+    let body_bytes = match hyper::body::to_bytes(req.into_body()).await {
+        Ok(b) => b,
+        Err(_) => return Ok(json_error(StatusCode::BAD_REQUEST, "Failed to read body")),
+    };
+    let from_sequence: i32 = match serde_json::from_slice::<serde_json::Value>(&body_bytes)
+        .ok()
+        .and_then(|v| v.get("from_sequence")?.as_i64())
+    {
+        Some(n) => n as i32,
+        None => {
+            return Ok(json_error(
+                StatusCode::BAD_REQUEST,
+                "Missing or invalid from_sequence",
+            ))
+        }
+    };
+
+    match db.truncate_messages(conv_id, from_sequence) {
+        Ok(deleted) => {
+            sys_info!(
+                "Truncated {} messages from conversation {} at seq {}",
+                deleted,
+                conv_id,
+                from_sequence
+            );
+            Ok(json_raw(
+                StatusCode::OK,
+                format!(r#"{{"success":true,"deleted":{deleted}}}"#),
+            ))
+        }
+        Err(e) => {
+            sys_error!("Failed to truncate conversation: {}", e);
+            Ok(json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to truncate conversation",
+            ))
+        }
+    }
+}
+
 pub async fn handle_delete_conversation(
     path: &str,
     #[cfg(not(feature = "mock"))] _llama_state: crate::web::worker::worker_bridge::SharedWorkerBridge,

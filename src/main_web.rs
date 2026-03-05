@@ -116,6 +116,11 @@ async fn handle_request_impl(
             web::routes::conversation::handle_get_conversation_metrics(path, db.clone()).await?
         }
 
+        // Conversation truncate (for message editing)
+        (&Method::POST, path) if path.starts_with("/api/conversations/") && path.ends_with("/truncate") => {
+            web::routes::conversation::handle_truncate_conversation(req, path, db.clone()).await?
+        }
+
         // Conversation endpoints
         (&Method::GET, path) if path.starts_with("/api/conversation/") => {
             web::routes::conversation::handle_get_conversation(path, bridge.clone(), db.clone()).await?
@@ -310,7 +315,7 @@ async fn server_main() -> std::io::Result<()> {
     });
 
     // Start server
-    let addr = SocketAddr::from(([0, 0, 0, 0], 8000));
+    let addr = SocketAddr::from(([0, 0, 0, 0], 18080));
     let server = Server::bind(&addr).serve(make_svc);
 
     println!("🦙 LLaMA Chat Web Server starting on http://{addr}");

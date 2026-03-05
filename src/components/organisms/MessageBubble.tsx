@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Pencil } from 'lucide-react';
 import type { Message } from '../../types';
 import type { MessageSegment } from '../../hooks/useMessageParsing';
 import { useMessageParsing } from '../../hooks/useMessageParsing';
@@ -10,6 +11,9 @@ interface MessageBubbleProps {
   message: Message;
   viewMode?: 'text' | 'markdown' | 'raw';
   isStreaming?: boolean;
+  messageIndex?: number;
+  onEditMessage?: (messageIndex: number, newContent: string) => void;
+  isGenerating?: boolean;
 }
 
 /**
@@ -68,46 +72,137 @@ const SystemPromptMessage: React.FC<{ message: Message; cleanContent: string }> 
 );
 
 /**
- * User message component.
+ * User message component with inline edit support.
  */
 const UserMessage: React.FC<{
   message: Message;
   cleanContent: string;
   viewMode: 'text' | 'markdown' | 'raw';
-}> = ({ message, cleanContent, viewMode }) => (
-  <div
-    className="flex w-full justify-end"
-    data-testid={`message-${message.role}`}
-    data-message-id={message.id}
-  >
-    <div className="flat-message-user max-w-[85%] px-4 py-3">
-      {/* Attached images */}
-      {message.image_data && message.image_data.length > 0 ? (
-        <div className="mb-2 flex flex-wrap gap-2">
-          {message.image_data.map((img, i) => (
-            <img
-              key={i}
-              src={img}
-              alt={`Attached ${i + 1}`}
-              className="max-h-64 max-w-full rounded-lg object-contain"
-            />
-          ))}
+  messageIndex?: number;
+  onEditMessage?: (messageIndex: number, newContent: string) => void;
+  isGenerating?: boolean;
+}> = ({ message, cleanContent, viewMode, messageIndex, onEditMessage, isGenerating }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editContent, setEditContent] = useState('');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (isEditing && textareaRef.current) {
+      textareaRef.current.focus();
+      textareaRef.current.setSelectionRange(editContent.length, editContent.length);
+    }
+  }, [isEditing]);
+
+  const handleStartEdit = () => {
+    setEditContent(message.content);
+    setIsEditing(true);
+  };
+
+  const handleSubmit = () => {
+    const trimmed = editContent.trim();
+    if (!trimmed || messageIndex == null || !onEditMessage) return;
+    setIsEditing(false);
+    onEditMessage(messageIndex, trimmed);
+  };
+
+  const handleCancel = () => {
+    setIsEditing(false);
+    setEditContent('');
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit();
+    } else if (e.key === 'Escape') {
+      handleCancel();
+    }
+  };
+
+  const canEdit = onEditMessage && messageIndex != null && !isGenerating;
+
+  if (isEditing) {
+    return (
+      <div
+        className="flex w-full justify-end"
+        data-testid={`message-${message.role}`}
+        data-message-id={message.id}
+      >
+        <div className="max-w-[85%] w-full space-y-2">
+          <textarea
+            ref={textareaRef}
+            value={editContent}
+            onChange={(e) => setEditContent(e.target.value)}
+            onKeyDown={handleKeyDown}
+            className="w-full px-4 py-3 rounded-2xl bg-muted border border-border text-sm text-foreground resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+            rows={Math.min(editContent.split('\n').length + 1, 10)}
+          />
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={handleCancel}
+              className="px-3 py-1 text-xs rounded-lg text-foreground/70 hover:text-foreground hover:bg-muted transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSubmit}
+              disabled={!editContent.trim()}
+              className="px-3 py-1 text-xs rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+            >
+              Save & Submit
+            </button>
+          </div>
         </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="group flex w-full justify-end items-start gap-1"
+      data-testid={`message-${message.role}`}
+      data-message-id={message.id}
+    >
+      {/* Edit button — appears on hover */}
+      {canEdit ? (
+        <button
+          onClick={handleStartEdit}
+          className="opacity-0 group-hover:opacity-100 mt-3 p-1 rounded text-foreground/30 hover:text-foreground/70 transition-all"
+          aria-label="Edit message"
+          data-testid="edit-message-btn"
+        >
+          <Pencil size={14} />
+        </button>
       ) : null}
-      {viewMode === 'raw' ? (
-        <pre className="text-xs whitespace-pre-wrap leading-relaxed font-mono" data-testid="message-content">
-          {message.content}
-        </pre>
-      ) : viewMode === 'markdown' ? (
-        <MarkdownContent content={cleanContent} testId="message-content" />
-      ) : (
-        <p className="text-sm whitespace-pre-wrap leading-relaxed" data-testid="message-content">
-          {cleanContent}
-        </p>
-      )}
+      <div className="flat-message-user max-w-[85%] px-4 py-3">
+        {/* Attached images */}
+        {message.image_data && message.image_data.length > 0 ? (
+          <div className="mb-2 flex flex-wrap gap-2">
+            {message.image_data.map((img, i) => (
+              <img
+                key={i}
+                src={img}
+                alt={`Attached ${i + 1}`}
+                className="max-h-64 max-w-full rounded-lg object-contain"
+              />
+            ))}
+          </div>
+        ) : null}
+        {viewMode === 'raw' ? (
+          <pre className="text-xs whitespace-pre-wrap leading-relaxed font-mono" data-testid="message-content">
+            {message.content}
+          </pre>
+        ) : viewMode === 'markdown' ? (
+          <MarkdownContent content={cleanContent} testId="message-content" />
+        ) : (
+          <p className="text-sm whitespace-pre-wrap leading-relaxed" data-testid="message-content">
+            {cleanContent}
+          </p>
+        )}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 
 /**
@@ -185,7 +280,7 @@ const AssistantMessage: React.FC<{
 /**
  * Message bubble component - renders user, assistant, or system messages.
  */
-export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode = 'text', isStreaming }) => {
+export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode = 'text', isStreaming, messageIndex, onEditMessage, isGenerating }) => {
   const { status } = useModelContext();
   const {
     cleanContent,
@@ -206,7 +301,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode 
 
   // User messages
   if (message.role === 'user') {
-    return <UserMessage message={message} cleanContent={cleanContent} viewMode={viewMode} />;
+    return <UserMessage message={message} cleanContent={cleanContent} viewMode={viewMode} messageIndex={messageIndex} onEditMessage={onEditMessage} isGenerating={isGenerating} />;
   }
 
   // Assistant messages

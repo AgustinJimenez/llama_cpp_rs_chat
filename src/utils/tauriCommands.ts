@@ -220,6 +220,20 @@ export async function deleteConversation(filename: string): Promise<void> {
   if (!response.ok) throw new Error('Failed to delete conversation');
 }
 
+export async function truncateConversation(conversationId: string, fromSequence: number): Promise<{ success: boolean; deleted: number }> {
+  const id = conversationId.replace('.txt', '');
+  if (isTauriEnv()) {
+    return invokeCmd<{ success: boolean; deleted: number }>('truncate_conversation', { conversationId: id, fromSequence });
+  }
+  const response = await fetch(`/api/conversations/${id}/truncate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from_sequence: fromSequence }),
+  });
+  if (!response.ok) throw new Error('Failed to truncate conversation');
+  return response.json();
+}
+
 export interface ConversationMetric {
   level: string;
   message: string;  // JSON string with prompt_tok_per_sec, gen_tok_per_sec, tokens_used, max_tokens

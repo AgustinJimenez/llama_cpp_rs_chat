@@ -8,6 +8,7 @@ interface ChatContextValue {
   isLoading: boolean;
   error: string | null;
   sendMessage: (content: string, imageData?: string[], bypassLoadingCheck?: boolean) => void;
+  editMessage: (messageIndex: number, newContent: string) => void;
   stopGeneration: () => void;
   clearMessages: () => void;
   loadConversation: (filename: string) => void;

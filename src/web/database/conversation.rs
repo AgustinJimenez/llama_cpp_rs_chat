@@ -327,6 +327,19 @@ impl Database {
         Ok(count)
     }
 
+    /// Delete all messages with sequence_order >= from_sequence.
+    /// Returns the number of deleted messages.
+    pub fn truncate_messages(&self, conversation_id: &str, from_sequence: i32) -> Result<usize, String> {
+        let conn = self.connection();
+        let deleted = conn
+            .execute(
+                "DELETE FROM messages WHERE conversation_id = ?1 AND sequence_order >= ?2",
+                rusqlite::params![conversation_id, from_sequence],
+            )
+            .map_err(db_error("truncate messages"))?;
+        Ok(deleted)
+    }
+
     /// Get all messages for a conversation (in order)
     pub fn get_messages(&self, conversation_id: &str) -> Result<Vec<MessageRecord>, String> {
         let conn = self.connection();

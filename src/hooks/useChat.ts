@@ -7,7 +7,8 @@ import { useConversationWatcher } from './useConversationWatcher';
 import { logToastError } from '../utils/toastLogger';
 import { notifyIfUnfocused } from '../utils/tauri';
 import { parseConversationFile } from '../utils/conversationParser';
-import { getConversation } from '../utils/tauriCommands';
+import { getConversation, truncateConversation } from '../utils/tauriCommands';
+import { useConnection } from '../contexts/ConnectionContext';
 import type { Message, ChatRequest } from '../types';
 
 function isAbortErrorMessage(message: string): boolean {
@@ -61,6 +62,10 @@ function handleStreamError(
  */
 // eslint-disable-next-line max-lines-per-function
 export function useChat() {
+  const { connected } = useConnection();
+  const connectedRef = useRef(connected);
+  connectedRef.current = connected;
+
   // Core state
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
@@ -108,6 +113,10 @@ export function useChat() {
 
   // Load a conversation from the backend
   const loadConversation = useCallback(async (filename: string) => {
+    if (!connectedRef.current) {
+      toast.error('Server is unreachable — please wait for reconnection', { duration: 3000, id: 'server-down' });
+      return;
+    }
     setIsLoading(true);
     setError(null);
     setTokensUsed(undefined);
@@ -269,6 +278,10 @@ export function useChat() {
 
   // Send message (with optional image attachments)
   const sendMessage = useCallback(async (content: string, imageData?: string[], bypassLoadingCheck = false) => {
+    if (!connectedRef.current) {
+      toast.error('Server is unreachable — please wait for reconnection', { duration: 3000, id: 'server-down' });
+      return;
+    }
     const hasImages = imageData && imageData.length > 0;
     const trimmed = content.trim();
     if (!bypassLoadingCheck && (isLoading || (!trimmed && !hasImages))) return;
@@ -333,6 +346,40 @@ export function useChat() {
     setIsLoading,
   });
 
+  // Edit a user message: truncate from that point and re-send
+  const editMessage = useCallback(async (messageIndex: number, newContent: string) => {
+    if (!connectedRef.current) {
+      toast.error('Server is unreachable — please wait for reconnection', { duration: 3000, id: 'server-down' });
+      return;
+    }
+    if (isLoading) return;
+
+    // DB sequence: system prompt at 0, user/assistant messages start at 1.
+    // The messages array may or may not include system messages (depends on
+    // whether the conversation was loaded from backend or built locally).
+    // Count system messages before the target to compute the correct DB offset.
+    const systemMsgsBefore = messagesRef.current.slice(0, messageIndex)
+      .filter(m => m.role === 'system').length;
+    const fromSequence = messageIndex - systemMsgsBefore + 1;
+
+    // Truncate backend DB from the edited message onward
+    if (currentConversationId) {
+      try {
+        await truncateConversation(currentConversationId, fromSequence);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to truncate conversation';
+        toast.error(msg, { duration: 5000 });
+        return;
+      }
+    }
+
+    // Truncate local messages array (remove from editedIndex onward)
+    setMessages(prev => prev.slice(0, messageIndex));
+
+    // Re-send the edited content
+    await sendMessage(newContent, undefined, true);
+  }, [isLoading, currentConversationId, sendMessage]);
+
   // Stop the current generation
   const stopGeneration = useCallback(() => {
     // Always tell the backend to cancel, even if WS is already closed
@@ -350,6 +397,7 @@ export function useChat() {
     isLoading,
     error,
     sendMessage,
+    editMessage,
     stopGeneration,
     clearMessages,
     loadConversation,
