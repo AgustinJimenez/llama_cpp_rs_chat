@@ -262,6 +262,7 @@ struct TokenGenState {
 }
 
 /// Read-only configuration for the token generation loop.
+#[allow(dead_code)]
 struct TokenGenConfig<'a> {
     conversation_id: &'a str,
     tags: &'a ToolTags,
@@ -273,7 +274,16 @@ struct TokenGenConfig<'a> {
     web_search_api_key: Option<&'a str>,
     use_rtk: bool,
     use_htmd: bool,
+    n_batch: u32,
 }
+
+/// Vision context reference for tool response image injection.
+/// When the `vision` feature is enabled, this carries an `Option<&MtmdContext>`.
+/// Otherwise it's a zero-size unit type so the parameter compiles away.
+#[cfg(feature = "vision")]
+type VisionCtxRef<'a> = Option<&'a llama_cpp_2::mtmd::MtmdContext>;
+#[cfg(not(feature = "vision"))]
+type VisionCtxRef<'a> = ();
 
 /// Stall detection: if a single token takes longer than this, abort generation.
 const TOKEN_STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
@@ -335,6 +345,8 @@ fn run_generation_loop(
     token_sender: &Option<mpsc::UnboundedSender<TokenData>>,
     conversation_logger: &SharedConversationLogger,
     cancel: &Arc<AtomicBool>,
+    #[allow(unused_variables)]
+    vision_ctx: VisionCtxRef<'_>,
 ) -> Result<(), String> {
     #[allow(deprecated)]
     use llama_cpp_2::model::Special;
@@ -508,11 +520,40 @@ fn run_generation_loop(
                 gen.response.push_str(&exec_result.output_block);
                 gen.logger_synced_len = gen.response.len();
 
-                log_info!(cfg.conversation_id, "Injecting {} output tokens into context...", exec_result.model_tokens.len());
-                inject_output_tokens(
-                    &exec_result.model_tokens, batch, context,
-                    &mut gen.token_pos, cfg.conversation_id,
-                )?;
+                // Choose injection path: vision (images + MtmdContext) or standard text tokens
+                #[cfg(feature = "vision")]
+                let used_vision = if !exec_result.response_images.is_empty() {
+                    if let Some(mtmd_ctx) = vision_ctx {
+                        eprintln!("[VISION] Injecting {} image(s) via vision pipeline...", exec_result.response_images.len());
+                        match inject_tool_response_with_vision(
+                            &exec_result, mtmd_ctx, context,
+                            &mut gen.token_pos, cfg.n_batch, cfg.conversation_id,
+                        ) {
+                            Ok(()) => {
+                                eprintln!("[VISION] Vision injection succeeded, token_pos={}", gen.token_pos);
+                                true
+                            }
+                            Err(e) => {
+                                eprintln!("[VISION] Vision injection failed: {e}, falling back to text");
+                                false
+                            }
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+                #[cfg(not(feature = "vision"))]
+                let used_vision = false;
+
+                if !used_vision {
+                    log_info!(cfg.conversation_id, "Injecting {} output tokens into context...", exec_result.model_tokens.len());
+                    inject_output_tokens(
+                        &exec_result.model_tokens, batch, context,
+                        &mut gen.token_pos, cfg.conversation_id,
+                    )?;
+                }
 
                 gen.generated_token_ids.extend(exec_result.model_tokens.iter().map(|&id| LlamaToken(id)));
                 command_executed = true;
@@ -1038,11 +1079,19 @@ pub async fn generate_llama_response(
         web_search_api_key: config.web_search_api_key.as_deref(),
         use_rtk: config.use_rtk,
         use_htmd: config.use_htmd,
+        n_batch,
     };
+
+    // Build vision context reference for tool response image injection
+    #[cfg(feature = "vision")]
+    let vision_ctx_ref: VisionCtxRef<'_> = state.vision_state.as_ref().map(|v| &v.context);
+    #[cfg(not(feature = "vision"))]
+    let vision_ctx_ref: VisionCtxRef<'_> = ();
 
     run_generation_loop(
         &mut gen, &cfg, &mut context, model, &mut sampler,
         &mut batch, &token_sender, &conversation_logger, &cancel,
+        vision_ctx_ref,
     )?;
 
     let total_tokens_generated = gen.total_tokens_generated;
@@ -1132,6 +1181,70 @@ pub async fn generate_llama_response(
         prompt_eval_ms: if prompt_eval_ms > 0.0 { Some(prompt_eval_ms) } else { None },
         prompt_tokens: if n_prompt_eval > 0 { Some(n_prompt_eval as i32) } else { None },
     })
+}
+
+/// Inject a tool response with images into the model context via the vision pipeline.
+///
+/// Instead of plain text token injection, this tokenizes the model_block text with
+/// `<__media__>` markers using MtmdContext, creates bitmaps from the raw image bytes,
+/// and evaluates the combined text+image chunks into the existing context.
+#[cfg(feature = "vision")]
+fn inject_tool_response_with_vision(
+    exec_result: &super::command_executor::CommandExecutionResult,
+    mtmd_ctx: &llama_cpp_2::mtmd::MtmdContext,
+    context: &mut LlamaContext<'static>,
+    token_pos: &mut i32,
+    n_batch: u32,
+    conversation_id: &str,
+) -> Result<(), String> {
+    use llama_cpp_2::mtmd::{MtmdBitmap, MtmdInputText};
+
+    let n_images = exec_result.response_images.len();
+    log_info!(
+        conversation_id,
+        "🖼️ Vision injection: {} image(s) with model_block ({} chars)",
+        n_images, exec_result.model_block.len()
+    );
+
+    // Prepend <__media__> markers (one per image) to the model block text.
+    // The markers tell mtmd where to insert image embeddings in the token stream.
+    let markers = "<__media__>\n".repeat(n_images);
+    let text_with_markers = format!("{markers}{}", exec_result.model_block);
+
+    // Create bitmaps from raw image bytes
+    let bitmaps: Vec<MtmdBitmap> = exec_result.response_images.iter().enumerate().map(|(i, bytes)| {
+        log_debug!(conversation_id, "Creating vision bitmap {} from {} bytes", i, bytes.len());
+        MtmdBitmap::from_buffer(mtmd_ctx, bytes)
+            .map_err(|e| format!("Failed to create image bitmap {i}: {e}"))
+    }).collect::<Result<Vec<_>, String>>()?;
+    let bitmap_refs: Vec<&MtmdBitmap> = bitmaps.iter().collect();
+
+    // Tokenize text + images into chunks via MtmdContext
+    let text_input = MtmdInputText {
+        text: text_with_markers,
+        add_special: false, // no BOS — we're mid-generation, not starting a new prompt
+        parse_special: true, // parse special tokens like <|im_end|> in template wrapping
+    };
+    let chunks = mtmd_ctx.tokenize(text_input, &bitmap_refs)
+        .map_err(|e| format!("Vision tokenization of tool response failed: {e}"))?;
+    let n_chunk_tokens = chunks.total_tokens();
+    log_info!(
+        conversation_id,
+        "Vision tokenized tool response: {} chunks, {} total tokens",
+        chunks.len(), n_chunk_tokens
+    );
+
+    // Evaluate all chunks (text tokens + image embeddings) into the existing context
+    let n_past = chunks.eval_chunks(mtmd_ctx, context, *token_pos, 0, n_batch as i32, true)
+        .map_err(|e| format!("Vision eval_chunks for tool response failed: {e}"))?;
+    log_info!(
+        conversation_id,
+        "Vision eval_chunks complete: token_pos {} → {}",
+        *token_pos, n_past
+    );
+    *token_pos = n_past;
+
+    Ok(())
 }
 
 /// Insert `<__media__>` markers into a formatted prompt, just before the

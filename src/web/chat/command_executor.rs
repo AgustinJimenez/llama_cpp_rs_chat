@@ -195,6 +195,15 @@ pub struct CommandExecutionResult {
     pub output_block: String,
     /// Tokens for model context injection (wrapped in chat template turn structure)
     pub model_tokens: Vec<i32>,
+    /// The template-wrapped text used for model context injection.
+    /// Needed by the vision path to re-tokenize with `<__media__>` markers via MtmdContext.
+    #[allow(dead_code)]
+    pub model_block: String,
+    /// Raw image bytes from tool responses (e.g., screenshots) for vision pipeline injection.
+    /// When non-empty AND the model has vision capability, these are fed as image embeddings
+    /// instead of (or alongside) the text tokens.
+    #[allow(dead_code)]
+    pub response_images: Vec<Vec<u8>>,
 }
 
 /// Maximum number of times the same command can be repeated before blocking.
@@ -210,7 +219,7 @@ fn run_native_tool_with_timeout(
     web_search_api_key: Option<&str>,
     conversation_id: &str,
     use_htmd: bool,
-) -> Option<String> {
+) -> Option<native_tools::NativeToolResult> {
     let cmd = command_text.to_string();
     let provider = web_search_provider.map(|s| s.to_string());
     let api_key = web_search_api_key.map(|s| s.to_string());
@@ -230,17 +239,17 @@ fn run_native_tool_with_timeout(
         Ok(result) => result,
         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
             log_info!(conversation_id, "⏱️ Native tool timed out after {}s", NATIVE_TOOL_TIMEOUT_SECS);
-            Some(format!("Error: Tool execution timed out after {} seconds. The network request may be slow or unresponsive. Please try again.", NATIVE_TOOL_TIMEOUT_SECS))
+            Some(native_tools::NativeToolResult::text_only(format!("Error: Tool execution timed out after {} seconds. The network request may be slow or unresponsive. Please try again.", NATIVE_TOOL_TIMEOUT_SECS)))
         }
         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
             log_info!(conversation_id, "⚠️ Native tool thread panicked");
-            Some("Error: Tool execution failed unexpectedly.".to_string())
+            Some(native_tools::NativeToolResult::text_only("Error: Tool execution failed unexpectedly.".to_string()))
         }
     }
 }
 
 /// Execute a single tool call given its parsed name and arguments.
-/// Used by the batch execution path to dispatch each call individually.
+/// Returns (text_output, image_bytes). Used by the batch execution path.
 fn execute_single_tool(
     name: &str,
     args: &serde_json::Value,
@@ -254,8 +263,8 @@ fn execute_single_tool(
     cancel: Option<Arc<AtomicBool>>,
     use_rtk: bool,
     use_htmd: bool,
-) -> String {
-    // execute_command gets streaming or background treatment
+) -> (String, Vec<Vec<u8>>) {
+    // execute_command gets streaming or background treatment (no images)
     if name == "execute_command" {
         if let Some(cmd) = args.get("command").and_then(|v| v.as_str()) {
             if !cmd.is_empty() {
@@ -268,7 +277,7 @@ fn execute_single_tool(
                 if is_background {
                     log_info!(conversation_id, "🐚 Batch: background execute_command: {}", rtk_cmd);
                     let sender_clone = token_sender.clone();
-                    return execute_command_background(&rtk_cmd, |line| {
+                    let text = execute_command_background(&rtk_cmd, |line| {
                         if let Some(ref sender) = sender_clone {
                             let _ = sender.send(TokenData {
                                 token: format!("{}\n", strip_ansi_codes(line)),
@@ -277,10 +286,11 @@ fn execute_single_tool(
                             });
                         }
                     });
+                    return (text, Vec::new());
                 } else {
                     log_info!(conversation_id, "🐚 Batch: streaming execute_command: {}", rtk_cmd);
                     let sender_clone = token_sender.clone();
-                    return execute_command_streaming(&rtk_cmd, cancel, |line| {
+                    let text = execute_command_streaming(&rtk_cmd, cancel, |line| {
                         if let Some(ref sender) = sender_clone {
                             let _ = sender.send(TokenData {
                                 token: format!("{}\n", strip_ansi_codes(line)),
@@ -289,28 +299,29 @@ fn execute_single_tool(
                             });
                         }
                     });
+                    return (text, Vec::new());
                 }
             }
         }
     }
 
-    // Try native tool dispatch
-    if let Some(native_output) = run_native_tool_with_timeout(
+    // Try native tool dispatch (may return images for vision)
+    if let Some(native_result) = run_native_tool_with_timeout(
         tool_json,
         web_search_provider,
         web_search_api_key,
         conversation_id,
         use_htmd,
     ) {
-        log_info!(conversation_id, "📦 Batch: native tool '{}' dispatched", name);
+        log_info!(conversation_id, "📦 Batch: native tool '{}' dispatched (images={})", name, native_result.images.len());
         if let Some(ref sender) = token_sender {
             let _ = sender.send(TokenData {
-                token: native_output.trim().to_string(),
+                token: native_result.text.trim().to_string(),
                 tokens_used: token_pos,
                 max_tokens: context_size as i32,
             });
         }
-        return native_output;
+        return (native_result.text, native_result.images);
     }
 
     // Fallback: unknown tool
@@ -322,7 +333,7 @@ fn execute_single_tool(
             max_tokens: context_size as i32,
         });
     }
-    err
+    (err, Vec::new())
 }
 
 /// Check for and execute commands using model-specific tool tags.
@@ -435,6 +446,8 @@ pub fn check_and_execute_command_with_tags(
         return Ok(Some(CommandExecutionResult {
             output_block,
             model_tokens: model_tokens.iter().map(|t| t.0).collect(),
+            model_block,
+            response_images: Vec::new(),
         }));
     }
     recent_commands.push(normalized_cmd);
@@ -463,6 +476,9 @@ pub fn check_and_execute_command_with_tags(
         });
     }
 
+    // Collect images from tool responses for vision pipeline
+    let mut all_response_images: Vec<Vec<u8>> = Vec::new();
+
     let output = if is_batch {
         // === Batch execution path: parallel for native tools, sequential for execute_command ===
         let mut combined_output = String::new();
@@ -478,8 +494,8 @@ pub fn check_and_execute_command_with_tags(
             }
         }
 
-        // Pre-allocate result slots
-        let mut results: Vec<Option<String>> = vec![None; all_calls.len()];
+        // Pre-allocate result slots: (text, images)
+        let mut results: Vec<Option<(String, Vec<Vec<u8>>)>> = vec![None; all_calls.len()];
 
         // Execute parallel (native) tools concurrently via thread::scope
         if !parallel_indices.is_empty() {
@@ -516,14 +532,19 @@ pub fn check_and_execute_command_with_tags(
                                 conv_id,
                                 use_htmd,
                             );
-                            (idx, result.unwrap_or_else(|| format!("Error: Tool '{}' returned no output", tool_name)))
+                            let native_result = result.unwrap_or_else(|| {
+                                native_tools::NativeToolResult::text_only(
+                                    format!("Error: Tool '{}' returned no output", tool_name)
+                                )
+                            });
+                            (idx, native_result.text, native_result.images)
                         })
                     })
                     .collect();
 
                 for handle in handles {
-                    if let Ok((idx, output)) = handle.join() {
-                        results[idx] = Some(output);
+                    if let Ok((idx, text, images)) = handle.join() {
+                        results[idx] = Some((text, images));
                     }
                 }
             });
@@ -533,7 +554,7 @@ pub fn check_and_execute_command_with_tags(
         for &i in &sequential_indices {
             let (name, args) = &all_calls[i];
             let single_json = serde_json::json!({"name": name, "arguments": args}).to_string();
-            let tool_output = execute_single_tool(
+            let (tool_output, tool_images) = execute_single_tool(
                 name, args, &single_json,
                 conversation_id,
                 web_search_provider,
@@ -545,7 +566,7 @@ pub fn check_and_execute_command_with_tags(
                 use_rtk,
                 use_htmd,
             );
-            results[i] = Some(tool_output);
+            results[i] = Some((tool_output, tool_images));
         }
 
         // Merge results in original order, streaming to frontend
@@ -560,7 +581,8 @@ pub fn check_and_execute_command_with_tags(
             }
             combined_output.push_str(&header);
 
-            let tool_output = results[i].take().unwrap_or_default();
+            let (tool_output, tool_images) = results[i].take().unwrap_or_default();
+            all_response_images.extend(tool_images);
             log_info!(
                 conversation_id,
                 "📤 Tool {} ({}) output: {} chars",
@@ -621,23 +643,24 @@ pub fn check_and_execute_command_with_tags(
                     }
                 })
             }
-        } else if let Some(native_output) = run_native_tool_with_timeout(
+        } else if let Some(native_result) = run_native_tool_with_timeout(
             &command_text,
             web_search_provider,
             web_search_api_key,
             conversation_id,
             use_htmd,
         ) {
-            log_info!(conversation_id, "📦 Dispatched to native tool handler");
+            log_info!(conversation_id, "📦 Dispatched to native tool handler (images={})", native_result.images.len());
             // Non-execute tools complete quickly, stream their output at once
             if let Some(ref sender) = token_sender {
                 let _ = sender.send(TokenData {
-                    token: native_output.trim().to_string(),
+                    token: native_result.text.trim().to_string(),
                     tokens_used: token_pos,
                     max_tokens: context_size as i32,
                 });
             }
-            native_output
+            all_response_images.extend(native_result.images);
+            native_result.text
         } else {
             let trimmed_cmd = command_text.trim();
             if trimmed_cmd.starts_with('{') || trimmed_cmd.starts_with('[') {
@@ -707,9 +730,19 @@ pub fn check_and_execute_command_with_tags(
         .str_to_token(&model_block, AddBos::Never)
         .map_err(|e| format!("Tokenization of model injection block failed: {e}"))?;
 
+    if !all_response_images.is_empty() {
+        eprintln!(
+            "[TOOL_RESULT] {} image(s) for vision pipeline, sizes: {:?}",
+            all_response_images.len(),
+            all_response_images.iter().map(|img| img.len()).collect::<Vec<_>>()
+        );
+    }
+
     Ok(Some(CommandExecutionResult {
         output_block,
         model_tokens: model_tokens.iter().map(|t| t.0).collect(),
+        model_block,
+        response_images: all_response_images,
     }))
 }
 

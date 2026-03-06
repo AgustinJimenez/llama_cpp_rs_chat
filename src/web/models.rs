@@ -46,6 +46,7 @@ unsafe impl Send for InferenceCache {}
 /// MUST be dropped before the model (same invariant as InferenceCache).
 pub struct VisionState {
     pub context: MtmdContext,
+    #[allow(dead_code)]
     pub mmproj_path: String,
 }
 
@@ -485,6 +486,8 @@ pub struct ConversationFile {
     pub name: String,
     pub display_name: String,
     pub timestamp: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 #[derive(Serialize)]

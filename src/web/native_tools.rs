@@ -4,6 +4,24 @@
 //! need: reading/writing files, running Python code, and listing directories.
 //! This eliminates shell quoting issues that break `python -c "..."` on Windows.
 
+/// Result from a native tool, carrying text output and optional image data.
+/// Image data is used by vision-capable models to "see" tool outputs (e.g., screenshots).
+pub struct NativeToolResult {
+    pub text: String,
+    /// Raw image bytes (PNG/JPEG) for vision pipeline injection.
+    /// Only populated by tools like `take_screenshot` when capture succeeds.
+    pub images: Vec<Vec<u8>>,
+}
+
+impl NativeToolResult {
+    pub fn text_only(text: String) -> Self {
+        Self { text, images: Vec::new() }
+    }
+    pub fn with_image(text: String, image_bytes: Vec<u8>) -> Self {
+        Self { text, images: vec![image_bytes] }
+    }
+}
+
 use serde_json::Value;
 use std::collections::HashMap;
 use std::io::Read;
@@ -694,7 +712,7 @@ pub fn dispatch_native_tool(
     web_search_provider: Option<&str>,
     web_search_api_key: Option<&str>,
     use_htmd: bool,
-) -> Option<String> {
+) -> Option<NativeToolResult> {
     let trimmed = text.trim();
 
     let (name, args) = if let Some((n, a)) = try_parse_json_format(trimmed) {
@@ -716,7 +734,13 @@ pub fn dispatch_native_tool(
         return None;
     };
 
-    Some(match name.as_str() {
+    // take_screenshot returns NativeToolResult directly (may carry image bytes for vision)
+    if name == "take_screenshot" {
+        return Some(tool_take_screenshot_with_image(&args));
+    }
+
+    // All other tools return text-only results
+    Some(NativeToolResult::text_only(match name.as_str() {
         "read_file" => tool_read_file(&args),
         "write_file" => tool_write_file(&args),
         "edit_file" => tool_edit_file(&args),
@@ -732,7 +756,7 @@ pub fn dispatch_native_tool(
             // Delegate to shell execution via command.rs
             let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
             if command.is_empty() {
-                return Some("Error: 'command' argument is required".to_string());
+                return Some(NativeToolResult::text_only("Error: 'command' argument is required".to_string()));
             }
             super::command::execute_command(command)
         }
@@ -742,7 +766,7 @@ pub fn dispatch_native_tool(
                 v.as_u64().or_else(|| v.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
             }).unwrap_or(0) as u32;
             if pid == 0 {
-                return Some("Error: 'pid' argument is required and must be a positive integer".to_string());
+                return Some(NativeToolResult::text_only("Error: 'pid' argument is required and must be a positive integer".to_string()));
             }
             // Optional wait_seconds: sleep before checking (merges wait + check into one call)
             let wait_seconds = args.get("wait_seconds").and_then(|v| {
@@ -762,9 +786,8 @@ pub fn dispatch_native_tool(
         "git_status" => tool_git_status(&args),
         "git_diff" => tool_git_diff(&args),
         "git_commit" => tool_git_commit(&args),
-        "take_screenshot" => tool_take_screenshot(&args),
         _ => return None, // Unknown tool → fall back to shell
-    })
+    }))
 }
 
 /// Read a file and return its contents.
@@ -2618,8 +2641,8 @@ fn tool_git_commit(args: &Value) -> String {
     }
 }
 
-/// Capture a screenshot of the user's screen.
-fn tool_take_screenshot(args: &Value) -> String {
+/// Capture a screenshot — returns NativeToolResult with image bytes for vision pipeline.
+fn tool_take_screenshot_with_image(args: &Value) -> NativeToolResult {
     let monitor_idx = args
         .get("monitor")
         .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok())))
@@ -2627,14 +2650,14 @@ fn tool_take_screenshot(args: &Value) -> String {
 
     let monitors = match xcap::Monitor::all() {
         Ok(m) => m,
-        Err(e) => return format!("Error: Failed to enumerate monitors: {e}"),
+        Err(e) => return NativeToolResult::text_only(format!("Error: Failed to enumerate monitors: {e}")),
     };
 
     if monitors.is_empty() {
-        return "Error: No monitors detected".to_string();
+        return NativeToolResult::text_only("Error: No monitors detected".to_string());
     }
 
-    // List monitors mode
+    // List monitors mode (no image captured)
     if monitor_idx == -1 {
         let mut result = format!("Available monitors ({}):\n", monitors.len());
         for (i, mon) in monitors.iter().enumerate() {
@@ -2648,12 +2671,11 @@ fn tool_take_screenshot(args: &Value) -> String {
                 if primary { " (primary)" } else { "" }
             ));
         }
-        return result;
+        return NativeToolResult::text_only(result);
     }
 
     // Select monitor
     let monitor = if monitor_idx == 0 {
-        // Default: find primary, fallback to first
         monitors
             .iter()
             .find(|m| m.is_primary().unwrap_or(false))
@@ -2661,11 +2683,11 @@ fn tool_take_screenshot(args: &Value) -> String {
     } else {
         let idx = monitor_idx as usize;
         if idx >= monitors.len() {
-            return format!(
+            return NativeToolResult::text_only(format!(
                 "Error: Monitor index {} out of range (0-{})",
                 idx,
                 monitors.len() - 1
-            );
+            ));
         }
         &monitors[idx]
     };
@@ -2673,7 +2695,7 @@ fn tool_take_screenshot(args: &Value) -> String {
     // Capture
     let image = match monitor.capture_image() {
         Ok(img) => img,
-        Err(e) => return format!("Error: Screenshot capture failed: {e}"),
+        Err(e) => return NativeToolResult::text_only(format!("Error: Screenshot capture failed: {e}")),
     };
 
     let width = image.width();
@@ -2684,7 +2706,7 @@ fn tool_take_screenshot(args: &Value) -> String {
     // Save to temp directory
     let screenshots_dir = std::env::temp_dir().join("llama_screenshots");
     if let Err(e) = std::fs::create_dir_all(&screenshots_dir) {
-        return format!("Error: Failed to create screenshots directory: {e}");
+        return NativeToolResult::text_only(format!("Error: Failed to create screenshots directory: {e}"));
     }
 
     let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
@@ -2692,17 +2714,25 @@ fn tool_take_screenshot(args: &Value) -> String {
     let filepath = screenshots_dir.join(&filename);
 
     if let Err(e) = image.save(&filepath) {
-        return format!("Error: Failed to save screenshot: {e}");
+        return NativeToolResult::text_only(format!("Error: Failed to save screenshot: {e}"));
     }
 
-    format!(
+    let text = format!(
         "Screenshot saved: {}\nResolution: {}x{}\nMonitor: {} (primary: {})",
         filepath.display(),
         width,
         height,
         mon_name,
         if is_primary { "yes" } else { "no" }
-    )
+    );
+
+    // Also encode the image as PNG bytes for vision pipeline injection
+    let png_bytes = std::fs::read(&filepath).unwrap_or_default();
+    if png_bytes.is_empty() {
+        NativeToolResult::text_only(text)
+    } else {
+        NativeToolResult::with_image(text, png_bytes)
+    }
 }
 
 #[cfg(test)]
