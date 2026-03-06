@@ -42,6 +42,10 @@ pub enum WorkerCommand {
         conversation_id: String,
         prompt: String,
     },
+    /// Refresh MCP server connections (reconnect + rediscover tools).
+    RefreshMcpServers,
+    /// Get current MCP status (connected servers, discovered tools).
+    GetMcpStatus,
     /// Health check.
     Ping,
     /// Graceful shutdown.
@@ -113,10 +117,29 @@ pub enum WorkerPayload {
         conversation_id: String,
         title: String,
     },
+    /// MCP servers refreshed successfully.
+    McpServersRefreshed {
+        connected_servers: Vec<String>,
+        total_tools: usize,
+    },
+    /// Current MCP status.
+    McpStatus {
+        servers: Vec<McpServerStatus>,
+    },
     /// Health check response.
     Pong,
     /// An error occurred.
     Error { message: String },
+}
+
+/// Status of an individual MCP server.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct McpServerStatus {
+    pub id: String,
+    pub name: String,
+    pub connected: bool,
+    pub tool_count: usize,
+    pub tools: Vec<String>,
 }
 
 impl WorkerResponse {

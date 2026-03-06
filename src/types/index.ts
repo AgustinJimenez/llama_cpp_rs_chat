@@ -241,3 +241,23 @@ export interface ToolResult {
 }
 
 export type ViewMode = 'text' | 'markdown' | 'raw';
+
+// MCP (Model Context Protocol) types
+export interface McpServerConfig {
+  id: string;
+  name: string;
+  transport: McpTransport;
+  enabled: boolean;
+}
+
+export type McpTransport =
+  | { type: 'Stdio'; command: string; args: string[]; env_vars: Record<string, string> }
+  | { type: 'Http'; url: string };
+
+export interface McpServerStatus {
+  id: string;
+  name: string;
+  connected: boolean;
+  tool_count: number;
+  tools: string[];
+}

@@ -12,4 +12,5 @@ pub mod model;
 pub mod static_files;
 pub mod status;
 pub mod system;
+pub mod mcp;
 pub mod tools;

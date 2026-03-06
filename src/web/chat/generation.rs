@@ -140,7 +140,7 @@ pub fn warmup_system_prompt(
         .token_to_str(model.token_eos(), Special::Tokenize)
         .unwrap_or_else(|_| "</s>".to_string());
 
-    // Format using the same template as generation
+    // Format using the same template as generation (no MCP tools for warmup)
     let prompt = apply_system_prompt_by_type_with_tags(
         &conversation_content,
         template_type.as_deref(),
@@ -148,6 +148,7 @@ pub fn warmup_system_prompt(
         &tags,
         &bos_text,
         &eos_text,
+        None,
     )?;
 
     // Tokenize
@@ -275,6 +276,7 @@ struct TokenGenConfig<'a> {
     use_rtk: bool,
     use_htmd: bool,
     n_batch: u32,
+    mcp_manager: Option<Arc<crate::web::mcp::McpManager>>,
 }
 
 /// Vision context reference for tool response image injection.
@@ -503,7 +505,7 @@ fn run_generation_loop(
                 &gen.response, gen.last_exec_scan_pos, cfg.conversation_id, model, cfg.tags,
                 cfg.template_type, cfg.web_search_provider, cfg.web_search_api_key,
                 &mut gen.recent_commands, token_sender, gen.token_pos, cfg.context_size,
-                Some(cancel.clone()), cfg.use_rtk, cfg.use_htmd,
+                Some(cancel.clone()), cfg.use_rtk, cfg.use_htmd, cfg.mcp_manager.clone(),
             )? {
                 // Sync accumulated content + command output to logger
                 {
@@ -744,6 +746,7 @@ pub async fn generate_llama_response(
     db: &Database,
     cancel: Arc<AtomicBool>,
     image_data: Option<&[String]>,
+    mcp_manager: Option<Arc<crate::web::mcp::McpManager>>,
 ) -> Result<GenerationOutput, String> {
     sys_debug!(
         "[GENERATION] generate_llama_response called, token_sender is {}",
@@ -859,6 +862,12 @@ pub async fn generate_llama_response(
         conversation_content
     );
 
+    // Get MCP tool definitions if manager is available
+    let mcp_tool_defs = mcp_manager.as_ref()
+        .map(|mgr| mgr.get_tool_definitions())
+        .unwrap_or_default();
+    let mcp_tools_ref = if mcp_tool_defs.is_empty() { None } else { Some(mcp_tool_defs.as_slice()) };
+
     // Use the 3-system prompt dispatcher with model-specific tool tags
     let prompt = apply_system_prompt_by_type_with_tags(
         &conversation_content,
@@ -867,6 +876,7 @@ pub async fn generate_llama_response(
         &tags,
         &bos_text,
         &eos_text,
+        mcp_tools_ref,
     )?;
     log_info!(&conversation_id, "=== FINAL PROMPT BEING SENT TO MODEL ===");
     log_info!(&conversation_id, "{}", prompt);
@@ -1080,6 +1090,7 @@ pub async fn generate_llama_response(
         use_rtk: config.use_rtk,
         use_htmd: config.use_htmd,
         n_batch,
+        mcp_manager: mcp_manager.clone(),
     };
 
     // Build vision context reference for tool response image injection

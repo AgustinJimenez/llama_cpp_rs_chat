@@ -712,6 +712,7 @@ pub fn dispatch_native_tool(
     web_search_provider: Option<&str>,
     web_search_api_key: Option<&str>,
     use_htmd: bool,
+    mcp_manager: Option<&super::mcp::McpManager>,
 ) -> Option<NativeToolResult> {
     let trimmed = text.trim();
 
@@ -786,7 +787,18 @@ pub fn dispatch_native_tool(
         "git_status" => tool_git_status(&args),
         "git_diff" => tool_git_diff(&args),
         "git_commit" => tool_git_commit(&args),
-        _ => return None, // Unknown tool → fall back to shell
+        _ => {
+            // Check if it's an MCP tool before falling back to shell
+            if let Some(mgr) = mcp_manager {
+                if mgr.is_mcp_tool(&name) {
+                    return Some(NativeToolResult::text_only(match mgr.call_tool(&name, args) {
+                        Ok(output) => output,
+                        Err(e) => format!("MCP tool error: {e}"),
+                    }));
+                }
+            }
+            return None; // Unknown tool → fall back to shell
+        }
     }))
 }
 
@@ -2750,7 +2762,7 @@ mod tests {
             r#"{{"name": "read_file", "arguments": {{"path": "{}"}}}}"#,
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&json, None, None);
+        let result = dispatch_native_tool(&json, None, None, false, None);
         assert!(result.is_some());
         assert!(result.unwrap().contains("hello world"));
 
@@ -2764,7 +2776,7 @@ mod tests {
             r#"{{"name": "write_file", "arguments": {{"path": "{}", "content": "test content"}}}}"#,
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&json, None, None);
+        let result = dispatch_native_tool(&json, None, None, false, None);
         assert!(result.is_some());
         assert!(result.unwrap().contains("Written"));
         assert_eq!(std::fs::read_to_string(&temp).unwrap(), "test content");
@@ -2780,7 +2792,7 @@ mod tests {
             "{{\n  \"name\": \"write_file\",\n  \"arguments\": {{\n    \"path\": \"{}\",\n    \"content\": \"{{\n  \\\"name\\\": \\\"test\\\",\n  \\\"version\\\": \\\"1.0.0\\\"\n}}\"\n  }}\n}}",
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&json, None, None);
+        let result = dispatch_native_tool(&json, None, None, false, None);
         assert!(result.is_some(), "Should parse multiline JSON content: {json}");
         assert!(result.unwrap().contains("Written"));
         let content = std::fs::read_to_string(&temp).unwrap();
@@ -2802,7 +2814,7 @@ line3"}}"#;
     #[test]
     fn test_dispatch_list_directory() {
         let json = r#"{"name": "list_directory", "arguments": {"path": "."}}"#;
-        let result = dispatch_native_tool(json, None, None);
+        let result = dispatch_native_tool(json, None, None, false, None);
         assert!(result.is_some());
         assert!(result.unwrap().contains("Directory listing"));
     }
@@ -2810,13 +2822,13 @@ line3"}}"#;
     #[test]
     fn test_dispatch_unknown_tool_returns_none() {
         let json = r#"{"name": "unknown_tool", "arguments": {}}"#;
-        let result = dispatch_native_tool(json, None, None);
+        let result = dispatch_native_tool(json, None, None, false, None);
         assert!(result.is_none());
     }
 
     #[test]
     fn test_dispatch_non_json_returns_none() {
-        let result = dispatch_native_tool("ls -la", None, None);
+        let result = dispatch_native_tool("ls -la", None, None, false, None);
         assert!(result.is_none());
     }
 
@@ -2829,7 +2841,7 @@ line3"}}"#;
             r#"[{{"name": "read_file", "arguments": {{"path": "{}"}}}}]"#,
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&json, None, None);
+        let result = dispatch_native_tool(&json, None, None, false, None);
         assert!(result.is_some());
         assert!(result.unwrap().contains("mistral test"));
 
@@ -2846,7 +2858,7 @@ line3"}}"#;
             r#"read_file,{{"path": "{}"}}"#,
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&input, None, None);
+        let result = dispatch_native_tool(&input, None, None, false, None);
         assert!(result.is_some(), "Should parse Mistral comma format");
         assert!(result.unwrap().contains("comma format test"));
 
@@ -2857,7 +2869,7 @@ line3"}}"#;
     fn test_dispatch_mistral_comma_execute_command() {
         // Devstral: execute_command,{"command": "echo hello"}
         let input = r#"execute_command,{"command": "echo hello"}"#;
-        let result = dispatch_native_tool(input, None, None);
+        let result = dispatch_native_tool(input, None, None, false, None);
         assert!(result.is_some(), "Should parse comma format execute_command");
         assert!(result.unwrap().contains("hello"));
     }
@@ -2872,7 +2884,7 @@ line3"}}"#;
             "<function=read_file> <parameter=path> {} </parameter> </function>",
             temp.display()
         );
-        let result = dispatch_native_tool(&input, None, None);
+        let result = dispatch_native_tool(&input, None, None, false, None);
         assert!(result.is_some(), "Should parse Llama3 XML format");
         assert!(result.unwrap().contains("xml format test"));
 
@@ -2886,7 +2898,7 @@ line3"}}"#;
             "<function=write_file> <parameter=path> {} </parameter> <parameter=content> hello world </parameter> </function>",
             temp.display()
         );
-        let result = dispatch_native_tool(&input, None, None);
+        let result = dispatch_native_tool(&input, None, None, false, None);
         assert!(result.is_some(), "Should parse Llama3 XML write_file");
         assert!(result.unwrap().contains("Written"));
         assert_eq!(std::fs::read_to_string(&temp).unwrap(), "hello world");
@@ -2898,7 +2910,7 @@ line3"}}"#;
     fn test_dispatch_name_json_format() {
         // Granite outputs: list_directory{"path": "."}
         let input = r#"list_directory{"path": "."}"#;
-        let result = dispatch_native_tool(input, None, None);
+        let result = dispatch_native_tool(input, None, None, false, None);
         assert!(result.is_some(), "Should parse name+JSON format");
         assert!(result.unwrap().contains("Directory listing"));
     }
@@ -2906,7 +2918,7 @@ line3"}}"#;
     #[test]
     fn test_execute_python_simple() {
         let json = r#"{"name": "execute_python", "arguments": {"code": "print('hello from python')"}}"#;
-        let result = dispatch_native_tool(json, None, None);
+        let result = dispatch_native_tool(json, None, None, false, None);
         assert!(result.is_some());
         let output = result.unwrap();
         // If python is available, should contain the output; if not, should contain an error
@@ -2950,7 +2962,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
         // Exact pattern GLM produces: multiline content + missing outer closing }
         let json = "{\"name\": \"write_file\", \"arguments\": {\"path\": \"/tmp/test-autoclose.txt\", \"content\": \"{\n  \\\"name\\\": \\\"test\\\",\n  \\\"version\\\": \\\"1.0.0\\\"\n}\"}}";
         // This should work (has both braces)
-        let result = dispatch_native_tool(json, None, None);
+        let result = dispatch_native_tool(json, None, None, false, None);
         assert!(result.is_some(), "Valid JSON should work: {:?}", result);
         let _ = std::fs::remove_file("/tmp/test-autoclose.txt");
 
@@ -2958,7 +2970,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
         let broken = "{\"name\": \"write_file\", \"arguments\": {\"path\": \"/tmp/test-autoclose2.txt\", \"content\": \"{\n  \\\"name\\\": \\\"test\\\",\n  \\\"version\\\": \\\"1.0.0\\\"\n}\"}}";
         // Remove last }
         let broken = &broken[..broken.len() - 1];
-        let result = dispatch_native_tool(broken, None, None);
+        let result = dispatch_native_tool(broken, None, None, false, None);
         assert!(result.is_some(), "Should auto-close missing brace and dispatch write_file");
         let output = result.unwrap();
         assert!(output.contains("written") || output.contains("success") || output.contains("Written"),
@@ -2994,7 +3006,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
             r#"{{"name":"write_file","arguments":{{"path":"{}","content":"<?php\nnamespace App\Models;\nuse Illuminate\Database\Eloquent\Model;\n\nclass Person extends Model {{\n    protected $fillable = ['name'];\n}}"}}}}"#,
             temp.display()
         );
-        let result = dispatch_native_tool(&json, None, None);
+        let result = dispatch_native_tool(&json, None, None, false, None);
         assert!(result.is_some(), "Should parse PHP namespace JSON via fixup chain");
         let output = result.unwrap();
         assert!(output.contains("Written"), "Should write file: {}", output);
@@ -3038,7 +3050,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
     #[test]
     fn test_dispatch_web_search_missing_query() {
         let json = r#"{"name": "web_search", "arguments": {}}"#;
-        let result = dispatch_native_tool(json, None, None);
+        let result = dispatch_native_tool(json, None, None, false, None);
         assert!(result.is_some());
         assert!(result.unwrap().contains("Error"));
     }
@@ -3046,7 +3058,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
     #[test]
     fn test_dispatch_web_fetch_missing_url() {
         let json = r#"{"name": "web_fetch", "arguments": {}}"#;
-        let result = dispatch_native_tool(json, None, None);
+        let result = dispatch_native_tool(json, None, None, false, None);
         assert!(result.is_some());
         assert!(result.unwrap().contains("Error"));
     }

@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from '../atoms/dialog';
 import { useSettings } from '../../hooks/useSettings';
+import { McpSettingsSection } from './McpSettingsSection';
 import { toast } from 'react-hot-toast';
 import type { SamplerConfig } from '../../types';
 
@@ -38,7 +39,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Settings className="h-5 w-5" />
@@ -97,6 +98,12 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
               />
             </div>
           ) : null}
+
+          {/* Separator */}
+          <div className="border-t border-border my-2" />
+
+          {/* MCP Servers */}
+          <McpSettingsSection />
         </div>
 
         <DialogFooter>

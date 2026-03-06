@@ -315,6 +315,16 @@ impl WorkerBridge {
     pub async fn cancel_generation(&self) {
         self.send_fire_and_forget(WorkerCommand::CancelGeneration).await;
     }
+
+    /// Refresh MCP server connections in the worker.
+    pub async fn refresh_mcp_servers(&self) -> Result<WorkerPayload, String> {
+        self.send_and_wait(WorkerCommand::RefreshMcpServers).await
+    }
+
+    /// Get current MCP status from the worker.
+    pub async fn get_mcp_status(&self) -> Result<WorkerPayload, String> {
+        self.send_and_wait(WorkerCommand::GetMcpStatus).await
+    }
 }
 
 /// Result of a completed generation.

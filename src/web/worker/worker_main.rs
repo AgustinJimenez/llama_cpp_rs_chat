@@ -19,6 +19,7 @@ use crossbeam_channel::{self, Receiver, Sender};
 use super::ipc_types::*;
 use crate::web::chat::{generate_llama_response, generate_title_text, warmup_system_prompt};
 use crate::web::database::{Database, SharedDatabase};
+use crate::web::mcp::McpManager;
 use crate::web::model_manager::{get_model_status, load_model, ModelParams};
 use crate::web::models::{SharedLlamaState, TokenData};
 
@@ -79,6 +80,10 @@ pub fn run_worker(db_path: &str) {
         Database::new(db_path).expect("Worker: failed to open database"),
     );
     eprintln!("[WORKER] Database opened: {db_path}");
+
+    // Create MCP manager for external tool servers
+    let mcp_manager = Arc::new(McpManager::new());
+    eprintln!("[WORKER] MCP manager created");
 
     // LlamaState — owned directly, wrapped in Arc<Mutex> for generate_llama_response compatibility
     let llama_state: SharedLlamaState = Arc::new(Mutex::new(None));
@@ -188,6 +193,32 @@ pub fn run_worker(db_path: &str) {
         let req_id = request.id;
 
         match request.command {
+            WorkerCommand::RefreshMcpServers => {
+                eprintln!("[WORKER] Refreshing MCP server connections...");
+                match mcp_manager.refresh_connections(&db) {
+                    Ok(()) => {
+                        let tool_defs = mcp_manager.get_tool_definitions();
+                        let connected: Vec<String> = mcp_manager.get_connected_server_names();
+                        eprintln!("[WORKER] MCP refresh complete: {} servers, {} tools", connected.len(), tool_defs.len());
+                        write_response(&mut ipc_writer, &WorkerResponse::ok(req_id, WorkerPayload::McpServersRefreshed {
+                            connected_servers: connected,
+                            total_tools: tool_defs.len(),
+                        }));
+                    }
+                    Err(e) => {
+                        eprintln!("[WORKER] MCP refresh failed: {e}");
+                        write_response(&mut ipc_writer, &WorkerResponse::error(req_id, e));
+                    }
+                }
+            }
+
+            WorkerCommand::GetMcpStatus => {
+                let statuses = mcp_manager.get_server_statuses();
+                write_response(&mut ipc_writer, &WorkerResponse::ok(req_id, WorkerPayload::McpStatus {
+                    servers: statuses,
+                }));
+            }
+
             WorkerCommand::Ping => {
                 write_response(&mut ipc_writer, &WorkerResponse::ok(req_id, WorkerPayload::Pong));
             }
@@ -395,6 +426,7 @@ pub fn run_worker(db_path: &str) {
                 let db = db.clone();
                 let cancel = cancel_flag.clone();
                 let tx = token_tx.clone();
+                let mcp = mcp_manager.clone();
 
                 eprintln!(
                     "[WORKER] Starting generation: conv={}, msg_len={}",
@@ -415,6 +447,7 @@ pub fn run_worker(db_path: &str) {
                             db,
                             cancel,
                             tx,
+                            mcp_manager: mcp,
                         });
                     }));
                     if let Err(panic_info) = result {
@@ -448,6 +481,7 @@ struct GenerationParams {
     db: SharedDatabase,
     cancel: Arc<AtomicBool>,
     tx: Sender<WorkerResponse>,
+    mcp_manager: Arc<McpManager>,
 }
 
 /// Run a generation request on a background thread.
@@ -473,6 +507,7 @@ fn run_generation(params: GenerationParams) {
         db,
         cancel,
         tx,
+        mcp_manager,
     } = params;
 
     rt.block_on(async {
@@ -548,6 +583,7 @@ fn run_generation(params: GenerationParams) {
             &db,
             cancel,
             image_data.as_deref(),
+            Some(mcp_manager),
         )
         .await;
 

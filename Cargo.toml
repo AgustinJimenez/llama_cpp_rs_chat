@@ -110,6 +110,9 @@ rusqlite = { version = "0.30", features = ["bundled"] }
 # Cross-thread channels for worker process IPC
 crossbeam-channel = "0.5"
 
+# MCP (Model Context Protocol) client for external tool servers
+rmcp = { version = "1.1", default-features = false, features = ["client", "transport-child-process"] }
+
 # HTTP client for web fetching (ureq: lightweight, blocking, rustls for TLS)
 ureq = { version = "2.9", default-features = false, features = ["tls"] }
 

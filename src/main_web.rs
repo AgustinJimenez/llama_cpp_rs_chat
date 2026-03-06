@@ -171,6 +171,28 @@ async fn handle_request_impl(
         (&Method::DELETE, "/api/hub/downloads") => web::routes::download::handle_delete_download(req, db.clone()).await?,
         (&Method::POST, "/api/hub/downloads/verify") => web::routes::download::handle_post_verify(db.clone()).await?,
 
+        // MCP (Model Context Protocol) server management
+        (&Method::GET, "/api/mcp/servers") => {
+            web::routes::mcp::handle_list_mcp_servers(db.clone()).await?
+        }
+        (&Method::POST, "/api/mcp/servers") => {
+            web::routes::mcp::handle_save_mcp_server(req, db.clone()).await?
+        }
+        (&Method::DELETE, path) if path.starts_with("/api/mcp/servers/") => {
+            let id = &path["/api/mcp/servers/".len()..];
+            web::routes::mcp::handle_delete_mcp_server(id, db.clone()).await?
+        }
+        (&Method::POST, path) if path.starts_with("/api/mcp/servers/") && path.ends_with("/toggle") => {
+            let id = &path["/api/mcp/servers/".len()..path.len() - "/toggle".len()];
+            web::routes::mcp::handle_toggle_mcp_server(req, id, db.clone()).await?
+        }
+        (&Method::POST, "/api/mcp/refresh") => {
+            web::routes::mcp::handle_refresh_mcp(bridge.clone()).await?
+        }
+        (&Method::GET, "/api/mcp/tools") => {
+            web::routes::mcp::handle_list_mcp_tools(bridge.clone()).await?
+        }
+
         // File operations
         (&Method::GET, "/api/browse") => web::routes::files::handle_get_browse(req, bridge.clone()).await?,
         (&Method::POST, "/api/browse/pick-directory") => web::routes::files::handle_post_pick_directory(bridge.clone()).await?,

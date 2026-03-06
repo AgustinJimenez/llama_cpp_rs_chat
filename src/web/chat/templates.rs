@@ -1,8 +1,9 @@
 use crate::{log_debug, sys_info, sys_warn};
 use super::jinja_templates::{
-    apply_native_chat_template, get_available_tools_openai, parse_conversation_for_jinja,
+    apply_native_chat_template, get_available_tools_openai_with_mcp, parse_conversation_for_jinja,
 };
 use super::tool_tags::ToolTags;
+use super::super::mcp::McpToolDef;
 
 /// Get a behavioral-only system prompt for Jinja template mode.
 ///
@@ -69,10 +70,11 @@ fn try_jinja_render(
     conversation: &str,
     bos_token: &str,
     eos_token: &str,
+    mcp_tools: Option<&[McpToolDef]>,
 ) -> Result<String, String> {
     let system_prompt = get_behavioral_system_prompt();
     let messages = parse_conversation_for_jinja(conversation, &system_prompt);
-    let tools = get_available_tools_openai();
+    let tools = get_available_tools_openai_with_mcp(mcp_tools);
 
     apply_native_chat_template(
         template_str,
@@ -324,11 +326,12 @@ pub fn apply_system_prompt_by_type_with_tags(
     tags: &ToolTags,
     bos_token: &str,
     eos_token: &str,
+    mcp_tools: Option<&[McpToolDef]>,
 ) -> Result<String, String> {
     // Try Jinja template first (primary path), fall back to hardcoded templates
     if let Some(template_str) = chat_template_string {
         sys_info!("Trying Jinja template rendering (primary path, template len={})", template_str.len());
-        match try_jinja_render(template_str, conversation, bos_token, eos_token) {
+        match try_jinja_render(template_str, conversation, bos_token, eos_token, mcp_tools) {
             Ok(prompt) => {
                 sys_info!("Jinja template rendered successfully ({} chars)", prompt.len());
                 return Ok(prompt);
@@ -342,7 +345,7 @@ pub fn apply_system_prompt_by_type_with_tags(
     }
     // Fallback: hardcoded template with tool tags in system prompt
     sys_info!("Using hardcoded template (type={:?})", template_type);
-    apply_model_chat_template_with_tags(conversation, template_type, tags)
+    apply_model_chat_template_with_tags(conversation, template_type, tags, mcp_tools)
 }
 
 /// Apply chat template formatting to conversation history (uses default tags).
@@ -352,7 +355,7 @@ pub fn apply_model_chat_template(
     template_type: Option<&str>,
 ) -> Result<String, String> {
     use super::tool_tags;
-    apply_model_chat_template_with_tags(conversation, template_type, &tool_tags::default_tags())
+    apply_model_chat_template_with_tags(conversation, template_type, &tool_tags::default_tags(), None)
 }
 
 /// Apply chat template formatting to conversation history.
@@ -363,6 +366,7 @@ pub fn apply_model_chat_template_with_tags(
     conversation: &str,
     template_type: Option<&str>,
     tags: &ToolTags,
+    mcp_tools: Option<&[McpToolDef]>,
 ) -> Result<String, String> {
     // Parse conversation into messages
     let mut user_messages = Vec::new();
@@ -412,7 +416,27 @@ pub fn apply_model_chat_template_with_tags(
     // Use the model-specific universal prompt directly.
     // The conversation's SYSTEM: block may contain a stale copy with default tags,
     // so we always use the freshly-generated prompt with correct model-specific tags.
-    let final_system_message = universal_prompt;
+    let mut final_system_message = universal_prompt;
+
+    // Append MCP tool documentation for hardcoded template path
+    if let Some(mcp) = mcp_tools {
+        if !mcp.is_empty() {
+            let exec_open = &tags.exec_open;
+            let exec_close = &tags.exec_close;
+            final_system_message.push_str("\n\n## MCP (External) Tools\n\n");
+            final_system_message.push_str("The following tools are provided by external MCP servers:\n\n");
+            for tool in mcp {
+                final_system_message.push_str(&format!(
+                    "### {} — [MCP:{}] {}\n{exec_open}{{\"name\": \"{}\", \"arguments\": <see schema>}}{exec_close}\nParameters: {}\n\n",
+                    tool.qualified_name,
+                    tool.server_name,
+                    tool.description,
+                    tool.qualified_name,
+                    serde_json::to_string(&tool.input_schema).unwrap_or_else(|_| "{}".to_string()),
+                ));
+            }
+        }
+    }
 
     // Construct prompt based on detected template type
     let prompt = match template_type {

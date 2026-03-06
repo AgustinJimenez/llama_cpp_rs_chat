@@ -157,8 +157,14 @@ pub struct ToolFunction {
 /// Models are trained on OpenAI API format: `{"type": "function", "function": {...}}`.
 /// The Jinja templates serialize these via `tools | tojson`, so the format matters
 /// for model comprehension.
+#[allow(dead_code)]
 pub fn get_available_tools_openai() -> Vec<Value> {
-    get_available_tools()
+    get_available_tools_openai_with_mcp(None)
+}
+
+/// Get available tools in OpenAI format, optionally including MCP tools.
+pub fn get_available_tools_openai_with_mcp(mcp_tools: Option<&[super::super::mcp::McpToolDef]>) -> Vec<Value> {
+    let mut tools: Vec<Value> = get_available_tools()
         .into_iter()
         .map(|tool| {
             json!({
@@ -166,7 +172,16 @@ pub fn get_available_tools_openai() -> Vec<Value> {
                 "function": tool
             })
         })
-        .collect()
+        .collect();
+
+    // Append MCP tool definitions
+    if let Some(mcp) = mcp_tools {
+        for t in mcp {
+            tools.push(t.to_openai_function());
+        }
+    }
+
+    tools
 }
 
 /// Parse conversation text into ChatMessage format for Jinja rendering.

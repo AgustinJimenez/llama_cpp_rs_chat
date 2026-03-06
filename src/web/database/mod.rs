@@ -6,6 +6,8 @@ pub mod config;
 pub mod conversation;
 pub mod conversation_config;
 pub mod hub_downloads;
+#[allow(dead_code)]
+pub mod mcp;
 pub mod migration;
 pub mod schema;
 

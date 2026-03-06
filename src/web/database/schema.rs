@@ -123,6 +123,21 @@ CREATE TABLE IF NOT EXISTS hub_downloads (
 )
 "#;
 
+const CREATE_MCP_SERVERS_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS mcp_servers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    transport TEXT NOT NULL,
+    command TEXT,
+    args TEXT,
+    env_vars TEXT,
+    url TEXT,
+    enabled INTEGER DEFAULT 1,
+    created_at INTEGER,
+    updated_at INTEGER
+)
+"#;
+
 const CREATE_LOGS_TABLE: &str = r#"
 CREATE TABLE IF NOT EXISTS logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -156,6 +171,7 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         ("conversation_config", CREATE_CONVERSATION_CONFIG_TABLE),
         ("model_history", CREATE_MODEL_HISTORY_TABLE),
         ("hub_downloads", CREATE_HUB_DOWNLOADS_TABLE),
+        ("mcp_servers", CREATE_MCP_SERVERS_TABLE),
         ("logs", CREATE_LOGS_TABLE),
         ("logs_conversation_index", CREATE_LOGS_CONVERSATION_INDEX),
         ("logs_timestamp_index", CREATE_LOGS_TIMESTAMP_INDEX),
