@@ -6,11 +6,16 @@ A local AI chat application built with Rust and React. Runs GGUF models via llam
 
 - **Local inference** powered by llama-cpp-2 with CUDA and Metal GPU acceleration
 - **Web and desktop** modes (Tauri) from the same codebase
-- **Tool execution** — models can run shell commands with safety limits
-- **Web search and fetch** — DuckDuckGo search API and headless Chrome for JS-rendered page fetching
+- **25+ native tools** — file I/O, shell commands, Python execution, web search/fetch, screenshots, and more
+- **Desktop automation (computer use)** — click, type, press keys, scroll via `enigo` crate with auto-screenshot feedback loop
+- **Vision support** — paste/drop images in chat, screenshot tool for screen capture (always compiled)
+- **MCP (Model Context Protocol)** — connect external tool servers for extensible tool capabilities
+- **Web search and fetch** — Brave Search API, Google via headless Chrome, DuckDuckGo fallback
+- **Jinja2 prompt templates** — renders native chat templates from GGUF metadata via minijinja
 - **Auto-configuration** — extracts optimal sampling parameters from GGUF metadata
-- **Multiple samplers** — Greedy, Temperature, TopP, TopK, Mirostat, and chain variants
-- **Conversation history** stored in SQLite
+- **11 sampler types** — Greedy, Temperature, TopP, TopK, MinP, Mirostat, DRY, and chain variants
+- **Conversation history** stored in SQLite with auto-generated titles
+- **Out-of-process worker** — model runs in child process; kill to reclaim all VRAM instantly
 - **Docker support** — CPU and CUDA images included
 
 ## Quick Start
@@ -20,7 +25,7 @@ npm install
 npm run dev:auto        # auto-detects GPU (CUDA/Metal/CPU)
 ```
 
-Opens at **http://localhost:4000**. The backend runs on port 8000.
+Opens at **http://localhost:14000**. The backend runs on port 18080.
 
 CMake is required to build llama.cpp. If it's not installed, the build toolchain downloads a portable copy automatically — no manual install needed.
 
@@ -94,8 +99,11 @@ llama_cpp_rs_chat/
 │   │   ├── routes/             # HTTP/WebSocket handlers
 │   │   ├── database/           # SQLite persistence
 │   │   ├── model_manager.rs    # Model loading/unloading
-│   │   ├── native_tools.rs     # Web search, web fetch, file I/O, code execution
+│   │   ├── native_tools.rs     # Web search, web fetch, file I/O, screenshots
+│   │   ├── desktop_tools.rs    # Mouse, keyboard, scroll simulation (computer use)
+│   │   ├── mcp/                # MCP server connections and tool proxying
 │   │   ├── browser.rs          # Headless Chrome singleton for JS-rendered pages
+│   │   ├── worker/             # Out-of-process model worker (IPC over stdin/stdout)
 │   │   ├── gguf_utils.rs       # GGUF metadata extraction
 │   │   ├── vram_calculator.rs  # GPU layer auto-calculation
 │   │   └── websocket.rs        # WebSocket streaming
@@ -150,7 +158,7 @@ For mock mode (no real model needed): build with `--features mock` or set `TEST_
 
 - **CMake not found**: The build toolchain (`tools/ensure-cmake`) downloads it automatically. If that fails, install manually: `winget install Kitware.CMake` (Windows), `brew install cmake` (macOS), `sudo apt install cmake` (Linux).
 - **CUDA build fails**: Ensure CUDA toolkit is installed and `nvcc` is on PATH.
-- **Port 4000 in use**: The Vite dev server uses port 4000. Kill any existing process or change the port in package.json.
+- **Port 14000 in use**: The Vite dev server uses port 14000. Kill any existing process or change the port in package.json.
 - **Model won't load**: Check that the `.gguf` file path is correct and the file isn't corrupted. Try a smaller model first.
 
 ---
