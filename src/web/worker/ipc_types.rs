@@ -20,6 +20,7 @@ pub enum WorkerCommand {
     LoadModel {
         model_path: String,
         gpu_layers: Option<u32>,
+        mmproj_path: Option<String>,
     },
     /// Unload the current model (free memory within the process).
     UnloadModel,

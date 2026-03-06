@@ -5,7 +5,7 @@
 #   docker build -f Dockerfile.cuda -t llama-cuda .
 #
 # Run:
-#   docker run --gpus all -p 8000:8000 \
+#   docker run --gpus all -p 18080:18080 \
 #     -v "E:/.lmstudio:/app/models" \
 #     -v "E:/repo/llama_cpp_rs_chat/assets:/app/assets" \
 #     llama-cuda
@@ -115,6 +115,6 @@ RUN cargo build --release --features cuda --bin llama_chat_web 2>&1 | tee /tmp/b
 RUN test -f target/release/llama_chat_web && echo "SUCCESS: CUDA-enabled binary built"
 
 # Expose server port
-EXPOSE 8000
+EXPOSE 18080
 
 CMD ["./target/release/llama_chat_web"]

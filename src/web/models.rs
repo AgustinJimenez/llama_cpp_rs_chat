@@ -532,6 +532,7 @@ pub struct ModelStatus {
 pub struct ModelLoadRequest {
     pub model_path: String,
     pub gpu_layers: Option<u32>,
+    pub mmproj_path: Option<String>,
 }
 
 #[derive(Serialize)]

@@ -124,11 +124,12 @@ impl WorkerBridge {
     }
 
     /// Load a model in the worker process.
-    pub async fn load_model(&self, model_path: &str, gpu_layers: Option<u32>) -> Result<ModelMeta, String> {
+    pub async fn load_model(&self, model_path: &str, gpu_layers: Option<u32>, mmproj_path: Option<String>) -> Result<ModelMeta, String> {
         let payload = self
             .send_and_wait(WorkerCommand::LoadModel {
                 model_path: model_path.to_string(),
                 gpu_layers,
+                mmproj_path,
             })
             .await?;
 

@@ -529,7 +529,7 @@ pub async fn handle_post_model_load(
         };
 
         // Attempt to load the model via worker process
-        match bridge.load_model(&load_request.model_path, load_request.gpu_layers).await {
+        match bridge.load_model(&load_request.model_path, load_request.gpu_layers, load_request.mmproj_path).await {
             Ok(meta) => {
                 // Add to model history on successful load
                 add_to_model_history(&db, &load_request.model_path);

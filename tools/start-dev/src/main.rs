@@ -51,7 +51,7 @@ fn main() {
     // 1. Kill existing processes
     println!("\x1b[36m[1/3] Cleaning up old processes...\x1b[0m");
     kill_by_name("llama_chat_web");
-    kill_port_holders(4000);
+    kill_port_holders(14000);
     std::thread::sleep(std::time::Duration::from_secs(1));
 
     // 2. Optionally rebuild
@@ -75,7 +75,9 @@ fn main() {
             .args(["build", "--bin", "llama_chat_web"]);
 
         if gpu != "cpu" {
-            cmd.args(["--features", gpu]);
+            cmd.args(["--features", &format!("{gpu},vision")]);
+        } else {
+            cmd.args(["--features", "vision"]);
         }
         if !debug {
             cmd.arg("--release");
@@ -112,12 +114,12 @@ fn main() {
         });
 
     // Wait for backend to be ready
-    wait_for_port(8000, 15);
+    wait_for_port(18080, 15);
 
     let npx = if cfg!(windows) { "npx.cmd" } else { "npx" };
     let frontend = Command::new(npx)
         .current_dir(&project_root)
-        .args(["vite", "--host", "--port", "4000"])
+        .args(["vite", "--host", "--port", "14000"])
         .spawn()
         .unwrap_or_else(|e| {
             eprintln!("\x1b[31mFailed to start frontend: {e}\x1b[0m");
@@ -125,12 +127,12 @@ fn main() {
         });
 
     // Wait for frontend to be ready
-    wait_for_port(4000, 10);
+    wait_for_port(14000, 10);
 
     println!();
     println!("\x1b[32mReady!\x1b[0m");
-    println!("  Backend:  http://localhost:8000");
-    println!("  Frontend: http://localhost:4000");
+    println!("  Backend:  http://localhost:18080");
+    println!("  Frontend: http://localhost:14000");
     println!();
     println!("\x1b[90mPress Ctrl+C to stop both.\x1b[0m");
 

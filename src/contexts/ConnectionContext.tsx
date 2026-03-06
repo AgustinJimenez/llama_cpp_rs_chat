@@ -4,11 +4,15 @@ import { isTauriEnv } from '../utils/tauri';
 interface ConnectionState {
   connected: boolean;
   reconnecting: boolean;
+  attempt: number;
+  disconnectedAt: number | null;
 }
 
 const ConnectionContext = createContext<ConnectionState>({
   connected: true,
   reconnecting: false,
+  attempt: 0,
+  disconnectedAt: null,
 });
 
 export const useConnection = () => useContext(ConnectionContext);
@@ -22,7 +26,7 @@ function getReconnectDelay(attempt: number): number {
 
 export const ConnectionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Optimistic: assume connected until proven otherwise
-  const [state, setState] = useState<ConnectionState>({ connected: true, reconnecting: false });
+  const [state, setState] = useState<ConnectionState>({ connected: true, reconnecting: false, attempt: 0, disconnectedAt: null });
   const attemptRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -44,13 +48,18 @@ export const ConnectionProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       ws.onopen = () => {
         if (!mountedRef.current) return;
         attemptRef.current = 0;
-        setState({ connected: true, reconnecting: false });
+        setState({ connected: true, reconnecting: false, attempt: 0, disconnectedAt: null });
       };
 
       ws.onclose = () => {
         if (!mountedRef.current) return;
         wsRef.current = null;
-        setState({ connected: false, reconnecting: true });
+        setState(prev => ({
+          connected: false,
+          reconnecting: true,
+          attempt: attemptRef.current,
+          disconnectedAt: prev.disconnectedAt ?? Date.now(),
+        }));
         scheduleReconnect();
       };
 

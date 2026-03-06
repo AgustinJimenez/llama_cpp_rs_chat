@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { getSystemUsage } from '../utils/tauriCommands';
+import { useConnection } from './ConnectionContext';
 
 export interface UsageData {
   cpu: number;
@@ -45,12 +46,16 @@ export function SystemResourcesProvider({ children }: { children: ReactNode }) {
   const [history, setHistory] = useState<UsageData[]>([]);
   const [hasData, setHasData] = useState(false);
 
+  const { connected } = useConnection();
+  const connectedRef = useRef(connected);
+  connectedRef.current = connected;
+
   const isFetchingRef = useRef(false);
   const activeRef = useRef(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchUsage = useCallback(async () => {
-    if (isFetchingRef.current) return;
+    if (isFetchingRef.current || !connectedRef.current) return;
     isFetchingRef.current = true;
     try {
       const data = await getSystemUsage();

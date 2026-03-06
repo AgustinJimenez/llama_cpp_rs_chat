@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Loader2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Loader2, ChevronDown, ChevronRight, Eye, FolderOpen, CheckCircle } from 'lucide-react';
 import { pickFile } from '@/utils/tauriCommands';
 import {
   Dialog,
@@ -68,6 +68,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   const [showHistory, setShowHistory] = useState(false);
   const [systemPromptMode, setSystemPromptMode] = useState<'system' | 'custom'>('system');
   const [customSystemPrompt, setCustomSystemPrompt] = useState('You are a helpful AI assistant.');
+  const [mmprojPath, setMmprojPath] = useState('');
   const savedConfigLoaded = useRef(false);
 
   const [overheadGb, setOverheadGb] = useState(1.5);
@@ -237,6 +238,15 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     console.log('[ModelConfig] Auto-applied preset for:', generalName, merged);
   }, [generalName, recommendedParams]);
 
+  // Auto-select first mmproj file when model info loads, clear on model change
+  useEffect(() => {
+    if (modelInfo?.mmproj_files?.length) {
+      setMmprojPath(modelInfo.mmproj_files[0].path);
+    } else {
+      setMmprojPath('');
+    }
+  }, [modelInfo?.mmproj_files]);
+
   // Always update tag_pairs when model changes (detected_tag_pairs reflects new model)
   // Stale pairs from a previous model would cause wrong tool format in prompts
   useEffect(() => {
@@ -319,6 +329,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
       model_path: modelPath,
       context_size: contextSize,
       system_prompt: systemPrompt,
+      ...(mmprojPath ? { mmproj_path: mmprojPath } : {}),
       ...(execPair ? { tool_tag_exec_open: execPair.open_tag, tool_tag_exec_close: execPair.close_tag } : {}),
       ...(respPair ? { tool_tag_output_open: respPair.open_tag, tool_tag_output_close: respPair.close_tag } : {}),
     };
@@ -405,6 +416,52 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
               {modelInfo ? <ModelMetadataDisplay
                   modelInfo={modelInfo}
                 /> : null}
+
+              {/* Vision Projector Selector */}
+              {modelInfo?.has_vision && modelInfo.mmproj_files?.length ? (
+                <div className="mt-3 p-3 rounded-md border border-violet-500/30 bg-violet-500/5 space-y-2">
+                  <div className="flex items-center gap-1.5 text-sm font-medium">
+                    <Eye className="h-4 w-4 text-violet-400" />
+                    Vision Projector
+                  </div>
+                  {modelInfo.mmproj_files.length === 1 ? (
+                    <div className="flex items-center gap-2 text-xs">
+                      <CheckCircle className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />
+                      <span className="font-mono truncate">{modelInfo.mmproj_files[0].name}</span>
+                      <span className="text-muted-foreground whitespace-nowrap">{modelInfo.mmproj_files[0].file_size}</span>
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      {modelInfo.mmproj_files.map((f: { name: string; path: string; file_size: string }, idx: number) => (
+                        <label key={idx} className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-xs transition-colors ${
+                          mmprojPath === f.path ? 'bg-violet-500/20 border border-violet-500/40' : 'hover:bg-accent border border-transparent'
+                        }`}>
+                          <input
+                            type="radio"
+                            name="mmproj"
+                            checked={mmprojPath === f.path}
+                            onChange={() => setMmprojPath(f.path)}
+                            className="accent-violet-500"
+                          />
+                          <span className="font-mono truncate flex-1">{f.name}</span>
+                          <span className="text-muted-foreground whitespace-nowrap">{f.file_size}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const filePath = await pickFile();
+                      if (filePath) setMmprojPath(filePath);
+                    }}
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <FolderOpen className="h-3 w-3" />
+                    Browse for different mmproj file...
+                  </button>
+                </div>
+              ) : null}
             </CardContent>
           </Card>
 

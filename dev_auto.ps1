@@ -105,19 +105,19 @@ $hasVS = Test-VisualStudio
 
 if ($hasNvidiaGpu -and $hasCuda -and $hasVS) {
     $UseCuda = $true
-    $Features = "cuda"
+    $Features = "cuda,vision"
     if ($Mode -eq "desktop") {
         $ScriptCmd = "tauri:dev:cuda"
     } else {
         $ScriptCmd = "dev:cuda"
     }
-    Write-Host "🚀 Will use CUDA acceleration for optimal performance" -ForegroundColor Green
+    Write-Host "🚀 Will use CUDA acceleration with vision support" -ForegroundColor Green
 } elseif ($hasNvidiaGpu) {
     $UseCpu = $true
     if ($Mode -eq "desktop") {
         $ScriptCmd = "tauri:dev"
     } else {
-        $ScriptCmd = "dev"
+        $ScriptCmd = "dev:cpu"
     }
     Write-Host "⚠️  NVIDIA GPU found but CUDA/Visual Studio not properly configured" -ForegroundColor Yellow
     Write-Host "💡 Run 'build_cuda.bat' or install Visual Studio with C++ tools" -ForegroundColor Cyan
@@ -126,9 +126,9 @@ if ($hasNvidiaGpu -and $hasCuda -and $hasVS) {
     if ($Mode -eq "desktop") {
         $ScriptCmd = "tauri:dev"
     } else {
-        $ScriptCmd = "dev"
+        $ScriptCmd = "dev:cpu"
     }
-    Write-Host "🔄 No NVIDIA GPU detected, using CPU mode" -ForegroundColor Yellow
+    Write-Host "🔄 No NVIDIA GPU detected, using CPU mode with vision support" -ForegroundColor Yellow
 }
 
 Write-Host ""
@@ -157,8 +157,8 @@ if ($Mode -eq "desktop") {
     Write-Host "🖥️  Desktop App: Native window will open" -ForegroundColor White
     Write-Host "🔧 Backend: Embedded within desktop app" -ForegroundColor White
 } else {
-    Write-Host "🌐 Frontend: http://localhost:4000" -ForegroundColor White
-    Write-Host "🔧 Backend API: http://localhost:8000" -ForegroundColor White
+    Write-Host "🌐 Frontend: http://localhost:14000" -ForegroundColor White
+    Write-Host "🔧 Backend API: http://localhost:18080" -ForegroundColor White
 }
 Write-Host ""
 

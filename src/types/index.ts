@@ -91,6 +91,8 @@ export interface SamplerConfig {
   split_mode?: string;     // "layer" | "row" | "none"
   use_rtk?: boolean;       // RTK output compression for tool commands
   use_htmd?: boolean; // htmd web fetch (better markdown extraction)
+  // Vision projector override (auto-detected if not specified)
+  mmproj_path?: string;
   // Dynamic tag pairs (Stage 1 — stored in config, not yet used by pipeline)
   tag_pairs?: TagPair[];
 }

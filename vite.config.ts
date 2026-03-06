@@ -20,7 +20,7 @@ export default defineConfig({
   ],
   clearScreen: false,
   server: {
-    port: 4000,
+    port: 14000,
     strictPort: true,
     host: true,
     watch: {
@@ -43,11 +43,11 @@ export default defineConfig({
     },
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'http://localhost:18080',
         changeOrigin: true,
       },
       '/ws': {
-        target: 'http://localhost:8000',
+        target: 'http://localhost:18080',
         changeOrigin: true,
         ws: true, // Enable WebSocket proxying
         configure: (proxy) => {

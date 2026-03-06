@@ -87,7 +87,7 @@ fn parse_split_mode(s: &str) -> LlamaSplitMode {
 }
 
 // Helper function to load a model
-pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, requested_gpu_layers: Option<u32>, model_params: Option<&ModelParams>) -> Result<(), String> {
+pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, requested_gpu_layers: Option<u32>, model_params: Option<&ModelParams>, mmproj_path: Option<&str>) -> Result<(), String> {
     log_debug!("system", "load_model called with path: {}", model_path);
 
     // Handle poisoned mutex by recovering from panic
@@ -306,7 +306,7 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, request
 
     // Scan for mmproj companion file for vision support
     #[cfg(feature = "vision")]
-    let vision_state = scan_and_init_vision(&model, model_path, optimal_gpu_layers);
+    let vision_state = scan_and_init_vision(&model, model_path, optimal_gpu_layers, mmproj_path);
 
     state.model = Some(model);
     state.current_model_path = Some(model_path.to_string());
@@ -338,27 +338,24 @@ fn scan_and_init_vision(
     model: &LlamaModel,
     model_path: &str,
     gpu_layers: u32,
+    mmproj_override: Option<&str>,
 ) -> Option<VisionState> {
     use llama_cpp_2::mtmd::{MtmdContext, MtmdContextParams};
     use std::ffi::CString;
     use std::path::Path;
 
-    let model_dir = Path::new(model_path).parent()?;
-
-    // Find the first mmproj file in the same directory
-    let mmproj_path = fs::read_dir(model_dir)
-        .ok()?
-        .filter_map(|entry| entry.ok())
-        .map(|e| e.path())
-        .find(|p| {
-            p.extension().map(|e| e == "gguf").unwrap_or(false)
-                && p.file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|n| n.contains("mmproj"))
-                    .unwrap_or(false)
-        })?;
-
-    let mmproj_str = mmproj_path.to_string_lossy().to_string();
+    // Use user-specified mmproj path if provided, otherwise auto-detect
+    let mmproj_str = if let Some(override_path) = mmproj_override {
+        if Path::new(override_path).exists() {
+            log_info!("system", "Using user-specified mmproj: {}", override_path);
+            override_path.to_string()
+        } else {
+            log_warn!("system", "User-specified mmproj not found: {}, falling back to auto-detect", override_path);
+            auto_detect_mmproj(model_path)?
+        }
+    } else {
+        auto_detect_mmproj(model_path)?
+    };
     log_info!("system", "Found mmproj file: {}", mmproj_str);
 
     // Initialize MtmdContext
@@ -390,6 +387,28 @@ fn scan_and_init_vision(
             None
         }
     }
+}
+
+#[cfg(feature = "vision")]
+fn auto_detect_mmproj(model_path: &str) -> Option<String> {
+    use std::path::Path;
+
+    let model_dir = Path::new(model_path).parent()?;
+    let mmproj_path = fs::read_dir(model_dir)
+        .ok()?
+        .filter_map(|entry| entry.ok())
+        .map(|e| e.path())
+        .find(|p| {
+            p.extension().map(|e| e == "gguf").unwrap_or(false)
+                && p.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.contains("mmproj"))
+                    .unwrap_or(false)
+        })?;
+
+    let s = mmproj_path.to_string_lossy().to_string();
+    log_info!("system", "Auto-detected mmproj file: {}", s);
+    Some(s)
 }
 
 // Tests moved to vram_calculator.rs

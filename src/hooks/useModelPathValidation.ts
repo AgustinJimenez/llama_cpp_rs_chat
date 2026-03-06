@@ -136,6 +136,8 @@ export const useModelPathValidation = ({
             embedding_length: String(d.embedding_length ?? meta?.['gemma3.embedding_length'] ?? meta?.['llama.embedding_length'] ?? ''),
             detected_tool_tags: d.detected_tool_tags as ModelMetadata['detected_tool_tags'],
             detected_tag_pairs: d.detected_tag_pairs as ModelMetadata['detected_tag_pairs'],
+            has_vision: d.has_vision as boolean | undefined,
+            mmproj_files: d.mmproj_files as ModelMetadata['mmproj_files'],
           });
 
           // Update max layers if available

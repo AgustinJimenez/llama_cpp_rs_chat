@@ -25,8 +25,8 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $logDir = Join-Path $repoRoot "logs/dev"
 Ensure-Dir $logDir
 
-Stop-ListenerOnPort 8000
-Stop-ListenerOnPort 4000
+Stop-ListenerOnPort 18080
+Stop-ListenerOnPort 14000
 
 $stamp = Get-Date -Format "yyyy-MM-dd-HH_mm_ss"
 $backendOut = Join-Path $logDir "backend_$stamp.out.log"
@@ -45,7 +45,7 @@ $backend = Start-Process `
 
 $frontend = Start-Process `
   -FilePath "cmd.exe" `
-  -ArgumentList @("/c", "npx", "vite", "--host", "--port", "4000") `
+  -ArgumentList @("/c", "npx", "vite", "--host", "--port", "14000") `
   -WorkingDirectory $repoRoot `
   -WindowStyle Hidden `
   -RedirectStandardOutput $frontendOut `
@@ -67,6 +67,6 @@ $pids = @{
 $pidsPath = Join-Path $logDir "pids.json"
 $pids | ConvertTo-Json -Depth 5 | Set-Content -Path $pidsPath -Encoding UTF8
 
-Write-Host "Started backend PID $($backend.Id) (port 8000)"
-Write-Host "Started frontend PID $($frontend.Id) (port 4000)"
+Write-Host "Started backend PID $($backend.Id) (port 18080)"
+Write-Host "Started frontend PID $($frontend.Id) (port 14000)"
 Write-Host "PID file: $pidsPath"

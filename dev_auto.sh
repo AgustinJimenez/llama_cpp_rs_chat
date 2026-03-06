@@ -80,21 +80,21 @@ case "$OS" in
         echo "🍎 macOS detected"
         if check_metal; then
             USE_METAL=true
-            FEATURES="metal"
+            FEATURES="metal,vision"
             if [[ "$MODE" == "desktop" ]]; then
                 SCRIPT_CMD="tauri:dev:metal"
             else
                 SCRIPT_CMD="dev:metal"
             fi
-            echo "🚀 Will use Metal acceleration for optimal performance"
+            echo "🚀 Will use Metal acceleration with vision support"
         else
             USE_CPU=true
             if [[ "$MODE" == "desktop" ]]; then
                 SCRIPT_CMD="tauri:dev"
             else
-                SCRIPT_CMD="dev"
+                SCRIPT_CMD="dev:cpu"
             fi
-            echo "⚠️  Metal not available, falling back to CPU"
+            echo "⚠️  Metal not available, falling back to CPU with vision support"
         fi
         ;;
     
@@ -102,21 +102,21 @@ case "$OS" in
         echo "🪟 Windows (Git Bash/MSYS) detected"
         if check_cuda && check_visual_studio; then
             USE_CUDA=true
-            FEATURES="cuda"
+            FEATURES="cuda,vision"
             if [[ "$MODE" == "desktop" ]]; then
                 SCRIPT_CMD="tauri:dev:cuda"
             else
                 SCRIPT_CMD="dev:cuda"
             fi
-            echo "🚀 Will use CUDA acceleration for optimal performance"
+            echo "🚀 Will use CUDA acceleration with vision support"
         else
             USE_CPU=true
             if [[ "$MODE" == "desktop" ]]; then
                 SCRIPT_CMD="tauri:dev"
             else
-                SCRIPT_CMD="dev"
+                SCRIPT_CMD="dev:cpu"
             fi
-            echo "⚠️  CUDA/Visual Studio not properly configured, falling back to CPU"
+            echo "⚠️  CUDA/Visual Studio not properly configured, falling back to CPU with vision"
             echo "💡 Run 'build_cuda.bat' for CUDA setup instructions"
         fi
         ;;
@@ -126,18 +126,18 @@ case "$OS" in
         if check_cuda; then
             echo "⚠️  CUDA detected but not configured for this script"
             if [[ "$MODE" == "desktop" ]]; then
-                echo "💡 You can manually use: cargo tauri dev --features cuda"
+                echo "💡 You can manually use: cargo tauri dev --features cuda,vision"
             else
-                echo "💡 You can manually use: cargo build --features cuda --bin llama_chat_web"
+                echo "💡 You can manually use: cargo build --features cuda,vision --bin llama_chat_web"
             fi
         fi
         USE_CPU=true
         if [[ "$MODE" == "desktop" ]]; then
             SCRIPT_CMD="tauri:dev"
         else
-            SCRIPT_CMD="dev"
+            SCRIPT_CMD="dev:cpu"
         fi
-        echo "🔄 Using CPU mode (recommended for Linux)"
+        echo "🔄 Using CPU mode with vision support"
         ;;
     
     *)
@@ -180,8 +180,8 @@ if [[ "$MODE" == "desktop" ]]; then
     echo "🖥️  Desktop App: Native window will open"
     echo "🔧 Backend: Embedded within desktop app"
 else
-    echo "🌐 Frontend: http://localhost:4000"
-    echo "🔧 Backend API: http://localhost:8000"
+    echo "🌐 Frontend: http://localhost:14000"
+    echo "🔧 Backend API: http://localhost:18080"
 fi
 echo ""
 

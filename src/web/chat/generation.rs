@@ -781,7 +781,7 @@ pub async fn generate_llama_response(
         .unwrap_or_else(get_common_stop_tokens);
 
     // Ensure model is loaded
-    load_model(llama_state.clone(), model_path, None, None).await?;
+    load_model(llama_state.clone(), model_path, None, None, None).await?;
 
     // Now use the shared state for generation (mutable for inference cache)
     let mut state_guard = llama_state
