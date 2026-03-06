@@ -48,6 +48,14 @@ export function ModelProvider({ children }: { children: ReactNode }) {
     const result = await loadModelRaw(modelPath, config);
     if (result.success) {
       toast.success('Model loaded successfully!');
+      if (result.visionFailed) {
+        setTimeout(() => {
+          toast('Vision projector failed to initialize. The model may not support vision, or the mmproj file is incompatible.', {
+            icon: '\u26A0\uFE0F',
+            duration: 6000,
+          });
+        }, 1500);
+      }
     } else {
       const display = `Failed to load model: ${result.message}`;
       logToastError('ModelContext.loadModel', display);

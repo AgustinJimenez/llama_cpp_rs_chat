@@ -113,7 +113,9 @@ export const useModel = () => {
         }
         setError(null);
         setHasStatusError(false);
-        return { success: true, message: data.message };
+        // Detect if mmproj was requested but vision init failed
+        const visionFailed = !!(config?.mmproj_path && data.status?.has_vision === false);
+        return { success: true, message: data.message, visionFailed };
       } else {
         setError(data.message);
         setHasStatusError(true);
