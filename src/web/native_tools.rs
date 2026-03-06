@@ -735,9 +735,24 @@ pub fn dispatch_native_tool(
         return None;
     };
 
-    // take_screenshot returns NativeToolResult directly (may carry image bytes for vision)
+    // Desktop automation tools return NativeToolResult directly (may carry image bytes for vision)
     if name == "take_screenshot" {
         return Some(tool_take_screenshot_with_image(&args));
+    }
+    if name == "click_screen" {
+        return Some(super::desktop_tools::tool_click_screen(&args));
+    }
+    if name == "type_text" {
+        return Some(super::desktop_tools::tool_type_text(&args));
+    }
+    if name == "press_key" {
+        return Some(super::desktop_tools::tool_press_key(&args));
+    }
+    if name == "move_mouse" {
+        return Some(super::desktop_tools::tool_move_mouse(&args));
+    }
+    if name == "scroll_screen" {
+        return Some(super::desktop_tools::tool_scroll_screen(&args));
     }
 
     // All other tools return text-only results
@@ -2654,7 +2669,7 @@ fn tool_git_commit(args: &Value) -> String {
 }
 
 /// Capture a screenshot — returns NativeToolResult with image bytes for vision pipeline.
-fn tool_take_screenshot_with_image(args: &Value) -> NativeToolResult {
+pub(crate) fn tool_take_screenshot_with_image(args: &Value) -> NativeToolResult {
     let monitor_idx = args
         .get("monitor")
         .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok())))

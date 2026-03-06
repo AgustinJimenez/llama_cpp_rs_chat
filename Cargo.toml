@@ -154,6 +154,9 @@ encoding_rs = "0.8.35"
 # Cross-platform screen capture (Windows, macOS, Linux X11)
 xcap = "0.8"
 
+# Cross-platform keyboard/mouse input simulation (computer use tools)
+enigo = "0.6"
+
 # libc for Unix fd operations (dup/dup2 in worker IPC)
 [target.'cfg(not(windows))'.dependencies]
 libc = "0.2"

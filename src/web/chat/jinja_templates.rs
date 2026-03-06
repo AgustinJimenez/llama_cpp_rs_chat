@@ -545,6 +545,75 @@ pub fn get_available_tools() -> Vec<Value> {
                 "required": []
             }
         }),
+        // Desktop automation tools (computer use)
+        json!({
+            "name": "click_screen",
+            "description": "Click the mouse at screen coordinates. Automatically takes a screenshot after clicking so you can see the result. Use take_screenshot first to see the screen and identify coordinates.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "x": { "type": "integer", "description": "X coordinate in pixels from left edge of screen" },
+                    "y": { "type": "integer", "description": "Y coordinate in pixels from top edge of screen" },
+                    "button": { "type": "string", "description": "Mouse button: 'left' (default), 'right', 'middle', 'double' (double left click)" },
+                    "delay_ms": { "type": "integer", "description": "Milliseconds to wait after clicking before taking screenshot (default: 500). Increase for slow UI animations." }
+                },
+                "required": ["x", "y"]
+            }
+        }),
+        json!({
+            "name": "type_text",
+            "description": "Type text using the keyboard. Simulates real keyboard input character by character. Use click_screen first to focus the target input field.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": { "type": "string", "description": "The text to type" },
+                    "screenshot": { "type": "boolean", "description": "Take a screenshot after typing (default: true)" },
+                    "delay_ms": { "type": "integer", "description": "Milliseconds to wait after typing before screenshot (default: 300)" }
+                },
+                "required": ["text"]
+            }
+        }),
+        json!({
+            "name": "press_key",
+            "description": "Press a key or key combination. Supports modifiers (ctrl, alt, shift, meta/win) and special keys (enter, tab, escape, backspace, delete, up, down, left, right, home, end, pageup, pagedown, f1-f12, space). For combinations use '+': 'ctrl+c', 'ctrl+shift+s', 'alt+tab', 'alt+f4'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "key": { "type": "string", "description": "Key or key combination. Examples: 'enter', 'tab', 'ctrl+c', 'ctrl+shift+s', 'alt+tab', 'f5'" },
+                    "screenshot": { "type": "boolean", "description": "Take a screenshot after key press (default: true)" },
+                    "delay_ms": { "type": "integer", "description": "Milliseconds to wait after key press before screenshot (default: 500)" }
+                },
+                "required": ["key"]
+            }
+        }),
+        json!({
+            "name": "move_mouse",
+            "description": "Move the mouse cursor to screen coordinates without clicking. Does not take a screenshot.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "x": { "type": "integer", "description": "X coordinate in pixels from left edge of screen" },
+                    "y": { "type": "integer", "description": "Y coordinate in pixels from top edge of screen" }
+                },
+                "required": ["x", "y"]
+            }
+        }),
+        json!({
+            "name": "scroll_screen",
+            "description": "Scroll the mouse wheel at the current or specified position. Positive amount scrolls down, negative scrolls up. Each unit is about 3 lines of text.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "amount": { "type": "integer", "description": "Scroll amount: positive = down, negative = up. Each unit is ~3 lines." },
+                    "x": { "type": "integer", "description": "X coordinate to scroll at (optional, uses current position if omitted)" },
+                    "y": { "type": "integer", "description": "Y coordinate to scroll at (optional, uses current position if omitted)" },
+                    "horizontal": { "type": "boolean", "description": "Scroll horizontally instead of vertically (default: false)" },
+                    "screenshot": { "type": "boolean", "description": "Take a screenshot after scrolling (default: true)" },
+                    "delay_ms": { "type": "integer", "description": "Milliseconds to wait after scrolling before screenshot (default: 300)" }
+                },
+                "required": ["amount"]
+            }
+        }),
     ]
 }
 
