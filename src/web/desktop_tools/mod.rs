@@ -90,10 +90,15 @@ pub(super) fn validate_coordinates(x: i32, y: i32) -> Result<(), String> {
 }
 
 /// Apply DPI scaling to coordinates if dpi_aware flag is set.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub(super) fn apply_dpi_scaling(x: i32, y: i32, dpi_aware: bool) -> (i32, i32) {
     if dpi_aware {
+        #[cfg(windows)]
         let scale = win32::get_system_dpi_scale();
+        #[cfg(target_os = "macos")]
+        let scale = macos::get_system_dpi_scale();
+        #[cfg(target_os = "linux")]
+        let scale = linux::get_system_dpi_scale();
         ((x as f64 * scale) as i32, (y as f64 * scale) as i32)
     } else {
         (x, y)
@@ -113,6 +118,11 @@ pub(super) fn check_modal_dialog() -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(not(windows))]
+pub(super) fn check_modal_dialog() -> Option<String> {
+    None // Modal dialog detection not available on macOS/Linux
 }
 
 /// Type text using Win32 SendInput with KEYEVENTF_UNICODE (IME/Unicode fallback).
@@ -290,7 +300,7 @@ pub fn tool_click_screen(args: &Value) -> NativeToolResult {
         None => return NativeToolResult::text_only("Error: 'y' coordinate is required".to_string()),
     };
     // DPI scaling: convert logical coordinates to physical if requested
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
     {
         let dpi_aware = args.get("dpi_aware").map(|v| parse_bool(v, false)).unwrap_or(false);
         let scaled = apply_dpi_scaling(x, y, dpi_aware);
@@ -301,10 +311,7 @@ pub fn tool_click_screen(args: &Value) -> NativeToolResult {
         return NativeToolResult::text_only(format!("Error: {e}"));
     }
     // Check for modal dialog blocking the foreground window
-    #[cfg(windows)]
     let modal_warning = check_modal_dialog().unwrap_or_default();
-    #[cfg(not(windows))]
-    let modal_warning = String::new();
 
     let button_str = args
         .get("button")
@@ -557,6 +564,10 @@ pub fn tool_scroll_screen(args: &Value) -> NativeToolResult {
 
 #[cfg(windows)]
 pub(crate) mod win32;
+#[cfg(target_os = "macos")]
+pub(crate) mod macos;
+#[cfg(target_os = "linux")]
+pub(crate) mod linux;
 
 mod window_tools;
 pub use window_tools::*;
@@ -778,14 +789,14 @@ mod tests {
         assert_eq!(r2.unwrap(), 99);
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
     #[test]
     fn test_dpi_scaling_noop_when_false() {
         let (x, y) = apply_dpi_scaling(100, 200, false);
         assert_eq!((x, y), (100, 200));
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
     #[test]
     fn test_dpi_scaling_applies_when_true() {
         let (x, y) = apply_dpi_scaling(100, 200, true);

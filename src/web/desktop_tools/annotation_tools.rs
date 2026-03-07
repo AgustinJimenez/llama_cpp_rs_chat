@@ -85,7 +85,7 @@ pub fn tool_annotate_screenshot(args: &Value) -> NativeToolResult {
 }
 
 /// OCR a specific rectangular region of the screen.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_ocr_region(args: &Value) -> NativeToolResult {
     let x = args.get("x").and_then(parse_int).unwrap_or(0) as u32;
     let y = args.get("y").and_then(parse_int).unwrap_or(0) as u32;
@@ -147,9 +147,9 @@ pub fn tool_ocr_region(args: &Value) -> NativeToolResult {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_ocr_region(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: ocr_region is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: ocr_region is not available on this platform".to_string())
 }
 
 /// Find pixels on screen matching a specific color (with tolerance).

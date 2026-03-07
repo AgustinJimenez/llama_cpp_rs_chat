@@ -6,9 +6,14 @@ use super::NativeToolResult;
 use super::parse_int;
 
 /// Move a window to a specific monitor.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_move_to_monitor(args: &Value) -> NativeToolResult {
+    #[cfg(windows)]
     use super::win32;
+    #[cfg(target_os = "macos")]
+    use super::macos as win32;
+    #[cfg(target_os = "linux")]
+    use super::linux as win32;
 
     let title = match args.get("title").and_then(|v| v.as_str()) {
         Some(t) => t,
@@ -61,15 +66,20 @@ pub fn tool_move_to_monitor(args: &Value) -> NativeToolResult {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_move_to_monitor(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: move_to_monitor is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: move_to_monitor is not available on this platform".to_string())
 }
 
 /// Set window transparency (opacity 0-100).
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_set_window_opacity(args: &Value) -> NativeToolResult {
+    #[cfg(windows)]
     use super::win32;
+    #[cfg(target_os = "macos")]
+    use super::macos as win32;
+    #[cfg(target_os = "linux")]
+    use super::linux as win32;
 
     let title = match args.get("title").and_then(|v| v.as_str()) {
         Some(t) => t,
@@ -92,9 +102,9 @@ pub fn tool_set_window_opacity(args: &Value) -> NativeToolResult {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_set_window_opacity(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: set_window_opacity is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: set_window_opacity is not available on this platform".to_string())
 }
 
 /// Draw a crosshair marker on a screenshot at given coordinates (debugging aid).

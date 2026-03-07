@@ -6,9 +6,14 @@ use super::NativeToolResult;
 use super::parse_int;
 
 /// Read a value from the Windows registry.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_read_registry(args: &Value) -> NativeToolResult {
+    #[cfg(windows)]
     use super::win32;
+    #[cfg(target_os = "macos")]
+    use super::macos as win32;
+    #[cfg(target_os = "linux")]
+    use super::linux as win32;
 
     let hive_str = args
         .get("hive")
@@ -43,16 +48,21 @@ pub fn tool_read_registry(args: &Value) -> NativeToolResult {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_read_registry(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: read_registry is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: read_registry is not available on this platform".to_string())
 }
 
 /// Click a system tray icon by tooltip/name text.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_click_tray_icon(args: &Value) -> NativeToolResult {
     use super::ui_tools;
+    #[cfg(windows)]
     use super::win32;
+    #[cfg(target_os = "macos")]
+    use super::macos as win32;
+    #[cfg(target_os = "linux")]
+    use super::linux as win32;
 
     let name = match args.get("name").and_then(|v| v.as_str()) {
         Some(n) => n,
@@ -123,15 +133,20 @@ pub fn tool_click_tray_icon(args: &Value) -> NativeToolResult {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_click_tray_icon(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: click_tray_icon is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: click_tray_icon is not available on this platform".to_string())
 }
 
 /// Watch for window changes (new, closed, title changes) with timeout.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_watch_window(args: &Value) -> NativeToolResult {
+    #[cfg(windows)]
     use super::win32;
+    #[cfg(target_os = "macos")]
+    use super::macos as win32;
+    #[cfg(target_os = "linux")]
+    use super::linux as win32;
 
     let timeout_ms = args
         .get("timeout_ms")
@@ -213,7 +228,7 @@ pub fn tool_watch_window(args: &Value) -> NativeToolResult {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_watch_window(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: watch_window is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: watch_window is not available on this platform".to_string())
 }

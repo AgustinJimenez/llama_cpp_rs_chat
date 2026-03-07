@@ -12,9 +12,13 @@ pub fn tool_paste(args: &Value) -> NativeToolResult {
         .and_then(parse_int)
         .unwrap_or(300) as u64;
 
-    // Press Ctrl+V
+    // Press Ctrl+V (Cmd+V on macOS)
+    #[cfg(target_os = "macos")]
+    let paste_key = "meta+v";
+    #[cfg(not(target_os = "macos"))]
+    let paste_key = "ctrl+v";
     let result = super::tool_press_key(&serde_json::json!({
-        "key": "ctrl+v",
+        "key": paste_key,
         "delay_ms": delay_ms,
         "screenshot": true
     }));
@@ -33,8 +37,12 @@ pub fn tool_clear_field(args: &Value) -> NativeToolResult {
         .and_then(parse_int)
         .unwrap_or(200) as u64;
 
-    // Select all
-    super::tool_press_key(&serde_json::json!({"key": "ctrl+a", "delay_ms": 50, "screenshot": false}));
+    // Select all (Cmd+A on macOS)
+    #[cfg(target_os = "macos")]
+    let select_all_key = "meta+a";
+    #[cfg(not(target_os = "macos"))]
+    let select_all_key = "ctrl+a";
+    super::tool_press_key(&serde_json::json!({"key": select_all_key, "delay_ms": 50, "screenshot": false}));
     // Delete selection
     super::tool_press_key(&serde_json::json!({"key": "delete", "delay_ms": 100, "screenshot": false}));
 
@@ -59,10 +67,15 @@ pub fn tool_clear_field(args: &Value) -> NativeToolResult {
 }
 
 /// Hover over a UI element by name/type, wait, and capture tooltip if present.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_hover_element(args: &Value) -> NativeToolResult {
     use super::ui_tools;
+    #[cfg(windows)]
     use super::win32;
+    #[cfg(target_os = "macos")]
+    use super::macos as win32;
+    #[cfg(target_os = "linux")]
+    use super::linux as win32;
 
     let name_filter = args.get("name").and_then(|v| v.as_str());
     let type_filter = args.get("control_type").and_then(|v| v.as_str());
@@ -131,7 +144,7 @@ pub fn tool_hover_element(args: &Value) -> NativeToolResult {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_hover_element(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: hover_element is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: hover_element is not available on this platform".to_string())
 }

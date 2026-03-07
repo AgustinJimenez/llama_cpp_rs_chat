@@ -160,6 +160,12 @@ enigo = "0.6"
 # Image processing (pixel ops for screenshot_diff/region, already transitive via xcap)
 image = { version = "0.25", default-features = false, features = ["png"] }
 
+# Cross-platform clipboard (text/image, replaces Win32 clipboard on macOS/Linux)
+arboard = "3"
+
+# Cross-platform process info (replaces Win32 Toolhelp32/psapi on macOS/Linux)
+sysinfo = "0.33"
+
 # libc for Unix fd operations (dup/dup2 in worker IPC)
 [target.'cfg(not(windows))'.dependencies]
 libc = "0.2"

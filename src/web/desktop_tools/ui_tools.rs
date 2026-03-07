@@ -7,6 +7,50 @@ use super::{parse_int, tool_click_screen};
 
 #[cfg(windows)]
 use super::win32;
+#[cfg(target_os = "macos")]
+use super::macos as win32;
+#[cfg(target_os = "linux")]
+use super::linux as win32;
+
+/// Structured OCR match result with bounding box info.
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+pub(super) struct OcrMatch {
+    pub text: String,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub center_x: f64,
+    pub center_y: f64,
+}
+
+// ─── Retry and adaptive polling helpers ───────────────────────────────────────
+
+/// Retry a fallible operation up to `max_retries` times with a delay between attempts.
+#[allow(dead_code)]
+pub(super) fn retry_on_failure<F, T>(max_retries: u32, delay_ms: u64, mut f: F) -> Result<T, String>
+where
+    F: FnMut() -> Result<T, String>,
+{
+    let mut last_err = String::new();
+    for i in 0..=max_retries {
+        match f() {
+            Ok(val) => return Ok(val),
+            Err(e) => {
+                last_err = e;
+                if i < max_retries {
+                    std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+                }
+            }
+        }
+    }
+    Err(last_err)
+}
+
+/// Compute an adaptive poll interval with exponential backoff, capped at max_ms.
+pub(crate) fn adaptive_poll_ms(attempt: u32, initial_ms: u64, max_ms: u64) -> u64 {
+    (initial_ms * (1u64 << attempt.min(6))).min(max_ms)
+}
 
 // ─── Screenshot tools ─────────────────────────────────────────────────────────
 
@@ -222,7 +266,7 @@ pub fn tool_wait_for_screen_change(args: &Value) -> NativeToolResult {
     };
 
     let start = std::time::Instant::now();
-    let poll_interval = std::time::Duration::from_millis(200);
+    let mut attempt = 0u32;
 
     loop {
         if start.elapsed().as_millis() >= timeout_ms as u128 {
@@ -231,7 +275,9 @@ pub fn tool_wait_for_screen_change(args: &Value) -> NativeToolResult {
             ));
         }
 
-        std::thread::sleep(poll_interval);
+        let poll_ms = adaptive_poll_ms(attempt, 100, 1000);
+        std::thread::sleep(std::time::Duration::from_millis(poll_ms));
+        attempt += 1;
 
         let current = match capture_region(monitor_idx, x, y, w, h) {
             Ok(img) => img,
@@ -261,7 +307,7 @@ pub fn tool_wait_for_screen_change(args: &Value) -> NativeToolResult {
 }
 
 /// Helper: capture a screen region as RgbaImage
-fn capture_region(monitor_idx: usize, x: u32, y: u32, w: u32, h: u32) -> Result<image::RgbaImage, String> {
+pub(super) fn capture_region(monitor_idx: usize, x: u32, y: u32, w: u32, h: u32) -> Result<image::RgbaImage, String> {
     let monitors = xcap::Monitor::all().map_err(|e| format!("Monitor::all: {e}"))?;
     let monitor = monitors.get(monitor_idx).ok_or("Monitor index out of range")?;
     let full = monitor.capture_image().map_err(|e| format!("capture: {e}"))?;
@@ -276,13 +322,9 @@ fn capture_region(monitor_idx: usize, x: u32, y: u32, w: u32, h: u32) -> Result<
 // ─── OCR tools ────────────────────────────────────────────────────────────────
 
 /// OCR: extract text from the screen using Windows.Media.Ocr.
+/// Supports optional `window` param to auto-crop to a window's rect.
 #[cfg(windows)]
 pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
-    // Region params (optional — full screen if omitted)
-    let region_x = args.get("x").and_then(parse_int).map(|v| v as u32);
-    let region_y = args.get("y").and_then(parse_int).map(|v| v as u32);
-    let region_w = args.get("width").and_then(parse_int).map(|v| v as u32);
-    let region_h = args.get("height").and_then(parse_int).map(|v| v as u32);
     let monitor_idx = args.get("monitor").and_then(parse_int).unwrap_or(0) as usize;
 
     // Capture screen
@@ -300,23 +342,41 @@ pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
         Err(e) => return NativeToolResult::text_only(format!("Error capturing: {e}")),
     };
 
-    // Crop if region specified
     let full_w = img.width();
     let full_h = img.height();
-    let (work_img, crop_x, crop_y) = if let (Some(rx), Some(ry), Some(rw), Some(rh)) = (region_x, region_y, region_w, region_h) {
-        if rx + rw > full_w || ry + rh > full_h {
-            return NativeToolResult::text_only(format!(
-                "Error: region ({rx},{ry} {rw}x{rh}) exceeds screen ({full_w}x{full_h})"
-            ));
-        }
-        let cropped: image::RgbaImage = image::imageops::crop_imm(&img, rx, ry, rw, rh).to_image();
-        (cropped, rx, ry)
-    } else {
-        (img, 0u32, 0u32)
-    };
 
-    let work_w = work_img.width();
-    let work_h = work_img.height();
+    // Determine crop region: window param takes priority, then explicit x/y/width/height
+    let (work_img, region_desc) = if let Some(window_filter) = args.get("window").and_then(|v| v.as_str()) {
+        match win32::find_window_by_filter(window_filter) {
+            Some((hwnd, winfo)) => {
+                let rect = win32::get_window_rect(hwnd);
+                let rx = rect.left.max(0) as u32;
+                let ry = rect.top.max(0) as u32;
+                let rw = ((rect.right - rect.left).max(1) as u32).min(full_w.saturating_sub(rx));
+                let rh = ((rect.bottom - rect.top).max(1) as u32).min(full_h.saturating_sub(ry));
+                let cropped = image::imageops::crop_imm(&img, rx, ry, rw, rh).to_image();
+                (cropped, format!(" (window \"{}\" {rx},{ry} {rw}x{rh})", winfo.title))
+            }
+            None => return NativeToolResult::text_only(format!("No window matches '{window_filter}'")),
+        }
+    } else {
+        let region_x = args.get("x").and_then(parse_int).map(|v| v as u32);
+        let region_y = args.get("y").and_then(parse_int).map(|v| v as u32);
+        let region_w = args.get("width").and_then(parse_int).map(|v| v as u32);
+        let region_h = args.get("height").and_then(parse_int).map(|v| v as u32);
+
+        if let (Some(rx), Some(ry), Some(rw), Some(rh)) = (region_x, region_y, region_w, region_h) {
+            if rx + rw > full_w || ry + rh > full_h {
+                return NativeToolResult::text_only(format!(
+                    "Error: region ({rx},{ry} {rw}x{rh}) exceeds screen ({full_w}x{full_h})"
+                ));
+            }
+            let cropped: image::RgbaImage = image::imageops::crop_imm(&img, rx, ry, rw, rh).to_image();
+            (cropped, format!(" (region {rx},{ry} {rw}x{rh})"))
+        } else {
+            (img, format!(" ({full_w}x{full_h})"))
+        }
+    };
 
     // Run OCR on a temporary STA thread (WinRT requires STA)
     let result = std::thread::spawn(move || {
@@ -325,17 +385,12 @@ pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
 
     match result {
         Ok(text) => {
-            let region_info = if region_x.is_some() {
-                format!(" (region {crop_x},{crop_y} {work_w}x{work_h})")
-            } else {
-                format!(" ({full_w}x{full_h})")
-            };
             if text.is_empty() {
-                NativeToolResult::text_only(format!("OCR{region_info}: no text detected"))
+                NativeToolResult::text_only(format!("OCR{region_desc}: no text detected"))
             } else {
                 let line_count = text.lines().count();
                 NativeToolResult::text_only(format!(
-                    "OCR{region_info}: {line_count} lines\n{text}"
+                    "OCR{region_desc}: {line_count} lines\n{text}"
                 ))
             }
         }
@@ -345,7 +400,7 @@ pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
 
 /// Internal: run OCR via Windows.Media.Ocr WinRT API. Must be called from STA thread.
 #[cfg(windows)]
-fn ocr_image_winrt(img: &image::RgbaImage) -> Result<String, String> {
+pub(super) fn ocr_image_winrt(img: &image::RgbaImage) -> Result<String, String> {
     use windows::Media::Ocr::OcrEngine;
     use windows::Graphics::Imaging::{SoftwareBitmap, BitmapPixelFormat, BitmapAlphaMode};
     use windows::Storage::Streams::{DataWriter, InMemoryRandomAccessStream};
@@ -431,7 +486,7 @@ fn ocr_image_winrt(img: &image::RgbaImage) -> Result<String, String> {
 
 /// Pump STA message loop for a duration (ms). Required for WinRT async ops to complete on STA.
 #[cfg(windows)]
-fn pump_sta_messages(duration_ms: u64) {
+pub(super) fn pump_sta_messages(duration_ms: u64) {
     #[repr(C)]
     struct MSG([u8; 48]); // sizeof(MSG) = 48 on x64
 
@@ -456,9 +511,91 @@ fn pump_sta_messages(duration_ms: u64) {
     }
 }
 
+/// OCR via tesseract CLI (macOS/Linux).
 #[cfg(not(windows))]
-pub fn tool_ocr_screen(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: ocr_screen is only available on Windows".to_string())
+pub(super) fn ocr_image_tesseract(img: &image::RgbaImage) -> Result<String, String> {
+    use std::io::Write;
+    let tmp_dir = std::env::temp_dir();
+    let tmp_path = tmp_dir.join("llama_chat_ocr_tmp.png");
+    let dyn_img = image::DynamicImage::ImageRgba8(img.clone());
+    dyn_img.save(&tmp_path).map_err(|e| format!("Failed to save temp image: {e}"))?;
+    let output = std::process::Command::new("tesseract")
+        .arg(tmp_path.to_str().unwrap_or(""))
+        .arg("stdout")
+        .output()
+        .map_err(|e| format!("tesseract not found or failed: {e}. Install: brew install tesseract (macOS) or sudo apt install tesseract-ocr (Linux)"))?;
+    let _ = std::fs::remove_file(&tmp_path);
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        Err(format!("tesseract error: {}", String::from_utf8_lossy(&output.stderr).trim()))
+    }
+}
+
+/// OCR with bounding boxes via tesseract TSV output (macOS/Linux).
+#[cfg(not(windows))]
+pub(super) fn ocr_find_text_tesseract(img: &image::RgbaImage, search: &str, offset_x: f64, offset_y: f64) -> Result<Vec<OcrMatch>, String> {
+    let tmp_dir = std::env::temp_dir();
+    let tmp_path = tmp_dir.join("llama_chat_ocr_find_tmp.png");
+    let dyn_img = image::DynamicImage::ImageRgba8(img.clone());
+    dyn_img.save(&tmp_path).map_err(|e| format!("Failed to save temp image: {e}"))?;
+    let output = std::process::Command::new("tesseract")
+        .arg(tmp_path.to_str().unwrap_or(""))
+        .arg("stdout")
+        .arg("--psm").arg("3")
+        .arg("tsv")
+        .output()
+        .map_err(|e| format!("tesseract failed: {e}"))?;
+    let _ = std::fs::remove_file(&tmp_path);
+    if !output.status.success() {
+        return Err(format!("tesseract error: {}", String::from_utf8_lossy(&output.stderr).trim()));
+    }
+    let tsv = String::from_utf8_lossy(&output.stdout);
+    let search_lower = search.to_lowercase();
+    let mut matches = Vec::new();
+    for line in tsv.lines().skip(1) {
+        let cols: Vec<&str> = line.split('\t').collect();
+        if cols.len() >= 12 {
+            let word = cols[11].trim();
+            if word.to_lowercase().contains(&search_lower) {
+                let x: f64 = cols[6].parse().unwrap_or(0.0);
+                let y: f64 = cols[7].parse().unwrap_or(0.0);
+                let w: f64 = cols[8].parse().unwrap_or(0.0);
+                let h: f64 = cols[9].parse().unwrap_or(0.0);
+                matches.push(OcrMatch {
+                    text: word.to_string(),
+                    x: x + offset_x,
+                    y: y + offset_y,
+                    width: w,
+                    height: h,
+                    center_x: x + w / 2.0 + offset_x,
+                    center_y: y + h / 2.0 + offset_y,
+                });
+            }
+        }
+    }
+    Ok(matches)
+}
+
+#[cfg(not(windows))]
+pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
+    let monitor_idx = args.get("monitor").and_then(parse_int).unwrap_or(0) as usize;
+    let monitors = match xcap::Monitor::all() {
+        Ok(m) => m,
+        Err(e) => return NativeToolResult::text_only(format!("Error listing monitors: {e}")),
+    };
+    let monitor = match monitors.get(monitor_idx) {
+        Some(m) => m,
+        None => return NativeToolResult::text_only(format!("Monitor {monitor_idx} not found")),
+    };
+    let img = match monitor.capture_image() {
+        Ok(i) => i,
+        Err(e) => return NativeToolResult::text_only(format!("Screenshot failed: {e}")),
+    };
+    match ocr_image_tesseract(&img) {
+        Ok(text) => NativeToolResult::text_only(format!("OCR text:\n{text}")),
+        Err(e) => NativeToolResult::text_only(format!("Error: {e}")),
+    }
 }
 
 /// OCR the screen (or region) and search for specific text, returning its bounding box coordinates.
@@ -507,13 +644,24 @@ pub fn tool_ocr_find_text(args: &Value) -> NativeToolResult {
     }).join().unwrap_or_else(|_| Err("OCR thread panicked".to_string()));
 
     match result {
-        Ok(text) => NativeToolResult::text_only(text),
+        Ok(matches) => {
+            if matches.is_empty() {
+                NativeToolResult::text_only(format!("Text '{}' not found on screen", search_text))
+            } else {
+                let lines: Vec<String> = matches.iter().map(|m| {
+                    format!("\"{}\" at ({:.0}, {:.0}) size ({:.0}x{:.0}) center ({:.0}, {:.0})",
+                        m.text, m.x, m.y, m.width, m.height, m.center_x, m.center_y)
+                }).collect();
+                NativeToolResult::text_only(format!("Found {} match(es):\n{}", matches.len(), lines.join("\n")))
+            }
+        }
         Err(e) => NativeToolResult::text_only(format!("OCR error: {e}")),
     }
 }
 
+/// OCR find text returning structured matches. Must be called from STA thread.
 #[cfg(windows)]
-fn ocr_find_text_winrt(img: &image::RgbaImage, search: &str, offset_x: f64, offset_y: f64) -> Result<String, String> {
+pub(super) fn ocr_find_text_winrt(img: &image::RgbaImage, search: &str, offset_x: f64, offset_y: f64) -> Result<Vec<OcrMatch>, String> {
     use windows::Media::Ocr::OcrEngine;
     use windows::Graphics::Imaging::{SoftwareBitmap, BitmapPixelFormat, BitmapAlphaMode};
     use windows::Storage::Streams::{DataWriter, InMemoryRandomAccessStream};
@@ -573,7 +721,6 @@ fn ocr_find_text_winrt(img: &image::RgbaImage, search: &str, offset_x: f64, offs
         // Check if the full line matches
         if line_text.to_lowercase().contains(search) {
             let words = line.Words().map_err(|e| format!("Words: {e}"))?;
-            // Get bounding box spanning all words in this line
             let mut min_x = f64::MAX;
             let mut min_y = f64::MAX;
             let mut max_x = 0.0f64;
@@ -588,13 +735,17 @@ fn ocr_find_text_winrt(img: &image::RgbaImage, search: &str, offset_x: f64, offs
                 max_y = max_y.max((rect.Y + rect.Height) as f64);
             }
 
-            matches.push(format!(
-                "\"{}\" at ({:.0}, {:.0}) size ({:.0}x{:.0}) center ({:.0}, {:.0})",
-                line_text,
-                min_x + offset_x, min_y + offset_y,
-                max_x - min_x, max_y - min_y,
-                (min_x + max_x) / 2.0 + offset_x, (min_y + max_y) / 2.0 + offset_y,
-            ));
+            let w = max_x - min_x;
+            let h = max_y - min_y;
+            matches.push(OcrMatch {
+                text: line_text.clone(),
+                x: min_x + offset_x,
+                y: min_y + offset_y,
+                width: w,
+                height: h,
+                center_x: (min_x + max_x) / 2.0 + offset_x,
+                center_y: (min_y + max_y) / 2.0 + offset_y,
+            });
         }
 
         // Also check individual words
@@ -604,34 +755,65 @@ fn ocr_find_text_winrt(img: &image::RgbaImage, search: &str, offset_x: f64, offs
             let word_text = word.Text().map(|s| s.to_string()).unwrap_or_default();
             if word_text.to_lowercase().contains(search) && !line_text.to_lowercase().contains(search) {
                 let rect = word.BoundingRect().map_err(|e| format!("BoundingRect: {e}"))?;
-                matches.push(format!(
-                    "\"{}\" at ({:.0}, {:.0}) size ({:.0}x{:.0}) center ({:.0}, {:.0})",
-                    word_text,
-                    rect.X as f64 + offset_x, rect.Y as f64 + offset_y,
-                    rect.Width, rect.Height,
-                    rect.X as f64 + rect.Width as f64 / 2.0 + offset_x,
-                    rect.Y as f64 + rect.Height as f64 / 2.0 + offset_y,
-                ));
+                matches.push(OcrMatch {
+                    text: word_text,
+                    x: rect.X as f64 + offset_x,
+                    y: rect.Y as f64 + offset_y,
+                    width: rect.Width as f64,
+                    height: rect.Height as f64,
+                    center_x: rect.X as f64 + rect.Width as f64 / 2.0 + offset_x,
+                    center_y: rect.Y as f64 + rect.Height as f64 / 2.0 + offset_y,
+                });
             }
         }
     }
 
-    if matches.is_empty() {
-        Ok(format!("Text '{search}' not found on screen"))
-    } else {
-        Ok(format!("Found {} match(es):\n{}", matches.len(), matches.join("\n")))
-    }
+    Ok(matches)
 }
 
 #[cfg(not(windows))]
-pub fn tool_ocr_find_text(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: ocr_find_text is only available on Windows".to_string())
+pub fn tool_ocr_find_text(args: &Value) -> NativeToolResult {
+    let search = match args.get("text").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => return NativeToolResult::text_only("Error: 'text' is required".to_string()),
+    };
+    let monitor_idx = args.get("monitor").and_then(parse_int).unwrap_or(0) as usize;
+    let monitors = match xcap::Monitor::all() {
+        Ok(m) => m,
+        Err(e) => return NativeToolResult::text_only(format!("Error listing monitors: {e}")),
+    };
+    let monitor = match monitors.get(monitor_idx) {
+        Some(m) => m,
+        None => return NativeToolResult::text_only(format!("Monitor {monitor_idx} not found")),
+    };
+    let img = match monitor.capture_image() {
+        Ok(i) => i,
+        Err(e) => return NativeToolResult::text_only(format!("Screenshot failed: {e}")),
+    };
+    let offset_x = monitor.x() as f64;
+    let offset_y = monitor.y() as f64;
+    match ocr_find_text_tesseract(&img, search, offset_x, offset_y) {
+        Ok(matches) if matches.is_empty() => {
+            NativeToolResult::text_only(format!("Text '{search}' not found on screen"))
+        }
+        Ok(matches) => {
+            let mut lines = vec![format!("Found {} match(es) for '{search}':", matches.len())];
+            for m in &matches {
+                lines.push(format!(
+                    "  '{}' at ({:.0}, {:.0}) size {:.0}x{:.0} center ({:.0}, {:.0})",
+                    m.text, m.x, m.y, m.width, m.height, m.center_x, m.center_y
+                ));
+            }
+            NativeToolResult::text_only(lines.join("\n"))
+        }
+        Err(e) => NativeToolResult::text_only(format!("Error: {e}")),
+    }
 }
 
 // ─── UI Automation tools ──────────────────────────────────────────────────────
 
 /// Get the UI element tree of a window using UI Automation.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_get_ui_tree(args: &Value) -> NativeToolResult {
     let title_filter = args.get("title").and_then(|v| v.as_str());
     let max_depth = args.get("depth").and_then(parse_int).unwrap_or(3).min(8) as usize;
@@ -766,7 +948,7 @@ fn get_element_info(elem: &windows::Win32::UI::Accessibility::IUIAutomationEleme
 }
 
 #[cfg(windows)]
-fn control_type_name(id: i32) -> String {
+pub(super) fn control_type_name(id: i32) -> String {
     match id {
         50000 => "Button",
         50001 => "Calendar",
@@ -812,12 +994,18 @@ fn control_type_name(id: i32) -> String {
 }
 
 #[cfg(not(windows))]
+pub(super) fn control_type_name(_id: i32) -> String {
+    "unknown".to_string()
+}
+
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_get_ui_tree(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: get_ui_tree is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: get_ui_tree is not available on this platform".to_string())
 }
 
 /// Find a UI Automation element by name or control type and click it.
-#[cfg(windows)]
+/// Supports `index` param to click the Nth match (0-based, default 0).
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_click_ui_element(args: &Value) -> NativeToolResult {
     let name_filter = args.get("name").and_then(|v| v.as_str());
     let type_filter = args.get("control_type").and_then(|v| v.as_str());
@@ -828,6 +1016,7 @@ pub fn tool_click_ui_element(args: &Value) -> NativeToolResult {
 
     let title_filter = args.get("title").and_then(|v| v.as_str());
     let delay_ms = args.get("delay_ms").and_then(parse_int).unwrap_or(500) as u64;
+    let index = args.get("index").and_then(parse_int).unwrap_or(0) as usize;
 
     // Get target window HWND
     let hwnd = if let Some(filter) = title_filter {
@@ -845,14 +1034,19 @@ pub fn tool_click_ui_element(args: &Value) -> NativeToolResult {
     let name_owned = name_filter.map(|s| s.to_lowercase());
     let type_owned = type_filter.map(|s| s.to_lowercase());
 
-    // Find and click the element on STA thread
+    // Find element(s) on STA thread — fetch index+1 results to pick the Nth
     let result = std::thread::spawn(move || {
-        find_and_click_element(hwnd, name_owned.as_deref(), type_owned.as_deref())
+        let results = find_ui_elements_all(hwnd, name_owned.as_deref(), type_owned.as_deref(), index + 1)?;
+        results.into_iter().nth(index).ok_or_else(|| {
+            format!("Only {} element(s) found, but index {} requested", index, index)
+        })
     }).join().unwrap_or_else(|_| Err("UI Automation thread panicked".to_string()));
 
     match result {
-        Ok((x, y, element_desc)) => {
-            // Click at the element's center coordinates
+        Ok(info) => {
+            let element_desc = info.desc();
+            let x = info.cx;
+            let y = info.cy;
             let click_args = serde_json::json!({
                 "x": x,
                 "y": y,
@@ -860,7 +1054,8 @@ pub fn tool_click_ui_element(args: &Value) -> NativeToolResult {
                 "delay_ms": delay_ms,
             });
             let mut result = tool_click_screen(&click_args);
-            result.text = format!("Clicked UI element {element_desc} at ({x}, {y}). {}", result.text);
+            let idx_info = if index > 0 { format!(" (index {index})") } else { String::new() };
+            result.text = format!("Clicked UI element {element_desc}{idx_info} at ({x}, {y}). {}", result.text);
             result
         }
         Err(e) => NativeToolResult::text_only(format!("Error: {e}")),
@@ -868,21 +1063,21 @@ pub fn tool_click_ui_element(args: &Value) -> NativeToolResult {
 }
 
 /// Shared UI element info returned by find_ui_element / find_ui_elements_all
-#[cfg(windows)]
-struct UiElementInfo {
-    cx: i32,
-    cy: i32,
-    left: i32,
-    top: i32,
-    width: i32,
-    height: i32,
-    name: String,
-    control_type: String,
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+pub(super) struct UiElementInfo {
+    pub cx: i32,
+    pub cy: i32,
+    pub left: i32,
+    pub top: i32,
+    pub width: i32,
+    pub height: i32,
+    pub name: String,
+    pub control_type: String,
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 impl UiElementInfo {
-    fn desc(&self) -> String {
+    pub fn desc(&self) -> String {
         if self.name.is_empty() {
             format!("[{}]", self.control_type)
         } else {
@@ -893,7 +1088,7 @@ impl UiElementInfo {
 
 /// Initialize COM + UI Automation and find the first matching element in a window.
 #[cfg(windows)]
-fn find_ui_element(hwnd: isize, name_filter: Option<&str>, type_filter: Option<&str>) -> Result<UiElementInfo, String> {
+pub(super) fn find_ui_element(hwnd: isize, name_filter: Option<&str>, type_filter: Option<&str>) -> Result<UiElementInfo, String> {
     let results = find_ui_elements_all(hwnd, name_filter, type_filter, 1)?;
     results.into_iter().next().ok_or_else(|| {
         let filter_desc = match (name_filter, type_filter) {
@@ -908,7 +1103,7 @@ fn find_ui_element(hwnd: isize, name_filter: Option<&str>, type_filter: Option<&
 
 /// Initialize COM + UI Automation and find ALL matching elements (up to max_results).
 #[cfg(windows)]
-fn find_ui_elements_all(hwnd: isize, name_filter: Option<&str>, type_filter: Option<&str>, max_results: usize) -> Result<Vec<UiElementInfo>, String> {
+pub(super) fn find_ui_elements_all(hwnd: isize, name_filter: Option<&str>, type_filter: Option<&str>, max_results: usize) -> Result<Vec<UiElementInfo>, String> {
     use windows::Win32::UI::Accessibility::*;
     use windows::Win32::System::Com::{CoInitializeEx, CoCreateInstance, COINIT_APARTMENTTHREADED, CLSCTX_INPROC_SERVER};
     use windows::Win32::Foundation::HWND as WIN32_HWND;
@@ -998,20 +1193,25 @@ fn find_ui_elements_all(hwnd: isize, name_filter: Option<&str>, type_filter: Opt
     Ok(results)
 }
 
-/// Legacy wrapper: find first matching element and return center coordinates + description.
-#[cfg(windows)]
-fn find_and_click_element(hwnd: isize, name_filter: Option<&str>, type_filter: Option<&str>) -> Result<(i32, i32, String), String> {
-    let info = find_ui_element(hwnd, name_filter, type_filter)?;
-    Ok((info.cx, info.cy, info.desc()))
+#[cfg(not(windows))]
+pub(super) fn find_ui_element(hwnd: isize, name_filter: Option<&str>, type_filter: Option<&str>) -> Result<UiElementInfo, String> {
+    let _ = (hwnd, name_filter, type_filter);
+    Err("UI element search requires UI Automation (Windows) or accessibility APIs".to_string())
 }
 
 #[cfg(not(windows))]
+pub(super) fn find_ui_elements_all(hwnd: isize, name_filter: Option<&str>, type_filter: Option<&str>, max_results: usize) -> Result<Vec<UiElementInfo>, String> {
+    let _ = (hwnd, name_filter, type_filter, max_results);
+    Err("UI element search requires UI Automation (Windows) or accessibility APIs".to_string())
+}
+
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_click_ui_element(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: click_ui_element is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: click_ui_element is not available on this platform".to_string())
 }
 
 /// Invoke a UI Automation action (invoke/toggle/expand/collapse/select/set_value) on an element.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_invoke_ui_action(args: &Value) -> NativeToolResult {
     let name_filter = args.get("name").and_then(|v| v.as_str());
     let type_filter = args.get("control_type").and_then(|v| v.as_str());
@@ -1145,7 +1345,7 @@ fn invoke_ui_action_inner(hwnd: isize, name_filter: Option<&str>, type_filter: O
 
 /// Recursive search returning the raw IUIAutomationElement (needed for pattern invocation).
 #[cfg(windows)]
-fn find_raw_ui_element(
+pub(super) fn find_raw_ui_element(
     walker: &windows::Win32::UI::Accessibility::IUIAutomationTreeWalker,
     parent: &windows::Win32::UI::Accessibility::IUIAutomationElement,
     name_filter: Option<&str>,
@@ -1193,12 +1393,21 @@ fn find_raw_ui_element(
 }
 
 #[cfg(not(windows))]
+pub(super) fn find_raw_ui_element(
+    _hwnd: isize,
+    _name_filter: Option<&str>,
+    _type_filter: Option<&str>,
+) -> Result<isize, String> {
+    Err("UI Automation not available on this platform".to_string())
+}
+
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_invoke_ui_action(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: invoke_ui_action is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: invoke_ui_action is not available on this platform".to_string())
 }
 
 /// Read the current value or text of a UI element.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_read_ui_element_value(args: &Value) -> NativeToolResult {
     let name_filter = args.get("name").and_then(|v| v.as_str());
     let type_filter = args.get("control_type").and_then(|v| v.as_str());
@@ -1283,13 +1492,13 @@ fn read_ui_element_value_inner(hwnd: isize, name_filter: Option<&str>, type_filt
     Ok(format!("[{control_type}] \"{elem_name}\"{rect_str}\nValue: (no ValuePattern, name shown above)"))
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_read_ui_element_value(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: read_ui_element_value is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: read_ui_element_value is not available on this platform".to_string())
 }
 
 /// Poll until a UI element matching name/type appears.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_wait_for_ui_element(args: &Value) -> NativeToolResult {
     let name_filter = args.get("name").and_then(|v| v.as_str());
     let type_filter = args.get("control_type").and_then(|v| v.as_str());
@@ -1317,6 +1526,8 @@ pub fn tool_wait_for_ui_element(args: &Value) -> NativeToolResult {
     let type_owned = type_filter.map(|s| s.to_lowercase());
 
     let start = std::time::Instant::now();
+    let base_poll = poll_ms;
+    let mut attempt = 0u32;
     loop {
         let n = name_owned.clone();
         let t = type_owned.clone();
@@ -1343,19 +1554,21 @@ pub fn tool_wait_for_ui_element(args: &Value) -> NativeToolResult {
             ));
         }
 
-        std::thread::sleep(std::time::Duration::from_millis(poll_ms));
+        let adaptive_delay = adaptive_poll_ms(attempt, base_poll, base_poll * 4);
+        std::thread::sleep(std::time::Duration::from_millis(adaptive_delay));
+        attempt += 1;
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_wait_for_ui_element(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: wait_for_ui_element is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: wait_for_ui_element is not available on this platform".to_string())
 }
 
 // ─── Clipboard image tool ─────────────────────────────────────────────────────
 
 /// Read or write an image from/to the clipboard.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_clipboard_image(args: &Value) -> NativeToolResult {
     let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("read");
 
@@ -1549,15 +1762,15 @@ fn clipboard_image_write(monitor_idx: usize) -> NativeToolResult {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_clipboard_image(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: clipboard_image is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: clipboard_image is not available on this platform".to_string())
 }
 
 // ─── Find UI elements tool ───────────────────────────────────────────────────
 
 /// Find all UI elements matching name/type criteria, returning positions and details.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_find_ui_elements(args: &Value) -> NativeToolResult {
     let name_filter = args.get("name").and_then(|v| v.as_str());
     let type_filter = args.get("control_type").and_then(|v| v.as_str());
@@ -1602,7 +1815,59 @@ pub fn tool_find_ui_elements(args: &Value) -> NativeToolResult {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_find_ui_elements(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: find_ui_elements is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: find_ui_elements is not available on this platform".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_adaptive_poll_ms_exponential() {
+        assert_eq!(adaptive_poll_ms(0, 100, 1000), 100);
+        assert_eq!(adaptive_poll_ms(1, 100, 1000), 200);
+        assert_eq!(adaptive_poll_ms(2, 100, 1000), 400);
+        assert_eq!(adaptive_poll_ms(3, 100, 1000), 800);
+        assert_eq!(adaptive_poll_ms(4, 100, 1000), 1000); // capped
+        assert_eq!(adaptive_poll_ms(10, 100, 1000), 1000); // capped
+    }
+
+    #[test]
+    fn test_retry_on_failure_succeeds_first_try() {
+        let mut count = 0;
+        let result = retry_on_failure(3, 10, || {
+            count += 1;
+            Ok::<_, String>(42)
+        });
+        assert_eq!(result.unwrap(), 42);
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_retry_on_failure_succeeds_after_retries() {
+        let mut count = 0;
+        let result = retry_on_failure(3, 10, || {
+            count += 1;
+            if count < 3 {
+                Err("not yet".to_string())
+            } else {
+                Ok(99)
+            }
+        });
+        assert_eq!(result.unwrap(), 99);
+        assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn test_retry_on_failure_exhausts_retries() {
+        let mut count = 0;
+        let result: Result<i32, String> = retry_on_failure(2, 10, || {
+            count += 1;
+            Err("always fails".to_string())
+        });
+        assert!(result.is_err());
+        assert_eq!(count, 3); // initial + 2 retries
+    }
 }

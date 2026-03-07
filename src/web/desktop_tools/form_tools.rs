@@ -6,10 +6,15 @@ use super::NativeToolResult;
 use super::parse_int;
 
 /// Fill multiple form fields by label/name and value pairs.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_fill_form(args: &Value) -> NativeToolResult {
     use super::ui_tools;
+    #[cfg(windows)]
     use super::win32;
+    #[cfg(target_os = "macos")]
+    use super::macos as win32;
+    #[cfg(target_os = "linux")]
+    use super::linux as win32;
 
     let fields = match args.get("fields").and_then(|v| v.as_array()) {
         Some(f) => f,
@@ -89,9 +94,9 @@ pub fn tool_fill_form(args: &Value) -> NativeToolResult {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_fill_form(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: fill_form is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: fill_form is not available on this platform".to_string())
 }
 
 /// Execute a sequence of desktop actions (click, type, press_key, paste, wait, clear).

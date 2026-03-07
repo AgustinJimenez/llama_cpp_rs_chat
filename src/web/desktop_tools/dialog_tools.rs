@@ -6,10 +6,15 @@ use super::NativeToolResult;
 use super::parse_int;
 
 /// Detect and interact with modal dialogs: read text, list buttons, click a button.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_handle_dialog(args: &Value) -> NativeToolResult {
     use super::ui_tools;
+    #[cfg(windows)]
     use super::win32;
+    #[cfg(target_os = "macos")]
+    use super::macos as win32;
+    #[cfg(target_os = "linux")]
+    use super::linux as win32;
 
     let button_to_click = args.get("button").and_then(|v| v.as_str());
 
@@ -93,16 +98,21 @@ pub fn tool_handle_dialog(args: &Value) -> NativeToolResult {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_handle_dialog(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: handle_dialog is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: handle_dialog is not available on this platform".to_string())
 }
 
 /// Wait until a UI element reaches a specific state (enabled, disabled, visible, etc.).
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_wait_for_element_state(args: &Value) -> NativeToolResult {
     use super::ui_tools;
+    #[cfg(windows)]
     use super::win32;
+    #[cfg(target_os = "macos")]
+    use super::macos as win32;
+    #[cfg(target_os = "linux")]
+    use super::linux as win32;
 
     let name_filter = args.get("name").and_then(|v| v.as_str());
     let type_filter = args.get("control_type").and_then(|v| v.as_str());
@@ -180,7 +190,7 @@ pub fn tool_wait_for_element_state(args: &Value) -> NativeToolResult {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_wait_for_element_state(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: wait_for_element_state is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: wait_for_element_state is not available on this platform".to_string())
 }

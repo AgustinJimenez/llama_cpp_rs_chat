@@ -7,9 +7,13 @@ use super::{parse_bool, parse_int, parse_key_combo, tool_click_screen};
 
 #[cfg(windows)]
 use super::win32;
+#[cfg(target_os = "macos")]
+use super::macos as win32;
+#[cfg(target_os = "linux")]
+use super::linux as win32;
 
 /// List all visible windows on the desktop with titles, positions, sizes, and process names.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_list_windows(args: &Value) -> NativeToolResult {
     let filter = args
         .get("filter")
@@ -80,25 +84,25 @@ pub fn tool_list_windows(args: &Value) -> NativeToolResult {
     NativeToolResult::text_only(output)
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_list_windows(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: list_windows is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: list_windows is not available on this platform".to_string())
 }
 
 /// Get the current mouse cursor position.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_get_cursor_position(_args: &Value) -> NativeToolResult {
     let (x, y) = win32::get_cursor_position();
     NativeToolResult::text_only(format!("Cursor position: ({x}, {y})"))
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_get_cursor_position(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: get_cursor_position is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: get_cursor_position is not available on this platform".to_string())
 }
 
 /// Focus (bring to front) a window by title or process name.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_focus_window(args: &Value) -> NativeToolResult {
     let filter = match args.get("title").and_then(|v| v.as_str()) {
         Some(f) => f,
@@ -123,13 +127,13 @@ pub fn tool_focus_window(args: &Value) -> NativeToolResult {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_focus_window(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: focus_window is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: focus_window is not available on this platform".to_string())
 }
 
 /// Minimize a window by title or process name.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_minimize_window(args: &Value) -> NativeToolResult {
     let filter = match args.get("title").and_then(|v| v.as_str()) {
         Some(f) => f,
@@ -145,13 +149,13 @@ pub fn tool_minimize_window(args: &Value) -> NativeToolResult {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_minimize_window(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: minimize_window is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: minimize_window is not available on this platform".to_string())
 }
 
 /// Maximize a window by title or process name.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_maximize_window(args: &Value) -> NativeToolResult {
     let filter = match args.get("title").and_then(|v| v.as_str()) {
         Some(f) => f,
@@ -167,13 +171,13 @@ pub fn tool_maximize_window(args: &Value) -> NativeToolResult {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_maximize_window(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: maximize_window is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: maximize_window is not available on this platform".to_string())
 }
 
 /// Close a window by title or process name (sends WM_CLOSE).
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_close_window(args: &Value) -> NativeToolResult {
     let filter = match args.get("title").and_then(|v| v.as_str()) {
         Some(f) => f,
@@ -192,13 +196,13 @@ pub fn tool_close_window(args: &Value) -> NativeToolResult {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_close_window(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: close_window is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: close_window is not available on this platform".to_string())
 }
 
 /// Read text from the system clipboard, reporting format info.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_read_clipboard(_args: &Value) -> NativeToolResult {
     // Report available formats
     let formats = win32::get_clipboard_formats();
@@ -228,13 +232,13 @@ pub fn tool_read_clipboard(_args: &Value) -> NativeToolResult {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_read_clipboard(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: read_clipboard is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: read_clipboard is not available on this platform".to_string())
 }
 
 /// Write text to the system clipboard.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_write_clipboard(args: &Value) -> NativeToolResult {
     let text = match args.get("text").and_then(|v| v.as_str()) {
         Some(t) => t,
@@ -254,13 +258,13 @@ pub fn tool_write_clipboard(args: &Value) -> NativeToolResult {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_write_clipboard(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: write_clipboard is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: write_clipboard is not available on this platform".to_string())
 }
 
 /// Resize and/or move a window by title or process name.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_resize_window(args: &Value) -> NativeToolResult {
     let filter = match args.get("title").and_then(|v| v.as_str()) {
         Some(f) => f,
@@ -296,13 +300,13 @@ pub fn tool_resize_window(args: &Value) -> NativeToolResult {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_resize_window(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: resize_window is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: resize_window is not available on this platform".to_string())
 }
 
 /// Get information about the currently active (foreground) window.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_get_active_window(_args: &Value) -> NativeToolResult {
     match win32::get_active_window_info() {
         Some((_hwnd, info)) => {
@@ -317,13 +321,13 @@ pub fn tool_get_active_window(_args: &Value) -> NativeToolResult {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_get_active_window(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: get_active_window is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: get_active_window is not available on this platform".to_string())
 }
 
 /// Wait for a window to appear by title or process name (polling).
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_wait_for_window(args: &Value) -> NativeToolResult {
     let filter = match args.get("title").and_then(|v| v.as_str()) {
         Some(f) => f,
@@ -350,13 +354,13 @@ pub fn tool_wait_for_window(args: &Value) -> NativeToolResult {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_wait_for_window(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: wait_for_window is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: wait_for_window is not available on this platform".to_string())
 }
 
 /// Get the color of a pixel at screen coordinates.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_get_pixel_color(args: &Value) -> NativeToolResult {
     let x = match args.get("x").and_then(parse_int) {
         Some(v) => v as i32,
@@ -374,13 +378,13 @@ pub fn tool_get_pixel_color(args: &Value) -> NativeToolResult {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_get_pixel_color(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: get_pixel_color is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: get_pixel_color is not available on this platform".to_string())
 }
 
 /// Click at coordinates relative to a window's top-left corner.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_click_window_relative(args: &Value) -> NativeToolResult {
     let filter = match args.get("title").and_then(|v| v.as_str()) {
         Some(f) => f,
@@ -422,9 +426,9 @@ pub fn tool_click_window_relative(args: &Value) -> NativeToolResult {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_click_window_relative(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: click_window_relative is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: click_window_relative is not available on this platform".to_string())
 }
 
 /// List all monitors with their properties.
@@ -472,7 +476,7 @@ pub fn tool_list_monitors(args: &Value) -> NativeToolResult {
 }
 
 /// Set or remove always-on-top (topmost) for a window.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_set_window_topmost(args: &Value) -> NativeToolResult {
     let title = match args.get("title").and_then(|v| v.as_str()) {
         Some(t) => t,
@@ -493,13 +497,13 @@ pub fn tool_set_window_topmost(args: &Value) -> NativeToolResult {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_set_window_topmost(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: set_window_topmost is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: set_window_topmost is not available on this platform".to_string())
 }
 
 /// Snap a window to predefined screen positions (left, right, top-left, etc.).
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_snap_window(args: &Value) -> NativeToolResult {
     let title = match args.get("title").and_then(|v| v.as_str()) {
         Some(t) => t,
@@ -560,13 +564,13 @@ pub fn tool_snap_window(args: &Value) -> NativeToolResult {
     NativeToolResult::text_only(format!("Snapped '{}' to {position} ({x},{y} {w}x{h})", info.title))
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_snap_window(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: snap_window is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: snap_window is not available on this platform".to_string())
 }
 
 /// Open/launch an application by name or path. With `capture_output: true`, captures stdout/stderr.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_open_application(args: &Value) -> NativeToolResult {
     let target = match args.get("target").and_then(|v| v.as_str()) {
         Some(t) => t,
@@ -618,13 +622,13 @@ pub fn tool_open_application(args: &Value) -> NativeToolResult {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_open_application(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: open_application is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: open_application is not available on this platform".to_string())
 }
 
 /// List running processes, optionally filtered by name.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_list_processes(args: &Value) -> NativeToolResult {
     let filter = args.get("filter").and_then(|v| v.as_str()).map(|s| s.to_lowercase());
 
@@ -651,13 +655,13 @@ pub fn tool_list_processes(args: &Value) -> NativeToolResult {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_list_processes(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: list_processes is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: list_processes is not available on this platform".to_string())
 }
 
 /// Terminate a process by name or PID. Refuses to kill system-critical processes.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_kill_process(args: &Value) -> NativeToolResult {
     let name_filter = args.get("name").and_then(|v| v.as_str());
     let pid = args.get("pid").and_then(parse_int).map(|v| v as u32);
@@ -725,13 +729,13 @@ pub fn tool_kill_process(args: &Value) -> NativeToolResult {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_kill_process(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: kill_process is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: kill_process is not available on this platform".to_string())
 }
 
 /// Send keystrokes to a window via PostMessageW (works in background).
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_send_keys_to_window(args: &Value) -> NativeToolResult {
     let title = match args.get("title").and_then(|v| v.as_str()) {
         Some(t) => t,
@@ -803,7 +807,7 @@ pub fn tool_send_keys_to_window(args: &Value) -> NativeToolResult {
 }
 
 /// Send keys via SendInput (requires foreground focus, more reliable for games/custom UIs).
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 fn send_keys_via_send_input(hwnd: win32::HWND, info: &win32::WindowInfo, text: Option<&str>, keys: Option<&str>) -> NativeToolResult {
     // Focus the window first
     unsafe {
@@ -897,7 +901,7 @@ fn send_keys_via_send_input(hwnd: win32::HWND, info: &win32::WindowInfo, text: O
 }
 
 /// Build the lParam for WM_KEYDOWN/WM_KEYUP messages.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 fn make_key_lparam(vk: u32, key_up: bool) -> isize {
     let scan_code = unsafe { win32::MapVirtualKeyW(vk, 0) }; // MAPVK_VK_TO_VSC = 0
     let mut lparam: isize = 1; // repeat count = 1
@@ -908,9 +912,9 @@ fn make_key_lparam(vk: u32, key_up: bool) -> isize {
     lparam
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_send_keys_to_window(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: send_keys_to_window is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: send_keys_to_window is not available on this platform".to_string())
 }
 
 /// Switch virtual desktop using Ctrl+Win+Left/Right.
@@ -936,7 +940,7 @@ pub fn tool_switch_virtual_desktop(args: &Value) -> NativeToolResult {
 }
 
 /// Get resource info (memory, CPU time) for a process by PID or name.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_get_process_info(args: &Value) -> NativeToolResult {
     let pid = args.get("pid").and_then(parse_int).map(|v| v as u32);
     let name = args.get("name").and_then(|v| v.as_str());
@@ -977,7 +981,7 @@ pub fn tool_get_process_info(args: &Value) -> NativeToolResult {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_get_process_info(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: get_process_info is only available on Windows".to_string())
+    NativeToolResult::text_only("Error: get_process_info is not available on this platform".to_string())
 }
