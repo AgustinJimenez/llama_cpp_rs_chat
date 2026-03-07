@@ -617,8 +617,148 @@ pub fn tool_open_application(args: &Value) -> NativeToolResult {
                 };
                 NativeToolResult::text_only(desc)
             }
-            Err(e) => NativeToolResult::text_only(format!("Error: {e}")),
+            Err(_) => {
+                // ShellExecute failed — search for the app in common locations
+                match find_application_exe(target) {
+                    Some(found_path) => {
+                        match win32::shell_execute(&found_path, arguments) {
+                            Ok(()) => {
+                                let desc = if let Some(a) = arguments {
+                                    format!("Launched '{target}' from '{found_path}' with args '{a}'")
+                                } else {
+                                    format!("Launched '{target}' from '{found_path}'")
+                                };
+                                NativeToolResult::text_only(desc)
+                            }
+                            Err(e2) => NativeToolResult::text_only(format!("Error: found '{found_path}' but failed to launch: {e2}")),
+                        }
+                    }
+                    None => NativeToolResult::text_only(format!(
+                        "Error: '{target}' not found. Not in PATH, registry, or Program Files. \
+                         Try providing the full path to the executable."
+                    )),
+                }
+            }
         }
+    }
+}
+
+/// Search for an application executable by name in common installation directories.
+/// Returns the full path if found, None otherwise.
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+fn find_application_exe(name: &str) -> Option<String> {
+    let name_lower = name.to_lowercase();
+    // Normalize: strip .exe suffix for matching
+    let base_name = name_lower.strip_suffix(".exe").unwrap_or(&name_lower);
+
+    // 1. Search Program Files directories for folders matching the app name
+    let search_dirs: Vec<std::path::PathBuf> = {
+        let mut dirs = Vec::new();
+        #[cfg(windows)]
+        {
+            if let Ok(pf) = std::env::var("ProgramFiles") {
+                dirs.push(std::path::PathBuf::from(pf));
+            }
+            if let Ok(pf86) = std::env::var("ProgramFiles(x86)") {
+                dirs.push(std::path::PathBuf::from(pf86));
+            }
+            if let Ok(local) = std::env::var("LOCALAPPDATA") {
+                dirs.push(std::path::PathBuf::from(local));
+            }
+        }
+        #[cfg(target_os = "macos")]
+        {
+            dirs.push(std::path::PathBuf::from("/Applications"));
+            dirs.push(std::path::PathBuf::from("/usr/local/bin"));
+        }
+        #[cfg(target_os = "linux")]
+        {
+            dirs.push(std::path::PathBuf::from("/usr/bin"));
+            dirs.push(std::path::PathBuf::from("/usr/local/bin"));
+            dirs.push(std::path::PathBuf::from("/opt"));
+            dirs.push(std::path::PathBuf::from("/snap/bin"));
+        }
+        dirs
+    };
+
+    #[cfg(windows)]
+    let exe_name = format!("{base_name}.exe");
+    #[cfg(not(windows))]
+    let exe_name = base_name.to_string();
+
+    for dir in &search_dirs {
+        if !dir.exists() {
+            continue;
+        }
+        // Check direct binary (e.g. /usr/bin/blender)
+        let direct = dir.join(&exe_name);
+        if direct.is_file() {
+            return Some(direct.to_string_lossy().into_owned());
+        }
+        // Search subdirectories (e.g. C:\Program Files\Blender Foundation\Blender 5.0\blender.exe)
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let entry_name = entry.file_name().to_string_lossy().to_lowercase();
+                if entry_name.contains(base_name) && entry.path().is_dir() {
+                    // Found a matching folder — look for exe inside (up to 2 levels deep)
+                    if let Some(found) = find_exe_in_dir(&entry.path(), &exe_name, 2) {
+                        return Some(found);
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        // Check .app bundles: /Applications/Blender.app/Contents/MacOS/Blender
+        let app_path = format!("/Applications/{}.app/Contents/MacOS/{}",
+            capitalize_first(base_name), capitalize_first(base_name));
+        if std::path::Path::new(&app_path).is_file() {
+            return Some(app_path);
+        }
+        // Also try lowercase
+        let app_path_lower = format!("/Applications/{}.app/Contents/MacOS/{}",
+            capitalize_first(base_name), base_name);
+        if std::path::Path::new(&app_path_lower).is_file() {
+            return Some(app_path_lower);
+        }
+    }
+
+    None
+}
+
+/// Recursively search for an executable file in a directory, up to max_depth levels.
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+fn find_exe_in_dir(dir: &std::path::Path, exe_name: &str, max_depth: u32) -> Option<String> {
+    // Check direct child
+    let candidate = dir.join(exe_name);
+    if candidate.is_file() {
+        return Some(candidate.to_string_lossy().into_owned());
+    }
+    if max_depth == 0 {
+        return None;
+    }
+    // Recurse into subdirs
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            if entry.path().is_dir() {
+                if let Some(found) = find_exe_in_dir(&entry.path(), exe_name, max_depth - 1) {
+                    return Some(found);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Capitalize the first letter of a string (for macOS .app bundle names).
+#[cfg(target_os = "macos")]
+fn capitalize_first(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(c) => c.to_uppercase().to_string() + chars.as_str(),
     }
 }
 
