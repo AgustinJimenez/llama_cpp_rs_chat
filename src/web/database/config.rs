@@ -571,6 +571,7 @@ mod tests {
             main_gpu: 0,
             split_mode: "layer".to_string(),
             use_rtk: false,
+            use_htmd: false,
             tag_pairs: None,
         };
 

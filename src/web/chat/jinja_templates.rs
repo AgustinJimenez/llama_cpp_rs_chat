@@ -844,6 +844,205 @@ pub fn get_available_tools() -> Vec<Value> {
                 "required": []
             }
         }),
+        json!({
+            "name": "ocr_find_text",
+            "description": "OCR the screen and find specific text, returning its bounding box coordinates. Use this to locate text on screen and get coordinates for clicking.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": { "type": "string", "description": "Text to search for (case-insensitive)" },
+                    "x": { "type": "integer", "description": "Optional region X offset" },
+                    "y": { "type": "integer", "description": "Optional region Y offset" },
+                    "width": { "type": "integer", "description": "Optional region width" },
+                    "height": { "type": "integer", "description": "Optional region height" },
+                    "monitor": { "type": "integer", "description": "Monitor index (default 0)" }
+                },
+                "required": ["text"]
+            }
+        }),
+        json!({
+            "name": "click_ui_element",
+            "description": "Find a UI element by name and/or control type using UI Automation, then click its center. Works without screenshots — finds buttons, links, text fields by their accessible name.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "Element name to search for (case-insensitive substring match)" },
+                    "control_type": { "type": "string", "description": "Control type filter: Button, Edit, CheckBox, ComboBox, MenuItem, Hyperlink, etc." },
+                    "title": { "type": "string", "description": "Window title (default: active window)" },
+                    "delay_ms": { "type": "integer", "description": "Delay before screenshot in ms (default 500)" }
+                },
+                "required": []
+            }
+        }),
+        json!({
+            "name": "window_screenshot",
+            "description": "Capture a screenshot of a specific window by title. Smaller and more focused than a full screen screenshot.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string", "description": "Window title or app name to capture (case-insensitive substring match)" }
+                },
+                "required": ["title"]
+            }
+        }),
+        json!({
+            "name": "open_application",
+            "description": "Launch an application by name or path. Can open executables, URLs, files, or system apps (e.g. 'notepad', 'calc', 'https://google.com', 'C:\\\\path\\\\to\\\\app.exe').",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target": { "type": "string", "description": "Application name, path, or URL to open" },
+                    "args": { "type": "string", "description": "Optional command-line arguments" }
+                },
+                "required": ["target"]
+            }
+        }),
+        json!({
+            "name": "wait_for_screen_change",
+            "description": "Wait until a screen region changes visually. Useful for waiting for loading indicators, animations, or content updates.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "x": { "type": "integer", "description": "Region X (default 0)" },
+                    "y": { "type": "integer", "description": "Region Y (default 0)" },
+                    "width": { "type": "integer", "description": "Region width (default 200)" },
+                    "height": { "type": "integer", "description": "Region height (default 200)" },
+                    "timeout_ms": { "type": "integer", "description": "Max wait in ms (default 10000, max 30000)" },
+                    "threshold": { "type": "number", "description": "% of pixels that must change (default 5)" },
+                    "monitor": { "type": "integer", "description": "Monitor index (default 0)" }
+                },
+                "required": []
+            }
+        }),
+        json!({
+            "name": "set_window_topmost",
+            "description": "Set a window to always-on-top or remove always-on-top. Useful for keeping reference windows visible while working.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string", "description": "Window title to modify" },
+                    "topmost": { "type": "boolean", "description": "true = always on top, false = remove (default true)" }
+                },
+                "required": ["title"]
+            }
+        }),
+        serde_json::json!({
+            "name": "invoke_ui_action",
+            "description": "Invoke a UI Automation action on an element. Supports: invoke (click buttons), toggle (checkboxes), expand/collapse (tree nodes, dropdowns), select (list items), set_value (text fields). More reliable than coordinate clicking for standard Windows controls.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "Element name to match (case-insensitive substring)" },
+                    "control_type": { "type": "string", "description": "Control type filter (button, checkbox, edit, combobox, etc.)" },
+                    "action": { "type": "string", "description": "Action: invoke, toggle, expand, collapse, select, set_value" },
+                    "value": { "type": "string", "description": "Value for set_value action" },
+                    "title": { "type": "string", "description": "Window title (default: active window)" }
+                },
+                "required": ["action"]
+            }
+        }),
+        serde_json::json!({
+            "name": "read_ui_element_value",
+            "description": "Read the current text value of a UI element (text field, label, status bar, etc.) using UI Automation ValuePattern.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "Element name to match (case-insensitive substring)" },
+                    "control_type": { "type": "string", "description": "Control type filter" },
+                    "title": { "type": "string", "description": "Window title (default: active window)" }
+                },
+                "required": []
+            }
+        }),
+        serde_json::json!({
+            "name": "wait_for_ui_element",
+            "description": "Wait until a UI element matching name/control_type appears in a window. Useful for waiting for dialogs, loading indicators, or UI state changes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "Element name to wait for" },
+                    "control_type": { "type": "string", "description": "Control type to wait for" },
+                    "title": { "type": "string", "description": "Window title (default: active window)" },
+                    "timeout_ms": { "type": "integer", "description": "Max wait in ms (default 10000, max 30000)" },
+                    "poll_ms": { "type": "integer", "description": "Polling interval in ms (default 500, min 100)" }
+                },
+                "required": []
+            }
+        }),
+        serde_json::json!({
+            "name": "clipboard_image",
+            "description": "Read or write images from/to the clipboard. Read returns the clipboard image as PNG. Write captures the screen and copies it to clipboard.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": { "type": "string", "description": "read or write (default: read)" },
+                    "monitor": { "type": "integer", "description": "Monitor index for write action (default 0)" }
+                },
+                "required": []
+            }
+        }),
+        serde_json::json!({
+            "name": "find_ui_elements",
+            "description": "Search for ALL UI elements matching name/control_type in a window. Returns positions, sizes, and element descriptions. Useful for discovering available UI controls.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "Element name filter (case-insensitive substring)" },
+                    "control_type": { "type": "string", "description": "Control type filter (button, edit, checkbox, etc.)" },
+                    "title": { "type": "string", "description": "Window title (default: active window)" },
+                    "max_results": { "type": "integer", "description": "Max elements to return (default 10, max 50)" }
+                },
+                "required": []
+            }
+        }),
+        serde_json::json!({
+            "name": "send_keys_to_window",
+            "description": "Send keystrokes to a window via PostMessage (works even when window is in background). Use 'text' for typing characters, 'keys' for key combos like 'ctrl+s'. Less reliable than type_text/press_key but doesn't require window focus.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string", "description": "Window title to send keys to" },
+                    "keys": { "type": "string", "description": "Key combo to send (e.g. 'ctrl+s', 'enter', 'alt+f4')" },
+                    "text": { "type": "string", "description": "Text characters to type" }
+                },
+                "required": ["title"]
+            }
+        }),
+        serde_json::json!({
+            "name": "snap_window",
+            "description": "Snap a window to a screen position: left, right, top-left, top-right, bottom-left, bottom-right, center, maximize, restore. Uses monitor work area (excludes taskbar).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string", "description": "Window title to snap" },
+                    "position": { "type": "string", "description": "Position: left, right, top-left, top-right, bottom-left, bottom-right, center, maximize, restore" }
+                },
+                "required": ["title", "position"]
+            }
+        }),
+        serde_json::json!({
+            "name": "list_processes",
+            "description": "List running processes with PID and executable name. Optionally filter by name substring.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filter": { "type": "string", "description": "Filter by process name (case-insensitive substring)" }
+                },
+                "required": []
+            }
+        }),
+        serde_json::json!({
+            "name": "kill_process",
+            "description": "Terminate a process by name or PID. Refuses to kill system-critical processes (csrss, lsass, svchost, dwm, etc.).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "Process name to kill (kills all matching)" },
+                    "pid": { "type": "integer", "description": "Specific process ID to kill" }
+                },
+                "required": []
+            }
+        }),
     ]
 }
 
