@@ -24,6 +24,7 @@ pub fn tool_list_windows(args: &Value) -> NativeToolResult {
             if let Some(ref f) = filter {
                 w.title.to_lowercase().contains(f)
                     || w.process_name.to_lowercase().contains(f)
+                    || w.class_name.to_lowercase().contains(f)
             } else {
                 true
             }
@@ -65,9 +66,14 @@ pub fn tool_list_windows(args: &Value) -> NativeToolResult {
         } else {
             format!(" ({})", w.process_name)
         };
+        let cls = if w.class_name.is_empty() {
+            String::new()
+        } else {
+            format!(" [{}]", w.class_name)
+        };
         output.push_str(&format!(
-            "  [{}] \"{}\"{} — {},{} {}x{}{}\n",
-            i, w.title, proc, w.x, w.y, w.width, w.height, state
+            "  [{}] \"{}\"{}{} — {},{} {}x{}{}\n",
+            i, w.title, proc, cls, w.x, w.y, w.width, w.height, state
         ));
     }
 
@@ -191,19 +197,34 @@ pub fn tool_close_window(_args: &Value) -> NativeToolResult {
     NativeToolResult::text_only("Error: close_window is only available on Windows".to_string())
 }
 
-/// Read text from the system clipboard.
+/// Read text from the system clipboard, reporting format info.
 #[cfg(windows)]
 pub fn tool_read_clipboard(_args: &Value) -> NativeToolResult {
+    // Report available formats
+    let formats = win32::get_clipboard_formats();
+    let format_str = if formats.is_empty() { "empty".to_string() } else { formats.join("+") };
+
+    // Check for file drop (CF_HDROP) first
+    if let Ok(files) = win32::read_clipboard_files() {
+        if !files.is_empty() {
+            let mut output = format!("Format: {format_str}. Clipboard contains {} file(s):\n", files.len());
+            for f in &files {
+                output.push_str(&format!("  {f}\n"));
+            }
+            return NativeToolResult::text_only(output);
+        }
+    }
+    // Fall back to text
     match win32::read_clipboard() {
         Ok(text) => {
             let summary = if text.len() > 200 {
-                format!("Clipboard ({} chars): \"{}...\"", text.len(), &text[..200])
+                format!("Format: {format_str}. Clipboard ({} chars): \"{}...\"", text.len(), &text[..200])
             } else {
-                format!("Clipboard: \"{text}\"")
+                format!("Format: {format_str}. Clipboard: \"{text}\"")
             };
             NativeToolResult::text_only(summary)
         }
-        Err(e) => NativeToolResult::text_only(format!("Error: {e}")),
+        Err(e) => NativeToolResult::text_only(format!("Format: {format_str}. Error: {e}")),
     }
 }
 
@@ -544,7 +565,7 @@ pub fn tool_snap_window(_args: &Value) -> NativeToolResult {
     NativeToolResult::text_only("Error: snap_window is only available on Windows".to_string())
 }
 
-/// Open/launch an application by name or path.
+/// Open/launch an application by name or path. With `capture_output: true`, captures stdout/stderr.
 #[cfg(windows)]
 pub fn tool_open_application(args: &Value) -> NativeToolResult {
     let target = match args.get("target").and_then(|v| v.as_str()) {
@@ -552,17 +573,48 @@ pub fn tool_open_application(args: &Value) -> NativeToolResult {
         None => return NativeToolResult::text_only("Error: 'target' argument is required (app name or path)".to_string()),
     };
     let arguments = args.get("args").and_then(|v| v.as_str());
+    let capture_output = super::parse_bool(
+        args.get("capture_output").unwrap_or(&serde_json::json!(false)),
+        false,
+    );
 
-    match win32::shell_execute(target, arguments) {
-        Ok(()) => {
-            let desc = if let Some(a) = arguments {
-                format!("Launched '{target}' with args '{a}'")
-            } else {
-                format!("Launched '{target}'")
-            };
-            NativeToolResult::text_only(desc)
+    if capture_output {
+        let mut cmd = std::process::Command::new(target);
+        cmd.stdin(std::process::Stdio::null());
+        if let Some(a) = arguments {
+            for part in a.split_whitespace() {
+                cmd.arg(part);
+            }
         }
-        Err(e) => NativeToolResult::text_only(format!("Error: {e}")),
+        match cmd.output() {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let mut result = format!("Exit code: {}\n", output.status.code().unwrap_or(-1));
+                if !stdout.is_empty() {
+                    let trunc = if stdout.len() > 4000 { &stdout[..4000] } else { &stdout };
+                    result.push_str(&format!("stdout:\n{trunc}\n"));
+                }
+                if !stderr.is_empty() {
+                    let trunc = if stderr.len() > 2000 { &stderr[..2000] } else { &stderr };
+                    result.push_str(&format!("stderr:\n{trunc}\n"));
+                }
+                NativeToolResult::text_only(result)
+            }
+            Err(e) => NativeToolResult::text_only(format!("Error running '{target}': {e}")),
+        }
+    } else {
+        match win32::shell_execute(target, arguments) {
+            Ok(()) => {
+                let desc = if let Some(a) = arguments {
+                    format!("Launched '{target}' with args '{a}'")
+                } else {
+                    format!("Launched '{target}'")
+                };
+                NativeToolResult::text_only(desc)
+            }
+            Err(e) => NativeToolResult::text_only(format!("Error: {e}")),
+        }
     }
 }
 
@@ -687,6 +739,7 @@ pub fn tool_send_keys_to_window(args: &Value) -> NativeToolResult {
     };
     let keys = args.get("keys").and_then(|v| v.as_str());
     let text = args.get("text").and_then(|v| v.as_str());
+    let method = args.get("method").and_then(|v| v.as_str()).unwrap_or("post_message");
 
     if keys.is_none() && text.is_none() {
         return NativeToolResult::text_only("Error: 'keys' or 'text' is required".to_string());
@@ -696,6 +749,10 @@ pub fn tool_send_keys_to_window(args: &Value) -> NativeToolResult {
         Some(r) => r,
         None => return NativeToolResult::text_only(format!("No window matches '{title}'")),
     };
+
+    if method == "send_input" {
+        return send_keys_via_send_input(hwnd, &info, text, keys);
+    }
 
     let mut actions = Vec::new();
 
@@ -745,6 +802,100 @@ pub fn tool_send_keys_to_window(args: &Value) -> NativeToolResult {
     NativeToolResult::text_only(format!("Sent to '{}': {}", info.title, actions.join(", ")))
 }
 
+/// Send keys via SendInput (requires foreground focus, more reliable for games/custom UIs).
+#[cfg(windows)]
+fn send_keys_via_send_input(hwnd: win32::HWND, info: &win32::WindowInfo, text: Option<&str>, keys: Option<&str>) -> NativeToolResult {
+    // Focus the window first
+    unsafe {
+        win32::SetForegroundWindow(hwnd);
+    }
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    let mut actions = Vec::new();
+
+    // Type text via KEYEVENTF_UNICODE
+    if let Some(txt) = text {
+        let mut inputs = Vec::new();
+        for ch in txt.encode_utf16() {
+            inputs.push(win32::INPUT {
+                input_type: win32::INPUT_KEYBOARD,
+                ki: win32::KEYBDINPUT {
+                    w_vk: 0,
+                    w_scan: ch,
+                    dw_flags: win32::KEYEVENTF_UNICODE,
+                    time: 0,
+                    dw_extra_info: 0,
+                },
+                _pad: [0; 8],
+            });
+            inputs.push(win32::INPUT {
+                input_type: win32::INPUT_KEYBOARD,
+                ki: win32::KEYBDINPUT {
+                    w_vk: 0,
+                    w_scan: ch,
+                    dw_flags: win32::KEYEVENTF_UNICODE | win32::KEYEVENTF_KEYUP,
+                    time: 0,
+                    dw_extra_info: 0,
+                },
+                _pad: [0; 8],
+            });
+        }
+        let sent = unsafe {
+            win32::SendInput(inputs.len() as u32, inputs.as_ptr(), std::mem::size_of::<win32::INPUT>() as i32)
+        };
+        actions.push(format!("typed {} chars ({} events sent)", txt.len(), sent));
+    }
+
+    // Send key combos via VK SendInput
+    if let Some(key_str) = keys {
+        match parse_key_combo(key_str) {
+            Ok((modifiers, main_key)) => {
+                let mut inputs = Vec::new();
+                // Press modifiers
+                for m in &modifiers {
+                    if let Some(vk) = win32::key_to_vk(m) {
+                        inputs.push(win32::INPUT {
+                            input_type: win32::INPUT_KEYBOARD,
+                            ki: win32::KEYBDINPUT { w_vk: vk as u16, w_scan: 0, dw_flags: 0, time: 0, dw_extra_info: 0 },
+                            _pad: [0; 8],
+                        });
+                    }
+                }
+                // Press+release main key
+                if let Some(vk) = win32::key_to_vk(&main_key) {
+                    inputs.push(win32::INPUT {
+                        input_type: win32::INPUT_KEYBOARD,
+                        ki: win32::KEYBDINPUT { w_vk: vk as u16, w_scan: 0, dw_flags: 0, time: 0, dw_extra_info: 0 },
+                        _pad: [0; 8],
+                    });
+                    inputs.push(win32::INPUT {
+                        input_type: win32::INPUT_KEYBOARD,
+                        ki: win32::KEYBDINPUT { w_vk: vk as u16, w_scan: 0, dw_flags: win32::KEYEVENTF_KEYUP, time: 0, dw_extra_info: 0 },
+                        _pad: [0; 8],
+                    });
+                }
+                // Release modifiers (reverse)
+                for m in modifiers.iter().rev() {
+                    if let Some(vk) = win32::key_to_vk(m) {
+                        inputs.push(win32::INPUT {
+                            input_type: win32::INPUT_KEYBOARD,
+                            ki: win32::KEYBDINPUT { w_vk: vk as u16, w_scan: 0, dw_flags: win32::KEYEVENTF_KEYUP, time: 0, dw_extra_info: 0 },
+                            _pad: [0; 8],
+                        });
+                    }
+                }
+                let sent = unsafe {
+                    win32::SendInput(inputs.len() as u32, inputs.as_ptr(), std::mem::size_of::<win32::INPUT>() as i32)
+                };
+                actions.push(format!("sent key '{key_str}' ({sent} events)"));
+            }
+            Err(e) => return NativeToolResult::text_only(format!("Error parsing keys: {e}")),
+        }
+    }
+
+    NativeToolResult::text_only(format!("SendInput to '{}': {}", info.title, actions.join(", ")))
+}
+
 /// Build the lParam for WM_KEYDOWN/WM_KEYUP messages.
 #[cfg(windows)]
 fn make_key_lparam(vk: u32, key_up: bool) -> isize {
@@ -760,4 +911,73 @@ fn make_key_lparam(vk: u32, key_up: bool) -> isize {
 #[cfg(not(windows))]
 pub fn tool_send_keys_to_window(_args: &Value) -> NativeToolResult {
     NativeToolResult::text_only("Error: send_keys_to_window is only available on Windows".to_string())
+}
+
+/// Switch virtual desktop using Ctrl+Win+Left/Right.
+pub fn tool_switch_virtual_desktop(args: &Value) -> NativeToolResult {
+    let direction = match args.get("direction").and_then(|v| v.as_str()) {
+        Some(d) => d,
+        None => {
+            return NativeToolResult::text_only(
+                "Error: 'direction' is required (left or right)".to_string(),
+            )
+        }
+    };
+    let key = match direction {
+        "left" | "prev" | "previous" => "ctrl+win+left",
+        "right" | "next" => "ctrl+win+right",
+        other => {
+            return NativeToolResult::text_only(format!(
+                "Error: Unknown direction '{other}'. Use: left, right"
+            ))
+        }
+    };
+    super::tool_press_key(&serde_json::json!({"key": key, "delay_ms": 500}))
+}
+
+/// Get resource info (memory, CPU time) for a process by PID or name.
+#[cfg(windows)]
+pub fn tool_get_process_info(args: &Value) -> NativeToolResult {
+    let pid = args.get("pid").and_then(parse_int).map(|v| v as u32);
+    let name = args.get("name").and_then(|v| v.as_str());
+
+    let target_pid = if let Some(p) = pid {
+        p
+    } else if let Some(n) = name {
+        // Find PID by process name
+        let lower = n.to_lowercase();
+        match win32::enumerate_processes() {
+            Ok(procs) => {
+                match procs.iter().find(|(_, pname)| pname.to_lowercase().contains(&lower)) {
+                    Some((p, _)) => *p,
+                    None => {
+                        return NativeToolResult::text_only(format!(
+                            "Error: no process matching '{n}'"
+                        ))
+                    }
+                }
+            }
+            Err(e) => return NativeToolResult::text_only(format!("Error: {e}")),
+        }
+    } else {
+        return NativeToolResult::text_only(
+            "Error: 'pid' or 'name' is required".to_string(),
+        );
+    };
+
+    match win32::get_process_resource_info(target_pid) {
+        Ok((working_set, kernel_ms, user_ms)) => {
+            let mb = working_set as f64 / (1024.0 * 1024.0);
+            NativeToolResult::text_only(format!(
+                "PID {target_pid}: memory={mb:.1}MB, kernel_time={kernel_ms}ms, user_time={user_ms}ms, total_cpu={}ms",
+                kernel_ms + user_ms
+            ))
+        }
+        Err(e) => NativeToolResult::text_only(format!("Error: {e}")),
+    }
+}
+
+#[cfg(not(windows))]
+pub fn tool_get_process_info(_args: &Value) -> NativeToolResult {
+    NativeToolResult::text_only("Error: get_process_info is only available on Windows".to_string())
 }

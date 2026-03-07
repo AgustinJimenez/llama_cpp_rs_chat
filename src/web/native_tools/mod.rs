@@ -253,6 +253,92 @@ pub fn dispatch_native_tool(
         return Some(super::desktop_tools::tool_kill_process(&args));
     }
 
+    // Compound desktop tools (combine multiple primitives)
+    if name == "find_and_click_text" {
+        return Some(super::desktop_tools::tool_find_and_click_text(&args));
+    }
+    if name == "type_into_element" {
+        return Some(super::desktop_tools::tool_type_into_element(&args));
+    }
+    if name == "get_window_text" {
+        return Some(super::desktop_tools::tool_get_window_text(&args));
+    }
+    if name == "file_dialog_navigate" {
+        return Some(super::desktop_tools::tool_file_dialog_navigate(&args));
+    }
+    if name == "drag_and_drop_element" {
+        return Some(super::desktop_tools::tool_drag_and_drop_element(&args));
+    }
+    if name == "wait_for_text_on_screen" {
+        return Some(super::desktop_tools::tool_wait_for_text_on_screen(&args));
+    }
+    if name == "get_context_menu" {
+        return Some(super::desktop_tools::tool_get_context_menu(&args));
+    }
+    if name == "scroll_element" {
+        return Some(super::desktop_tools::tool_scroll_element(&args));
+    }
+    if name == "mouse_button" {
+        return Some(super::desktop_tools::tool_mouse_button(&args));
+    }
+    if name == "switch_virtual_desktop" {
+        return Some(super::desktop_tools::tool_switch_virtual_desktop(&args));
+    }
+    if name == "find_image_on_screen" {
+        return Some(super::desktop_tools::tool_find_image_on_screen(&args));
+    }
+    if name == "get_process_info" {
+        return Some(super::desktop_tools::tool_get_process_info(&args));
+    }
+    if name == "paste" {
+        return Some(super::desktop_tools::tool_paste(&args));
+    }
+    if name == "clear_field" {
+        return Some(super::desktop_tools::tool_clear_field(&args));
+    }
+    if name == "hover_element" {
+        return Some(super::desktop_tools::tool_hover_element(&args));
+    }
+    if name == "handle_dialog" {
+        return Some(super::desktop_tools::tool_handle_dialog(&args));
+    }
+    if name == "wait_for_element_state" {
+        return Some(super::desktop_tools::tool_wait_for_element_state(&args));
+    }
+    if name == "fill_form" {
+        return Some(super::desktop_tools::tool_fill_form(&args));
+    }
+    if name == "run_action_sequence" {
+        return Some(super::desktop_tools::tool_run_action_sequence(&args));
+    }
+    if name == "move_to_monitor" {
+        return Some(super::desktop_tools::tool_move_to_monitor(&args));
+    }
+    if name == "set_window_opacity" {
+        return Some(super::desktop_tools::tool_set_window_opacity(&args));
+    }
+    if name == "highlight_point" {
+        return Some(super::desktop_tools::tool_highlight_point(&args));
+    }
+    if name == "annotate_screenshot" {
+        return Some(super::desktop_tools::tool_annotate_screenshot(&args));
+    }
+    if name == "ocr_region" {
+        return Some(super::desktop_tools::tool_ocr_region(&args));
+    }
+    if name == "find_color_on_screen" {
+        return Some(super::desktop_tools::tool_find_color_on_screen(&args));
+    }
+    if name == "read_registry" {
+        return Some(super::desktop_tools::tool_read_registry(&args));
+    }
+    if name == "click_tray_icon" {
+        return Some(super::desktop_tools::tool_click_tray_icon(&args));
+    }
+    if name == "watch_window" {
+        return Some(super::desktop_tools::tool_watch_window(&args));
+    }
+
     // All other tools return text-only results
     Some(NativeToolResult::text_only(match name.as_str() {
         "read_file" => tool_read_file(&args),

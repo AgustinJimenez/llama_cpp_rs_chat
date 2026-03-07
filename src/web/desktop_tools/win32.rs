@@ -1,4 +1,5 @@
 //! Win32 FFI declarations and helpers for desktop automation tools.
+#![allow(dead_code)] // FFI module: declarations are often added ahead of use
 
 use std::ffi::OsString;
 use std::os::windows::ffi::OsStringExt;
@@ -49,6 +50,27 @@ pub const PROCESS_TERMINATE: DWORD = 0x0001;
 pub const TH32CS_SNAPPROCESS: DWORD = 0x00000002;
 pub const MONITOR_DEFAULTTONEAREST: u32 = 2;
 pub const INVALID_HANDLE_VALUE: HANDLE = -1;
+// DPI
+pub const USER_DEFAULT_SCREEN_DPI: u32 = 96;
+// Dialog detection
+pub const GW_ENABLEDPOPUP: u32 = 6;
+// Clipboard file drop
+pub const CF_HDROP: u32 = 15;
+// Process info
+pub const PROCESS_QUERY_INFORMATION: DWORD = 0x0400;
+pub const PROCESS_VM_READ: DWORD = 0x0010;
+// Window opacity
+pub const WS_EX_LAYERED: i32 = 0x0008_0000;
+pub const LWA_ALPHA: DWORD = 0x2;
+pub const GWL_EXSTYLE: i32 = -20;
+// Registry
+pub type HKEY = isize;
+pub const HKEY_LOCAL_MACHINE: HKEY = -2147483646; // 0x80000002
+pub const HKEY_CURRENT_USER: HKEY = -2147483647; // 0x80000001
+pub const KEY_READ: DWORD = 0x20019;
+pub const REG_SZ: DWORD = 1;
+pub const REG_DWORD: DWORD = 4;
+pub const ERROR_SUCCESS: DWORD = 0;
 
 #[repr(C)]
 pub struct POINT {
@@ -76,6 +98,26 @@ pub struct PROCESSENTRY32W {
     pub pc_pri_class_base: i32,
     pub dw_flags: DWORD,
     pub sz_exe_file: [u16; 260],
+}
+
+#[repr(C)]
+pub struct FILETIME {
+    pub dw_low_date_time: u32,
+    pub dw_high_date_time: u32,
+}
+
+#[repr(C)]
+pub struct PROCESS_MEMORY_COUNTERS {
+    pub cb: DWORD,
+    pub page_fault_count: DWORD,
+    pub peak_working_set_size: usize,
+    pub working_set_size: usize,
+    pub quota_peak_paged_pool_usage: usize,
+    pub quota_paged_pool_usage: usize,
+    pub quota_peak_non_paged_pool_usage: usize,
+    pub quota_non_paged_pool_usage: usize,
+    pub pagefile_usage: usize,
+    pub peak_pagefile_usage: usize,
 }
 
 extern "system" {
@@ -137,10 +179,92 @@ extern "system" {
     pub fn CreateToolhelp32Snapshot(flags: DWORD, pid: DWORD) -> HANDLE;
     pub fn Process32FirstW(snapshot: HANDLE, entry: *mut PROCESSENTRY32W) -> BOOL;
     pub fn Process32NextW(snapshot: HANDLE, entry: *mut PROCESSENTRY32W) -> BOOL;
+    // SendInput
+    pub fn SendInput(count: u32, inputs: *const INPUT, size: i32) -> u32;
+    // DPI
+    pub fn GetDpiForSystem() -> u32;
+    // Window class name
+    pub fn GetClassNameW(hwnd: HWND, buf: *mut u16, max_count: i32) -> i32;
+    // Dialog/popup detection
+    pub fn GetWindow(hwnd: HWND, cmd: u32) -> HWND;
+    pub fn IsWindowEnabled(hwnd: HWND) -> BOOL;
+    // Window style and opacity
+    pub fn GetWindowLongW(hwnd: HWND, index: i32) -> i32;
+    pub fn SetWindowLongW(hwnd: HWND, index: i32, new_long: i32) -> i32;
+    pub fn SetLayeredWindowAttributes(hwnd: HWND, color: COLORREF, alpha: u8, flags: DWORD) -> BOOL;
+    // Clipboard format check
+    pub fn IsClipboardFormatAvailable(format: u32) -> BOOL;
+    // Child window search (for system tray)
+    pub fn FindWindowExW(parent: HWND, child_after: HWND, class: *const u16, window: *const u16) -> HWND;
+    // Process times (kernel32)
+    pub fn GetProcessTimes(
+        process: HANDLE,
+        creation: *mut FILETIME,
+        exit: *mut FILETIME,
+        kernel: *mut FILETIME,
+        user: *mut FILETIME,
+    ) -> BOOL;
+}
+
+#[link(name = "shell32")]
+extern "system" {
+    pub fn DragQueryFileW(hdrop: HANDLE, index: u32, file: *mut u16, count: u32) -> u32;
+}
+
+#[link(name = "advapi32")]
+extern "system" {
+    pub fn RegOpenKeyExW(
+        key: HKEY,
+        sub_key: *const u16,
+        options: DWORD,
+        sam: DWORD,
+        result: *mut HKEY,
+    ) -> DWORD;
+    pub fn RegQueryValueExW(
+        key: HKEY,
+        value_name: *const u16,
+        reserved: *mut DWORD,
+        reg_type: *mut DWORD,
+        data: *mut u8,
+        data_size: *mut DWORD,
+    ) -> DWORD;
+    pub fn RegCloseKey(key: HKEY) -> DWORD;
+}
+
+#[link(name = "psapi")]
+extern "system" {
+    pub fn GetProcessMemoryInfo(
+        process: HANDLE,
+        counters: *mut PROCESS_MEMORY_COUNTERS,
+        cb: DWORD,
+    ) -> BOOL;
+}
+
+// SendInput types
+pub const INPUT_KEYBOARD: u32 = 1;
+pub const KEYEVENTF_UNICODE: u32 = 0x0004;
+pub const KEYEVENTF_KEYUP: u32 = 0x0002;
+
+#[repr(C)]
+pub struct KEYBDINPUT {
+    pub w_vk: u16,
+    pub w_scan: u16,
+    pub dw_flags: u32,
+    pub time: u32,
+    pub dw_extra_info: usize,
+}
+
+#[repr(C)]
+pub struct INPUT {
+    pub input_type: u32,
+    pub ki: KEYBDINPUT,
+    // union padding — MOUSEINPUT is larger, but we only use KEYBDINPUT
+    pub _pad: [u8; 8],
 }
 
 pub struct WindowInfo {
     pub title: String,
+    pub class_name: String,
     pub x: i32,
     pub y: i32,
     pub width: i32,
@@ -203,9 +327,11 @@ pub fn enumerate_windows() -> Vec<WindowInfo> {
             let mut pid: DWORD = 0;
             GetWindowThreadProcessId(hwnd, &mut pid);
             let process_name = get_process_name(pid);
+            let class_name = get_window_class_name(hwnd);
 
             results.push(WindowInfo {
                 title,
+                class_name,
                 x: rect.left,
                 y: rect.top,
                 width: rect.right - rect.left,
@@ -260,14 +386,17 @@ pub fn find_window_by_filter(filter: &str) -> Option<(HWND, WindowInfo)> {
             let mut pid: DWORD = 0;
             GetWindowThreadProcessId(hwnd, &mut pid);
             let process_name = get_process_name(pid);
+            let class_name = get_window_class_name(hwnd);
 
             if title.to_lowercase().contains(&lower_filter)
                 || process_name.to_lowercase().contains(&lower_filter)
+                || class_name.to_lowercase().contains(&lower_filter)
             {
                 let mut rect = RECT { left: 0, top: 0, right: 0, bottom: 0 };
                 GetWindowRect(hwnd, &mut rect);
                 return Some((hwnd, WindowInfo {
                     title,
+                    class_name,
                     x: rect.left,
                     y: rect.top,
                     width: rect.right - rect.left,
@@ -410,8 +539,10 @@ pub fn get_active_window_info() -> Option<(HWND, WindowInfo)> {
         let mut pid: DWORD = 0;
         GetWindowThreadProcessId(hwnd, &mut pid);
         let process_name = get_process_name(pid);
+        let class_name = get_window_class_name(hwnd);
         Some((hwnd, WindowInfo {
             title,
+            class_name,
             x: rect.left,
             y: rect.top,
             width: rect.right - rect.left,
@@ -422,6 +553,13 @@ pub fn get_active_window_info() -> Option<(HWND, WindowInfo)> {
             focused: true,
         }))
     }
+}
+
+/// Get a window's bounding rectangle.
+pub fn get_window_rect(hwnd: HWND) -> RECT {
+    let mut rect = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+    unsafe { GetWindowRect(hwnd, &mut rect); }
+    rect
 }
 
 pub fn get_pixel_color(x: i32, y: i32) -> Result<(u8, u8, u8), String> {
@@ -574,6 +712,117 @@ pub fn key_to_vk(key: &Key) -> Option<u32> {
     }
 }
 
+/// Get the Win32 window class name for a given HWND.
+pub fn get_window_class_name(hwnd: HWND) -> String {
+    let mut buf = [0u16; 256];
+    let len = unsafe { GetClassNameW(hwnd, buf.as_mut_ptr(), buf.len() as i32) };
+    if len <= 0 {
+        return String::new();
+    }
+    OsString::from_wide(&buf[..len as usize])
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Get the system DPI scale factor (1.0 = 100%, 1.25 = 125%, etc.).
+pub fn get_system_dpi_scale() -> f64 {
+    let dpi = unsafe { GetDpiForSystem() };
+    dpi as f64 / USER_DEFAULT_SCREEN_DPI as f64
+}
+
+/// Check if a window is blocked by a modal dialog.
+/// Returns Some(popup_hwnd) if a modal popup is blocking, None otherwise.
+pub fn is_window_blocked(hwnd: HWND) -> Option<HWND> {
+    unsafe {
+        if IsWindowEnabled(hwnd) != 0 {
+            return None; // Window is enabled, not blocked
+        }
+        let popup = GetWindow(hwnd, GW_ENABLEDPOPUP);
+        if popup != 0 && popup != hwnd {
+            Some(popup)
+        } else {
+            None
+        }
+    }
+}
+
+/// Read file paths from clipboard (CF_HDROP format, e.g., from Windows Explorer copy).
+pub fn read_clipboard_files() -> Result<Vec<String>, String> {
+    unsafe {
+        if OpenClipboard(0) == 0 {
+            return Err("Failed to open clipboard".to_string());
+        }
+        let handle = GetClipboardData(CF_HDROP);
+        if handle == 0 {
+            CloseClipboard();
+            return Err("No file drop data in clipboard".to_string());
+        }
+        // DragQueryFileW with index 0xFFFFFFFF returns the file count
+        let count = DragQueryFileW(handle, 0xFFFFFFFF, std::ptr::null_mut(), 0);
+        let mut files = Vec::with_capacity(count as usize);
+        for i in 0..count {
+            // Get required buffer size
+            let len = DragQueryFileW(handle, i, std::ptr::null_mut(), 0);
+            if len == 0 {
+                continue;
+            }
+            let mut buf = vec![0u16; (len + 1) as usize];
+            DragQueryFileW(handle, i, buf.as_mut_ptr(), buf.len() as u32);
+            let path = OsString::from_wide(&buf[..len as usize])
+                .to_string_lossy()
+                .into_owned();
+            files.push(path);
+        }
+        CloseClipboard();
+        Ok(files)
+    }
+}
+
+/// Get process resource info: working set (memory) and CPU times.
+/// Returns (working_set_bytes, kernel_time_ms, user_time_ms).
+pub fn get_process_resource_info(pid: DWORD) -> Result<(usize, u64, u64), String> {
+    unsafe {
+        let handle = OpenProcess(
+            PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
+            0,
+            pid,
+        );
+        if handle == 0 {
+            return Err(format!("OpenProcess failed for PID {pid}"));
+        }
+
+        // Memory info
+        let mut mem: PROCESS_MEMORY_COUNTERS = std::mem::zeroed();
+        mem.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as DWORD;
+        let mem_ok = GetProcessMemoryInfo(handle, &mut mem, mem.cb);
+        let working_set = if mem_ok != 0 {
+            mem.working_set_size
+        } else {
+            0
+        };
+
+        // CPU times
+        let mut creation: FILETIME = std::mem::zeroed();
+        let mut exit: FILETIME = std::mem::zeroed();
+        let mut kernel: FILETIME = std::mem::zeroed();
+        let mut user: FILETIME = std::mem::zeroed();
+        let time_ok = GetProcessTimes(handle, &mut creation, &mut exit, &mut kernel, &mut user);
+        CloseHandle(handle);
+
+        let (kernel_ms, user_ms) = if time_ok != 0 {
+            let k = ((kernel.dw_high_date_time as u64) << 32 | kernel.dw_low_date_time as u64)
+                / 10_000; // 100-ns units to ms
+            let u = ((user.dw_high_date_time as u64) << 32 | user.dw_low_date_time as u64)
+                / 10_000;
+            (k, u)
+        } else {
+            (0, 0)
+        };
+
+        Ok((working_set, kernel_ms, user_ms))
+    }
+}
+
 unsafe fn get_process_name(pid: DWORD) -> String {
     if pid == 0 {
         return String::new();
@@ -598,4 +847,157 @@ unsafe fn get_process_name(pid: DWORD) -> String {
         .next()
         .unwrap_or(&full_path)
         .to_string()
+}
+
+/// Set a window's opacity (0=transparent, 255=opaque).
+pub fn set_window_opacity(hwnd: HWND, alpha: u8) -> Result<(), String> {
+    unsafe {
+        // Add WS_EX_LAYERED style
+        let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+        if ex_style & WS_EX_LAYERED == 0 {
+            SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_LAYERED);
+        }
+        if SetLayeredWindowAttributes(hwnd, 0, alpha, LWA_ALPHA) == 0 {
+            Err("SetLayeredWindowAttributes failed".to_string())
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Read a string or DWORD value from the Windows registry.
+pub fn read_registry_value(hkey_root: HKEY, subkey: &str, value_name: &str) -> Result<String, String> {
+    unsafe {
+        let subkey_w = to_wide(subkey);
+        let mut hkey: HKEY = 0;
+        let status = RegOpenKeyExW(hkey_root, subkey_w.as_ptr(), 0, KEY_READ, &mut hkey);
+        if status != ERROR_SUCCESS {
+            return Err(format!("RegOpenKeyExW failed (error {status})"));
+        }
+
+        let value_w = to_wide(value_name);
+        let mut reg_type: DWORD = 0;
+        let mut data_size: DWORD = 0;
+
+        // Query size first
+        let status = RegQueryValueExW(
+            hkey, value_w.as_ptr(), std::ptr::null_mut(),
+            &mut reg_type, std::ptr::null_mut(), &mut data_size,
+        );
+        if status != ERROR_SUCCESS {
+            RegCloseKey(hkey);
+            return Err(format!("RegQueryValueExW failed (error {status})"));
+        }
+
+        let mut data = vec![0u8; data_size as usize];
+        let status = RegQueryValueExW(
+            hkey, value_w.as_ptr(), std::ptr::null_mut(),
+            &mut reg_type, data.as_mut_ptr(), &mut data_size,
+        );
+        RegCloseKey(hkey);
+
+        if status != ERROR_SUCCESS {
+            return Err(format!("RegQueryValueExW read failed (error {status})"));
+        }
+
+        match reg_type {
+            REG_SZ => {
+                let wide: &[u16] = std::slice::from_raw_parts(
+                    data.as_ptr() as *const u16,
+                    data_size as usize / 2,
+                );
+                // Trim trailing null
+                let len = wide.iter().position(|&c| c == 0).unwrap_or(wide.len());
+                Ok(OsString::from_wide(&wide[..len]).to_string_lossy().into_owned())
+            }
+            REG_DWORD => {
+                if data_size >= 4 {
+                    let val = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                    Ok(val.to_string())
+                } else {
+                    Err("REG_DWORD data too small".to_string())
+                }
+            }
+            other => Err(format!("Unsupported registry type: {other}")),
+        }
+    }
+}
+
+/// Check which clipboard formats are available.
+pub fn get_clipboard_formats() -> Vec<&'static str> {
+    let mut formats = Vec::new();
+    unsafe {
+        if IsClipboardFormatAvailable(CF_UNICODETEXT) != 0 {
+            formats.push("text");
+        }
+        if IsClipboardFormatAvailable(CF_DIB) != 0 {
+            formats.push("image");
+        }
+        if IsClipboardFormatAvailable(CF_HDROP) != 0 {
+            formats.push("files");
+        }
+    }
+    formats
+}
+
+/// Find a child window by class name traversal.
+pub fn find_child_window(parent: HWND, class_name: &str) -> HWND {
+    let class_w = to_wide(class_name);
+    unsafe { FindWindowExW(parent, 0, class_w.as_ptr(), std::ptr::null()) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_system_dpi_scale() {
+        let scale = get_system_dpi_scale();
+        // DPI scale should be at least 1.0 (100%) and at most 4.0 (400%)
+        assert!(scale >= 1.0, "DPI scale {scale} too low");
+        assert!(scale <= 4.0, "DPI scale {scale} too high");
+    }
+
+    #[test]
+    fn test_get_window_class_name_foreground() {
+        let hwnd = unsafe { GetForegroundWindow() };
+        if hwnd != 0 {
+            let class = get_window_class_name(hwnd);
+            assert!(!class.is_empty(), "Foreground window should have a class name");
+        }
+    }
+
+    #[test]
+    fn test_enumerate_windows_has_class_name() {
+        let windows = enumerate_windows();
+        // At least some windows should have non-empty class names
+        let with_class = windows.iter().filter(|w| !w.class_name.is_empty()).count();
+        assert!(with_class > 0, "Some windows should have class names");
+    }
+
+    #[test]
+    fn test_is_window_blocked_foreground() {
+        let hwnd = unsafe { GetForegroundWindow() };
+        if hwnd != 0 {
+            // The foreground window should typically NOT be blocked
+            // (if it is, there's a modal dialog, which is possible but unlikely during tests)
+            let _blocked = is_window_blocked(hwnd);
+            // Just verify it doesn't crash
+        }
+    }
+
+    #[test]
+    fn test_get_process_resource_info_self() {
+        let pid = std::process::id();
+        let result = get_process_resource_info(pid);
+        assert!(result.is_ok(), "Should get info for own process: {:?}", result);
+        let (mem, _kernel, _user) = result.unwrap();
+        assert!(mem > 0, "Own process should use some memory");
+    }
+
+    #[test]
+    fn test_read_clipboard_files_no_crash() {
+        // Just verify it doesn't crash — clipboard may or may not have files
+        let _ = read_clipboard_files();
+    }
 }

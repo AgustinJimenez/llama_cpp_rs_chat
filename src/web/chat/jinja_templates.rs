@@ -555,14 +555,15 @@ pub fn get_available_tools() -> Vec<Value> {
                     "x": { "type": "integer", "description": "X coordinate in pixels from left edge of screen" },
                     "y": { "type": "integer", "description": "Y coordinate in pixels from top edge of screen" },
                     "button": { "type": "string", "description": "Mouse button: 'left' (default), 'right', 'middle', 'double' (double left click)" },
-                    "delay_ms": { "type": "integer", "description": "Milliseconds to wait after clicking before taking screenshot (default: 500). Increase for slow UI animations." }
+                    "delay_ms": { "type": "integer", "description": "Milliseconds to wait after clicking before taking screenshot (default: 500). Increase for slow UI animations." },
+                    "dpi_aware": { "type": "boolean", "description": "If true, coordinates are logical (96 DPI basis) and will be scaled to physical pixels by the system DPI factor (default: false)" }
                 },
                 "required": ["x", "y"]
             }
         }),
         json!({
             "name": "type_text",
-            "description": "Type text using the keyboard. Simulates real keyboard input character by character. Use click_screen first to focus the target input field.",
+            "description": "Type text using the keyboard. Simulates real keyboard input character by character. Falls back to SendInput Unicode on Windows for non-Latin characters. Use click_screen first to focus the target input field.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -819,10 +820,11 @@ pub fn get_available_tools() -> Vec<Value> {
         }),
         json!({
             "name": "ocr_screen",
-            "description": "Extract text from the screen using OCR (Windows only). Optionally specify a region to OCR only part of the screen.",
+            "description": "Extract text from the screen using OCR (Windows only). Can target a specific window by title, a manual region, or the full screen.",
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "window": { "type": "string", "description": "Window title to auto-crop OCR to (case-insensitive)" },
                     "x": { "type": "integer", "description": "Left edge of region to OCR" },
                     "y": { "type": "integer", "description": "Top edge of region to OCR" },
                     "width": { "type": "integer", "description": "Width of region" },
@@ -869,6 +871,7 @@ pub fn get_available_tools() -> Vec<Value> {
                     "name": { "type": "string", "description": "Element name to search for (case-insensitive substring match)" },
                     "control_type": { "type": "string", "description": "Control type filter: Button, Edit, CheckBox, ComboBox, MenuItem, Hyperlink, etc." },
                     "title": { "type": "string", "description": "Window title (default: active window)" },
+                    "index": { "type": "integer", "description": "Click the Nth match (0-based, default 0). Use with find_ui_elements to see all matches first." },
                     "delay_ms": { "type": "integer", "description": "Delay before screenshot in ms (default 500)" }
                 },
                 "required": []
@@ -997,13 +1000,14 @@ pub fn get_available_tools() -> Vec<Value> {
         }),
         serde_json::json!({
             "name": "send_keys_to_window",
-            "description": "Send keystrokes to a window via PostMessage (works even when window is in background). Use 'text' for typing characters, 'keys' for key combos like 'ctrl+s'. Less reliable than type_text/press_key but doesn't require window focus.",
+            "description": "Send keystrokes to a window. Default method 'post_message' works in background. Use method 'send_input' for foreground apps that don't respond to PostMessage (games, custom UIs).",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "title": { "type": "string", "description": "Window title to send keys to" },
                     "keys": { "type": "string", "description": "Key combo to send (e.g. 'ctrl+s', 'enter', 'alt+f4')" },
-                    "text": { "type": "string", "description": "Text characters to type" }
+                    "text": { "type": "string", "description": "Text characters to type" },
+                    "method": { "type": "string", "description": "Input method: post_message (default, background) or send_input (foreground, more reliable)" }
                 },
                 "required": ["title"]
             }
@@ -1039,6 +1043,398 @@ pub fn get_available_tools() -> Vec<Value> {
                 "properties": {
                     "name": { "type": "string", "description": "Process name to kill (kills all matching)" },
                     "pid": { "type": "integer", "description": "Specific process ID to kill" }
+                },
+                "required": []
+            }
+        }),
+        // ── Compound desktop tools ──────────────────────────────────────
+        serde_json::json!({
+            "name": "find_and_click_text",
+            "description": "OCR the screen, find specific text, and click its center — all in one step. Combines ocr_find_text + click_screen. Use 'index' to click the Nth match.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": { "type": "string", "description": "Text to find and click (case-insensitive)" },
+                    "index": { "type": "integer", "description": "Click the Nth match (0-based, default 0)" },
+                    "monitor": { "type": "integer", "description": "Monitor index (default 0)" },
+                    "delay_ms": { "type": "integer", "description": "Delay before screenshot in ms (default 500)" }
+                },
+                "required": ["text"]
+            }
+        }),
+        serde_json::json!({
+            "name": "type_into_element",
+            "description": "Find a UI element by name/type, click it to focus, then type text. Combines click_ui_element + type_text in one step.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": { "type": "string", "description": "Text to type into the element" },
+                    "name": { "type": "string", "description": "Element name to find (case-insensitive substring)" },
+                    "control_type": { "type": "string", "description": "Control type filter (Edit, ComboBox, etc.)" },
+                    "title": { "type": "string", "description": "Window title (default: active window)" }
+                },
+                "required": ["text"]
+            }
+        }),
+        serde_json::json!({
+            "name": "get_window_text",
+            "description": "Extract all text content from a window via UI Automation tree walk. Returns text from labels, edit fields, and documents. Useful for reading window content without OCR.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string", "description": "Window title (default: active window)" },
+                    "max_chars": { "type": "integer", "description": "Max characters to return (default 50000)" }
+                },
+                "required": []
+            }
+        }),
+        serde_json::json!({
+            "name": "file_dialog_navigate",
+            "description": "Navigate a file Open/Save dialog: sets the filename field and clicks the button. Useful for automating file selection in native dialogs.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": { "type": "string", "description": "File path or name to enter" },
+                    "button": { "type": "string", "description": "Button to click: Open, Save, etc. (default: Open)" },
+                    "title": { "type": "string", "description": "Dialog window title (auto-detected if omitted)" }
+                },
+                "required": ["filename"]
+            }
+        }),
+        serde_json::json!({
+            "name": "drag_and_drop_element",
+            "description": "Find two UI elements by name/type and drag from one to the other. Combines find_ui_element + mouse_drag.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "from_name": { "type": "string", "description": "Source element name" },
+                    "from_type": { "type": "string", "description": "Source control type" },
+                    "to_name": { "type": "string", "description": "Target element name" },
+                    "to_type": { "type": "string", "description": "Target control type" },
+                    "title": { "type": "string", "description": "Window title (default: active window)" },
+                    "delay_ms": { "type": "integer", "description": "Delay before screenshot in ms (default 500)" }
+                },
+                "required": []
+            }
+        }),
+        serde_json::json!({
+            "name": "wait_for_text_on_screen",
+            "description": "Poll OCR until specified text appears on screen. Useful for waiting for loading to complete, dialogs to appear, or status text changes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": { "type": "string", "description": "Text to wait for (case-insensitive)" },
+                    "timeout_ms": { "type": "integer", "description": "Max wait in ms (default 10000, max 30000)" },
+                    "poll_ms": { "type": "integer", "description": "Polling interval in ms (default 1000, min 500)" },
+                    "monitor": { "type": "integer", "description": "Monitor index (default 0)" }
+                },
+                "required": ["text"]
+            }
+        }),
+        serde_json::json!({
+            "name": "get_context_menu",
+            "description": "Right-click at coordinates to open a context menu, read menu items via UI Automation, and optionally click one. Returns a numbered list of menu items.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "x": { "type": "integer", "description": "X coordinate to right-click" },
+                    "y": { "type": "integer", "description": "Y coordinate to right-click" },
+                    "click_item": { "type": "string", "description": "Menu item name to click (optional — just reads if omitted)" },
+                    "delay_ms": { "type": "integer", "description": "Delay before screenshot in ms (default 500)" }
+                },
+                "required": ["x", "y"]
+            }
+        }),
+        serde_json::json!({
+            "name": "scroll_element",
+            "description": "Find a UI element by name/type and scroll it. Uses mouse wheel at the element's center. Useful for scrolling specific panels or lists.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "Element name to find" },
+                    "control_type": { "type": "string", "description": "Control type filter" },
+                    "direction": { "type": "string", "description": "Scroll direction: up or down (default: down)" },
+                    "amount": { "type": "integer", "description": "Number of scroll clicks (default 3)" },
+                    "title": { "type": "string", "description": "Window title (default: active window)" }
+                },
+                "required": []
+            }
+        }),
+        // ─── New tools (batch 3) ─────────────────────────────────────
+        serde_json::json!({
+            "name": "mouse_button",
+            "description": "Press or release a mouse button independently without clicking. Useful for hold-and-drag scenarios where you need separate press and release control.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": { "type": "string", "description": "Action to perform: press or release" },
+                    "button": { "type": "string", "description": "Mouse button: left, right, middle (default: left)" },
+                    "screenshot": { "type": "boolean", "description": "Take screenshot after action (default true)" }
+                },
+                "required": ["action"]
+            }
+        }),
+        serde_json::json!({
+            "name": "switch_virtual_desktop",
+            "description": "Switch to an adjacent virtual desktop using Ctrl+Win+Arrow keyboard shortcut.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "direction": { "type": "string", "description": "Direction: left/prev or right/next" }
+                },
+                "required": ["direction"]
+            }
+        }),
+        serde_json::json!({
+            "name": "find_image_on_screen",
+            "description": "Find a template image on the screen using pixel matching (SSD). Returns the position and confidence if found. Useful for finding icons, buttons, or UI elements by their visual appearance.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "template": { "type": "string", "description": "Path to the template image file (PNG, JPEG, etc.)" },
+                    "monitor": { "type": "integer", "description": "Monitor index (default 0)" },
+                    "confidence": { "type": "number", "description": "Minimum confidence threshold 0.0-1.0 (default 0.9)" },
+                    "step": { "type": "integer", "description": "Search step size in pixels — larger = faster but less precise (default 2)" }
+                },
+                "required": ["template"]
+            }
+        }),
+        serde_json::json!({
+            "name": "get_process_info",
+            "description": "Get resource info (memory usage, CPU time) for a process by PID or name.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pid": { "type": "integer", "description": "Process ID" },
+                    "name": { "type": "string", "description": "Process name (partial match)" }
+                },
+                "required": []
+            }
+        }),
+        // ─── Round 3 tools ──────────────────────────────────────────────────
+        json!({
+            "name": "paste",
+            "description": "Paste clipboard contents at the current cursor position (Ctrl+V). Takes a screenshot after pasting.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "delay_ms": { "type": "integer", "description": "Wait after paste before screenshot (default 300)" }
+                },
+                "required": []
+            }
+        }),
+        json!({
+            "name": "clear_field",
+            "description": "Clear the currently focused input field (Ctrl+A → Delete). Optionally type new text after clearing.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "then_type": { "type": "string", "description": "Text to type after clearing the field" },
+                    "delay_ms": { "type": "integer", "description": "Wait after action (default 200)" }
+                },
+                "required": []
+            }
+        }),
+        json!({
+            "name": "hover_element",
+            "description": "Hover over a UI element by name/type to trigger tooltip or hover effects. Returns tooltip text if found.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "UI element name (partial match)" },
+                    "control_type": { "type": "string", "description": "UI control type (Button, Edit, etc.)" },
+                    "title": { "type": "string", "description": "Window title filter (default: active window)" },
+                    "hover_ms": { "type": "integer", "description": "How long to hover before capturing (default 800)" }
+                },
+                "required": []
+            }
+        }),
+        json!({
+            "name": "handle_dialog",
+            "description": "Detect and interact with modal dialogs. Lists dialog text and buttons, optionally clicks a button.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "button": { "type": "string", "description": "Button name to click (e.g. 'OK', 'Cancel', 'Yes', 'Save')" }
+                },
+                "required": []
+            }
+        }),
+        json!({
+            "name": "wait_for_element_state",
+            "description": "Wait until a UI element reaches a specific state (exists, gone, visible, hidden).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "UI element name (partial match)" },
+                    "control_type": { "type": "string", "description": "UI control type filter" },
+                    "state": { "type": "string", "description": "Target state: exists, gone, visible, hidden" },
+                    "title": { "type": "string", "description": "Window title filter" },
+                    "timeout_ms": { "type": "integer", "description": "Maximum wait time (default 5000)" }
+                },
+                "required": ["state"]
+            }
+        }),
+        json!({
+            "name": "fill_form",
+            "description": "Fill multiple form fields by finding UI elements by label and typing values. Each field is clicked, cleared, and filled.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "fields": {
+                        "type": "array",
+                        "description": "Array of {label, value} objects",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "label": { "type": "string" },
+                                "value": { "type": "string" }
+                            }
+                        }
+                    },
+                    "title": { "type": "string", "description": "Window title filter" }
+                },
+                "required": ["fields"]
+            }
+        }),
+        json!({
+            "name": "run_action_sequence",
+            "description": "Execute a sequence of desktop actions (click, type, press_key, paste, wait, clear, scroll, move). Each action is a JSON object with an 'action' field.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "actions": {
+                        "type": "array",
+                        "description": "Array of action objects. Each has 'action' (click/type/press_key/paste/wait/clear/scroll/move) plus params.",
+                        "items": { "type": "object" }
+                    },
+                    "delay_between_ms": { "type": "integer", "description": "Default delay between actions (default 200)" }
+                },
+                "required": ["actions"]
+            }
+        }),
+        json!({
+            "name": "move_to_monitor",
+            "description": "Move a window to a specific monitor by index. Preserves window size.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string", "description": "Window title or process name filter" },
+                    "monitor": { "type": "integer", "description": "Target monitor index (default 0)" }
+                },
+                "required": ["title"]
+            }
+        }),
+        json!({
+            "name": "set_window_opacity",
+            "description": "Set window transparency. 0 = fully transparent, 100 = fully opaque.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string", "description": "Window title or process name filter" },
+                    "opacity": { "type": "integer", "description": "Opacity percentage 0-100 (default 100)" }
+                },
+                "required": ["title"]
+            }
+        }),
+        json!({
+            "name": "highlight_point",
+            "description": "Draw a crosshair marker on a screenshot at specified coordinates. Useful for debugging coordinate targeting.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "x": { "type": "integer", "description": "X coordinate" },
+                    "y": { "type": "integer", "description": "Y coordinate" },
+                    "color": { "type": "string", "description": "Marker color: red, green, blue, yellow (default red)" },
+                    "size": { "type": "integer", "description": "Marker size in pixels (default 20)" },
+                    "monitor": { "type": "integer", "description": "Monitor index (default 0)" }
+                },
+                "required": ["x", "y"]
+            }
+        }),
+        json!({
+            "name": "annotate_screenshot",
+            "description": "Draw shapes (rectangles, circles, lines) on a screenshot for visual annotation.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "shapes": {
+                        "type": "array",
+                        "description": "Array of shapes: {type: rect|circle|line, x, y, w, h, r, x1, y1, x2, y2, color, thickness}",
+                        "items": { "type": "object" }
+                    },
+                    "monitor": { "type": "integer", "description": "Monitor index (default 0)" }
+                },
+                "required": ["shapes"]
+            }
+        }),
+        json!({
+            "name": "ocr_region",
+            "description": "Perform OCR on a specific rectangular region of the screen. Returns recognized text and the cropped region image.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "x": { "type": "integer", "description": "Left edge X coordinate" },
+                    "y": { "type": "integer", "description": "Top edge Y coordinate" },
+                    "width": { "type": "integer", "description": "Region width in pixels" },
+                    "height": { "type": "integer", "description": "Region height in pixels" },
+                    "monitor": { "type": "integer", "description": "Monitor index (default 0)" }
+                },
+                "required": ["width", "height"]
+            }
+        }),
+        json!({
+            "name": "find_color_on_screen",
+            "description": "Find pixels on screen matching a specific color (hex #RRGGBB) within tolerance. Returns coordinates of matches.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "color": { "type": "string", "description": "Target color in hex format #RRGGBB" },
+                    "tolerance": { "type": "integer", "description": "Color matching tolerance per channel 0-255 (default 30)" },
+                    "max_results": { "type": "integer", "description": "Maximum matches to return (default 10)" },
+                    "step": { "type": "integer", "description": "Pixel scan step size (default 4, use 1 for thorough)" },
+                    "region_x": { "type": "integer", "description": "Optional region left X" },
+                    "region_y": { "type": "integer", "description": "Optional region top Y" },
+                    "region_w": { "type": "integer", "description": "Optional region width" },
+                    "region_h": { "type": "integer", "description": "Optional region height" },
+                    "monitor": { "type": "integer", "description": "Monitor index (default 0)" }
+                },
+                "required": ["color"]
+            }
+        }),
+        json!({
+            "name": "read_registry",
+            "description": "Read a value from the Windows registry. Supports REG_SZ (string) and REG_DWORD (integer) types.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "hive": { "type": "string", "description": "Registry hive: HKCU or HKLM (default HKCU)" },
+                    "key": { "type": "string", "description": "Registry subkey path (e.g. 'SOFTWARE\\Microsoft\\Windows\\CurrentVersion')" },
+                    "value": { "type": "string", "description": "Value name to read (empty for default value)" }
+                },
+                "required": ["key"]
+            }
+        }),
+        json!({
+            "name": "click_tray_icon",
+            "description": "Find and click a system tray (notification area) icon by its tooltip text.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "Icon tooltip text to search for (partial match)" }
+                },
+                "required": ["name"]
+            }
+        }),
+        json!({
+            "name": "watch_window",
+            "description": "Monitor for window changes (new windows, closed windows, title changes). Returns on first change or timeout.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "timeout_ms": { "type": "integer", "description": "Maximum wait time (default 10000)" },
+                    "filter": { "type": "string", "description": "Only report changes for windows matching this filter" },
+                    "poll_ms": { "type": "integer", "description": "Polling interval (default 500)" }
                 },
                 "required": []
             }

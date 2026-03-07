@@ -4,6 +4,8 @@
 //! Each action tool optionally captures a screenshot after the action, returning it through
 //! the vision pipeline so the LLM can see what happened.
 
+use std::cell::RefCell;
+
 use enigo::{Axis, Button, Coordinate, Direction, Enigo, Key, Keyboard, Mouse, Settings};
 use serde_json::Value;
 
@@ -28,6 +30,182 @@ pub(crate) fn parse_bool(v: &Value, default: bool) -> bool {
     v.as_bool()
         .or_else(|| v.as_str().map(|s| s.eq_ignore_ascii_case("true")))
         .unwrap_or(default)
+}
+
+// ─── Reusable Enigo instance ─────────────────────────────────────────────────
+
+thread_local! {
+    static ENIGO: RefCell<Option<Enigo>> = RefCell::new(None);
+}
+
+/// Run a closure with a cached per-thread Enigo instance.
+pub(super) fn with_enigo<F, T>(f: F) -> Result<T, String>
+where
+    F: FnOnce(&mut Enigo) -> Result<T, String>,
+{
+    ENIGO.with(|cell| {
+        let mut opt = cell.borrow_mut();
+        if opt.is_none() {
+            *opt = Some(
+                Enigo::new(&Settings::default())
+                    .map_err(|e| format!("Failed to init input simulation: {e}"))?,
+            );
+        }
+        f(opt.as_mut().unwrap())
+    })
+}
+
+/// Validate that coordinates fall within any connected monitor.
+pub(super) fn validate_coordinates(x: i32, y: i32) -> Result<(), String> {
+    let monitors =
+        xcap::Monitor::all().map_err(|e| format!("Failed to enumerate monitors: {e}"))?;
+    if monitors.is_empty() {
+        return Ok(());
+    }
+    for mon in &monitors {
+        let mx = mon.x().unwrap_or(0);
+        let my = mon.y().unwrap_or(0);
+        let mw = mon.width().unwrap_or(0) as i32;
+        let mh = mon.height().unwrap_or(0) as i32;
+        if x >= mx && x < mx + mw && y >= my && y < my + mh {
+            return Ok(());
+        }
+    }
+    Err(format!(
+        "Coordinates ({x}, {y}) outside all monitors. Available: {}",
+        monitors
+            .iter()
+            .enumerate()
+            .map(|(i, m)| format!(
+                "#{}: {}x{} at ({},{})",
+                i,
+                m.width().unwrap_or(0),
+                m.height().unwrap_or(0),
+                m.x().unwrap_or(0),
+                m.y().unwrap_or(0)
+            ))
+            .collect::<Vec<_>>()
+            .join(", ")
+    ))
+}
+
+/// Apply DPI scaling to coordinates if dpi_aware flag is set.
+#[cfg(windows)]
+pub(super) fn apply_dpi_scaling(x: i32, y: i32, dpi_aware: bool) -> (i32, i32) {
+    if dpi_aware {
+        let scale = win32::get_system_dpi_scale();
+        ((x as f64 * scale) as i32, (y as f64 * scale) as i32)
+    } else {
+        (x, y)
+    }
+}
+
+/// Check if the foreground window is blocked by a modal dialog.
+/// Returns a warning string if blocked, None otherwise.
+#[cfg(windows)]
+pub(super) fn check_modal_dialog() -> Option<String> {
+    let fg = unsafe { win32::GetForegroundWindow() };
+    if fg != 0 {
+        if let Some(_popup) = win32::is_window_blocked(fg) {
+            return Some(
+                "Warning: foreground window is blocked by a modal dialog. ".to_string(),
+            );
+        }
+    }
+    None
+}
+
+/// Type text using Win32 SendInput with KEYEVENTF_UNICODE (IME/Unicode fallback).
+#[cfg(windows)]
+fn type_text_via_send_input(text: &str) -> Result<(), String> {
+    for ch in text.chars() {
+        let code = ch as u16;
+        let down = win32::INPUT {
+            input_type: win32::INPUT_KEYBOARD,
+            ki: win32::KEYBDINPUT {
+                w_vk: 0,
+                w_scan: code,
+                dw_flags: win32::KEYEVENTF_UNICODE,
+                time: 0,
+                dw_extra_info: 0,
+            },
+            _pad: [0; 8],
+        };
+        let up = win32::INPUT {
+            input_type: win32::INPUT_KEYBOARD,
+            ki: win32::KEYBDINPUT {
+                w_vk: 0,
+                w_scan: code,
+                dw_flags: win32::KEYEVENTF_UNICODE | win32::KEYEVENTF_KEYUP,
+                time: 0,
+                dw_extra_info: 0,
+            },
+            _pad: [0; 8],
+        };
+        let inputs = [down, up];
+        let sent = unsafe {
+            win32::SendInput(2, inputs.as_ptr(), std::mem::size_of::<win32::INPUT>() as i32)
+        };
+        if sent != 2 {
+            return Err(format!("SendInput failed for character '{ch}'"));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    Ok(())
+}
+
+// ─── Screenshot cache ────────────────────────────────────────────────────────
+
+thread_local! {
+    static LAST_SCREENSHOT: RefCell<Option<(std::time::Instant, Vec<u8>)>> = RefCell::new(None);
+}
+
+/// Get a cached screenshot if it was taken within `max_age_ms` milliseconds.
+#[allow(dead_code)]
+pub(super) fn get_cached_screenshot(max_age_ms: u64) -> Option<Vec<u8>> {
+    LAST_SCREENSHOT.with(|cell| {
+        let cache = cell.borrow();
+        if let Some((when, data)) = cache.as_ref() {
+            if when.elapsed().as_millis() < max_age_ms as u128 {
+                return Some(data.clone());
+            }
+        }
+        None
+    })
+}
+
+/// Store a screenshot in the cache.
+#[allow(dead_code)]
+pub(super) fn update_screenshot_cache(png_data: Vec<u8>) {
+    LAST_SCREENSHOT.with(|cell| {
+        *cell.borrow_mut() = Some((std::time::Instant::now(), png_data));
+    });
+}
+
+/// Wait for the screen to stop changing (useful after animations/transitions).
+/// Returns true if screen settled within timeout, false if timed out.
+#[allow(dead_code)]
+pub(super) fn wait_for_screen_settle(timeout_ms: u64, poll_ms: u64) -> bool {
+    let start = std::time::Instant::now();
+    let mut prev: Option<Vec<u8>> = None;
+    while start.elapsed().as_millis() < timeout_ms as u128 {
+        // Capture a small region (center of primary monitor) for quick comparison
+        if let Ok(monitors) = xcap::Monitor::all() {
+            if let Some(mon) = monitors.first() {
+                if let Ok(img) = mon.capture_image() {
+                    let raw = img.as_raw().to_vec();
+                    if let Some(ref p) = prev {
+                        if *p == raw {
+                            return true; // screen settled
+                        }
+                    }
+                    prev = Some(raw);
+                }
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(poll_ms));
+    }
+    false
 }
 
 /// Parse a key string like "ctrl+shift+s" into (modifiers, main_key).
@@ -74,32 +252,28 @@ fn str_to_key(s: &str) -> Result<Key, String> {
         "end" => Ok(Key::End),
         "pageup" => Ok(Key::PageUp),
         "pagedown" => Ok(Key::PageDown),
-        "insert" => Ok(Key::Other(0x2D)), // VK_INSERT on Windows
+        "insert" => Ok(Key::Other(0x2D)),
         "capslock" => Ok(Key::CapsLock),
         "ctrl" | "control" => Ok(Key::Control),
         "alt" => Ok(Key::Alt),
         "shift" => Ok(Key::Shift),
         "meta" | "win" | "super" | "cmd" => Ok(Key::Meta),
-        // F-keys
-        s if s.starts_with('f') && s.len() <= 3 => {
-            match s[1..].parse::<u8>() {
-                Ok(1) => Ok(Key::F1),
-                Ok(2) => Ok(Key::F2),
-                Ok(3) => Ok(Key::F3),
-                Ok(4) => Ok(Key::F4),
-                Ok(5) => Ok(Key::F5),
-                Ok(6) => Ok(Key::F6),
-                Ok(7) => Ok(Key::F7),
-                Ok(8) => Ok(Key::F8),
-                Ok(9) => Ok(Key::F9),
-                Ok(10) => Ok(Key::F10),
-                Ok(11) => Ok(Key::F11),
-                Ok(12) => Ok(Key::F12),
-                Ok(n) => Err(format!("Unsupported function key: F{n}")),
-                Err(_) => Err(format!("Invalid key: '{s}'")),
-            }
-        }
-        // Single character (a-z, 0-9, punctuation)
+        s if s.starts_with('f') && s.len() <= 3 => match s[1..].parse::<u8>() {
+            Ok(1) => Ok(Key::F1),
+            Ok(2) => Ok(Key::F2),
+            Ok(3) => Ok(Key::F3),
+            Ok(4) => Ok(Key::F4),
+            Ok(5) => Ok(Key::F5),
+            Ok(6) => Ok(Key::F6),
+            Ok(7) => Ok(Key::F7),
+            Ok(8) => Ok(Key::F8),
+            Ok(9) => Ok(Key::F9),
+            Ok(10) => Ok(Key::F10),
+            Ok(11) => Ok(Key::F11),
+            Ok(12) => Ok(Key::F12),
+            Ok(n) => Err(format!("Unsupported function key: F{n}")),
+            Err(_) => Err(format!("Invalid key: '{s}'")),
+        },
         s if s.len() == 1 => Ok(Key::Unicode(s.chars().next().unwrap())),
         other => Err(format!("Unknown key: '{other}'")),
     }
@@ -107,14 +281,31 @@ fn str_to_key(s: &str) -> Result<Key, String> {
 
 /// Click the mouse at absolute screen coordinates.
 pub fn tool_click_screen(args: &Value) -> NativeToolResult {
-    let x = match args.get("x").and_then(parse_int) {
+    let mut x = match args.get("x").and_then(parse_int) {
         Some(v) => v as i32,
         None => return NativeToolResult::text_only("Error: 'x' coordinate is required".to_string()),
     };
-    let y = match args.get("y").and_then(parse_int) {
+    let mut y = match args.get("y").and_then(parse_int) {
         Some(v) => v as i32,
         None => return NativeToolResult::text_only("Error: 'y' coordinate is required".to_string()),
     };
+    // DPI scaling: convert logical coordinates to physical if requested
+    #[cfg(windows)]
+    {
+        let dpi_aware = args.get("dpi_aware").map(|v| parse_bool(v, false)).unwrap_or(false);
+        let scaled = apply_dpi_scaling(x, y, dpi_aware);
+        x = scaled.0;
+        y = scaled.1;
+    }
+    if let Err(e) = validate_coordinates(x, y) {
+        return NativeToolResult::text_only(format!("Error: {e}"));
+    }
+    // Check for modal dialog blocking the foreground window
+    #[cfg(windows)]
+    let modal_warning = check_modal_dialog().unwrap_or_default();
+    #[cfg(not(windows))]
+    let modal_warning = String::new();
+
     let button_str = args
         .get("button")
         .and_then(|v| v.as_str())
@@ -124,49 +315,41 @@ pub fn tool_click_screen(args: &Value) -> NativeToolResult {
         .and_then(parse_int)
         .unwrap_or(500) as u64;
 
-    let mut enigo = match Enigo::new(&Settings::default()) {
-        Ok(e) => e,
-        Err(e) => {
-            return NativeToolResult::text_only(format!(
-                "Error: Failed to init input simulation: {e}"
-            ))
-        }
-    };
-
-    // Move mouse to position
-    if let Err(e) = enigo.move_mouse(x, y, Coordinate::Abs) {
-        return NativeToolResult::text_only(format!("Error: move_mouse failed: {e}"));
-    }
-
-    // Small delay after move for OS to register position
-    std::thread::sleep(std::time::Duration::from_millis(50));
-
-    // Perform click
-    let click_result = match button_str {
-        "left" => enigo.button(Button::Left, Direction::Click),
-        "right" => enigo.button(Button::Right, Direction::Click),
-        "middle" => enigo.button(Button::Middle, Direction::Click),
-        "double" => enigo
-            .button(Button::Left, Direction::Click)
-            .and_then(|()| {
+    if let Err(e) = with_enigo(|enigo| {
+        enigo
+            .move_mouse(x, y, Coordinate::Abs)
+            .map_err(|e| format!("move_mouse failed: {e}"))?;
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        match button_str {
+            "left" => enigo
+                .button(Button::Left, Direction::Click)
+                .map_err(|e| format!("click failed: {e}")),
+            "right" => enigo
+                .button(Button::Right, Direction::Click)
+                .map_err(|e| format!("click failed: {e}")),
+            "middle" => enigo
+                .button(Button::Middle, Direction::Click)
+                .map_err(|e| format!("click failed: {e}")),
+            "double" => {
+                enigo
+                    .button(Button::Left, Direction::Click)
+                    .map_err(|e| format!("click failed: {e}"))?;
                 std::thread::sleep(std::time::Duration::from_millis(50));
-                enigo.button(Button::Left, Direction::Click)
-            }),
-        other => {
-            return NativeToolResult::text_only(format!(
-                "Error: Unknown button '{other}'. Use: left, right, middle, double"
-            ))
+                enigo
+                    .button(Button::Left, Direction::Click)
+                    .map_err(|e| format!("double-click failed: {e}"))
+            }
+            other => Err(format!(
+                "Unknown button '{other}'. Use: left, right, middle, double"
+            )),
         }
-    };
-
-    if let Err(e) = click_result {
-        return NativeToolResult::text_only(format!("Error: click failed: {e}"));
+    }) {
+        return NativeToolResult::text_only(format!("Error: {e}"));
     }
 
-    // Auto-screenshot with delay
     let mut result = capture_post_action_screenshot(delay_ms);
     result.text = format!(
-        "Clicked {button_str} at ({x}, {y}). {}",
+        "{modal_warning}Clicked {button_str} at ({x}, {y}). {}",
         result.text
     );
     result
@@ -176,7 +359,9 @@ pub fn tool_click_screen(args: &Value) -> NativeToolResult {
 pub fn tool_type_text(args: &Value) -> NativeToolResult {
     let text = match args.get("text").and_then(|v| v.as_str()) {
         Some(t) => t,
-        None => return NativeToolResult::text_only("Error: 'text' argument is required".to_string()),
+        None => {
+            return NativeToolResult::text_only("Error: 'text' argument is required".to_string())
+        }
     };
     let do_screenshot = args
         .get("screenshot")
@@ -187,17 +372,16 @@ pub fn tool_type_text(args: &Value) -> NativeToolResult {
         .and_then(parse_int)
         .unwrap_or(300) as u64;
 
-    let mut enigo = match Enigo::new(&Settings::default()) {
-        Ok(e) => e,
-        Err(e) => {
-            return NativeToolResult::text_only(format!(
-                "Error: Failed to init input simulation: {e}"
-            ))
-        }
-    };
-
-    if let Err(e) = enigo.text(text) {
-        return NativeToolResult::text_only(format!("Error: type_text failed: {e}"));
+    let type_result = with_enigo(|enigo| {
+        enigo
+            .text(text)
+            .map_err(|e| format!("type_text failed: {e}"))
+    });
+    // On Windows, fall back to SendInput KEYEVENTF_UNICODE if enigo fails
+    #[cfg(windows)]
+    let type_result = type_result.or_else(|_| type_text_via_send_input(text));
+    if let Err(e) = type_result {
+        return NativeToolResult::text_only(format!("Error: {e}"));
     }
 
     let summary = if text.len() > 50 {
@@ -219,7 +403,9 @@ pub fn tool_type_text(args: &Value) -> NativeToolResult {
 pub fn tool_press_key(args: &Value) -> NativeToolResult {
     let key_str = match args.get("key").and_then(|v| v.as_str()) {
         Some(k) => k,
-        None => return NativeToolResult::text_only("Error: 'key' argument is required".to_string()),
+        None => {
+            return NativeToolResult::text_only("Error: 'key' argument is required".to_string())
+        }
     };
     let do_screenshot = args
         .get("screenshot")
@@ -235,34 +421,20 @@ pub fn tool_press_key(args: &Value) -> NativeToolResult {
         Err(e) => return NativeToolResult::text_only(format!("Error: {e}")),
     };
 
-    let mut enigo = match Enigo::new(&Settings::default()) {
-        Ok(e) => e,
-        Err(e) => {
-            return NativeToolResult::text_only(format!(
-                "Error: Failed to init input simulation: {e}"
-            ))
+    if let Err(e) = with_enigo(|enigo| {
+        for modifier in &modifiers {
+            enigo
+                .key(*modifier, Direction::Press)
+                .map_err(|e| format!("key press failed: {e}"))?;
         }
-    };
-
-    // Press modifiers down
-    for modifier in &modifiers {
-        if let Err(e) = enigo.key(*modifier, Direction::Press) {
-            return NativeToolResult::text_only(format!("Error: key press failed: {e}"));
-        }
-    }
-
-    // Press and release main key
-    if let Err(e) = enigo.key(main_key, Direction::Click) {
-        // Release modifiers before returning error
+        let result = enigo.key(main_key, Direction::Click);
+        // Always release modifiers
         for modifier in modifiers.iter().rev() {
             let _ = enigo.key(*modifier, Direction::Release);
         }
-        return NativeToolResult::text_only(format!("Error: key press failed: {e}"));
-    }
-
-    // Release modifiers in reverse order
-    for modifier in modifiers.iter().rev() {
-        let _ = enigo.key(*modifier, Direction::Release);
+        result.map_err(|e| format!("key press failed: {e}"))
+    }) {
+        return NativeToolResult::text_only(format!("Error: {e}"));
     }
 
     let summary = format!("Pressed: {key_str}");
@@ -278,26 +450,35 @@ pub fn tool_press_key(args: &Value) -> NativeToolResult {
 
 /// Move the mouse cursor without clicking.
 pub fn tool_move_mouse(args: &Value) -> NativeToolResult {
-    let x = match args.get("x").and_then(parse_int) {
+    let mut x = match args.get("x").and_then(parse_int) {
         Some(v) => v as i32,
-        None => return NativeToolResult::text_only("Error: 'x' coordinate is required".to_string()),
-    };
-    let y = match args.get("y").and_then(parse_int) {
-        Some(v) => v as i32,
-        None => return NativeToolResult::text_only("Error: 'y' coordinate is required".to_string()),
-    };
-
-    let mut enigo = match Enigo::new(&Settings::default()) {
-        Ok(e) => e,
-        Err(e) => {
-            return NativeToolResult::text_only(format!(
-                "Error: Failed to init input simulation: {e}"
-            ))
+        None => {
+            return NativeToolResult::text_only("Error: 'x' coordinate is required".to_string())
         }
     };
+    let mut y = match args.get("y").and_then(parse_int) {
+        Some(v) => v as i32,
+        None => {
+            return NativeToolResult::text_only("Error: 'y' coordinate is required".to_string())
+        }
+    };
+    #[cfg(windows)]
+    {
+        let dpi_aware = args.get("dpi_aware").map(|v| parse_bool(v, false)).unwrap_or(false);
+        let scaled = apply_dpi_scaling(x, y, dpi_aware);
+        x = scaled.0;
+        y = scaled.1;
+    }
+    if let Err(e) = validate_coordinates(x, y) {
+        return NativeToolResult::text_only(format!("Error: {e}"));
+    }
 
-    if let Err(e) = enigo.move_mouse(x, y, Coordinate::Abs) {
-        return NativeToolResult::text_only(format!("Error: move_mouse failed: {e}"));
+    if let Err(e) = with_enigo(|enigo| {
+        enigo
+            .move_mouse(x, y, Coordinate::Abs)
+            .map_err(|e| format!("move_mouse failed: {e}"))
+    }) {
+        return NativeToolResult::text_only(format!("Error: {e}"));
     }
 
     NativeToolResult::text_only(format!("Mouse moved to ({x}, {y})"))
@@ -326,38 +507,36 @@ pub fn tool_scroll_screen(args: &Value) -> NativeToolResult {
         .and_then(parse_int)
         .unwrap_or(300) as u64;
 
-    let mut enigo = match Enigo::new(&Settings::default()) {
-        Ok(e) => e,
-        Err(e) => {
-            return NativeToolResult::text_only(format!(
-                "Error: Failed to init input simulation: {e}"
-            ))
+    if let Err(e) = with_enigo(|enigo| {
+        if let (Some(x), Some(y)) = (
+            args.get("x").and_then(parse_int),
+            args.get("y").and_then(parse_int),
+        ) {
+            let (x, y) = (x as i32, y as i32);
+            validate_coordinates(x, y)?;
+            enigo
+                .move_mouse(x, y, Coordinate::Abs)
+                .map_err(|e| format!("move_mouse failed: {e}"))?;
+            std::thread::sleep(std::time::Duration::from_millis(50));
         }
-    };
-
-    // Move to position if specified
-    if let (Some(x), Some(y)) = (
-        args.get("x").and_then(parse_int),
-        args.get("y").and_then(parse_int),
-    ) {
-        if let Err(e) = enigo.move_mouse(x as i32, y as i32, Coordinate::Abs) {
-            return NativeToolResult::text_only(format!("Error: move_mouse failed: {e}"));
-        }
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
-
-    let axis = if horizontal {
-        Axis::Horizontal
-    } else {
-        Axis::Vertical
-    };
-
-    if let Err(e) = enigo.scroll(amount, axis) {
-        return NativeToolResult::text_only(format!("Error: scroll failed: {e}"));
+        let axis = if horizontal {
+            Axis::Horizontal
+        } else {
+            Axis::Vertical
+        };
+        enigo
+            .scroll(amount, axis)
+            .map_err(|e| format!("scroll failed: {e}"))
+    }) {
+        return NativeToolResult::text_only(format!("Error: {e}"));
     }
 
     let direction = if horizontal {
-        if amount > 0 { "right" } else { "left" }
+        if amount > 0 {
+            "right"
+        } else {
+            "left"
+        }
     } else if amount > 0 {
         "down"
     } else {
@@ -374,7 +553,7 @@ pub fn tool_scroll_screen(args: &Value) -> NativeToolResult {
     }
 }
 
-// ─── Window listing (Windows-only) ───────────────────────────────────────────
+// ─── Submodules ──────────────────────────────────────────────────────────────
 
 #[cfg(windows)]
 pub(crate) mod win32;
@@ -384,6 +563,25 @@ pub use window_tools::*;
 
 mod ui_tools;
 pub use ui_tools::*;
+
+mod compound_tools;
+pub use compound_tools::*;
+
+mod image_tools;
+#[allow(unused_imports)]
+pub use image_tools::*;
+mod input_tools;
+pub use input_tools::*;
+mod dialog_tools;
+pub use dialog_tools::*;
+mod form_tools;
+pub use form_tools::*;
+mod display_tools;
+pub use display_tools::*;
+mod annotation_tools;
+pub use annotation_tools::*;
+mod system_tools;
+pub use system_tools::*;
 
 /// Drag the mouse from one position to another.
 pub fn tool_mouse_drag(args: &Value) -> NativeToolResult {
@@ -403,43 +601,104 @@ pub fn tool_mouse_drag(args: &Value) -> NativeToolResult {
         Some(v) => v as i32,
         None => return NativeToolResult::text_only("Error: 'to_y' is required".to_string()),
     };
+    if let Err(e) = validate_coordinates(x1, y1) {
+        return NativeToolResult::text_only(format!("Error: start {e}"));
+    }
+    if let Err(e) = validate_coordinates(x2, y2) {
+        return NativeToolResult::text_only(format!("Error: end {e}"));
+    }
     let delay_ms = args
         .get("delay_ms")
         .and_then(parse_int)
         .unwrap_or(500) as u64;
 
-    let mut enigo = match Enigo::new(&Settings::default()) {
-        Ok(e) => e,
-        Err(e) => return NativeToolResult::text_only(format!("Error: Failed to init input simulation: {e}")),
-    };
-
-    // Move to start position
-    if let Err(e) = enigo.move_mouse(x1, y1, Coordinate::Abs) {
-        return NativeToolResult::text_only(format!("Error: move to start failed: {e}"));
-    }
-    std::thread::sleep(std::time::Duration::from_millis(50));
-
-    // Press button down
-    if let Err(e) = enigo.button(Button::Left, Direction::Press) {
-        return NativeToolResult::text_only(format!("Error: mouse down failed: {e}"));
-    }
-    std::thread::sleep(std::time::Duration::from_millis(50));
-
-    // Move to end position
-    if let Err(e) = enigo.move_mouse(x2, y2, Coordinate::Abs) {
-        let _ = enigo.button(Button::Left, Direction::Release);
-        return NativeToolResult::text_only(format!("Error: move to end failed: {e}"));
-    }
-    std::thread::sleep(std::time::Duration::from_millis(50));
-
-    // Release button
-    if let Err(e) = enigo.button(Button::Left, Direction::Release) {
-        return NativeToolResult::text_only(format!("Error: mouse up failed: {e}"));
+    if let Err(e) = with_enigo(|enigo| {
+        enigo
+            .move_mouse(x1, y1, Coordinate::Abs)
+            .map_err(|e| format!("move to start failed: {e}"))?;
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        enigo
+            .button(Button::Left, Direction::Press)
+            .map_err(|e| format!("mouse down failed: {e}"))?;
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let move_result = enigo.move_mouse(x2, y2, Coordinate::Abs);
+        if move_result.is_err() {
+            let _ = enigo.button(Button::Left, Direction::Release);
+        }
+        move_result.map_err(|e| format!("move to end failed: {e}"))?;
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        enigo
+            .button(Button::Left, Direction::Release)
+            .map_err(|e| format!("mouse up failed: {e}"))
+    }) {
+        return NativeToolResult::text_only(format!("Error: {e}"));
     }
 
     let mut result = capture_post_action_screenshot(delay_ms);
     result.text = format!("Dragged from ({x1},{y1}) to ({x2},{y2}). {}", result.text);
     result
+}
+
+/// Press or release a mouse button independently (for hold-and-drag scenarios).
+pub fn tool_mouse_button(args: &Value) -> NativeToolResult {
+    let action = match args.get("action").and_then(|v| v.as_str()) {
+        Some(a) => a,
+        None => {
+            return NativeToolResult::text_only(
+                "Error: 'action' is required (press or release)".to_string(),
+            )
+        }
+    };
+    let button_str = args
+        .get("button")
+        .and_then(|v| v.as_str())
+        .unwrap_or("left");
+    let do_screenshot = args
+        .get("screenshot")
+        .map(|v| parse_bool(v, true))
+        .unwrap_or(true);
+
+    let button = match button_str {
+        "left" => Button::Left,
+        "right" => Button::Right,
+        "middle" => Button::Middle,
+        other => {
+            return NativeToolResult::text_only(format!(
+                "Error: Unknown button '{other}'. Use: left, right, middle"
+            ))
+        }
+    };
+    let direction = match action {
+        "press" => Direction::Press,
+        "release" => Direction::Release,
+        other => {
+            return NativeToolResult::text_only(format!(
+                "Error: Unknown action '{other}'. Use: press, release"
+            ))
+        }
+    };
+
+    if let Err(e) = with_enigo(|enigo| {
+        enigo
+            .button(button, direction)
+            .map_err(|e| format!("mouse button failed: {e}"))
+    }) {
+        return NativeToolResult::text_only(format!("Error: {e}"));
+    }
+
+    let past = if action == "press" {
+        "pressed"
+    } else {
+        "released"
+    };
+    let summary = format!("Mouse {button_str} button {past}");
+    if do_screenshot {
+        let mut result = capture_post_action_screenshot(300);
+        result.text = format!("{summary}. {}", result.text);
+        result
+    } else {
+        NativeToolResult::text_only(summary)
+    }
 }
 
 #[cfg(test)]
@@ -495,5 +754,57 @@ mod tests {
     fn test_str_to_key_char() {
         assert!(matches!(str_to_key("a"), Ok(Key::Unicode('a'))));
         assert!(matches!(str_to_key("1"), Ok(Key::Unicode('1'))));
+    }
+
+    #[test]
+    fn test_validate_coordinates_on_screen() {
+        // (0,0) should always be valid — it's the top-left of the primary monitor
+        assert!(validate_coordinates(0, 0).is_ok());
+    }
+
+    #[test]
+    fn test_validate_coordinates_off_screen() {
+        // Extremely negative coords should be invalid
+        assert!(validate_coordinates(-99999, -99999).is_err());
+    }
+
+    #[test]
+    fn test_with_enigo_caches_instance() {
+        // First call creates the instance
+        let r1 = with_enigo(|_e| Ok::<_, String>(42));
+        assert_eq!(r1.unwrap(), 42);
+        // Second call reuses it (no error from re-init)
+        let r2 = with_enigo(|_e| Ok::<_, String>(99));
+        assert_eq!(r2.unwrap(), 99);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_dpi_scaling_noop_when_false() {
+        let (x, y) = apply_dpi_scaling(100, 200, false);
+        assert_eq!((x, y), (100, 200));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_dpi_scaling_applies_when_true() {
+        let (x, y) = apply_dpi_scaling(100, 200, true);
+        // At any DPI >= 96, the scaled values should be >= input values
+        assert!(x >= 100);
+        assert!(y >= 200);
+    }
+
+    #[test]
+    fn test_screenshot_cache_empty() {
+        // Cache starts empty
+        assert!(get_cached_screenshot(1000).is_none());
+    }
+
+    #[test]
+    fn test_screenshot_cache_roundtrip() {
+        let data = vec![1, 2, 3, 4];
+        update_screenshot_cache(data.clone());
+        let cached = get_cached_screenshot(5000);
+        assert_eq!(cached, Some(data));
     }
 }
