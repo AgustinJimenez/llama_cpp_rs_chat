@@ -754,6 +754,63 @@ pub fn dispatch_native_tool(
     if name == "scroll_screen" {
         return Some(super::desktop_tools::tool_scroll_screen(&args));
     }
+    if name == "list_windows" {
+        return Some(super::desktop_tools::tool_list_windows(&args));
+    }
+    if name == "mouse_drag" {
+        return Some(super::desktop_tools::tool_mouse_drag(&args));
+    }
+    if name == "get_cursor_position" {
+        return Some(super::desktop_tools::tool_get_cursor_position(&args));
+    }
+    if name == "focus_window" {
+        return Some(super::desktop_tools::tool_focus_window(&args));
+    }
+    if name == "minimize_window" {
+        return Some(super::desktop_tools::tool_minimize_window(&args));
+    }
+    if name == "maximize_window" {
+        return Some(super::desktop_tools::tool_maximize_window(&args));
+    }
+    if name == "close_window" {
+        return Some(super::desktop_tools::tool_close_window(&args));
+    }
+    if name == "read_clipboard" {
+        return Some(super::desktop_tools::tool_read_clipboard(&args));
+    }
+    if name == "write_clipboard" {
+        return Some(super::desktop_tools::tool_write_clipboard(&args));
+    }
+    if name == "resize_window" {
+        return Some(super::desktop_tools::tool_resize_window(&args));
+    }
+    if name == "get_active_window" {
+        return Some(super::desktop_tools::tool_get_active_window(&args));
+    }
+    if name == "wait_for_window" {
+        return Some(super::desktop_tools::tool_wait_for_window(&args));
+    }
+    if name == "get_pixel_color" {
+        return Some(super::desktop_tools::tool_get_pixel_color(&args));
+    }
+    if name == "click_window_relative" {
+        return Some(super::desktop_tools::tool_click_window_relative(&args));
+    }
+    if name == "list_monitors" {
+        return Some(super::desktop_tools::tool_list_monitors(&args));
+    }
+    if name == "screenshot_region" {
+        return Some(super::desktop_tools::tool_screenshot_region(&args));
+    }
+    if name == "screenshot_diff" {
+        return Some(super::desktop_tools::tool_screenshot_diff(&args));
+    }
+    if name == "ocr_screen" {
+        return Some(super::desktop_tools::tool_ocr_screen(&args));
+    }
+    if name == "get_ui_tree" {
+        return Some(super::desktop_tools::tool_get_ui_tree(&args));
+    }
 
     // All other tools return text-only results
     Some(NativeToolResult::text_only(match name.as_str() {

@@ -614,6 +614,236 @@ pub fn get_available_tools() -> Vec<Value> {
                 "required": ["amount"]
             }
         }),
+        json!({
+            "name": "list_windows",
+            "description": "List all visible windows on the desktop with their titles, positions, sizes, process names, and state (minimized/maximized/focused). Use this to find windows before clicking or interacting with them. Returns an indexed list you can reference by number.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filter": { "type": "string", "description": "Optional case-insensitive filter. Only windows whose title or process name contains this string will be returned." }
+                },
+                "required": []
+            }
+        }),
+        json!({
+            "name": "mouse_drag",
+            "description": "Click and drag the mouse from one position to another. Useful for resizing windows, selecting text, moving objects, or drawing.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "from_x": { "type": "integer", "description": "Starting X coordinate (pixels from left edge)" },
+                    "from_y": { "type": "integer", "description": "Starting Y coordinate (pixels from top edge)" },
+                    "to_x": { "type": "integer", "description": "Ending X coordinate" },
+                    "to_y": { "type": "integer", "description": "Ending Y coordinate" },
+                    "button": { "type": "string", "description": "Mouse button to use: left (default) or right" },
+                    "delay_ms": { "type": "integer", "description": "Milliseconds to wait after drag before screenshot (default: 500)" }
+                },
+                "required": ["from_x", "from_y", "to_x", "to_y"]
+            }
+        }),
+        json!({
+            "name": "get_cursor_position",
+            "description": "Get the current mouse cursor position on screen. Returns x,y coordinates in pixels.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }),
+        json!({
+            "name": "focus_window",
+            "description": "Bring a window to the foreground and give it focus. Find the window by a case-insensitive title or process name filter. If the window is minimized, it will be restored first.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string", "description": "Case-insensitive filter to match window title or process name (e.g. 'chrome', 'notepad')" }
+                },
+                "required": ["title"]
+            }
+        }),
+        json!({
+            "name": "minimize_window",
+            "description": "Minimize a window to the taskbar. Find the window by a case-insensitive title or process name filter.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string", "description": "Case-insensitive filter to match window title or process name" }
+                },
+                "required": ["title"]
+            }
+        }),
+        json!({
+            "name": "maximize_window",
+            "description": "Maximize a window to fill the screen. Find the window by a case-insensitive title or process name filter.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string", "description": "Case-insensitive filter to match window title or process name" }
+                },
+                "required": ["title"]
+            }
+        }),
+        json!({
+            "name": "close_window",
+            "description": "Close a window gracefully by sending WM_CLOSE. Find the window by a case-insensitive title or process name filter. The application may show a save dialog before closing.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string", "description": "Case-insensitive filter to match window title or process name" }
+                },
+                "required": ["title"]
+            }
+        }),
+        json!({
+            "name": "read_clipboard",
+            "description": "Read the current text content from the system clipboard.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }),
+        json!({
+            "name": "write_clipboard",
+            "description": "Write text to the system clipboard, replacing its current content.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": { "type": "string", "description": "The text to write to the clipboard" }
+                },
+                "required": ["text"]
+            }
+        }),
+        // ─── New desktop tools ───────────────────────────────────────
+        json!({
+            "name": "resize_window",
+            "description": "Move and/or resize a window by title or process name. Provide at least one of x, y, width, height.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string", "description": "Window title or process name to match (case-insensitive substring)" },
+                    "x": { "type": "integer", "description": "New X position (screen coordinates)" },
+                    "y": { "type": "integer", "description": "New Y position (screen coordinates)" },
+                    "width": { "type": "integer", "description": "New width in pixels" },
+                    "height": { "type": "integer", "description": "New height in pixels" }
+                },
+                "required": ["title"]
+            }
+        }),
+        json!({
+            "name": "get_active_window",
+            "description": "Get info about the currently active (foreground) window: title, process, position, size.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }),
+        json!({
+            "name": "wait_for_window",
+            "description": "Wait for a window with matching title/process to appear. Polls until found or timeout.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string", "description": "Window title or process name to wait for" },
+                    "timeout_ms": { "type": "integer", "description": "Maximum wait time in ms (default 10000, max 60000)" },
+                    "poll_ms": { "type": "integer", "description": "Polling interval in ms (default 200)" }
+                },
+                "required": ["title"]
+            }
+        }),
+        json!({
+            "name": "get_pixel_color",
+            "description": "Get the color of a pixel at screen coordinates. Returns RGB values and hex code.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "x": { "type": "integer", "description": "X coordinate (screen pixels)" },
+                    "y": { "type": "integer", "description": "Y coordinate (screen pixels)" }
+                },
+                "required": ["x", "y"]
+            }
+        }),
+        json!({
+            "name": "click_window_relative",
+            "description": "Click at coordinates relative to a window's top-left corner. Focuses the window first.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string", "description": "Window title or process name to match" },
+                    "x": { "type": "integer", "description": "X offset from window's left edge" },
+                    "y": { "type": "integer", "description": "Y offset from window's top edge" },
+                    "button": { "type": "string", "description": "Mouse button: left, right, middle, double (default: left)" },
+                    "delay_ms": { "type": "integer", "description": "Delay before screenshot in ms (default 500)" }
+                },
+                "required": ["title", "x", "y"]
+            }
+        }),
+        json!({
+            "name": "list_monitors",
+            "description": "List all connected monitors with name, resolution, position, scale factor, and primary status.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "index": { "type": "integer", "description": "Get info for a specific monitor index only" }
+                },
+                "required": []
+            }
+        }),
+        json!({
+            "name": "screenshot_region",
+            "description": "Capture a screenshot of a specific rectangular region of the screen. Returns the cropped image.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "x": { "type": "integer", "description": "Left edge X coordinate" },
+                    "y": { "type": "integer", "description": "Top edge Y coordinate" },
+                    "width": { "type": "integer", "description": "Width of the region in pixels" },
+                    "height": { "type": "integer", "description": "Height of the region in pixels" },
+                    "monitor": { "type": "integer", "description": "Monitor index (default 0)" }
+                },
+                "required": ["x", "y", "width", "height"]
+            }
+        }),
+        json!({
+            "name": "screenshot_diff",
+            "description": "Compare current screen to a baseline. First call with save_baseline=true to save, then call again to compare. Reports percentage of changed pixels and bounding box.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "save_baseline": { "type": "boolean", "description": "If true, save current screen as baseline instead of comparing (default false)" },
+                    "monitor": { "type": "integer", "description": "Monitor index (default 0)" }
+                },
+                "required": []
+            }
+        }),
+        json!({
+            "name": "ocr_screen",
+            "description": "Extract text from the screen using OCR (Windows only). Optionally specify a region to OCR only part of the screen.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "x": { "type": "integer", "description": "Left edge of region to OCR" },
+                    "y": { "type": "integer", "description": "Top edge of region to OCR" },
+                    "width": { "type": "integer", "description": "Width of region" },
+                    "height": { "type": "integer", "description": "Height of region" },
+                    "monitor": { "type": "integer", "description": "Monitor index (default 0)" }
+                },
+                "required": []
+            }
+        }),
+        json!({
+            "name": "get_ui_tree",
+            "description": "Get the UI element tree of a window using UI Automation. Shows control types and names. Useful for finding clickable elements without a screenshot.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string", "description": "Window title or process name (default: active window)" },
+                    "depth": { "type": "integer", "description": "Max tree depth 1-8 (default 3)" }
+                },
+                "required": []
+            }
+        }),
     ]
 }
 

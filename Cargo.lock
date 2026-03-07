@@ -3034,6 +3034,7 @@ dependencies = [
  "htmd",
  "html2text",
  "hyper 0.14.32",
+ "image",
  "lazy_static",
  "libc",
  "llama-cpp-2",
@@ -3065,6 +3066,7 @@ dependencies = [
  "urlencoding",
  "uuid",
  "walkdir",
+ "windows 0.62.2",
  "xcap",
  "zip 8.1.0",
 ]
