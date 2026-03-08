@@ -358,6 +358,14 @@ pub fn get_available_tools() -> Vec<Value> {
                     "include": {
                         "type": "string",
                         "description": "Glob filter for file names (e.g. \"*.py\", \"*.rs\")"
+                    },
+                    "context": {
+                        "type": "integer",
+                        "description": "Number of context lines before/after each match (default: 0)"
+                    },
+                    "exclude": {
+                        "type": "string",
+                        "description": "Glob pattern to exclude (e.g. \"*_test.rs\", \"*.generated.*\")"
                     }
                 },
                 "required": ["pattern"]
@@ -376,6 +384,10 @@ pub fn get_available_tools() -> Vec<Value> {
                     "path": {
                         "type": "string",
                         "description": "Directory to search in (default: current directory)"
+                    },
+                    "exclude": {
+                        "type": "string",
+                        "description": "Glob pattern to exclude (e.g. \"*.min.js\", \"*_test.*\")"
                     }
                 },
                 "required": ["pattern"]
@@ -996,6 +1008,20 @@ pub fn get_available_tools() -> Vec<Value> {
                     "max_results": { "type": "integer", "description": "Max elements to return (default 10, max 50)" }
                 },
                 "required": []
+            }
+        }),
+        serde_json::json!({
+            "name": "execute_app_script",
+            "description": "Execute a script inside a GPU-rendered application (Blender, etc.). These apps render with OpenGL/Vulkan so UI Automation tools don't work — use this instead. Supported apps: blender (Python/bpy).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "app": { "type": "string", "description": "Application name: 'blender'" },
+                    "code": { "type": "string", "description": "Script source code (Python for Blender)" },
+                    "file": { "type": "string", "description": "Optional file to open (e.g. scene.blend)" },
+                    "background": { "type": "boolean", "description": "Run headless (default true). Set false to see GUI." }
+                },
+                "required": ["app", "code"]
             }
         }),
         serde_json::json!({
