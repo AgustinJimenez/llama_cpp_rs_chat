@@ -139,6 +139,8 @@ pub fn tool_wait_for_element_state(args: &Value) -> NativeToolResult {
         }
     };
 
+    if let Some(r) = ui_tools::check_gpu_app_guard(hwnd, "wait_for_element_state") { return r; }
+
     let start = std::time::Instant::now();
     let mut attempt = 0u32;
 

@@ -555,6 +555,48 @@ pub fn get_active_window_info() -> Option<(HWND, WindowInfo)> {
     }
 }
 
+/// Get WindowInfo for a specific HWND (for GPU app detection guard).
+pub fn get_window_info_for_hwnd(hwnd: HWND) -> Option<WindowInfo> {
+    if hwnd == 0 {
+        return None;
+    }
+    unsafe {
+        let len = GetWindowTextLengthW(hwnd);
+        let title = if len > 0 {
+            let mut buf = vec![0u16; (len + 1) as usize];
+            let written = GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32);
+            if written > 0 {
+                OsString::from_wide(&buf[..written as usize])
+                    .to_string_lossy()
+                    .into_owned()
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
+        let mut pid: DWORD = 0;
+        GetWindowThreadProcessId(hwnd, &mut pid);
+        let process_name = get_process_name(pid);
+        let class_name = get_window_class_name(hwnd);
+        let mut rect = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+        GetWindowRect(hwnd, &mut rect);
+        let foreground = GetForegroundWindow();
+        Some(WindowInfo {
+            title,
+            class_name,
+            x: rect.left,
+            y: rect.top,
+            width: rect.right - rect.left,
+            height: rect.bottom - rect.top,
+            process_name,
+            minimized: IsIconic(hwnd) != 0,
+            maximized: IsZoomed(hwnd) != 0,
+            focused: hwnd == foreground,
+        })
+    }
+}
+
 /// Get a window's bounding rectangle.
 pub fn get_window_rect(hwnd: HWND) -> RECT {
     let mut rect = RECT { left: 0, top: 0, right: 0, bottom: 0 };

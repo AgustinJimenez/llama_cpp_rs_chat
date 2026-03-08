@@ -569,8 +569,12 @@ pub(crate) mod macos;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux;
 
+mod gpu_app_db;
 mod window_tools;
 pub use window_tools::*;
+
+mod app_script_tools;
+pub use app_script_tools::*;
 
 mod ui_tools;
 pub use ui_tools::*;

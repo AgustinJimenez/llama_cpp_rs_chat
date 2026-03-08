@@ -4,6 +4,7 @@ use serde_json::Value;
 
 use super::NativeToolResult;
 use super::{parse_int, tool_click_screen};
+use super::gpu_app_db;
 
 #[cfg(windows)]
 use super::win32;
@@ -810,6 +811,22 @@ pub fn tool_ocr_find_text(args: &Value) -> NativeToolResult {
     }
 }
 
+// ─── GPU App Guard ───────────────────────────────────────────────────────────
+
+/// Check if the target window belongs to a GPU-rendered application.
+/// Returns an informative error result if so, None otherwise.
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+pub(super) fn check_gpu_app_guard(hwnd: win32::HWND, tool_name: &str) -> Option<NativeToolResult> {
+    let info = win32::get_window_info_for_hwnd(hwnd)?;
+    let gpu = gpu_app_db::detect_gpu_app(&info.class_name, &info.process_name)?;
+    let guidance = gpu_app_db::build_guidance(gpu);
+    Some(NativeToolResult::text_only(format!(
+        "{} detected (process: {}). \
+         '{}' returned no results because {} renders its UI with GPU, not native widgets.\n\n{}",
+        gpu.app_name, info.process_name, tool_name, gpu.app_name, guidance
+    )))
+}
+
 // ─── UI Automation tools ──────────────────────────────────────────────────────
 
 /// Get the UI element tree of a window using UI Automation.
@@ -830,6 +847,8 @@ pub fn tool_get_ui_tree(args: &Value) -> NativeToolResult {
             None => return NativeToolResult::text_only("No active window".to_string()),
         }
     };
+
+    if let Some(r) = check_gpu_app_guard(hwnd, "get_ui_tree") { return r; }
 
     // Run on STA thread (COM UI Automation requires it)
     let result = std::thread::spawn(move || {
@@ -1030,6 +1049,8 @@ pub fn tool_click_ui_element(args: &Value) -> NativeToolResult {
             None => return NativeToolResult::text_only("No active window".to_string()),
         }
     };
+
+    if let Some(r) = check_gpu_app_guard(hwnd, "click_ui_element") { return r; }
 
     let name_owned = name_filter.map(|s| s.to_lowercase());
     let type_owned = type_filter.map(|s| s.to_lowercase());
@@ -1238,6 +1259,8 @@ pub fn tool_invoke_ui_action(args: &Value) -> NativeToolResult {
         }
     };
 
+    if let Some(r) = check_gpu_app_guard(hwnd, "invoke_ui_action") { return r; }
+
     let name_owned = name_filter.map(|s| s.to_lowercase());
     let type_owned = type_filter.map(|s| s.to_lowercase());
 
@@ -1429,6 +1452,8 @@ pub fn tool_read_ui_element_value(args: &Value) -> NativeToolResult {
         }
     };
 
+    if let Some(r) = check_gpu_app_guard(hwnd, "read_ui_element_value") { return r; }
+
     let name_owned = name_filter.map(|s| s.to_lowercase());
     let type_owned = type_filter.map(|s| s.to_lowercase());
 
@@ -1521,6 +1546,8 @@ pub fn tool_wait_for_ui_element(args: &Value) -> NativeToolResult {
             None => return NativeToolResult::text_only("No active window".to_string()),
         }
     };
+
+    if let Some(r) = check_gpu_app_guard(hwnd, "wait_for_ui_element") { return r; }
 
     let name_owned = name_filter.map(|s| s.to_lowercase());
     let type_owned = type_filter.map(|s| s.to_lowercase());
@@ -1792,6 +1819,8 @@ pub fn tool_find_ui_elements(args: &Value) -> NativeToolResult {
             None => return NativeToolResult::text_only("No active window".to_string()),
         }
     };
+
+    if let Some(r) = check_gpu_app_guard(hwnd, "find_ui_elements") { return r; }
 
     let name_owned = name_filter.map(|s| s.to_lowercase());
     let type_owned = type_filter.map(|s| s.to_lowercase());

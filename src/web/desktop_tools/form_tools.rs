@@ -39,6 +39,8 @@ pub fn tool_fill_form(args: &Value) -> NativeToolResult {
         }
     };
 
+    if let Some(r) = ui_tools::check_gpu_app_guard(hwnd, "fill_form") { return r; }
+
     let mut filled = Vec::new();
     let mut errors = Vec::new();
 

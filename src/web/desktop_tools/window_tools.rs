@@ -582,6 +582,19 @@ pub fn tool_open_application(args: &Value) -> NativeToolResult {
         false,
     );
 
+    // If this is a known GPU-rendered app that's already running, inform the model
+    // but don't block — let the model decide what to do.
+    if let Some(gpu) = super::gpu_app_db::detect_gpu_app_by_target(target) {
+        if super::gpu_app_db::is_gpu_app_running(gpu) {
+            let guidance = super::gpu_app_db::build_guidance(gpu);
+            return NativeToolResult::text_only(format!(
+                "{} is already running. A new instance was not opened.\n\
+                 You can interact with the existing instance.\n\n{}",
+                gpu.app_name, guidance
+            ));
+        }
+    }
+
     if capture_output {
         let mut cmd = std::process::Command::new(target);
         cmd.stdin(std::process::Stdio::null());
@@ -646,7 +659,7 @@ pub fn tool_open_application(args: &Value) -> NativeToolResult {
 /// Search for an application executable by name in common installation directories.
 /// Returns the full path if found, None otherwise.
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
-fn find_application_exe(name: &str) -> Option<String> {
+pub(super) fn find_application_exe(name: &str) -> Option<String> {
     let name_lower = name.to_lowercase();
     // Normalize: strip .exe suffix for matching
     let base_name = name_lower.strip_suffix(".exe").unwrap_or(&name_lower);

@@ -99,6 +99,8 @@ pub fn tool_hover_element(args: &Value) -> NativeToolResult {
         }
     };
 
+    if let Some(r) = ui_tools::check_gpu_app_guard(hwnd, "hover_element") { return r; }
+
     let name_owned = name_filter.map(|s| s.to_lowercase());
     let type_owned = type_filter.map(|s| s.to_lowercase());
 

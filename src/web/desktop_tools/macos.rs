@@ -259,6 +259,12 @@ end tell
     }
 }
 
+/// Get WindowInfo for a specific HWND (stub — macOS doesn't use class names for GPU detection).
+pub fn get_window_info_for_hwnd(_hwnd: HWND) -> Option<WindowInfo> {
+    // macOS uses process_name for GPU app detection; re-use get_active_window_info
+    get_active_window_info().map(|(_, info)| info)
+}
+
 pub fn focus_window(hwnd: HWND) -> bool {
     // hwnd is an index into enumerate_windows. Re-enumerate to find the process name.
     let windows = enumerate_windows();

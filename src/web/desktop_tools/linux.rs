@@ -293,6 +293,12 @@ pub fn get_active_window_info() -> Option<(HWND, WindowInfo)> {
     }))
 }
 
+/// Get WindowInfo for a specific HWND (stub — Linux doesn't use class names for GPU detection).
+pub fn get_window_info_for_hwnd(_hwnd: HWND) -> Option<WindowInfo> {
+    // Linux uses process_name for GPU app detection; re-use get_active_window_info
+    get_active_window_info().map(|(_, info)| info)
+}
+
 pub fn focus_window(hwnd: HWND) -> bool {
     let hex = format!("0x{:08x}", hwnd as u64);
     run_cmd("wmctrl", &["-ia", &hex]).is_ok()

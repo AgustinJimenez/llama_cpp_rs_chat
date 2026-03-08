@@ -116,6 +116,8 @@ pub fn tool_type_into_element(args: &Value) -> NativeToolResult {
         }
     };
 
+    if let Some(r) = super::ui_tools::check_gpu_app_guard(hwnd, "type_into_element") { return r; }
+
     let name_owned = name_filter.map(|s| s.to_lowercase());
     let type_owned = type_filter.map(|s| s.to_lowercase());
 
@@ -409,6 +411,8 @@ pub fn tool_drag_and_drop_element(args: &Value) -> NativeToolResult {
         }
     };
 
+    if let Some(r) = super::ui_tools::check_gpu_app_guard(hwnd, "drag_and_drop_element") { return r; }
+
     let fn_owned = from_name.map(|s| s.to_lowercase());
     let ft_owned = from_type.map(|s| s.to_lowercase());
     let tn_owned = to_name.map(|s| s.to_lowercase());
@@ -616,6 +620,8 @@ pub fn tool_scroll_element(args: &Value) -> NativeToolResult {
             None => return NativeToolResult::text_only("No active window".to_string()),
         }
     };
+
+    if let Some(r) = super::ui_tools::check_gpu_app_guard(hwnd, "scroll_element") { return r; }
 
     let name_owned = name_filter.map(|s| s.to_lowercase());
     let type_owned = type_filter.map(|s| s.to_lowercase());
