@@ -43,7 +43,10 @@ impl ServerHandler for DesktopToolsServer {
             ))
             .with_instructions(
                 "Desktop automation tools for controlling the user's computer. \
-                 Use take_screenshot to see the screen, then click_screen/type_text/press_key to interact."
+                 Use take_screenshot to see the screen, then click_screen/type_text/press_key to interact. \
+                 For multi-step desktop tasks, ALWAYS use show_status_overlay at the start with a step count \
+                 (e.g. \"Step 1/4: Opening Blender...\"), update_status_overlay before each major step, \
+                 and hide_status_overlay when done. Use position=\"bottom\" to avoid blocking app toolbars."
                     .to_owned(),
             )
     }
