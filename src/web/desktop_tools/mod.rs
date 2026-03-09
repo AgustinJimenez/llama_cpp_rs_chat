@@ -597,6 +597,114 @@ mod annotation_tools;
 pub use annotation_tools::*;
 mod system_tools;
 pub use system_tools::*;
+mod overlay_tools;
+pub use overlay_tools::*;
+
+/// Dispatch a desktop tool by name. Returns `None` if the tool name is not recognized.
+/// Used by the MCP server binary to route tool calls to existing implementations.
+#[allow(dead_code)]
+pub fn dispatch_desktop_tool(name: &str, args: &Value) -> Option<NativeToolResult> {
+    Some(match name {
+        // Core input tools (mod.rs)
+        "click_screen" => tool_click_screen(args),
+        "type_text" => tool_type_text(args),
+        "press_key" => tool_press_key(args),
+        "move_mouse" => tool_move_mouse(args),
+        "scroll_screen" => tool_scroll_screen(args),
+        "mouse_drag" => tool_mouse_drag(args),
+        "mouse_button" => tool_mouse_button(args),
+
+        // Input tools (input_tools.rs)
+        "paste" => tool_paste(args),
+        "clear_field" => tool_clear_field(args),
+        "hover_element" => tool_hover_element(args),
+
+        // Screenshot & OCR (ui_tools.rs)
+        "take_screenshot" => super::native_tools::tool_take_screenshot_with_image(args),
+        "screenshot_region" => tool_screenshot_region(args),
+        "screenshot_diff" => tool_screenshot_diff(args),
+        "window_screenshot" => tool_window_screenshot(args),
+        "wait_for_screen_change" => tool_wait_for_screen_change(args),
+        "ocr_screen" => tool_ocr_screen(args),
+        "ocr_find_text" => tool_ocr_find_text(args),
+        "get_ui_tree" => tool_get_ui_tree(args),
+        "click_ui_element" => tool_click_ui_element(args),
+        "invoke_ui_action" => tool_invoke_ui_action(args),
+        "read_ui_element_value" => tool_read_ui_element_value(args),
+        "wait_for_ui_element" => tool_wait_for_ui_element(args),
+        "clipboard_image" => tool_clipboard_image(args),
+        "find_ui_elements" => tool_find_ui_elements(args),
+
+        // Window tools (window_tools.rs)
+        "list_windows" => tool_list_windows(args),
+        "get_active_window" => tool_get_active_window(args),
+        "focus_window" => tool_focus_window(args),
+        "minimize_window" => tool_minimize_window(args),
+        "maximize_window" => tool_maximize_window(args),
+        "close_window" => tool_close_window(args),
+        "resize_window" => tool_resize_window(args),
+        "wait_for_window" => tool_wait_for_window(args),
+        "click_window_relative" => tool_click_window_relative(args),
+        "snap_window" => tool_snap_window(args),
+        "set_window_topmost" => tool_set_window_topmost(args),
+        "open_application" => tool_open_application(args),
+        "list_processes" => tool_list_processes(args),
+        "kill_process" => tool_kill_process(args),
+        "send_keys_to_window" => tool_send_keys_to_window(args),
+        "switch_virtual_desktop" => tool_switch_virtual_desktop(args),
+        "get_process_info" => tool_get_process_info(args),
+        "read_clipboard" => tool_read_clipboard(args),
+        "write_clipboard" => tool_write_clipboard(args),
+        "get_cursor_position" => tool_get_cursor_position(args),
+        "get_pixel_color" => tool_get_pixel_color(args),
+        "list_monitors" => tool_list_monitors(args),
+
+        // Compound tools (compound_tools.rs)
+        "find_and_click_text" => tool_find_and_click_text(args),
+        "type_into_element" => tool_type_into_element(args),
+        "get_window_text" => tool_get_window_text(args),
+        "file_dialog_navigate" => tool_file_dialog_navigate(args),
+        "drag_and_drop_element" => tool_drag_and_drop_element(args),
+        "wait_for_text_on_screen" => tool_wait_for_text_on_screen(args),
+        "get_context_menu" => tool_get_context_menu(args),
+        "scroll_element" => tool_scroll_element(args),
+
+        // Dialog & form tools
+        "handle_dialog" => tool_handle_dialog(args),
+        "wait_for_element_state" => tool_wait_for_element_state(args),
+        "fill_form" => tool_fill_form(args),
+        "run_action_sequence" => tool_run_action_sequence(args),
+
+        // Display tools
+        "move_to_monitor" => tool_move_to_monitor(args),
+        "set_window_opacity" => tool_set_window_opacity(args),
+        "highlight_point" => tool_highlight_point(args),
+
+        // Annotation & image tools
+        "annotate_screenshot" => tool_annotate_screenshot(args),
+        "ocr_region" => tool_ocr_region(args),
+        "find_color_on_screen" => tool_find_color_on_screen(args),
+        "find_image_on_screen" => tool_find_image_on_screen(args),
+
+        // System tools
+        "read_registry" => tool_read_registry(args),
+        "click_tray_icon" => tool_click_tray_icon(args),
+        "watch_window" => tool_watch_window(args),
+
+        // App scripting
+        "execute_app_script" => tool_execute_app_script(args),
+
+        // Notifications
+        "send_notification" => tool_send_notification(args),
+
+        // Status overlay
+        "show_status_overlay" => tool_show_status_overlay(args),
+        "update_status_overlay" => tool_update_status_overlay(args),
+        "hide_status_overlay" => tool_hide_status_overlay(args),
+
+        _ => return None,
+    })
+}
 
 /// Drag the mouse from one position to another.
 pub fn tool_mouse_drag(args: &Value) -> NativeToolResult {

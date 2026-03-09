@@ -41,6 +41,11 @@ name = "test_vision"
 path = "src/test_vision.rs"
 required-features = ["vision"]
 
+# MCP server binary (exposes desktop automation tools to Claude Code)
+[[bin]]
+name = "mcp_desktop_tools"
+path = "src/mcp_server.rs"
+
 [lints.rust]
 warnings = "deny"
 
@@ -111,8 +116,12 @@ rusqlite = { version = "0.30", features = ["bundled"] }
 # Cross-thread channels for worker process IPC
 crossbeam-channel = "0.5"
 
-# MCP (Model Context Protocol) client for external tool servers
-rmcp = { version = "1.1", default-features = false, features = ["client", "transport-child-process"] }
+# MCP (Model Context Protocol) client + server for external tool servers
+rmcp = { version = "1.1", default-features = false, features = ["client", "server", "transport-child-process", "transport-io", "transport-streamable-http-server"] }
+
+# HTTP framework for MCP HTTP/SSE transport (avoids stdio pipe stalling)
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+tokio-util = "0.7"
 
 # HTTP client for web fetching (ureq: lightweight, blocking, rustls for TLS)
 ureq = { version = "2.9", default-features = false, features = ["tls"] }
@@ -159,7 +168,7 @@ xcap = "0.8"
 enigo = "0.6"
 
 # Image processing (pixel ops for screenshot_diff/region, already transitive via xcap)
-image = { version = "0.25", default-features = false, features = ["png"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 
 # Cross-platform clipboard (text/image, replaces Win32 clipboard on macOS/Linux)
 arboard = "3"

@@ -1025,6 +1025,50 @@ pub fn get_available_tools() -> Vec<Value> {
             }
         }),
         serde_json::json!({
+            "name": "send_notification",
+            "description": "Send a desktop notification (Windows toast / macOS notification / Linux notify-send). Use this to alert the user about progress, completion, or when you need their attention — especially during desktop automation so the user knows when to stop waiting.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string", "description": "Notification title (default: 'Claude Code')" },
+                    "message": { "type": "string", "description": "Notification message body" }
+                },
+                "required": ["message"]
+            }
+        }),
+        serde_json::json!({
+            "name": "show_status_overlay",
+            "description": "Show a persistent status bar overlay on screen. The bar is semi-transparent, always-on-top, click-through, and does not steal focus. Use this at the start of multi-step desktop automation to keep the user informed of progress. The overlay persists until you call hide_status_overlay.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": { "type": "string", "description": "Text to display (e.g. '[Claude Code] Step 1/5: Opening Blender...')" },
+                    "position": { "type": "string", "description": "Bar position: 'top' (default) or 'bottom'" }
+                },
+                "required": ["text"]
+            }
+        }),
+        serde_json::json!({
+            "name": "update_status_overlay",
+            "description": "Update the text on the existing status overlay bar. Must call show_status_overlay first. Near-instant — just a text update via IPC, no new process spawned.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": { "type": "string", "description": "New text to display on the overlay" }
+                },
+                "required": ["text"]
+            }
+        }),
+        serde_json::json!({
+            "name": "hide_status_overlay",
+            "description": "Dismiss the status overlay bar. Call this when the automation sequence is complete.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }),
+        serde_json::json!({
             "name": "send_keys_to_window",
             "description": "Send keystrokes to a window. Default method 'post_message' works in background. Use method 'send_input' for foreground apps that don't respond to PostMessage (games, custom UIs).",
             "parameters": {
@@ -1466,6 +1510,44 @@ pub fn get_available_tools() -> Vec<Value> {
             }
         }),
     ]
+}
+
+/// Desktop tool names exposed via the MCP server.
+/// This list must stay in sync with `dispatch_desktop_tool()` in desktop_tools/mod.rs.
+#[allow(dead_code)]
+const DESKTOP_TOOL_NAMES: &[&str] = &[
+    "take_screenshot", "click_screen", "type_text", "press_key", "move_mouse",
+    "scroll_screen", "mouse_drag", "mouse_button", "paste", "clear_field", "hover_element",
+    "screenshot_region", "screenshot_diff", "window_screenshot", "wait_for_screen_change",
+    "ocr_screen", "ocr_find_text", "get_ui_tree", "click_ui_element", "invoke_ui_action",
+    "read_ui_element_value", "wait_for_ui_element", "clipboard_image", "find_ui_elements",
+    "list_windows", "get_active_window", "focus_window", "minimize_window", "maximize_window",
+    "close_window", "resize_window", "wait_for_window", "click_window_relative", "snap_window",
+    "set_window_topmost", "open_application", "list_processes", "kill_process",
+    "send_keys_to_window", "switch_virtual_desktop", "get_process_info",
+    "read_clipboard", "write_clipboard", "get_cursor_position", "get_pixel_color", "list_monitors",
+    "find_and_click_text", "type_into_element", "get_window_text", "file_dialog_navigate",
+    "drag_and_drop_element", "wait_for_text_on_screen", "get_context_menu", "scroll_element",
+    "handle_dialog", "wait_for_element_state", "fill_form", "run_action_sequence",
+    "move_to_monitor", "set_window_opacity", "highlight_point",
+    "annotate_screenshot", "ocr_region", "find_color_on_screen", "find_image_on_screen",
+    "read_registry", "click_tray_icon", "watch_window", "execute_app_script",
+    "send_notification",
+    "show_status_overlay", "update_status_overlay", "hide_status_overlay",
+];
+
+/// Get only the desktop automation tool definitions (for the MCP server).
+/// Returns the subset of `get_available_tools()` that matches desktop tool names.
+#[allow(dead_code)]
+pub fn get_desktop_tool_definitions() -> Vec<Value> {
+    get_available_tools()
+        .into_iter()
+        .filter(|tool| {
+            tool.get("name")
+                .and_then(|n| n.as_str())
+                .map_or(false, |name| DESKTOP_TOOL_NAMES.contains(&name))
+        })
+        .collect()
 }
 
 #[cfg(test)]

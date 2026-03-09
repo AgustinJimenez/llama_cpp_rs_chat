@@ -232,3 +232,97 @@ pub fn tool_watch_window(args: &Value) -> NativeToolResult {
 pub fn tool_watch_window(_args: &Value) -> NativeToolResult {
     NativeToolResult::text_only("Error: watch_window is not available on this platform".to_string())
 }
+
+/// Send a desktop notification (toast on Windows, notify-send on Linux, osascript on macOS).
+pub fn tool_send_notification(args: &Value) -> NativeToolResult {
+    let title = args
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Claude Code");
+    let message = match args.get("message").and_then(|v| v.as_str()) {
+        Some(m) => m,
+        None => return NativeToolResult::text_only("Error: 'message' is required".to_string()),
+    };
+
+    #[cfg(windows)]
+    {
+        // Use PowerShell to show a Windows balloon notification
+        let ps_script = format!(
+            r#"Add-Type -AssemblyName System.Windows.Forms;
+$n = New-Object System.Windows.Forms.NotifyIcon;
+$n.Icon = [System.Drawing.SystemIcons]::Information;
+$n.BalloonTipIcon = 'Info';
+$n.BalloonTipTitle = '{}';
+$n.BalloonTipText = '{}';
+$n.Visible = $true;
+$n.ShowBalloonTip(5000);
+Start-Sleep -Seconds 6;
+$n.Dispose();"#,
+            title.replace('\'', "''").replace('`', "``"),
+            message.replace('\'', "''").replace('`', "``"),
+        );
+
+        use std::process::{Command, Stdio};
+        use std::os::windows::process::CommandExt;
+
+        let mut cmd = Command::new("powershell");
+        cmd.args(["-NoProfile", "-NonInteractive", "-Command", &ps_script])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .creation_flags(0x08000000); // CREATE_NO_WINDOW
+
+        let result = cmd.spawn();
+
+        match result {
+            Ok(_child) => {
+                // Don't wait — notification shows asynchronously
+                NativeToolResult::text_only(format!(
+                    "Notification sent: [{}] {}",
+                    title, message
+                ))
+            }
+            Err(e) => NativeToolResult::text_only(format!("Error sending notification: {e}")),
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::{Command, Stdio};
+        let result = Command::new("osascript")
+            .args([
+                "-e",
+                &format!(
+                    "display notification \"{}\" with title \"{}\"",
+                    message.replace('"', "\\\""),
+                    title.replace('"', "\\\"")
+                ),
+            ])
+            .stdin(Stdio::null())
+            .output();
+
+        match result {
+            Ok(_) => NativeToolResult::text_only(format!("Notification sent: [{}] {}", title, message)),
+            Err(e) => NativeToolResult::text_only(format!("Error sending notification: {e}")),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        use std::process::{Command, Stdio};
+        let result = Command::new("notify-send")
+            .args([title, message])
+            .stdin(Stdio::null())
+            .output();
+
+        match result {
+            Ok(_) => NativeToolResult::text_only(format!("Notification sent: [{}] {}", title, message)),
+            Err(e) => NativeToolResult::text_only(format!("Error sending notification: {e}")),
+        }
+    }
+
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+    {
+        NativeToolResult::text_only("Error: send_notification is not available on this platform".to_string())
+    }
+}
