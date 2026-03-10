@@ -452,6 +452,7 @@ pub(super) fn ocr_image_winrt(img: &image::RgbaImage) -> Result<String, String> 
 
 /// Pump STA message loop for a duration (ms). Required for WinRT async ops to complete on STA.
 #[cfg(windows)]
+#[allow(dead_code)]
 pub(super) fn pump_sta_messages(duration_ms: u64) {
     #[repr(C)]
     struct MSG([u8; 48]); // sizeof(MSG) = 48 on x64

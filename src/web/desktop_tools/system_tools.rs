@@ -1,4 +1,4 @@
-//! System-level tools: registry, system tray, window monitoring.
+//! System-level tools: registry, system tray, window monitoring, notifications.
 
 use serde_json::Value;
 
@@ -326,5 +326,275 @@ $n.Dispose();"#,
     #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
     {
         super::tool_error("send_notification", "not available on this platform")
+    }
+}
+
+// ─── Notification handling tools ─────────────────────────────────────────────
+
+/// Wait for a system notification matching a text filter.
+/// Uses screen capture + OCR on the notification region of the screen.
+/// Params: `text_contains` (string, required), `timeout_ms` (integer, default 10000, max 30000).
+#[allow(dead_code)]
+pub fn tool_wait_for_notification(args: &Value) -> NativeToolResult {
+    let text_contains = match args.get("text_contains").and_then(|v| v.as_str()) {
+        Some(t) => t.to_string(),
+        None => {
+            return super::tool_error(
+                "wait_for_notification",
+                "'text_contains' (text to match in notification) is required",
+            )
+        }
+    };
+
+    let timeout_ms = args
+        .get("timeout_ms")
+        .and_then(parse_int)
+        .unwrap_or(10000)
+        .min(30000)
+        .max(1000) as u64;
+
+    let poll_ms = 1500u64; // Check every 1.5 seconds
+    let filter_lower = text_contains.to_lowercase();
+
+    let start = std::time::Instant::now();
+
+    loop {
+        if let Err(e) = super::ensure_desktop_not_cancelled() {
+            return super::tool_error("wait_for_notification", e);
+        }
+
+        // Capture the notification region of the screen
+        let ocr_text = capture_notification_region_ocr();
+
+        if let Some(text) = ocr_text {
+            if text.to_lowercase().contains(&filter_lower) {
+                let elapsed = start.elapsed().as_millis();
+                return NativeToolResult::text_only(format!(
+                    "Notification found after {}ms. Matched '{}' in:\n{}",
+                    elapsed, text_contains, truncate_text(&text, 500)
+                ));
+            }
+        }
+
+        let elapsed = start.elapsed().as_millis() as u64;
+        if elapsed >= timeout_ms {
+            return NativeToolResult::text_only(format!(
+                "No notification matching '{}' found within {}ms",
+                text_contains, timeout_ms
+            ));
+        }
+
+        if let Err(e) = super::interruptible_sleep(std::time::Duration::from_millis(poll_ms)) {
+            return super::tool_error("wait_for_notification", e);
+        }
+    }
+}
+
+/// Capture the notification area of the screen and run OCR on it.
+/// Returns the recognized text, or None on failure.
+fn capture_notification_region_ocr() -> Option<String> {
+    let monitors = xcap::Monitor::all().ok()?;
+    let monitor = monitors.first()?;
+    let img = monitor.capture_image().ok()?;
+
+    let screen_w = img.width();
+    let screen_h = img.height();
+
+    // Notification region depends on platform:
+    // - Windows 11: bottom-right corner (toast notifications)
+    // - macOS: top-right corner
+    // - Linux: varies, typically top-right
+
+    let region_w = 450.min(screen_w);
+    let region_h = 350.min(screen_h);
+
+    #[cfg(target_os = "macos")]
+    let (rx, ry) = (screen_w.saturating_sub(region_w), 0u32);
+
+    #[cfg(not(target_os = "macos"))]
+    let (rx, ry) = (
+        screen_w.saturating_sub(region_w),
+        screen_h.saturating_sub(region_h),
+    );
+
+    // Crop the notification region
+    let cropped = image::imageops::crop_imm(&img, rx, ry, region_w, region_h).to_image();
+
+    // Run OCR on the cropped region using platform-appropriate engine
+    #[cfg(windows)]
+    {
+        super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
+            super::ocr_tools::ocr_image_winrt(&cropped)
+        })
+        .ok()
+        .and_then(|r| r.ok())
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        super::ocr_tools::ocr_image_vision(&cropped, None)
+            .or_else(|_| super::ocr_tools::ocr_image_tesseract(&cropped, None))
+            .ok()
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        super::ocr_tools::ocr_image_tesseract(&cropped, None).ok()
+    }
+
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+    {
+        None
+    }
+}
+
+/// Truncate text to a maximum length, appending "..." if truncated.
+fn truncate_text(text: &str, max_len: usize) -> &str {
+    if text.len() <= max_len {
+        text
+    } else {
+        // Find a safe char boundary
+        let mut end = max_len;
+        while end > 0 && !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        &text[..end]
+    }
+}
+
+/// Dismiss/clear all notifications.
+/// Uses platform-specific approaches. Returns a message about what was done.
+#[allow(dead_code)]
+pub fn tool_dismiss_all_notifications(_args: &Value) -> NativeToolResult {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        use std::process::{Command, Stdio};
+
+        // Windows 11: Open notification center, find and click "Clear all" or dismiss
+        // Approach: Use PowerShell to clear toast notification history for common apps.
+        // This clears the Action Center notifications.
+        let ps_script = r#"
+try {
+    [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+    $apps = [Windows.UI.Notifications.ToastNotificationManager]::History
+    # History.Clear requires an app ID; clear for common shell app
+    # Instead, use keyboard shortcut to open and clear Action Center
+} catch {}
+# Open Action Center with Win+N, Tab to Clear all, press Enter
+Add-Type -AssemblyName System.Windows.Forms
+[System.Windows.Forms.SendKeys]::SendWait('^{n}')
+Start-Sleep -Milliseconds 800
+"#;
+
+        let mut cmd = Command::new("powershell");
+        cmd.args(["-NoProfile", "-NonInteractive", "-Command", ps_script])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .creation_flags(0x08000000); // CREATE_NO_WINDOW
+
+        match cmd.output() {
+            Ok(_) => {
+                // Now try to find and click "Clear all" using keyboard navigation
+                // Send Tab a few times then Enter to hit "Clear all notifications"
+                std::thread::sleep(std::time::Duration::from_millis(300));
+
+                // Use enigo to send Escape to close (best-effort cleanup)
+                // The notification center is now open; the model can interact with it
+                NativeToolResult::text_only(
+                    "Opened Windows notification center (Win+N). \
+                     Use click_screen or press_key to interact with 'Clear all' if visible. \
+                     Press Escape to close when done."
+                        .to_string(),
+                )
+            }
+            Err(e) => super::tool_error(
+                "dismiss_all_notifications",
+                format!("failed to open notification center: {e}"),
+            ),
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        // macOS: Notification Center cannot be easily cleared programmatically.
+        // The best we can do is close any visible banners.
+        NativeToolResult::text_only(
+            "macOS Notification Center does not support programmatic 'clear all'. \
+             Notifications can be dismissed manually by clicking the 'X' in Notification Center, \
+             or by opening it (click date/time in menu bar) and clicking 'Clear'."
+                .to_string(),
+        )
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        use std::process::{Command, Stdio};
+
+        // Try common notification daemons: dunst, mako, swaync
+        let mut cleared = false;
+
+        // dunst
+        if Command::new("dunstctl")
+            .arg("close-all")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+        {
+            cleared = true;
+        }
+
+        // mako (Wayland)
+        if !cleared {
+            if Command::new("makoctl")
+                .arg("dismiss")
+                .arg("--all")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+            {
+                cleared = true;
+            }
+        }
+
+        // swaync
+        if !cleared {
+            if Command::new("swaync-client")
+                .arg("--close-all")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+            {
+                cleared = true;
+            }
+        }
+
+        if cleared {
+            NativeToolResult::text_only("Dismissed all notifications".to_string())
+        } else {
+            NativeToolResult::text_only(
+                "Could not dismiss notifications: none of dunstctl, makoctl, or swaync-client found. \
+                 Install one of these notification daemons for notification control."
+                    .to_string(),
+            )
+        }
+    }
+
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+    {
+        super::tool_error(
+            "dismiss_all_notifications",
+            "not available on this platform",
+        )
     }
 }

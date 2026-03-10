@@ -215,6 +215,7 @@ pub fn tool_get_window_text(args: &Value) -> NativeToolResult {
 }
 
 #[cfg(windows)]
+#[allow(unused_imports)]
 fn get_window_text_inner(hwnd: isize, max_chars: usize) -> Result<String, String> {
     use windows::Win32::UI::Accessibility::*;
     use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};

@@ -1460,3 +1460,534 @@ pub fn tool_get_process_info(args: &Value) -> NativeToolResult {
 pub fn tool_get_process_info(_args: &Value) -> NativeToolResult {
     super::tool_error("get_process_info", "not available on this platform")
 }
+
+// ─── Window layout save/restore ──────────────────────────────────────────────
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SavedWindow {
+    process_name: String,
+    title: String,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    maximized: bool,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct WindowLayout {
+    saved_at: String,
+    windows: Vec<SavedWindow>,
+}
+
+/// Save the current window layout (positions and sizes) to a named file.
+/// Params: `name` (string, required) — layout name used as filename.
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+#[allow(dead_code)]
+pub fn tool_save_window_layout(args: &Value) -> NativeToolResult {
+    let name = match args.get("name").and_then(|v| v.as_str()) {
+        Some(n) => n,
+        None => return super::tool_error("save_window_layout", "'name' argument is required"),
+    };
+
+    // Sanitize name to prevent path traversal
+    let safe_name: String = name
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+
+    let all_windows = win32::enumerate_windows();
+
+    // Filter out zero-size windows
+    let saved: Vec<SavedWindow> = all_windows
+        .into_iter()
+        .filter(|w| w.width > 0 && w.height > 0)
+        .map(|w| SavedWindow {
+            process_name: w.process_name,
+            title: w.title,
+            x: w.x,
+            y: w.y,
+            width: w.width,
+            height: w.height,
+            maximized: w.maximized,
+        })
+        .collect();
+
+    let count = saved.len();
+
+    let layout = WindowLayout {
+        saved_at: chrono::Utc::now().to_rfc3339(),
+        windows: saved,
+    };
+
+    let json = match serde_json::to_string_pretty(&layout) {
+        Ok(j) => j,
+        Err(e) => return super::tool_error("save_window_layout", format!("serializing layout: {e}")),
+    };
+
+    let path = std::env::temp_dir().join(format!("desktop_layout_{safe_name}.json"));
+    match std::fs::write(&path, &json) {
+        Ok(()) => NativeToolResult::text_only(format!(
+            "Saved {count} windows to {}",
+            path.display()
+        )),
+        Err(e) => super::tool_error("save_window_layout", format!("writing file: {e}")),
+    }
+}
+
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+#[allow(dead_code)]
+pub fn tool_save_window_layout(_args: &Value) -> NativeToolResult {
+    super::tool_error("save_window_layout", "not available on this platform")
+}
+
+/// Restore a previously saved window layout by name.
+/// Params: `name` (string, required).
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+#[allow(dead_code)]
+pub fn tool_restore_window_layout(args: &Value) -> NativeToolResult {
+    let name = match args.get("name").and_then(|v| v.as_str()) {
+        Some(n) => n,
+        None => return super::tool_error("restore_window_layout", "'name' argument is required"),
+    };
+
+    let safe_name: String = name
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+
+    let path = std::env::temp_dir().join(format!("desktop_layout_{safe_name}.json"));
+    let json = match std::fs::read_to_string(&path) {
+        Ok(j) => j,
+        Err(e) => return super::tool_error("restore_window_layout", format!("reading '{}': {e}", path.display())),
+    };
+
+    let layout: WindowLayout = match serde_json::from_str(&json) {
+        Ok(l) => l,
+        Err(e) => return super::tool_error("restore_window_layout", format!("parsing layout: {e}")),
+    };
+
+    let total = layout.windows.len();
+    let mut restored = 0u32;
+    let mut not_found = 0u32;
+
+    // Get current windows for matching
+    let current_windows = win32::enumerate_windows();
+
+    for saved in &layout.windows {
+        // Try to find a matching window by process_name first, then by title
+        let found = current_windows.iter().enumerate().find(|(_, cw)| {
+            if !saved.process_name.is_empty() && !cw.process_name.is_empty() {
+                // Compare process names (case-insensitive)
+                let saved_base = saved.process_name.to_lowercase();
+                let current_base = cw.process_name.to_lowercase();
+                if saved_base == current_base {
+                    // If there's also a title, prefer exact title match
+                    if !saved.title.is_empty() && !cw.title.is_empty() {
+                        return cw.title.to_lowercase().contains(&saved.title.to_lowercase())
+                            || saved.title.to_lowercase().contains(&cw.title.to_lowercase());
+                    }
+                    return true;
+                }
+            }
+            false
+        });
+
+        if let Some((idx, _cw)) = found {
+            // Use platform-specific find to get actual HWND/handle
+            let hwnd_result = if !saved.process_name.is_empty() {
+                win32::find_window_by_filter(&saved.process_name)
+            } else {
+                win32::find_window_by_filter(&saved.title)
+            };
+
+            if let Some((hwnd, _)) = hwnd_result {
+                // If it was maximized, restore first to set position, then re-maximize
+                if saved.maximized {
+                    unsafe {
+                        win32::ShowWindow(hwnd, win32::SW_RESTORE);
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+
+                win32::resize_window(
+                    hwnd,
+                    Some(saved.x),
+                    Some(saved.y),
+                    Some(saved.width),
+                    Some(saved.height),
+                );
+
+                if saved.maximized {
+                    unsafe {
+                        win32::ShowWindow(hwnd, win32::SW_MAXIMIZE);
+                    }
+                }
+
+                restored += 1;
+            } else {
+                // Found in enumerate but not via find_window_by_filter — count as partial
+                let _ = idx; // suppress unused warning
+                not_found += 1;
+            }
+        } else {
+            not_found += 1;
+        }
+    }
+
+    NativeToolResult::text_only(format!(
+        "Restored {restored}/{total} windows ({not_found} not found). Layout saved at: {}",
+        layout.saved_at
+    ))
+}
+
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+#[allow(dead_code)]
+pub fn tool_restore_window_layout(_args: &Value) -> NativeToolResult {
+    super::tool_error("restore_window_layout", "not available on this platform")
+}
+
+// ─── Process monitoring tools ────────────────────────────────────────────────
+
+/// Wait until a process exits or timeout.
+/// Params: `pid` (integer) or `name` (string), `timeout_ms` (integer, default 30000, max 120000).
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+#[allow(dead_code)]
+pub fn tool_wait_for_process_exit(args: &Value) -> NativeToolResult {
+    let pid = args.get("pid").and_then(parse_int).map(|v| v as u32);
+    let name = args.get("name").and_then(|v| v.as_str());
+
+    let timeout_ms = args
+        .get("timeout_ms")
+        .and_then(parse_int)
+        .unwrap_or(30000)
+        .min(120000)
+        .max(500) as u64;
+
+    // Resolve target PID
+    let target_pid = if let Some(p) = pid {
+        p
+    } else if let Some(n) = name {
+        let lower = n.to_lowercase();
+        match win32::enumerate_processes() {
+            Ok(procs) => {
+                match procs.iter().find(|(_, pname)| pname.to_lowercase().contains(&lower)) {
+                    Some((p, _)) => *p,
+                    None => {
+                        return NativeToolResult::text_only(format!(
+                            "No running process matching '{}' — may have already exited",
+                            n
+                        ))
+                    }
+                }
+            }
+            Err(e) => return super::tool_error("wait_for_process_exit", e),
+        }
+    } else {
+        return super::tool_error("wait_for_process_exit", "'pid' or 'name' is required");
+    };
+
+    // Check if already gone
+    if !win32::is_process_alive(target_pid) {
+        return NativeToolResult::text_only(format!(
+            "Process {} already exited (not running)",
+            target_pid
+        ));
+    }
+
+    // Poll loop
+    let start = std::time::Instant::now();
+    let poll_interval = std::time::Duration::from_millis(500);
+
+    loop {
+        if let Err(e) = super::ensure_desktop_not_cancelled() {
+            return super::tool_error("wait_for_process_exit", e);
+        }
+
+        if let Err(e) = super::interruptible_sleep(poll_interval) {
+            return super::tool_error("wait_for_process_exit", e);
+        }
+
+        let elapsed = start.elapsed().as_millis() as u64;
+
+        if !win32::is_process_alive(target_pid) {
+            return NativeToolResult::text_only(format!(
+                "Process {} exited after {}ms",
+                target_pid, elapsed
+            ));
+        }
+
+        if elapsed >= timeout_ms {
+            return NativeToolResult::text_only(format!(
+                "Process {} still running after {}ms (timeout)",
+                target_pid, timeout_ms
+            ));
+        }
+    }
+}
+
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+#[allow(dead_code)]
+pub fn tool_wait_for_process_exit(_args: &Value) -> NativeToolResult {
+    super::tool_error("wait_for_process_exit", "not available on this platform")
+}
+
+/// Show a process and all its children recursively as a tree.
+/// Params: `pid` (integer, required).
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+#[allow(dead_code)]
+pub fn tool_get_process_tree(args: &Value) -> NativeToolResult {
+    let pid = match args.get("pid").and_then(parse_int) {
+        Some(p) => p as u32,
+        None => return super::tool_error("get_process_tree", "'pid' is required"),
+    };
+
+    // Verify the root process exists
+    let root_name = match win32::enumerate_processes() {
+        Ok(procs) => procs
+            .iter()
+            .find(|(p, _)| *p == pid)
+            .map(|(_, n)| n.clone())
+            .unwrap_or_else(|| "unknown".to_string()),
+        Err(e) => return super::tool_error("get_process_tree", e),
+    };
+
+    if root_name == "unknown" {
+        return super::tool_error("get_process_tree", format!("Process {} not found", pid));
+    }
+
+    // Build the full parent->children map from all processes
+    #[cfg(windows)]
+    let tree_output = build_process_tree_windows(pid, &root_name);
+
+    #[cfg(not(windows))]
+    let tree_output = build_process_tree_unix(pid, &root_name);
+
+    NativeToolResult::text_only(tree_output)
+}
+
+/// Build process tree on Windows using CreateToolhelp32Snapshot (already available).
+#[cfg(windows)]
+fn build_process_tree_windows(root_pid: u32, root_name: &str) -> String {
+    // Use PowerShell to query parent-child relationships
+    use std::process::{Command, Stdio};
+    use std::os::windows::process::CommandExt;
+
+    let ps_script = format!(
+        r#"Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name | ConvertTo-Csv -NoTypeInformation"#
+    );
+
+    let mut cmd = Command::new("powershell");
+    cmd.args(["-NoProfile", "-NonInteractive", "-Command", &ps_script])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .creation_flags(0x08000000); // CREATE_NO_WINDOW
+
+    let output = match cmd.output() {
+        Ok(o) => o,
+        Err(_) => {
+            // Fallback: just show root
+            return format!("PID {}: {}\n  (child enumeration unavailable)", root_pid, root_name);
+        }
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Parse CSV: first line is headers, subsequent lines are "PID","PPID","Name"
+    let mut parent_map: std::collections::HashMap<u32, Vec<(u32, String)>> = std::collections::HashMap::new();
+
+    for line in stdout.lines().skip(1) {
+        // CSV format: "123","456","process.exe"
+        let fields: Vec<&str> = line.split(',').collect();
+        if fields.len() >= 3 {
+            let child_pid: u32 = fields[0].trim_matches('"').parse().unwrap_or(0);
+            let parent_pid: u32 = fields[1].trim_matches('"').parse().unwrap_or(0);
+            let name = fields[2].trim_matches('"').to_string();
+            if child_pid != 0 {
+                parent_map.entry(parent_pid).or_default().push((child_pid, name));
+            }
+        }
+    }
+
+    let mut output = String::new();
+    format_tree_recursive(&parent_map, root_pid, root_name, "", true, &mut output, 0);
+    if output.is_empty() {
+        format!("PID {}: {} (no children)", root_pid, root_name)
+    } else {
+        output
+    }
+}
+
+/// Build process tree on macOS/Linux using pgrep -P.
+#[cfg(not(windows))]
+fn build_process_tree_unix(root_pid: u32, root_name: &str) -> String {
+    use std::process::{Command, Stdio};
+
+    let mut parent_map: std::collections::HashMap<u32, Vec<(u32, String)>> = std::collections::HashMap::new();
+
+    // Use ps to get all processes with their ppid
+    let output = Command::new("ps")
+        .args(["-eo", "pid,ppid,comm"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output();
+
+    if let Ok(out) = output {
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        for line in stdout.lines().skip(1) {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 3 {
+                let child_pid: u32 = parts[0].parse().unwrap_or(0);
+                let parent_pid: u32 = parts[1].parse().unwrap_or(0);
+                let name = parts[2..].join(" ");
+                if child_pid != 0 {
+                    parent_map.entry(parent_pid).or_default().push((child_pid, name));
+                }
+            }
+        }
+    }
+
+    let mut output = String::new();
+    format_tree_recursive(&parent_map, root_pid, root_name, "", true, &mut output, 0);
+    if output.is_empty() {
+        format!("PID {}: {} (no children)", root_pid, root_name)
+    } else {
+        output
+    }
+}
+
+/// Recursively format a process tree with indentation.
+fn format_tree_recursive(
+    parent_map: &std::collections::HashMap<u32, Vec<(u32, String)>>,
+    pid: u32,
+    name: &str,
+    prefix: &str,
+    is_root: bool,
+    output: &mut String,
+    depth: usize,
+) {
+    // Guard against absurdly deep recursion (e.g., circular references)
+    if depth > 20 {
+        return;
+    }
+
+    if is_root {
+        output.push_str(&format!("PID {}: {}\n", pid, name));
+    } else {
+        output.push_str(&format!("{}PID {}: {}\n", prefix, pid, name));
+    }
+
+    if let Some(children) = parent_map.get(&pid) {
+        let count = children.len();
+        for (i, (child_pid, child_name)) in children.iter().enumerate() {
+            let is_last = i == count - 1;
+            let connector = if is_last { "  " } else { "  " };
+            let child_prefix = if is_root {
+                format!("  {}", connector)
+            } else {
+                format!("{}  {}", prefix, connector)
+            };
+            format_tree_recursive(parent_map, *child_pid, child_name, &child_prefix, false, output, depth + 1);
+        }
+    }
+}
+
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+#[allow(dead_code)]
+pub fn tool_get_process_tree(_args: &Value) -> NativeToolResult {
+    super::tool_error("get_process_tree", "not available on this platform")
+}
+
+/// Return system resource usage snapshot (CPU, memory, disk).
+/// No required params.
+#[allow(dead_code)]
+pub fn tool_get_system_metrics(_args: &Value) -> NativeToolResult {
+    use sysinfo::System;
+
+    let mut sys = System::new();
+    sys.refresh_cpu_all();
+    // Brief pause to allow CPU measurements to stabilize
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    sys.refresh_cpu_all();
+    sys.refresh_memory();
+
+    // CPU usage (average across all cores)
+    let cpu_usage: f32 = if sys.cpus().is_empty() {
+        0.0
+    } else {
+        sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / sys.cpus().len() as f32
+    };
+
+    // Memory
+    let total_mem = sys.total_memory();
+    let used_mem = sys.used_memory();
+    let total_gb = total_mem as f64 / (1024.0 * 1024.0 * 1024.0);
+    let used_gb = used_mem as f64 / (1024.0 * 1024.0 * 1024.0);
+    let mem_pct = if total_mem > 0 {
+        (used_mem as f64 / total_mem as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    // Disk usage — use platform command for root/system drive
+    let disk_info = get_disk_info();
+
+    let mut result = format!(
+        "CPU: {:.0}%\nMemory: {:.1} / {:.1} GB ({:.0}%)",
+        cpu_usage, used_gb, total_gb, mem_pct
+    );
+    if let Some(disk) = disk_info {
+        result.push_str(&format!("\nDisk: {}", disk));
+    }
+
+    NativeToolResult::text_only(result)
+}
+
+/// Get disk usage for the system drive.
+fn get_disk_info() -> Option<String> {
+    use sysinfo::Disks;
+
+    let disks = Disks::new_with_refreshed_list();
+
+    // Find the system drive (C: on Windows, / on Unix)
+    #[cfg(windows)]
+    let system_mount = "C:\\";
+    #[cfg(not(windows))]
+    let system_mount = "/";
+
+    for disk in disks.list() {
+        let mount = disk.mount_point().to_string_lossy();
+        if mount == system_mount || mount.starts_with(system_mount) {
+            let total = disk.total_space();
+            let available = disk.available_space();
+            if total > 0 {
+                let total_gb = total as f64 / (1024.0 * 1024.0 * 1024.0);
+                let avail_gb = available as f64 / (1024.0 * 1024.0 * 1024.0);
+                let used_pct = ((total - available) as f64 / total as f64) * 100.0;
+                return Some(format!(
+                    "{:.0} / {:.0} GB free ({:.0}% used)",
+                    avail_gb, total_gb, used_pct
+                ));
+            }
+        }
+    }
+
+    // Fallback: return first disk if system drive not found
+    if let Some(disk) = disks.list().first() {
+        let total = disk.total_space();
+        let available = disk.available_space();
+        if total > 0 {
+            let total_gb = total as f64 / (1024.0 * 1024.0 * 1024.0);
+            let avail_gb = available as f64 / (1024.0 * 1024.0 * 1024.0);
+            let used_pct = ((total - available) as f64 / total as f64) * 100.0;
+            return Some(format!(
+                "{:.0} / {:.0} GB free ({:.0}% used)",
+                avail_gb, total_gb, used_pct
+            ));
+        }
+    }
+
+    None
+}

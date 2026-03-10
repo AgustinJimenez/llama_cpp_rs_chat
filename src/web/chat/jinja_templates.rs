@@ -576,7 +576,9 @@ pub fn get_available_tools() -> Vec<Value> {
                     "verify_x": { "type": "integer", "description": "Optional absolute X for a custom verification region." },
                     "verify_y": { "type": "integer", "description": "Optional absolute Y for a custom verification region." },
                     "verify_width": { "type": "integer", "description": "Optional width for a custom verification region." },
-                    "verify_height": { "type": "integer", "description": "Optional height for a custom verification region." }
+                    "verify_height": { "type": "integer", "description": "Optional height for a custom verification region." },
+                    "snap_to_screen": { "type": "boolean", "description": "Clamp off-screen coordinates to nearest monitor edge" },
+                    "timeout_ms": { "type": "integer", "description": "Operation timeout in ms (1000-60000, default 20000)" }
                 },
                 "required": ["x", "y"]
             }
@@ -597,7 +599,9 @@ pub fn get_available_tools() -> Vec<Value> {
                     "verify_x": { "type": "integer", "description": "Optional absolute X for a custom verification region." },
                     "verify_y": { "type": "integer", "description": "Optional absolute Y for a custom verification region." },
                     "verify_width": { "type": "integer", "description": "Optional width for a custom verification region." },
-                    "verify_height": { "type": "integer", "description": "Optional height for a custom verification region." }
+                    "verify_height": { "type": "integer", "description": "Optional height for a custom verification region." },
+                    "retry": { "type": "integer", "description": "Retry count 0-3 on failure (default 0)" },
+                    "timeout_ms": { "type": "integer", "description": "Operation timeout in ms (1000-60000, default 20000)" }
                 },
                 "required": ["text"]
             }
@@ -618,7 +622,9 @@ pub fn get_available_tools() -> Vec<Value> {
                     "verify_x": { "type": "integer", "description": "Optional absolute X for a custom verification region." },
                     "verify_y": { "type": "integer", "description": "Optional absolute Y for a custom verification region." },
                     "verify_width": { "type": "integer", "description": "Optional width for a custom verification region." },
-                    "verify_height": { "type": "integer", "description": "Optional height for a custom verification region." }
+                    "verify_height": { "type": "integer", "description": "Optional height for a custom verification region." },
+                    "retry": { "type": "integer", "description": "Retry count 0-3 on failure (default 0)" },
+                    "timeout_ms": { "type": "integer", "description": "Operation timeout in ms (1000-60000, default 20000)" }
                 },
                 "required": ["key"]
             }
@@ -654,7 +660,12 @@ pub fn get_available_tools() -> Vec<Value> {
                     "verify_x": { "type": "integer", "description": "Optional absolute X for a custom verification region." },
                     "verify_y": { "type": "integer", "description": "Optional absolute Y for a custom verification region." },
                     "verify_width": { "type": "integer", "description": "Optional width for a custom verification region." },
-                    "verify_height": { "type": "integer", "description": "Optional height for a custom verification region." }
+                    "verify_height": { "type": "integer", "description": "Optional height for a custom verification region." },
+                    "mode": { "type": "string", "description": "'amount' (default) or 'to_text' (scroll until text appears via OCR)" },
+                    "text": { "type": "string", "description": "Text to find when mode='to_text'" },
+                    "max_scrolls": { "type": "integer", "description": "Max scroll attempts for to_text mode (default 20)" },
+                    "snap_to_screen": { "type": "boolean", "description": "Clamp off-screen coordinates to nearest monitor edge" },
+                    "dpi_aware": { "type": "boolean", "description": "Apply DPI scaling to coordinates" }
                 },
                 "required": ["amount"]
             }
@@ -665,7 +676,8 @@ pub fn get_available_tools() -> Vec<Value> {
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "filter": { "type": "string", "description": "Optional case-insensitive filter. Only windows whose title or process name contains this string will be returned." }
+                    "filter": { "type": "string", "description": "Optional case-insensitive filter. Only windows whose title or process name contains this string will be returned." },
+                    "pid": { "type": "integer", "description": "Filter to windows of this process ID" }
                 },
                 "required": []
             }
@@ -689,7 +701,10 @@ pub fn get_available_tools() -> Vec<Value> {
                     "verify_x": { "type": "integer", "description": "Optional absolute X for a custom verification region." },
                     "verify_y": { "type": "integer", "description": "Optional absolute Y for a custom verification region." },
                     "verify_width": { "type": "integer", "description": "Optional width for a custom verification region." },
-                    "verify_height": { "type": "integer", "description": "Optional height for a custom verification region." }
+                    "verify_height": { "type": "integer", "description": "Optional height for a custom verification region." },
+                    "steps": { "type": "integer", "description": "Intermediate points for smooth drag (1=instant, max 100). Increase for drawing or slider control." },
+                    "snap_to_screen": { "type": "boolean", "description": "Clamp off-screen coordinates to nearest monitor edge" },
+                    "timeout_ms": { "type": "integer", "description": "Operation timeout in ms (1000-60000, default 20000)" }
                 },
                 "required": ["from_x", "from_y", "to_x", "to_y"]
             }
@@ -880,7 +895,8 @@ pub fn get_available_tools() -> Vec<Value> {
                 "type": "object",
                 "properties": {
                     "save_baseline": { "type": "boolean", "description": "If true, save current screen as baseline instead of comparing (default false)" },
-                    "monitor": { "type": "integer", "description": "Monitor index (default 0)" }
+                    "monitor": { "type": "integer", "description": "Monitor index (default 0)" },
+                    "highlight": { "type": "boolean", "description": "Return image with red rectangle highlighting changed region" }
                 },
                 "required": []
             }
@@ -898,7 +914,8 @@ pub fn get_available_tools() -> Vec<Value> {
                     "y": { "type": "integer", "description": "Top edge of region to OCR" },
                     "width": { "type": "integer", "description": "Width of region" },
                     "height": { "type": "integer", "description": "Height of region" },
-                    "monitor": { "type": "integer", "description": "Monitor index (default 0)" }
+                    "monitor": { "type": "integer", "description": "Monitor index (default 0)" },
+                    "language": { "type": "string", "description": "OCR language code. macOS Vision only." }
                 },
                 "required": []
             }
@@ -910,7 +927,8 @@ pub fn get_available_tools() -> Vec<Value> {
                 "type": "object",
                 "properties": {
                     "title": { "type": "string", "description": "Window title or process name (default: active window)" },
-                    "depth": { "type": "integer", "description": "Max tree depth 1-8 (default 3)" }
+                    "depth": { "type": "integer", "description": "Max tree depth 1-8 (default 3)" },
+                    "exclude_types": { "type": "array", "items": { "type": "string" }, "description": "Control types to exclude (e.g. ['image','separator','thumb'])" }
                 },
                 "required": []
             }
@@ -929,7 +947,8 @@ pub fn get_available_tools() -> Vec<Value> {
                     "y": { "type": "integer", "description": "Optional region Y offset" },
                     "width": { "type": "integer", "description": "Optional region width" },
                     "height": { "type": "integer", "description": "Optional region height" },
-                    "monitor": { "type": "integer", "description": "Monitor index (default 0)" }
+                    "monitor": { "type": "integer", "description": "Monitor index (default 0)" },
+                    "language": { "type": "string", "description": "OCR language code (e.g. 'en-US', 'ja-JP'). macOS Vision only." }
                 },
                 "required": ["text"]
             }
@@ -1175,7 +1194,9 @@ pub fn get_available_tools() -> Vec<Value> {
                 "type": "object",
                 "properties": {
                     "name": { "type": "string", "description": "Process name to kill (kills all matching)" },
-                    "pid": { "type": "integer", "description": "Specific process ID to kill" }
+                    "pid": { "type": "integer", "description": "Specific process ID to kill" },
+                    "force": { "type": "boolean", "description": "true (default): immediate kill. false: graceful WM_CLOSE then wait." },
+                    "grace_ms": { "type": "integer", "description": "Grace period in ms when force=false (default 5000, max 15000)" }
                 },
                 "required": []
             }
@@ -1416,12 +1437,13 @@ pub fn get_available_tools() -> Vec<Value> {
                 "properties": {
                     "fields": {
                         "type": "array",
-                        "description": "Array of {label, value} objects",
+                        "description": "Array of {label, value} objects. Each field object can include \"type\": \"text|checkbox|dropdown|radio\" to force field type handling.",
                         "items": {
                             "type": "object",
                             "properties": {
                                 "label": { "type": "string" },
-                                "value": { "type": "string" }
+                                "value": { "type": "string" },
+                                "type": { "type": "string", "description": "Force field type: text, checkbox, dropdown, or radio" }
                             }
                         }
                     },
@@ -1438,7 +1460,7 @@ pub fn get_available_tools() -> Vec<Value> {
                 "properties": {
                     "actions": {
                         "type": "array",
-                        "description": "Array of action objects. Each has 'action' (click/type/press_key/paste/wait/clear/scroll/move) plus params.",
+                        "description": "Array of action objects. Each has 'action' (click/type/press_key/paste/wait/clear/scroll/move) plus params. Per-action options: 'retry' (0-3), 'if_previous' ('success'|'failure'), 'abort_on_failure' (boolean), 'screenshot_mode' ('final_only'|'all'|'none').",
                         "items": { "type": "object" }
                     },
                     "delay_between_ms": { "type": "integer", "description": "Default delay between actions (default 200)" }
@@ -1572,6 +1594,205 @@ pub fn get_available_tools() -> Vec<Value> {
                 "required": []
             }
         }),
+        // ---- Round 4-5 tools ----
+        json!({
+            "name": "get_system_volume",
+            "description": "Get the current system audio volume (0-100) and muted state.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }),
+        json!({
+            "name": "set_system_volume",
+            "description": "Set the system audio volume level.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "level": { "type": "integer", "description": "Volume level 0-100" }
+                },
+                "required": ["level"]
+            }
+        }),
+        json!({
+            "name": "set_system_mute",
+            "description": "Mute or unmute the system audio.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "muted": { "type": "boolean", "description": "true to mute, false to unmute" }
+                },
+                "required": ["muted"]
+            }
+        }),
+        json!({
+            "name": "clear_clipboard",
+            "description": "Clear all content from the system clipboard.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }),
+        json!({
+            "name": "clipboard_file_paths",
+            "description": "Read or write file paths on the clipboard (e.g. copied files in a file manager).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": { "type": "string", "description": "'read' to get file paths from clipboard, 'write' to put file paths on clipboard" },
+                    "paths": { "type": "array", "description": "File paths to write (required for action='write')" }
+                },
+                "required": ["action"]
+            }
+        }),
+        json!({
+            "name": "clipboard_html",
+            "description": "Read or write HTML content on the clipboard.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": { "type": "string", "description": "'read' to get HTML from clipboard, 'write' to put HTML on clipboard" },
+                    "html": { "type": "string", "description": "HTML content to write (required for action='write')" }
+                },
+                "required": ["action"]
+            }
+        }),
+        json!({
+            "name": "save_window_layout",
+            "description": "Save positions and sizes of all open windows to a named layout file.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "Layout name (used as filename)" }
+                },
+                "required": ["name"]
+            }
+        }),
+        json!({
+            "name": "restore_window_layout",
+            "description": "Restore windows to positions saved in a named layout file.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "Layout name to restore" }
+                },
+                "required": ["name"]
+            }
+        }),
+        json!({
+            "name": "wait_for_process_exit",
+            "description": "Block until a process exits or timeout. Useful for waiting on installers, builds, etc.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pid": { "type": "integer", "description": "Process ID to wait for" },
+                    "name": { "type": "string", "description": "Process name to wait for (alternative to pid)" },
+                    "timeout_ms": { "type": "integer", "description": "Maximum wait time (default 30000)" }
+                },
+                "required": []
+            }
+        }),
+        json!({
+            "name": "get_process_tree",
+            "description": "Show a process and all its child processes in a tree format.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pid": { "type": "integer", "description": "Root process ID" }
+                },
+                "required": ["pid"]
+            }
+        }),
+        json!({
+            "name": "get_system_metrics",
+            "description": "Get system CPU usage, memory usage, and disk free space.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }),
+        json!({
+            "name": "wait_for_notification",
+            "description": "Wait for a system notification matching a text filter (OCR-based detection).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text_contains": { "type": "string", "description": "Text to search for in the notification" },
+                    "timeout_ms": { "type": "integer", "description": "Maximum wait time (default 10000)" }
+                },
+                "required": ["text_contains"]
+            }
+        }),
+        json!({
+            "name": "dismiss_all_notifications",
+            "description": "Clear/dismiss all system notifications from the notification center.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }),
+        json!({
+            "name": "start_screen_recording",
+            "description": "Start recording the screen to a video file using ffmpeg. Call stop_screen_recording to finish.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "output_path": { "type": "string", "description": "Output file path (e.g. 'recording.mp4')" },
+                    "fps": { "type": "integer", "description": "Frames per second (default 15)" },
+                    "monitor": { "type": "integer", "description": "Monitor index (default 0)" }
+                },
+                "required": ["output_path"]
+            }
+        }),
+        json!({
+            "name": "stop_screen_recording",
+            "description": "Stop an active screen recording started by start_screen_recording.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }),
+        json!({
+            "name": "capture_gif",
+            "description": "Capture a short animated GIF of the screen (pure Rust, no ffmpeg needed).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "output_path": { "type": "string", "description": "Output GIF file path" },
+                    "duration_ms": { "type": "integer", "description": "Recording duration in ms (default 3000)" },
+                    "fps": { "type": "integer", "description": "Frames per second (default 10)" },
+                    "monitor": { "type": "integer", "description": "Monitor index (default 0)" }
+                },
+                "required": ["output_path"]
+            }
+        }),
+        json!({
+            "name": "dialog_handler_start",
+            "description": "Start a background monitor that auto-clicks dialog buttons matching a button map. Useful for dismissing expected popups during automated workflows.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "button_map": { "type": "object", "description": "Map of button names to actions, e.g. {\"OK\": \"click\", \"Cancel\": \"click\"}" },
+                    "poll_interval_ms": { "type": "integer", "description": "Polling interval in ms (default 1000)" },
+                    "timeout_ms": { "type": "integer", "description": "Auto-stop after this many ms (default 60000)" }
+                },
+                "required": ["button_map"]
+            }
+        }),
+        json!({
+            "name": "dialog_handler_stop",
+            "description": "Stop the background dialog handler and return the count of dialogs that were auto-handled.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }),
     ];
 
     tools
@@ -1607,6 +1828,14 @@ pub(crate) const DESKTOP_TOOL_NAMES: &[&str] = &[
     "read_registry", "click_tray_icon", "watch_window", "execute_app_script",
     "send_notification",
     "show_status_overlay", "update_status_overlay", "hide_status_overlay",
+    // Round 4-5 tools
+    "get_system_volume", "set_system_volume", "set_system_mute",
+    "clear_clipboard", "clipboard_file_paths", "clipboard_html",
+    "save_window_layout", "restore_window_layout",
+    "wait_for_process_exit", "get_process_tree", "get_system_metrics",
+    "wait_for_notification", "dismiss_all_notifications",
+    "start_screen_recording", "stop_screen_recording", "capture_gif",
+    "dialog_handler_start", "dialog_handler_stop",
 ];
 
 fn desktop_tool_available_on_current_platform(name: &str) -> bool {
@@ -1645,6 +1874,7 @@ fn desktop_tool_available_on_current_platform(name: &str) -> bool {
                 | "ocr_region"
                 | "move_to_monitor"
                 | "set_window_opacity"
+                | "dialog_handler_start"
         )
     }
 

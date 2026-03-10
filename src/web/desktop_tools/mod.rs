@@ -23,6 +23,7 @@ pub struct DesktopCancellationContext {
     deadline: std::time::Instant,
 }
 
+#[allow(dead_code)]
 impl DesktopCancellationContext {
     pub fn with_timeout(timeout: Duration) -> Self {
         Self {
@@ -1385,6 +1386,10 @@ mod system_tools;
 pub use system_tools::*;
 mod overlay_tools;
 pub use overlay_tools::*;
+mod audio_tools;
+pub use audio_tools::*;
+mod recording_tools;
+pub use recording_tools::*;
 
 /// Dispatch a desktop tool by name. Returns `None` if the tool name is not recognized.
 /// Used by the MCP server binary to route tool calls to existing implementations.
@@ -1488,6 +1493,38 @@ pub fn dispatch_desktop_tool(name: &str, args: &Value) -> Option<NativeToolResul
         "show_status_overlay" => tool_show_status_overlay(args),
         "update_status_overlay" => tool_update_status_overlay(args),
         "hide_status_overlay" => tool_hide_status_overlay(args),
+
+        // Audio tools
+        "get_system_volume" => tool_get_system_volume(args),
+        "set_system_volume" => tool_set_system_volume(args),
+        "set_system_mute" => tool_set_system_mute(args),
+
+        // Extended clipboard
+        "clear_clipboard" => tool_clear_clipboard(args),
+        "clipboard_file_paths" => tool_clipboard_file_paths(args),
+        "clipboard_html" => tool_clipboard_html(args),
+
+        // Window layout
+        "save_window_layout" => tool_save_window_layout(args),
+        "restore_window_layout" => tool_restore_window_layout(args),
+
+        // Process monitoring
+        "wait_for_process_exit" => tool_wait_for_process_exit(args),
+        "get_process_tree" => tool_get_process_tree(args),
+        "get_system_metrics" => tool_get_system_metrics(args),
+
+        // Notifications
+        "wait_for_notification" => tool_wait_for_notification(args),
+        "dismiss_all_notifications" => tool_dismiss_all_notifications(args),
+
+        // Screen recording
+        "start_screen_recording" => tool_start_screen_recording(args),
+        "stop_screen_recording" => tool_stop_screen_recording(args),
+        "capture_gif" => tool_capture_gif(args),
+
+        // Dialog auto-handler
+        "dialog_handler_start" => tool_dialog_handler_start(args),
+        "dialog_handler_stop" => tool_dialog_handler_stop(args),
 
         _ => return None,
     };

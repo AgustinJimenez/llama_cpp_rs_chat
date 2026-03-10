@@ -197,6 +197,8 @@ extern "system" {
     pub fn SetLayeredWindowAttributes(hwnd: HWND, color: COLORREF, alpha: u8, flags: DWORD) -> BOOL;
     // Clipboard format check
     pub fn IsClipboardFormatAvailable(format: u32) -> BOOL;
+    // Clipboard format registration (for CF_HTML etc.)
+    pub fn RegisterClipboardFormatW(format: *const u16) -> u32;
     // Child window search (for system tray)
     pub fn FindWindowExW(parent: HWND, child_after: HWND, class: *const u16, window: *const u16) -> HWND;
     // Process times (kernel32)

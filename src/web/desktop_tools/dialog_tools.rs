@@ -199,3 +199,154 @@ pub fn tool_wait_for_element_state(args: &Value) -> NativeToolResult {
 pub fn tool_wait_for_element_state(_args: &Value) -> NativeToolResult {
     super::tool_error("wait_for_element_state", "not available on this platform")
 }
+
+// ─── Dialog auto-handler ─────────────────────────────────────────────────────
+
+use std::sync::Mutex;
+
+struct DialogHandlerState {
+    stop_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    handle: Option<std::thread::JoinHandle<u32>>, // returns count of dialogs handled
+}
+
+static DIALOG_HANDLER: Mutex<Option<DialogHandlerState>> = Mutex::new(None);
+
+/// Start a background dialog monitor that auto-clicks buttons matching a button_map.
+#[allow(dead_code)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+pub fn tool_dialog_handler_start(args: &Value) -> NativeToolResult {
+    use super::ui_automation_tools;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let mut guard = match DIALOG_HANDLER.lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
+
+    if guard.is_some() {
+        return super::tool_error("dialog_handler_start", "dialog handler is already running — stop it first");
+    }
+
+    // Parse button_map
+    let button_map: std::collections::HashMap<String, String> = match args.get("button_map") {
+        Some(Value::Object(map)) => {
+            map.iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| (k.to_lowercase(), s.to_string())))
+                .collect()
+        }
+        _ => return super::tool_error("dialog_handler_start", "'button_map' is required (JSON object, e.g. {\"OK\": \"click\"})"),
+    };
+
+    let poll_interval_ms = args.get("poll_interval_ms").and_then(parse_int).unwrap_or(1000) as u64;
+    let timeout_ms = args.get("timeout_ms").and_then(parse_int).unwrap_or(60000) as u64;
+
+    let stop_flag = Arc::new(AtomicBool::new(false));
+    let stop_clone = stop_flag.clone();
+
+    let handle = std::thread::spawn(move || {
+        let start = std::time::Instant::now();
+        let mut handled_count = 0u32;
+
+        loop {
+            if stop_clone.load(Ordering::Relaxed) {
+                break;
+            }
+            if start.elapsed().as_millis() as u64 >= timeout_ms {
+                break;
+            }
+
+            // Check cancellation
+            if super::ensure_desktop_not_cancelled().is_err() {
+                break;
+            }
+
+            // Get foreground window
+            #[cfg(windows)]
+            let fg = unsafe { super::win32::GetForegroundWindow() };
+            #[cfg(target_os = "macos")]
+            let fg = unsafe { super::macos::GetForegroundWindow() };
+            #[cfg(target_os = "linux")]
+            let fg = unsafe { super::linux::GetForegroundWindow() };
+
+            if fg != 0 {
+                // Try to find buttons in the foreground window
+                let button_result = super::spawn_with_timeout(
+                    std::time::Duration::from_secs(3),
+                    move || ui_automation_tools::find_ui_elements_all(fg, None, Some("button"), 20),
+                );
+
+                if let Ok(Ok(buttons)) = button_result {
+                    let button_map_ref = &button_map;
+                    for btn in &buttons {
+                        let btn_lower = btn.name.to_lowercase();
+                        if let Some(action) = button_map_ref.get(&btn_lower) {
+                            if action == "click" {
+                                let _ = super::tool_click_screen(&serde_json::json!({
+                                    "x": btn.cx,
+                                    "y": btn.cy,
+                                    "delay_ms": 300,
+                                    "screenshot": false
+                                }));
+                                handled_count += 1;
+                                // Wait a bit after clicking to let the dialog close
+                                std::thread::sleep(std::time::Duration::from_millis(500));
+                                break; // Only click one button per poll
+                            }
+                        }
+                    }
+                }
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(poll_interval_ms));
+        }
+
+        handled_count
+    });
+
+    *guard = Some(DialogHandlerState {
+        stop_flag,
+        handle: Some(handle),
+    });
+
+    NativeToolResult::text_only(format!(
+        "Dialog handler started (polling every {}ms, timeout {}ms, watching for buttons: {})",
+        poll_interval_ms,
+        timeout_ms,
+        args.get("button_map").unwrap()
+    ))
+}
+
+#[allow(dead_code)]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+pub fn tool_dialog_handler_start(_args: &Value) -> NativeToolResult {
+    super::tool_error("dialog_handler_start", "not available on this platform")
+}
+
+/// Stop the background dialog monitor and return how many dialogs were handled.
+#[allow(dead_code)]
+pub fn tool_dialog_handler_stop(_args: &Value) -> NativeToolResult {
+    let mut guard = match DIALOG_HANDLER.lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
+
+    match guard.take() {
+        Some(state) => {
+            state.stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+            let count = if let Some(handle) = state.handle {
+                // Wait up to 5 seconds for the thread to finish
+                match handle.join() {
+                    Ok(c) => c,
+                    Err(_) => 0,
+                }
+            } else {
+                0
+            };
+            NativeToolResult::text_only(format!("Dialog handler stopped. Dialogs handled: {}", count))
+        }
+        None => {
+            NativeToolResult::text_only("No dialog handler was running".to_string())
+        }
+    }
+}

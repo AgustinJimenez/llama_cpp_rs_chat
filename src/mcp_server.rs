@@ -88,6 +88,11 @@ impl ServerHandler for DesktopToolsServer {
             let cancel_ctx = web::desktop_tools::DesktopCancellationContext::with_timeout(timeout);
             eprintln!("[MCP] call_tool: {tool_name} — starting");
 
+            // Extract image compression overrides before args is moved into the blocking closure.
+            let img_format_owned = args.get("screenshot_format").and_then(|v| v.as_str()).map(|s| s.to_owned());
+            let img_quality = args.get("screenshot_quality").and_then(|v| v.as_u64()).map(|v| v as u32);
+            let img_max_width = args.get("screenshot_max_width").and_then(|v| v.as_u64()).map(|v| v as u32);
+
             let join = tokio::task::spawn_blocking({
                 let cancel_ctx = cancel_ctx.clone();
                 move || {
@@ -133,9 +138,15 @@ impl ServerHandler for DesktopToolsServer {
 
                     // Convert images → downscaled JPEG for MCP transport efficiency.
                     // Raw PNGs are 1-3MB each; downscale + JPEG brings them to ~100-200KB.
+                    // Callers can override format/quality/max_width via tool args.
                     use base64::Engine;
                     for png_bytes in &native_result.images {
-                        let compressed = compress_image_for_mcp(png_bytes);
+                        let compressed = compress_image_for_mcp(
+                            png_bytes,
+                            img_format_owned.as_deref(),
+                            img_quality,
+                            img_max_width,
+                        );
                         let b64 = base64::engine::general_purpose::STANDARD.encode(&compressed.data);
                         content.push(Content::image(b64, &compressed.mime));
                     }
@@ -159,9 +170,15 @@ struct CompressedImage {
     mime: String,
 }
 
-/// Downscale + JPEG compress a PNG screenshot for efficient MCP transport.
-/// Reduces ~2MB PNG → ~100-200KB JPEG at 1280px wide.
-fn compress_image_for_mcp(png_bytes: &[u8]) -> CompressedImage {
+/// Downscale + compress a PNG screenshot for efficient MCP transport.
+/// Reduces ~2MB PNG → ~100-200KB JPEG at 1280px wide (default).
+/// Supports configurable format (jpeg/png), quality, and max width.
+fn compress_image_for_mcp(
+    png_bytes: &[u8],
+    format: Option<&str>,
+    quality: Option<u32>,
+    max_width: Option<u32>,
+) -> CompressedImage {
     use image::{GenericImageView, ImageEncoder};
 
     let img = match image::load_from_memory(png_bytes) {
@@ -175,41 +192,76 @@ fn compress_image_for_mcp(png_bytes: &[u8]) -> CompressedImage {
         }
     };
 
-    // Downscale: max 1280px wide, preserve aspect ratio
+    let out_format = format.unwrap_or("jpeg");
+    let jpeg_quality = quality.unwrap_or(75).clamp(1, 100);
+    let max_w = max_width.unwrap_or(1280).clamp(320, 3840);
+
+    // Downscale: max width, preserve aspect ratio
     let (w, h) = img.dimensions();
-    let max_width = 1280u32;
-    let resized = if w > max_width {
-        img.resize(max_width, max_width * h / w, image::imageops::FilterType::Triangle)
+    let resized = if w > max_w {
+        img.resize(max_w, max_w * h / w, image::imageops::FilterType::Triangle)
     } else {
         img
     };
 
-    // Encode as JPEG quality 75
-    let mut jpeg_buf = Vec::with_capacity(256 * 1024);
-    let mut cursor = std::io::Cursor::new(&mut jpeg_buf);
-    let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, 75);
-    match encoder.write_image(
-        resized.to_rgb8().as_raw(),
-        resized.width(),
-        resized.height(),
-        image::ColorType::Rgb8.into(),
-    ) {
-        Ok(()) => {
-            eprintln!(
-                "[MCP] image: {}x{} PNG {}KB → {}x{} JPEG {}KB ({:.0}% reduction)",
-                w, h, png_bytes.len() / 1024,
-                resized.width(), resized.height(), jpeg_buf.len() / 1024,
-                (1.0 - jpeg_buf.len() as f64 / png_bytes.len() as f64) * 100.0
-            );
-            CompressedImage {
-                data: jpeg_buf,
-                mime: "image/jpeg".to_string(),
+    if out_format == "png" {
+        // Encode as PNG (lossless but still downscaled)
+        let mut png_buf = Vec::with_capacity(512 * 1024);
+        let mut cursor = std::io::Cursor::new(&mut png_buf);
+        let encoder = image::codecs::png::PngEncoder::new(&mut cursor);
+        match encoder.write_image(
+            resized.to_rgba8().as_raw(),
+            resized.width(),
+            resized.height(),
+            image::ColorType::Rgba8.into(),
+        ) {
+            Ok(()) => {
+                eprintln!(
+                    "[MCP] image: {}x{} PNG {}KB → {}x{} PNG {}KB ({:.0}% reduction)",
+                    w, h, png_bytes.len() / 1024,
+                    resized.width(), resized.height(), png_buf.len() / 1024,
+                    (1.0 - png_buf.len() as f64 / png_bytes.len() as f64) * 100.0
+                );
+                CompressedImage {
+                    data: png_buf,
+                    mime: "image/png".to_string(),
+                }
             }
+            Err(_) => CompressedImage {
+                data: png_bytes.to_vec(),
+                mime: "image/png".to_string(),
+            },
         }
-        Err(_) => CompressedImage {
-            data: png_bytes.to_vec(),
-            mime: "image/png".to_string(),
-        },
+    } else {
+        // Encode as JPEG (default)
+        let mut jpeg_buf = Vec::with_capacity(256 * 1024);
+        let mut cursor = std::io::Cursor::new(&mut jpeg_buf);
+        let encoder =
+            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, jpeg_quality as u8);
+        match encoder.write_image(
+            resized.to_rgb8().as_raw(),
+            resized.width(),
+            resized.height(),
+            image::ColorType::Rgb8.into(),
+        ) {
+            Ok(()) => {
+                eprintln!(
+                    "[MCP] image: {}x{} PNG {}KB → {}x{} JPEG q{} {}KB ({:.0}% reduction)",
+                    w, h, png_bytes.len() / 1024,
+                    resized.width(), resized.height(), jpeg_quality,
+                    jpeg_buf.len() / 1024,
+                    (1.0 - jpeg_buf.len() as f64 / png_bytes.len() as f64) * 100.0
+                );
+                CompressedImage {
+                    data: jpeg_buf,
+                    mime: "image/jpeg".to_string(),
+                }
+            }
+            Err(_) => CompressedImage {
+                data: png_bytes.to_vec(),
+                mime: "image/png".to_string(),
+            },
+        }
     }
 }
 
