@@ -496,6 +496,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                   }`}
                   onClick={() => setIsConfigExpanded(!isConfigExpanded)}
                   type="button"
+                  aria-expanded={isConfigExpanded}
                   data-testid="config-expand-button"
                 >
                   <CardTitle className="text-sm flex items-center gap-2 text-white">

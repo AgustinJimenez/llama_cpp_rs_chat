@@ -1,3 +1,4 @@
+import React from 'react';
 import { Unplug, Activity, SlidersHorizontal } from 'lucide-react';
 import { ModelSelector } from './ModelSelector';
 import { useModelContext } from '../../contexts/ModelContext';
@@ -35,7 +36,7 @@ interface ChatHeaderProps {
   onForceUnload: () => void;
 }
 
-export function ChatHeader({ onModelUnload, onForceUnload }: ChatHeaderProps) {
+export const ChatHeader = React.memo(function ChatHeader({ onModelUnload, onForceUnload }: ChatHeaderProps) {
   const { status: modelStatus, isLoading: isModelLoading, loadingAction, hasStatusError } = useModelContext();
   const { currentConversationId } = useChatContext();
   const { viewMode, setViewMode, isRightSidebarOpen, toggleRightSidebar, isConfigSidebarOpen, toggleConfigSidebar, openModelConfig } = useUIContext();
@@ -76,11 +77,7 @@ export function ChatHeader({ onModelUnload, onForceUnload }: ChatHeaderProps) {
 
           <button
             onClick={toggleConfigSidebar}
-            className={`p-1.5 rounded-md transition-colors ${
-              isConfigSidebarOpen
-                ? 'bg-muted text-foreground'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-            }`}
+            className={`btn-icon ${isConfigSidebarOpen ? 'active' : ''}`}
             title="Conversation settings"
           >
             <SlidersHorizontal className="h-3.5 w-3.5" />
@@ -88,11 +85,7 @@ export function ChatHeader({ onModelUnload, onForceUnload }: ChatHeaderProps) {
 
           <button
             onClick={toggleRightSidebar}
-            className={`p-1.5 rounded-md transition-colors ${
-              isRightSidebarOpen
-                ? 'bg-muted text-foreground'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-            }`}
+            className={`btn-icon ${isRightSidebarOpen ? 'active' : ''}`}
             title="Toggle system monitor"
           >
             <Activity className="h-3.5 w-3.5" />
@@ -100,4 +93,4 @@ export function ChatHeader({ onModelUnload, onForceUnload }: ChatHeaderProps) {
         </div> : null}
     </div>
   );
-}
+});

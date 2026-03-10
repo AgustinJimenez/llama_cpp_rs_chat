@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { getSystemUsage } from '../utils/tauriCommands';
 import { useConnection } from './ConnectionContext';
 
@@ -103,12 +103,14 @@ export function SystemResourcesProvider({ children }: { children: ReactNode }) {
     }
   }, [fetchUsage]);
 
+  const value = useMemo<SystemResourcesValue>(() => ({
+    totalVramGb, totalRamGb, ready,
+    usage, history, hasData,
+    setMonitorActive,
+  }), [totalVramGb, totalRamGb, ready, usage, history, hasData, setMonitorActive]);
+
   return (
-    <SystemResourcesContext.Provider value={{
-      totalVramGb, totalRamGb, ready,
-      usage, history, hasData,
-      setMonitorActive,
-    }}>
+    <SystemResourcesContext.Provider value={value}>
       {children}
     </SystemResourcesContext.Provider>
   );

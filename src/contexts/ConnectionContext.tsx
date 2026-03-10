@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { isTauriEnv } from '../utils/tauri';
 
 interface ConnectionState {
@@ -21,7 +21,8 @@ const WS_RECONNECT_BASE_MS = 500;
 const WS_RECONNECT_MAX_MS = 5000;
 
 function getReconnectDelay(attempt: number): number {
-  return Math.min(WS_RECONNECT_BASE_MS * Math.pow(2, attempt), WS_RECONNECT_MAX_MS);
+  const base = Math.min(WS_RECONNECT_BASE_MS * Math.pow(2, attempt), WS_RECONNECT_MAX_MS);
+  return base * (0.5 + Math.random()); // jitter to prevent thundering herd
 }
 
 export const ConnectionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -88,8 +89,10 @@ export const ConnectionProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
   }, []);
 
+  const value = useMemo(() => state, [state]);
+
   return (
-    <ConnectionContext.Provider value={state}>
+    <ConnectionContext.Provider value={value}>
       {children}
     </ConnectionContext.Provider>
   );

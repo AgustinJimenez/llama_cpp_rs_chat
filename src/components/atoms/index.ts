@@ -8,3 +8,4 @@ export { Progress } from './progress';
 export { Slider } from './slider';
 export { LoadingIndicator } from './LoadingIndicator';
 export { WelcomeMessage } from './WelcomeMessage';
+export { ErrorBoundary } from './ErrorBoundary';

@@ -149,6 +149,7 @@ function FileRow({ file, modelId, onDownload, progress, persistedDone, pendingRe
         disabled={isDownloading}
         className="text-muted-foreground hover:text-foreground shrink-0 relative z-10 disabled:opacity-50"
         title={isPaused ? 'Resume download' : isDownloading ? 'Downloading...' : 'Download to local disk'}
+        aria-label={isPaused ? 'Resume download' : isDownloading ? 'Downloading' : 'Download file'}
       >
         {isDownloading
           ? <Loader2 className="h-4 w-4 animate-spin" />
@@ -216,6 +217,7 @@ function ModelCard({ model, onDownload, downloads, downloadedSet, pendingDownloa
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
             className="text-muted-foreground hover:text-foreground"
+            aria-label="Open on HuggingFace"
           >
             <ExternalLink className="h-4 w-4" />
           </a>
@@ -315,6 +317,7 @@ function DownloadRow({ record, progress, onResume, onLoad, onCancel }: {
             onClick={() => onLoad(record)}
             className="text-muted-foreground hover:text-foreground"
             title="Load this model"
+            aria-label="Load this model"
           >
             <Play className="h-4 w-4" />
           </button>
@@ -326,6 +329,7 @@ function DownloadRow({ record, progress, onResume, onLoad, onCancel }: {
             onClick={() => onResume(record)}
             className="text-muted-foreground hover:text-foreground"
             title="Resume download"
+            aria-label="Resume download"
           >
             <ArrowDownToLine className="h-4 w-4" />
           </button>
@@ -335,6 +339,7 @@ function DownloadRow({ record, progress, onResume, onLoad, onCancel }: {
           onClick={() => onCancel(`${record.model_id}/${record.filename}`)}
           className="text-muted-foreground hover:text-destructive"
           title="Cancel and delete"
+          aria-label="Cancel and delete download"
         >
           <X className="h-4 w-4" />
         </button>
@@ -491,6 +496,8 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
                 ? 'border-primary text-foreground'
                 : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
+            role="tab"
+            aria-selected={activeTab === 'explore'}
           >
             Explore
           </button>
@@ -502,6 +509,8 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
                 ? 'border-primary text-foreground'
                 : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
+            role="tab"
+            aria-selected={activeTab === 'downloads'}
           >
             Downloads
             {totalDownloads > 0 ? (

@@ -2,7 +2,7 @@ import React, { useCallback, Suspense } from 'react';
 import { Toaster } from 'react-hot-toast';
 import { ChatHeader, Sidebar } from './components/organisms';
 import { MessagesArea } from './components/templates';
-import { WelcomeMessage } from './components/atoms';
+import { WelcomeMessage, ErrorBoundary } from './components/atoms';
 import { ConnectionBanner, MessageInput } from './components/molecules';
 import { useModelContext } from './contexts/ModelContext';
 import { useChatContext } from './contexts/ChatContext';
@@ -54,10 +54,12 @@ function App() {
     <div className="h-screen bg-background flex" data-testid="chat-app">
       <Sidebar onNewChat={handleNewConversation} />
 
-      <MainContent
-        handleModelUnload={handleModelUnload}
-        handleForceUnload={handleForceUnload}
-      />
+      <ErrorBoundary>
+        <MainContent
+          handleModelUnload={handleModelUnload}
+          handleForceUnload={handleForceUnload}
+        />
+      </ErrorBoundary>
 
       <Overlays
         modelPath={modelStatus.model_path ?? undefined}
@@ -170,35 +172,43 @@ function Overlays({
   return (
     <>
       {isRightSidebarOpen ? (
-        <Suspense fallback={null}>
-          <RightSidebar isOpen={isRightSidebarOpen} onClose={closeRightSidebar} />
-        </Suspense>
+        <ErrorBoundary>
+          <Suspense fallback={null}>
+            <RightSidebar isOpen={isRightSidebarOpen} onClose={closeRightSidebar} />
+          </Suspense>
+        </ErrorBoundary>
       ) : null}
       {isConfigSidebarOpen ? (
-        <Suspense fallback={null}>
-          <ConversationConfigSidebar
-            isOpen={isConfigSidebarOpen}
-            onClose={closeConfigSidebar}
-            conversationId={currentConversationId}
-            currentModelPath={modelPath}
-            onReloadModel={onReloadModel}
-          />
-        </Suspense>
+        <ErrorBoundary>
+          <Suspense fallback={null}>
+            <ConversationConfigSidebar
+              isOpen={isConfigSidebarOpen}
+              onClose={closeConfigSidebar}
+              conversationId={currentConversationId}
+              currentModelPath={modelPath}
+              onReloadModel={onReloadModel}
+            />
+          </Suspense>
+        </ErrorBoundary>
       ) : null}
       {isAppSettingsOpen ? (
-        <Suspense fallback={null}>
-          <AppSettingsModal isOpen={isAppSettingsOpen} onClose={closeAppSettings} />
-        </Suspense>
+        <ErrorBoundary>
+          <Suspense fallback={null}>
+            <AppSettingsModal isOpen={isAppSettingsOpen} onClose={closeAppSettings} />
+          </Suspense>
+        </ErrorBoundary>
       ) : null}
       {isModelConfigOpen ? (
-        <Suspense fallback={null}>
-          <ModelConfigModal
-            isOpen={isModelConfigOpen}
-            onClose={closeModelConfig}
-            onSave={onModelConfigSave}
-            initialModelPath={modelPath}
-          />
-        </Suspense>
+        <ErrorBoundary>
+          <Suspense fallback={null}>
+            <ModelConfigModal
+              isOpen={isModelConfigOpen}
+              onClose={closeModelConfig}
+              onSave={onModelConfigSave}
+              initialModelPath={modelPath}
+            />
+          </Suspense>
+        </ErrorBoundary>
       ) : null}
       <DownloadFloat />
     </>

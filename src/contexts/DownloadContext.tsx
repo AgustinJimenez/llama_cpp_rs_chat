@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useRef, useCallback, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useState, useRef, useCallback, useEffect, useMemo, type ReactNode } from 'react';
 import { startHubDownload, verifyHubDownloads, deleteHubDownload } from '@/utils/tauriCommands';
 import type { DownloadProgress, HubDownloadRecord } from '@/utils/tauriCommands';
 
@@ -148,18 +148,15 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   const activeCount = downloads.size;
   const pendingCount = pendingDownloads.size;
 
+  const value = useMemo<DownloadContextValue>(() => ({
+    downloads, downloadedSet, completedDownloads, pendingDownloads,
+    startDownload, cancelDownload, refreshRecords,
+    activeCount, pendingCount,
+  }), [downloads, downloadedSet, completedDownloads, pendingDownloads,
+    startDownload, cancelDownload, refreshRecords, activeCount, pendingCount]);
+
   return (
-    <DownloadContext.Provider value={{
-      downloads,
-      downloadedSet,
-      completedDownloads,
-      pendingDownloads,
-      startDownload,
-      cancelDownload,
-      refreshRecords,
-      activeCount,
-      pendingCount,
-    }}>
+    <DownloadContext.Provider value={value}>
       {children}
     </DownloadContext.Provider>
   );

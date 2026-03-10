@@ -363,6 +363,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
           onClick={handleFileButtonClick}
           className="flex-shrink-0 flex items-center py-1 opacity-40 hover:opacity-70 transition-opacity"
           title="Attach files"
+          aria-label="Attach files"
         >
           <Paperclip className="h-4 w-4" />
         </button>
@@ -390,6 +391,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
           disabled={disabled || !hasContent || isExtracting > 0}
           className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-white text-black hover:bg-gray-200 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           data-testid="send-button"
+          aria-label="Send message"
         >
           <ArrowUp className="h-4 w-4" />
         </button>

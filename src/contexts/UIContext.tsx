@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useMemo, type ReactNode } from 'react';
 import type { ViewMode } from '../types';
 
 interface UIContextValue {
@@ -21,11 +21,18 @@ interface UIContextValue {
 const UIContext = createContext<UIContextValue | null>(null);
 
 export function UIProvider({ children }: { children: ReactNode }) {
-  const [viewMode, setViewMode] = useState<ViewMode>('markdown');
+  const [viewMode, setViewModeRaw] = useState<ViewMode>(
+    () => (localStorage.getItem('viewMode') as ViewMode) || 'markdown'
+  );
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
   const [isConfigSidebarOpen, setIsConfigSidebarOpen] = useState(false);
   const [isAppSettingsOpen, setIsAppSettingsOpen] = useState(false);
   const [isModelConfigOpen, setIsModelConfigOpen] = useState(false);
+
+  const setViewMode = useCallback((mode: ViewMode) => {
+    setViewModeRaw(mode);
+    localStorage.setItem('viewMode', mode);
+  }, []);
 
   const toggleRightSidebar = useCallback(() => setIsRightSidebarOpen(p => !p), []);
   const closeRightSidebar = useCallback(() => setIsRightSidebarOpen(false), []);
@@ -36,23 +43,22 @@ export function UIProvider({ children }: { children: ReactNode }) {
   const openModelConfig = useCallback(() => setIsModelConfigOpen(true), []);
   const closeModelConfig = useCallback(() => setIsModelConfigOpen(false), []);
 
+  const value = useMemo<UIContextValue>(() => ({
+    viewMode, setViewMode,
+    isRightSidebarOpen, toggleRightSidebar, closeRightSidebar,
+    isConfigSidebarOpen, toggleConfigSidebar, closeConfigSidebar,
+    isAppSettingsOpen, openAppSettings, closeAppSettings,
+    isModelConfigOpen, openModelConfig, closeModelConfig,
+  }), [
+    viewMode, setViewMode,
+    isRightSidebarOpen, toggleRightSidebar, closeRightSidebar,
+    isConfigSidebarOpen, toggleConfigSidebar, closeConfigSidebar,
+    isAppSettingsOpen, openAppSettings, closeAppSettings,
+    isModelConfigOpen, openModelConfig, closeModelConfig,
+  ]);
+
   return (
-    <UIContext.Provider value={{
-      viewMode,
-      setViewMode,
-      isRightSidebarOpen,
-      toggleRightSidebar,
-      closeRightSidebar,
-      isConfigSidebarOpen,
-      toggleConfigSidebar,
-      closeConfigSidebar,
-      isAppSettingsOpen,
-      openAppSettings,
-      closeAppSettings,
-      isModelConfigOpen,
-      openModelConfig,
-      closeModelConfig,
-    }}>
+    <UIContext.Provider value={value}>
       {children}
     </UIContext.Provider>
   );

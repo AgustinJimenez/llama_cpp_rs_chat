@@ -3,6 +3,24 @@
 @import "tailwindcss/utilities";
 @import "tw-animate-css";
 
+@layer components {
+  .btn-icon {
+    @apply p-1.5 rounded-md text-muted-foreground transition-colors;
+  }
+  .btn-icon:hover {
+    @apply text-foreground bg-muted;
+  }
+  .btn-icon.active {
+    @apply bg-muted text-foreground;
+  }
+  .input-base {
+    @apply w-full px-3 py-2 border rounded-md bg-background text-sm;
+  }
+  .input-base:focus {
+    @apply outline-none ring-2 ring-ring;
+  }
+}
+
 @layer base {
   :root {
     /* Flat Design - Clean & Minimal */

@@ -1,4 +1,4 @@
-import { createContext, useContext, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useCallback, useMemo, type ReactNode } from 'react';
 import { toast } from 'react-hot-toast';
 import { useModel, type LoadingAction } from '../hooks/useModel';
 import type { SamplerConfig, ToolTags } from '../types';
@@ -80,18 +80,14 @@ export function ModelProvider({ children }: { children: ReactNode }) {
     toast('Force-unloaded backend to free memory', { icon: '🧹' });
   }, [hardUnload]);
 
+  const value = useMemo<ModelContextValue>(() => ({
+    status, isLoading, loadingAction, hasStatusError, modelName,
+    loadModel, unloadModel, forceUnload, refreshStatus,
+  }), [status, isLoading, loadingAction, hasStatusError, modelName,
+    loadModel, unloadModel, forceUnload, refreshStatus]);
+
   return (
-    <ModelContext.Provider value={{
-      status,
-      isLoading,
-      loadingAction,
-      hasStatusError,
-      modelName,
-      loadModel,
-      unloadModel,
-      forceUnload,
-      refreshStatus,
-    }}>
+    <ModelContext.Provider value={value}>
       {children}
     </ModelContext.Provider>
   );

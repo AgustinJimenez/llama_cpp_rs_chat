@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, Suspense } from 'react';
 import { Plus, RotateCcw, Trash2, Settings, Search } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../atoms/dialog';
 import { Button } from '../atoms/button';
@@ -72,6 +72,47 @@ function getDateGroup(timestamp: string): string {
   return 'Older';
 }
 
+const ConversationItem = React.memo(({ conversation, isActive, flatIndex, onLoad, onDelete }: {
+  conversation: ConversationFile;
+  isActive: boolean;
+  flatIndex: number;
+  onLoad: (name: string) => void;
+  onDelete: (e: React.MouseEvent, conversation: ConversationFile) => void;
+}) => (
+  <div
+    key={conversation.name}
+    role="button"
+    tabIndex={0}
+    className={`group flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors text-sm ${
+      isActive
+        ? 'bg-white font-semibold'
+        : 'text-foreground hover:bg-muted/30'
+    }`}
+    style={isActive ? { color: '#000' } : undefined}
+    onClick={() => onLoad(conversation.name)}
+    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onLoad(conversation.name); }}
+    data-testid={`conversation-${flatIndex}`}
+  >
+    <span className="truncate flex-1 min-w-0" title={conversation.title || conversation.display_name || conversation.name}>
+      {conversation.title || conversation.display_name || conversation.name}
+    </span>
+    <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+      <span className={`text-xs ${isActive ? 'text-black/50' : 'text-foreground/50'}`}>
+        {relativeTime(conversation.timestamp)}
+      </span>
+      <button
+        className={`opacity-0 group-hover:opacity-100 p-0.5 rounded transition-all ${isActive ? 'text-black/40 hover:text-destructive' : 'text-muted-foreground hover:text-destructive'}`}
+        onClick={(e) => onDelete(e, conversation)}
+        aria-label="Delete conversation"
+        data-testid={`delete-conversation-${flatIndex}`}
+      >
+        <Trash2 size={12} />
+      </button>
+    </div>
+  </div>
+));
+ConversationItem.displayName = 'ConversationItem';
+
 // eslint-disable-next-line max-lines-per-function
 const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
   const { loadConversation: onLoadConversation, currentConversationId } = useChatContext();
@@ -135,11 +176,11 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
     return result;
   }, [conversations]);
 
-  const handleDeleteClick = (e: React.MouseEvent, conversation: ConversationFile) => {
+  const handleDeleteClick = useCallback((e: React.MouseEvent, conversation: ConversationFile) => {
     e.stopPropagation();
     setConversationToDelete(conversation);
     setDeleteDialogOpen(true);
-  };
+  }, []);
 
   const handleDeleteConfirm = async () => {
     if (!conversationToDelete) return;
@@ -218,42 +259,16 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
             groupedEntries.map(({ group, items }) => (
               <div key={group}>
                 <p className="px-3 pt-3 pb-1 text-xs font-medium text-foreground/50">{group}</p>
-                {items.map(({ conversation, flatIndex }) => {
-                  const isActive = currentConversationId === conversation.name;
-                  return (
-                    <div
-                      key={conversation.name}
-                      role="button"
-                      tabIndex={0}
-                      className={`group flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors text-sm ${
-                        isActive
-                          ? 'bg-white font-semibold'
-                          : 'text-foreground hover:bg-muted/30'
-                      }`}
-                      style={isActive ? { color: '#000' } : undefined}
-                      onClick={() => onLoadConversation(conversation.name)}
-                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onLoadConversation(conversation.name); }}
-                      data-testid={`conversation-${flatIndex}`}
-                    >
-                      <span className="truncate flex-1 min-w-0" title={conversation.title || conversation.display_name || conversation.name}>
-                        {conversation.title || conversation.display_name || conversation.name}
-                      </span>
-                      <div className="flex items-center gap-1 flex-shrink-0 ml-2">
-                        <span className={`text-xs ${isActive ? 'text-black/50' : 'text-foreground/50'}`}>
-                          {relativeTime(conversation.timestamp)}
-                        </span>
-                        <button
-                          className={`opacity-0 group-hover:opacity-100 p-0.5 rounded transition-all ${isActive ? 'text-black/40 hover:text-destructive' : 'text-muted-foreground hover:text-destructive'}`}
-                          onClick={(e) => handleDeleteClick(e, conversation)}
-                          aria-label="Delete conversation"
-                          data-testid={`delete-conversation-${flatIndex}`}
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
+                {items.map(({ conversation, flatIndex }) => (
+                  <ConversationItem
+                    key={conversation.name}
+                    conversation={conversation}
+                    isActive={currentConversationId === conversation.name}
+                    flatIndex={flatIndex}
+                    onLoad={onLoadConversation}
+                    onDelete={handleDeleteClick}
+                  />
+                ))}
               </div>
             ))
           )}
@@ -301,4 +316,4 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
   );
 };
 
-export default Sidebar;
+export default React.memo(Sidebar);

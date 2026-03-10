@@ -318,7 +318,7 @@ const SingleToolCall: React.FC<{ toolCall: ToolCall }> = ({ toolCall }) => {
  * Compact tool call display with expandable details.
  * Shows executing/streaming state for in-progress tool calls.
  */
-export const ToolCallBlock: React.FC<ToolCallBlockProps> = ({ toolCalls }) => {
+export const ToolCallBlock = React.memo(function ToolCallBlock({ toolCalls }: ToolCallBlockProps) {
   if (toolCalls.length === 0) return null;
 
   return (
@@ -328,4 +328,4 @@ export const ToolCallBlock: React.FC<ToolCallBlockProps> = ({ toolCalls }) => {
       ))}
     </div>
   );
-};
+});

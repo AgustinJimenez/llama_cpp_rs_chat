@@ -228,6 +228,7 @@ const AssistantMessage: React.FC<{
     className="w-full flex justify-start"
     data-testid={`message-${message.role}`}
     data-message-id={message.id}
+    aria-live={isStreaming ? 'polite' : undefined}
   >
     <div className="w-full space-y-3 overflow-hidden">
       {viewMode === 'raw' ? (
@@ -280,7 +281,7 @@ const AssistantMessage: React.FC<{
 /**
  * Message bubble component - renders user, assistant, or system messages.
  */
-export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode = 'text', isStreaming, messageIndex, onEditMessage, isGenerating }) => {
+export const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({ message, viewMode = 'text', isStreaming, messageIndex, onEditMessage, isGenerating }) => {
   const { status } = useModelContext();
   const {
     cleanContent,
@@ -315,4 +316,5 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, viewMode 
       isStreaming={isStreaming}
     />
   );
-};
+});
+MessageBubble.displayName = 'MessageBubble';
