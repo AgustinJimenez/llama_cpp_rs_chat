@@ -2,50 +2,70 @@
 
 ## Goal
 
-Make desktop automation safer and more reliable by replacing timeout-only behavior with cooperative cancellation for desktop tool execution.
+Improve the desktop tools stack further with structured result reporting, persistent action tracing, and better regression support.
 
 ## Why
 
-The app is intended to let agents operate a PC. In that context, a desktop action that "times out" but keeps running in the background is a correctness issue, not just a performance issue.
+The app is intended to let agents operate a PC. After fixing the major timeout/cancellation issues, the next gaps are:
+
+- tool outcomes are mostly free-form text rather than structured signals
+- desktop failures are hard to inspect after the fact
+- regression coverage exists, but desktop reliability still depends too much on ad hoc smoke checks
 
 Current state:
 
-- MCP desktop execution is serialized, so actions no longer overlap.
-- But blocking desktop work can still continue after timeout.
-- This can desynchronize agent state from actual machine state.
+- MCP desktop execution is serialized.
+- The main Windows UI Automation and OCR hotspots are bounded or cancel-aware.
+- Desktop results still lack a unified machine-readable status/tracing layer.
 
 ## Plan
 
-1. Introduce a desktop execution controller for the MCP desktop server.
-2. Add per-call cancellation context and timeout handling that signals cancellation explicitly.
-3. Refactor thread-based helper execution in desktop tools to support cooperative cancellation instead of detached timeout-only waiting.
-4. Update polling/wait-style desktop tools to check cancellation regularly.
-5. Return clearer timeout/cancelled errors from the MCP tool path.
-6. Run targeted verification:
+1. Add a dispatcher-level structured desktop result summary:
+   - status (`completed`, `cancelled`, `timed_out`, `error`)
+   - duration
+   - image count
+   - tool name
+2. Append a compact machine-readable footer to desktop tool outputs so agents can parse outcomes consistently.
+3. Write persistent desktop action traces as JSONL for post-failure inspection.
+4. Add targeted tests for status classification and trace serialization.
+5. Run targeted verification:
    - desktop tool dispatch test
-   - MCP desktop tool test path
-   - real Blender smoke validation if needed
+   - desktop result/tracing unit tests
+   - MCP desktop tool compile path
 
 ## Expected Outcome
 
-- Timed out desktop tool calls stop making progress as soon as they observe cancellation.
-- Later desktop actions can continue from a known state.
-- Desktop automation becomes safer for long-running agent workflows.
+- Desktop tools produce more consistent machine-readable outcomes.
+- Failures and timeouts leave a trace that can be inspected after the fact.
+- Future desktop regressions are easier to detect and diagnose.
 
 ## Status
 
 Implemented.
 
-Completed:
+Completed in the previous pass:
 
-- Added per-call desktop cancellation context in the MCP desktop server path.
-- Propagated cancellation context into desktop tool worker threads.
-- Updated polling and wait-style tools to observe cancellation regularly.
-- Improved timeout reporting so timeout now requests cancellation explicitly.
-- Added Windows UI Automation client timeouts via IUIAutomation2.
-- Added WinRT OCR async-operation cancellation/status handling for Windows OCR paths.
-- Re-ran targeted desktop MCP tests successfully.
+- per-call desktop cancellation context in the MCP desktop server path
+- propagation of cancellation context into desktop tool worker threads
+- polling/wait-style cancellation checks
+- clearer timeout reporting in the MCP path
+- Windows UI Automation client timeouts via IUIAutomation2
+- WinRT OCR async-operation cancellation/status handling for Windows OCR paths
 
-Remaining limitation:
+Completed in this pass:
 
-- A desktop call that is blocked inside a non-cancellable synchronous OS/API call still cannot be forcibly preempted mid-call. The major Windows hotspots are now bounded or cancel-aware, but true thread preemption is still not available.
+- dispatcher-level desktop result status classification
+- compact machine-readable `[desktop_result]` footer on desktop tool outputs
+- persistent desktop action trace logging as JSONL
+- unit tests for desktop result classification and trace-safe argument summarization
+- re-ran targeted desktop MCP tests successfully
+
+Remaining limitation from the previous pass:
+
+- A desktop call that is blocked inside a non-cancellable synchronous OS/API call still cannot be forcibly preempted mid-call.
+
+Still not implemented in this pass:
+
+- broader real-app regression harness beyond targeted smoke tests
+- OCR regioning/cache improvements
+- stronger PID/HWND-forwarding across more multi-step workflows

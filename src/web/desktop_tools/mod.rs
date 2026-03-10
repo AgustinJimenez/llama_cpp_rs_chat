@@ -198,6 +198,102 @@ fn encode_image_to_png(img: &image::RgbaImage) -> Result<Vec<u8>, String> {
     Ok(buf.into_inner())
 }
 
+fn desktop_trace_path() -> std::path::PathBuf {
+    if let Ok(path) = std::env::var("LLAMA_CHAT_DESKTOP_TRACE_PATH") {
+        if !path.trim().is_empty() {
+            return std::path::PathBuf::from(path);
+        }
+    }
+    std::env::temp_dir().join("llama_cpp_chat_desktop_trace.jsonl")
+}
+
+fn classify_desktop_result_status(text: &str) -> &'static str {
+    let lower = text.to_lowercase();
+    if lower.starts_with("error") {
+        if lower.contains("timed out") || lower.contains("timeout") {
+            "timed_out"
+        } else if lower.contains("cancelled") || lower.contains("canceled") {
+            "cancelled"
+        } else {
+            "error"
+        }
+    } else if lower.starts_with("timeout:") {
+        "timed_out"
+    } else {
+        "completed"
+    }
+}
+
+fn summarize_value_for_trace(value: &Value) -> Value {
+    match value {
+        Value::String(s) => {
+            const MAX_LEN: usize = 200;
+            if s.len() > MAX_LEN {
+                Value::String(format!("{}...", &s[..MAX_LEN]))
+            } else {
+                Value::String(s.clone())
+            }
+        }
+        Value::Array(items) => Value::Array(items.iter().take(10).map(summarize_value_for_trace).collect()),
+        Value::Object(map) => {
+            let summarized = map
+                .iter()
+                .map(|(k, v)| (k.clone(), summarize_value_for_trace(v)))
+                .collect();
+            Value::Object(summarized)
+        }
+        _ => value.clone(),
+    }
+}
+
+fn write_desktop_trace_line(entry: &Value) {
+    let path = desktop_trace_path();
+    let Some(parent) = path.parent() else {
+        return;
+    };
+    if std::fs::create_dir_all(parent).is_err() {
+        return;
+    }
+    let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) else {
+        return;
+    };
+    let Ok(line) = serde_json::to_string(entry) else {
+        return;
+    };
+    use std::io::Write;
+    let _ = writeln!(file, "{line}");
+}
+
+fn finalize_desktop_result(name: &str, args: &Value, started_at: std::time::Instant, mut result: NativeToolResult) -> NativeToolResult {
+    let status = classify_desktop_result_status(&result.text);
+    let duration_ms = started_at.elapsed().as_millis() as u64;
+    let summary = serde_json::json!({
+        "tool": name,
+        "status": status,
+        "duration_ms": duration_ms,
+        "image_count": result.images.len(),
+    });
+
+    if !result.text.is_empty() {
+        result.text.push_str("\n\n[desktop_result] ");
+        result.text.push_str(&summary.to_string());
+    } else {
+        result.text = format!("[desktop_result] {}", summary);
+    }
+
+    write_desktop_trace_line(&serde_json::json!({
+        "ts": chrono::Utc::now().to_rfc3339(),
+        "tool": name,
+        "status": status,
+        "duration_ms": duration_ms,
+        "image_count": result.images.len(),
+        "args": summarize_value_for_trace(args),
+        "text_preview": result.text.lines().take(8).collect::<Vec<_>>().join("\n"),
+    }));
+
+    result
+}
+
 /// Helper: take a screenshot after an action with configurable cache parameters.
 /// `cache_max_age_ms` — how old a cached screenshot can be before it's considered stale.
 /// `cache_threshold_pct` — pixel-diff percentage below which the screen is "unchanged".
@@ -1064,7 +1160,8 @@ pub use overlay_tools::*;
 /// Used by the MCP server binary to route tool calls to existing implementations.
 #[allow(dead_code)]
 pub fn dispatch_desktop_tool(name: &str, args: &Value) -> Option<NativeToolResult> {
-    Some(match name {
+    let started_at = std::time::Instant::now();
+    let result = match name {
         // Core input tools (mod.rs)
         "click_screen" => tool_click_screen(args),
         "type_text" => tool_type_text(args),
@@ -1163,7 +1260,9 @@ pub fn dispatch_desktop_tool(name: &str, args: &Value) -> Option<NativeToolResul
         "hide_status_overlay" => tool_hide_status_overlay(args),
 
         _ => return None,
-    })
+    };
+
+    Some(finalize_desktop_result(name, args, started_at, result))
 }
 
 /// Drag the mouse from one position to another.
@@ -1455,5 +1554,27 @@ mod tests {
                 name
             );
         }
+    }
+
+    #[test]
+    fn test_classify_desktop_result_status() {
+        assert_eq!(classify_desktop_result_status("Pressed: enter"), "completed");
+        assert_eq!(classify_desktop_result_status("Timeout: no window"), "timed_out");
+        assert_eq!(classify_desktop_result_status("Error [ocr_screen]: Operation timed out"), "timed_out");
+        assert_eq!(classify_desktop_result_status("Error [ocr_screen]: Operation cancelled"), "cancelled");
+        assert_eq!(classify_desktop_result_status("Error [click_screen]: bad coordinate"), "error");
+    }
+
+    #[test]
+    fn test_summarize_value_for_trace_truncates_long_strings() {
+        let value = serde_json::json!({
+            "text": "x".repeat(250),
+            "nested": ["short", "y".repeat(250)]
+        });
+
+        let summarized = summarize_value_for_trace(&value);
+        let text = summarized.get("text").and_then(|v| v.as_str()).unwrap();
+        assert!(text.len() <= 203);
+        assert!(text.ends_with("..."));
     }
 }
