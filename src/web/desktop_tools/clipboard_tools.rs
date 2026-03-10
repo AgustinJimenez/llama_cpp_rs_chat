@@ -126,15 +126,11 @@ fn clipboard_image_read() -> NativeToolResult {
 #[cfg(windows)]
 fn clipboard_image_write(monitor_idx: usize) -> NativeToolResult {
     // Capture the screen
-    let monitors = match xcap::Monitor::all() {
+    let monitors = match super::validated_monitors("clipboard_image", monitor_idx) {
         Ok(m) => m,
-        Err(e) => return super::tool_error("clipboard_image", format!("listing monitors: {e}")),
+        Err(e) => return e,
     };
-    let monitor = match monitors.get(monitor_idx) {
-        Some(m) => m,
-        None => return super::tool_error("clipboard_image", format!("monitor {monitor_idx} not found")),
-    };
-    let img = match monitor.capture_image() {
+    let img = match monitors[monitor_idx].capture_image() {
         Ok(i) => i,
         Err(e) => return super::tool_error("clipboard_image", format!("capturing screen: {e}")),
     };
@@ -248,15 +244,11 @@ fn clipboard_image_read() -> NativeToolResult {
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn clipboard_image_write(monitor_idx: usize) -> NativeToolResult {
     // Capture the screen
-    let monitors = match xcap::Monitor::all() {
+    let monitors = match super::validated_monitors("clipboard_image", monitor_idx) {
         Ok(m) => m,
-        Err(e) => return super::tool_error("clipboard_image", format!("listing monitors: {e}")),
+        Err(e) => return e,
     };
-    let monitor = match monitors.get(monitor_idx) {
-        Some(m) => m,
-        None => return super::tool_error("clipboard_image", format!("monitor {monitor_idx} not found")),
-    };
-    let img = match monitor.capture_image() {
+    let img = match monitors[monitor_idx].capture_image() {
         Ok(i) => i,
         Err(e) => return super::tool_error("clipboard_image", format!("capturing screen: {e}")),
     };
@@ -291,7 +283,6 @@ pub fn tool_clipboard_image(_args: &Value) -> NativeToolResult {
 
 /// Clear all clipboard content.
 #[cfg(windows)]
-#[allow(dead_code)]
 pub fn tool_clear_clipboard(_args: &Value) -> NativeToolResult {
     unsafe {
         if win32::OpenClipboard(0) == 0 {
@@ -324,7 +315,6 @@ pub fn tool_clear_clipboard(_args: &Value) -> NativeToolResult {
 /// Read or write file paths from/to clipboard.
 /// Params: `action` ("read" or "write"), `paths` (array of strings, for write).
 #[cfg(windows)]
-#[allow(dead_code)]
 pub fn tool_clipboard_file_paths(args: &Value) -> NativeToolResult {
     let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("read");
 
@@ -421,7 +411,6 @@ pub fn tool_clipboard_file_paths(args: &Value) -> NativeToolResult {
 }
 
 #[cfg(target_os = "macos")]
-#[allow(dead_code)]
 pub fn tool_clipboard_file_paths(args: &Value) -> NativeToolResult {
     let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("read");
 
@@ -449,7 +438,26 @@ pub fn tool_clipboard_file_paths(args: &Value) -> NativeToolResult {
             }
         }
         "write" => {
-            NativeToolResult::text_only("Write file paths to clipboard is not supported on macOS".to_string())
+            let paths = match args.get("paths").and_then(|v| v.as_array()) {
+                Some(p) => p,
+                None => return super::tool_error("clipboard_file_paths", "'paths' array required for write"),
+            };
+            let path_strs: Vec<&str> = paths.iter().filter_map(|v| v.as_str()).collect();
+            if path_strs.is_empty() {
+                return super::tool_error("clipboard_file_paths", "no valid paths provided");
+            }
+            let posix_files: Vec<String> = path_strs.iter()
+                .map(|p| format!("POSIX file \"{}\"", p.replace('\\', "\\\\").replace('"', "\\\"")))
+                .collect();
+            let script = format!("set the clipboard to {{{}}}", posix_files.join(", "));
+            match std::process::Command::new("osascript").args(["-e", &script]).output() {
+                Ok(out) if out.status.success() => {
+                    NativeToolResult::text_only(format!("{} file path(s) written to clipboard", path_strs.len()))
+                }
+                Ok(out) => super::tool_error("clipboard_file_paths",
+                    format!("osascript: {}", String::from_utf8_lossy(&out.stderr).trim())),
+                Err(e) => super::tool_error("clipboard_file_paths", format!("osascript: {e}")),
+            }
         }
         other => NativeToolResult::text_only(format!(
             "Unknown action '{other}'. Use 'read' or 'write'."
@@ -458,7 +466,6 @@ pub fn tool_clipboard_file_paths(args: &Value) -> NativeToolResult {
 }
 
 #[cfg(target_os = "linux")]
-#[allow(dead_code)]
 pub fn tool_clipboard_file_paths(args: &Value) -> NativeToolResult {
     let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("read");
 
@@ -520,7 +527,6 @@ pub fn tool_clipboard_file_paths(args: &Value) -> NativeToolResult {
 }
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
-#[allow(dead_code)]
 pub fn tool_clipboard_file_paths(_args: &Value) -> NativeToolResult {
     super::tool_error("clipboard_file_paths", "not available on this platform")
 }
@@ -530,7 +536,6 @@ pub fn tool_clipboard_file_paths(_args: &Value) -> NativeToolResult {
 /// Read or write HTML from/to clipboard.
 /// Params: `action` ("read" or "write"), `html` (string, for write).
 #[cfg(windows)]
-#[allow(dead_code)]
 pub fn tool_clipboard_html(args: &Value) -> NativeToolResult {
     let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("read");
 
@@ -665,7 +670,6 @@ pub fn tool_clipboard_html(args: &Value) -> NativeToolResult {
 }
 
 #[cfg(target_os = "macos")]
-#[allow(dead_code)]
 pub fn tool_clipboard_html(args: &Value) -> NativeToolResult {
     let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("read");
 
@@ -692,7 +696,31 @@ pub fn tool_clipboard_html(args: &Value) -> NativeToolResult {
             }
         }
         "write" => {
-            NativeToolResult::text_only("Write HTML to clipboard is not supported on macOS".to_string())
+            let html = match args.get("html").and_then(|v| v.as_str()) {
+                Some(h) => h,
+                None => return super::tool_error("clipboard_html", "'html' is required for write"),
+            };
+            // Use AppleScriptObjC to set HTML data on NSPasteboard
+            let escaped = html.replace('\\', "\\\\").replace('"', "\\\"");
+            let script = format!(
+                concat!(
+                    "use framework \"AppKit\"\n",
+                    "set htmlData to (current application's NSString's stringWithString:\"{}\")",
+                    "'s dataUsingEncoding:(current application's NSUTF8StringEncoding)\n",
+                    "set pb to current application's NSPasteboard's generalPasteboard()\n",
+                    "pb's clearContents()\n",
+                    "pb's setData:htmlData forType:\"public.html\""
+                ),
+                escaped
+            );
+            match std::process::Command::new("osascript").args(["-l", "AppleScriptObjC", "-e", &script]).output() {
+                Ok(out) if out.status.success() => {
+                    NativeToolResult::text_only(format!("HTML written to clipboard ({} chars)", html.len()))
+                }
+                Ok(out) => super::tool_error("clipboard_html",
+                    format!("osascript: {}", String::from_utf8_lossy(&out.stderr).trim())),
+                Err(e) => super::tool_error("clipboard_html", format!("osascript: {e}")),
+            }
         }
         other => NativeToolResult::text_only(format!(
             "Unknown action '{other}'. Use 'read' or 'write'."
@@ -701,7 +729,6 @@ pub fn tool_clipboard_html(args: &Value) -> NativeToolResult {
 }
 
 #[cfg(target_os = "linux")]
-#[allow(dead_code)]
 pub fn tool_clipboard_html(args: &Value) -> NativeToolResult {
     let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("read");
 
@@ -754,7 +781,6 @@ pub fn tool_clipboard_html(args: &Value) -> NativeToolResult {
 }
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
-#[allow(dead_code)]
 pub fn tool_clipboard_html(_args: &Value) -> NativeToolResult {
     super::tool_error("clipboard_html", "not available on this platform")
 }

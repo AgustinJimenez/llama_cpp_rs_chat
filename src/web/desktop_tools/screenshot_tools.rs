@@ -55,13 +55,10 @@ pub fn tool_screenshot_region(args: &Value) -> NativeToolResult {
     };
     let monitor_idx = args.get("monitor").and_then(parse_int).unwrap_or(0) as usize;
 
-    let monitors = match xcap::Monitor::all() {
+    let monitors = match super::validated_monitors("screenshot_region", monitor_idx) {
         Ok(m) => m,
-        Err(e) => return super::tool_error("screenshot_region", e),
+        Err(e) => return e,
     };
-    if monitor_idx >= monitors.len() {
-        return super::tool_error("screenshot_region", format!("monitor index {monitor_idx} out of range (0..{})", monitors.len()));
-    }
 
     let img = match monitors[monitor_idx].capture_image() {
         Ok(i) => i,
@@ -100,13 +97,10 @@ pub fn tool_screenshot_diff(args: &Value) -> NativeToolResult {
     let highlight = args.get("highlight").map(|v| super::parse_bool(v, false)).unwrap_or(false);
     let monitor_idx = args.get("monitor").and_then(parse_int).unwrap_or(0) as usize;
 
-    let monitors = match xcap::Monitor::all() {
+    let monitors = match super::validated_monitors("screenshot_diff", monitor_idx) {
         Ok(m) => m,
-        Err(e) => return super::tool_error("screenshot_diff", e),
+        Err(e) => return e,
     };
-    if monitor_idx >= monitors.len() {
-        return super::tool_error("screenshot_diff", format!("monitor index {monitor_idx} out of range (0..{})", monitors.len()));
-    }
 
     let img = match monitors[monitor_idx].capture_image() {
         Ok(i) => i,

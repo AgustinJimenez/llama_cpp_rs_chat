@@ -45,7 +45,22 @@ All items implemented.
 - [x] **Dialog auto-handler** — dialog_handler_start/stop: background thread with button_map matching, auto-click via UI Automation.
 - Skipped: File drag-and-drop (COM/OLE too complex, AppleScript unreliable).
 
-## Round 6: Advanced (future)
+## Round 6: Bug Fixes, Cross-Platform, Error Consistency, New Features — DONE
+
+- [x] **Fix unwrap panics** — dialog_tools.rs button_map unwrap, window_tools.rs title_filter unwrap.
+- [x] **Path canonicalization** — app_script_tools.rs: Blender/Unity/Godot/Unreal file params validated via canonicalize().
+- [x] **Remove dead_code annotations** — 23 stale #[allow(dead_code)] removed from 5 files.
+- [x] **Error consistency** — 31 error messages in mod.rs standardized to tool_error() format.
+- [x] **Centralized monitor validation** — validated_monitors() helper, 13 call sites refactored across 8 files.
+- [x] **macOS clipboard writes** — clipboard_file_paths write (osascript POSIX file), clipboard_html write (AppleScriptObjC NSPasteboard).
+- [x] **macOS window opacity** — Graceful degradation (alpha=255 no-op, others explain limitation).
+- [x] **Unfilter 8 cross-platform tools** — find_and_click_text, type_into_element, get_window_text, drag_and_drop_element, wait_for_text_on_screen, clipboard_image, ocr_region, scroll_element now available on macOS/Linux.
+- [x] **verify_text OCR parameter** — Added to click_screen/type_text/press_key: after pixel-diff verification, OCR confirms expected text appeared.
+- [x] **smart_wait tool** — Combines screen change + OCR text detection, mode "any"/"all".
+- [x] **click_and_verify tool** — OCR find+click text → verify expected text appeared.
+- [x] **GPU app warnings in list_windows** — Windows from Blender/Unity/Maya/etc tagged with [GPU] guidance.
+
+## Round 7: Advanced (future)
 
 - [ ] **Browser/DOM integration** — JavaScript injection via CDP, DOM extraction, page content reading.
 - [ ] **Cross-platform accessibility tree** — macOS AXUIElement, Linux AT-SPI2 for full a11y tree support.
@@ -106,3 +121,16 @@ All items implemented.
 - Screen recording: start/stop_screen_recording (ffmpeg), capture_gif (pure Rust GIF encoder).
 - Dialog auto-handler: dialog_handler_start/stop (background button auto-click).
 - All 18 new tools registered in dispatch + DESKTOP_TOOL_NAMES + schemas (91 total tools).
+- Fixed 2 unwrap panics (dialog_tools, window_tools).
+- Path canonicalization for app_script_tools (4 engines: Blender/Unity/Godot/Unreal).
+- Removed 23 stale dead_code annotations across 5 files.
+- Standardized 31 error messages in mod.rs to tool_error() format.
+- Centralized validated_monitors() helper, 13 call sites refactored.
+- macOS clipboard_file_paths write + clipboard_html write (osascript).
+- macOS window opacity graceful degradation.
+- Unfiltered 8 compound tools on macOS/Linux (OCR fallbacks work).
+- verify_text OCR param on click_screen/type_text/press_key.
+- smart_wait tool (screen change + OCR text, mode any/all).
+- click_and_verify tool (OCR find+click → verify text).
+- GPU app [GPU: ...] tags in list_windows output.
+- Total: 93 registered desktop tools.

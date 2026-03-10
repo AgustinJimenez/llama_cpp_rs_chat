@@ -665,8 +665,17 @@ pub fn get_system_dpi_scale() -> f64 {
     1.0
 }
 
-pub fn set_window_opacity(_hwnd: HWND, _alpha: u8) -> Result<(), String> {
-    Err("Window opacity not supported on macOS".to_string())
+pub fn set_window_opacity(_hwnd: HWND, alpha: u8) -> Result<(), String> {
+    if alpha == 255 {
+        return Ok(()); // fully opaque is the default, no-op
+    }
+    // macOS doesn't expose per-window transparency via public APIs.
+    // NSWindow.alphaValue requires Objective-C runtime access from within the target app.
+    Err(format!(
+        "Window opacity ({:.0}%) is not available on macOS. \
+         macOS requires in-process NSWindow.alphaValue access which cannot be done externally.",
+        alpha as f64 / 255.0 * 100.0
+    ))
 }
 
 pub fn read_registry_value(_hkey_root: HKEY, subkey: &str, value_name: &str) -> Result<String, String> {

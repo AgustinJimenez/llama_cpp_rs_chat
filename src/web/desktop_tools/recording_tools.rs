@@ -63,7 +63,6 @@ fn check_ffmpeg() -> Result<(), String> {
 /// - `output_path` (string, required): path for the output video file
 /// - `fps` (integer, default 15): frames per second
 /// - `monitor` (integer, default 0): monitor index
-#[allow(dead_code)]
 pub fn tool_start_screen_recording(args: &Value) -> NativeToolResult {
     let output_path = match args.get("output_path").and_then(|v| v.as_str()) {
         Some(p) => p.to_string(),
@@ -175,7 +174,6 @@ pub fn tool_start_screen_recording(args: &Value) -> NativeToolResult {
 /// Stop the current screen recording.
 ///
 /// No required params.
-#[allow(dead_code)]
 pub fn tool_stop_screen_recording(args: &Value) -> NativeToolResult {
     let _ = args; // no required params
 
@@ -248,7 +246,6 @@ struct CapturedFrame {
 /// - `duration_ms` (integer, default 3000, max 30000): capture duration
 /// - `fps` (integer, default 10, max 30): frames per second
 /// - `monitor` (integer, default 0): monitor index
-#[allow(dead_code)]
 pub fn tool_capture_gif(args: &Value) -> NativeToolResult {
     let output_path = match args.get("output_path").and_then(|v| v.as_str()) {
         Some(p) => p.to_string(),
@@ -270,16 +267,10 @@ pub fn tool_capture_gif(args: &Value) -> NativeToolResult {
     let frame_count = ((duration_ms as f64 / 1000.0) * fps as f64).ceil() as usize;
 
     // Capture frames
-    let monitors = match xcap::Monitor::all() {
+    let monitors = match super::validated_monitors("capture_gif", monitor_idx) {
         Ok(m) => m,
-        Err(e) => return tool_error("capture_gif", format!("enumerating monitors: {e}")),
+        Err(e) => return e,
     };
-    if monitor_idx >= monitors.len() {
-        return tool_error(
-            "capture_gif",
-            format!("monitor index {monitor_idx} out of range (0..{})", monitors.len()),
-        );
-    }
     let monitor = &monitors[monitor_idx];
 
     // Determine downscale dimensions (max 640px wide for reasonable GIF size)

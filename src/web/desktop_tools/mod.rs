@@ -165,6 +165,25 @@ pub(super) fn tool_not_supported(tool: &str) -> NativeToolResult {
     NativeToolResult::text_only(format!("Error [{tool}]: not available on this platform"))
 }
 
+/// Validate monitor index and return all monitors + validated index, or a tool_error.
+pub(super) fn validated_monitors(
+    tool: &str,
+    monitor_idx: usize,
+) -> Result<Vec<xcap::Monitor>, NativeToolResult> {
+    let monitors = xcap::Monitor::all()
+        .map_err(|e| tool_error(tool, format!("enumerate monitors: {e}")))?;
+    if monitors.is_empty() {
+        return Err(tool_error(tool, "no monitors detected"));
+    }
+    if monitor_idx >= monitors.len() {
+        return Err(tool_error(
+            tool,
+            format!("monitor {} out of range (0..{})", monitor_idx, monitors.len()),
+        ));
+    }
+    Ok(monitors)
+}
+
 /// Compare two raw RGBA buffers, sampling every 16th pixel for speed.
 /// Returns the percentage of sampled pixels that differ significantly.
 pub(super) fn pixel_diff_pct(a: &[u8], b: &[u8]) -> f64 {
@@ -233,6 +252,7 @@ struct ScreenVerificationContext {
     timeout_ms: u64,
     poll_ms: u64,
     region: Option<VerificationRegion>,
+    expected_text: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -339,10 +359,12 @@ fn prepare_screen_verification(
     args: &Value,
     region: Option<VerificationRegion>,
 ) -> Result<Option<ScreenVerificationContext>, NativeToolResult> {
+    let expected_text = args.get("verify_text").and_then(|v| v.as_str()).map(|s| s.to_string());
     let verify = args
         .get("verify_screen_change")
         .map(|v| parse_bool(v, false))
-        .unwrap_or(false);
+        .unwrap_or(false)
+        || expected_text.is_some(); // verify_text implicitly enables verification
     if !verify {
         return Ok(None);
     }
@@ -376,6 +398,7 @@ fn prepare_screen_verification(
         timeout_ms,
         poll_ms,
         region: verification_region,
+        expected_text,
     }))
 }
 
@@ -387,7 +410,7 @@ fn finalize_action_result(
 ) -> NativeToolResult {
     if let Some(verification) = verification {
         if let Err(e) = interruptible_sleep(std::time::Duration::from_millis(delay_ms)) {
-            return NativeToolResult::text_only(format!("Error: {e}"));
+            return tool_error("verification", e);
         }
 
         let start = std::time::Instant::now();
@@ -410,6 +433,12 @@ fn finalize_action_result(
                 return tool_error("desktop_verification", e);
             }
         };
+        // Clone raw pixels before cache takes ownership (needed for OCR verification below)
+        let raw_for_ocr = if verification.expected_text.is_some() {
+            Some(raw.clone())
+        } else {
+            None
+        };
         update_screenshot_cache(raw, png.clone());
 
         let verification_text = if diff_pct >= verification.threshold_pct {
@@ -423,9 +452,31 @@ fn finalize_action_result(
                 verification.threshold_pct, diff_pct, elapsed_ms
             )
         };
-        let text = format!(
+        let mut text = format!(
             "{summary}. {verification_text} Screenshot {width}x{height}{region_desc}"
         );
+
+        // OCR verification: if expected_text was set, OCR the final screenshot to confirm
+        if let Some(ref expected) = verification.expected_text {
+            let img = raw_for_ocr.and_then(|raw| image::RgbaImage::from_raw(width, height, raw));
+            if let Some(img) = img {
+                let search = expected.to_lowercase();
+                let found = spawn_with_timeout(std::time::Duration::from_secs(10), move || {
+                    ocr_tools::ocr_png_and_search(&img, &search)
+                });
+                match found {
+                    Ok(true) => {
+                        text.push_str(&format!(" Text '{}' confirmed via OCR.", expected));
+                    }
+                    Ok(false) => {
+                        text.push_str(&format!(" WARNING: text '{}' not found via OCR.", expected));
+                    }
+                    Err(e) => {
+                        text.push_str(&format!(" WARNING: OCR verification failed: {e}"));
+                    }
+                }
+            }
+        }
 
         if do_screenshot || verification.threshold_pct > 0.0 {
             NativeToolResult::with_image(text, png)
@@ -527,7 +578,7 @@ fn capture_post_action_screenshot_ext(
     let monitors = match xcap::Monitor::all() {
         Ok(m) => m,
         Err(e) => {
-            return NativeToolResult::text_only(format!("Error: Failed to enumerate monitors: {e}"))
+            return tool_error("screenshot", format!("Failed to enumerate monitors: {e}"))
         }
     };
     let monitor = monitors
@@ -536,12 +587,12 @@ fn capture_post_action_screenshot_ext(
         .or(monitors.first());
     let monitor = match monitor {
         Some(m) => m,
-        None => return NativeToolResult::text_only("Error: No monitors detected".to_string()),
+        None => return tool_error("screenshot", "No monitors detected"),
     };
     let img = match monitor.capture_image() {
         Ok(i) => i,
         Err(e) => {
-            return NativeToolResult::text_only(format!("Error: Screenshot capture failed: {e}"))
+            return tool_error("screenshot", format!("Screenshot capture failed: {e}"))
         }
     };
 
@@ -563,7 +614,7 @@ fn capture_post_action_screenshot_ext(
     // Screen changed — encode new PNG and update cache
     let png_bytes = match encode_image_to_png(&img) {
         Ok(b) => b,
-        Err(e) => return NativeToolResult::text_only(format!("Error: {e}")),
+        Err(e) => return tool_error("screenshot", e),
     };
     update_screenshot_cache(new_raw, png_bytes.clone());
 
@@ -930,11 +981,11 @@ fn str_to_key(s: &str) -> Result<Key, String> {
 pub fn tool_click_screen(args: &Value) -> NativeToolResult {
     let mut x = match args.get("x").and_then(parse_int) {
         Some(v) => v as i32,
-        None => return NativeToolResult::text_only("Error: 'x' coordinate is required".to_string()),
+        None => return tool_error("click_screen", "'x' coordinate is required"),
     };
     let mut y = match args.get("y").and_then(parse_int) {
         Some(v) => v as i32,
-        None => return NativeToolResult::text_only("Error: 'y' coordinate is required".to_string()),
+        None => return tool_error("click_screen", "'y' coordinate is required"),
     };
     // DPI scaling: convert logical coordinates to physical if requested
     #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
@@ -951,7 +1002,7 @@ pub fn tool_click_screen(args: &Value) -> NativeToolResult {
         y = snapped.1;
     }
     if let Err(e) = validate_coordinates(x, y) {
-        return NativeToolResult::text_only(format!("Error: {e}"));
+        return tool_error("click_screen", e);
     }
     // Check for modal dialog blocking the foreground window
     let modal_warning = check_modal_dialog().unwrap_or_default();
@@ -1000,7 +1051,7 @@ pub fn tool_click_screen(args: &Value) -> NativeToolResult {
             )),
         }
     }) {
-        return NativeToolResult::text_only(format!("Error: {e}"));
+        return tool_error("click_screen", e);
     }
 
     finalize_action_result(
@@ -1016,7 +1067,7 @@ pub fn tool_type_text(args: &Value) -> NativeToolResult {
     let text = match args.get("text").and_then(|v| v.as_str()) {
         Some(t) => t.to_owned(),
         None => {
-            return NativeToolResult::text_only("Error: 'text' argument is required".to_string())
+            return tool_error("type_text", "'text' argument is required")
         }
     };
     let do_screenshot = args
@@ -1058,7 +1109,7 @@ pub fn tool_type_text(args: &Value) -> NativeToolResult {
         res
     });
     if let Err(e) = type_result {
-        return NativeToolResult::text_only(format!("Error: {e}"));
+        return tool_error("type_text", e);
     }
 
     let mut summary = if text.len() > 50 {
@@ -1091,7 +1142,7 @@ pub fn tool_press_key(args: &Value) -> NativeToolResult {
     let key_str = match args.get("key").and_then(|v| v.as_str()) {
         Some(k) => k,
         None => {
-            return NativeToolResult::text_only("Error: 'key' argument is required".to_string())
+            return tool_error("press_key", "'key' argument is required")
         }
     };
     let do_screenshot = args
@@ -1115,7 +1166,7 @@ pub fn tool_press_key(args: &Value) -> NativeToolResult {
 
     let (modifiers, main_key) = match parse_key_combo(key_str) {
         Ok(combo) => combo,
-        Err(e) => return NativeToolResult::text_only(format!("Error: {e}")),
+        Err(e) => return tool_error("press_key", e),
     };
 
     let modifiers_clone = modifiers.clone();
@@ -1134,7 +1185,7 @@ pub fn tool_press_key(args: &Value) -> NativeToolResult {
             result.map_err(|e| format!("key press failed: {e}"))
         })
     }) {
-        return NativeToolResult::text_only(format!("Error: {e}"));
+        return tool_error("press_key", e);
     }
 
     let summary = format!("Pressed: {key_str}");
@@ -1147,13 +1198,13 @@ pub fn tool_move_mouse(args: &Value) -> NativeToolResult {
     let mut x = match args.get("x").and_then(parse_int) {
         Some(v) => v as i32,
         None => {
-            return NativeToolResult::text_only("Error: 'x' coordinate is required".to_string())
+            return tool_error("move_mouse", "'x' coordinate is required")
         }
     };
     let mut y = match args.get("y").and_then(parse_int) {
         Some(v) => v as i32,
         None => {
-            return NativeToolResult::text_only("Error: 'y' coordinate is required".to_string())
+            return tool_error("move_mouse", "'y' coordinate is required")
         }
     };
     #[cfg(windows)]
@@ -1170,7 +1221,7 @@ pub fn tool_move_mouse(args: &Value) -> NativeToolResult {
         y = snapped.1;
     }
     if let Err(e) = validate_coordinates(x, y) {
-        return NativeToolResult::text_only(format!("Error: {e}"));
+        return tool_error("move_mouse", e);
     }
 
     if let Err(e) = with_enigo(|enigo| {
@@ -1178,7 +1229,7 @@ pub fn tool_move_mouse(args: &Value) -> NativeToolResult {
             .move_mouse(x, y, Coordinate::Abs)
             .map_err(|e| format!("move_mouse failed: {e}"))
     }) {
-        return NativeToolResult::text_only(format!("Error: {e}"));
+        return tool_error("move_mouse", e);
     }
 
     NativeToolResult::text_only(format!("Mouse moved to ({x}, {y})"))
@@ -1252,9 +1303,7 @@ pub fn tool_scroll_screen(args: &Value) -> NativeToolResult {
     let amount = match args.get("amount").and_then(parse_int) {
         Some(v) => v as i32,
         None => {
-            return NativeToolResult::text_only(
-                "Error: 'amount' argument is required (positive=down, negative=up)".to_string(),
-            )
+            return tool_error("scroll_screen", "'amount' argument is required (positive=down, negative=up)")
         }
     };
     let horizontal = args
@@ -1322,7 +1371,7 @@ pub fn tool_scroll_screen(args: &Value) -> NativeToolResult {
             .scroll(amount, axis)
             .map_err(|e| format!("scroll failed: {e}"))
     }) {
-        return NativeToolResult::text_only(format!("Error: {e}"));
+        return tool_error("scroll_screen", e);
     }
 
     let direction = if horizontal {
@@ -1460,6 +1509,8 @@ pub fn dispatch_desktop_tool(name: &str, args: &Value) -> Option<NativeToolResul
         "wait_for_text_on_screen" => tool_wait_for_text_on_screen(args),
         "get_context_menu" => tool_get_context_menu(args),
         "scroll_element" => tool_scroll_element(args),
+        "smart_wait" => tool_smart_wait(args),
+        "click_and_verify" => tool_click_and_verify(args),
 
         // Dialog & form tools
         "handle_dialog" => tool_handle_dialog(args),
@@ -1537,25 +1588,25 @@ pub fn dispatch_desktop_tool(name: &str, args: &Value) -> Option<NativeToolResul
 pub fn tool_mouse_drag(args: &Value) -> NativeToolResult {
     let x1 = match args.get("from_x").and_then(parse_int) {
         Some(v) => v as i32,
-        None => return NativeToolResult::text_only("Error: 'from_x' is required".to_string()),
+        None => return tool_error("mouse_drag", "'from_x' is required"),
     };
     let y1 = match args.get("from_y").and_then(parse_int) {
         Some(v) => v as i32,
-        None => return NativeToolResult::text_only("Error: 'from_y' is required".to_string()),
+        None => return tool_error("mouse_drag", "'from_y' is required"),
     };
     let x2 = match args.get("to_x").and_then(parse_int) {
         Some(v) => v as i32,
-        None => return NativeToolResult::text_only("Error: 'to_x' is required".to_string()),
+        None => return tool_error("mouse_drag", "'to_x' is required"),
     };
     let y2 = match args.get("to_y").and_then(parse_int) {
         Some(v) => v as i32,
-        None => return NativeToolResult::text_only("Error: 'to_y' is required".to_string()),
+        None => return tool_error("mouse_drag", "'to_y' is required"),
     };
     if let Err(e) = validate_coordinates(x1, y1) {
-        return NativeToolResult::text_only(format!("Error: start {e}"));
+        return tool_error("mouse_drag", format!("start {e}"));
     }
     if let Err(e) = validate_coordinates(x2, y2) {
-        return NativeToolResult::text_only(format!("Error: end {e}"));
+        return tool_error("mouse_drag", format!("end {e}"));
     }
     let delay_ms = args
         .get("delay_ms")
@@ -1613,7 +1664,7 @@ pub fn tool_mouse_drag(args: &Value) -> NativeToolResult {
             .button(Button::Left, Direction::Release)
             .map_err(|e| format!("mouse up failed: {e}"))
     }) {
-        return NativeToolResult::text_only(format!("Error: {e}"));
+        return tool_error("mouse_drag", e);
     }
 
     let steps_note = if steps > 1 {
@@ -1634,9 +1685,7 @@ pub fn tool_mouse_button(args: &Value) -> NativeToolResult {
     let action = match args.get("action").and_then(|v| v.as_str()) {
         Some(a) => a,
         None => {
-            return NativeToolResult::text_only(
-                "Error: 'action' is required (press or release)".to_string(),
-            )
+            return tool_error("mouse_button", "'action' is required (press or release)")
         }
     };
     let button_str = args
@@ -1653,18 +1702,14 @@ pub fn tool_mouse_button(args: &Value) -> NativeToolResult {
         "right" => Button::Right,
         "middle" => Button::Middle,
         other => {
-            return NativeToolResult::text_only(format!(
-                "Error: Unknown button '{other}'. Use: left, right, middle"
-            ))
+            return tool_error("mouse_button", format!("Unknown button '{other}'. Use: left, right, middle"))
         }
     };
     let direction = match action {
         "press" => Direction::Press,
         "release" => Direction::Release,
         other => {
-            return NativeToolResult::text_only(format!(
-                "Error: Unknown action '{other}'. Use: press, release"
-            ))
+            return tool_error("mouse_button", format!("Unknown action '{other}'. Use: press, release"))
         }
     };
 
@@ -1673,7 +1718,7 @@ pub fn tool_mouse_button(args: &Value) -> NativeToolResult {
             .button(button, direction)
             .map_err(|e| format!("mouse button failed: {e}"))
     }) {
-        return NativeToolResult::text_only(format!("Error: {e}"));
+        return tool_error("mouse_button", e);
     }
 
     let past = if action == "press" {
@@ -1890,5 +1935,111 @@ mod tests {
                 height: 400
             })
         );
+    }
+
+    // ─── Round 6: tool_error / tool_not_supported format tests ───────────
+
+    #[test]
+    fn test_tool_error_format() {
+        let r = tool_error("click_screen", "bad coordinate");
+        assert_eq!(r.text, "Error [click_screen]: bad coordinate");
+        assert!(r.images.is_empty());
+    }
+
+    #[test]
+    fn test_tool_error_with_format_string() {
+        let r = tool_error("ocr_screen", format!("monitor {} out of range", 3));
+        assert_eq!(r.text, "Error [ocr_screen]: monitor 3 out of range");
+    }
+
+    #[test]
+    fn test_tool_not_supported_format() {
+        let r = tool_not_supported("handle_dialog");
+        assert_eq!(r.text, "Error [handle_dialog]: not available on this platform");
+    }
+
+    // ─── Round 6: validated_monitors tests ───────────────────────────────
+
+    #[test]
+    fn test_validated_monitors_index_zero_ok() {
+        // Index 0 should always succeed on a machine with a monitor
+        let result = validated_monitors("test_tool", 0);
+        assert!(result.is_ok());
+        let monitors = result.unwrap();
+        assert!(!monitors.is_empty());
+    }
+
+    #[test]
+    fn test_validated_monitors_out_of_range() {
+        let result = validated_monitors("test_tool", 999);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.text.contains("monitor 999 out of range"));
+        assert!(err.text.starts_with("Error [test_tool]:"));
+    }
+
+    // ─── Round 6: verify_text in prepare_screen_verification ─────────────
+
+    #[test]
+    fn test_prepare_verification_no_flags_returns_none() {
+        let args = serde_json::json!({});
+        let result = prepare_screen_verification(&args, None);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn test_prepare_verification_verify_text_enables_verification() {
+        // verify_text alone should enable verification (no verify_screen_change needed)
+        let args = serde_json::json!({
+            "verify_text": "Hello World"
+        });
+        let result = prepare_screen_verification(&args, None);
+        assert!(result.is_ok());
+        let ctx = result.unwrap();
+        assert!(ctx.is_some(), "verify_text should enable verification context");
+        let ctx = ctx.unwrap();
+        assert_eq!(ctx.expected_text, Some("Hello World".to_string()));
+    }
+
+    #[test]
+    fn test_prepare_verification_screen_change_without_text() {
+        let args = serde_json::json!({
+            "verify_screen_change": true
+        });
+        let result = prepare_screen_verification(&args, None);
+        assert!(result.is_ok());
+        let ctx = result.unwrap();
+        assert!(ctx.is_some(), "verify_screen_change=true should enable verification");
+        assert_eq!(ctx.unwrap().expected_text, None);
+    }
+
+    // ─── Round 6: classify_desktop_result_status error format ────────────
+
+    #[test]
+    fn test_classify_result_status_new_tool_error_format() {
+        // Verify the standardized Error [tool]: msg format is correctly classified
+        assert_eq!(
+            classify_desktop_result_status("Error [smart_wait]: 'text' is required when mode is 'all'"),
+            "error"
+        );
+        assert_eq!(
+            classify_desktop_result_status("Error [click_and_verify]: 'click_text' is required"),
+            "error"
+        );
+    }
+
+    // ─── Round 6: dispatch covers new Round 6 tools ──────────────────────
+
+    #[test]
+    fn test_dispatch_smart_wait_exists() {
+        let dummy = serde_json::json!({});
+        assert!(dispatch_desktop_tool("smart_wait", &dummy).is_some());
+    }
+
+    #[test]
+    fn test_dispatch_click_and_verify_exists() {
+        let dummy = serde_json::json!({});
+        assert!(dispatch_desktop_tool("click_and_verify", &dummy).is_some());
     }
 }

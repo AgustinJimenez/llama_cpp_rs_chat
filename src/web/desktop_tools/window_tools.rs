@@ -4,6 +4,7 @@ use serde_json::Value;
 
 use super::NativeToolResult;
 use super::{parse_bool, parse_int, parse_key_combo, tool_click_screen};
+use super::gpu_app_db;
 
 #[cfg(windows)]
 use super::win32;
@@ -148,9 +149,13 @@ pub fn tool_list_windows(args: &Value) -> NativeToolResult {
             format!(" [{}]", w.class_name)
         };
         output.push_str(&format!(
-            "  [{}] \"{}\"{}{} — pid={} {},{} {}x{}{}\n",
+            "  [{}] \"{}\"{}{} — pid={} {},{} {}x{}{}",
             i, w.title, proc, cls, w.pid, w.x, w.y, w.width, w.height, state
         ));
+        if let Some(gpu) = gpu_app_db::detect_gpu_app(&w.class_name, &w.process_name) {
+            output.push_str(&format!(" [GPU: {} — use execute_app_script]", gpu.app_name));
+        }
+        output.push('\n');
     }
 
     NativeToolResult::text_only(output)
@@ -200,7 +205,10 @@ pub fn tool_focus_window(args: &Value) -> NativeToolResult {
         return NativeToolResult::text_only(format!("No visible window found for PID {target_pid}"));
     }
 
-    let filter = title_filter.unwrap();
+    let filter = match title_filter {
+        Some(f) => f,
+        None => return super::tool_error("focus_window", "'title' or 'pid' is required"),
+    };
     match win32::find_window_by_filter(filter) {
         Some((hwnd, info)) => {
             if win32::focus_window(hwnd) {
@@ -554,9 +562,17 @@ pub fn tool_click_window_relative(_args: &Value) -> NativeToolResult {
 pub fn tool_list_monitors(args: &Value) -> NativeToolResult {
     let index_filter = args.get("index").and_then(parse_int).map(|v| v as usize);
 
-    let monitors = match xcap::Monitor::all() {
-        Ok(m) => m,
-        Err(e) => return super::tool_error("list_monitors", format!("enumerating monitors: {e}")),
+    // When an index filter is provided, validate it; otherwise just enumerate all monitors.
+    let monitors = if let Some(idx) = index_filter {
+        match super::validated_monitors("list_monitors", idx) {
+            Ok(m) => m,
+            Err(e) => return e,
+        }
+    } else {
+        match xcap::Monitor::all() {
+            Ok(m) => m,
+            Err(e) => return super::tool_error("list_monitors", format!("enumerating monitors: {e}")),
+        }
     };
 
     if monitors.is_empty() {
@@ -564,9 +580,6 @@ pub fn tool_list_monitors(args: &Value) -> NativeToolResult {
     }
 
     if let Some(idx) = index_filter {
-        if idx >= monitors.len() {
-            return super::tool_error("list_monitors", format!("monitor index {idx} out of range (0..{})", monitors.len()));
-        }
         let m = &monitors[idx];
         return NativeToolResult::text_only(format!(
             "Monitor {idx}: \"{}\" {}x{} at ({},{}) scale={:.1} primary={}",
@@ -1483,7 +1496,6 @@ struct WindowLayout {
 /// Save the current window layout (positions and sizes) to a named file.
 /// Params: `name` (string, required) — layout name used as filename.
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
-#[allow(dead_code)]
 pub fn tool_save_window_layout(args: &Value) -> NativeToolResult {
     let name = match args.get("name").and_then(|v| v.as_str()) {
         Some(n) => n,
@@ -1536,7 +1548,6 @@ pub fn tool_save_window_layout(args: &Value) -> NativeToolResult {
 }
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
-#[allow(dead_code)]
 pub fn tool_save_window_layout(_args: &Value) -> NativeToolResult {
     super::tool_error("save_window_layout", "not available on this platform")
 }
@@ -1544,7 +1555,6 @@ pub fn tool_save_window_layout(_args: &Value) -> NativeToolResult {
 /// Restore a previously saved window layout by name.
 /// Params: `name` (string, required).
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
-#[allow(dead_code)]
 pub fn tool_restore_window_layout(args: &Value) -> NativeToolResult {
     let name = match args.get("name").and_then(|v| v.as_str()) {
         Some(n) => n,
@@ -1642,7 +1652,6 @@ pub fn tool_restore_window_layout(args: &Value) -> NativeToolResult {
 }
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
-#[allow(dead_code)]
 pub fn tool_restore_window_layout(_args: &Value) -> NativeToolResult {
     super::tool_error("restore_window_layout", "not available on this platform")
 }
@@ -1652,7 +1661,6 @@ pub fn tool_restore_window_layout(_args: &Value) -> NativeToolResult {
 /// Wait until a process exits or timeout.
 /// Params: `pid` (integer) or `name` (string), `timeout_ms` (integer, default 30000, max 120000).
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
-#[allow(dead_code)]
 pub fn tool_wait_for_process_exit(args: &Value) -> NativeToolResult {
     let pid = args.get("pid").and_then(parse_int).map(|v| v as u32);
     let name = args.get("name").and_then(|v| v.as_str());
@@ -1727,7 +1735,6 @@ pub fn tool_wait_for_process_exit(args: &Value) -> NativeToolResult {
 }
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
-#[allow(dead_code)]
 pub fn tool_wait_for_process_exit(_args: &Value) -> NativeToolResult {
     super::tool_error("wait_for_process_exit", "not available on this platform")
 }
@@ -1735,7 +1742,6 @@ pub fn tool_wait_for_process_exit(_args: &Value) -> NativeToolResult {
 /// Show a process and all its children recursively as a tree.
 /// Params: `pid` (integer, required).
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
-#[allow(dead_code)]
 pub fn tool_get_process_tree(args: &Value) -> NativeToolResult {
     let pid = match args.get("pid").and_then(parse_int) {
         Some(p) => p as u32,
@@ -1895,14 +1901,12 @@ fn format_tree_recursive(
 }
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
-#[allow(dead_code)]
 pub fn tool_get_process_tree(_args: &Value) -> NativeToolResult {
     super::tool_error("get_process_tree", "not available on this platform")
 }
 
 /// Return system resource usage snapshot (CPU, memory, disk).
 /// No required params.
-#[allow(dead_code)]
 pub fn tool_get_system_metrics(_args: &Value) -> NativeToolResult {
     use sysinfo::System;
 
@@ -1990,4 +1994,50 @@ fn get_disk_info() -> Option<String> {
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ─── Round 6: list_windows GPU tag format ────────────────────────────
+
+    #[test]
+    fn test_list_windows_runs_without_crash() {
+        // Verify list_windows doesn't panic with GPU detection enabled
+        let args = serde_json::json!({});
+        let result = tool_list_windows(&args);
+        // Should return text with window listing
+        assert!(!result.text.is_empty());
+    }
+
+    // ─── Round 6: focus_window title_filter fix ──────────────────────────
+
+    #[test]
+    fn test_focus_window_no_title_returns_error() {
+        // Missing "title" param should return a proper error, not panic
+        let args = serde_json::json!({});
+        let result = tool_focus_window(&args);
+        assert!(result.text.contains("Error [focus_window]"));
+        assert!(result.text.contains("'title'"));
+    }
+
+    // ─── Round 6: kill_process requires pid or name ──────────────────────
+
+    #[test]
+    fn test_kill_process_no_args_returns_error() {
+        let args = serde_json::json!({});
+        let result = tool_kill_process(&args);
+        // Should error about missing pid/name, not panic
+        assert!(result.text.contains("Error") || result.text.contains("required"));
+    }
+
+    // ─── Round 6: close_window requires title ────────────────────────────
+
+    #[test]
+    fn test_close_window_no_title_returns_error() {
+        let args = serde_json::json!({});
+        let result = tool_close_window(&args);
+        assert!(result.text.contains("Error [close_window]") || result.text.contains("'title'"));
+    }
 }

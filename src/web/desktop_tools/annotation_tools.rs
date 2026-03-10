@@ -15,13 +15,10 @@ pub fn tool_annotate_screenshot(args: &Value) -> NativeToolResult {
     };
     let monitor_idx = args.get("monitor").and_then(parse_int).unwrap_or(0) as usize;
 
-    let monitors = match xcap::Monitor::all() {
+    let monitors = match super::validated_monitors("annotate_screenshot", monitor_idx) {
         Ok(m) => m,
-        Err(e) => return super::tool_error("annotate_screenshot", e),
+        Err(e) => return e,
     };
-    if monitor_idx >= monitors.len() {
-        return super::tool_error("annotate_screenshot", format!("monitor {} out of range", monitor_idx));
-    }
     let mut screen = match monitors[monitor_idx].capture_image() {
         Ok(i) => i,
         Err(e) => return super::tool_error("annotate_screenshot", e),
@@ -97,13 +94,10 @@ pub fn tool_ocr_region(args: &Value) -> NativeToolResult {
     let monitor_idx = args.get("monitor").and_then(parse_int).unwrap_or(0) as usize;
 
     // Capture screen
-    let monitors = match xcap::Monitor::all() {
+    let monitors = match super::validated_monitors("ocr_region", monitor_idx) {
         Ok(m) => m,
-        Err(e) => return super::tool_error("ocr_region", e),
+        Err(e) => return e,
     };
-    if monitor_idx >= monitors.len() {
-        return super::tool_error("ocr_region", format!("monitor {} out of range", monitor_idx));
-    }
     let screen = match monitors[monitor_idx].capture_image() {
         Ok(i) => i,
         Err(e) => return super::tool_error("ocr_region", e),
@@ -175,13 +169,10 @@ pub fn tool_find_color_on_screen(args: &Value) -> NativeToolResult {
     let region_w = args.get("region_w").and_then(parse_int).map(|v| v as u32);
     let region_h = args.get("region_h").and_then(parse_int).map(|v| v as u32);
 
-    let monitors = match xcap::Monitor::all() {
+    let monitors = match super::validated_monitors("find_color_on_screen", monitor_idx) {
         Ok(m) => m,
-        Err(e) => return super::tool_error("find_color_on_screen", e),
+        Err(e) => return e,
     };
-    if monitor_idx >= monitors.len() {
-        return super::tool_error("find_color_on_screen", format!("monitor {} out of range", monitor_idx));
-    }
     let screen = match monitors[monitor_idx].capture_image() {
         Ok(i) => i,
         Err(e) => return super::tool_error("find_color_on_screen", e),

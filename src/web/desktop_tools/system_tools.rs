@@ -334,7 +334,6 @@ $n.Dispose();"#,
 /// Wait for a system notification matching a text filter.
 /// Uses screen capture + OCR on the notification region of the screen.
 /// Params: `text_contains` (string, required), `timeout_ms` (integer, default 10000, max 30000).
-#[allow(dead_code)]
 pub fn tool_wait_for_notification(args: &Value) -> NativeToolResult {
     let text_contains = match args.get("text_contains").and_then(|v| v.as_str()) {
         Some(t) => t.to_string(),
@@ -464,7 +463,6 @@ fn truncate_text(text: &str, max_len: usize) -> &str {
 
 /// Dismiss/clear all notifications.
 /// Uses platform-specific approaches. Returns a message about what was done.
-#[allow(dead_code)]
 pub fn tool_dismiss_all_notifications(_args: &Value) -> NativeToolResult {
     #[cfg(windows)]
     {

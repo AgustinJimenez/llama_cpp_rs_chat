@@ -212,7 +212,6 @@ struct DialogHandlerState {
 static DIALOG_HANDLER: Mutex<Option<DialogHandlerState>> = Mutex::new(None);
 
 /// Start a background dialog monitor that auto-clicks buttons matching a button_map.
-#[allow(dead_code)]
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_dialog_handler_start(args: &Value) -> NativeToolResult {
     use super::ui_automation_tools;
@@ -313,18 +312,16 @@ pub fn tool_dialog_handler_start(args: &Value) -> NativeToolResult {
         "Dialog handler started (polling every {}ms, timeout {}ms, watching for buttons: {})",
         poll_interval_ms,
         timeout_ms,
-        args.get("button_map").unwrap()
+        args.get("button_map").map(|v| v.to_string()).unwrap_or_else(|| "{}".to_string())
     ))
 }
 
-#[allow(dead_code)]
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_dialog_handler_start(_args: &Value) -> NativeToolResult {
     super::tool_error("dialog_handler_start", "not available on this platform")
 }
 
 /// Stop the background dialog monitor and return how many dialogs were handled.
-#[allow(dead_code)]
 pub fn tool_dialog_handler_stop(_args: &Value) -> NativeToolResult {
     let mut guard = match DIALOG_HANDLER.lock() {
         Ok(g) => g,
@@ -348,5 +345,72 @@ pub fn tool_dialog_handler_stop(_args: &Value) -> NativeToolResult {
         None => {
             NativeToolResult::text_only("No dialog handler was running".to_string())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ─── dialog_handler_start parameter validation ───────────────────────
+
+    #[test]
+    fn test_dialog_handler_start_requires_button_map() {
+        let args = serde_json::json!({});
+        let result = tool_dialog_handler_start(&args);
+        assert!(result.text.contains("Error [dialog_handler_start]"));
+        assert!(result.text.contains("'button_map' is required"));
+    }
+
+    #[test]
+    fn test_dialog_handler_start_rejects_non_object_button_map() {
+        let args = serde_json::json!({
+            "button_map": "not an object"
+        });
+        let result = tool_dialog_handler_start(&args);
+        assert!(result.text.contains("Error [dialog_handler_start]"));
+        assert!(result.text.contains("'button_map' is required"));
+    }
+
+    // ─── dialog_handler lifecycle (single test to avoid global mutex races) ──
+
+    #[test]
+    fn test_dialog_handler_lifecycle() {
+        // All lifecycle assertions in one test to avoid parallel races on DIALOG_HANDLER global
+        // 1. Stop when nothing running
+        let _ = tool_dialog_handler_stop(&serde_json::json!({}));
+        let stop_noop = tool_dialog_handler_stop(&serde_json::json!({}));
+        assert!(stop_noop.text.contains("No dialog handler was running"));
+
+        // 2. Start handler
+        let start_result = tool_dialog_handler_start(&serde_json::json!({
+            "button_map": { "ok": "click", "cancel": "click" },
+            "timeout_ms": 1000,
+            "poll_interval_ms": 500
+        }));
+        assert!(start_result.text.contains("Dialog handler started"));
+        assert!(start_result.text.contains("polling every 500ms"));
+
+        // 3. Starting again should fail (already running)
+        let dup_result = tool_dialog_handler_start(&serde_json::json!({
+            "button_map": { "ok": "click" }
+        }));
+        assert!(dup_result.text.contains("already running"));
+
+        // 4. Stop handler
+        let stop_result = tool_dialog_handler_stop(&serde_json::json!({}));
+        assert!(stop_result.text.contains("Dialog handler stopped"));
+        assert!(stop_result.text.contains("Dialogs handled:"));
+    }
+
+    // ─── handle_dialog returns info even without dialogs ─────────────────
+
+    #[test]
+    fn test_handle_dialog_runs_without_crash() {
+        // Just verify it doesn't panic — may return "no foreground window" on headless CI
+        let args = serde_json::json!({});
+        let result = tool_handle_dialog(&args);
+        // Should return some text (either dialog info or "no window")
+        assert!(!result.text.is_empty());
     }
 }

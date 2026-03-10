@@ -26,18 +26,10 @@ pub fn tool_move_to_monitor(args: &Value) -> NativeToolResult {
         None => return super::tool_error("move_to_monitor", format!("no window matches '{title}'")),
     };
 
-    let monitors = match xcap::Monitor::all() {
+    let monitors = match super::validated_monitors("move_to_monitor", monitor_idx) {
         Ok(m) => m,
-        Err(e) => return super::tool_error("move_to_monitor", format!("listing monitors: {e}")),
+        Err(e) => return e,
     };
-
-    if monitor_idx >= monitors.len() {
-        return super::tool_error("move_to_monitor", format!(
-            "monitor {} out of range (0..{})",
-            monitor_idx,
-            monitors.len()
-        ));
-    }
 
     let mon = &monitors[monitor_idx];
     let mon_x = mon.x().unwrap_or(0);
@@ -129,13 +121,10 @@ pub fn tool_highlight_point(args: &Value) -> NativeToolResult {
     };
 
     // Capture screen
-    let monitors = match xcap::Monitor::all() {
+    let monitors = match super::validated_monitors("highlight_point", monitor_idx) {
         Ok(m) => m,
-        Err(e) => return super::tool_error("highlight_point", e),
+        Err(e) => return e,
     };
-    if monitor_idx >= monitors.len() {
-        return super::tool_error("highlight_point", format!("monitor {} out of range", monitor_idx));
-    }
     let mut screen = match monitors[monitor_idx].capture_image() {
         Ok(i) => i,
         Err(e) => return super::tool_error("highlight_point", format!("capturing screen: {e}")),

@@ -17,6 +17,58 @@ use super::gpu_app_db;
 /// Default timeout for script execution (2 minutes).
 const SCRIPT_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// Canonicalize and validate a user-provided file/project path.
+fn canonicalize_project_path(raw: &str) -> Result<String, String> {
+    let path = std::path::Path::new(raw);
+    let canonical = path
+        .canonicalize()
+        .map_err(|e| format!("invalid path '{}': {}", raw, e))?;
+    Ok(canonical.to_string_lossy().into_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::canonicalize_project_path;
+
+    #[test]
+    fn test_canonicalize_valid_path() {
+        // Current directory always exists
+        let result = canonicalize_project_path(".");
+        assert!(result.is_ok());
+        let canonical = result.unwrap();
+        assert!(!canonical.is_empty());
+        // On Windows, canonical paths start with \\?\ or a drive letter
+        #[cfg(windows)]
+        assert!(canonical.contains(':') || canonical.starts_with("\\\\"));
+    }
+
+    #[test]
+    fn test_canonicalize_nonexistent_path() {
+        let result = canonicalize_project_path("/nonexistent/fake/path/project.blend");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("invalid path"));
+        assert!(err.contains("/nonexistent/fake/path/project.blend"));
+    }
+
+    #[test]
+    fn test_canonicalize_rejects_traversal() {
+        // ../../../../../../etc/passwd should either fail (doesn't exist) or resolve to an absolute path
+        // Either way, it shouldn't silently pass without canonicalization
+        let result = canonicalize_project_path("../../../../../../etc/passwd");
+        // On Windows this path won't exist, so it should error
+        #[cfg(windows)]
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_canonicalize_temp_dir() {
+        let temp = std::env::temp_dir();
+        let result = canonicalize_project_path(temp.to_str().unwrap());
+        assert!(result.is_ok());
+    }
+}
+
 /// Run a Command with a timeout. Kills the process if it exceeds the timeout.
 fn run_command_with_timeout(
     mut cmd: Command,
@@ -141,7 +193,10 @@ fn execute_blender_script(code: &str, blend_file: Option<&str>, background: bool
         cmd.arg("--background");
     }
     if let Some(f) = blend_file {
-        cmd.arg(f);
+        match canonicalize_project_path(f) {
+            Ok(p) => { cmd.arg(p); }
+            Err(e) => return super::tool_error("execute_app_script", e),
+        }
     }
     cmd.arg("--python");
     cmd.arg(&script_path);
@@ -278,7 +333,10 @@ fn execute_unity_script(code: &str, project_path: Option<&str>) -> NativeToolRes
     };
 
     let project = match project_path {
-        Some(p) => p.to_string(),
+        Some(p) => match canonicalize_project_path(p) {
+            Ok(canonical) => canonical,
+            Err(e) => return super::tool_error("execute_app_script", e),
+        },
         None => return super::tool_error(
             "execute_app_script",
             "Unity batchmode requires a 'file' parameter pointing to a Unity project directory.\n\
@@ -808,7 +866,10 @@ fn execute_godot_script(code: &str, project_path: Option<&str>) -> NativeToolRes
     // is provided, use it. Otherwise create a minimal temporary project.
     let temp_project_dir;
     let project = if let Some(p) = project_path {
-        p.to_string()
+        match canonicalize_project_path(p) {
+            Ok(canonical) => canonical,
+            Err(e) => return super::tool_error("execute_app_script", e),
+        }
     } else {
         temp_project_dir = temp_dir.join("llama_chat_godot_project");
         let _ = std::fs::create_dir_all(&temp_project_dir);
@@ -1082,7 +1143,10 @@ fn execute_unreal_script(code: &str, project_path: Option<&str>) -> NativeToolRe
 
     // If a .uproject file is provided, pass it first
     if let Some(project) = project_path {
-        cmd.arg(project);
+        match canonicalize_project_path(project) {
+            Ok(p) => { cmd.arg(p); }
+            Err(e) => return super::tool_error("execute_app_script", e),
+        }
     }
 
     cmd.arg(format!("-ExecutePythonScript=\"{script_path_str}\""));

@@ -135,19 +135,8 @@ fn clamp_region_to_monitor(
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 fn capture_ocr_target(args: &Value, tool_name: &str) -> Result<OcrCaptureTarget, NativeToolResult> {
     let monitor_idx = args.get("monitor").and_then(parse_int).unwrap_or(0) as usize;
-    let monitors = match xcap::Monitor::all() {
-        Ok(m) => m,
-        Err(e) => return Err(super::tool_error(tool_name, format!("listing monitors: {e}"))),
-    };
-    let monitor = match monitors.get(monitor_idx) {
-        Some(m) => m,
-        None => {
-            return Err(super::tool_error(
-                tool_name,
-                format!("monitor {monitor_idx} out of range (0..{})", monitors.len()),
-            ))
-        }
-    };
+    let monitors = super::validated_monitors(tool_name, monitor_idx)?;
+    let monitor = &monitors[monitor_idx];
 
     let capture = match monitor.capture_image() {
         Ok(img) => img,
@@ -292,6 +281,38 @@ pub(super) fn ocr_find_text(img: &image::RgbaImage, search: &str, offset_x: f64,
 #[cfg(target_os = "linux")]
 pub(super) fn ocr_find_text(img: &image::RgbaImage, search: &str, offset_x: f64, offset_y: f64) -> Result<Vec<OcrMatch>, String> {
     ocr_find_text_tesseract(img, search, offset_x, offset_y)
+}
+
+// ─── Unified OCR text extraction dispatcher ──────────────────────────────────
+
+/// Cross-platform OCR text extraction dispatcher.
+/// Windows: WinRT, macOS: Vision (tesseract fallback), Linux: tesseract.
+#[cfg(windows)]
+pub(super) fn ocr_image(img: &image::RgbaImage) -> Result<String, String> {
+    ocr_image_winrt(img)
+}
+
+#[cfg(target_os = "macos")]
+pub(super) fn ocr_image(img: &image::RgbaImage) -> Result<String, String> {
+    match ocr_image_vision(img, None) {
+        Ok(text) => Ok(text),
+        Err(_) => ocr_image_tesseract(img, None),
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub(super) fn ocr_image(img: &image::RgbaImage) -> Result<String, String> {
+    ocr_image_tesseract(img, None)
+}
+
+/// OCR an RgbaImage and check if the recognized text contains `search_lower` (case-insensitive).
+/// Used by the screen verification system to confirm expected text after actions.
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+pub(super) fn ocr_png_and_search(img: &image::RgbaImage, search_lower: &str) -> bool {
+    match ocr_image(img) {
+        Ok(text) => text.to_lowercase().contains(search_lower),
+        Err(_) => false,
+    }
 }
 
 // ─── OCR tools ────────────────────────────────────────────────────────────────

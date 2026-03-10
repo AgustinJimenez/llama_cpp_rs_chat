@@ -577,6 +577,7 @@ pub fn get_available_tools() -> Vec<Value> {
                     "verify_y": { "type": "integer", "description": "Optional absolute Y for a custom verification region." },
                     "verify_width": { "type": "integer", "description": "Optional width for a custom verification region." },
                     "verify_height": { "type": "integer", "description": "Optional height for a custom verification region." },
+                    "verify_text": { "type": "string", "description": "After action, OCR the verification region and confirm this text appears. Enables verify_screen_change automatically." },
                     "snap_to_screen": { "type": "boolean", "description": "Clamp off-screen coordinates to nearest monitor edge" },
                     "timeout_ms": { "type": "integer", "description": "Operation timeout in ms (1000-60000, default 20000)" }
                 },
@@ -600,6 +601,7 @@ pub fn get_available_tools() -> Vec<Value> {
                     "verify_y": { "type": "integer", "description": "Optional absolute Y for a custom verification region." },
                     "verify_width": { "type": "integer", "description": "Optional width for a custom verification region." },
                     "verify_height": { "type": "integer", "description": "Optional height for a custom verification region." },
+                    "verify_text": { "type": "string", "description": "After action, OCR the verification region and confirm this text appears. Enables verify_screen_change automatically." },
                     "retry": { "type": "integer", "description": "Retry count 0-3 on failure (default 0)" },
                     "timeout_ms": { "type": "integer", "description": "Operation timeout in ms (1000-60000, default 20000)" }
                 },
@@ -623,6 +625,7 @@ pub fn get_available_tools() -> Vec<Value> {
                     "verify_y": { "type": "integer", "description": "Optional absolute Y for a custom verification region." },
                     "verify_width": { "type": "integer", "description": "Optional width for a custom verification region." },
                     "verify_height": { "type": "integer", "description": "Optional height for a custom verification region." },
+                    "verify_text": { "type": "string", "description": "After action, OCR the verification region and confirm this text appears. Enables verify_screen_change automatically." },
                     "retry": { "type": "integer", "description": "Retry count 0-3 on failure (default 0)" },
                     "timeout_ms": { "type": "integer", "description": "Operation timeout in ms (1000-60000, default 20000)" }
                 },
@@ -1793,6 +1796,37 @@ pub fn get_available_tools() -> Vec<Value> {
                 "required": []
             }
         }),
+        // ─── Phase J tools ──────────────────────────────────────────────────
+        json!({
+            "name": "smart_wait",
+            "description": "Wait until screen changes, specific text appears via OCR, or both. Combines wait_for_screen_change + wait_for_text_on_screen.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": { "type": "string", "description": "Text to wait for via OCR (optional if just waiting for screen change)" },
+                    "timeout_ms": { "type": "integer", "description": "Maximum wait time (default 10000, max 30000)" },
+                    "threshold": { "type": "number", "description": "Pixel change threshold percentage (default 1.0)" },
+                    "mode": { "type": "string", "description": "'any' (default) = return when either condition met, 'all' = wait for both" },
+                    "monitor": { "type": "integer", "description": "Monitor index (default 0)" },
+                    "poll_ms": { "type": "integer", "description": "Polling interval (default 500)" }
+                },
+                "required": []
+            }
+        }),
+        json!({
+            "name": "click_and_verify",
+            "description": "Find text on screen via OCR, click it, then verify that different expected text appeared. Combines find_and_click_text + OCR verification.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "click_text": { "type": "string", "description": "Text to find and click" },
+                    "expect_text": { "type": "string", "description": "Text expected to appear after clicking" },
+                    "timeout_ms": { "type": "integer", "description": "Maximum wait for verification (default 5000)" },
+                    "monitor": { "type": "integer", "description": "Monitor index (default 0)" }
+                },
+                "required": ["click_text", "expect_text"]
+            }
+        }),
     ];
 
     tools
@@ -1822,6 +1856,7 @@ pub(crate) const DESKTOP_TOOL_NAMES: &[&str] = &[
     "read_clipboard", "write_clipboard", "get_cursor_position", "get_pixel_color", "list_monitors",
     "find_and_click_text", "type_into_element", "get_window_text", "file_dialog_navigate",
     "drag_and_drop_element", "wait_for_text_on_screen", "get_context_menu", "scroll_element",
+    "smart_wait", "click_and_verify",
     "handle_dialog", "wait_for_element_state", "fill_form", "run_action_sequence",
     "move_to_monitor", "set_window_opacity", "highlight_point",
     "annotate_screenshot", "ocr_region", "find_color_on_screen", "find_image_on_screen",
@@ -1858,20 +1893,12 @@ fn desktop_tool_available_on_current_platform(name: &str) -> bool {
                 | "read_ui_element_value"
                 | "wait_for_ui_element"
                 | "find_ui_elements"
-                | "find_and_click_text"
-                | "type_into_element"
-                | "get_window_text"
                 | "file_dialog_navigate"
-                | "drag_and_drop_element"
-                | "wait_for_text_on_screen"
                 | "get_context_menu"
-                | "scroll_element"
                 | "handle_dialog"
                 | "wait_for_element_state"
                 | "fill_form"
                 | "hover_element"
-                | "clipboard_image"
-                | "ocr_region"
                 | "move_to_monitor"
                 | "set_window_opacity"
                 | "dialog_handler_start"

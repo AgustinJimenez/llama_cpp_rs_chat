@@ -30,16 +30,10 @@ pub fn tool_find_image_on_screen(args: &Value) -> NativeToolResult {
     };
 
     // Capture screen
-    let monitors = match xcap::Monitor::all() {
+    let monitors = match super::validated_monitors("find_image_on_screen", monitor_idx) {
         Ok(m) => m,
-        Err(e) => return super::tool_error("find_image_on_screen", e),
+        Err(e) => return e,
     };
-    if monitor_idx >= monitors.len() {
-        return super::tool_error("find_image_on_screen", format!(
-            "monitor {monitor_idx} out of range (0..{})",
-            monitors.len()
-        ));
-    }
     let screen = match monitors[monitor_idx].capture_image() {
         Ok(i) => i,
         Err(e) => return super::tool_error("find_image_on_screen", format!("capturing screen: {e}")),
