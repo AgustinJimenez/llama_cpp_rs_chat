@@ -202,7 +202,7 @@ pub fn tool_focus_window(args: &Value) -> NativeToolResult {
                 info.title, target_pid
             ));
         }
-        return NativeToolResult::text_only(format!("No visible window found for PID {target_pid}"));
+        return super::tool_error("focus_window", format!("no visible window for PID {target_pid}"));
     }
 
     let filter = match title_filter {
@@ -223,7 +223,7 @@ pub fn tool_focus_window(args: &Value) -> NativeToolResult {
                 ))
             }
         }
-        None => NativeToolResult::text_only(format!("No visible window matches '{filter}'")),
+        None => super::tool_error("focus_window", format!("no window matches '{filter}'")),
     }
 }
 
@@ -681,13 +681,16 @@ pub fn tool_snap_window(args: &Value) -> NativeToolResult {
             let ch = wh * 2 / 3;
             (work.left + (ww - cw) / 2, work.top + (wh - ch) / 2, cw, ch)
         }
-        other => return NativeToolResult::text_only(format!(
-            "Unknown position '{other}'. Use: left, right, top-left, top-right, bottom-left, bottom-right, center, maximize, restore"
+        other => return super::tool_error("snap_window", format!(
+            "unknown position '{other}', use: left, right, top-left, top-right, bottom-left, bottom-right, center, maximize, restore"
         )),
     };
 
-    unsafe {
-        win32::SetWindowPos(hwnd, 0, x, y, w, h, win32::SWP_SHOWWINDOW);
+    let success = unsafe {
+        win32::SetWindowPos(hwnd, 0, x, y, w, h, win32::SWP_SHOWWINDOW)
+    };
+    if success == 0 {
+        return super::tool_error("snap_window", "SetWindowPos failed");
     }
     NativeToolResult::text_only(format!(
         "Snapped '{}' pid={} to {position} ({x},{y} {w}x{h})",
@@ -2039,5 +2042,28 @@ mod tests {
         let args = serde_json::json!({});
         let result = tool_close_window(&args);
         assert!(result.text.contains("Error [close_window]") || result.text.contains("'title'"));
+    }
+
+    // ─── Round 7: snap_window error format ──────────────────────────────
+
+    #[test]
+    fn test_snap_window_missing_title_and_pid() {
+        let args = serde_json::json!({"position": "left"});
+        let result = tool_snap_window(&args);
+        assert!(result.text.contains("Error [snap_window]"));
+        assert!(result.text.contains("'title' or 'pid'"));
+    }
+
+    #[test]
+    fn test_snap_window_nonexistent_window() {
+        let args = serde_json::json!({"position": "left", "title": "__nonexistent_window_xyz__"});
+        let result = tool_snap_window(&args);
+        // resolve_window_target returns error for non-matching title
+        assert!(
+            result.text.contains("window")
+                || result.text.contains("Error")
+                || result.text.contains("match"),
+            "unexpected result: {}", result.text
+        );
     }
 }

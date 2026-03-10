@@ -20,6 +20,15 @@ struct OverlayState {
     control_file: PathBuf,
 }
 
+impl Drop for OverlayState {
+    fn drop(&mut self) {
+        let _ = std::fs::write(&self.control_file, "__EXIT__");
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        let _ = std::fs::remove_file(&self.control_file);
+    }
+}
+
 lazy_static::lazy_static! {
     /// Holds the overlay child process and control file path (platform-agnostic).
     static ref OVERLAY: Mutex<Option<OverlayState>> = Mutex::new(None);
@@ -414,7 +423,10 @@ pub fn tool_show_status_overlay(args: &Value) -> NativeToolResult {
     {
         use std::process::{Command, Stdio};
 
-        let mut lock = OVERLAY.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut lock = OVERLAY.lock().unwrap_or_else(|poisoned| {
+            crate::log_warn!("system", "Mutex poisoned in OVERLAY, recovering");
+            poisoned.into_inner()
+        });
 
         // Kill existing overlay if any
         if let Some(mut old) = lock.take() {
@@ -523,7 +535,10 @@ pub fn tool_update_status_overlay(args: &Value) -> NativeToolResult {
         None => return super::tool_error("update_status_overlay", "'text' is required"),
     };
 
-    let mut lock = OVERLAY.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut lock = OVERLAY.lock().unwrap_or_else(|poisoned| {
+        crate::log_warn!("system", "Mutex poisoned in OVERLAY, recovering");
+        poisoned.into_inner()
+    });
     match lock.as_mut() {
         Some(state) => {
             // Check if process still alive
@@ -561,7 +576,10 @@ pub fn tool_update_status_overlay(args: &Value) -> NativeToolResult {
 
 /// Hide (dismiss) the status overlay.
 pub fn tool_hide_status_overlay(_args: &Value) -> NativeToolResult {
-    let mut lock = OVERLAY.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut lock = OVERLAY.lock().unwrap_or_else(|poisoned| {
+        crate::log_warn!("system", "Mutex poisoned in OVERLAY, recovering");
+        poisoned.into_inner()
+    });
     match lock.take() {
         Some(mut state) => {
             // Signal exit via control file, then force kill with bounded wait

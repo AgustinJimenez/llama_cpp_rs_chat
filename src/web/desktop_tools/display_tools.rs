@@ -36,7 +36,7 @@ pub fn tool_move_to_monitor(args: &Value) -> NativeToolResult {
     let mon_y = mon.y().unwrap_or(0);
 
     // Move window, preserve size
-    unsafe {
+    let success = unsafe {
         win32::SetWindowPos(
             hwnd,
             0, // no z-order change
@@ -45,7 +45,10 @@ pub fn tool_move_to_monitor(args: &Value) -> NativeToolResult {
             info.width,
             info.height,
             win32::SWP_NOZORDER | win32::SWP_SHOWWINDOW,
-        );
+        )
+    };
+    if success == 0 {
+        return super::tool_error("move_to_monitor", "SetWindowPos failed");
     }
 
     let screenshot = super::capture_post_action_screenshot(300);

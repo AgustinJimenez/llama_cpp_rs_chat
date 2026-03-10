@@ -82,7 +82,10 @@ fn get_cached_ocr_payload(
     if max_age_ms == 0 {
         return None;
     }
-    let lock = OCR_CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let lock = OCR_CACHE.lock().unwrap_or_else(|poisoned| {
+        crate::log_warn!("system", "Mutex poisoned in OCR_CACHE, recovering");
+        poisoned.into_inner()
+    });
     let entry = lock.as_ref()?;
     if entry.key != key || entry.created_at.elapsed().as_millis() > max_age_ms as u128 {
         return None;
@@ -95,7 +98,10 @@ fn get_cached_ocr_payload(
 
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 fn update_cached_ocr_payload(key: String, raw: Vec<u8>, payload: OcrCachePayload) {
-    let mut lock = OCR_CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut lock = OCR_CACHE.lock().unwrap_or_else(|poisoned| {
+        crate::log_warn!("system", "Mutex poisoned in OCR_CACHE, recovering");
+        poisoned.into_inner()
+    });
     *lock = Some(OcrCacheEntry {
         key,
         raw,

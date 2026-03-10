@@ -19,7 +19,7 @@ pub fn tool_clipboard_image(args: &Value) -> NativeToolResult {
             let monitor_idx = args.get("monitor").and_then(parse_int).unwrap_or(0) as usize;
             clipboard_image_write(monitor_idx)
         }
-        other => NativeToolResult::text_only(format!("Unknown action '{other}'. Use 'read' or 'write'.")),
+        other => super::tool_error("clipboard_image", format!("unknown action '{other}', use 'read' or 'write'")),
     }
 }
 
@@ -154,6 +154,10 @@ fn clipboard_image_write(monitor_idx: usize) -> NativeToolResult {
         let ptr = win32::GlobalLock(hmem);
         if ptr.is_null() {
             return super::tool_error("clipboard_image", "GlobalLock failed");
+        }
+        if total_size == 0 {
+            win32::GlobalUnlock(hmem);
+            return super::tool_error("clipboard_image", "zero-size allocation");
         }
 
         let buf = std::slice::from_raw_parts_mut(ptr, total_size);
@@ -372,6 +376,10 @@ pub fn tool_clipboard_file_paths(args: &Value) -> NativeToolResult {
                 let ptr = win32::GlobalLock(hmem);
                 if ptr.is_null() {
                     return super::tool_error("clipboard_file_paths", "GlobalLock failed");
+                }
+                if total_size == 0 {
+                    win32::GlobalUnlock(hmem);
+                    return super::tool_error("clipboard_file_paths", "zero-size allocation");
                 }
                 let buf = std::slice::from_raw_parts_mut(ptr, total_size);
                 buf.fill(0);
@@ -644,6 +652,10 @@ pub fn tool_clipboard_html(args: &Value) -> NativeToolResult {
                 let ptr = win32::GlobalLock(hmem);
                 if ptr.is_null() {
                     return super::tool_error("clipboard_html", "GlobalLock failed");
+                }
+                if bytes.is_empty() {
+                    win32::GlobalUnlock(hmem);
+                    return super::tool_error("clipboard_html", "empty HTML content");
                 }
                 std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, bytes.len());
                 *ptr.add(bytes.len()) = 0; // null terminate

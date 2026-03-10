@@ -112,7 +112,10 @@ pub fn tool_screenshot_diff(args: &Value) -> NativeToolResult {
     let h = img.height();
 
     if save_baseline {
-        let mut lock = BASELINE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut lock = BASELINE.lock().unwrap_or_else(|poisoned| {
+            crate::log_warn!("system", "Mutex poisoned in BASELINE, recovering");
+            poisoned.into_inner()
+        });
         *lock = Some(current_bytes);
         return NativeToolResult::text_only(format!(
             "Baseline saved: {w}x{h} ({} bytes). Call again without save_baseline to compare.",
@@ -121,7 +124,10 @@ pub fn tool_screenshot_diff(args: &Value) -> NativeToolResult {
     }
 
     // Compare with baseline
-    let lock = BASELINE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let lock = BASELINE.lock().unwrap_or_else(|poisoned| {
+        crate::log_warn!("system", "Mutex poisoned in BASELINE, recovering");
+        poisoned.into_inner()
+    });
     let baseline = match lock.as_ref() {
         Some(b) => b,
         None => return super::tool_error("screenshot_diff", "no baseline saved. Call with save_baseline=true first."),

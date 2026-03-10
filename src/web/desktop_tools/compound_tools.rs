@@ -53,7 +53,8 @@ pub fn tool_find_and_click_text(args: &Value) -> NativeToolResult {
 
         let img_c = img.clone();
         let s = search.clone();
-        result = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
+        let timeout = super::parse_timeout(args);
+        result = super::spawn_with_timeout(timeout, move || {
             super::ocr_tools::ocr_find_text(&img_c, &s, 0.0, 0.0)
         }).and_then(|r| r);
         if result.is_ok() { break; }
@@ -139,8 +140,9 @@ pub fn tool_type_into_element(args: &Value) -> NativeToolResult {
         } else {
             let name_owned = name_filter.map(|s| s.to_lowercase());
             let type_owned = type_filter.map(|s| s.to_lowercase());
+            let timeout = super::parse_timeout(args);
 
-            let result = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
+            let result = super::spawn_with_timeout(timeout, move || {
                 super::find_ui_element(hwnd, name_owned.as_deref(), type_owned.as_deref())
             }).and_then(|r| r);
 
@@ -202,7 +204,8 @@ pub fn tool_get_window_text(args: &Value) -> NativeToolResult {
         }
     };
 
-    let result = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
+    let timeout = super::parse_timeout(args);
+    let result = super::spawn_with_timeout(timeout, move || {
         get_window_text_inner(hwnd, max_chars)
     }).and_then(|r| r);
 
@@ -378,8 +381,9 @@ pub fn tool_file_dialog_navigate(args: &Value) -> NativeToolResult {
 
     let filename_clone = filename.clone();
     let button_clone = button_name.clone();
+    let timeout = super::parse_timeout(args);
 
-    let result = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
+    let result = super::spawn_with_timeout(timeout, move || {
         file_dialog_navigate_inner(hwnd, &filename_clone, &button_clone)
     }).and_then(|r| r);
 
@@ -560,7 +564,8 @@ pub fn tool_drag_and_drop_element(args: &Value) -> NativeToolResult {
             let tn_owned = to_name.map(|s| s.to_lowercase());
             let tt_owned = to_type.map(|s| s.to_lowercase());
 
-            let result = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
+            let timeout = super::parse_timeout(args);
+            let result = super::spawn_with_timeout(timeout, move || {
                 let from = super::find_ui_element(hwnd, fn_owned.as_deref(), ft_owned.as_deref())?;
                 let to = super::find_ui_element(hwnd, tn_owned.as_deref(), tt_owned.as_deref())?;
                 Ok((from, to))
@@ -717,7 +722,8 @@ pub fn tool_get_context_menu(args: &Value) -> NativeToolResult {
         };
 
         let click_item_clone = click_item.clone();
-        let result = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
+        let timeout = super::parse_timeout(args);
+        let result = super::spawn_with_timeout(timeout, move || {
             let items = super::find_ui_elements_all(hwnd, None, Some("menuitem"), 20)?;
             if items.is_empty() {
                 let items2 = super::find_ui_elements_all(hwnd, None, Some("menu"), 20)?;
@@ -875,8 +881,9 @@ pub fn tool_scroll_element(args: &Value) -> NativeToolResult {
         } else {
             let name_owned = name_filter.map(|s| s.to_lowercase());
             let type_owned = type_filter.map(|s| s.to_lowercase());
+            let timeout = super::parse_timeout(args);
 
-            let result = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
+            let result = super::spawn_with_timeout(timeout, move || {
                 super::find_ui_element(hwnd, name_owned.as_deref(), type_owned.as_deref())
             }).and_then(|r| r);
 
@@ -1199,5 +1206,55 @@ mod tests {
         let args = serde_json::json!({});
         let result = tool_click_and_verify(&args);
         assert!(result.text.contains("Error [click_and_verify]"));
+    }
+
+    // ─── Round 7: parameter validation ──────────────────────────────────
+
+    #[test]
+    fn test_find_and_click_text_missing_text() {
+        let args = serde_json::json!({});
+        let result = tool_find_and_click_text(&args);
+        assert!(result.text.contains("Error [find_and_click_text]"));
+        assert!(result.text.contains("'text' is required"));
+    }
+
+    #[test]
+    fn test_type_into_element_missing_text() {
+        let args = serde_json::json!({});
+        let result = tool_type_into_element(&args);
+        assert!(result.text.contains("Error [type_into_element]"));
+        assert!(result.text.contains("'text' is required"));
+    }
+
+    #[test]
+    fn test_type_into_element_missing_name_and_type() {
+        let args = serde_json::json!({"text": "hello"});
+        let result = tool_type_into_element(&args);
+        assert!(result.text.contains("Error [type_into_element]"));
+        assert!(result.text.contains("'name' or 'control_type'"));
+    }
+
+    #[test]
+    fn test_drag_and_drop_element_missing_from() {
+        let args = serde_json::json!({"to_name": "target"});
+        let result = tool_drag_and_drop_element(&args);
+        assert!(result.text.contains("Error [drag_and_drop_element]"));
+        assert!(result.text.contains("from_name"));
+    }
+
+    #[test]
+    fn test_scroll_element_missing_name_and_type() {
+        let args = serde_json::json!({"direction": "down"});
+        let result = tool_scroll_element(&args);
+        assert!(result.text.contains("Error [scroll_element]"));
+        assert!(result.text.contains("'name' or 'control_type'"));
+    }
+
+    #[test]
+    fn test_get_context_menu_missing_x() {
+        let args = serde_json::json!({"y": 100});
+        let result = tool_get_context_menu(&args);
+        assert!(result.text.contains("Error [get_context_menu]"));
+        assert!(result.text.contains("'x'"));
     }
 }

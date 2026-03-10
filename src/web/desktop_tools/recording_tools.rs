@@ -17,9 +17,18 @@ use super::{parse_int, tool_error};
 // ─── Recording state ─────────────────────────────────────────────────────────
 
 struct RecordingState {
-    child: std::process::Child,
+    child: Option<std::process::Child>,
     output_path: String,
     started_at: Instant,
+}
+
+impl Drop for RecordingState {
+    fn drop(&mut self) {
+        if let Some(ref mut child) = self.child {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
 }
 
 lazy_static::lazy_static! {
@@ -74,7 +83,10 @@ pub fn tool_start_screen_recording(args: &Value) -> NativeToolResult {
 
     // Check if already recording
     {
-        let lock = RECORDING_STATE.lock().unwrap_or_else(|p| p.into_inner());
+        let lock = RECORDING_STATE.lock().unwrap_or_else(|p| {
+            crate::log_warn!("system", "Mutex poisoned in RECORDING_STATE, recovering");
+            p.into_inner()
+        });
         if lock.is_some() {
             return tool_error(
                 "start_screen_recording",
@@ -157,9 +169,12 @@ pub fn tool_start_screen_recording(args: &Value) -> NativeToolResult {
         Err(e) => return tool_error("start_screen_recording", format!("failed to start ffmpeg: {e}")),
     };
 
-    let mut lock = RECORDING_STATE.lock().unwrap_or_else(|p| p.into_inner());
+    let mut lock = RECORDING_STATE.lock().unwrap_or_else(|p| {
+        crate::log_warn!("system", "Mutex poisoned in RECORDING_STATE, recovering");
+        p.into_inner()
+    });
     *lock = Some(RecordingState {
-        child,
+        child: Some(child),
         output_path: output_path.clone(),
         started_at: Instant::now(),
     });
@@ -178,7 +193,10 @@ pub fn tool_stop_screen_recording(args: &Value) -> NativeToolResult {
     let _ = args; // no required params
 
     let state = {
-        let mut lock = RECORDING_STATE.lock().unwrap_or_else(|p| p.into_inner());
+        let mut lock = RECORDING_STATE.lock().unwrap_or_else(|p| {
+            crate::log_warn!("system", "Mutex poisoned in RECORDING_STATE, recovering");
+            p.into_inner()
+        });
         lock.take()
     };
 
@@ -190,8 +208,14 @@ pub fn tool_stop_screen_recording(args: &Value) -> NativeToolResult {
     let duration = state.started_at.elapsed();
     let output_path = state.output_path.clone();
 
+    // Take child out of Option so Drop won't also try to kill it
+    let mut child = match state.child.take() {
+        Some(c) => c,
+        None => return tool_error("stop_screen_recording", "recording child process already consumed"),
+    };
+
     // Send 'q' to ffmpeg's stdin for graceful stop (finalizes the file)
-    if let Some(mut stdin) = state.child.stdin.take() {
+    if let Some(mut stdin) = child.stdin.take() {
         let _ = stdin.write_all(b"q");
         let _ = stdin.flush();
     }
@@ -199,7 +223,7 @@ pub fn tool_stop_screen_recording(args: &Value) -> NativeToolResult {
     // Wait for process to exit with a 10-second timeout
     let exited_cleanly = {
         let (tx, rx) = std::sync::mpsc::channel();
-        let mut child = state.child;
+        let mut child = child;
         std::thread::spawn(move || {
             let status = child.wait();
             let _ = tx.send(status);
@@ -780,5 +804,37 @@ mod tests {
         assert_eq!(out[0], 255);
         assert_eq!(out[256], 45);
         assert_eq!(out.len(), 1 + 255 + 1 + 45);
+    }
+
+    // ─── Round 7: RecordingState Drop ───────────────────────────────────
+
+    #[test]
+    fn test_recording_state_drop_without_child() {
+        // Drop with None child should not panic
+        let state = RecordingState {
+            child: None,
+            output_path: "/tmp/test.gif".to_string(),
+            started_at: Instant::now(),
+        };
+        drop(state); // should not panic
+    }
+
+    #[test]
+    fn test_recording_state_drop_with_child() {
+        // Spawn a short-lived process, wrap in RecordingState, drop should kill it
+        let child = Command::new(if cfg!(windows) { "timeout" } else { "sleep" })
+            .args(if cfg!(windows) { &["/t", "60"][..] } else { &["60"][..] })
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+        if let Ok(child) = child {
+            let state = RecordingState {
+                child: Some(child),
+                output_path: "/tmp/test.gif".to_string(),
+                started_at: Instant::now(),
+            };
+            drop(state); // Drop should kill + wait, not panic
+        }
     }
 }

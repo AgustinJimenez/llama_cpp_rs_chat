@@ -220,7 +220,7 @@ pub fn tool_dialog_handler_start(args: &Value) -> NativeToolResult {
 
     let mut guard = match DIALOG_HANDLER.lock() {
         Ok(g) => g,
-        Err(p) => p.into_inner(),
+        Err(p) => { crate::log_warn!("system", "Mutex poisoned in DIALOG_HANDLER, recovering"); p.into_inner() }
     };
 
     if guard.is_some() {
@@ -325,7 +325,7 @@ pub fn tool_dialog_handler_start(_args: &Value) -> NativeToolResult {
 pub fn tool_dialog_handler_stop(_args: &Value) -> NativeToolResult {
     let mut guard = match DIALOG_HANDLER.lock() {
         Ok(g) => g,
-        Err(p) => p.into_inner(),
+        Err(p) => { crate::log_warn!("system", "Mutex poisoned in DIALOG_HANDLER, recovering"); p.into_inner() }
     };
 
     match guard.take() {

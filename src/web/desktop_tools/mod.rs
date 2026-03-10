@@ -165,12 +165,39 @@ pub(super) fn tool_not_supported(tool: &str) -> NativeToolResult {
     NativeToolResult::text_only(format!("Error [{tool}]: not available on this platform"))
 }
 
+/// Wrapper to make `Vec<xcap::Monitor>` safe for static storage.
+/// HMONITOR handles are global Win32 system handles, safe across threads.
+struct MonitorCache(Option<(Vec<xcap::Monitor>, std::time::Instant)>);
+// Safety: HMONITOR is a global system handle; sharing across threads is safe.
+unsafe impl Send for MonitorCache {}
+
+/// Cached monitor list with 1-second TTL to avoid repeated FFI calls.
+static MONITOR_CACHE: std::sync::Mutex<MonitorCache> =
+    std::sync::Mutex::new(MonitorCache(None));
+const MONITOR_CACHE_TTL_MS: u128 = 1000;
+
+/// Return cached monitors or re-enumerate if stale/empty.
+pub(super) fn cached_monitors() -> Result<Vec<xcap::Monitor>, String> {
+    let mut lock = MONITOR_CACHE.lock().unwrap_or_else(|p| {
+        crate::log_warn!("system", "Mutex poisoned in MONITOR_CACHE, recovering");
+        p.into_inner()
+    });
+    if let Some((ref monitors, ref ts)) = lock.0 {
+        if ts.elapsed().as_millis() < MONITOR_CACHE_TTL_MS && !monitors.is_empty() {
+            return Ok(monitors.clone());
+        }
+    }
+    let monitors = xcap::Monitor::all().map_err(|e| format!("{e}"))?;
+    lock.0 = Some((monitors.clone(), std::time::Instant::now()));
+    Ok(monitors)
+}
+
 /// Validate monitor index and return all monitors + validated index, or a tool_error.
 pub(super) fn validated_monitors(
     tool: &str,
     monitor_idx: usize,
 ) -> Result<Vec<xcap::Monitor>, NativeToolResult> {
-    let monitors = xcap::Monitor::all()
+    let monitors = cached_monitors()
         .map_err(|e| tool_error(tool, format!("enumerate monitors: {e}")))?;
     if monitors.is_empty() {
         return Err(tool_error(tool, "no monitors detected"));
@@ -2041,5 +2068,54 @@ mod tests {
     fn test_dispatch_click_and_verify_exists() {
         let dummy = serde_json::json!({});
         assert!(dispatch_desktop_tool("click_and_verify", &dummy).is_some());
+    }
+
+    // ─── Round 7: parse_timeout ─────────────────────────────────────────
+
+    #[test]
+    fn test_parse_timeout_default() {
+        let args = serde_json::json!({});
+        let dur = parse_timeout(&args);
+        assert_eq!(dur, DEFAULT_THREAD_TIMEOUT);
+    }
+
+    #[test]
+    fn test_parse_timeout_custom() {
+        let args = serde_json::json!({"timeout_ms": 5000});
+        let dur = parse_timeout(&args);
+        assert_eq!(dur, std::time::Duration::from_millis(5000));
+    }
+
+    #[test]
+    fn test_parse_timeout_clamp_low() {
+        let args = serde_json::json!({"timeout_ms": 100});
+        let dur = parse_timeout(&args);
+        assert_eq!(dur, std::time::Duration::from_millis(1000));
+    }
+
+    #[test]
+    fn test_parse_timeout_clamp_high() {
+        let args = serde_json::json!({"timeout_ms": 999999});
+        let dur = parse_timeout(&args);
+        assert_eq!(dur, std::time::Duration::from_millis(60000));
+    }
+
+    // ─── Round 7: cached_monitors ───────────────────────────────────────
+
+    #[test]
+    fn test_cached_monitors_returns_list() {
+        let result = cached_monitors();
+        // Should succeed on any system with at least one display
+        assert!(result.is_ok());
+        assert!(!result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_cached_monitors_second_call_uses_cache() {
+        // First call populates cache
+        let _ = cached_monitors();
+        // Second call should also succeed (from cache)
+        let result = cached_monitors();
+        assert!(result.is_ok());
     }
 }

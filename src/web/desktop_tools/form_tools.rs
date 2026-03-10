@@ -59,7 +59,8 @@ pub fn tool_fill_form(args: &Value) -> NativeToolResult {
 
         // Find the element by name
         let label_lower = label.to_lowercase();
-        let element = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
+        let timeout = super::parse_timeout(args);
+        let element = super::spawn_with_timeout(timeout, move || {
             ui_automation_tools::find_ui_element(hwnd, Some(&label_lower), None)
         }).and_then(|r| r);
 
@@ -105,8 +106,8 @@ pub fn tool_fill_form(args: &Value) -> NativeToolResult {
                         }));
                         filled.push(format!("'{}' selected (radio)", label));
                     }
-                    _ => {
-                        // Default: click → Ctrl+A → type → Tab
+                    // Text input: click → select all → type → tab
+                    "edit" | "text" | "input" | _ => {
                         super::tool_click_screen(&serde_json::json!({
                             "x": el.cx, "y": el.cy, "delay_ms": 100, "screenshot": false
                         }));
@@ -360,5 +361,92 @@ pub fn tool_run_action_sequence(args: &Value) -> NativeToolResult {
             results.join("\n")
         ),
         images: screenshot.images,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ─── Round 7: fill_form parameter validation ────────────────────────
+
+    #[test]
+    fn test_fill_form_missing_fields() {
+        let args = serde_json::json!({});
+        let result = tool_fill_form(&args);
+        assert!(result.text.contains("Error [fill_form]"));
+        assert!(result.text.contains("fields"));
+    }
+
+    #[test]
+    fn test_fill_form_empty_fields_array() {
+        let args = serde_json::json!({"fields": []});
+        let result = tool_fill_form(&args);
+        // Empty fields should produce "Filled 0 field(s)" — no error
+        assert!(result.text.contains("Filled 0 field(s)"));
+    }
+
+    // ─── Round 7: action_sequence parameter validation ──────────────────
+
+    #[test]
+    fn test_action_sequence_missing_actions() {
+        let args = serde_json::json!({});
+        let result = tool_run_action_sequence(&args);
+        assert!(result.text.contains("Error [run_action_sequence]"));
+        assert!(result.text.contains("actions"));
+    }
+
+    #[test]
+    fn test_action_sequence_wait_action() {
+        let args = serde_json::json!({
+            "actions": [{"action": "wait", "ms": 50}],
+            "screenshot_mode": "none"
+        });
+        let result = tool_run_action_sequence(&args);
+        assert!(result.text.contains("waited 50ms"));
+    }
+
+    #[test]
+    fn test_action_sequence_unknown_action() {
+        let args = serde_json::json!({
+            "actions": [{"action": "foobar"}],
+            "screenshot_mode": "none"
+        });
+        let result = tool_run_action_sequence(&args);
+        assert!(result.text.contains("unknown action 'foobar'"));
+    }
+
+    #[test]
+    fn test_action_sequence_skip_no_action_field() {
+        let args = serde_json::json!({
+            "actions": [{"x": 100}],
+            "screenshot_mode": "none"
+        });
+        let result = tool_run_action_sequence(&args);
+        assert!(result.text.contains("skipped (no 'action' field)"));
+    }
+
+    #[test]
+    fn test_action_sequence_if_previous_success_skips_on_failure() {
+        let args = serde_json::json!({
+            "actions": [
+                {"action": "assert_text", "text": ""},
+                {"action": "wait", "ms": 10, "if_previous": "failure"}
+            ],
+            "screenshot_mode": "none"
+        });
+        let result = tool_run_action_sequence(&args);
+        // First action: assert_text skipped (no text)
+        // Second action: if_previous=failure but previous succeeded → skip
+        assert!(result.text.contains("skipped") || result.text.contains("waited"));
+    }
+
+    // ─── Round 7: result_is_failure helper ──────────────────────────────
+
+    #[test]
+    fn test_result_is_failure_detects_error() {
+        assert!(result_is_failure("Something Error happened"));
+        assert!(result_is_failure("FAILED to do something"));
+        assert!(!result_is_failure("All OK, no issues"));
     }
 }

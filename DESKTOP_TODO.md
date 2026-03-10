@@ -60,7 +60,19 @@ All items implemented.
 - [x] **click_and_verify tool** — OCR find+click text → verify expected text appeared.
 - [x] **GPU app warnings in list_windows** — Windows from Blender/Unity/Maya/etc tagged with [GPU] guidance.
 
-## Round 7: Advanced (future)
+## Round 7: Safety, Concurrency, Performance — DONE
+
+- [x] **Clipboard pointer safety** — Zero-size guards before `from_raw_parts_mut`/`copy_nonoverlapping` on 3 write paths (clipboard_image, clipboard_file_paths, clipboard_html).
+- [x] **RAII process cleanup** — `Drop` impl for RecordingState (ffmpeg) and OverlayState (PowerShell), using `Option<Child>` pattern for safe partial moves.
+- [x] **SetWindowPos return check** — Win32 FFI return value checked in display_tools (move_to_monitor) and window_tools (snap_window).
+- [x] **Mutex poison recovery logging** — 12 sites across 5 files now log warnings via `log_warn!()` instead of silently recovering.
+- [x] **Error message consistency** — 4 remaining non-tool_error() messages standardized (clipboard_image, focus_window x2, snap_window).
+- [x] **Monitor cache with TTL** — `cached_monitors()` with 1s TTL to avoid repeated xcap::Monitor::all() FFI calls. Thread-safe via `MonitorCache` wrapper with `unsafe impl Send`.
+- [x] **Dynamic timeout_ms** — 8 `DEFAULT_THREAD_TIMEOUT` usages in compound_tools.rs (7) and form_tools.rs (1) replaced with `parse_timeout(args)` (1-60s, default 20s).
+- [x] **Form element type clarity** — Explicit `"edit" | "text" | "input"` match arms before catch-all in fill_form.
+- [x] **24 new tests** — parse_timeout, cached_monitors, RecordingState Drop, form_tools validation, action_sequence, compound_tools parameter validation, snap_window error format.
+
+## Round 8: Advanced (future)
 
 - [ ] **Browser/DOM integration** — JavaScript injection via CDP, DOM extraction, page content reading.
 - [ ] **Cross-platform accessibility tree** — macOS AXUIElement, Linux AT-SPI2 for full a11y tree support.
@@ -133,4 +145,10 @@ All items implemented.
 - smart_wait tool (screen change + OCR text, mode any/all).
 - click_and_verify tool (OCR find+click → verify text).
 - GPU app [GPU: ...] tags in list_windows output.
-- Total: 93 registered desktop tools.
+- Clipboard write pointer safety: zero-size guards on 3 FFI write paths.
+- RAII Drop for RecordingState (ffmpeg child) and OverlayState (overlay child).
+- SetWindowPos return value checking in move_to_monitor and snap_window.
+- Mutex poison recovery logging at 12 sites across 5 files.
+- Monitor cache with 1s TTL (MonitorCache wrapper with Send impl).
+- Dynamic timeout_ms in 8 compound/form tool spawn_with_timeout calls.
+- Total: 93 registered desktop tools, 246 passing tests.
