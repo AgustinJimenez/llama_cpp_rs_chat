@@ -29,6 +29,7 @@ use serde_json::Value;
 
 struct DesktopToolsServer {
     tools: Vec<Tool>,
+    serial: Arc<tokio::sync::Semaphore>,
 }
 
 impl ServerHandler for DesktopToolsServer {
@@ -75,19 +76,35 @@ impl ServerHandler for DesktopToolsServer {
             .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
 
         async move {
+            let permit = self
+                .serial
+                .clone()
+                .acquire_owned()
+                .await
+                .map_err(|_| rmcp::ErrorData::internal_error("Desktop executor unavailable", None))?;
             let tool_name = name.clone();
             let start = std::time::Instant::now();
+            let timeout = std::time::Duration::from_secs(30);
+            let cancel_ctx = web::desktop_tools::DesktopCancellationContext::with_timeout(timeout);
             eprintln!("[MCP] call_tool: {tool_name} — starting");
 
-            // Tool calls may block (screenshots, OCR, UI automation) — run on blocking thread
-            // with a 30-second timeout to prevent the server from ever hanging.
-            let timed = tokio::time::timeout(
-                std::time::Duration::from_secs(30),
-                tokio::task::spawn_blocking(move || {
-                    web::desktop_tools::dispatch_desktop_tool(&name, &args)
-                }),
-            )
-            .await;
+            let join = tokio::task::spawn_blocking({
+                let cancel_ctx = cancel_ctx.clone();
+                move || {
+                    let _permit = permit;
+                    web::desktop_tools::with_desktop_cancellation_context(cancel_ctx, || {
+                        web::desktop_tools::dispatch_desktop_tool(&name, &args)
+                    })
+                }
+            });
+
+            let timed = tokio::select! {
+                join_result = join => Ok(join_result),
+                _ = tokio::time::sleep(timeout) => {
+                    cancel_ctx.cancel();
+                    Err(())
+                }
+            };
 
             let elapsed = start.elapsed();
 
@@ -96,10 +113,10 @@ impl ServerHandler for DesktopToolsServer {
                     eprintln!("[MCP] call_tool: {tool_name} — join error after {elapsed:.1?}");
                     rmcp::ErrorData::internal_error(format!("Task join error: {e}"), None)
                 })?,
-                Err(_) => {
+                Err(()) => {
                     eprintln!("[MCP] call_tool: {tool_name} — TIMEOUT after {elapsed:.1?}");
                     return Ok(CallToolResult::error(vec![Content::text(format!(
-                        "Tool '{tool_name}' timed out after 30 seconds"
+                        "Tool '{tool_name}' timed out after 30 seconds and cancellation was requested"
                     ))]));
                 }
             };
@@ -236,7 +253,10 @@ async fn main() {
 }
 
 async fn run_stdio(tools: Vec<Tool>) {
-    let server = DesktopToolsServer { tools };
+    let server = DesktopToolsServer {
+        tools,
+        serial: Arc::new(tokio::sync::Semaphore::new(1)),
+    };
     let transport = stdio();
 
     match serve_server(server, transport).await {
@@ -275,6 +295,7 @@ async fn run_http(_tools: Vec<Tool>, port: u16) {
         || {
             Ok(DesktopToolsServer {
                 tools: build_tool_definitions(),
+                serial: Arc::new(tokio::sync::Semaphore::new(1)),
             })
         },
         session_manager,

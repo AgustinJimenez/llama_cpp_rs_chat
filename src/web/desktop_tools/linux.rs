@@ -214,6 +214,43 @@ pub fn enumerate_windows() -> Vec<WindowInfo> {
 }
 
 pub fn find_window_by_filter(filter: &str) -> Option<(HWND, WindowInfo)> {
+    fn normalized_basename(value: &str) -> String {
+        value.rsplit(['\\', '/'])
+            .next()
+            .unwrap_or(value)
+            .trim()
+            .trim_end_matches(".exe")
+            .to_lowercase()
+    }
+
+    fn match_score(filter: &str, title: &str, process_name: &str) -> Option<i32> {
+        let filter = filter.trim().to_lowercase();
+        if filter.is_empty() {
+            return None;
+        }
+
+        let filter_base = normalized_basename(&filter);
+        let title_lower = title.to_lowercase();
+        let process_lower = process_name.to_lowercase();
+        let process_base = normalized_basename(process_name);
+
+        let score = if process_base == filter_base || process_lower == filter {
+            500
+        } else if process_base.contains(&filter_base) || process_lower.contains(&filter) {
+            400
+        } else if title_lower == filter {
+            300
+        } else if title_lower.starts_with(&filter) {
+            250
+        } else if title_lower.contains(&filter) {
+            200
+        } else {
+            return None;
+        };
+
+        Some(score)
+    }
+
     let output = match run_cmd("wmctrl", &["-lGp"]) {
         Ok(o) => o,
         Err(_) => return None,
@@ -223,6 +260,7 @@ pub fn find_window_by_filter(filter: &str) -> Option<(HWND, WindowInfo)> {
         .ok()
         .and_then(|s| s.trim().parse::<u64>().ok())
         .unwrap_or(0);
+    let mut best_match: Option<(i32, HWND, WindowInfo)> = None;
 
     for line in output.lines() {
         let parts: Vec<&str> = line.splitn(9, char::is_whitespace).collect();
@@ -234,10 +272,8 @@ pub fn find_window_by_filter(filter: &str) -> Option<(HWND, WindowInfo)> {
         let title = parts[8].to_string();
         let process_name = get_process_name_by_pid(pid);
 
-        if title.to_lowercase().contains(&lower)
-            || process_name.to_lowercase().contains(&lower)
-        {
-            return Some((wid as HWND, WindowInfo {
+        if let Some(mut score) = match_score(&lower, &title, &process_name) {
+            let info = WindowInfo {
                 title,
                 class_name: String::new(),
                 pid,
@@ -249,8 +285,60 @@ pub fn find_window_by_filter(filter: &str) -> Option<(HWND, WindowInfo)> {
                 minimized: false,
                 maximized: false,
                 focused: wid == active_id,
-            }));
+            };
+
+            if info.focused {
+                score += 10;
+            }
+
+            let should_replace = best_match
+                .as_ref()
+                .map(|(best_score, _, _)| score > *best_score)
+                .unwrap_or(true);
+            if should_replace {
+                best_match = Some((score, wid as HWND, info));
+            }
         }
+    }
+
+    best_match.map(|(_, hwnd, info)| (hwnd, info))
+}
+
+pub fn find_window_by_pid(pid: u32) -> Option<(HWND, WindowInfo)> {
+    let output = run_cmd("wmctrl", &["-lGp"]).ok()?;
+    let active_id = run_cmd("xdotool", &["getactivewindow"])
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .unwrap_or(0);
+
+    for line in output.lines() {
+        let parts: Vec<&str> = line.splitn(9, char::is_whitespace).collect();
+        if parts.len() < 9 {
+            continue;
+        }
+        let wid = u64::from_str_radix(parts[0].trim_start_matches("0x"), 16).unwrap_or(0);
+        let candidate_pid: u32 = parts[2].parse().unwrap_or(0);
+        if candidate_pid != pid {
+            continue;
+        }
+        let title = parts[8].to_string();
+        let process_name = get_process_name_by_pid(pid);
+        return Some((
+            wid as HWND,
+            WindowInfo {
+                title,
+                class_name: String::new(),
+                pid,
+                x: parts[3].parse().unwrap_or(0),
+                y: parts[4].parse().unwrap_or(0),
+                width: parts[5].parse().unwrap_or(0),
+                height: parts[6].parse().unwrap_or(0),
+                process_name,
+                minimized: false,
+                maximized: false,
+                focused: wid == active_id,
+            },
+        ));
     }
     None
 }

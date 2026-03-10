@@ -357,6 +357,53 @@ pub fn enumerate_windows() -> Vec<WindowInfo> {
 /// Find the first window whose title or process name contains the filter (case-insensitive).
 /// Returns the HWND and the matching WindowInfo.
 pub fn find_window_by_filter(filter: &str) -> Option<(HWND, WindowInfo)> {
+    fn normalized_basename(value: &str) -> String {
+        value.rsplit(['\\', '/'])
+            .next()
+            .unwrap_or(value)
+            .trim()
+            .trim_end_matches(".exe")
+            .to_lowercase()
+    }
+
+    fn match_score(filter: &str, title: &str, process_name: &str, class_name: &str) -> Option<i32> {
+        let filter = filter.trim().to_lowercase();
+        if filter.is_empty() {
+            return None;
+        }
+
+        let filter_base = normalized_basename(&filter);
+        let title_lower = title.to_lowercase();
+        let process_lower = process_name.to_lowercase();
+        let class_lower = class_name.to_lowercase();
+        let process_base = normalized_basename(process_name);
+        let filter_looks_like_path = filter.contains('\\') || filter.contains('/');
+        let title_looks_like_path =
+            title_lower.contains(":\\") || title_lower.contains('\\') || title_lower.contains('/');
+
+        let score = if process_base == filter_base || process_lower == filter {
+            500
+        } else if process_base.contains(&filter_base) || process_lower.contains(&filter) {
+            400
+        } else if title_looks_like_path && !filter_looks_like_path {
+            return None;
+        } else if title_lower == filter {
+            300
+        } else if title_lower.starts_with(&filter) {
+            250
+        } else if title_lower.contains(&filter) {
+            200
+        } else if class_lower == filter {
+            150
+        } else if class_lower.contains(&filter) {
+            100
+        } else {
+            return None;
+        };
+
+        Some(score)
+    }
+
     let mut hwnds: Vec<HWND> = Vec::new();
 
     unsafe extern "system" fn enum_cb(hwnd: HWND, lparam: LPARAM) -> BOOL {
@@ -371,6 +418,8 @@ pub fn find_window_by_filter(filter: &str) -> Option<(HWND, WindowInfo)> {
 
     let lower_filter = filter.to_lowercase();
     let foreground = unsafe { GetForegroundWindow() };
+
+    let mut best_match: Option<(i32, HWND, WindowInfo)> = None;
 
     for hwnd in hwnds {
         unsafe {
@@ -395,13 +444,17 @@ pub fn find_window_by_filter(filter: &str) -> Option<(HWND, WindowInfo)> {
             let process_name = get_process_name(pid);
             let class_name = get_window_class_name(hwnd);
 
-            if title.to_lowercase().contains(&lower_filter)
-                || process_name.to_lowercase().contains(&lower_filter)
-                || class_name.to_lowercase().contains(&lower_filter)
+            if let Some(mut score) = match_score(&lower_filter, &title, &process_name, &class_name)
             {
-                let mut rect = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+                let mut rect = RECT {
+                    left: 0,
+                    top: 0,
+                    right: 0,
+                    bottom: 0,
+                };
                 GetWindowRect(hwnd, &mut rect);
-                return Some((hwnd, WindowInfo {
+
+                let info = WindowInfo {
                     title,
                     class_name,
                     pid,
@@ -413,11 +466,27 @@ pub fn find_window_by_filter(filter: &str) -> Option<(HWND, WindowInfo)> {
                     minimized: IsIconic(hwnd) != 0,
                     maximized: IsZoomed(hwnd) != 0,
                     focused: hwnd == foreground,
-                }));
+                };
+
+                if info.focused {
+                    score += 10;
+                }
+                if !info.minimized {
+                    score += 5;
+                }
+
+                let should_replace = best_match
+                    .as_ref()
+                    .map(|(best_score, _, _)| score > *best_score)
+                    .unwrap_or(true);
+                if should_replace {
+                    best_match = Some((score, hwnd, info));
+                }
             }
         }
     }
-    None
+
+    best_match.map(|(_, hwnd, info)| (hwnd, info))
 }
 
 pub fn focus_window(hwnd: HWND) -> bool {

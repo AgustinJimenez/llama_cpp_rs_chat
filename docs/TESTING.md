@@ -62,3 +62,11 @@ User Request → Model sees tools in system prompt
 | `list_directory` | List directory contents (recursive option) |
 | `execute_python` | Run Python scripts via temp file |
 | `execute_command` | Execute shell commands |
+
+## Desktop Tool Notes
+
+- MCP desktop tool execution is serialized. Only one desktop action runs at a time to avoid overlapping mouse/keyboard input when a previous action is slow or stuck.
+- Desktop tool exposure is platform-filtered. Unsupported desktop automation tools are not advertised on platforms where they cannot work.
+- On Windows, `type_text` prefers Unicode input for non-ASCII text and non-US keyboard layouts. This improves reliability for IME/non-QWERTY setups.
+- `scroll_screen` now applies `dpi_aware` and `snap_to_screen` when `x` and `y` are provided, matching the click/move behavior.
+- Known limitation: desktop tool timeouts do not fully cancel already-running blocking work. A timed-out OCR/UI automation call may continue running in the background, but serialization prevents it from overlapping with later desktop actions.

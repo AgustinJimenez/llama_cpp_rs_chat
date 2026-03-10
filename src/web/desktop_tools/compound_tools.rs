@@ -42,6 +42,10 @@ pub fn tool_find_and_click_text(args: &Value) -> NativeToolResult {
     let search = search_text.to_lowercase();
     let mut result = Err("OCR not attempted".to_string());
     for attempt in 0..3u32 {
+        if let Err(e) = super::ensure_desktop_not_cancelled() {
+            return super::tool_error("find_and_click_text", e);
+        }
+
         let img_c = img.clone();
         let s = search.clone();
         result = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
@@ -49,7 +53,9 @@ pub fn tool_find_and_click_text(args: &Value) -> NativeToolResult {
         }).and_then(|r| r);
         if result.is_ok() { break; }
         if attempt < 2 {
-            std::thread::sleep(std::time::Duration::from_millis(200));
+            if let Err(e) = super::interruptible_sleep(std::time::Duration::from_millis(200)) {
+                return super::tool_error("find_and_click_text", e);
+            }
         }
     }
 
@@ -196,7 +202,7 @@ pub fn tool_get_window_text(args: &Value) -> NativeToolResult {
 #[cfg(windows)]
 fn get_window_text_inner(hwnd: isize, max_chars: usize) -> Result<String, String> {
     use windows::Win32::UI::Accessibility::*;
-    use windows::Win32::System::Com::{CoInitializeEx, CoCreateInstance, COINIT_APARTMENTTHREADED, CLSCTX_INPROC_SERVER};
+    use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
     use windows::Win32::Foundation::HWND as WIN32_HWND;
     use windows::core::HRESULT;
 
@@ -207,9 +213,7 @@ fn get_window_text_inner(hwnd: isize, max_chars: usize) -> Result<String, String
         }
     }
 
-    let automation: IUIAutomation = unsafe {
-        CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
-    }.map_err(|e| format!("CoCreateInstance: {e}"))?;
+    let automation = super::ui_automation_tools::create_uiautomation_client()?;
 
     let root = unsafe {
         automation.ElementFromHandle(WIN32_HWND(hwnd as *mut _))
@@ -374,7 +378,7 @@ pub fn tool_file_dialog_navigate(args: &Value) -> NativeToolResult {
 #[cfg(windows)]
 fn file_dialog_navigate_inner(hwnd: isize, filename: &str, button_name: &str) -> Result<String, String> {
     use windows::Win32::UI::Accessibility::*;
-    use windows::Win32::System::Com::{CoInitializeEx, CoCreateInstance, COINIT_APARTMENTTHREADED, CLSCTX_INPROC_SERVER};
+    use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
     use windows::Win32::Foundation::HWND as WIN32_HWND;
     use windows::core::{HRESULT, BSTR};
 
@@ -385,9 +389,7 @@ fn file_dialog_navigate_inner(hwnd: isize, filename: &str, button_name: &str) ->
         }
     }
 
-    let automation: IUIAutomation = unsafe {
-        CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
-    }.map_err(|e| format!("CoCreateInstance: {e}"))?;
+    let automation = super::ui_automation_tools::create_uiautomation_client()?;
 
     let root = unsafe {
         automation.ElementFromHandle(WIN32_HWND(hwnd as *mut _))
@@ -606,6 +608,10 @@ pub fn tool_wait_for_text_on_screen(args: &Value) -> NativeToolResult {
     let mut attempt = 0u32;
 
     loop {
+        if let Err(e) = super::ensure_desktop_not_cancelled() {
+            return super::tool_error("wait_for_text_on_screen", e);
+        }
+
         let monitors = match xcap::Monitor::all() {
             Ok(m) => m,
             Err(e) => return super::tool_error("wait_for_text_on_screen", e),
@@ -640,7 +646,9 @@ pub fn tool_wait_for_text_on_screen(args: &Value) -> NativeToolResult {
         }
 
         let adaptive_delay = super::adaptive_poll_ms(attempt, base_poll, base_poll * 4);
-        std::thread::sleep(std::time::Duration::from_millis(adaptive_delay));
+        if let Err(e) = super::interruptible_sleep(std::time::Duration::from_millis(adaptive_delay)) {
+            return super::tool_error("wait_for_text_on_screen", e);
+        }
         attempt += 1;
     }
 }

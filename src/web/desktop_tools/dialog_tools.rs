@@ -145,6 +145,9 @@ pub fn tool_wait_for_element_state(args: &Value) -> NativeToolResult {
     let mut attempt = 0u32;
 
     loop {
+        if let Err(e) = super::ensure_desktop_not_cancelled() {
+            return super::tool_error("wait_for_element_state", e);
+        }
         let elapsed = start.elapsed().as_millis() as u64;
         if elapsed >= timeout_ms {
             return NativeToolResult::text_only(format!(
@@ -185,7 +188,9 @@ pub fn tool_wait_for_element_state(args: &Value) -> NativeToolResult {
         }
 
         let poll_ms = screenshot_tools::adaptive_poll_ms(attempt, 200, 1000);
-        std::thread::sleep(std::time::Duration::from_millis(poll_ms));
+        if let Err(e) = super::interruptible_sleep(std::time::Duration::from_millis(poll_ms)) {
+            return super::tool_error("wait_for_element_state", e);
+        }
         attempt += 1;
     }
 }

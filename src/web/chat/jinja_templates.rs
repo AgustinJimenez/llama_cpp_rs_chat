@@ -250,7 +250,7 @@ pub fn parse_conversation_for_jinja(
 
 /// Get available tools for the template context
 pub fn get_available_tools() -> Vec<Value> {
-    vec![
+    let tools = vec![
         json!({
             "name": "read_file",
             "description": "Read the contents of a file. Supports PDF, DOCX, XLSX, PPTX, EPUB, ODT, RTF, CSV, EML, ZIP, and non-UTF8 encoded files. Returns the file text (truncated at 100KB for large files).",
@@ -1509,7 +1509,17 @@ pub fn get_available_tools() -> Vec<Value> {
                 "required": []
             }
         }),
-    ]
+    ];
+
+    tools
+        .into_iter()
+        .filter(|tool| {
+            tool.get("name")
+                .and_then(|name| name.as_str())
+                .map(desktop_tool_available_on_current_platform)
+                .unwrap_or(true)
+        })
+        .collect()
 }
 
 /// Desktop tool names exposed via the MCP server.
@@ -1535,6 +1545,51 @@ pub(crate) const DESKTOP_TOOL_NAMES: &[&str] = &[
     "send_notification",
     "show_status_overlay", "update_status_overlay", "hide_status_overlay",
 ];
+
+fn desktop_tool_available_on_current_platform(name: &str) -> bool {
+    if !DESKTOP_TOOL_NAMES.contains(&name) {
+        return true;
+    }
+
+    #[cfg(windows)]
+    {
+        true
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        !matches!(
+            name,
+            "get_ui_tree"
+                | "click_ui_element"
+                | "invoke_ui_action"
+                | "read_ui_element_value"
+                | "wait_for_ui_element"
+                | "find_ui_elements"
+                | "find_and_click_text"
+                | "type_into_element"
+                | "get_window_text"
+                | "file_dialog_navigate"
+                | "drag_and_drop_element"
+                | "wait_for_text_on_screen"
+                | "get_context_menu"
+                | "scroll_element"
+                | "handle_dialog"
+                | "wait_for_element_state"
+                | "fill_form"
+                | "hover_element"
+                | "clipboard_image"
+                | "ocr_region"
+                | "move_to_monitor"
+                | "set_window_opacity"
+        )
+    }
+
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+    {
+        false
+    }
+}
 
 /// Get only the desktop automation tool definitions (for the MCP server).
 /// Returns the subset of `get_available_tools()` that matches desktop tool names.

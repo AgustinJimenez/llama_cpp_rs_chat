@@ -213,16 +213,75 @@ end tell
 }
 
 pub fn find_window_by_filter(filter: &str) -> Option<(HWND, WindowInfo)> {
+    fn normalized_basename(value: &str) -> String {
+        value.rsplit(['\\', '/'])
+            .next()
+            .unwrap_or(value)
+            .trim()
+            .trim_end_matches(".app")
+            .trim_end_matches(".exe")
+            .to_lowercase()
+    }
+
+    fn match_score(filter: &str, title: &str, process_name: &str) -> Option<i32> {
+        let filter = filter.trim().to_lowercase();
+        if filter.is_empty() {
+            return None;
+        }
+
+        let filter_base = normalized_basename(&filter);
+        let title_lower = title.to_lowercase();
+        let process_lower = process_name.to_lowercase();
+        let process_base = normalized_basename(process_name);
+
+        let score = if process_base == filter_base || process_lower == filter {
+            500
+        } else if process_base.contains(&filter_base) || process_lower.contains(&filter) {
+            400
+        } else if title_lower == filter {
+            300
+        } else if title_lower.starts_with(&filter) {
+            250
+        } else if title_lower.contains(&filter) {
+            200
+        } else {
+            return None;
+        };
+
+        Some(score)
+    }
+
     let windows = enumerate_windows();
     let lower = filter.to_lowercase();
+    let mut best_match: Option<(i32, HWND, WindowInfo)> = None;
+
     for (i, w) in windows.into_iter().enumerate() {
-        if w.title.to_lowercase().contains(&lower)
-            || w.process_name.to_lowercase().contains(&lower)
-        {
-            return Some((i as HWND, w));
+        if let Some(mut score) = match_score(&lower, &w.title, &w.process_name) {
+            if w.focused {
+                score += 10;
+            }
+            if !w.minimized {
+                score += 5;
+            }
+
+            let should_replace = best_match
+                .as_ref()
+                .map(|(best_score, _, _)| score > *best_score)
+                .unwrap_or(true);
+            if should_replace {
+                best_match = Some((score, i as HWND, w));
+            }
         }
     }
-    None
+
+    best_match.map(|(_, hwnd, info)| (hwnd, info))
+}
+
+pub fn find_window_by_pid(pid: u32) -> Option<(HWND, WindowInfo)> {
+    enumerate_windows()
+        .into_iter()
+        .enumerate()
+        .find_map(|(idx, info)| (info.pid == pid).then_some((idx as HWND, info)))
 }
 
 pub fn get_active_window_info() -> Option<(HWND, WindowInfo)> {

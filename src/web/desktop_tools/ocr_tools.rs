@@ -172,12 +172,22 @@ pub(super) fn ocr_image_winrt(img: &image::RgbaImage) -> Result<String, String> 
     // Store + Flush: in-memory stream ops, pump STA messages to let them complete
     let store_op = writer.StoreAsync()
         .map_err(|e| format!("StoreAsync: {e}"))?;
-    pump_sta_messages(100); // in-memory, completes in <1ms
+    wait_for_winrt_async(
+        "StoreAsync",
+        100,
+        || store_op.Status().map(|s| s.0).map_err(|e| format!("StoreAsync status: {e}")),
+        || store_op.Cancel().map_err(|e| format!("StoreAsync cancel: {e}")),
+    )?;
     store_op.GetResults().map_err(|e| format!("StoreAsync result: {e}"))?;
 
     let flush_op = writer.FlushAsync()
         .map_err(|e| format!("FlushAsync: {e}"))?;
-    pump_sta_messages(100);
+    wait_for_winrt_async(
+        "FlushAsync",
+        100,
+        || flush_op.Status().map(|s| s.0).map_err(|e| format!("FlushAsync status: {e}")),
+        || flush_op.Cancel().map_err(|e| format!("FlushAsync cancel: {e}")),
+    )?;
     flush_op.GetResults().map_err(|e| format!("FlushAsync result: {e}"))?;
 
     // Read back as IBuffer
@@ -186,7 +196,12 @@ pub(super) fn ocr_image_winrt(img: &image::RgbaImage) -> Result<String, String> 
         .map_err(|e| format!("DataReader: {e}"))?;
     let load_op = reader.LoadAsync(bgra.len() as u32)
         .map_err(|e| format!("LoadAsync: {e}"))?;
-    pump_sta_messages(100);
+    wait_for_winrt_async(
+        "LoadAsync",
+        100,
+        || load_op.Status().map(|s| s.0).map_err(|e| format!("LoadAsync status: {e}")),
+        || load_op.Cancel().map_err(|e| format!("LoadAsync cancel: {e}")),
+    )?;
     load_op.GetResults().map_err(|e| format!("LoadAsync result: {e}"))?;
 
     let buffer = reader.ReadBuffer(bgra.len() as u32)
@@ -202,7 +217,12 @@ pub(super) fn ocr_image_winrt(img: &image::RgbaImage) -> Result<String, String> 
     // Run recognition — may take 50-500ms depending on image size
     let recognize_op = engine.RecognizeAsync(&bitmap)
         .map_err(|e| format!("RecognizeAsync: {e}"))?;
-    pump_sta_messages(5000); // OCR can take a few seconds for large images
+    wait_for_winrt_async(
+        "RecognizeAsync",
+        5000,
+        || recognize_op.Status().map(|s| s.0).map_err(|e| format!("RecognizeAsync status: {e}")),
+        || recognize_op.Cancel().map_err(|e| format!("RecognizeAsync cancel: {e}")),
+    )?;
     let ocr_result = recognize_op.GetResults()
         .map_err(|e| format!("RecognizeAsync result: {e}"))?;
 
@@ -230,13 +250,68 @@ pub(super) fn pump_sta_messages(duration_ms: u64) {
     let mut msg = MSG([0u8; 48]);
 
     while start.elapsed().as_millis() < duration_ms as u128 {
+        if super::desktop_call_cancelled() {
+            break;
+        }
         unsafe {
             while PeekMessageW(&mut msg, 0, 0, 0, 1) != 0 {
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
         }
-        std::thread::sleep(std::time::Duration::from_millis(2));
+        if super::interruptible_sleep(std::time::Duration::from_millis(2)).is_err() {
+            break;
+        }
+    }
+}
+
+#[cfg(windows)]
+fn wait_for_winrt_async(
+    op_name: &str,
+    duration_ms: u64,
+    mut status: impl FnMut() -> Result<i32, String>,
+    mut cancel: impl FnMut() -> Result<(), String>,
+) -> Result<(), String> {
+    #[repr(C)]
+    struct MSG([u8; 48]); // sizeof(MSG) = 48 on x64
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn PeekMessageW(msg: *mut MSG, hwnd: isize, min: u32, max: u32, remove: u32) -> i32;
+        fn TranslateMessage(msg: *const MSG) -> i32;
+        fn DispatchMessageW(msg: *const MSG) -> isize;
+    }
+
+    let start = std::time::Instant::now();
+    let mut msg = MSG([0u8; 48]);
+
+    loop {
+        if super::desktop_call_cancelled() {
+            let _ = cancel();
+            return Err(super::desktop_cancel_error());
+        }
+
+        unsafe {
+            while PeekMessageW(&mut msg, 0, 0, 0, 1) != 0 {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+        }
+
+        match status()? {
+            1 => return Ok(()),
+            2 => return Err("Operation cancelled".to_string()),
+            3 => return Err(format!("{op_name} failed")),
+            0 => {}
+            _ => {}
+        }
+
+        if start.elapsed().as_millis() >= duration_ms as u128 {
+            let _ = cancel();
+            return Err(format!("{op_name} timed out after {duration_ms}ms"));
+        }
+
+        super::interruptible_sleep(std::time::Duration::from_millis(2))?;
     }
 }
 
@@ -694,24 +769,44 @@ pub(super) fn ocr_find_text_winrt(img: &image::RgbaImage, search: &str, offset_x
     writer.WriteBytes(&bgra).map_err(|e| format!("WriteBytes: {e}"))?;
 
     let store_op = writer.StoreAsync().map_err(|e| format!("StoreAsync: {e}"))?;
-    pump_sta_messages(100);
+    wait_for_winrt_async(
+        "StoreAsync",
+        100,
+        || store_op.Status().map(|s| s.0).map_err(|e| format!("StoreAsync status: {e}")),
+        || store_op.Cancel().map_err(|e| format!("StoreAsync cancel: {e}")),
+    )?;
     store_op.GetResults().map_err(|e| format!("StoreAsync result: {e}"))?;
     let flush_op = writer.FlushAsync().map_err(|e| format!("FlushAsync: {e}"))?;
-    pump_sta_messages(100);
+    wait_for_winrt_async(
+        "FlushAsync",
+        100,
+        || flush_op.Status().map(|s| s.0).map_err(|e| format!("FlushAsync status: {e}")),
+        || flush_op.Cancel().map_err(|e| format!("FlushAsync cancel: {e}")),
+    )?;
     flush_op.GetResults().map_err(|e| format!("FlushAsync result: {e}"))?;
 
     stream.Seek(0).map_err(|e| format!("Seek: {e}"))?;
     let reader = windows::Storage::Streams::DataReader::CreateDataReader(&stream)
         .map_err(|e| format!("DataReader: {e}"))?;
     let load_op = reader.LoadAsync(bgra.len() as u32).map_err(|e| format!("LoadAsync: {e}"))?;
-    pump_sta_messages(100);
+    wait_for_winrt_async(
+        "LoadAsync",
+        100,
+        || load_op.Status().map(|s| s.0).map_err(|e| format!("LoadAsync status: {e}")),
+        || load_op.Cancel().map_err(|e| format!("LoadAsync cancel: {e}")),
+    )?;
     load_op.GetResults().map_err(|e| format!("LoadAsync result: {e}"))?;
     let buffer = reader.ReadBuffer(bgra.len() as u32).map_err(|e| format!("ReadBuffer: {e}"))?;
     bitmap.CopyFromBuffer(&buffer).map_err(|e| format!("CopyFromBuffer: {e}"))?;
 
     let engine = OcrEngine::TryCreateFromUserProfileLanguages().map_err(|e| format!("OcrEngine: {e}"))?;
     let recognize_op = engine.RecognizeAsync(&bitmap).map_err(|e| format!("RecognizeAsync: {e}"))?;
-    pump_sta_messages(5000);
+    wait_for_winrt_async(
+        "RecognizeAsync",
+        5000,
+        || recognize_op.Status().map(|s| s.0).map_err(|e| format!("RecognizeAsync status: {e}")),
+        || recognize_op.Cancel().map_err(|e| format!("RecognizeAsync cancel: {e}")),
+    )?;
     let ocr_result = recognize_op.GetResults().map_err(|e| format!("RecognizeAsync result: {e}"))?;
 
     // Search through lines and words for matches

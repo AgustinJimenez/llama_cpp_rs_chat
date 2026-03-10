@@ -160,6 +160,10 @@ pub fn tool_watch_window(args: &Value) -> NativeToolResult {
 
     let start = std::time::Instant::now();
     loop {
+        if let Err(e) = super::ensure_desktop_not_cancelled() {
+            return super::tool_error("watch_window", e);
+        }
+
         let elapsed = start.elapsed().as_millis() as u64;
         if elapsed >= timeout_ms {
             return NativeToolResult::text_only(format!(
@@ -168,7 +172,9 @@ pub fn tool_watch_window(args: &Value) -> NativeToolResult {
             ));
         }
 
-        std::thread::sleep(std::time::Duration::from_millis(poll_ms));
+        if let Err(e) = super::interruptible_sleep(std::time::Duration::from_millis(poll_ms)) {
+            return super::tool_error("watch_window", e);
+        }
 
         let current = win32::enumerate_windows();
         let current_set: std::collections::HashMap<String, String> = current

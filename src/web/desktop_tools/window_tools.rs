@@ -147,23 +147,17 @@ pub fn tool_focus_window(args: &Value) -> NativeToolResult {
 
     // Try PID-based lookup first if provided
     if let Some(target_pid) = pid_filter {
-        // Find first visible window with matching PID
-        let windows = win32::enumerate_windows();
-        if let Some(w) = windows.iter().find(|w| w.pid == target_pid) {
-            // Need HWND — use find_window_by_filter with exact title match
-            if let Some((hwnd, info)) = win32::find_window_by_filter(&w.title) {
-                if win32::focus_window(hwnd) {
-                    return NativeToolResult::text_only(format!(
-                        "Focused window: \"{}\" ({}) pid={}",
-                        info.title, info.process_name, target_pid
-                    ));
-                } else {
-                    return NativeToolResult::text_only(format!(
-                        "Found \"{}\" (pid={}) but failed to bring to foreground",
-                        info.title, target_pid
-                    ));
-                }
+        if let Some((hwnd, info)) = win32::find_window_by_pid(target_pid) {
+            if win32::focus_window(hwnd) {
+                return NativeToolResult::text_only(format!(
+                    "Focused window: \"{}\" ({}) pid={}",
+                    info.title, info.process_name, target_pid
+                ));
             }
+            return NativeToolResult::text_only(format!(
+                "Found \"{}\" (pid={}) but failed to bring to foreground",
+                info.title, target_pid
+            ));
         }
         return NativeToolResult::text_only(format!("No visible window found for PID {target_pid}"));
     }
@@ -407,6 +401,9 @@ pub fn tool_wait_for_window(args: &Value) -> NativeToolResult {
 
     let start = std::time::Instant::now();
     loop {
+        if let Err(e) = super::ensure_desktop_not_cancelled() {
+            return super::tool_error("wait_for_window", e);
+        }
         if let Some((_hwnd, info)) = win32::find_window_by_filter(filter) {
             return NativeToolResult::text_only(format!(
                 "Found window: \"{}\" ({}) at {},{} size {}x{} (waited {}ms)",
@@ -419,7 +416,9 @@ pub fn tool_wait_for_window(args: &Value) -> NativeToolResult {
                 "Timeout: no window matching '{}' appeared within {}ms", filter, timeout_ms
             ));
         }
-        std::thread::sleep(std::time::Duration::from_millis(poll_ms));
+        if let Err(e) = super::interruptible_sleep(std::time::Duration::from_millis(poll_ms)) {
+            return super::tool_error("wait_for_window", e);
+        }
     }
 }
 

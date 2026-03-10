@@ -276,6 +276,9 @@ pub fn tool_wait_for_screen_change(args: &Value) -> NativeToolResult {
     let mut attempt = 0u32;
 
     loop {
+        if let Err(e) = super::ensure_desktop_not_cancelled() {
+            return super::tool_error("wait_for_screen_change", e);
+        }
         if start.elapsed().as_millis() >= timeout_ms as u128 {
             return NativeToolResult::text_only(format!(
                 "Timeout: no change detected in region ({x},{y} {w}x{h}) after {timeout_ms}ms"
@@ -283,7 +286,9 @@ pub fn tool_wait_for_screen_change(args: &Value) -> NativeToolResult {
         }
 
         let poll_ms = adaptive_poll_ms(attempt, 100, 1000);
-        std::thread::sleep(std::time::Duration::from_millis(poll_ms));
+        if let Err(e) = super::interruptible_sleep(std::time::Duration::from_millis(poll_ms)) {
+            return super::tool_error("wait_for_screen_change", e);
+        }
         attempt += 1;
 
         let current = match capture_region(monitor_idx, x, y, w, h) {

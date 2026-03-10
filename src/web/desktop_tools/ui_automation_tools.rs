@@ -77,7 +77,7 @@ pub fn tool_get_ui_tree(args: &Value) -> NativeToolResult {
 #[cfg(windows)]
 fn ui_tree_winrt(hwnd: isize, max_depth: usize, exclude_types: &[String]) -> Result<String, String> {
     use windows::Win32::UI::Accessibility::*;
-    use windows::Win32::System::Com::{CoInitializeEx, CoCreateInstance, COINIT_APARTMENTTHREADED, CLSCTX_INPROC_SERVER};
+    use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
     use windows::Win32::Foundation::HWND as WIN32_HWND;
     use windows::core::HRESULT;
 
@@ -88,9 +88,7 @@ fn ui_tree_winrt(hwnd: isize, max_depth: usize, exclude_types: &[String]) -> Res
         }
     }
 
-    let automation: IUIAutomation = unsafe {
-        CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
-    }.map_err(|e| format!("CoCreateInstance UIAutomation: {e}"))?;
+    let automation = create_uiautomation_client()?;
 
     let root = unsafe {
         automation.ElementFromHandle(WIN32_HWND(hwnd as *mut _))
@@ -255,6 +253,34 @@ pub(super) fn control_type_name(_id: i32) -> String {
     "unknown".to_string()
 }
 
+#[cfg(windows)]
+pub(super) fn create_uiautomation_client() -> Result<windows::Win32::UI::Accessibility::IUIAutomation, String> {
+    use windows::core::Interface;
+    use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
+    use windows::Win32::UI::Accessibility::{CUIAutomation, IUIAutomation, IUIAutomation2};
+
+    const UIA_CONNECTION_TIMEOUT_MS: u32 = 1_000;
+    const UIA_TRANSACTION_TIMEOUT_MS: u32 = 5_000;
+
+    let automation: IUIAutomation = unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER) }
+        .map_err(|e| format!("CoCreateInstance UIAutomation: {e}"))?;
+
+    let automation2: IUIAutomation2 = automation
+        .cast()
+        .map_err(|e| format!("IUIAutomation2 cast: {e}"))?;
+
+    unsafe {
+        automation2
+            .SetConnectionTimeout(UIA_CONNECTION_TIMEOUT_MS)
+            .map_err(|e| format!("SetConnectionTimeout: {e}"))?;
+        automation2
+            .SetTransactionTimeout(UIA_TRANSACTION_TIMEOUT_MS)
+            .map_err(|e| format!("SetTransactionTimeout: {e}"))?;
+    }
+
+    Ok(automation)
+}
+
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_get_ui_tree(_args: &Value) -> NativeToolResult {
     super::tool_error("get_ui_tree", "not available on this platform")
@@ -306,8 +332,9 @@ pub fn tool_click_ui_element(args: &Value) -> NativeToolResult {
     // Find element(s) on STA thread — fetch index+1 results to pick the Nth
     let result = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
         let results = find_ui_elements_all(hwnd, name_owned.as_deref(), type_owned.as_deref(), index + 1)?;
+        let result_count = results.len();
         results.into_iter().nth(index).ok_or_else(|| {
-            format!("Only {} element(s) found, but index {} requested", index, index)
+            format!("Only {} element(s) found, but index {} was requested", result_count, index)
         })
     }).and_then(|r| r);
 
@@ -413,7 +440,7 @@ pub(super) fn find_ui_element(hwnd: isize, name_filter: Option<&str>, type_filte
 #[cfg(windows)]
 pub(super) fn find_ui_elements_all(hwnd: isize, name_filter: Option<&str>, type_filter: Option<&str>, max_results: usize) -> Result<Vec<UiElementInfo>, String> {
     use windows::Win32::UI::Accessibility::*;
-    use windows::Win32::System::Com::{CoInitializeEx, CoCreateInstance, COINIT_APARTMENTTHREADED, CLSCTX_INPROC_SERVER};
+    use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
     use windows::Win32::Foundation::HWND as WIN32_HWND;
     use windows::core::HRESULT;
 
@@ -431,9 +458,7 @@ pub(super) fn find_ui_elements_all(hwnd: isize, name_filter: Option<&str>, type_
         }
     }
 
-    let automation: IUIAutomation = unsafe {
-        CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
-    }.map_err(|e| format!("CoCreateInstance: {e}"))?;
+    let automation = create_uiautomation_client()?;
 
     let root = unsafe {
         automation.ElementFromHandle(WIN32_HWND(hwnd as *mut _))
@@ -575,7 +600,7 @@ pub fn tool_invoke_ui_action(args: &Value) -> NativeToolResult {
 #[cfg(windows)]
 fn invoke_ui_action_inner(hwnd: isize, name_filter: Option<&str>, type_filter: Option<&str>, action: &str, value: Option<&str>) -> Result<String, String> {
     use windows::Win32::UI::Accessibility::*;
-    use windows::Win32::System::Com::{CoInitializeEx, CoCreateInstance, COINIT_APARTMENTTHREADED, CLSCTX_INPROC_SERVER};
+    use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
     use windows::Win32::Foundation::HWND as WIN32_HWND;
     use windows::core::{HRESULT, BSTR};
 
@@ -586,9 +611,7 @@ fn invoke_ui_action_inner(hwnd: isize, name_filter: Option<&str>, type_filter: O
         }
     }
 
-    let automation: IUIAutomation = unsafe {
-        CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
-    }.map_err(|e| format!("CoCreateInstance: {e}"))?;
+    let automation = create_uiautomation_client()?;
 
     let root = unsafe {
         automation.ElementFromHandle(WIN32_HWND(hwnd as *mut _))
@@ -768,7 +791,7 @@ pub fn tool_read_ui_element_value(args: &Value) -> NativeToolResult {
 #[cfg(windows)]
 fn read_ui_element_value_inner(hwnd: isize, name_filter: Option<&str>, type_filter: Option<&str>) -> Result<String, String> {
     use windows::Win32::UI::Accessibility::*;
-    use windows::Win32::System::Com::{CoInitializeEx, CoCreateInstance, COINIT_APARTMENTTHREADED, CLSCTX_INPROC_SERVER};
+    use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
     use windows::Win32::Foundation::HWND as WIN32_HWND;
     use windows::core::HRESULT;
 
@@ -779,9 +802,7 @@ fn read_ui_element_value_inner(hwnd: isize, name_filter: Option<&str>, type_filt
         }
     }
 
-    let automation: IUIAutomation = unsafe {
-        CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
-    }.map_err(|e| format!("CoCreateInstance: {e}"))?;
+    let automation = create_uiautomation_client()?;
 
     let root = unsafe {
         automation.ElementFromHandle(WIN32_HWND(hwnd as *mut _))
@@ -854,6 +875,10 @@ pub fn tool_wait_for_ui_element(args: &Value) -> NativeToolResult {
     let base_poll = poll_ms;
     let mut attempt = 0u32;
     loop {
+        if let Err(e) = super::ensure_desktop_not_cancelled() {
+            return super::tool_error("wait_for_ui_element", e);
+        }
+
         let n = name_owned.clone();
         let t = type_owned.clone();
         let result = super::spawn_with_timeout(std::time::Duration::from_secs(5), move || {
@@ -880,7 +905,9 @@ pub fn tool_wait_for_ui_element(args: &Value) -> NativeToolResult {
         }
 
         let adaptive_delay = super::screenshot_tools::adaptive_poll_ms(attempt, base_poll, base_poll * 4);
-        std::thread::sleep(std::time::Duration::from_millis(adaptive_delay));
+        if let Err(e) = super::interruptible_sleep(std::time::Duration::from_millis(adaptive_delay)) {
+            return super::tool_error("wait_for_ui_element", e);
+        }
         attempt += 1;
     }
 }

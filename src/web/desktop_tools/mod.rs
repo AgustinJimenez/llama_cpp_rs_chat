@@ -5,6 +5,7 @@
 //! the vision pipeline so the LLM can see what happened.
 
 use std::cell::RefCell;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -16,6 +17,95 @@ use super::native_tools::NativeToolResult;
 /// Default timeout for thread-spawned operations (OCR, UI Automation, etc.).
 const DEFAULT_THREAD_TIMEOUT: Duration = Duration::from_secs(20);
 
+#[derive(Clone)]
+pub struct DesktopCancellationContext {
+    cancelled: Arc<AtomicBool>,
+    deadline: std::time::Instant,
+}
+
+impl DesktopCancellationContext {
+    pub fn with_timeout(timeout: Duration) -> Self {
+        Self {
+            cancelled: Arc::new(AtomicBool::new(false)),
+            deadline: std::time::Instant::now() + timeout,
+        }
+    }
+
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Relaxed);
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Relaxed) || std::time::Instant::now() >= self.deadline
+    }
+
+    fn remaining(&self) -> Option<Duration> {
+        self.deadline.checked_duration_since(std::time::Instant::now())
+    }
+}
+
+thread_local! {
+    static CURRENT_CANCEL_CONTEXT: RefCell<Option<DesktopCancellationContext>> = const { RefCell::new(None) };
+}
+
+pub fn with_desktop_cancellation_context<T>(
+    context: DesktopCancellationContext,
+    f: impl FnOnce() -> T,
+) -> T {
+    CURRENT_CANCEL_CONTEXT.with(|cell| {
+        let previous = cell.replace(Some(context));
+        let result = f();
+        cell.replace(previous);
+        result
+    })
+}
+
+pub(super) fn current_desktop_cancellation_context() -> Option<DesktopCancellationContext> {
+    CURRENT_CANCEL_CONTEXT.with(|cell| cell.borrow().clone())
+}
+
+pub(super) fn desktop_call_cancelled() -> bool {
+    current_desktop_cancellation_context()
+        .map(|ctx| ctx.is_cancelled())
+        .unwrap_or(false)
+}
+
+pub(super) fn desktop_cancel_error() -> String {
+    if let Some(ctx) = current_desktop_cancellation_context() {
+        if ctx.cancelled.load(Ordering::Relaxed) {
+            "Operation cancelled".to_string()
+        } else if std::time::Instant::now() >= ctx.deadline {
+            "Operation timed out".to_string()
+        } else {
+            "Operation cancelled".to_string()
+        }
+    } else {
+        "Operation cancelled".to_string()
+    }
+}
+
+pub(super) fn ensure_desktop_not_cancelled() -> Result<(), String> {
+    if desktop_call_cancelled() {
+        Err(desktop_cancel_error())
+    } else {
+        Ok(())
+    }
+}
+
+pub(super) fn interruptible_sleep(duration: Duration) -> Result<(), String> {
+    let deadline = std::time::Instant::now() + duration;
+    let slice = Duration::from_millis(50);
+    loop {
+        ensure_desktop_not_cancelled()?;
+        let now = std::time::Instant::now();
+        if now >= deadline {
+            return Ok(());
+        }
+        let remaining = deadline.duration_since(now).min(slice);
+        std::thread::sleep(remaining);
+    }
+}
+
 /// Spawn a closure on a new thread and wait up to `timeout` for it to finish.
 /// Returns Err if the thread panics or times out.
 pub(super) fn spawn_with_timeout<F, T>(timeout: Duration, f: F) -> Result<T, String>
@@ -23,16 +113,43 @@ where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
+    ensure_desktop_not_cancelled()?;
+
+    let context = current_desktop_cancellation_context();
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        let _ = tx.send(f());
+        let result = if let Some(context) = context {
+            with_desktop_cancellation_context(context, f)
+        } else {
+            f()
+        };
+        let _ = tx.send(result);
     });
-    rx.recv_timeout(timeout).map_err(|e| match e {
-        std::sync::mpsc::RecvTimeoutError::Timeout => {
-            format!("Operation timed out after {}ms", timeout.as_millis())
+
+    let timeout_deadline = std::time::Instant::now() + timeout;
+    let poll = Duration::from_millis(50);
+
+    loop {
+        match rx.recv_timeout(poll) {
+            Ok(result) => return Ok(result),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                if let Some(context) = current_desktop_cancellation_context() {
+                    if context.is_cancelled() {
+                        return Err(desktop_cancel_error());
+                    }
+                }
+                if std::time::Instant::now() >= timeout_deadline {
+                    if let Some(context) = current_desktop_cancellation_context() {
+                        context.cancel();
+                    }
+                    return Err(format!("Operation timed out after {}ms", timeout.as_millis()));
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                return Err("Thread panicked".to_string())
+            }
         }
-        std::sync::mpsc::RecvTimeoutError::Disconnected => "Thread panicked".to_string(),
-    })
+    }
 }
 
 /// Format a desktop tool error consistently.
@@ -339,6 +456,27 @@ fn type_text_via_send_input(text: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(windows)]
+fn windows_keyboard_lang_id() -> u32 {
+    extern "system" {
+        fn GetKeyboardLayout(thread_id: u32) -> isize;
+    }
+
+    let layout = unsafe { GetKeyboardLayout(0) } as u32;
+    layout & 0xFFFF
+}
+
+#[cfg(windows)]
+fn should_prefer_unicode_input(args: &Value, text: &str) -> bool {
+    match args.get("method").and_then(|v| v.as_str()) {
+        Some("unicode") => return true,
+        Some("enigo") => return false,
+        _ => {}
+    }
+
+    !text.is_ascii() || windows_keyboard_lang_id() != 0x0409
+}
+
 // ─── Screenshot cache ────────────────────────────────────────────────────────
 
 thread_local! {
@@ -374,6 +512,9 @@ pub(super) fn wait_for_screen_settle(timeout_ms: u64, poll_ms: u64) -> bool {
     let start = std::time::Instant::now();
     let mut prev: Option<Vec<u8>> = None;
     while start.elapsed().as_millis() < timeout_ms as u128 {
+        if desktop_call_cancelled() {
+            return false;
+        }
         // Capture a small region (center of primary monitor) for quick comparison
         if let Ok(monitors) = xcap::Monitor::all() {
             if let Some(mon) = monitors.first() {
@@ -388,7 +529,9 @@ pub(super) fn wait_for_screen_settle(timeout_ms: u64, poll_ms: u64) -> bool {
                 }
             }
         }
-        std::thread::sleep(std::time::Duration::from_millis(poll_ms));
+        if interruptible_sleep(std::time::Duration::from_millis(poll_ms)).is_err() {
+            return false;
+        }
     }
     false
 }
@@ -566,14 +709,21 @@ pub fn tool_type_text(args: &Value) -> NativeToolResult {
         .max(0)
         .min(3) as u32;
 
+    #[cfg(windows)]
+    let prefer_unicode_input = should_prefer_unicode_input(args, &text);
+
     let text_clone = text.clone();
     let type_result = screenshot_tools::retry_on_failure(retries, 200, move || {
+        #[cfg(windows)]
+        if prefer_unicode_input {
+            return type_text_via_send_input(&text_clone);
+        }
+
         let res = with_enigo(|enigo| {
             enigo
                 .text(&text_clone)
                 .map_err(|e| format!("type_text failed: {e}"))
         });
-        // On Windows, fall back to SendInput KEYEVENTF_UNICODE if enigo fails
         #[cfg(windows)]
         let res = res.or_else(|_| type_text_via_send_input(&text_clone));
         res
@@ -591,17 +741,16 @@ pub fn tool_type_text(args: &Value) -> NativeToolResult {
     // Warn if non-US keyboard layout detected (characters may differ from intent)
     #[cfg(windows)]
     {
-        extern "system" {
-            fn GetKeyboardLayout(thread_id: u32) -> isize;
-        }
-        let layout = unsafe { GetKeyboardLayout(0) } as u32;
-        let lang_id = layout & 0xFFFF;
+        let lang_id = windows_keyboard_lang_id();
         if lang_id != 0x0409 {
             // 0x0409 = English (United States)
             summary.push_str(&format!(
                 " (note: keyboard layout 0x{:04X}, not US-QWERTY)",
                 lang_id
             ));
+        }
+        if prefer_unicode_input {
+            summary.push_str(" (typed via Unicode input)");
         }
     }
 
@@ -730,6 +879,10 @@ fn scroll_to_text(args: &Value) -> NativeToolResult {
     let target_lower = target_text.to_lowercase();
 
     for i in 0..max_scrolls {
+        if let Err(e) = ensure_desktop_not_cancelled() {
+            return tool_error("scroll_screen", e);
+        }
+
         // OCR current screen
         let ocr_result = ocr_tools::tool_ocr_screen(&serde_json::json!({"monitor": 0}));
         if ocr_result.text.to_lowercase().contains(&target_lower) {
@@ -746,7 +899,9 @@ fn scroll_to_text(args: &Value) -> NativeToolResult {
                 .map_err(|e| format!("{e}"))
         })
         .ok();
-        std::thread::sleep(std::time::Duration::from_millis(400));
+        if let Err(e) = interruptible_sleep(std::time::Duration::from_millis(400)) {
+            return tool_error("scroll_screen", e);
+        }
     }
 
     let screenshot = capture_post_action_screenshot(0);
@@ -799,7 +954,26 @@ pub fn tool_scroll_screen(args: &Value) -> NativeToolResult {
             args.get("x").and_then(parse_int),
             args.get("y").and_then(parse_int),
         ) {
-            let (x, y) = (x as i32, y as i32);
+            let (mut x, mut y) = (x as i32, y as i32);
+            #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+            {
+                let dpi_aware = args
+                    .get("dpi_aware")
+                    .map(|v| parse_bool(v, false))
+                    .unwrap_or(false);
+                let scaled = apply_dpi_scaling(x, y, dpi_aware);
+                x = scaled.0;
+                y = scaled.1;
+            }
+            if args
+                .get("snap_to_screen")
+                .map(|v| parse_bool(v, false))
+                .unwrap_or(false)
+            {
+                let snapped = snap_coordinates(x, y);
+                x = snapped.0;
+                y = snapped.1;
+            }
             validate_coordinates(x, y)?;
             enigo
                 .move_mouse(x, y, Coordinate::Abs)
