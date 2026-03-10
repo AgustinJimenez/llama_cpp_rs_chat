@@ -4,6 +4,7 @@ use serde_json::Value;
 
 use super::NativeToolResult;
 use super::parse_int;
+use std::sync::Mutex;
 
 #[cfg(windows)]
 use super::win32;
@@ -14,6 +15,7 @@ use super::linux as win32;
 
 /// Structured OCR match result with bounding box info.
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+#[derive(Clone)]
 pub(super) struct OcrMatch {
     pub text: String,
     pub x: f64,
@@ -23,6 +25,250 @@ pub(super) struct OcrMatch {
     pub center_x: f64,
     pub center_y: f64,
     pub confidence: f64,
+}
+
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+struct OcrCaptureTarget {
+    image: image::RgbaImage,
+    raw: Vec<u8>,
+    region_desc: String,
+    offset_x: f64,
+    offset_y: f64,
+}
+
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+#[derive(Clone)]
+enum OcrCachePayload {
+    Text(String),
+    Matches(Vec<OcrMatch>),
+}
+
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+#[derive(Clone)]
+struct OcrCacheEntry {
+    key: String,
+    raw: Vec<u8>,
+    created_at: std::time::Instant,
+    payload: OcrCachePayload,
+}
+
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+lazy_static::lazy_static! {
+    static ref OCR_CACHE: Mutex<Option<OcrCacheEntry>> = Mutex::new(None);
+}
+
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+fn ocr_cache_settings(args: &Value) -> (u64, f64) {
+    let max_age_ms = args
+        .get("cache_max_age_ms")
+        .and_then(parse_int)
+        .unwrap_or(1500)
+        .clamp(0, 30_000) as u64;
+    let threshold_pct = args
+        .get("cache_threshold_pct")
+        .and_then(super::parse_float)
+        .unwrap_or(0.5)
+        .clamp(0.0, 100.0);
+    (max_age_ms, threshold_pct)
+}
+
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+fn get_cached_ocr_payload(
+    key: &str,
+    raw: &[u8],
+    max_age_ms: u64,
+    threshold_pct: f64,
+) -> Option<OcrCachePayload> {
+    if max_age_ms == 0 {
+        return None;
+    }
+    let lock = OCR_CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let entry = lock.as_ref()?;
+    if entry.key != key || entry.created_at.elapsed().as_millis() > max_age_ms as u128 {
+        return None;
+    }
+    if super::pixel_diff_pct(&entry.raw, raw) > threshold_pct {
+        return None;
+    }
+    Some(entry.payload.clone())
+}
+
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+fn update_cached_ocr_payload(key: String, raw: Vec<u8>, payload: OcrCachePayload) {
+    let mut lock = OCR_CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    *lock = Some(OcrCacheEntry {
+        key,
+        raw,
+        created_at: std::time::Instant::now(),
+        payload,
+    });
+}
+
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+fn clamp_region_to_monitor(
+    monitor_x: i32,
+    monitor_y: i32,
+    monitor_width: u32,
+    monitor_height: u32,
+    abs_x: i32,
+    abs_y: i32,
+    width: u32,
+    height: u32,
+) -> Result<(u32, u32, u32, u32, f64, f64), String> {
+    let rel_x = (abs_x - monitor_x).max(0) as u32;
+    let rel_y = (abs_y - monitor_y).max(0) as u32;
+    if rel_x >= monitor_width || rel_y >= monitor_height {
+        return Err("target region is outside the selected monitor".to_string());
+    }
+    let clamped_width = width.min(monitor_width.saturating_sub(rel_x)).max(1);
+    let clamped_height = height.min(monitor_height.saturating_sub(rel_y)).max(1);
+    Ok((
+        rel_x,
+        rel_y,
+        clamped_width,
+        clamped_height,
+        monitor_x as f64 + rel_x as f64,
+        monitor_y as f64 + rel_y as f64,
+    ))
+}
+
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+fn capture_ocr_target(args: &Value, tool_name: &str) -> Result<OcrCaptureTarget, NativeToolResult> {
+    let monitor_idx = args.get("monitor").and_then(parse_int).unwrap_or(0) as usize;
+    let monitors = match xcap::Monitor::all() {
+        Ok(m) => m,
+        Err(e) => return Err(super::tool_error(tool_name, format!("listing monitors: {e}"))),
+    };
+    let monitor = match monitors.get(monitor_idx) {
+        Some(m) => m,
+        None => {
+            return Err(super::tool_error(
+                tool_name,
+                format!("monitor {monitor_idx} out of range (0..{})", monitors.len()),
+            ))
+        }
+    };
+
+    let capture = match monitor.capture_image() {
+        Ok(img) => img,
+        Err(e) => return Err(super::tool_error(tool_name, format!("capturing screen: {e}"))),
+    };
+
+    let monitor_x = monitor.x().unwrap_or(0);
+    let monitor_y = monitor.y().unwrap_or(0);
+    let full_w = capture.width();
+    let full_h = capture.height();
+
+    let pid_filter = args.get("pid").and_then(parse_int).map(|v| v as u32);
+    let window_filter = args.get("window").and_then(|v| v.as_str());
+    let title_filter = args.get("title").and_then(|v| v.as_str());
+
+    if let Some(target_pid) = pid_filter {
+        let (hwnd, info) = match win32::find_window_by_pid(target_pid) {
+            Some(result) => result,
+            None => {
+                return Err(super::tool_error(
+                    tool_name,
+                    format!("no window found for pid {target_pid}"),
+                ))
+            }
+        };
+        let rect = win32::get_window_rect(hwnd);
+        let width = (rect.right - rect.left).max(1) as u32;
+        let height = (rect.bottom - rect.top).max(1) as u32;
+        let (rx, ry, rw, rh, offset_x, offset_y) = clamp_region_to_monitor(
+            monitor_x,
+            monitor_y,
+            full_w,
+            full_h,
+            rect.left,
+            rect.top,
+            width,
+            height,
+        )
+        .map_err(|e| super::tool_error(tool_name, format!("pid {target_pid}: {e}")))?;
+        let cropped = image::imageops::crop_imm(&capture, rx, ry, rw, rh).to_image();
+        return Ok(OcrCaptureTarget {
+            raw: cropped.as_raw().to_vec(),
+            image: cropped,
+            region_desc: format!(" (pid={target_pid} window \"{}\" {offset_x:.0},{offset_y:.0} {rw}x{rh})", info.title),
+            offset_x,
+            offset_y,
+        });
+    }
+
+    if let Some(filter) = window_filter.or(title_filter) {
+        let (hwnd, info) = match win32::find_window_by_filter(filter) {
+            Some(result) => result,
+            None => {
+                return Err(super::tool_error(
+                    tool_name,
+                    format!("no window matches '{filter}'"),
+                ))
+            }
+        };
+        let rect = win32::get_window_rect(hwnd);
+        let width = (rect.right - rect.left).max(1) as u32;
+        let height = (rect.bottom - rect.top).max(1) as u32;
+        let (rx, ry, rw, rh, offset_x, offset_y) = clamp_region_to_monitor(
+            monitor_x,
+            monitor_y,
+            full_w,
+            full_h,
+            rect.left,
+            rect.top,
+            width,
+            height,
+        )
+        .map_err(|e| super::tool_error(tool_name, format!("window '{filter}': {e}")))?;
+        let cropped = image::imageops::crop_imm(&capture, rx, ry, rw, rh).to_image();
+        return Ok(OcrCaptureTarget {
+            raw: cropped.as_raw().to_vec(),
+            image: cropped,
+            region_desc: format!(" (window \"{}\" {offset_x:.0},{offset_y:.0} {rw}x{rh})", info.title),
+            offset_x,
+            offset_y,
+        });
+    }
+
+    let region_x = args.get("x").and_then(parse_int).map(|v| v as u32);
+    let region_y = args.get("y").and_then(parse_int).map(|v| v as u32);
+    let region_w = args.get("width").and_then(parse_int).map(|v| v as u32);
+    let region_h = args.get("height").and_then(parse_int).map(|v| v as u32);
+    if let (Some(rx), Some(ry), Some(rw), Some(rh)) = (region_x, region_y, region_w, region_h) {
+        if rx + rw > full_w || ry + rh > full_h {
+            return Err(super::tool_error(
+                tool_name,
+                format!("region ({rx},{ry} {rw}x{rh}) exceeds monitor {monitor_idx} ({full_w}x{full_h})"),
+            ));
+        }
+        let cropped = image::imageops::crop_imm(&capture, rx, ry, rw, rh).to_image();
+        return Ok(OcrCaptureTarget {
+            raw: cropped.as_raw().to_vec(),
+            image: cropped,
+            region_desc: format!(
+                " (region {:.0},{:.0} {rw}x{rh})",
+                monitor_x as f64 + rx as f64,
+                monitor_y as f64 + ry as f64
+            ),
+            offset_x: monitor_x as f64 + rx as f64,
+            offset_y: monitor_y as f64 + ry as f64,
+        });
+    }
+
+    Ok(OcrCaptureTarget {
+        raw: capture.as_raw().to_vec(),
+        image: capture,
+        region_desc: format!(
+            " (monitor {monitor_idx} {:.0},{:.0} {}x{})",
+            monitor_x as f64,
+            monitor_y as f64,
+            full_w,
+            full_h
+        ),
+        offset_x: monitor_x as f64,
+        offset_y: monitor_y as f64,
+    })
 }
 
 // ─── Unified OCR dispatcher ──────────────────────────────────────────────────
@@ -54,72 +300,43 @@ pub(super) fn ocr_find_text(img: &image::RgbaImage, search: &str, offset_x: f64,
 /// Supports optional `window` param to auto-crop to a window's rect.
 #[cfg(windows)]
 pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
-    let monitor_idx = args.get("monitor").and_then(parse_int).unwrap_or(0) as usize;
-
-    // Capture screen
-    let monitors = match xcap::Monitor::all() {
-        Ok(m) => m,
-        Err(e) => return super::tool_error("ocr_screen", e),
+    let target = match capture_ocr_target(args, "ocr_screen") {
+        Ok(target) => target,
+        Err(result) => return result,
     };
-    if monitor_idx >= monitors.len() {
-        return super::tool_error("ocr_screen", format!(
-            "monitor {monitor_idx} out of range (0..{})", monitors.len()
+    let (cache_max_age_ms, cache_threshold_pct) = ocr_cache_settings(args);
+    let cache_key = format!("ocr_screen:{}", target.region_desc);
+    if let Some(OcrCachePayload::Text(text)) =
+        get_cached_ocr_payload(&cache_key, &target.raw, cache_max_age_ms, cache_threshold_pct)
+    {
+        let line_count = text.lines().count();
+        return NativeToolResult::text_only(format!(
+            "OCR{} (cached): {line_count} lines\n{text}",
+            target.region_desc
         ));
     }
-    let img = match monitors[monitor_idx].capture_image() {
-        Ok(i) => i,
-        Err(e) => return super::tool_error("ocr_screen", format!("capturing: {e}")),
-    };
-
-    let full_w = img.width();
-    let full_h = img.height();
-
-    // Determine crop region: window param takes priority, then explicit x/y/width/height
-    let (work_img, region_desc) = if let Some(window_filter) = args.get("window").and_then(|v| v.as_str()) {
-        match win32::find_window_by_filter(window_filter) {
-            Some((hwnd, winfo)) => {
-                let rect = win32::get_window_rect(hwnd);
-                let rx = rect.left.max(0) as u32;
-                let ry = rect.top.max(0) as u32;
-                let rw = ((rect.right - rect.left).max(1) as u32).min(full_w.saturating_sub(rx));
-                let rh = ((rect.bottom - rect.top).max(1) as u32).min(full_h.saturating_sub(ry));
-                let cropped = image::imageops::crop_imm(&img, rx, ry, rw, rh).to_image();
-                (cropped, format!(" (window \"{}\" {rx},{ry} {rw}x{rh})", winfo.title))
-            }
-            None => return super::tool_error("ocr_screen", format!("no window matches '{window_filter}'")),
-        }
-    } else {
-        let region_x = args.get("x").and_then(parse_int).map(|v| v as u32);
-        let region_y = args.get("y").and_then(parse_int).map(|v| v as u32);
-        let region_w = args.get("width").and_then(parse_int).map(|v| v as u32);
-        let region_h = args.get("height").and_then(parse_int).map(|v| v as u32);
-
-        if let (Some(rx), Some(ry), Some(rw), Some(rh)) = (region_x, region_y, region_w, region_h) {
-            if rx + rw > full_w || ry + rh > full_h {
-                return super::tool_error("ocr_screen", format!(
-                    "region ({rx},{ry} {rw}x{rh}) exceeds screen ({full_w}x{full_h})"
-                ));
-            }
-            let cropped: image::RgbaImage = image::imageops::crop_imm(&img, rx, ry, rw, rh).to_image();
-            (cropped, format!(" (region {rx},{ry} {rw}x{rh})"))
-        } else {
-            (img, format!(" ({full_w}x{full_h})"))
-        }
-    };
+    let OcrCaptureTarget {
+        image,
+        raw,
+        region_desc,
+        ..
+    } = target;
 
     // Run OCR on a temporary STA thread (WinRT requires STA)
     let result = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
-        ocr_image_winrt(&work_img)
+        ocr_image_winrt(&image)
     }).and_then(|r| r);
 
     match result {
         Ok(text) => {
+            update_cached_ocr_payload(cache_key, raw, OcrCachePayload::Text(text.clone()));
             if text.is_empty() {
-                NativeToolResult::text_only(format!("OCR{region_desc}: no text detected"))
+                NativeToolResult::text_only(format!("OCR{}: no text detected", region_desc))
             } else {
                 let line_count = text.lines().count();
                 NativeToolResult::text_only(format!(
-                    "OCR{region_desc}: {line_count} lines\n{text}"
+                    "OCR{}: {line_count} lines\n{text}",
+                    region_desc
                 ))
             }
         }
@@ -627,26 +844,30 @@ pub(super) fn ocr_find_text_vision(
 
 #[cfg(target_os = "macos")]
 pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
-    let monitor_idx = args.get("monitor").and_then(parse_int).unwrap_or(0) as usize;
     let language = args.get("language").and_then(|v| v.as_str());
-    let monitors = match xcap::Monitor::all() {
-        Ok(m) => m,
-        Err(e) => return super::tool_error("ocr_screen", format!("listing monitors: {e}")),
+    let target = match capture_ocr_target(args, "ocr_screen") {
+        Ok(target) => target,
+        Err(result) => return result,
     };
-    let monitor = match monitors.get(monitor_idx) {
-        Some(m) => m,
-        None => return super::tool_error("ocr_screen", format!("monitor {monitor_idx} not found")),
-    };
-    let img = match monitor.capture_image() {
-        Ok(i) => i,
-        Err(e) => return super::tool_error("ocr_screen", format!("screenshot failed: {e}")),
-    };
+    let (cache_max_age_ms, cache_threshold_pct) = ocr_cache_settings(args);
+    let cache_key = format!("ocr_screen:{}:{:?}", target.region_desc, language);
+    if let Some(OcrCachePayload::Text(text)) =
+        get_cached_ocr_payload(&cache_key, &target.raw, cache_max_age_ms, cache_threshold_pct)
+    {
+        return NativeToolResult::text_only(format!("OCR{} (cached):\n{text}", target.region_desc));
+    }
     // Try Vision framework first, fall back to tesseract
-    match ocr_image_vision(&img, language) {
-        Ok(text) => NativeToolResult::text_only(format!("OCR text:\n{text}")),
+    match ocr_image_vision(&target.image, language) {
+        Ok(text) => {
+            update_cached_ocr_payload(cache_key, target.raw, OcrCachePayload::Text(text.clone()));
+            NativeToolResult::text_only(format!("OCR{}:\n{text}", target.region_desc))
+        }
         Err(_vision_err) => {
-            match ocr_image_tesseract(&img, language) {
-                Ok(text) => NativeToolResult::text_only(format!("OCR text:\n{text}")),
+            match ocr_image_tesseract(&target.image, language) {
+                Ok(text) => {
+                    update_cached_ocr_payload(cache_key, target.raw, OcrCachePayload::Text(text.clone()));
+                    NativeToolResult::text_only(format!("OCR{}:\n{text}", target.region_desc))
+                }
                 Err(e) => super::tool_error("ocr_screen", e),
             }
         }
@@ -657,22 +878,23 @@ pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
 
 #[cfg(target_os = "linux")]
 pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
-    let monitor_idx = args.get("monitor").and_then(parse_int).unwrap_or(0) as usize;
     let language = args.get("language").and_then(|v| v.as_str());
-    let monitors = match xcap::Monitor::all() {
-        Ok(m) => m,
-        Err(e) => return super::tool_error("ocr_screen", format!("listing monitors: {e}")),
+    let target = match capture_ocr_target(args, "ocr_screen") {
+        Ok(target) => target,
+        Err(result) => return result,
     };
-    let monitor = match monitors.get(monitor_idx) {
-        Some(m) => m,
-        None => return super::tool_error("ocr_screen", format!("monitor {monitor_idx} not found")),
-    };
-    let img = match monitor.capture_image() {
-        Ok(i) => i,
-        Err(e) => return super::tool_error("ocr_screen", format!("screenshot failed: {e}")),
-    };
-    match ocr_image_tesseract(&img, language) {
-        Ok(text) => NativeToolResult::text_only(format!("OCR text:\n{text}")),
+    let (cache_max_age_ms, cache_threshold_pct) = ocr_cache_settings(args);
+    let cache_key = format!("ocr_screen:{}:{:?}", target.region_desc, language);
+    if let Some(OcrCachePayload::Text(text)) =
+        get_cached_ocr_payload(&cache_key, &target.raw, cache_max_age_ms, cache_threshold_pct)
+    {
+        return NativeToolResult::text_only(format!("OCR{} (cached):\n{text}", target.region_desc));
+    }
+    match ocr_image_tesseract(&target.image, language) {
+        Ok(text) => {
+            update_cached_ocr_payload(cache_key, target.raw, OcrCachePayload::Text(text.clone()));
+            NativeToolResult::text_only(format!("OCR{}:\n{text}", target.region_desc))
+        }
         Err(e) => super::tool_error("ocr_screen", e),
     }
 }
@@ -684,54 +906,62 @@ pub fn tool_ocr_find_text(args: &Value) -> NativeToolResult {
         Some(t) => t,
         None => return super::tool_error("ocr_find_text", "'text' argument is required"),
     };
-    let monitor_idx = args.get("monitor").and_then(parse_int).unwrap_or(0) as usize;
-
-    // Capture screen
-    let monitors = match xcap::Monitor::all() {
-        Ok(m) => m,
-        Err(e) => return super::tool_error("ocr_find_text", format!("listing monitors: {e}")),
+    let search = search_text.to_lowercase();
+    let target = match capture_ocr_target(args, "ocr_find_text") {
+        Ok(target) => target,
+        Err(result) => return result,
     };
-    let monitor = match monitors.get(monitor_idx) {
-        Some(m) => m,
-        None => return super::tool_error("ocr_find_text", format!("monitor index {monitor_idx} out of range (have {})", monitors.len())),
-    };
-    let capture = match monitor.capture_image() {
-        Ok(img) => img,
-        Err(e) => return super::tool_error("ocr_find_text", format!("capturing screen: {e}")),
-    };
-
-    // Optional region crop
-    let work_img = if let (Some(rx), Some(ry), Some(rw), Some(rh)) = (
-        args.get("x").and_then(parse_int),
-        args.get("y").and_then(parse_int),
-        args.get("width").and_then(parse_int),
-        args.get("height").and_then(parse_int),
-    ) {
-        image::imageops::crop_imm(&capture, rx as u32, ry as u32, rw as u32, rh as u32).to_image()
-    } else {
-        capture
-    };
-
-    // Region offset for coordinate correction
-    let offset_x = args.get("x").and_then(parse_int).unwrap_or(0) as f64;
-    let offset_y = args.get("y").and_then(parse_int).unwrap_or(0) as f64;
+    let (cache_max_age_ms, cache_threshold_pct) = ocr_cache_settings(args);
+    let cache_key = format!("ocr_find_text:{}:{}", target.region_desc, search);
+    if let Some(OcrCachePayload::Matches(matches)) =
+        get_cached_ocr_payload(&cache_key, &target.raw, cache_max_age_ms, cache_threshold_pct)
+    {
+        if matches.is_empty() {
+            return NativeToolResult::text_only(format!(
+                "Text '{}' not found in{} (cached)",
+                search_text, target.region_desc
+            ));
+        }
+        let lines: Vec<String> = matches.iter().map(|m| {
+            format!("\"{}\" at ({:.0},{:.0}) {:.0}x{:.0} conf={:.2}",
+                m.text, m.x, m.y, m.width, m.height, m.confidence)
+        }).collect();
+        return NativeToolResult::text_only(format!(
+            "Found {} match(es) in{} (cached):\n{}",
+            matches.len(),
+            target.region_desc,
+            lines.join("\n")
+        ));
+    }
+    let OcrCaptureTarget {
+        image,
+        raw,
+        region_desc,
+        offset_x,
+        offset_y,
+    } = target;
 
     // Run OCR with bounding boxes on STA thread
-    let search = search_text.to_lowercase();
     let result = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
-        ocr_find_text_winrt(&work_img, &search, offset_x, offset_y)
+        ocr_find_text_winrt(&image, &search, offset_x, offset_y)
     }).and_then(|r| r);
 
     match result {
         Ok(matches) => {
+            update_cached_ocr_payload(cache_key, raw, OcrCachePayload::Matches(matches.clone()));
             if matches.is_empty() {
-                NativeToolResult::text_only(format!("Text '{}' not found on screen", search_text))
+                NativeToolResult::text_only(format!("Text '{}' not found in{}", search_text, region_desc))
             } else {
                 let lines: Vec<String> = matches.iter().map(|m| {
                     format!("\"{}\" at ({:.0},{:.0}) {:.0}x{:.0} conf={:.2}",
                         m.text, m.x, m.y, m.width, m.height, m.confidence)
                 }).collect();
-                NativeToolResult::text_only(format!("Found {} match(es):\n{}", matches.len(), lines.join("\n")))
+                NativeToolResult::text_only(format!(
+                    "Found {} match(es) in{}:\n{}",
+                    matches.len(),
+                    region_desc,
+                    lines.join("\n")
+                ))
             }
         }
         Err(e) => super::tool_error("ocr_find_text", format!("OCR: {e}")),
@@ -880,32 +1110,40 @@ pub fn tool_ocr_find_text(args: &Value) -> NativeToolResult {
         Some(s) => s,
         None => return super::tool_error("ocr_find_text", "'text' is required"),
     };
-    let monitor_idx = args.get("monitor").and_then(parse_int).unwrap_or(0) as usize;
-    let monitors = match xcap::Monitor::all() {
-        Ok(m) => m,
-        Err(e) => return super::tool_error("ocr_find_text", format!("listing monitors: {e}")),
+    let target = match capture_ocr_target(args, "ocr_find_text") {
+        Ok(target) => target,
+        Err(result) => return result,
     };
-    let monitor = match monitors.get(monitor_idx) {
-        Some(m) => m,
-        None => return super::tool_error("ocr_find_text", format!("monitor {monitor_idx} not found")),
-    };
-    let img = match monitor.capture_image() {
-        Ok(i) => i,
-        Err(e) => return super::tool_error("ocr_find_text", format!("screenshot failed: {e}")),
-    };
-    let offset_x = monitor.x() as f64;
-    let offset_y = monitor.y() as f64;
+    let (cache_max_age_ms, cache_threshold_pct) = ocr_cache_settings(args);
+    let cache_key = format!("ocr_find_text:{}:{}", target.region_desc, search.to_lowercase());
+    if let Some(OcrCachePayload::Matches(matches)) =
+        get_cached_ocr_payload(&cache_key, &target.raw, cache_max_age_ms, cache_threshold_pct)
+    {
+        if matches.is_empty() {
+            return NativeToolResult::text_only(format!("Text '{search}' not found in{} (cached)", target.region_desc));
+        }
+        let mut lines = vec![format!("Found {} match(es) for '{search}' in{} (cached):", matches.len(), target.region_desc)];
+        for m in &matches {
+            lines.push(format!(
+                "  \"{}\" at ({:.0},{:.0}) {:.0}x{:.0} conf={:.2}",
+                m.text, m.x, m.y, m.width, m.height, m.confidence
+            ));
+        }
+        return NativeToolResult::text_only(lines.join("\n"));
+    }
     // Try Vision framework first, fall back to tesseract
-    let result = match ocr_find_text_vision(&img, search, offset_x, offset_y, None) {
+    let result = match ocr_find_text_vision(&target.image, search, target.offset_x, target.offset_y, None) {
         Ok(matches) => Ok(matches),
-        Err(_) => ocr_find_text_tesseract(&img, search, offset_x, offset_y),
+        Err(_) => ocr_find_text_tesseract(&target.image, search, target.offset_x, target.offset_y),
     };
     match result {
         Ok(matches) if matches.is_empty() => {
-            NativeToolResult::text_only(format!("Text '{search}' not found on screen"))
+            update_cached_ocr_payload(cache_key, target.raw, OcrCachePayload::Matches(Vec::new()));
+            NativeToolResult::text_only(format!("Text '{search}' not found in{}", target.region_desc))
         }
         Ok(matches) => {
-            let mut lines = vec![format!("Found {} match(es) for '{search}':", matches.len())];
+            update_cached_ocr_payload(cache_key, target.raw, OcrCachePayload::Matches(matches.clone()));
+            let mut lines = vec![format!("Found {} match(es) for '{search}' in{}:", matches.len(), target.region_desc)];
             for m in &matches {
                 lines.push(format!(
                     "  \"{}\" at ({:.0},{:.0}) {:.0}x{:.0} conf={:.2}",
@@ -926,27 +1164,35 @@ pub fn tool_ocr_find_text(args: &Value) -> NativeToolResult {
         Some(s) => s,
         None => return super::tool_error("ocr_find_text", "'text' is required"),
     };
-    let monitor_idx = args.get("monitor").and_then(parse_int).unwrap_or(0) as usize;
-    let monitors = match xcap::Monitor::all() {
-        Ok(m) => m,
-        Err(e) => return super::tool_error("ocr_find_text", format!("listing monitors: {e}")),
+    let target = match capture_ocr_target(args, "ocr_find_text") {
+        Ok(target) => target,
+        Err(result) => return result,
     };
-    let monitor = match monitors.get(monitor_idx) {
-        Some(m) => m,
-        None => return super::tool_error("ocr_find_text", format!("monitor {monitor_idx} not found")),
-    };
-    let img = match monitor.capture_image() {
-        Ok(i) => i,
-        Err(e) => return super::tool_error("ocr_find_text", format!("screenshot failed: {e}")),
-    };
-    let offset_x = monitor.x() as f64;
-    let offset_y = monitor.y() as f64;
-    match ocr_find_text_tesseract(&img, search, offset_x, offset_y) {
+    let (cache_max_age_ms, cache_threshold_pct) = ocr_cache_settings(args);
+    let cache_key = format!("ocr_find_text:{}:{}", target.region_desc, search.to_lowercase());
+    if let Some(OcrCachePayload::Matches(matches)) =
+        get_cached_ocr_payload(&cache_key, &target.raw, cache_max_age_ms, cache_threshold_pct)
+    {
+        if matches.is_empty() {
+            return NativeToolResult::text_only(format!("Text '{search}' not found in{} (cached)", target.region_desc));
+        }
+        let mut lines = vec![format!("Found {} match(es) for '{search}' in{} (cached):", matches.len(), target.region_desc)];
+        for m in &matches {
+            lines.push(format!(
+                "  \"{}\" at ({:.0},{:.0}) {:.0}x{:.0} conf={:.2}",
+                m.text, m.x, m.y, m.width, m.height, m.confidence
+            ));
+        }
+        return NativeToolResult::text_only(lines.join("\n"));
+    }
+    match ocr_find_text_tesseract(&target.image, search, target.offset_x, target.offset_y) {
         Ok(matches) if matches.is_empty() => {
-            NativeToolResult::text_only(format!("Text '{search}' not found on screen"))
+            update_cached_ocr_payload(cache_key, target.raw, OcrCachePayload::Matches(Vec::new()));
+            NativeToolResult::text_only(format!("Text '{search}' not found in{}", target.region_desc))
         }
         Ok(matches) => {
-            let mut lines = vec![format!("Found {} match(es) for '{search}':", matches.len())];
+            update_cached_ocr_payload(cache_key, target.raw, OcrCachePayload::Matches(matches.clone()));
+            let mut lines = vec![format!("Found {} match(es) for '{search}' in{}:", matches.len(), target.region_desc)];
             for m in &matches {
                 lines.push(format!(
                     "  \"{}\" at ({:.0},{:.0}) {:.0}x{:.0} conf={:.2}",
@@ -956,5 +1202,57 @@ pub fn tool_ocr_find_text(args: &Value) -> NativeToolResult {
             NativeToolResult::text_only(lines.join("\n"))
         }
         Err(e) => super::tool_error("ocr_find_text", e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{clamp_region_to_monitor, get_cached_ocr_payload, update_cached_ocr_payload, OcrCachePayload, OcrMatch};
+
+    #[test]
+    fn test_clamp_region_to_monitor_inside() {
+        let (x, y, w, h, ox, oy) =
+            clamp_region_to_monitor(0, 0, 1920, 1080, 100, 200, 300, 400).unwrap();
+        assert_eq!((x, y, w, h), (100, 200, 300, 400));
+        assert_eq!((ox, oy), (100.0, 200.0));
+    }
+
+    #[test]
+    fn test_clamp_region_to_monitor_truncates_overlap() {
+        let (x, y, w, h, ox, oy) =
+            clamp_region_to_monitor(0, 0, 1920, 1080, 1800, 1000, 300, 200).unwrap();
+        assert_eq!((x, y), (1800, 1000));
+        assert_eq!((w, h), (120, 80));
+        assert_eq!((ox, oy), (1800.0, 1000.0));
+    }
+
+    #[test]
+    fn test_cached_ocr_text_roundtrip() {
+        update_cached_ocr_payload(
+            "ocr_screen:test".to_string(),
+            vec![1; 64],
+            OcrCachePayload::Text("hello".to_string()),
+        );
+        let cached = get_cached_ocr_payload("ocr_screen:test", &[1; 64], 5000, 0.0);
+        assert!(matches!(cached, Some(OcrCachePayload::Text(ref s)) if s == "hello"));
+    }
+
+    #[test]
+    fn test_cached_ocr_matches_miss_on_different_key() {
+        update_cached_ocr_payload(
+            "ocr_find_text:test".to_string(),
+            vec![2; 64],
+            OcrCachePayload::Matches(vec![OcrMatch {
+                text: "Hello".to_string(),
+                x: 1.0,
+                y: 2.0,
+                width: 3.0,
+                height: 4.0,
+                center_x: 2.5,
+                center_y: 4.0,
+                confidence: 1.0,
+            }]),
+        );
+        assert!(get_cached_ocr_payload("ocr_find_text:other", &[2; 64], 5000, 0.0).is_none());
     }
 }

@@ -166,7 +166,7 @@ pub(super) fn tool_not_supported(tool: &str) -> NativeToolResult {
 
 /// Compare two raw RGBA buffers, sampling every 16th pixel for speed.
 /// Returns the percentage of sampled pixels that differ significantly.
-fn pixel_diff_pct(a: &[u8], b: &[u8]) -> f64 {
+pub(super) fn pixel_diff_pct(a: &[u8], b: &[u8]) -> f64 {
     if a.len() != b.len() {
         return 100.0;
     }
@@ -219,8 +219,224 @@ fn classify_desktop_result_status(text: &str) -> &'static str {
         }
     } else if lower.starts_with("timeout:") {
         "timed_out"
+    } else if lower.contains("verification failed:") {
+        "verification_failed"
     } else {
         "completed"
+    }
+}
+
+struct ScreenVerificationContext {
+    baseline_raw: Vec<u8>,
+    threshold_pct: f64,
+    timeout_ms: u64,
+    poll_ms: u64,
+    region: Option<VerificationRegion>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct VerificationRegion {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
+fn normalize_verification_region(
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Option<VerificationRegion> {
+    if width == 0 || height == 0 {
+        return None;
+    }
+    Some(VerificationRegion {
+        x,
+        y,
+        width,
+        height,
+    })
+}
+
+fn action_verification_region_from_args(args: &Value) -> Option<VerificationRegion> {
+    if let (Some(x), Some(y), Some(width), Some(height)) = (
+        args.get("verify_x").and_then(parse_int),
+        args.get("verify_y").and_then(parse_int),
+        args.get("verify_width").and_then(parse_int),
+        args.get("verify_height").and_then(parse_int),
+    ) {
+        return normalize_verification_region(x as i32, y as i32, width as u32, height as u32);
+    }
+    None
+}
+
+fn capture_screen_state(
+    region: Option<VerificationRegion>,
+) -> Result<(Vec<u8>, Vec<u8>, u32, u32, String), String> {
+    let monitors = xcap::Monitor::all().map_err(|e| format!("Failed to enumerate monitors: {e}"))?;
+    let monitor = if let Some(region) = region {
+        let center_x = region.x + region.width as i32 / 2;
+        let center_y = region.y + region.height as i32 / 2;
+        monitors
+            .iter()
+            .find(|m| {
+                let mx = m.x().unwrap_or(0);
+                let my = m.y().unwrap_or(0);
+                let mw = m.width().unwrap_or(0) as i32;
+                let mh = m.height().unwrap_or(0) as i32;
+                center_x >= mx && center_x < mx + mw && center_y >= my && center_y < my + mh
+            })
+            .or_else(|| monitors.first())
+    } else {
+        monitors
+            .iter()
+            .find(|m| m.is_primary().unwrap_or(false))
+            .or(monitors.first())
+    }
+    .ok_or_else(|| "No monitors detected".to_string())?;
+    let img = monitor
+        .capture_image()
+        .map_err(|e| format!("Screenshot capture failed: {e}"))?;
+
+    if let Some(region) = region {
+        let mx = monitor.x().unwrap_or(0);
+        let my = monitor.y().unwrap_or(0);
+        let rel_x = (region.x - mx).max(0) as u32;
+        let rel_y = (region.y - my).max(0) as u32;
+        if rel_x >= img.width() || rel_y >= img.height() {
+            return Err("Verification region is outside the selected monitor".to_string());
+        }
+        let width = region.width.min(img.width().saturating_sub(rel_x)).max(1);
+        let height = region.height.min(img.height().saturating_sub(rel_y)).max(1);
+        let cropped = image::imageops::crop_imm(&img, rel_x, rel_y, width, height).to_image();
+        let raw = cropped.as_raw().to_vec();
+        let png = encode_image_to_png(&cropped)?;
+        return Ok((
+            raw,
+            png,
+            cropped.width(),
+            cropped.height(),
+            format!(
+                " region ({},{}) {}x{}",
+                mx + rel_x as i32,
+                my + rel_y as i32,
+                cropped.width(),
+                cropped.height()
+            ),
+        ));
+    }
+
+    let width = img.width();
+    let height = img.height();
+    let raw = img.as_raw().to_vec();
+    let png = encode_image_to_png(&img)?;
+    Ok((raw, png, width, height, String::new()))
+}
+
+fn prepare_screen_verification(
+    args: &Value,
+    region: Option<VerificationRegion>,
+) -> Result<Option<ScreenVerificationContext>, NativeToolResult> {
+    let verify = args
+        .get("verify_screen_change")
+        .map(|v| parse_bool(v, false))
+        .unwrap_or(false);
+    if !verify {
+        return Ok(None);
+    }
+
+    let threshold_pct = args
+        .get("verify_threshold_pct")
+        .and_then(parse_float)
+        .unwrap_or(0.5)
+        .clamp(0.01, 100.0);
+    let timeout_ms = args
+        .get("verify_timeout_ms")
+        .and_then(parse_int)
+        .unwrap_or(1200)
+        .clamp(100, 10_000) as u64;
+    let poll_ms = args
+        .get("verify_poll_ms")
+        .and_then(parse_int)
+        .unwrap_or(150)
+        .clamp(50, 1000) as u64;
+    let verification_region = action_verification_region_from_args(args).or(region);
+
+    let (baseline_raw, baseline_png, _, _, _) = match capture_screen_state(verification_region) {
+        Ok(state) => state,
+        Err(e) => return Err(tool_error("desktop_verification", e)),
+    };
+    update_screenshot_cache(baseline_raw.clone(), baseline_png);
+
+    Ok(Some(ScreenVerificationContext {
+        baseline_raw,
+        threshold_pct,
+        timeout_ms,
+        poll_ms,
+        region: verification_region,
+    }))
+}
+
+fn finalize_action_result(
+    summary: String,
+    delay_ms: u64,
+    do_screenshot: bool,
+    verification: Option<ScreenVerificationContext>,
+) -> NativeToolResult {
+    if let Some(verification) = verification {
+        if let Err(e) = interruptible_sleep(std::time::Duration::from_millis(delay_ms)) {
+            return NativeToolResult::text_only(format!("Error: {e}"));
+        }
+
+        let start = std::time::Instant::now();
+        let (raw, png, width, height, diff_pct, elapsed_ms, region_desc) = loop {
+            match capture_screen_state(verification.region) {
+                Ok((raw, png, width, height, region_desc)) => {
+                    let diff_pct = pixel_diff_pct(&verification.baseline_raw, &raw);
+                    let elapsed_ms = start.elapsed().as_millis();
+                    let passed = diff_pct >= verification.threshold_pct;
+                    if passed || elapsed_ms as u64 >= verification.timeout_ms {
+                        break (raw, png, width, height, diff_pct, elapsed_ms, region_desc);
+                    }
+                }
+                Err(e) => return tool_error("desktop_verification", e),
+            }
+
+            if let Err(e) =
+                interruptible_sleep(std::time::Duration::from_millis(verification.poll_ms))
+            {
+                return tool_error("desktop_verification", e);
+            }
+        };
+        update_screenshot_cache(raw, png.clone());
+
+        let verification_text = if diff_pct >= verification.threshold_pct {
+            format!(
+                "Verified screen change: {:.2}% observed after {}ms (threshold {:.2}%).",
+                diff_pct, elapsed_ms, verification.threshold_pct
+            )
+        } else {
+            format!(
+                "Verification failed: expected screen change >= {:.2}%, observed {:.2}% after {}ms.",
+                verification.threshold_pct, diff_pct, elapsed_ms
+            )
+        };
+        let text = format!(
+            "{summary}. {verification_text} Screenshot {width}x{height}{region_desc}"
+        );
+
+        if do_screenshot || verification.threshold_pct > 0.0 {
+            NativeToolResult::with_image(text, png)
+        } else {
+            NativeToolResult::text_only(text)
+        }
+    } else if do_screenshot {
+        let mut result = capture_post_action_screenshot(delay_ms);
+        result.text = format!("{summary}. {}", result.text);
+        result
+    } else {
+        NativeToolResult::text_only(summary)
     }
 }
 
@@ -366,6 +582,12 @@ fn capture_post_action_screenshot(delay_ms: u64) -> NativeToolResult {
 /// Helper: parse integer from JSON value (handles both number and string).
 pub(crate) fn parse_int(v: &Value) -> Option<i64> {
     v.as_i64()
+        .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+}
+
+/// Helper: parse float from JSON value (handles both number and string).
+pub(crate) fn parse_float(v: &Value) -> Option<f64> {
+    v.as_f64()
         .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
 }
 
@@ -741,6 +963,12 @@ pub fn tool_click_screen(args: &Value) -> NativeToolResult {
         .get("delay_ms")
         .and_then(parse_int)
         .unwrap_or(500) as u64;
+    let verification_region =
+        normalize_verification_region(x - 160, y - 160, 320, 320);
+    let verification = match prepare_screen_verification(args, verification_region) {
+        Ok(v) => v,
+        Err(result) => return result,
+    };
 
     if let Err(e) = with_enigo(|enigo| {
         enigo
@@ -774,12 +1002,12 @@ pub fn tool_click_screen(args: &Value) -> NativeToolResult {
         return NativeToolResult::text_only(format!("Error: {e}"));
     }
 
-    let mut result = capture_post_action_screenshot(delay_ms);
-    result.text = format!(
-        "{modal_warning}Clicked {button_str} at ({x}, {y}). {}",
-        result.text
-    );
-    result
+    finalize_action_result(
+        format!("{modal_warning}Clicked {button_str} at ({x}, {y})"),
+        delay_ms,
+        true,
+        verification,
+    )
 }
 
 /// Type text using keyboard simulation.
@@ -804,6 +1032,10 @@ pub fn tool_type_text(args: &Value) -> NativeToolResult {
         .unwrap_or(0)
         .max(0)
         .min(3) as u32;
+    let verification = match prepare_screen_verification(args, None) {
+        Ok(v) => v,
+        Err(result) => return result,
+    };
 
     #[cfg(windows)]
     let prefer_unicode_input = should_prefer_unicode_input(args, &text);
@@ -850,13 +1082,7 @@ pub fn tool_type_text(args: &Value) -> NativeToolResult {
         }
     }
 
-    if do_screenshot {
-        let mut result = capture_post_action_screenshot(delay_ms);
-        result.text = format!("{summary}. {}", result.text);
-        result
-    } else {
-        NativeToolResult::text_only(summary)
-    }
+    finalize_action_result(summary, delay_ms, do_screenshot, verification)
 }
 
 /// Press a key or key combination.
@@ -881,6 +1107,10 @@ pub fn tool_press_key(args: &Value) -> NativeToolResult {
         .unwrap_or(0)
         .max(0)
         .min(3) as u32;
+    let verification = match prepare_screen_verification(args, None) {
+        Ok(v) => v,
+        Err(result) => return result,
+    };
 
     let (modifiers, main_key) = match parse_key_combo(key_str) {
         Ok(combo) => combo,
@@ -908,13 +1138,7 @@ pub fn tool_press_key(args: &Value) -> NativeToolResult {
 
     let summary = format!("Pressed: {key_str}");
 
-    if do_screenshot {
-        let mut result = capture_post_action_screenshot(delay_ms);
-        result.text = format!("{summary}. {}", result.text);
-        result
-    } else {
-        NativeToolResult::text_only(summary)
-    }
+    finalize_action_result(summary, delay_ms, do_screenshot, verification)
 }
 
 /// Move the mouse cursor without clicking.
@@ -1044,6 +1268,18 @@ pub fn tool_scroll_screen(args: &Value) -> NativeToolResult {
         .get("delay_ms")
         .and_then(parse_int)
         .unwrap_or(300) as u64;
+    let verification_region = if let (Some(x), Some(y)) = (
+        args.get("x").and_then(parse_int),
+        args.get("y").and_then(parse_int),
+    ) {
+        normalize_verification_region(x as i32 - 180, y as i32 - 180, 360, 360)
+    } else {
+        None
+    };
+    let verification = match prepare_screen_verification(args, verification_region) {
+        Ok(v) => v,
+        Err(result) => return result,
+    };
 
     if let Err(e) = with_enigo(|enigo| {
         if let (Some(x), Some(y)) = (
@@ -1101,13 +1337,7 @@ pub fn tool_scroll_screen(args: &Value) -> NativeToolResult {
     };
     let summary = format!("Scrolled {direction} by {} units", amount.abs());
 
-    if do_screenshot {
-        let mut result = capture_post_action_screenshot(delay_ms);
-        result.text = format!("{summary}. {}", result.text);
-        result
-    } else {
-        NativeToolResult::text_only(summary)
-    }
+    finalize_action_result(summary, delay_ms, do_screenshot, verification)
 }
 
 // ─── Submodules ──────────────────────────────────────────────────────────────
@@ -1300,6 +1530,15 @@ pub fn tool_mouse_drag(args: &Value) -> NativeToolResult {
         .unwrap_or(1)
         .max(1)
         .min(100) as u32;
+    let min_x = x1.min(x2) - 80;
+    let min_y = y1.min(y2) - 80;
+    let width = (x1.max(x2) - min_x + 80) as u32;
+    let height = (y1.max(y2) - min_y + 80) as u32;
+    let verification_region = normalize_verification_region(min_x, min_y, width, height);
+    let verification = match prepare_screen_verification(args, verification_region) {
+        Ok(v) => v,
+        Err(result) => return result,
+    };
 
     if let Err(e) = with_enigo(|enigo| {
         enigo
@@ -1340,17 +1579,17 @@ pub fn tool_mouse_drag(args: &Value) -> NativeToolResult {
         return NativeToolResult::text_only(format!("Error: {e}"));
     }
 
-    let mut result = capture_post_action_screenshot(delay_ms);
     let steps_note = if steps > 1 {
         format!(" ({steps} steps)")
     } else {
         String::new()
     };
-    result.text = format!(
-        "Dragged from ({x1},{y1}) to ({x2},{y2}){steps_note}. {}",
-        result.text
-    );
-    result
+    finalize_action_result(
+        format!("Dragged from ({x1},{y1}) to ({x2},{y2}){steps_note}"),
+        delay_ms,
+        true,
+        verification,
+    )
 }
 
 /// Press or release a mouse button independently (for hold-and-drag scenarios).
@@ -1563,6 +1802,12 @@ mod tests {
         assert_eq!(classify_desktop_result_status("Error [ocr_screen]: Operation timed out"), "timed_out");
         assert_eq!(classify_desktop_result_status("Error [ocr_screen]: Operation cancelled"), "cancelled");
         assert_eq!(classify_desktop_result_status("Error [click_screen]: bad coordinate"), "error");
+        assert_eq!(
+            classify_desktop_result_status(
+                "Pressed: enter. Verification failed: expected screen change >= 0.50%, observed 0.00% after 1200ms."
+            ),
+            "verification_failed"
+        );
     }
 
     #[test]
@@ -1576,5 +1821,37 @@ mod tests {
         let text = summarized.get("text").and_then(|v| v.as_str()).unwrap();
         assert!(text.len() <= 203);
         assert!(text.ends_with("..."));
+    }
+
+    #[test]
+    fn test_parse_float_handles_strings() {
+        assert_eq!(parse_float(&serde_json::json!(1.5)), Some(1.5));
+        assert_eq!(parse_float(&serde_json::json!("2.25")), Some(2.25));
+        assert_eq!(parse_float(&serde_json::json!("nope")), None);
+    }
+
+    #[test]
+    fn test_normalize_verification_region_rejects_zero_size() {
+        assert_eq!(normalize_verification_region(10, 10, 0, 10), None);
+        assert_eq!(normalize_verification_region(10, 10, 10, 0), None);
+    }
+
+    #[test]
+    fn test_action_verification_region_from_args() {
+        let args = serde_json::json!({
+            "verify_x": 100,
+            "verify_y": 200,
+            "verify_width": 300,
+            "verify_height": 400
+        });
+        assert_eq!(
+            action_verification_region_from_args(&args),
+            Some(VerificationRegion {
+                x: 100,
+                y: 200,
+                width: 300,
+                height: 400
+            })
+        );
     }
 }

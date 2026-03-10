@@ -4,6 +4,7 @@ use serde_json::Value;
 
 use super::NativeToolResult;
 use super::parse_int;
+use super::gpu_app_db;
 
 #[cfg(windows)]
 use super::win32;
@@ -11,6 +12,12 @@ use super::win32;
 use super::macos as win32;
 #[cfg(target_os = "linux")]
 use super::linux as win32;
+
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+fn gpu_app_for_hwnd(hwnd: win32::HWND) -> Option<&'static gpu_app_db::GpuAppInfo> {
+    let info = win32::get_window_info_for_hwnd(hwnd)?;
+    gpu_app_db::detect_gpu_app(&info.class_name, &info.process_name)
+}
 
 // ─── find_and_click_text ────────────────────────────────────────────────────
 
@@ -123,19 +130,24 @@ pub fn tool_type_into_element(args: &Value) -> NativeToolResult {
         }
     };
 
-    if let Some(r) = super::ui_automation_tools::check_gpu_app_guard(hwnd, "type_into_element") { return r; }
+    let prefer_ocr_fallback = gpu_app_for_hwnd(hwnd).is_some() && name_filter.is_some();
 
     // --- Windows: UI Automation path ---
     #[cfg(windows)]
     let element_pos: Result<(i32, i32, String), String> = {
-        let name_owned = name_filter.map(|s| s.to_lowercase());
-        let type_owned = type_filter.map(|s| s.to_lowercase());
+        if prefer_ocr_fallback {
+            let search_name = name_filter.unwrap().to_lowercase();
+            ocr_find_element_on_screen(&search_name)
+        } else {
+            let name_owned = name_filter.map(|s| s.to_lowercase());
+            let type_owned = type_filter.map(|s| s.to_lowercase());
 
-        let result = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
-            super::find_ui_element(hwnd, name_owned.as_deref(), type_owned.as_deref())
-        }).and_then(|r| r);
+            let result = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
+                super::find_ui_element(hwnd, name_owned.as_deref(), type_owned.as_deref())
+            }).and_then(|r| r);
 
-        result.map(|info| (info.cx, info.cy, info.desc()))
+            result.map(|info| (info.cx, info.cy, info.desc()))
+        }
     };
 
     // --- macOS/Linux: OCR fallback path ---
@@ -156,8 +168,11 @@ pub fn tool_type_into_element(args: &Value) -> NativeToolResult {
             // Type text
             let type_args = serde_json::json!({ "text": text, "delay_ms": 300 });
             let mut result = super::tool_type_text(&type_args);
-            result.text = format!("Clicked element {desc} at ({}, {}), then typed {} chars. {}",
-                cx, cy, text.len(), result.text);
+            let route = if prefer_ocr_fallback { "ocr_fallback" } else { "uia" };
+            result.text = format!(
+                "Clicked element {desc} at ({}, {}) via {route}, then typed {} chars. {}",
+                cx, cy, text.len(), result.text
+            );
             result
         }
         Err(e) => super::tool_error("type_into_element", e),
@@ -524,25 +539,38 @@ pub fn tool_drag_and_drop_element(args: &Value) -> NativeToolResult {
         }
     };
 
-    if let Some(r) = super::ui_automation_tools::check_gpu_app_guard(hwnd, "drag_and_drop_element") { return r; }
+    let prefer_ocr_fallback = gpu_app_for_hwnd(hwnd).is_some() && from_name.is_some() && to_name.is_some();
 
     // --- Windows: UI Automation path ---
     #[cfg(windows)]
     let positions: Result<((i32, i32, String), (i32, i32, String)), String> = {
-        let fn_owned = from_name.map(|s| s.to_lowercase());
-        let ft_owned = from_type.map(|s| s.to_lowercase());
-        let tn_owned = to_name.map(|s| s.to_lowercase());
-        let tt_owned = to_type.map(|s| s.to_lowercase());
+        if prefer_ocr_fallback {
+            let from_search = from_name.unwrap().to_lowercase();
+            let to_search = to_name.unwrap().to_lowercase();
+            match (
+                ocr_find_element_on_screen(&from_search),
+                ocr_find_element_on_screen(&to_search),
+            ) {
+                (Ok(from_pos), Ok(to_pos)) => Ok((from_pos, to_pos)),
+                (Err(e), _) => Err(e),
+                (_, Err(e)) => Err(e),
+            }
+        } else {
+            let fn_owned = from_name.map(|s| s.to_lowercase());
+            let ft_owned = from_type.map(|s| s.to_lowercase());
+            let tn_owned = to_name.map(|s| s.to_lowercase());
+            let tt_owned = to_type.map(|s| s.to_lowercase());
 
-        let result = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
-            let from = super::find_ui_element(hwnd, fn_owned.as_deref(), ft_owned.as_deref())?;
-            let to = super::find_ui_element(hwnd, tn_owned.as_deref(), tt_owned.as_deref())?;
-            Ok((from, to))
-        }).and_then(|r| r);
+            let result = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
+                let from = super::find_ui_element(hwnd, fn_owned.as_deref(), ft_owned.as_deref())?;
+                let to = super::find_ui_element(hwnd, tn_owned.as_deref(), tt_owned.as_deref())?;
+                Ok((from, to))
+            }).and_then(|r| r);
 
-        result.map(|(from, to)| {
-            ((from.cx, from.cy, from.desc()), (to.cx, to.cy, to.desc()))
-        })
+            result.map(|(from, to)| {
+                ((from.cx, from.cy, from.desc()), (to.cx, to.cy, to.desc()))
+            })
+        }
     };
 
     // --- macOS/Linux: OCR fallback path ---
@@ -572,10 +600,12 @@ pub fn tool_drag_and_drop_element(args: &Value) -> NativeToolResult {
                 "delay_ms": delay_ms,
             });
             let mut result = super::tool_mouse_drag(&drag_args);
+            let route = if prefer_ocr_fallback { "ocr_fallback" } else { "uia" };
             result.text = format!(
-                "Dragged {} at ({},{}) -> {} at ({},{}). {}",
+                "Dragged {} at ({},{}) -> {} at ({},{}) via {}. {}",
                 from.2, from.0, from.1,
                 to.2, to.0, to.1,
+                route,
                 result.text
             );
             result
@@ -836,21 +866,26 @@ pub fn tool_scroll_element(args: &Value) -> NativeToolResult {
         }
     };
 
-    if let Some(r) = super::ui_automation_tools::check_gpu_app_guard(hwnd, "scroll_element") { return r; }
+    let prefer_ocr_fallback = gpu_app_for_hwnd(hwnd).is_some() && name_filter.is_some();
 
     let dir = direction.to_lowercase();
 
     // --- Windows: UI Automation path ---
     #[cfg(windows)]
     let element_pos: Result<(i32, i32, String), String> = {
-        let name_owned = name_filter.map(|s| s.to_lowercase());
-        let type_owned = type_filter.map(|s| s.to_lowercase());
+        if prefer_ocr_fallback {
+            let search_name = name_filter.unwrap().to_lowercase();
+            ocr_find_element_on_screen(&search_name)
+        } else {
+            let name_owned = name_filter.map(|s| s.to_lowercase());
+            let type_owned = type_filter.map(|s| s.to_lowercase());
 
-        let result = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
-            super::find_ui_element(hwnd, name_owned.as_deref(), type_owned.as_deref())
-        }).and_then(|r| r);
+            let result = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
+                super::find_ui_element(hwnd, name_owned.as_deref(), type_owned.as_deref())
+            }).and_then(|r| r);
 
-        result.map(|info| (info.cx, info.cy, info.desc()))
+            result.map(|info| (info.cx, info.cy, info.desc()))
+        }
     };
 
     // --- macOS/Linux: OCR fallback path ---
@@ -873,8 +908,11 @@ pub fn tool_scroll_element(args: &Value) -> NativeToolResult {
                 "delay_ms": 300,
             });
             let mut result = super::tool_scroll_screen(&scroll_args);
-            result.text = format!("Scrolled {dir} {amount} clicks on element {desc} at ({}, {}). {}",
-                cx, cy, result.text);
+            let route = if prefer_ocr_fallback { "ocr_fallback" } else { "uia" };
+            result.text = format!(
+                "Scrolled {dir} {amount} clicks on element {desc} at ({}, {}) via {}. {}",
+                cx, cy, route, result.text
+            );
             result
         }
         Err(e) => super::tool_error("scroll_element", e),
@@ -890,10 +928,7 @@ pub fn tool_scroll_element(_args: &Value) -> NativeToolResult {
 
 /// Find an element on screen by name using OCR. Returns (cx, cy, description).
 /// Used as the non-Windows fallback for UI Automation element search.
-#[cfg(all(
-    not(windows),
-    any(target_os = "macos", target_os = "linux")
-))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 fn ocr_find_element_on_screen(search_name: &str) -> Result<(i32, i32, String), String> {
     let monitors = xcap::Monitor::all().map_err(|e| format!("{e}"))?;
     if monitors.is_empty() {

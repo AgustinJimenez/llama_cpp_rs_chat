@@ -33,6 +33,44 @@ fn is_fullscreen_by_rect(x: i32, y: i32, width: i32, height: i32) -> bool {
     false
 }
 
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+fn resolve_window_target(
+    args: &Value,
+    tool_name: &str,
+) -> Result<(win32::HWND, win32::WindowInfo), NativeToolResult> {
+    let title_filter = args.get("title").and_then(|v| v.as_str());
+    let pid_filter = args.get("pid").and_then(parse_int).map(|v| v as u32);
+
+    if title_filter.is_none() && pid_filter.is_none() {
+        return Err(super::tool_error(
+            tool_name,
+            "'title' or 'pid' argument is required",
+        ));
+    }
+
+    if let Some(target_pid) = pid_filter {
+        if let Some(result) = win32::find_window_by_pid(target_pid) {
+            return Ok(result);
+        }
+        if title_filter.is_none() {
+            return Err(NativeToolResult::text_only(format!(
+                "No visible window found for PID {target_pid}"
+            )));
+        }
+    }
+
+    if let Some(filter) = title_filter {
+        return match win32::find_window_by_filter(filter) {
+            Some(result) => Ok(result),
+            None => Err(NativeToolResult::text_only(format!(
+                "No visible window matches '{filter}'"
+            ))),
+        };
+    }
+
+    Err(NativeToolResult::text_only("No visible window found".to_string()))
+}
+
 /// List all visible windows on the desktop with titles, positions, sizes, and process names.
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_list_windows(args: &Value) -> NativeToolResult {
@@ -167,8 +205,8 @@ pub fn tool_focus_window(args: &Value) -> NativeToolResult {
         Some((hwnd, info)) => {
             if win32::focus_window(hwnd) {
                 NativeToolResult::text_only(format!(
-                    "Focused window: \"{}\" ({})",
-                    info.title, info.process_name
+                    "Focused window: \"{}\" ({}) pid={}",
+                    info.title, info.process_name, info.pid
                 ))
             } else {
                 NativeToolResult::text_only(format!(
@@ -189,17 +227,12 @@ pub fn tool_focus_window(_args: &Value) -> NativeToolResult {
 /// Minimize a window by title or process name.
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_minimize_window(args: &Value) -> NativeToolResult {
-    let filter = match args.get("title").and_then(|v| v.as_str()) {
-        Some(f) => f,
-        None => return super::tool_error("minimize_window", "'title' argument is required"),
-    };
-
-    match win32::find_window_by_filter(filter) {
-        Some((hwnd, info)) => {
+    match resolve_window_target(args, "minimize_window") {
+        Ok((hwnd, info)) => {
             win32::minimize_window(hwnd);
-            NativeToolResult::text_only(format!("Minimized: \"{}\"", info.title))
+            NativeToolResult::text_only(format!("Minimized: \"{}\" pid={}", info.title, info.pid))
         }
-        None => NativeToolResult::text_only(format!("No visible window matches '{filter}'")),
+        Err(result) => result,
     }
 }
 
@@ -211,17 +244,12 @@ pub fn tool_minimize_window(_args: &Value) -> NativeToolResult {
 /// Maximize a window by title or process name.
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_maximize_window(args: &Value) -> NativeToolResult {
-    let filter = match args.get("title").and_then(|v| v.as_str()) {
-        Some(f) => f,
-        None => return super::tool_error("maximize_window", "'title' argument is required"),
-    };
-
-    match win32::find_window_by_filter(filter) {
-        Some((hwnd, info)) => {
+    match resolve_window_target(args, "maximize_window") {
+        Ok((hwnd, info)) => {
             win32::maximize_window(hwnd);
-            NativeToolResult::text_only(format!("Maximized: \"{}\"", info.title))
+            NativeToolResult::text_only(format!("Maximized: \"{}\" pid={}", info.title, info.pid))
         }
-        None => NativeToolResult::text_only(format!("No visible window matches '{filter}'")),
+        Err(result) => result,
     }
 }
 
@@ -233,20 +261,21 @@ pub fn tool_maximize_window(_args: &Value) -> NativeToolResult {
 /// Close a window by title or process name (sends WM_CLOSE).
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_close_window(args: &Value) -> NativeToolResult {
-    let filter = match args.get("title").and_then(|v| v.as_str()) {
-        Some(f) => f,
-        None => return super::tool_error("close_window", "'title' argument is required"),
-    };
-
-    match win32::find_window_by_filter(filter) {
-        Some((hwnd, info)) => {
+    match resolve_window_target(args, "close_window") {
+        Ok((hwnd, info)) => {
             if win32::close_window(hwnd) {
-                NativeToolResult::text_only(format!("Sent close to: \"{}\"", info.title))
+                NativeToolResult::text_only(format!(
+                    "Sent close to: \"{}\" pid={}",
+                    info.title, info.pid
+                ))
             } else {
-                NativeToolResult::text_only(format!("Failed to close: \"{}\"", info.title))
+                NativeToolResult::text_only(format!(
+                    "Failed to close: \"{}\" pid={}",
+                    info.title, info.pid
+                ))
             }
         }
-        None => NativeToolResult::text_only(format!("No visible window matches '{filter}'")),
+        Err(result) => result,
     }
 }
 
@@ -320,10 +349,6 @@ pub fn tool_write_clipboard(_args: &Value) -> NativeToolResult {
 /// Resize and/or move a window by title or process name.
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_resize_window(args: &Value) -> NativeToolResult {
-    let filter = match args.get("title").and_then(|v| v.as_str()) {
-        Some(f) => f,
-        None => return super::tool_error("resize_window", "'title' argument is required"),
-    };
     let x = args.get("x").and_then(parse_int).map(|v| v as i32);
     let y = args.get("y").and_then(parse_int).map(|v| v as i32);
     let w = args.get("width").and_then(parse_int).map(|v| v as i32);
@@ -333,8 +358,8 @@ pub fn tool_resize_window(args: &Value) -> NativeToolResult {
         return super::tool_error("resize_window", "at least one of x, y, width, height is required");
     }
 
-    match win32::find_window_by_filter(filter) {
-        Some((hwnd, info)) => {
+    match resolve_window_target(args, "resize_window") {
+        Ok((hwnd, info)) => {
             if win32::resize_window(hwnd, x, y, w, h) {
                 let mut parts = Vec::new();
                 if let (Some(px), Some(py)) = (x, y) {
@@ -344,13 +369,16 @@ pub fn tool_resize_window(args: &Value) -> NativeToolResult {
                     parts.push(format!("resized to {pw}x{ph}"));
                 }
                 NativeToolResult::text_only(format!(
-                    "Window \"{}\": {}", info.title, parts.join(", ")
+                    "Window \"{}\" pid={}: {}", info.title, info.pid, parts.join(", ")
                 ))
             } else {
-                NativeToolResult::text_only(format!("Failed to resize/move: \"{}\"", info.title))
+                NativeToolResult::text_only(format!(
+                    "Failed to resize/move: \"{}\" pid={}",
+                    info.title, info.pid
+                ))
             }
         }
-        None => NativeToolResult::text_only(format!("No visible window matches '{filter}'")),
+        Err(result) => result,
     }
 }
 
@@ -392,19 +420,29 @@ pub fn tool_get_active_window(_args: &Value) -> NativeToolResult {
 /// Wait for a window to appear by title or process name (polling).
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_wait_for_window(args: &Value) -> NativeToolResult {
-    let filter = match args.get("title").and_then(|v| v.as_str()) {
-        Some(f) => f,
-        None => return super::tool_error("wait_for_window", "'title' argument is required"),
-    };
+    let title_filter = args.get("title").and_then(|v| v.as_str());
+    let pid_filter = args.get("pid").and_then(parse_int).map(|v| v as u32);
     let timeout_ms = args.get("timeout_ms").and_then(parse_int).unwrap_or(10000).min(60000) as u64;
     let poll_ms = args.get("poll_ms").and_then(parse_int).unwrap_or(200).max(50) as u64;
+
+    if title_filter.is_none() && pid_filter.is_none() {
+        return super::tool_error("wait_for_window", "'title' or 'pid' argument is required");
+    }
 
     let start = std::time::Instant::now();
     loop {
         if let Err(e) = super::ensure_desktop_not_cancelled() {
             return super::tool_error("wait_for_window", e);
         }
-        if let Some((_hwnd, info)) = win32::find_window_by_filter(filter) {
+
+        let matched = if let Some(target_pid) = pid_filter {
+            win32::find_window_by_pid(target_pid)
+        } else {
+            None
+        }
+        .or_else(|| title_filter.and_then(win32::find_window_by_filter));
+
+        if let Some((_hwnd, info)) = matched {
             return NativeToolResult::text_only(format!(
                 "Found window: \"{}\" ({}) at {},{} size {}x{} (waited {}ms)",
                 info.title, info.process_name, info.x, info.y, info.width, info.height,
@@ -412,8 +450,13 @@ pub fn tool_wait_for_window(args: &Value) -> NativeToolResult {
             ));
         }
         if start.elapsed().as_millis() as u64 >= timeout_ms {
+            let target = pid_filter
+                .map(|pid| format!("pid={pid}"))
+                .or_else(|| title_filter.map(|title| format!("title='{title}'")))
+                .unwrap_or_else(|| "unknown target".to_string());
             return NativeToolResult::text_only(format!(
-                "Timeout: no window matching '{}' appeared within {}ms", filter, timeout_ms
+                "Timeout: no window matching {target} appeared within {}ms",
+                timeout_ms
             ));
         }
         if let Err(e) = super::interruptible_sleep(std::time::Duration::from_millis(poll_ms)) {
@@ -454,10 +497,6 @@ pub fn tool_get_pixel_color(_args: &Value) -> NativeToolResult {
 /// Click at coordinates relative to a window's top-left corner.
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_click_window_relative(args: &Value) -> NativeToolResult {
-    let filter = match args.get("title").and_then(|v| v.as_str()) {
-        Some(f) => f,
-        None => return super::tool_error("click_window_relative", "'title' argument is required"),
-    };
     let rel_x = match args.get("x").and_then(parse_int) {
         Some(v) => v as i32,
         None => return super::tool_error("click_window_relative", "'x' coordinate is required"),
@@ -467,8 +506,8 @@ pub fn tool_click_window_relative(args: &Value) -> NativeToolResult {
         None => return super::tool_error("click_window_relative", "'y' coordinate is required"),
     };
 
-    match win32::find_window_by_filter(filter) {
-        Some((hwnd, info)) => {
+    match resolve_window_target(args, "click_window_relative") {
+        Ok((hwnd, info)) => {
             // Focus window first
             win32::focus_window(hwnd);
             std::thread::sleep(std::time::Duration::from_millis(100));
@@ -480,17 +519,29 @@ pub fn tool_click_window_relative(args: &Value) -> NativeToolResult {
             // Build args for click_screen
             let button = args.get("button").and_then(|v| v.as_str()).unwrap_or("left");
             let delay_ms = args.get("delay_ms").and_then(parse_int).unwrap_or(500);
-            let click_args = serde_json::json!({
+            let mut click_args = serde_json::json!({
                 "x": abs_x, "y": abs_y, "button": button, "delay_ms": delay_ms
             });
+            if let Some(obj) = click_args.as_object_mut() {
+                for key in [
+                    "verify_screen_change",
+                    "verify_threshold_pct",
+                    "verify_timeout_ms",
+                    "verify_poll_ms",
+                ] {
+                    if let Some(value) = args.get(key) {
+                        obj.insert(key.to_string(), value.clone());
+                    }
+                }
+            }
             let mut result = tool_click_screen(&click_args);
             result.text = format!(
-                "Clicked {button} at relative ({rel_x},{rel_y}) → absolute ({abs_x},{abs_y}) in \"{}\". {}",
-                info.title, result.text
+                "Clicked {button} at relative ({rel_x},{rel_y}) → absolute ({abs_x},{abs_y}) in \"{}\" pid={}. {}",
+                info.title, info.pid, result.text
             );
             result
         }
-        None => NativeToolResult::text_only(format!("No visible window matches '{filter}'")),
+        Err(result) => result,
     }
 }
 
@@ -544,22 +595,24 @@ pub fn tool_list_monitors(args: &Value) -> NativeToolResult {
 /// Set or remove always-on-top (topmost) for a window.
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_set_window_topmost(args: &Value) -> NativeToolResult {
-    let title = match args.get("title").and_then(|v| v.as_str()) {
-        Some(t) => t,
-        None => return super::tool_error("set_window_topmost", "'title' argument is required"),
-    };
     let topmost = args.get("topmost").map(|v| parse_bool(v, true)).unwrap_or(true);
 
-    match win32::find_window_by_filter(title) {
-        Some((hwnd, info)) => {
+    match resolve_window_target(args, "set_window_topmost") {
+        Ok((hwnd, info)) => {
             if win32::set_topmost(hwnd, topmost) {
                 let state = if topmost { "always-on-top" } else { "normal" };
-                NativeToolResult::text_only(format!("Set '{}' to {state}", info.title))
+                NativeToolResult::text_only(format!(
+                    "Set '{}' pid={} to {state}",
+                    info.title, info.pid
+                ))
             } else {
-                NativeToolResult::text_only(format!("Failed to set topmost for '{}'", info.title))
+                NativeToolResult::text_only(format!(
+                    "Failed to set topmost for '{}' pid={}",
+                    info.title, info.pid
+                ))
             }
         }
-        None => NativeToolResult::text_only(format!("No window matches '{title}'")),
+        Err(result) => result,
     }
 }
 
@@ -571,15 +624,11 @@ pub fn tool_set_window_topmost(_args: &Value) -> NativeToolResult {
 /// Snap a window to predefined screen positions (left, right, top-left, etc.).
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_snap_window(args: &Value) -> NativeToolResult {
-    let title = match args.get("title").and_then(|v| v.as_str()) {
-        Some(t) => t,
-        None => return super::tool_error("snap_window", "'title' is required"),
-    };
     let position = args.get("position").and_then(|v| v.as_str()).unwrap_or("left");
 
-    let (hwnd, info) = match win32::find_window_by_filter(title) {
-        Some(r) => r,
-        None => return NativeToolResult::text_only(format!("No window matches '{title}'")),
+    let (hwnd, info) = match resolve_window_target(args, "snap_window") {
+        Ok(result) => result,
+        Err(result) => return result,
     };
 
     // Restore if maximized so SetWindowPos works
@@ -592,11 +641,11 @@ pub fn tool_snap_window(args: &Value) -> NativeToolResult {
 
     if position == "maximize" {
         unsafe { win32::ShowWindow(hwnd, win32::SW_MAXIMIZE); }
-        return NativeToolResult::text_only(format!("Maximized '{}'", info.title));
+        return NativeToolResult::text_only(format!("Maximized '{}' pid={}", info.title, info.pid));
     }
     if position == "restore" {
         unsafe { win32::ShowWindow(hwnd, win32::SW_RESTORE); }
-        return NativeToolResult::text_only(format!("Restored '{}'", info.title));
+        return NativeToolResult::text_only(format!("Restored '{}' pid={}", info.title, info.pid));
     }
 
     let work = match win32::get_monitor_work_area(hwnd) {
@@ -627,7 +676,10 @@ pub fn tool_snap_window(args: &Value) -> NativeToolResult {
     unsafe {
         win32::SetWindowPos(hwnd, 0, x, y, w, h, win32::SWP_SHOWWINDOW);
     }
-    NativeToolResult::text_only(format!("Snapped '{}' to {position} ({x},{y} {w}x{h})", info.title))
+    NativeToolResult::text_only(format!(
+        "Snapped '{}' pid={} to {position} ({x},{y} {w}x{h})",
+        info.title, info.pid
+    ))
 }
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
@@ -1038,10 +1090,6 @@ pub fn tool_kill_process(_args: &Value) -> NativeToolResult {
 /// Send keystrokes to a window via PostMessageW (works in background).
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_send_keys_to_window(args: &Value) -> NativeToolResult {
-    let title = match args.get("title").and_then(|v| v.as_str()) {
-        Some(t) => t,
-        None => return super::tool_error("send_keys_to_window", "'title' is required"),
-    };
     let keys = args.get("keys").and_then(|v| v.as_str());
     let text = args.get("text").and_then(|v| v.as_str());
     let method = args.get("method").and_then(|v| v.as_str()).unwrap_or("post_message");
@@ -1050,9 +1098,9 @@ pub fn tool_send_keys_to_window(args: &Value) -> NativeToolResult {
         return super::tool_error("send_keys_to_window", "'keys' or 'text' is required");
     }
 
-    let (hwnd, info) = match win32::find_window_by_filter(title) {
-        Some(r) => r,
-        None => return NativeToolResult::text_only(format!("No window matches '{title}'")),
+    let (hwnd, info) = match resolve_window_target(args, "send_keys_to_window") {
+        Ok(result) => result,
+        Err(result) => return result,
     };
 
     if method == "send_input" {
@@ -1108,7 +1156,10 @@ pub fn tool_send_keys_to_window(args: &Value) -> NativeToolResult {
         }
     }
 
-    NativeToolResult::text_only(format!("Sent to '{}': {}", info.title, actions.join(", ")))
+    NativeToolResult::text_only(format!(
+        "Sent to '{}' pid={}: {}",
+        info.title, info.pid, actions.join(", ")
+    ))
 }
 
 /// Send keys via SendInput (requires foreground focus, more reliable for games/custom UIs).
@@ -1202,7 +1253,10 @@ fn send_keys_via_send_input(hwnd: win32::HWND, info: &win32::WindowInfo, text: O
         }
     }
 
-    NativeToolResult::text_only(format!("SendInput to '{}': {}", info.title, actions.join(", ")))
+    NativeToolResult::text_only(format!(
+        "SendInput to '{}' pid={}: {}",
+        info.title, info.pid, actions.join(", ")
+    ))
 }
 
 /// Send keys via SendInput with hardware scan codes (best for games/DirectInput).
@@ -1323,7 +1377,10 @@ fn send_keys_via_scancode(hwnd: win32::HWND, info: &win32::WindowInfo, text: Opt
         }
     }
 
-    NativeToolResult::text_only(format!("Scancode SendInput to '{}': {}", info.title, actions.join(", ")))
+    NativeToolResult::text_only(format!(
+        "Scancode SendInput to '{}' pid={}: {}",
+        info.title, info.pid, actions.join(", ")
+    ))
 }
 
 /// Build the lParam for WM_KEYDOWN/WM_KEYUP messages.

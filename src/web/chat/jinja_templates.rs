@@ -568,7 +568,15 @@ pub fn get_available_tools() -> Vec<Value> {
                     "y": { "type": "integer", "description": "Y coordinate in pixels from top edge of screen" },
                     "button": { "type": "string", "description": "Mouse button: 'left' (default), 'right', 'middle', 'double' (double left click)" },
                     "delay_ms": { "type": "integer", "description": "Milliseconds to wait after clicking before taking screenshot (default: 500). Increase for slow UI animations." },
-                    "dpi_aware": { "type": "boolean", "description": "If true, coordinates are logical (96 DPI basis) and will be scaled to physical pixels by the system DPI factor (default: false)" }
+                    "dpi_aware": { "type": "boolean", "description": "If true, coordinates are logical (96 DPI basis) and will be scaled to physical pixels by the system DPI factor (default: false)" },
+                    "verify_screen_change": { "type": "boolean", "description": "If true, verify that the screen visibly changed after the action before returning." },
+                    "verify_threshold_pct": { "type": "number", "description": "Minimum percentage of sampled pixels that must change for verification to pass (default: 0.5)." },
+                    "verify_timeout_ms": { "type": "integer", "description": "Maximum time to wait for a visible change when verification is enabled (default: 1200)." },
+                    "verify_poll_ms": { "type": "integer", "description": "Polling interval for verification screenshots (default: 150)." },
+                    "verify_x": { "type": "integer", "description": "Optional absolute X for a custom verification region." },
+                    "verify_y": { "type": "integer", "description": "Optional absolute Y for a custom verification region." },
+                    "verify_width": { "type": "integer", "description": "Optional width for a custom verification region." },
+                    "verify_height": { "type": "integer", "description": "Optional height for a custom verification region." }
                 },
                 "required": ["x", "y"]
             }
@@ -581,7 +589,15 @@ pub fn get_available_tools() -> Vec<Value> {
                 "properties": {
                     "text": { "type": "string", "description": "The text to type" },
                     "screenshot": { "type": "boolean", "description": "Take a screenshot after typing (default: true)" },
-                    "delay_ms": { "type": "integer", "description": "Milliseconds to wait after typing before screenshot (default: 300)" }
+                    "delay_ms": { "type": "integer", "description": "Milliseconds to wait after typing before screenshot (default: 300)" },
+                    "verify_screen_change": { "type": "boolean", "description": "If true, verify that the screen visibly changed after typing before returning." },
+                    "verify_threshold_pct": { "type": "number", "description": "Minimum percentage of sampled pixels that must change for verification to pass (default: 0.5)." },
+                    "verify_timeout_ms": { "type": "integer", "description": "Maximum time to wait for a visible change when verification is enabled (default: 1200)." },
+                    "verify_poll_ms": { "type": "integer", "description": "Polling interval for verification screenshots (default: 150)." },
+                    "verify_x": { "type": "integer", "description": "Optional absolute X for a custom verification region." },
+                    "verify_y": { "type": "integer", "description": "Optional absolute Y for a custom verification region." },
+                    "verify_width": { "type": "integer", "description": "Optional width for a custom verification region." },
+                    "verify_height": { "type": "integer", "description": "Optional height for a custom verification region." }
                 },
                 "required": ["text"]
             }
@@ -594,7 +610,15 @@ pub fn get_available_tools() -> Vec<Value> {
                 "properties": {
                     "key": { "type": "string", "description": "Key or key combination. Examples: 'enter', 'tab', 'ctrl+c', 'ctrl+shift+s', 'alt+tab', 'f5'" },
                     "screenshot": { "type": "boolean", "description": "Take a screenshot after key press (default: true)" },
-                    "delay_ms": { "type": "integer", "description": "Milliseconds to wait after key press before screenshot (default: 500)" }
+                    "delay_ms": { "type": "integer", "description": "Milliseconds to wait after key press before screenshot (default: 500)" },
+                    "verify_screen_change": { "type": "boolean", "description": "If true, verify that the screen visibly changed after the key press before returning." },
+                    "verify_threshold_pct": { "type": "number", "description": "Minimum percentage of sampled pixels that must change for verification to pass (default: 0.5)." },
+                    "verify_timeout_ms": { "type": "integer", "description": "Maximum time to wait for a visible change when verification is enabled (default: 1200)." },
+                    "verify_poll_ms": { "type": "integer", "description": "Polling interval for verification screenshots (default: 150)." },
+                    "verify_x": { "type": "integer", "description": "Optional absolute X for a custom verification region." },
+                    "verify_y": { "type": "integer", "description": "Optional absolute Y for a custom verification region." },
+                    "verify_width": { "type": "integer", "description": "Optional width for a custom verification region." },
+                    "verify_height": { "type": "integer", "description": "Optional height for a custom verification region." }
                 },
                 "required": ["key"]
             }
@@ -622,7 +646,15 @@ pub fn get_available_tools() -> Vec<Value> {
                     "y": { "type": "integer", "description": "Y coordinate to scroll at (optional, uses current position if omitted)" },
                     "horizontal": { "type": "boolean", "description": "Scroll horizontally instead of vertically (default: false)" },
                     "screenshot": { "type": "boolean", "description": "Take a screenshot after scrolling (default: true)" },
-                    "delay_ms": { "type": "integer", "description": "Milliseconds to wait after scrolling before screenshot (default: 300)" }
+                    "delay_ms": { "type": "integer", "description": "Milliseconds to wait after scrolling before screenshot (default: 300)" },
+                    "verify_screen_change": { "type": "boolean", "description": "If true, verify that the screen visibly changed after scrolling before returning." },
+                    "verify_threshold_pct": { "type": "number", "description": "Minimum percentage of sampled pixels that must change for verification to pass (default: 0.5)." },
+                    "verify_timeout_ms": { "type": "integer", "description": "Maximum time to wait for a visible change when verification is enabled (default: 1200)." },
+                    "verify_poll_ms": { "type": "integer", "description": "Polling interval for verification screenshots (default: 150)." },
+                    "verify_x": { "type": "integer", "description": "Optional absolute X for a custom verification region." },
+                    "verify_y": { "type": "integer", "description": "Optional absolute Y for a custom verification region." },
+                    "verify_width": { "type": "integer", "description": "Optional width for a custom verification region." },
+                    "verify_height": { "type": "integer", "description": "Optional height for a custom verification region." }
                 },
                 "required": ["amount"]
             }
@@ -649,7 +681,15 @@ pub fn get_available_tools() -> Vec<Value> {
                     "to_x": { "type": "integer", "description": "Ending X coordinate" },
                     "to_y": { "type": "integer", "description": "Ending Y coordinate" },
                     "button": { "type": "string", "description": "Mouse button to use: left (default) or right" },
-                    "delay_ms": { "type": "integer", "description": "Milliseconds to wait after drag before screenshot (default: 500)" }
+                    "delay_ms": { "type": "integer", "description": "Milliseconds to wait after drag before screenshot (default: 500)" },
+                    "verify_screen_change": { "type": "boolean", "description": "If true, verify that the screen visibly changed after dragging before returning." },
+                    "verify_threshold_pct": { "type": "number", "description": "Minimum percentage of sampled pixels that must change for verification to pass (default: 0.5)." },
+                    "verify_timeout_ms": { "type": "integer", "description": "Maximum time to wait for a visible change when verification is enabled (default: 1200)." },
+                    "verify_poll_ms": { "type": "integer", "description": "Polling interval for verification screenshots (default: 150)." },
+                    "verify_x": { "type": "integer", "description": "Optional absolute X for a custom verification region." },
+                    "verify_y": { "type": "integer", "description": "Optional absolute Y for a custom verification region." },
+                    "verify_width": { "type": "integer", "description": "Optional width for a custom verification region." },
+                    "verify_height": { "type": "integer", "description": "Optional height for a custom verification region." }
                 },
                 "required": ["from_x", "from_y", "to_x", "to_y"]
             }
@@ -665,46 +705,50 @@ pub fn get_available_tools() -> Vec<Value> {
         }),
         json!({
             "name": "focus_window",
-            "description": "Bring a window to the foreground and give it focus. Find the window by a case-insensitive title or process name filter. If the window is minimized, it will be restored first.",
+            "description": "Bring a window to the foreground and give it focus. Prefer pid when you already know the target window identity; otherwise use a case-insensitive title or process-name filter. If the window is minimized, it will be restored first.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "title": { "type": "string", "description": "Case-insensitive filter to match window title or process name (e.g. 'chrome', 'notepad')" }
+                    "title": { "type": "string", "description": "Case-insensitive filter to match window title or process name (e.g. 'chrome', 'notepad')" },
+                    "pid": { "type": "integer", "description": "Specific process ID to target. Prefer this once you know the window identity." }
                 },
-                "required": ["title"]
+                "required": []
             }
         }),
         json!({
             "name": "minimize_window",
-            "description": "Minimize a window to the taskbar. Find the window by a case-insensitive title or process name filter.",
+            "description": "Minimize a window to the taskbar. Prefer pid when you already know the target window identity; otherwise use a case-insensitive title or process-name filter.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "title": { "type": "string", "description": "Case-insensitive filter to match window title or process name" }
+                    "title": { "type": "string", "description": "Case-insensitive filter to match window title or process name" },
+                    "pid": { "type": "integer", "description": "Specific process ID to target. Prefer this once you know the window identity." }
                 },
-                "required": ["title"]
+                "required": []
             }
         }),
         json!({
             "name": "maximize_window",
-            "description": "Maximize a window to fill the screen. Find the window by a case-insensitive title or process name filter.",
+            "description": "Maximize a window to fill the screen. Prefer pid when you already know the target window identity; otherwise use a case-insensitive title or process-name filter.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "title": { "type": "string", "description": "Case-insensitive filter to match window title or process name" }
+                    "title": { "type": "string", "description": "Case-insensitive filter to match window title or process name" },
+                    "pid": { "type": "integer", "description": "Specific process ID to target. Prefer this once you know the window identity." }
                 },
-                "required": ["title"]
+                "required": []
             }
         }),
         json!({
             "name": "close_window",
-            "description": "Close a window gracefully by sending WM_CLOSE. Find the window by a case-insensitive title or process name filter. The application may show a save dialog before closing.",
+            "description": "Close a window gracefully by sending WM_CLOSE. Prefer pid when you already know the target window identity; otherwise use a case-insensitive title or process-name filter. The application may show a save dialog before closing.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "title": { "type": "string", "description": "Case-insensitive filter to match window title or process name" }
+                    "title": { "type": "string", "description": "Case-insensitive filter to match window title or process name" },
+                    "pid": { "type": "integer", "description": "Specific process ID to target. Prefer this once you know the window identity." }
                 },
-                "required": ["title"]
+                "required": []
             }
         }),
         json!({
@@ -730,17 +774,18 @@ pub fn get_available_tools() -> Vec<Value> {
         // ─── New desktop tools ───────────────────────────────────────
         json!({
             "name": "resize_window",
-            "description": "Move and/or resize a window by title or process name. Provide at least one of x, y, width, height.",
+            "description": "Move and/or resize a window by pid, title, or process name. Prefer pid when you already know the target window identity. Provide at least one of x, y, width, height.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "title": { "type": "string", "description": "Window title or process name to match (case-insensitive substring)" },
+                    "pid": { "type": "integer", "description": "Specific process ID to target. Prefer this once you know the window identity." },
                     "x": { "type": "integer", "description": "New X position (screen coordinates)" },
                     "y": { "type": "integer", "description": "New Y position (screen coordinates)" },
                     "width": { "type": "integer", "description": "New width in pixels" },
                     "height": { "type": "integer", "description": "New height in pixels" }
                 },
-                "required": ["title"]
+                "required": []
             }
         }),
         json!({
@@ -754,15 +799,16 @@ pub fn get_available_tools() -> Vec<Value> {
         }),
         json!({
             "name": "wait_for_window",
-            "description": "Wait for a window with matching title/process to appear. Polls until found or timeout.",
+            "description": "Wait for a window with matching pid, title, or process name to appear. Polls until found or timeout. Prefer pid when you already know the target window identity.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "title": { "type": "string", "description": "Window title or process name to wait for" },
+                    "pid": { "type": "integer", "description": "Specific process ID to wait for. Prefer this once you know the window identity." },
                     "timeout_ms": { "type": "integer", "description": "Maximum wait time in ms (default 10000, max 60000)" },
                     "poll_ms": { "type": "integer", "description": "Polling interval in ms (default 200)" }
                 },
-                "required": ["title"]
+                "required": []
             }
         }),
         json!({
@@ -779,17 +825,26 @@ pub fn get_available_tools() -> Vec<Value> {
         }),
         json!({
             "name": "click_window_relative",
-            "description": "Click at coordinates relative to a window's top-left corner. Focuses the window first.",
+            "description": "Click at coordinates relative to a window's top-left corner. Focuses the window first. Prefer pid when you already know the target window identity.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "title": { "type": "string", "description": "Window title or process name to match" },
+                    "pid": { "type": "integer", "description": "Specific process ID to target. Prefer this once you know the window identity." },
                     "x": { "type": "integer", "description": "X offset from window's left edge" },
                     "y": { "type": "integer", "description": "Y offset from window's top edge" },
                     "button": { "type": "string", "description": "Mouse button: left, right, middle, double (default: left)" },
-                    "delay_ms": { "type": "integer", "description": "Delay before screenshot in ms (default 500)" }
+                    "delay_ms": { "type": "integer", "description": "Delay before screenshot in ms (default 500)" },
+                    "verify_screen_change": { "type": "boolean", "description": "If true, verify that the screen visibly changed after the click before returning." },
+                    "verify_threshold_pct": { "type": "number", "description": "Minimum percentage of sampled pixels that must change for verification to pass (default: 0.5)." },
+                    "verify_timeout_ms": { "type": "integer", "description": "Maximum time to wait for a visible change when verification is enabled (default: 1200)." },
+                    "verify_poll_ms": { "type": "integer", "description": "Polling interval for verification screenshots (default: 150)." },
+                    "verify_x": { "type": "integer", "description": "Optional absolute X for a custom verification region." },
+                    "verify_y": { "type": "integer", "description": "Optional absolute Y for a custom verification region." },
+                    "verify_width": { "type": "integer", "description": "Optional width for a custom verification region." },
+                    "verify_height": { "type": "integer", "description": "Optional height for a custom verification region." }
                 },
-                "required": ["title", "x", "y"]
+                "required": ["x", "y"]
             }
         }),
         json!({
@@ -832,11 +887,13 @@ pub fn get_available_tools() -> Vec<Value> {
         }),
         json!({
             "name": "ocr_screen",
-            "description": "Extract text from the screen using OCR (Windows only). Can target a specific window by title, a manual region, or the full screen.",
+            "description": "Extract text from the screen using OCR. Prefer pid when you already know the target window identity; otherwise use window/title or a manual region instead of scanning the full monitor.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "window": { "type": "string", "description": "Window title to auto-crop OCR to (case-insensitive)" },
+                    "title": { "type": "string", "description": "Alias for window title/process filter to auto-crop OCR to" },
+                    "pid": { "type": "integer", "description": "Specific process ID to auto-crop OCR to. Prefer this once you know the window identity." },
                     "x": { "type": "integer", "description": "Left edge of region to OCR" },
                     "y": { "type": "integer", "description": "Top edge of region to OCR" },
                     "width": { "type": "integer", "description": "Width of region" },
@@ -860,11 +917,14 @@ pub fn get_available_tools() -> Vec<Value> {
         }),
         json!({
             "name": "ocr_find_text",
-            "description": "OCR the screen and find specific text, returning its bounding box coordinates. Use this to locate text on screen and get coordinates for clicking.",
+            "description": "OCR the screen and find specific text, returning its bounding box coordinates. Prefer pid when you already know the target window identity; otherwise use window/title or a manual region to avoid scanning the full monitor.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "text": { "type": "string", "description": "Text to search for (case-insensitive)" },
+                    "window": { "type": "string", "description": "Window title to auto-crop OCR search to (case-insensitive)" },
+                    "title": { "type": "string", "description": "Alias for window title/process filter to auto-crop OCR search to" },
+                    "pid": { "type": "integer", "description": "Specific process ID to auto-crop OCR search to. Prefer this once you know the window identity." },
                     "x": { "type": "integer", "description": "Optional region X offset" },
                     "y": { "type": "integer", "description": "Optional region Y offset" },
                     "width": { "type": "integer", "description": "Optional region width" },
@@ -931,14 +991,15 @@ pub fn get_available_tools() -> Vec<Value> {
         }),
         json!({
             "name": "set_window_topmost",
-            "description": "Set a window to always-on-top or remove always-on-top. Useful for keeping reference windows visible while working.",
+            "description": "Set a window to always-on-top or remove always-on-top. Prefer pid when you already know the target window identity. Useful for keeping reference windows visible while working.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "title": { "type": "string", "description": "Window title to modify" },
+                    "pid": { "type": "integer", "description": "Specific process ID to target. Prefer this once you know the window identity." },
                     "topmost": { "type": "boolean", "description": "true = always on top, false = remove (default true)" }
                 },
-                "required": ["title"]
+                "required": []
             }
         }),
         serde_json::json!({
@@ -1070,28 +1131,30 @@ pub fn get_available_tools() -> Vec<Value> {
         }),
         serde_json::json!({
             "name": "send_keys_to_window",
-            "description": "Send keystrokes to a window. Default method 'post_message' works in background. Use method 'send_input' for foreground apps that don't respond to PostMessage (games, custom UIs).",
+            "description": "Send keystrokes to a window. Prefer pid when you already know the target window identity. Default method 'post_message' works in background. Use method 'send_input' for foreground apps that don't respond to PostMessage (games, custom UIs).",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "title": { "type": "string", "description": "Window title to send keys to" },
+                    "pid": { "type": "integer", "description": "Specific process ID to target. Prefer this once you know the window identity." },
                     "keys": { "type": "string", "description": "Key combo to send (e.g. 'ctrl+s', 'enter', 'alt+f4')" },
                     "text": { "type": "string", "description": "Text characters to type" },
                     "method": { "type": "string", "description": "Input method: post_message (default, background) or send_input (foreground, more reliable)" }
                 },
-                "required": ["title"]
+                "required": []
             }
         }),
         serde_json::json!({
             "name": "snap_window",
-            "description": "Snap a window to a screen position: left, right, top-left, top-right, bottom-left, bottom-right, center, maximize, restore. Uses monitor work area (excludes taskbar).",
+            "description": "Snap a window to a screen position: left, right, top-left, top-right, bottom-left, bottom-right, center, maximize, restore. Prefer pid when you already know the target window identity. Uses monitor work area (excludes taskbar).",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "title": { "type": "string", "description": "Window title to snap" },
+                    "pid": { "type": "integer", "description": "Specific process ID to target. Prefer this once you know the window identity." },
                     "position": { "type": "string", "description": "Position: left, right, top-left, top-right, bottom-left, bottom-right, center, maximize, restore" }
                 },
-                "required": ["title", "position"]
+                "required": ["position"]
             }
         }),
         serde_json::json!({
