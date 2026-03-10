@@ -12,6 +12,27 @@ use super::macos as win32;
 #[cfg(target_os = "linux")]
 use super::linux as win32;
 
+/// Check if a window rect covers any monitor entirely (cross-platform fullscreen detection).
+fn is_fullscreen_by_rect(x: i32, y: i32, width: i32, height: i32) -> bool {
+    if let Ok(monitors) = xcap::Monitor::all() {
+        for m in &monitors {
+            let mx = m.x().unwrap_or(0);
+            let my = m.y().unwrap_or(0);
+            let mw = m.width().unwrap_or(0) as i32;
+            let mh = m.height().unwrap_or(0) as i32;
+            // Exact match: window position and size match monitor
+            if x == mx && y == my && width == mw && height == mh {
+                return true;
+            }
+            // Covers monitor: window encompasses the entire monitor area
+            if x <= mx && y <= my && (x + width) >= (mx + mw) && (y + height) >= (my + mh) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// List all visible windows on the desktop with titles, positions, sizes, and process names.
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_list_windows(args: &Value) -> NativeToolResult {
@@ -19,12 +40,20 @@ pub fn tool_list_windows(args: &Value) -> NativeToolResult {
         .get("filter")
         .and_then(|v| v.as_str())
         .map(|s| s.to_lowercase());
+    let pid_filter = args.get("pid").and_then(parse_int).map(|v| v as u32);
 
     let windows = win32::enumerate_windows();
 
     let filtered: Vec<&win32::WindowInfo> = windows
         .iter()
         .filter(|w| {
+            // Apply PID filter
+            if let Some(target_pid) = pid_filter {
+                if w.pid != target_pid {
+                    return false;
+                }
+            }
+            // Apply text filter
             if let Some(ref f) = filter {
                 w.title.to_lowercase().contains(f)
                     || w.process_name.to_lowercase().contains(f)
@@ -36,10 +65,11 @@ pub fn tool_list_windows(args: &Value) -> NativeToolResult {
         .collect();
 
     if filtered.is_empty() {
-        let msg = if filter.is_some() {
+        let msg = if filter.is_some() || pid_filter.is_some() {
             format!(
-                "No visible windows match filter '{}'. Total visible windows: {}",
-                filter.as_deref().unwrap_or(""),
+                "No visible windows match filter (text={}, pid={}). Total visible windows: {}",
+                filter.as_deref().unwrap_or("any"),
+                pid_filter.map_or("any".to_string(), |p| p.to_string()),
                 windows.len()
             )
         } else {
@@ -50,6 +80,7 @@ pub fn tool_list_windows(args: &Value) -> NativeToolResult {
 
     let mut output = format!("Found {} windows:\n", filtered.len());
     for (i, w) in filtered.iter().enumerate() {
+        let fullscreen = is_fullscreen_by_rect(w.x, w.y, w.width, w.height);
         let mut state_parts = Vec::new();
         if w.minimized {
             state_parts.push("minimized");
@@ -59,6 +90,9 @@ pub fn tool_list_windows(args: &Value) -> NativeToolResult {
         }
         if w.focused {
             state_parts.push("focused");
+        }
+        if fullscreen {
+            state_parts.push("fullscreen");
         }
         let state = if state_parts.is_empty() {
             String::new()
@@ -76,8 +110,8 @@ pub fn tool_list_windows(args: &Value) -> NativeToolResult {
             format!(" [{}]", w.class_name)
         };
         output.push_str(&format!(
-            "  [{}] \"{}\"{}{} — {},{} {}x{}{}\n",
-            i, w.title, proc, cls, w.x, w.y, w.width, w.height, state
+            "  [{}] \"{}\"{}{} — pid={} {},{} {}x{}{}\n",
+            i, w.title, proc, cls, w.pid, w.x, w.y, w.width, w.height, state
         ));
     }
 
@@ -86,7 +120,7 @@ pub fn tool_list_windows(args: &Value) -> NativeToolResult {
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_list_windows(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: list_windows is not available on this platform".to_string())
+    super::tool_error("list_windows", "not available on this platform")
 }
 
 /// Get the current mouse cursor position.
@@ -98,17 +132,43 @@ pub fn tool_get_cursor_position(_args: &Value) -> NativeToolResult {
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_get_cursor_position(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: get_cursor_position is not available on this platform".to_string())
+    super::tool_error("get_cursor_position", "not available on this platform")
 }
 
-/// Focus (bring to front) a window by title or process name.
+/// Focus (bring to front) a window by title, process name, or PID.
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_focus_window(args: &Value) -> NativeToolResult {
-    let filter = match args.get("title").and_then(|v| v.as_str()) {
-        Some(f) => f,
-        None => return NativeToolResult::text_only("Error: 'title' argument is required".to_string()),
-    };
+    let title_filter = args.get("title").and_then(|v| v.as_str());
+    let pid_filter = args.get("pid").and_then(parse_int).map(|v| v as u32);
 
+    if title_filter.is_none() && pid_filter.is_none() {
+        return super::tool_error("focus_window", "'title' or 'pid' argument is required");
+    }
+
+    // Try PID-based lookup first if provided
+    if let Some(target_pid) = pid_filter {
+        // Find first visible window with matching PID
+        let windows = win32::enumerate_windows();
+        if let Some(w) = windows.iter().find(|w| w.pid == target_pid) {
+            // Need HWND — use find_window_by_filter with exact title match
+            if let Some((hwnd, info)) = win32::find_window_by_filter(&w.title) {
+                if win32::focus_window(hwnd) {
+                    return NativeToolResult::text_only(format!(
+                        "Focused window: \"{}\" ({}) pid={}",
+                        info.title, info.process_name, target_pid
+                    ));
+                } else {
+                    return NativeToolResult::text_only(format!(
+                        "Found \"{}\" (pid={}) but failed to bring to foreground",
+                        info.title, target_pid
+                    ));
+                }
+            }
+        }
+        return NativeToolResult::text_only(format!("No visible window found for PID {target_pid}"));
+    }
+
+    let filter = title_filter.unwrap();
     match win32::find_window_by_filter(filter) {
         Some((hwnd, info)) => {
             if win32::focus_window(hwnd) {
@@ -129,7 +189,7 @@ pub fn tool_focus_window(args: &Value) -> NativeToolResult {
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_focus_window(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: focus_window is not available on this platform".to_string())
+    super::tool_error("focus_window", "not available on this platform")
 }
 
 /// Minimize a window by title or process name.
@@ -137,7 +197,7 @@ pub fn tool_focus_window(_args: &Value) -> NativeToolResult {
 pub fn tool_minimize_window(args: &Value) -> NativeToolResult {
     let filter = match args.get("title").and_then(|v| v.as_str()) {
         Some(f) => f,
-        None => return NativeToolResult::text_only("Error: 'title' argument is required".to_string()),
+        None => return super::tool_error("minimize_window", "'title' argument is required"),
     };
 
     match win32::find_window_by_filter(filter) {
@@ -151,7 +211,7 @@ pub fn tool_minimize_window(args: &Value) -> NativeToolResult {
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_minimize_window(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: minimize_window is not available on this platform".to_string())
+    super::tool_error("minimize_window", "not available on this platform")
 }
 
 /// Maximize a window by title or process name.
@@ -159,7 +219,7 @@ pub fn tool_minimize_window(_args: &Value) -> NativeToolResult {
 pub fn tool_maximize_window(args: &Value) -> NativeToolResult {
     let filter = match args.get("title").and_then(|v| v.as_str()) {
         Some(f) => f,
-        None => return NativeToolResult::text_only("Error: 'title' argument is required".to_string()),
+        None => return super::tool_error("maximize_window", "'title' argument is required"),
     };
 
     match win32::find_window_by_filter(filter) {
@@ -173,7 +233,7 @@ pub fn tool_maximize_window(args: &Value) -> NativeToolResult {
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_maximize_window(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: maximize_window is not available on this platform".to_string())
+    super::tool_error("maximize_window", "not available on this platform")
 }
 
 /// Close a window by title or process name (sends WM_CLOSE).
@@ -181,7 +241,7 @@ pub fn tool_maximize_window(_args: &Value) -> NativeToolResult {
 pub fn tool_close_window(args: &Value) -> NativeToolResult {
     let filter = match args.get("title").and_then(|v| v.as_str()) {
         Some(f) => f,
-        None => return NativeToolResult::text_only("Error: 'title' argument is required".to_string()),
+        None => return super::tool_error("close_window", "'title' argument is required"),
     };
 
     match win32::find_window_by_filter(filter) {
@@ -198,7 +258,7 @@ pub fn tool_close_window(args: &Value) -> NativeToolResult {
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_close_window(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: close_window is not available on this platform".to_string())
+    super::tool_error("close_window", "not available on this platform")
 }
 
 /// Read text from the system clipboard, reporting format info.
@@ -228,13 +288,13 @@ pub fn tool_read_clipboard(_args: &Value) -> NativeToolResult {
             };
             NativeToolResult::text_only(summary)
         }
-        Err(e) => NativeToolResult::text_only(format!("Format: {format_str}. Error: {e}")),
+        Err(e) => super::tool_error("read_clipboard", format!("Format: {format_str}. {e}")),
     }
 }
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_read_clipboard(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: read_clipboard is not available on this platform".to_string())
+    super::tool_error("read_clipboard", "not available on this platform")
 }
 
 /// Write text to the system clipboard.
@@ -242,7 +302,7 @@ pub fn tool_read_clipboard(_args: &Value) -> NativeToolResult {
 pub fn tool_write_clipboard(args: &Value) -> NativeToolResult {
     let text = match args.get("text").and_then(|v| v.as_str()) {
         Some(t) => t,
-        None => return NativeToolResult::text_only("Error: 'text' argument is required".to_string()),
+        None => return super::tool_error("write_clipboard", "'text' argument is required"),
     };
 
     match win32::write_clipboard(text) {
@@ -254,13 +314,13 @@ pub fn tool_write_clipboard(args: &Value) -> NativeToolResult {
             };
             NativeToolResult::text_only(summary)
         }
-        Err(e) => NativeToolResult::text_only(format!("Error: {e}")),
+        Err(e) => super::tool_error("write_clipboard", e),
     }
 }
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_write_clipboard(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: write_clipboard is not available on this platform".to_string())
+    super::tool_error("write_clipboard", "not available on this platform")
 }
 
 /// Resize and/or move a window by title or process name.
@@ -268,7 +328,7 @@ pub fn tool_write_clipboard(_args: &Value) -> NativeToolResult {
 pub fn tool_resize_window(args: &Value) -> NativeToolResult {
     let filter = match args.get("title").and_then(|v| v.as_str()) {
         Some(f) => f,
-        None => return NativeToolResult::text_only("Error: 'title' argument is required".to_string()),
+        None => return super::tool_error("resize_window", "'title' argument is required"),
     };
     let x = args.get("x").and_then(parse_int).map(|v| v as i32);
     let y = args.get("y").and_then(parse_int).map(|v| v as i32);
@@ -276,7 +336,7 @@ pub fn tool_resize_window(args: &Value) -> NativeToolResult {
     let h = args.get("height").and_then(parse_int).map(|v| v as i32);
 
     if x.is_none() && y.is_none() && w.is_none() && h.is_none() {
-        return NativeToolResult::text_only("Error: at least one of x, y, width, height is required".to_string());
+        return super::tool_error("resize_window", "at least one of x, y, width, height is required");
     }
 
     match win32::find_window_by_filter(filter) {
@@ -302,7 +362,7 @@ pub fn tool_resize_window(args: &Value) -> NativeToolResult {
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_resize_window(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: resize_window is not available on this platform".to_string())
+    super::tool_error("resize_window", "not available on this platform")
 }
 
 /// Get information about the currently active (foreground) window.
@@ -310,11 +370,20 @@ pub fn tool_resize_window(_args: &Value) -> NativeToolResult {
 pub fn tool_get_active_window(_args: &Value) -> NativeToolResult {
     match win32::get_active_window_info() {
         Some((_hwnd, info)) => {
+            let fullscreen = is_fullscreen_by_rect(info.x, info.y, info.width, info.height);
+            let mut state_parts = Vec::new();
+            if info.minimized { state_parts.push("minimized"); }
+            if info.maximized { state_parts.push("maximized"); }
+            if fullscreen { state_parts.push("fullscreen"); }
+            let state = if state_parts.is_empty() {
+                String::new()
+            } else {
+                format!(" [{}]", state_parts.join(", "))
+            };
             NativeToolResult::text_only(format!(
-                "Active window: \"{}\" ({}) at {},{} size {}x{}{}{}",
-                info.title, info.process_name, info.x, info.y, info.width, info.height,
-                if info.minimized { " [minimized]" } else { "" },
-                if info.maximized { " [maximized]" } else { "" },
+                "Active window: \"{}\" ({}) pid={} at {},{} size {}x{}{}",
+                info.title, info.process_name, info.pid,
+                info.x, info.y, info.width, info.height, state
             ))
         }
         None => NativeToolResult::text_only("No active window found".to_string()),
@@ -323,7 +392,7 @@ pub fn tool_get_active_window(_args: &Value) -> NativeToolResult {
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_get_active_window(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: get_active_window is not available on this platform".to_string())
+    super::tool_error("get_active_window", "not available on this platform")
 }
 
 /// Wait for a window to appear by title or process name (polling).
@@ -331,7 +400,7 @@ pub fn tool_get_active_window(_args: &Value) -> NativeToolResult {
 pub fn tool_wait_for_window(args: &Value) -> NativeToolResult {
     let filter = match args.get("title").and_then(|v| v.as_str()) {
         Some(f) => f,
-        None => return NativeToolResult::text_only("Error: 'title' argument is required".to_string()),
+        None => return super::tool_error("wait_for_window", "'title' argument is required"),
     };
     let timeout_ms = args.get("timeout_ms").and_then(parse_int).unwrap_or(10000).min(60000) as u64;
     let poll_ms = args.get("poll_ms").and_then(parse_int).unwrap_or(200).max(50) as u64;
@@ -356,7 +425,7 @@ pub fn tool_wait_for_window(args: &Value) -> NativeToolResult {
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_wait_for_window(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: wait_for_window is not available on this platform".to_string())
+    super::tool_error("wait_for_window", "not available on this platform")
 }
 
 /// Get the color of a pixel at screen coordinates.
@@ -364,23 +433,23 @@ pub fn tool_wait_for_window(_args: &Value) -> NativeToolResult {
 pub fn tool_get_pixel_color(args: &Value) -> NativeToolResult {
     let x = match args.get("x").and_then(parse_int) {
         Some(v) => v as i32,
-        None => return NativeToolResult::text_only("Error: 'x' coordinate is required".to_string()),
+        None => return super::tool_error("get_pixel_color", "'x' coordinate is required"),
     };
     let y = match args.get("y").and_then(parse_int) {
         Some(v) => v as i32,
-        None => return NativeToolResult::text_only("Error: 'y' coordinate is required".to_string()),
+        None => return super::tool_error("get_pixel_color", "'y' coordinate is required"),
     };
     match win32::get_pixel_color(x, y) {
         Ok((r, g, b)) => NativeToolResult::text_only(format!(
             "Pixel at ({x},{y}): rgb({r},{g},{b}) = #{r:02X}{g:02X}{b:02X}"
         )),
-        Err(e) => NativeToolResult::text_only(format!("Error: {e}")),
+        Err(e) => super::tool_error("get_pixel_color", e),
     }
 }
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_get_pixel_color(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: get_pixel_color is not available on this platform".to_string())
+    super::tool_error("get_pixel_color", "not available on this platform")
 }
 
 /// Click at coordinates relative to a window's top-left corner.
@@ -388,15 +457,15 @@ pub fn tool_get_pixel_color(_args: &Value) -> NativeToolResult {
 pub fn tool_click_window_relative(args: &Value) -> NativeToolResult {
     let filter = match args.get("title").and_then(|v| v.as_str()) {
         Some(f) => f,
-        None => return NativeToolResult::text_only("Error: 'title' argument is required".to_string()),
+        None => return super::tool_error("click_window_relative", "'title' argument is required"),
     };
     let rel_x = match args.get("x").and_then(parse_int) {
         Some(v) => v as i32,
-        None => return NativeToolResult::text_only("Error: 'x' coordinate is required".to_string()),
+        None => return super::tool_error("click_window_relative", "'x' coordinate is required"),
     };
     let rel_y = match args.get("y").and_then(parse_int) {
         Some(v) => v as i32,
-        None => return NativeToolResult::text_only("Error: 'y' coordinate is required".to_string()),
+        None => return super::tool_error("click_window_relative", "'y' coordinate is required"),
     };
 
     match win32::find_window_by_filter(filter) {
@@ -428,7 +497,7 @@ pub fn tool_click_window_relative(args: &Value) -> NativeToolResult {
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_click_window_relative(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: click_window_relative is not available on this platform".to_string())
+    super::tool_error("click_window_relative", "not available on this platform")
 }
 
 /// List all monitors with their properties.
@@ -437,7 +506,7 @@ pub fn tool_list_monitors(args: &Value) -> NativeToolResult {
 
     let monitors = match xcap::Monitor::all() {
         Ok(m) => m,
-        Err(e) => return NativeToolResult::text_only(format!("Error enumerating monitors: {e}")),
+        Err(e) => return super::tool_error("list_monitors", format!("enumerating monitors: {e}")),
     };
 
     if monitors.is_empty() {
@@ -446,9 +515,7 @@ pub fn tool_list_monitors(args: &Value) -> NativeToolResult {
 
     if let Some(idx) = index_filter {
         if idx >= monitors.len() {
-            return NativeToolResult::text_only(format!(
-                "Error: monitor index {idx} out of range (0..{})", monitors.len()
-            ));
+            return super::tool_error("list_monitors", format!("monitor index {idx} out of range (0..{})", monitors.len()));
         }
         let m = &monitors[idx];
         return NativeToolResult::text_only(format!(
@@ -480,7 +547,7 @@ pub fn tool_list_monitors(args: &Value) -> NativeToolResult {
 pub fn tool_set_window_topmost(args: &Value) -> NativeToolResult {
     let title = match args.get("title").and_then(|v| v.as_str()) {
         Some(t) => t,
-        None => return NativeToolResult::text_only("Error: 'title' argument is required".to_string()),
+        None => return super::tool_error("set_window_topmost", "'title' argument is required"),
     };
     let topmost = args.get("topmost").map(|v| parse_bool(v, true)).unwrap_or(true);
 
@@ -499,7 +566,7 @@ pub fn tool_set_window_topmost(args: &Value) -> NativeToolResult {
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_set_window_topmost(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: set_window_topmost is not available on this platform".to_string())
+    super::tool_error("set_window_topmost", "not available on this platform")
 }
 
 /// Snap a window to predefined screen positions (left, right, top-left, etc.).
@@ -507,7 +574,7 @@ pub fn tool_set_window_topmost(_args: &Value) -> NativeToolResult {
 pub fn tool_snap_window(args: &Value) -> NativeToolResult {
     let title = match args.get("title").and_then(|v| v.as_str()) {
         Some(t) => t,
-        None => return NativeToolResult::text_only("Error: 'title' is required".to_string()),
+        None => return super::tool_error("snap_window", "'title' is required"),
     };
     let position = args.get("position").and_then(|v| v.as_str()).unwrap_or("left");
 
@@ -535,7 +602,7 @@ pub fn tool_snap_window(args: &Value) -> NativeToolResult {
 
     let work = match win32::get_monitor_work_area(hwnd) {
         Ok(r) => r,
-        Err(e) => return NativeToolResult::text_only(format!("Error: {e}")),
+        Err(e) => return super::tool_error("snap_window", e),
     };
 
     let ww = work.right - work.left;
@@ -566,7 +633,7 @@ pub fn tool_snap_window(args: &Value) -> NativeToolResult {
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_snap_window(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: snap_window is not available on this platform".to_string())
+    super::tool_error("snap_window", "not available on this platform")
 }
 
 /// Open/launch an application by name or path. With `capture_output: true`, captures stdout/stderr.
@@ -574,7 +641,7 @@ pub fn tool_snap_window(_args: &Value) -> NativeToolResult {
 pub fn tool_open_application(args: &Value) -> NativeToolResult {
     let target = match args.get("target").and_then(|v| v.as_str()) {
         Some(t) => t,
-        None => return NativeToolResult::text_only("Error: 'target' argument is required (app name or path)".to_string()),
+        None => return super::tool_error("open_application", "'target' argument is required (app name or path)"),
     };
     let arguments = args.get("args").and_then(|v| v.as_str());
     let capture_output = super::parse_bool(
@@ -618,7 +685,7 @@ pub fn tool_open_application(args: &Value) -> NativeToolResult {
                 }
                 NativeToolResult::text_only(result)
             }
-            Err(e) => NativeToolResult::text_only(format!("Error running '{target}': {e}")),
+            Err(e) => super::tool_error("open_application", format!("running '{target}': {e}")),
         }
     } else {
         match win32::shell_execute(target, arguments) {
@@ -643,11 +710,11 @@ pub fn tool_open_application(args: &Value) -> NativeToolResult {
                                 };
                                 NativeToolResult::text_only(desc)
                             }
-                            Err(e2) => NativeToolResult::text_only(format!("Error: found '{found_path}' but failed to launch: {e2}")),
+                            Err(e2) => super::tool_error("open_application", format!("found '{found_path}' but failed to launch: {e2}")),
                         }
                     }
-                    None => NativeToolResult::text_only(format!(
-                        "Error: '{target}' not found. Not in PATH, registry, or Program Files. \
+                    None => super::tool_error("open_application", format!(
+                        "'{target}' not found. Not in PATH, registry, or Program Files. \
                          Try providing the full path to the executable."
                     )),
                 }
@@ -777,7 +844,7 @@ fn capitalize_first(s: &str) -> String {
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_open_application(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: open_application is not available on this platform".to_string())
+    super::tool_error("open_application", "not available on this platform")
 }
 
 /// List running processes, optionally filtered by name.
@@ -804,23 +871,29 @@ pub fn tool_list_processes(args: &Value) -> NativeToolResult {
             let suffix = if total > 100 { format!("\n... and {} more (use filter to narrow)", total - 100) } else { String::new() };
             NativeToolResult::text_only(format!("{} process(es):\n{}{suffix}", limited.len(), lines.join("\n")))
         }
-        Err(e) => NativeToolResult::text_only(format!("Error: {e}")),
+        Err(e) => super::tool_error("list_processes", e),
     }
 }
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_list_processes(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: list_processes is not available on this platform".to_string())
+    super::tool_error("list_processes", "not available on this platform")
 }
 
 /// Terminate a process by name or PID. Refuses to kill system-critical processes.
+/// Supports graceful shutdown via `force=false` (sends WM_CLOSE/SIGTERM, then waits).
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_kill_process(args: &Value) -> NativeToolResult {
     let name_filter = args.get("name").and_then(|v| v.as_str());
     let pid = args.get("pid").and_then(parse_int).map(|v| v as u32);
+    let force = args.get("force").map(|v| parse_bool(v, true)).unwrap_or(true);
+    let grace_ms = args.get("grace_ms").and_then(parse_int)
+        .unwrap_or(5000)
+        .min(15000)
+        .max(500) as u64;
 
     if name_filter.is_none() && pid.is_none() {
-        return NativeToolResult::text_only("Error: 'name' or 'pid' is required".to_string());
+        return super::tool_error("kill_process", "'name' or 'pid' is required");
     }
 
     // System-critical processes that must never be killed
@@ -834,24 +907,28 @@ pub fn tool_kill_process(args: &Value) -> NativeToolResult {
 
     if let Some(target_pid) = pid {
         if target_pid == current_pid {
-            return NativeToolResult::text_only("Error: refusing to kill own process".to_string());
+            return super::tool_error("kill_process", "refusing to kill own process");
         }
         // Check process name against protected list
         if let Ok(procs) = win32::enumerate_processes() {
             if let Some((_, name)) = procs.iter().find(|(p, _)| *p == target_pid) {
                 if PROTECTED.iter().any(|&p| name.to_lowercase() == p) {
-                    return NativeToolResult::text_only(format!("Error: refusing to kill system-critical process '{name}' (PID {target_pid})"));
+                    return super::tool_error("kill_process", format!("refusing to kill system-critical process '{name}' (PID {target_pid})"));
                 }
             }
         }
-        match win32::terminate_process(target_pid) {
-            Ok(()) => NativeToolResult::text_only(format!("Terminated process PID {target_pid}")),
-            Err(e) => NativeToolResult::text_only(format!("Error: {e}")),
+        if force {
+            match win32::terminate_process(target_pid) {
+                Ok(()) => NativeToolResult::text_only(format!("Terminated process PID {target_pid}")),
+                Err(e) => super::tool_error("kill_process", e),
+            }
+        } else {
+            graceful_kill_pid(target_pid, grace_ms)
         }
     } else if let Some(name) = name_filter {
         let name_lower = name.to_lowercase();
         if PROTECTED.iter().any(|&p| name_lower == p || name_lower == p.trim_end_matches(".exe")) {
-            return NativeToolResult::text_only(format!("Error: refusing to kill system-critical process '{name}'"));
+            return super::tool_error("kill_process", format!("refusing to kill system-critical process '{name}'"));
         }
         match win32::enumerate_processes() {
             Ok(procs) => {
@@ -861,30 +938,102 @@ pub fn tool_kill_process(args: &Value) -> NativeToolResult {
                 if targets.is_empty() {
                     return NativeToolResult::text_only(format!("No process matching '{name}' found"));
                 }
-                let mut killed = 0;
-                let mut errors = Vec::new();
-                for (p, n) in &targets {
-                    match win32::terminate_process(*p) {
-                        Ok(()) => killed += 1,
-                        Err(e) => errors.push(format!("PID {p} ({n}): {e}")),
+                if force {
+                    let mut killed = 0;
+                    let mut errors = Vec::new();
+                    for (p, n) in &targets {
+                        match win32::terminate_process(*p) {
+                            Ok(()) => killed += 1,
+                            Err(e) => errors.push(format!("PID {p} ({n}): {e}")),
+                        }
                     }
+                    let mut msg = format!("Killed {killed}/{} process(es) matching '{name}'", targets.len());
+                    if !errors.is_empty() {
+                        msg.push_str(&format!("\nErrors: {}", errors.join("; ")));
+                    }
+                    NativeToolResult::text_only(msg)
+                } else {
+                    // Graceful kill each matching process
+                    let mut results = Vec::new();
+                    for (p, n) in &targets {
+                        let r = graceful_kill_pid(*p, grace_ms);
+                        results.push(format!("PID {} ({}): {}", p, n, r.text));
+                    }
+                    NativeToolResult::text_only(format!(
+                        "Graceful kill for {} process(es) matching '{name}':\n{}",
+                        targets.len(), results.join("\n")
+                    ))
                 }
-                let mut msg = format!("Killed {killed}/{} process(es) matching '{name}'", targets.len());
-                if !errors.is_empty() {
-                    msg.push_str(&format!("\nErrors: {}", errors.join("; ")));
-                }
-                NativeToolResult::text_only(msg)
             }
-            Err(e) => NativeToolResult::text_only(format!("Error: {e}")),
+            Err(e) => super::tool_error("kill_process", e),
         }
     } else {
-        NativeToolResult::text_only("Error: unreachable".to_string())
+        super::tool_error("kill_process", "unreachable")
+    }
+}
+
+/// Gracefully terminate a process: send close signals, wait, then force kill if needed.
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+fn graceful_kill_pid(target_pid: u32, grace_ms: u64) -> NativeToolResult {
+    // Step 1: Send graceful close signals
+    #[cfg(windows)]
+    {
+        // Find all windows belonging to this PID and send WM_CLOSE
+        let hwnds = win32::find_hwnds_by_pid(target_pid);
+        let window_count = hwnds.len();
+        for hwnd in hwnds {
+            win32::close_window_graceful(hwnd);
+        }
+        if window_count == 0 {
+            // No windows found — fall back to TerminateProcess immediately
+            return match win32::terminate_process(target_pid) {
+                Ok(()) => NativeToolResult::text_only(format!(
+                    "No windows for PID {target_pid}; force-terminated"
+                )),
+                Err(e) => super::tool_error("kill_process", e),
+            };
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        // macOS/Linux: send SIGTERM
+        let _ = std::process::Command::new("kill")
+            .args(["-TERM", &target_pid.to_string()])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+
+    // Step 2: Poll every 200ms until process exits or grace period expires
+    let start = std::time::Instant::now();
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        if !win32::is_process_alive(target_pid) {
+            let elapsed = start.elapsed().as_millis();
+            return NativeToolResult::text_only(format!(
+                "Process PID {target_pid} exited gracefully after {elapsed}ms"
+            ));
+        }
+        if start.elapsed().as_millis() as u64 >= grace_ms {
+            break;
+        }
+    }
+
+    // Step 3: Grace period expired — force kill
+    match win32::terminate_process(target_pid) {
+        Ok(()) => NativeToolResult::text_only(format!(
+            "Process PID {target_pid} did not exit within {grace_ms}ms; force-terminated"
+        )),
+        Err(e) => NativeToolResult::text_only(format!(
+            "Process PID {target_pid} did not exit within {grace_ms}ms; force-kill failed: {e}"
+        )),
     }
 }
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_kill_process(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: kill_process is not available on this platform".to_string())
+    super::tool_error("kill_process", "not available on this platform")
 }
 
 /// Send keystrokes to a window via PostMessageW (works in background).
@@ -892,14 +1041,14 @@ pub fn tool_kill_process(_args: &Value) -> NativeToolResult {
 pub fn tool_send_keys_to_window(args: &Value) -> NativeToolResult {
     let title = match args.get("title").and_then(|v| v.as_str()) {
         Some(t) => t,
-        None => return NativeToolResult::text_only("Error: 'title' is required".to_string()),
+        None => return super::tool_error("send_keys_to_window", "'title' is required"),
     };
     let keys = args.get("keys").and_then(|v| v.as_str());
     let text = args.get("text").and_then(|v| v.as_str());
     let method = args.get("method").and_then(|v| v.as_str()).unwrap_or("post_message");
 
     if keys.is_none() && text.is_none() {
-        return NativeToolResult::text_only("Error: 'keys' or 'text' is required".to_string());
+        return super::tool_error("send_keys_to_window", "'keys' or 'text' is required");
     }
 
     let (hwnd, info) = match win32::find_window_by_filter(title) {
@@ -909,6 +1058,10 @@ pub fn tool_send_keys_to_window(args: &Value) -> NativeToolResult {
 
     if method == "send_input" {
         return send_keys_via_send_input(hwnd, &info, text, keys);
+    }
+
+    if method == "scancode" {
+        return send_keys_via_scancode(hwnd, &info, text, keys);
     }
 
     let mut actions = Vec::new();
@@ -952,7 +1105,7 @@ pub fn tool_send_keys_to_window(args: &Value) -> NativeToolResult {
                 }
                 actions.push(format!("sent key '{key_str}'"));
             }
-            Err(e) => return NativeToolResult::text_only(format!("Error parsing keys: {e}")),
+            Err(e) => return super::tool_error("send_keys_to_window", format!("parsing keys: {e}")),
         }
     }
 
@@ -1046,11 +1199,132 @@ fn send_keys_via_send_input(hwnd: win32::HWND, info: &win32::WindowInfo, text: O
                 };
                 actions.push(format!("sent key '{key_str}' ({sent} events)"));
             }
-            Err(e) => return NativeToolResult::text_only(format!("Error parsing keys: {e}")),
+            Err(e) => return super::tool_error("send_keys_to_window", format!("parsing keys: {e}")),
         }
     }
 
     NativeToolResult::text_only(format!("SendInput to '{}': {}", info.title, actions.join(", ")))
+}
+
+/// Send keys via SendInput with hardware scan codes (best for games/DirectInput).
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+fn send_keys_via_scancode(hwnd: win32::HWND, info: &win32::WindowInfo, text: Option<&str>, keys: Option<&str>) -> NativeToolResult {
+    // Focus the window first
+    unsafe {
+        win32::SetForegroundWindow(hwnd);
+    }
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    let mut actions = Vec::new();
+
+    // Type text via KEYEVENTF_UNICODE (scan codes don't help for arbitrary Unicode)
+    if let Some(txt) = text {
+        let mut inputs = Vec::new();
+        for ch in txt.encode_utf16() {
+            inputs.push(win32::INPUT {
+                input_type: win32::INPUT_KEYBOARD,
+                ki: win32::KEYBDINPUT {
+                    w_vk: 0,
+                    w_scan: ch,
+                    dw_flags: win32::KEYEVENTF_UNICODE,
+                    time: 0,
+                    dw_extra_info: 0,
+                },
+                _pad: [0; 8],
+            });
+            inputs.push(win32::INPUT {
+                input_type: win32::INPUT_KEYBOARD,
+                ki: win32::KEYBDINPUT {
+                    w_vk: 0,
+                    w_scan: ch,
+                    dw_flags: win32::KEYEVENTF_UNICODE | win32::KEYEVENTF_KEYUP,
+                    time: 0,
+                    dw_extra_info: 0,
+                },
+                _pad: [0; 8],
+            });
+        }
+        let sent = unsafe {
+            win32::SendInput(inputs.len() as u32, inputs.as_ptr(), std::mem::size_of::<win32::INPUT>() as i32)
+        };
+        actions.push(format!("typed {} chars ({} events sent)", txt.len(), sent));
+    }
+
+    // Send key combos via scan codes
+    if let Some(key_str) = keys {
+        match parse_key_combo(key_str) {
+            Ok((modifiers, main_key)) => {
+                let mut inputs = Vec::new();
+                // Press modifiers (scancode)
+                for m in &modifiers {
+                    if let Some(vk) = win32::key_to_vk(m) {
+                        let scan = unsafe { win32::MapVirtualKeyW(vk, win32::MAPVK_VK_TO_VSC) } as u16;
+                        inputs.push(win32::INPUT {
+                            input_type: win32::INPUT_KEYBOARD,
+                            ki: win32::KEYBDINPUT {
+                                w_vk: 0,
+                                w_scan: scan,
+                                dw_flags: win32::KEYEVENTF_SCANCODE,
+                                time: 0,
+                                dw_extra_info: 0,
+                            },
+                            _pad: [0; 8],
+                        });
+                    }
+                }
+                // Press+release main key (scancode)
+                if let Some(vk) = win32::key_to_vk(&main_key) {
+                    let scan = unsafe { win32::MapVirtualKeyW(vk, win32::MAPVK_VK_TO_VSC) } as u16;
+                    inputs.push(win32::INPUT {
+                        input_type: win32::INPUT_KEYBOARD,
+                        ki: win32::KEYBDINPUT {
+                            w_vk: 0,
+                            w_scan: scan,
+                            dw_flags: win32::KEYEVENTF_SCANCODE,
+                            time: 0,
+                            dw_extra_info: 0,
+                        },
+                        _pad: [0; 8],
+                    });
+                    inputs.push(win32::INPUT {
+                        input_type: win32::INPUT_KEYBOARD,
+                        ki: win32::KEYBDINPUT {
+                            w_vk: 0,
+                            w_scan: scan,
+                            dw_flags: win32::KEYEVENTF_SCANCODE | win32::KEYEVENTF_KEYUP,
+                            time: 0,
+                            dw_extra_info: 0,
+                        },
+                        _pad: [0; 8],
+                    });
+                }
+                // Release modifiers (reverse order, scancode)
+                for m in modifiers.iter().rev() {
+                    if let Some(vk) = win32::key_to_vk(m) {
+                        let scan = unsafe { win32::MapVirtualKeyW(vk, win32::MAPVK_VK_TO_VSC) } as u16;
+                        inputs.push(win32::INPUT {
+                            input_type: win32::INPUT_KEYBOARD,
+                            ki: win32::KEYBDINPUT {
+                                w_vk: 0,
+                                w_scan: scan,
+                                dw_flags: win32::KEYEVENTF_SCANCODE | win32::KEYEVENTF_KEYUP,
+                                time: 0,
+                                dw_extra_info: 0,
+                            },
+                            _pad: [0; 8],
+                        });
+                    }
+                }
+                let sent = unsafe {
+                    win32::SendInput(inputs.len() as u32, inputs.as_ptr(), std::mem::size_of::<win32::INPUT>() as i32)
+                };
+                actions.push(format!("sent key '{key_str}' via scancode ({sent} events)"));
+            }
+            Err(e) => return super::tool_error("send_keys_to_window", format!("parsing keys: {e}")),
+        }
+    }
+
+    NativeToolResult::text_only(format!("Scancode SendInput to '{}': {}", info.title, actions.join(", ")))
 }
 
 /// Build the lParam for WM_KEYDOWN/WM_KEYUP messages.
@@ -1067,7 +1341,7 @@ fn make_key_lparam(vk: u32, key_up: bool) -> isize {
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_send_keys_to_window(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: send_keys_to_window is not available on this platform".to_string())
+    super::tool_error("send_keys_to_window", "not available on this platform")
 }
 
 /// Switch virtual desktop using Ctrl+Win+Left/Right.
@@ -1075,18 +1349,14 @@ pub fn tool_switch_virtual_desktop(args: &Value) -> NativeToolResult {
     let direction = match args.get("direction").and_then(|v| v.as_str()) {
         Some(d) => d,
         None => {
-            return NativeToolResult::text_only(
-                "Error: 'direction' is required (left or right)".to_string(),
-            )
+            return super::tool_error("switch_virtual_desktop", "'direction' is required (left or right)")
         }
     };
     let key = match direction {
         "left" | "prev" | "previous" => "ctrl+win+left",
         "right" | "next" => "ctrl+win+right",
         other => {
-            return NativeToolResult::text_only(format!(
-                "Error: Unknown direction '{other}'. Use: left, right"
-            ))
+            return super::tool_error("switch_virtual_desktop", format!("Unknown direction '{other}'. Use: left, right"))
         }
     };
     super::tool_press_key(&serde_json::json!({"key": key, "delay_ms": 500}))
@@ -1108,18 +1378,14 @@ pub fn tool_get_process_info(args: &Value) -> NativeToolResult {
                 match procs.iter().find(|(_, pname)| pname.to_lowercase().contains(&lower)) {
                     Some((p, _)) => *p,
                     None => {
-                        return NativeToolResult::text_only(format!(
-                            "Error: no process matching '{n}'"
-                        ))
+                        return super::tool_error("get_process_info", format!("no process matching '{n}'"))
                     }
                 }
             }
-            Err(e) => return NativeToolResult::text_only(format!("Error: {e}")),
+            Err(e) => return super::tool_error("get_process_info", e),
         }
     } else {
-        return NativeToolResult::text_only(
-            "Error: 'pid' or 'name' is required".to_string(),
-        );
+        return super::tool_error("get_process_info", "'pid' or 'name' is required");
     };
 
     match win32::get_process_resource_info(target_pid) {
@@ -1130,11 +1396,11 @@ pub fn tool_get_process_info(args: &Value) -> NativeToolResult {
                 kernel_ms + user_ms
             ))
         }
-        Err(e) => NativeToolResult::text_only(format!("Error: {e}")),
+        Err(e) => super::tool_error("get_process_info", e),
     }
 }
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_get_process_info(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: get_process_info is not available on this platform".to_string())
+    super::tool_error("get_process_info", "not available on this platform")
 }

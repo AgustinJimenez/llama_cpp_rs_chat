@@ -19,7 +19,7 @@ use super::linux as win32;
 pub fn tool_find_and_click_text(args: &Value) -> NativeToolResult {
     let search_text = match args.get("text").and_then(|v| v.as_str()) {
         Some(t) => t,
-        None => return NativeToolResult::text_only("Error: 'text' is required".to_string()),
+        None => return super::tool_error("find_and_click_text", "'text' is required"),
     };
     let delay_ms = args.get("delay_ms").and_then(parse_int).unwrap_or(500) as u64;
     let monitor_idx = args.get("monitor").and_then(parse_int).unwrap_or(0) as usize;
@@ -28,14 +28,14 @@ pub fn tool_find_and_click_text(args: &Value) -> NativeToolResult {
     // Capture screen
     let monitors = match xcap::Monitor::all() {
         Ok(m) => m,
-        Err(e) => return NativeToolResult::text_only(format!("Error: {e}")),
+        Err(e) => return super::tool_error("find_and_click_text", e),
     };
     if monitor_idx >= monitors.len() {
-        return NativeToolResult::text_only(format!("Error: monitor {monitor_idx} out of range"));
+        return super::tool_error("find_and_click_text", format!("monitor {monitor_idx} out of range"));
     }
     let img = match monitors[monitor_idx].capture_image() {
         Ok(i) => i,
-        Err(e) => return NativeToolResult::text_only(format!("Error capturing: {e}")),
+        Err(e) => return super::tool_error("find_and_click_text", format!("capturing: {e}")),
     };
 
     // OCR find text on STA thread (with retry on transient failures)
@@ -44,9 +44,9 @@ pub fn tool_find_and_click_text(args: &Value) -> NativeToolResult {
     for attempt in 0..3u32 {
         let img_c = img.clone();
         let s = search.clone();
-        result = std::thread::spawn(move || {
-            super::ocr_find_text_winrt(&img_c, &s, 0.0, 0.0)
-        }).join().unwrap_or_else(|_| Err("OCR thread panicked".to_string()));
+        result = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
+            super::ocr_tools::ocr_find_text(&img_c, &s, 0.0, 0.0)
+        }).and_then(|r| r);
         if result.is_ok() { break; }
         if attempt < 2 {
             std::thread::sleep(std::time::Duration::from_millis(200));
@@ -78,79 +78,94 @@ pub fn tool_find_and_click_text(args: &Value) -> NativeToolResult {
             );
             result
         }
-        Err(e) => NativeToolResult::text_only(format!("OCR error: {e}")),
+        Err(e) => super::tool_error("find_and_click_text", format!("OCR: {e}")),
     }
 }
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_find_and_click_text(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: find_and_click_text is not available on this platform".to_string())
+    super::tool_error("find_and_click_text", "not available on this platform")
 }
 
 // ─── type_into_element ──────────────────────────────────────────────────────
 
 /// Find a UI element → click to focus → type text into it.
+/// Windows: UI Automation element search. macOS/Linux: OCR fallback.
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_type_into_element(args: &Value) -> NativeToolResult {
     let text = match args.get("text").and_then(|v| v.as_str()) {
         Some(t) => t,
-        None => return NativeToolResult::text_only("Error: 'text' is required".to_string()),
+        None => return super::tool_error("type_into_element", "'text' is required"),
     };
     let name_filter = args.get("name").and_then(|v| v.as_str());
     let type_filter = args.get("control_type").and_then(|v| v.as_str());
 
     if name_filter.is_none() && type_filter.is_none() {
-        return NativeToolResult::text_only("Error: at least 'name' or 'control_type' is required".to_string());
+        return super::tool_error("type_into_element", "at least 'name' or 'control_type' is required");
     }
 
     let title_filter = args.get("title").and_then(|v| v.as_str());
     let hwnd = if let Some(filter) = title_filter {
         match win32::find_window_by_filter(filter) {
             Some((h, _)) => h,
-            None => return NativeToolResult::text_only(format!("No window matches '{filter}'")),
+            None => return super::tool_error("type_into_element", format!("no window matches '{filter}'")),
         }
     } else {
         match win32::get_active_window_info() {
             Some((h, _)) => h,
-            None => return NativeToolResult::text_only("No active window".to_string()),
+            None => return super::tool_error("type_into_element", "no active window"),
         }
     };
 
-    if let Some(r) = super::ui_tools::check_gpu_app_guard(hwnd, "type_into_element") { return r; }
+    if let Some(r) = super::ui_automation_tools::check_gpu_app_guard(hwnd, "type_into_element") { return r; }
 
-    let name_owned = name_filter.map(|s| s.to_lowercase());
-    let type_owned = type_filter.map(|s| s.to_lowercase());
+    // --- Windows: UI Automation path ---
+    #[cfg(windows)]
+    let element_pos: Result<(i32, i32, String), String> = {
+        let name_owned = name_filter.map(|s| s.to_lowercase());
+        let type_owned = type_filter.map(|s| s.to_lowercase());
 
-    // Find the element on STA thread
-    let result = std::thread::spawn(move || {
-        super::find_ui_element(hwnd, name_owned.as_deref(), type_owned.as_deref())
-    }).join().unwrap_or_else(|_| Err("UI thread panicked".to_string()));
+        let result = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
+            super::find_ui_element(hwnd, name_owned.as_deref(), type_owned.as_deref())
+        }).and_then(|r| r);
 
-    match result {
-        Ok(info) => {
-            let desc = info.desc();
+        result.map(|info| (info.cx, info.cy, info.desc()))
+    };
+
+    // --- macOS/Linux: OCR fallback path ---
+    #[cfg(not(windows))]
+    let element_pos: Result<(i32, i32, String), String> = {
+        let search_name = match name_filter {
+            Some(n) => n.to_lowercase(),
+            None => type_filter.unwrap_or("").to_lowercase(),
+        };
+        ocr_find_element_on_screen(&search_name)
+    };
+
+    match element_pos {
+        Ok((cx, cy, desc)) => {
             // Click to focus
-            let click_args = serde_json::json!({ "x": info.cx, "y": info.cy, "button": "left", "delay_ms": 200 });
+            let click_args = serde_json::json!({ "x": cx, "y": cy, "button": "left", "delay_ms": 200 });
             super::tool_click_screen(&click_args);
             // Type text
             let type_args = serde_json::json!({ "text": text, "delay_ms": 300 });
             let mut result = super::tool_type_text(&type_args);
             result.text = format!("Clicked element {desc} at ({}, {}), then typed {} chars. {}",
-                info.cx, info.cy, text.len(), result.text);
+                cx, cy, text.len(), result.text);
             result
         }
-        Err(e) => NativeToolResult::text_only(format!("Error: {e}")),
+        Err(e) => super::tool_error("type_into_element", e),
     }
 }
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_type_into_element(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: type_into_element is not available on this platform".to_string())
+    super::tool_error("type_into_element", "not available on this platform")
 }
 
 // ─── get_window_text ────────────────────────────────────────────────────────
 
-/// Extract all text from a window via UI Automation tree walk.
+/// Extract all text from a window via UI Automation tree walk (Windows) or OCR (macOS/Linux).
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_get_window_text(args: &Value) -> NativeToolResult {
     let title_filter = args.get("title").and_then(|v| v.as_str());
@@ -159,22 +174,22 @@ pub fn tool_get_window_text(args: &Value) -> NativeToolResult {
     let hwnd = if let Some(filter) = title_filter {
         match win32::find_window_by_filter(filter) {
             Some((h, _)) => h,
-            None => return NativeToolResult::text_only(format!("No window matches '{filter}'")),
+            None => return super::tool_error("get_window_text", format!("no window matches '{filter}'")),
         }
     } else {
         match win32::get_active_window_info() {
             Some((h, _)) => h,
-            None => return NativeToolResult::text_only("No active window".to_string()),
+            None => return super::tool_error("get_window_text", "no active window"),
         }
     };
 
-    let result = std::thread::spawn(move || {
+    let result = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
         get_window_text_inner(hwnd, max_chars)
-    }).join().unwrap_or_else(|_| Err("UI thread panicked".to_string()));
+    }).and_then(|r| r);
 
     match result {
         Ok(text) => NativeToolResult::text_only(text),
-        Err(e) => NativeToolResult::text_only(format!("Error: {e}")),
+        Err(e) => super::tool_error("get_window_text", e),
     }
 }
 
@@ -210,6 +225,40 @@ fn get_window_text_inner(hwnd: isize, max_chars: usize) -> Result<String, String
         Ok("No text found in window".to_string())
     } else {
         Ok(output)
+    }
+}
+
+/// OCR-based fallback for get_window_text on macOS/Linux.
+/// Captures the window by title match via xcap, then runs OCR on the image.
+#[cfg(not(windows))]
+fn get_window_text_inner(_hwnd: isize, max_chars: usize) -> Result<String, String> {
+    // Capture the primary monitor as a fallback (window-level capture may not
+    // match the hwnd abstraction used on non-Windows platforms)
+    let monitors = xcap::Monitor::all().map_err(|e| format!("Monitor list: {e}"))?;
+    if monitors.is_empty() {
+        return Err("No monitors available".to_string());
+    }
+    let img = monitors[0].capture_image().map_err(|e| format!("Screen capture: {e}"))?;
+
+    // Use the platform OCR to extract all text from the image
+    #[cfg(target_os = "macos")]
+    let ocr_result = super::ocr_tools::ocr_image_vision(&img)
+        .or_else(|_| super::ocr_tools::ocr_image_tesseract(&img));
+
+    #[cfg(target_os = "linux")]
+    let ocr_result = super::ocr_tools::ocr_image_tesseract(&img);
+
+    match ocr_result {
+        Ok(text) => {
+            if text.is_empty() {
+                Ok("No text found in window (via OCR)".to_string())
+            } else if text.len() > max_chars {
+                Ok(text[..max_chars].to_string())
+            } else {
+                Ok(text)
+            }
+        }
+        Err(e) => Err(format!("OCR failed: {e}")),
     }
 }
 
@@ -274,17 +323,19 @@ fn collect_text(
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_get_window_text(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: get_window_text is not available on this platform".to_string())
+    super::tool_error("get_window_text", "not available on this platform")
 }
 
 // ─── file_dialog_navigate ───────────────────────────────────────────────────
 
 /// Navigate a file Open/Save dialog: set filename field and click Open/Save.
+/// Windows: COM IUIAutomation to set value and invoke button.
+/// macOS/Linux: type path into filename field via keyboard, then press Enter.
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_file_dialog_navigate(args: &Value) -> NativeToolResult {
     let filename = match args.get("filename").and_then(|v| v.as_str()) {
         Some(f) => f.to_string(),
-        None => return NativeToolResult::text_only("Error: 'filename' is required".to_string()),
+        None => return super::tool_error("file_dialog_navigate", "'filename' is required"),
     };
     let button_name = args.get("button").and_then(|v| v.as_str()).unwrap_or("Open").to_string();
     let title_filter = args.get("title").and_then(|v| v.as_str());
@@ -292,7 +343,7 @@ pub fn tool_file_dialog_navigate(args: &Value) -> NativeToolResult {
     let hwnd = if let Some(filter) = title_filter {
         match win32::find_window_by_filter(filter) {
             Some((h, _)) => h,
-            None => return NativeToolResult::text_only(format!("No window matches '{filter}'")),
+            None => return super::tool_error("file_dialog_navigate", format!("no window matches '{filter}'")),
         }
     } else {
         // Try to find a common dialog window
@@ -304,19 +355,19 @@ pub fn tool_file_dialog_navigate(args: &Value) -> NativeToolResult {
     };
 
     if hwnd == 0 {
-        return NativeToolResult::text_only("Error: no file dialog window found".to_string());
+        return super::tool_error("file_dialog_navigate", "no file dialog window found");
     }
 
     let filename_clone = filename.clone();
     let button_clone = button_name.clone();
 
-    let result = std::thread::spawn(move || {
+    let result = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
         file_dialog_navigate_inner(hwnd, &filename_clone, &button_clone)
-    }).join().unwrap_or_else(|_| Err("UI thread panicked".to_string()));
+    }).and_then(|r| r);
 
     match result {
         Ok(msg) => NativeToolResult::text_only(msg),
-        Err(e) => NativeToolResult::text_only(format!("Error: {e}")),
+        Err(e) => super::tool_error("file_dialog_navigate", e),
     }
 }
 
@@ -374,14 +425,74 @@ fn file_dialog_navigate_inner(hwnd: isize, filename: &str, button_name: &str) ->
     Ok(format!("Set filename to '{}' and clicked '{}'", filename, button_name))
 }
 
+/// OCR-based fallback for file dialog navigation on macOS/Linux.
+/// Strategy: focus the filename field with Ctrl+L (or click via OCR), select all,
+/// type the path, then press Enter to confirm.
+#[cfg(not(windows))]
+fn file_dialog_navigate_inner(_hwnd: isize, filename: &str, button_name: &str) -> Result<String, String> {
+    use std::time::Duration;
+
+    // Try to click on the filename field via OCR
+    let monitors = xcap::Monitor::all().map_err(|e| format!("{e}"))?;
+    if monitors.is_empty() {
+        return Err("No monitors available".to_string());
+    }
+    let img = monitors[0].capture_image().map_err(|e| format!("Screen capture: {e}"))?;
+
+    // Look for "File name" or "file name" label to click near the edit field
+    let search_terms = ["file name", "filename", "save as", "location"];
+    let mut clicked_field = false;
+    for term in &search_terms {
+        let s = term.to_string();
+        let img_c = img.clone();
+        if let Ok(matches) = super::ocr_tools::ocr_find_text(&img_c, &s, 0.0, 0.0) {
+            if !matches.is_empty() {
+                let m = &matches[0];
+                // Click slightly to the right of the label (where the edit field usually is)
+                let click_x = (m.center_x + m.width) as i64;
+                let click_y = m.center_y as i64;
+                let click_args = serde_json::json!({ "x": click_x, "y": click_y, "button": "left", "delay_ms": 200 });
+                super::tool_click_screen(&click_args);
+                clicked_field = true;
+                break;
+            }
+        }
+    }
+
+    if !clicked_field {
+        // Fallback: use Ctrl+L which focuses the path bar in many file dialogs (GTK, Qt)
+        let key_args = serde_json::json!({ "key": "ctrl+l", "delay_ms": 200 });
+        super::tool_press_key(&key_args);
+    }
+
+    std::thread::sleep(Duration::from_millis(200));
+
+    // Select all existing text and replace with our filename
+    let select_all = serde_json::json!({ "key": "ctrl+a", "delay_ms": 100 });
+    super::tool_press_key(&select_all);
+    std::thread::sleep(Duration::from_millis(100));
+
+    // Type the filename
+    let type_args = serde_json::json!({ "text": filename, "delay_ms": 200 });
+    super::tool_type_text(&type_args);
+    std::thread::sleep(Duration::from_millis(200));
+
+    // Press Enter to confirm (equivalent to clicking Open/Save)
+    let enter_args = serde_json::json!({ "key": "Return", "delay_ms": 300 });
+    super::tool_press_key(&enter_args);
+
+    Ok(format!("Typed filename '{}' and pressed Enter (for '{}')", filename, button_name))
+}
+
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_file_dialog_navigate(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: file_dialog_navigate is not available on this platform".to_string())
+    super::tool_error("file_dialog_navigate", "not available on this platform")
 }
 
 // ─── drag_and_drop_element ──────────────────────────────────────────────────
 
 /// Find two UI elements and drag from one to the other.
+/// Windows: UI Automation element search. macOS/Linux: OCR fallback.
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_drag_and_drop_element(args: &Value) -> NativeToolResult {
     let from_name = args.get("from_name").and_then(|v| v.as_str());
@@ -390,10 +501,10 @@ pub fn tool_drag_and_drop_element(args: &Value) -> NativeToolResult {
     let to_type = args.get("to_type").and_then(|v| v.as_str());
 
     if from_name.is_none() && from_type.is_none() {
-        return NativeToolResult::text_only("Error: at least 'from_name' or 'from_type' is required".to_string());
+        return super::tool_error("drag_and_drop_element", "at least 'from_name' or 'from_type' is required");
     }
     if to_name.is_none() && to_type.is_none() {
-        return NativeToolResult::text_only("Error: at least 'to_name' or 'to_type' is required".to_string());
+        return super::tool_error("drag_and_drop_element", "at least 'to_name' or 'to_type' is required");
     }
 
     let title_filter = args.get("title").and_then(|v| v.as_str());
@@ -402,53 +513,78 @@ pub fn tool_drag_and_drop_element(args: &Value) -> NativeToolResult {
     let hwnd = if let Some(filter) = title_filter {
         match win32::find_window_by_filter(filter) {
             Some((h, _)) => h,
-            None => return NativeToolResult::text_only(format!("No window matches '{filter}'")),
+            None => return super::tool_error("drag_and_drop_element", format!("no window matches '{filter}'")),
         }
     } else {
         match win32::get_active_window_info() {
             Some((h, _)) => h,
-            None => return NativeToolResult::text_only("No active window".to_string()),
+            None => return super::tool_error("drag_and_drop_element", "no active window"),
         }
     };
 
-    if let Some(r) = super::ui_tools::check_gpu_app_guard(hwnd, "drag_and_drop_element") { return r; }
+    if let Some(r) = super::ui_automation_tools::check_gpu_app_guard(hwnd, "drag_and_drop_element") { return r; }
 
-    let fn_owned = from_name.map(|s| s.to_lowercase());
-    let ft_owned = from_type.map(|s| s.to_lowercase());
-    let tn_owned = to_name.map(|s| s.to_lowercase());
-    let tt_owned = to_type.map(|s| s.to_lowercase());
+    // --- Windows: UI Automation path ---
+    #[cfg(windows)]
+    let positions: Result<((i32, i32, String), (i32, i32, String)), String> = {
+        let fn_owned = from_name.map(|s| s.to_lowercase());
+        let ft_owned = from_type.map(|s| s.to_lowercase());
+        let tn_owned = to_name.map(|s| s.to_lowercase());
+        let tt_owned = to_type.map(|s| s.to_lowercase());
 
-    let result = std::thread::spawn(move || {
-        let from = super::find_ui_element(hwnd, fn_owned.as_deref(), ft_owned.as_deref())?;
-        let to = super::find_ui_element(hwnd, tn_owned.as_deref(), tt_owned.as_deref())?;
-        Ok((from, to))
-    }).join().unwrap_or_else(|_| Err("UI thread panicked".to_string()));
+        let result = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
+            let from = super::find_ui_element(hwnd, fn_owned.as_deref(), ft_owned.as_deref())?;
+            let to = super::find_ui_element(hwnd, tn_owned.as_deref(), tt_owned.as_deref())?;
+            Ok((from, to))
+        }).and_then(|r| r);
 
-    match result {
+        result.map(|(from, to)| {
+            ((from.cx, from.cy, from.desc()), (to.cx, to.cy, to.desc()))
+        })
+    };
+
+    // --- macOS/Linux: OCR fallback path ---
+    #[cfg(not(windows))]
+    let positions: Result<((i32, i32, String), (i32, i32, String)), String> = {
+        let from_search = match from_name {
+            Some(n) => n.to_lowercase(),
+            None => from_type.unwrap_or("").to_lowercase(),
+        };
+        let to_search = match to_name {
+            Some(n) => n.to_lowercase(),
+            None => to_type.unwrap_or("").to_lowercase(),
+        };
+
+        let from_pos = ocr_find_element_on_screen(&from_search)?;
+        let to_pos = ocr_find_element_on_screen(&to_search)?;
+        Ok((from_pos, to_pos))
+    };
+
+    match positions {
         Ok((from, to)) => {
             let drag_args = serde_json::json!({
-                "start_x": from.cx,
-                "start_y": from.cy,
-                "end_x": to.cx,
-                "end_y": to.cy,
+                "start_x": from.0,
+                "start_y": from.1,
+                "end_x": to.0,
+                "end_y": to.1,
                 "delay_ms": delay_ms,
             });
             let mut result = super::tool_mouse_drag(&drag_args);
             result.text = format!(
-                "Dragged {} at ({},{}) → {} at ({},{}). {}",
-                from.desc(), from.cx, from.cy,
-                to.desc(), to.cx, to.cy,
+                "Dragged {} at ({},{}) -> {} at ({},{}). {}",
+                from.2, from.0, from.1,
+                to.2, to.0, to.1,
                 result.text
             );
             result
         }
-        Err(e) => NativeToolResult::text_only(format!("Error: {e}")),
+        Err(e) => super::tool_error("drag_and_drop_element", e),
     }
 }
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_drag_and_drop_element(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: drag_and_drop_element is not available on this platform".to_string())
+    super::tool_error("drag_and_drop_element", "not available on this platform")
 }
 
 // ─── wait_for_text_on_screen ────────────────────────────────────────────────
@@ -458,7 +594,7 @@ pub fn tool_drag_and_drop_element(_args: &Value) -> NativeToolResult {
 pub fn tool_wait_for_text_on_screen(args: &Value) -> NativeToolResult {
     let search_text = match args.get("text").and_then(|v| v.as_str()) {
         Some(t) => t.to_string(),
-        None => return NativeToolResult::text_only("Error: 'text' is required".to_string()),
+        None => return super::tool_error("wait_for_text_on_screen", "'text' is required"),
     };
     let timeout_ms = args.get("timeout_ms").and_then(parse_int).unwrap_or(10000).min(30000) as u64;
     let poll_ms = args.get("poll_ms").and_then(parse_int).unwrap_or(1000).max(500) as u64;
@@ -472,20 +608,20 @@ pub fn tool_wait_for_text_on_screen(args: &Value) -> NativeToolResult {
     loop {
         let monitors = match xcap::Monitor::all() {
             Ok(m) => m,
-            Err(e) => return NativeToolResult::text_only(format!("Error: {e}")),
+            Err(e) => return super::tool_error("wait_for_text_on_screen", e),
         };
         if monitor_idx >= monitors.len() {
-            return NativeToolResult::text_only(format!("Error: monitor {monitor_idx} out of range"));
+            return super::tool_error("wait_for_text_on_screen", format!("monitor {monitor_idx} out of range"));
         }
         let img = match monitors[monitor_idx].capture_image() {
             Ok(i) => i,
-            Err(e) => return NativeToolResult::text_only(format!("Error capturing: {e}")),
+            Err(e) => return super::tool_error("wait_for_text_on_screen", format!("capturing: {e}")),
         };
 
         let s = search.clone();
-        let result = std::thread::spawn(move || {
-            super::ocr_find_text_winrt(&img, &s, 0.0, 0.0)
-        }).join().unwrap_or_else(|_| Err("OCR thread panicked".to_string()));
+        let result = super::spawn_with_timeout(std::time::Duration::from_secs(10), move || {
+            super::ocr_tools::ocr_find_text(&img, &s, 0.0, 0.0)
+        }).and_then(|r| r);
 
         if let Ok(matches) = result {
             if !matches.is_empty() {
@@ -511,21 +647,22 @@ pub fn tool_wait_for_text_on_screen(args: &Value) -> NativeToolResult {
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_wait_for_text_on_screen(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: wait_for_text_on_screen is not available on this platform".to_string())
+    super::tool_error("wait_for_text_on_screen", "not available on this platform")
 }
 
 // ─── get_context_menu ───────────────────────────────────────────────────────
 
 /// Right-click to open context menu, read items, optionally click one.
+/// Windows: UI Automation to enumerate menu items. macOS/Linux: OCR fallback.
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_get_context_menu(args: &Value) -> NativeToolResult {
     let x = match args.get("x").and_then(parse_int) {
         Some(v) => v as i32,
-        None => return NativeToolResult::text_only("Error: 'x' is required".to_string()),
+        None => return super::tool_error("get_context_menu", "'x' is required"),
     };
     let y = match args.get("y").and_then(parse_int) {
         Some(v) => v as i32,
-        None => return NativeToolResult::text_only("Error: 'y' is required".to_string()),
+        None => return super::tool_error("get_context_menu", "'y' is required"),
     };
     let click_item = args.get("click_item").and_then(|v| v.as_str()).map(|s| s.to_string());
     let delay_ms = args.get("delay_ms").and_then(parse_int).unwrap_or(500) as u64;
@@ -537,42 +674,111 @@ pub fn tool_get_context_menu(args: &Value) -> NativeToolResult {
     // Wait a bit for menu to appear
     std::thread::sleep(std::time::Duration::from_millis(300));
 
-    // Find menu items in the foreground window
-    let hwnd = match win32::get_active_window_info() {
-        Some((h, _)) => h,
-        None => return NativeToolResult::text_only("Right-clicked but no active window found".to_string()),
-    };
-
-    let click_item_clone = click_item.clone();
-    let result = std::thread::spawn(move || {
-        let items = super::find_ui_elements_all(hwnd, None, Some("menuitem"), 20)?;
-        if items.is_empty() {
-            // Fallback: try looking for menu items in any menu-type
-            let items2 = super::find_ui_elements_all(hwnd, None, Some("menu"), 20)?;
-            if items2.is_empty() {
-                return Err("No menu items found".to_string());
-            }
-            return Ok((items2, None));
-        }
-
-        // If click_item is specified, find and return its info
-        let to_click = if let Some(ref target) = click_item_clone {
-            let target_lower = target.to_lowercase();
-            items.iter().find(|i| i.name.to_lowercase().contains(&target_lower))
-                .map(|i| (i.cx, i.cy, i.desc()))
-        } else {
-            None
+    // --- Windows: UI Automation path ---
+    #[cfg(windows)]
+    let menu_result: Result<(Vec<String>, Option<(i32, i32, String)>), String> = {
+        let hwnd = match win32::get_active_window_info() {
+            Some((h, _)) => h,
+            None => return NativeToolResult::text_only("Right-clicked but no active window found".to_string()),
         };
 
-        Ok((items, to_click))
-    }).join().unwrap_or_else(|_| Err("UI thread panicked".to_string()));
+        let click_item_clone = click_item.clone();
+        let result = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
+            let items = super::find_ui_elements_all(hwnd, None, Some("menuitem"), 20)?;
+            if items.is_empty() {
+                let items2 = super::find_ui_elements_all(hwnd, None, Some("menu"), 20)?;
+                if items2.is_empty() {
+                    return Err("No menu items found".to_string());
+                }
+                return Ok((items2, None));
+            }
 
-    match result {
+            let to_click = if let Some(ref target) = click_item_clone {
+                let target_lower = target.to_lowercase();
+                items.iter().find(|i| i.name.to_lowercase().contains(&target_lower))
+                    .map(|i| (i.cx, i.cy, i.desc()))
+            } else {
+                None
+            };
+
+            Ok((items, to_click))
+        }).and_then(|r| r);
+
+        result.map(|(items, to_click)| {
+            let descs: Vec<String> = items.iter().enumerate()
+                .map(|(i, e)| format!("{}. {}", i + 1, e.desc()))
+                .collect();
+            (descs, to_click)
+        })
+    };
+
+    // --- macOS/Linux: OCR fallback path ---
+    #[cfg(not(windows))]
+    let menu_result: Result<(Vec<String>, Option<(i32, i32, String)>), String> = {
+        // Wait a little more for the context menu to fully render
+        std::thread::sleep(std::time::Duration::from_millis(200));
+
+        // Capture screen and OCR the region near the right-click point
+        let monitors = xcap::Monitor::all().map_err(|e| format!("{e}"))?;
+        if monitors.is_empty() {
+            return NativeToolResult::text_only("No monitors available".to_string());
+        }
+        let img = monitors[0].capture_image().map_err(|e| format!("Screen capture: {e}"))?;
+
+        // Crop a generous region around the click point where context menus typically appear
+        let img_w = img.width() as i32;
+        let img_h = img.height() as i32;
+        let menu_x = (x - 10).max(0) as u32;
+        let menu_y = (y - 10).max(0) as u32;
+        let menu_w = (350.min(img_w - menu_x as i32)) as u32;
+        let menu_h = (600.min(img_h - menu_y as i32)) as u32;
+
+        let cropped = image::imageops::crop_imm(&img, menu_x, menu_y, menu_w, menu_h).to_image();
+
+        // Run OCR on the cropped region
+        #[cfg(target_os = "macos")]
+        let ocr_text = super::ocr_tools::ocr_image_vision(&cropped)
+            .or_else(|_| super::ocr_tools::ocr_image_tesseract(&cropped));
+
+        #[cfg(target_os = "linux")]
+        let ocr_text = super::ocr_tools::ocr_image_tesseract(&cropped);
+
+        match ocr_text {
+            Ok(text) => {
+                if text.trim().is_empty() {
+                    return Err("No menu items found via OCR".to_string());
+                }
+                // Parse lines as menu items
+                let items: Vec<String> = text.lines()
+                    .map(|l| l.trim())
+                    .filter(|l| !l.is_empty())
+                    .enumerate()
+                    .map(|(i, line)| format!("{}. {}", i + 1, line))
+                    .collect();
+
+                // If click_item is specified, find it via OCR and click
+                let to_click = if let Some(ref target) = click_item {
+                    let target_lower = target.to_lowercase();
+                    // Search for the target text in the full screen image to get accurate coords
+                    let img_c = img.clone();
+                    if let Ok(matches) = super::ocr_tools::ocr_find_text(&img_c, &target_lower, 0.0, 0.0) {
+                        matches.first().map(|m| (m.center_x as i32, m.center_y as i32, format!("\"{}\"", m.text)))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                Ok((items, to_click))
+            }
+            Err(e) => Err(format!("OCR failed: {e}")),
+        }
+    };
+
+    match menu_result {
         Ok((items, to_click)) => {
-            let menu_text: Vec<String> = items.iter().enumerate().map(|(i, e)| {
-                format!("{}. {}", i + 1, e.desc())
-            }).collect();
-            let menu_list = format!("Context menu ({} items):\n{}", items.len(), menu_text.join("\n"));
+            let menu_list = format!("Context menu ({} items):\n{}", items.len(), items.join("\n"));
 
             if let Some((cx, cy, desc)) = to_click {
                 let click_args = serde_json::json!({ "x": cx, "y": cy, "button": "left", "delay_ms": 300 });
@@ -585,18 +791,19 @@ pub fn tool_get_context_menu(args: &Value) -> NativeToolResult {
                 NativeToolResult::text_only(menu_list)
             }
         }
-        Err(e) => NativeToolResult::text_only(format!("Error reading context menu: {e}")),
+        Err(e) => super::tool_error("get_context_menu", format!("reading context menu: {e}")),
     }
 }
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_get_context_menu(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: get_context_menu is not available on this platform".to_string())
+    super::tool_error("get_context_menu", "not available on this platform")
 }
 
 // ─── scroll_element ─────────────────────────────────────────────────────────
 
 /// Find a UI element and scroll it (via ScrollPattern or mouse wheel fallback).
+/// Windows: UI Automation element search. macOS/Linux: OCR fallback.
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_scroll_element(args: &Value) -> NativeToolResult {
     let name_filter = args.get("name").and_then(|v| v.as_str());
@@ -605,54 +812,98 @@ pub fn tool_scroll_element(args: &Value) -> NativeToolResult {
     let amount = args.get("amount").and_then(parse_int).unwrap_or(3) as i32;
 
     if name_filter.is_none() && type_filter.is_none() {
-        return NativeToolResult::text_only("Error: at least 'name' or 'control_type' is required".to_string());
+        return super::tool_error("scroll_element", "at least 'name' or 'control_type' is required");
     }
 
     let title_filter = args.get("title").and_then(|v| v.as_str());
     let hwnd = if let Some(filter) = title_filter {
         match win32::find_window_by_filter(filter) {
             Some((h, _)) => h,
-            None => return NativeToolResult::text_only(format!("No window matches '{filter}'")),
+            None => return super::tool_error("scroll_element", format!("no window matches '{filter}'")),
         }
     } else {
         match win32::get_active_window_info() {
             Some((h, _)) => h,
-            None => return NativeToolResult::text_only("No active window".to_string()),
+            None => return super::tool_error("scroll_element", "no active window"),
         }
     };
 
-    if let Some(r) = super::ui_tools::check_gpu_app_guard(hwnd, "scroll_element") { return r; }
+    if let Some(r) = super::ui_automation_tools::check_gpu_app_guard(hwnd, "scroll_element") { return r; }
 
-    let name_owned = name_filter.map(|s| s.to_lowercase());
-    let type_owned = type_filter.map(|s| s.to_lowercase());
     let dir = direction.to_lowercase();
 
-    let result = std::thread::spawn(move || {
-        let info = super::find_ui_element(hwnd, name_owned.as_deref(), type_owned.as_deref())?;
-        Ok(info)
-    }).join().unwrap_or_else(|_| Err("UI thread panicked".to_string()));
+    // --- Windows: UI Automation path ---
+    #[cfg(windows)]
+    let element_pos: Result<(i32, i32, String), String> = {
+        let name_owned = name_filter.map(|s| s.to_lowercase());
+        let type_owned = type_filter.map(|s| s.to_lowercase());
 
-    match result {
-        Ok(info) => {
-            let desc = info.desc();
-            // Use mouse wheel at element center as fallback (more reliable than ScrollPattern)
+        let result = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
+            super::find_ui_element(hwnd, name_owned.as_deref(), type_owned.as_deref())
+        }).and_then(|r| r);
+
+        result.map(|info| (info.cx, info.cy, info.desc()))
+    };
+
+    // --- macOS/Linux: OCR fallback path ---
+    #[cfg(not(windows))]
+    let element_pos: Result<(i32, i32, String), String> = {
+        let search_name = match name_filter {
+            Some(n) => n.to_lowercase(),
+            None => type_filter.unwrap_or("").to_lowercase(),
+        };
+        ocr_find_element_on_screen(&search_name)
+    };
+
+    match element_pos {
+        Ok((cx, cy, desc)) => {
             let scroll_args = serde_json::json!({
-                "x": info.cx,
-                "y": info.cy,
+                "x": cx,
+                "y": cy,
                 "direction": dir,
                 "clicks": amount,
                 "delay_ms": 300,
             });
             let mut result = super::tool_scroll_screen(&scroll_args);
             result.text = format!("Scrolled {dir} {amount} clicks on element {desc} at ({}, {}). {}",
-                info.cx, info.cy, result.text);
+                cx, cy, result.text);
             result
         }
-        Err(e) => NativeToolResult::text_only(format!("Error: {e}")),
+        Err(e) => super::tool_error("scroll_element", e),
     }
 }
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_scroll_element(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: scroll_element is not available on this platform".to_string())
+    super::tool_error("scroll_element", "not available on this platform")
+}
+
+// ─── Shared OCR helper for element location (macOS/Linux) ───────────────────
+
+/// Find an element on screen by name using OCR. Returns (cx, cy, description).
+/// Used as the non-Windows fallback for UI Automation element search.
+#[cfg(all(
+    not(windows),
+    any(target_os = "macos", target_os = "linux")
+))]
+fn ocr_find_element_on_screen(search_name: &str) -> Result<(i32, i32, String), String> {
+    let monitors = xcap::Monitor::all().map_err(|e| format!("{e}"))?;
+    if monitors.is_empty() {
+        return Err("No monitors available".to_string());
+    }
+    let img = monitors[0].capture_image().map_err(|e| format!("Screen capture: {e}"))?;
+
+    let s = search_name.to_string();
+    let result = std::thread::spawn(move || {
+        super::ocr_tools::ocr_find_text(&img, &s, 0.0, 0.0)
+    }).join().unwrap_or_else(|_| Err("OCR thread panicked".to_string()));
+
+    match result {
+        Ok(matches) if !matches.is_empty() => {
+            let m = &matches[0];
+            Ok((m.center_x as i32, m.center_y as i32, format!("\"{}\"", m.text)))
+        }
+        Ok(_) => Err(format!("Element '{}' not found via OCR", search_name)),
+        Err(e) => Err(format!("OCR: {e}")),
+    }
 }

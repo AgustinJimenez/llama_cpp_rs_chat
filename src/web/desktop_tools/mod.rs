@@ -5,18 +5,149 @@
 //! the vision pipeline so the LLM can see what happened.
 
 use std::cell::RefCell;
+use std::sync::Arc;
+use std::time::Duration;
 
 use enigo::{Axis, Button, Coordinate, Direction, Enigo, Key, Keyboard, Mouse, Settings};
 use serde_json::Value;
 
 use super::native_tools::NativeToolResult;
 
-/// Helper: take a screenshot after an action with optional delay.
-fn capture_post_action_screenshot(delay_ms: u64) -> NativeToolResult {
+/// Default timeout for thread-spawned operations (OCR, UI Automation, etc.).
+const DEFAULT_THREAD_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Spawn a closure on a new thread and wait up to `timeout` for it to finish.
+/// Returns Err if the thread panics or times out.
+pub(super) fn spawn_with_timeout<F, T>(timeout: Duration, f: F) -> Result<T, String>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(f());
+    });
+    rx.recv_timeout(timeout).map_err(|e| match e {
+        std::sync::mpsc::RecvTimeoutError::Timeout => {
+            format!("Operation timed out after {}ms", timeout.as_millis())
+        }
+        std::sync::mpsc::RecvTimeoutError::Disconnected => "Thread panicked".to_string(),
+    })
+}
+
+/// Format a desktop tool error consistently.
+#[allow(dead_code)]
+pub(super) fn tool_error(tool: &str, msg: impl std::fmt::Display) -> NativeToolResult {
+    NativeToolResult::text_only(format!("Error [{tool}]: {msg}"))
+}
+
+/// Format a platform-not-supported error.
+#[allow(dead_code)]
+pub(super) fn tool_not_supported(tool: &str) -> NativeToolResult {
+    NativeToolResult::text_only(format!("Error [{tool}]: not available on this platform"))
+}
+
+/// Compare two raw RGBA buffers, sampling every 16th pixel for speed.
+/// Returns the percentage of sampled pixels that differ significantly.
+fn pixel_diff_pct(a: &[u8], b: &[u8]) -> f64 {
+    if a.len() != b.len() {
+        return 100.0;
+    }
+    let step = 16 * 4; // every 16th pixel, 4 bytes per pixel (RGBA)
+    let mut diff = 0u64;
+    let mut total = 0u64;
+    let mut i = 0;
+    while i + 3 < a.len() {
+        total += 1;
+        let dr = (a[i] as i32 - b[i] as i32).abs();
+        let dg = (a[i + 1] as i32 - b[i + 1] as i32).abs();
+        let db = (a[i + 2] as i32 - b[i + 2] as i32).abs();
+        if dr > 10 || dg > 10 || db > 10 {
+            diff += 1;
+        }
+        i += step;
+    }
+    if total == 0 {
+        return 100.0;
+    }
+    diff as f64 / total as f64 * 100.0
+}
+
+/// Encode an `image::RgbaImage` to PNG bytes in memory.
+fn encode_image_to_png(img: &image::RgbaImage) -> Result<Vec<u8>, String> {
+    let mut buf = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut buf, image::ImageFormat::Png)
+        .map_err(|e| format!("PNG encode failed: {e}"))?;
+    Ok(buf.into_inner())
+}
+
+/// Helper: take a screenshot after an action with configurable cache parameters.
+/// `cache_max_age_ms` — how old a cached screenshot can be before it's considered stale.
+/// `cache_threshold_pct` — pixel-diff percentage below which the screen is "unchanged".
+fn capture_post_action_screenshot_ext(
+    delay_ms: u64,
+    cache_max_age_ms: u64,
+    cache_threshold_pct: f64,
+) -> NativeToolResult {
     if delay_ms > 0 {
         std::thread::sleep(std::time::Duration::from_millis(delay_ms));
     }
-    super::native_tools::tool_take_screenshot_with_image(&serde_json::json!({"monitor": 0}))
+
+    // Capture via xcap directly so we can access raw pixels
+    let monitors = match xcap::Monitor::all() {
+        Ok(m) => m,
+        Err(e) => {
+            return NativeToolResult::text_only(format!("Error: Failed to enumerate monitors: {e}"))
+        }
+    };
+    let monitor = monitors
+        .iter()
+        .find(|m| m.is_primary().unwrap_or(false))
+        .or(monitors.first());
+    let monitor = match monitor {
+        Some(m) => m,
+        None => return NativeToolResult::text_only("Error: No monitors detected".to_string()),
+    };
+    let img = match monitor.capture_image() {
+        Ok(i) => i,
+        Err(e) => {
+            return NativeToolResult::text_only(format!("Error: Screenshot capture failed: {e}"))
+        }
+    };
+
+    let width = img.width();
+    let height = img.height();
+    let new_raw = img.as_raw().to_vec();
+
+    // Check cache: if recent screenshot exists and screen is basically unchanged, reuse it
+    if let Some((cached_raw, cached_png)) = get_cached_screenshot(cache_max_age_ms) {
+        let diff = pixel_diff_pct(&cached_raw, &new_raw);
+        if diff < cache_threshold_pct {
+            return NativeToolResult::with_image(
+                format!("Screenshot {}x{} (unchanged)", width, height),
+                (*cached_png).clone(),
+            );
+        }
+    }
+
+    // Screen changed — encode new PNG and update cache
+    let png_bytes = match encode_image_to_png(&img) {
+        Ok(b) => b,
+        Err(e) => return NativeToolResult::text_only(format!("Error: {e}")),
+    };
+    update_screenshot_cache(new_raw, png_bytes.clone());
+
+    NativeToolResult::with_image(
+        format!("Screenshot {}x{}", width, height),
+        png_bytes,
+    )
+}
+
+/// Helper: take a screenshot after an action with optional delay.
+/// Uses a smart cache: if the screen hasn't changed significantly (<5% pixel diff),
+/// returns the cached image with an "(unchanged)" note to save tokens.
+fn capture_post_action_screenshot(delay_ms: u64) -> NativeToolResult {
+    capture_post_action_screenshot_ext(delay_ms, 2000, 5.0)
 }
 
 /// Helper: parse integer from JSON value (handles both number and string).
@@ -30,6 +161,15 @@ pub(crate) fn parse_bool(v: &Value, default: bool) -> bool {
     v.as_bool()
         .or_else(|| v.as_str().map(|s| s.eq_ignore_ascii_case("true")))
         .unwrap_or(default)
+}
+
+/// Parse optional timeout_ms from tool args, clamped to 1000..60000ms.
+#[allow(dead_code)]
+pub(super) fn parse_timeout(args: &Value) -> std::time::Duration {
+    match args.get("timeout_ms").and_then(parse_int) {
+        Some(ms) => std::time::Duration::from_millis((ms.max(1000).min(60000)) as u64),
+        None => DEFAULT_THREAD_TIMEOUT,
+    }
 }
 
 // ─── Reusable Enigo instance ─────────────────────────────────────────────────
@@ -87,6 +227,41 @@ pub(super) fn validate_coordinates(x: i32, y: i32) -> Result<(), String> {
             .collect::<Vec<_>>()
             .join(", ")
     ))
+}
+
+/// Snap off-screen coordinates to the nearest monitor edge.
+/// If the point is already on-screen (passes `validate_coordinates`), returns it unchanged.
+/// Otherwise, clamps to the nearest edge of the closest monitor.
+pub(super) fn snap_coordinates(x: i32, y: i32) -> (i32, i32) {
+    // If already valid, return as-is
+    if validate_coordinates(x, y).is_ok() {
+        return (x, y);
+    }
+    let monitors = match xcap::Monitor::all() {
+        Ok(m) if !m.is_empty() => m,
+        _ => return (x, y), // can't snap without monitor info
+    };
+    // Find the monitor whose bounding box is closest and clamp to its edges
+    let mut best_x = x;
+    let mut best_y = y;
+    let mut best_dist = i64::MAX;
+    for mon in &monitors {
+        let mx = mon.x().unwrap_or(0);
+        let my = mon.y().unwrap_or(0);
+        let mw = mon.width().unwrap_or(0) as i32;
+        let mh = mon.height().unwrap_or(0) as i32;
+        let cx = x.max(mx).min(mx + mw - 1);
+        let cy = y.max(my).min(my + mh - 1);
+        let dx = (x as i64 - cx as i64).abs();
+        let dy = (y as i64 - cy as i64).abs();
+        let dist = dx * dx + dy * dy;
+        if dist < best_dist {
+            best_dist = dist;
+            best_x = cx;
+            best_y = cy;
+        }
+    }
+    (best_x, best_y)
 }
 
 /// Apply DPI scaling to coordinates if dpi_aware flag is set.
@@ -167,28 +342,28 @@ fn type_text_via_send_input(text: &str) -> Result<(), String> {
 // ─── Screenshot cache ────────────────────────────────────────────────────────
 
 thread_local! {
-    static LAST_SCREENSHOT: RefCell<Option<(std::time::Instant, Vec<u8>)>> = RefCell::new(None);
+    /// (timestamp, raw_rgba_bytes, png_bytes)
+    static LAST_SCREENSHOT: RefCell<Option<(std::time::Instant, Arc<Vec<u8>>, Arc<Vec<u8>>)>> = RefCell::new(None);
 }
 
 /// Get a cached screenshot if it was taken within `max_age_ms` milliseconds.
-#[allow(dead_code)]
-pub(super) fn get_cached_screenshot(max_age_ms: u64) -> Option<Vec<u8>> {
+/// Returns (raw_rgba_bytes, png_bytes).
+pub(super) fn get_cached_screenshot(max_age_ms: u64) -> Option<(Arc<Vec<u8>>, Arc<Vec<u8>>)> {
     LAST_SCREENSHOT.with(|cell| {
         let cache = cell.borrow();
-        if let Some((when, data)) = cache.as_ref() {
+        if let Some((when, raw, png)) = cache.as_ref() {
             if when.elapsed().as_millis() < max_age_ms as u128 {
-                return Some(data.clone());
+                return Some((Arc::clone(raw), Arc::clone(png)));
             }
         }
         None
     })
 }
 
-/// Store a screenshot in the cache.
-#[allow(dead_code)]
-pub(super) fn update_screenshot_cache(png_data: Vec<u8>) {
+/// Store a screenshot in the cache (raw RGBA + encoded PNG).
+pub(super) fn update_screenshot_cache(raw: Vec<u8>, png: Vec<u8>) {
     LAST_SCREENSHOT.with(|cell| {
-        *cell.borrow_mut() = Some((std::time::Instant::now(), png_data));
+        *cell.borrow_mut() = Some((std::time::Instant::now(), Arc::new(raw), Arc::new(png)));
     });
 }
 
@@ -307,6 +482,12 @@ pub fn tool_click_screen(args: &Value) -> NativeToolResult {
         x = scaled.0;
         y = scaled.1;
     }
+    let snap = args.get("snap_to_screen").map(|v| parse_bool(v, false)).unwrap_or(false);
+    if snap {
+        let snapped = snap_coordinates(x, y);
+        x = snapped.0;
+        y = snapped.1;
+    }
     if let Err(e) = validate_coordinates(x, y) {
         return NativeToolResult::text_only(format!("Error: {e}"));
     }
@@ -365,7 +546,7 @@ pub fn tool_click_screen(args: &Value) -> NativeToolResult {
 /// Type text using keyboard simulation.
 pub fn tool_type_text(args: &Value) -> NativeToolResult {
     let text = match args.get("text").and_then(|v| v.as_str()) {
-        Some(t) => t,
+        Some(t) => t.to_owned(),
         None => {
             return NativeToolResult::text_only("Error: 'text' argument is required".to_string())
         }
@@ -378,24 +559,51 @@ pub fn tool_type_text(args: &Value) -> NativeToolResult {
         .get("delay_ms")
         .and_then(parse_int)
         .unwrap_or(300) as u64;
+    let retries = args
+        .get("retry")
+        .and_then(parse_int)
+        .unwrap_or(0)
+        .max(0)
+        .min(3) as u32;
 
-    let type_result = with_enigo(|enigo| {
-        enigo
-            .text(text)
-            .map_err(|e| format!("type_text failed: {e}"))
+    let text_clone = text.clone();
+    let type_result = screenshot_tools::retry_on_failure(retries, 200, move || {
+        let res = with_enigo(|enigo| {
+            enigo
+                .text(&text_clone)
+                .map_err(|e| format!("type_text failed: {e}"))
+        });
+        // On Windows, fall back to SendInput KEYEVENTF_UNICODE if enigo fails
+        #[cfg(windows)]
+        let res = res.or_else(|_| type_text_via_send_input(&text_clone));
+        res
     });
-    // On Windows, fall back to SendInput KEYEVENTF_UNICODE if enigo fails
-    #[cfg(windows)]
-    let type_result = type_result.or_else(|_| type_text_via_send_input(text));
     if let Err(e) = type_result {
         return NativeToolResult::text_only(format!("Error: {e}"));
     }
 
-    let summary = if text.len() > 50 {
+    let mut summary = if text.len() > 50 {
         format!("Typed {} characters: \"{}...\"", text.len(), &text[..50])
     } else {
-        format!("Typed: \"{text}\"")
+        format!("Typed: \"{}\"", text)
     };
+
+    // Warn if non-US keyboard layout detected (characters may differ from intent)
+    #[cfg(windows)]
+    {
+        extern "system" {
+            fn GetKeyboardLayout(thread_id: u32) -> isize;
+        }
+        let layout = unsafe { GetKeyboardLayout(0) } as u32;
+        let lang_id = layout & 0xFFFF;
+        if lang_id != 0x0409 {
+            // 0x0409 = English (United States)
+            summary.push_str(&format!(
+                " (note: keyboard layout 0x{:04X}, not US-QWERTY)",
+                lang_id
+            ));
+        }
+    }
 
     if do_screenshot {
         let mut result = capture_post_action_screenshot(delay_ms);
@@ -422,24 +630,33 @@ pub fn tool_press_key(args: &Value) -> NativeToolResult {
         .get("delay_ms")
         .and_then(parse_int)
         .unwrap_or(500) as u64;
+    let retries = args
+        .get("retry")
+        .and_then(parse_int)
+        .unwrap_or(0)
+        .max(0)
+        .min(3) as u32;
 
     let (modifiers, main_key) = match parse_key_combo(key_str) {
         Ok(combo) => combo,
         Err(e) => return NativeToolResult::text_only(format!("Error: {e}")),
     };
 
-    if let Err(e) = with_enigo(|enigo| {
-        for modifier in &modifiers {
-            enigo
-                .key(*modifier, Direction::Press)
-                .map_err(|e| format!("key press failed: {e}"))?;
-        }
-        let result = enigo.key(main_key, Direction::Click);
-        // Always release modifiers
-        for modifier in modifiers.iter().rev() {
-            let _ = enigo.key(*modifier, Direction::Release);
-        }
-        result.map_err(|e| format!("key press failed: {e}"))
+    let modifiers_clone = modifiers.clone();
+    if let Err(e) = screenshot_tools::retry_on_failure(retries, 200, move || {
+        with_enigo(|enigo| {
+            for modifier in &modifiers_clone {
+                enigo
+                    .key(*modifier, Direction::Press)
+                    .map_err(|e| format!("key press failed: {e}"))?;
+            }
+            let result = enigo.key(main_key, Direction::Click);
+            // Always release modifiers
+            for modifier in modifiers_clone.iter().rev() {
+                let _ = enigo.key(*modifier, Direction::Release);
+            }
+            result.map_err(|e| format!("key press failed: {e}"))
+        })
     }) {
         return NativeToolResult::text_only(format!("Error: {e}"));
     }
@@ -476,6 +693,12 @@ pub fn tool_move_mouse(args: &Value) -> NativeToolResult {
         x = scaled.0;
         y = scaled.1;
     }
+    let snap = args.get("snap_to_screen").map(|v| parse_bool(v, false)).unwrap_or(false);
+    if snap {
+        let snapped = snap_coordinates(x, y);
+        x = snapped.0;
+        y = snapped.1;
+    }
     if let Err(e) = validate_coordinates(x, y) {
         return NativeToolResult::text_only(format!("Error: {e}"));
     }
@@ -491,8 +714,65 @@ pub fn tool_move_mouse(args: &Value) -> NativeToolResult {
     NativeToolResult::text_only(format!("Mouse moved to ({x}, {y})"))
 }
 
+/// Scroll repeatedly until OCR finds the target text on screen.
+fn scroll_to_text(args: &Value) -> NativeToolResult {
+    let target_text = match args.get("text").and_then(|v| v.as_str()) {
+        Some(t) => t,
+        None => return tool_error("scroll_screen", "'text' is required for mode='to_text'"),
+    };
+    let direction = args.get("direction").and_then(|v| v.as_str()).unwrap_or("down");
+    let max_scrolls = args
+        .get("max_scrolls")
+        .and_then(parse_int)
+        .unwrap_or(20)
+        .min(50) as usize;
+    let scroll_amount = if direction == "up" { -3 } else { 3 };
+    let target_lower = target_text.to_lowercase();
+
+    for i in 0..max_scrolls {
+        // OCR current screen
+        let ocr_result = ocr_tools::tool_ocr_screen(&serde_json::json!({"monitor": 0}));
+        if ocr_result.text.to_lowercase().contains(&target_lower) {
+            let screenshot = capture_post_action_screenshot(0);
+            return NativeToolResult {
+                text: format!("Found '{}' after {} scroll(s)", target_text, i),
+                images: screenshot.images,
+            };
+        }
+        // Scroll
+        with_enigo(|enigo| {
+            enigo
+                .scroll(scroll_amount, enigo::Axis::Vertical)
+                .map_err(|e| format!("{e}"))
+        })
+        .ok();
+        std::thread::sleep(std::time::Duration::from_millis(400));
+    }
+
+    let screenshot = capture_post_action_screenshot(0);
+    NativeToolResult {
+        text: format!(
+            "Text '{}' not found after {} scrolls {}",
+            target_text, max_scrolls, direction
+        ),
+        images: screenshot.images,
+    }
+}
+
 /// Scroll the mouse wheel at the current or specified position.
+///
+/// Supports two modes via the `mode` parameter:
+/// - `"amount"` (default): scroll by a fixed number of units.
+/// - `"to_text"`: scroll until OCR finds the specified `text` on screen.
 pub fn tool_scroll_screen(args: &Value) -> NativeToolResult {
+    let mode = args
+        .get("mode")
+        .and_then(|v| v.as_str())
+        .unwrap_or("amount");
+    if mode == "to_text" {
+        return scroll_to_text(args);
+    }
+
     let amount = match args.get("amount").and_then(parse_int) {
         Some(v) => v as i32,
         None => {
@@ -576,8 +856,14 @@ pub use window_tools::*;
 mod app_script_tools;
 pub use app_script_tools::*;
 
-mod ui_tools;
-pub use ui_tools::*;
+mod screenshot_tools;
+pub use screenshot_tools::*;
+mod ocr_tools;
+pub use ocr_tools::*;
+mod ui_automation_tools;
+pub use ui_automation_tools::*;
+mod clipboard_tools;
+pub use clipboard_tools::*;
 
 mod compound_tools;
 pub use compound_tools::*;
@@ -707,6 +993,7 @@ pub fn dispatch_desktop_tool(name: &str, args: &Value) -> Option<NativeToolResul
 }
 
 /// Drag the mouse from one position to another.
+/// When `steps` > 1, interpolates intermediate positions with linear lerp for smooth dragging.
 pub fn tool_mouse_drag(args: &Value) -> NativeToolResult {
     let x1 = match args.get("from_x").and_then(parse_int) {
         Some(v) => v as i32,
@@ -734,6 +1021,12 @@ pub fn tool_mouse_drag(args: &Value) -> NativeToolResult {
         .get("delay_ms")
         .and_then(parse_int)
         .unwrap_or(500) as u64;
+    let steps = args
+        .get("steps")
+        .and_then(parse_int)
+        .unwrap_or(1)
+        .max(1)
+        .min(100) as u32;
 
     if let Err(e) = with_enigo(|enigo| {
         enigo
@@ -744,6 +1037,23 @@ pub fn tool_mouse_drag(args: &Value) -> NativeToolResult {
             .button(Button::Left, Direction::Press)
             .map_err(|e| format!("mouse down failed: {e}"))?;
         std::thread::sleep(std::time::Duration::from_millis(50));
+
+        if steps > 1 {
+            // Smooth interpolation: move through intermediate positions
+            for i in 1..steps {
+                let t = i as f64 / steps as f64;
+                let ix = x1 as f64 + (x2 as f64 - x1 as f64) * t;
+                let iy = y1 as f64 + (y2 as f64 - y1 as f64) * t;
+                let move_result = enigo.move_mouse(ix as i32, iy as i32, Coordinate::Abs);
+                if move_result.is_err() {
+                    let _ = enigo.button(Button::Left, Direction::Release);
+                    return move_result.map_err(|e| format!("interpolated move failed: {e}"));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
+
+        // Final move to exact destination
         let move_result = enigo.move_mouse(x2, y2, Coordinate::Abs);
         if move_result.is_err() {
             let _ = enigo.button(Button::Left, Direction::Release);
@@ -758,7 +1068,15 @@ pub fn tool_mouse_drag(args: &Value) -> NativeToolResult {
     }
 
     let mut result = capture_post_action_screenshot(delay_ms);
-    result.text = format!("Dragged from ({x1},{y1}) to ({x2},{y2}). {}", result.text);
+    let steps_note = if steps > 1 {
+        format!(" ({steps} steps)")
+    } else {
+        String::new()
+    };
+    result.text = format!(
+        "Dragged from ({x1},{y1}) to ({x2},{y2}){steps_note}. {}",
+        result.text
+    );
     result
 }
 
@@ -925,9 +1243,43 @@ mod tests {
 
     #[test]
     fn test_screenshot_cache_roundtrip() {
-        let data = vec![1, 2, 3, 4];
-        update_screenshot_cache(data.clone());
+        let raw = vec![1, 2, 3, 4];
+        let png = vec![5, 6, 7, 8];
+        update_screenshot_cache(raw.clone(), png.clone());
         let cached = get_cached_screenshot(5000);
-        assert_eq!(cached, Some(data));
+        assert_eq!(cached, Some((Arc::new(raw), Arc::new(png))));
+    }
+
+    #[test]
+    fn test_pixel_diff_identical() {
+        let data = vec![100u8; 256 * 4];
+        assert!(pixel_diff_pct(&data, &data) < 0.01);
+    }
+
+    #[test]
+    fn test_pixel_diff_completely_different() {
+        let a = vec![0u8; 256 * 4];
+        let b = vec![255u8; 256 * 4];
+        assert!(pixel_diff_pct(&a, &b) > 99.0);
+    }
+
+    #[test]
+    fn test_pixel_diff_different_lengths() {
+        let a = vec![0u8; 100];
+        let b = vec![0u8; 200];
+        assert_eq!(pixel_diff_pct(&a, &b), 100.0);
+    }
+
+    #[test]
+    fn test_desktop_tool_dispatch_coverage() {
+        use crate::web::chat::jinja_templates::DESKTOP_TOOL_NAMES;
+        let dummy = serde_json::json!({});
+        for name in DESKTOP_TOOL_NAMES {
+            assert!(
+                dispatch_desktop_tool(name, &dummy).is_some(),
+                "Tool '{}' in DESKTOP_TOOL_NAMES has no dispatch handler",
+                name
+            );
+        }
     }
 }

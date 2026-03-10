@@ -1515,7 +1515,7 @@ pub fn get_available_tools() -> Vec<Value> {
 /// Desktop tool names exposed via the MCP server.
 /// This list must stay in sync with `dispatch_desktop_tool()` in desktop_tools/mod.rs.
 #[allow(dead_code)]
-const DESKTOP_TOOL_NAMES: &[&str] = &[
+pub(crate) const DESKTOP_TOOL_NAMES: &[&str] = &[
     "take_screenshot", "click_screen", "type_text", "press_key", "move_mouse",
     "scroll_screen", "mouse_drag", "mouse_button", "paste", "clear_field", "hover_element",
     "screenshot_region", "screenshot_diff", "window_screenshot", "wait_for_screen_change",

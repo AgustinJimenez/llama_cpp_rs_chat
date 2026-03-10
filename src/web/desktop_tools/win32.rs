@@ -63,6 +63,9 @@ pub const PROCESS_VM_READ: DWORD = 0x0010;
 pub const WS_EX_LAYERED: i32 = 0x0008_0000;
 pub const LWA_ALPHA: DWORD = 0x2;
 pub const GWL_EXSTYLE: i32 = -20;
+// Window style (for fullscreen detection)
+pub const GWL_STYLE: i32 = -16;
+pub const WS_POPUP: i32 = -2147483648_i32; // 0x80000000
 // Registry
 pub type HKEY = isize;
 pub const HKEY_LOCAL_MACHINE: HKEY = -2147483646; // 0x80000002
@@ -244,6 +247,8 @@ extern "system" {
 pub const INPUT_KEYBOARD: u32 = 1;
 pub const KEYEVENTF_UNICODE: u32 = 0x0004;
 pub const KEYEVENTF_KEYUP: u32 = 0x0002;
+pub const KEYEVENTF_SCANCODE: u32 = 0x0008;
+pub const MAPVK_VK_TO_VSC: u32 = 0;
 
 #[repr(C)]
 pub struct KEYBDINPUT {
@@ -265,6 +270,7 @@ pub struct INPUT {
 pub struct WindowInfo {
     pub title: String,
     pub class_name: String,
+    pub pid: u32,
     pub x: i32,
     pub y: i32,
     pub width: i32,
@@ -332,6 +338,7 @@ pub fn enumerate_windows() -> Vec<WindowInfo> {
             results.push(WindowInfo {
                 title,
                 class_name,
+                pid,
                 x: rect.left,
                 y: rect.top,
                 width: rect.right - rect.left,
@@ -397,6 +404,7 @@ pub fn find_window_by_filter(filter: &str) -> Option<(HWND, WindowInfo)> {
                 return Some((hwnd, WindowInfo {
                     title,
                     class_name,
+                    pid,
                     x: rect.left,
                     y: rect.top,
                     width: rect.right - rect.left,
@@ -543,6 +551,7 @@ pub fn get_active_window_info() -> Option<(HWND, WindowInfo)> {
         Some((hwnd, WindowInfo {
             title,
             class_name,
+            pid,
             x: rect.left,
             y: rect.top,
             width: rect.right - rect.left,
@@ -575,9 +584,9 @@ pub fn get_window_info_for_hwnd(hwnd: HWND) -> Option<WindowInfo> {
         } else {
             String::new()
         };
-        let mut pid: DWORD = 0;
-        GetWindowThreadProcessId(hwnd, &mut pid);
-        let process_name = get_process_name(pid);
+        let mut pid_val: DWORD = 0;
+        GetWindowThreadProcessId(hwnd, &mut pid_val);
+        let process_name = get_process_name(pid_val);
         let class_name = get_window_class_name(hwnd);
         let mut rect = RECT { left: 0, top: 0, right: 0, bottom: 0 };
         GetWindowRect(hwnd, &mut rect);
@@ -585,6 +594,7 @@ pub fn get_window_info_for_hwnd(hwnd: HWND) -> Option<WindowInfo> {
         Some(WindowInfo {
             title,
             class_name,
+            pid: pid_val,
             x: rect.left,
             y: rect.top,
             width: rect.right - rect.left,
@@ -986,6 +996,144 @@ pub fn get_clipboard_formats() -> Vec<&'static str> {
 pub fn find_child_window(parent: HWND, class_name: &str) -> HWND {
     let class_w = to_wide(class_name);
     unsafe { FindWindowExW(parent, 0, class_w.as_ptr(), std::ptr::null()) }
+}
+
+/// Send WM_CLOSE to a window handle for graceful close.
+pub fn close_window_graceful(hwnd: HWND) {
+    unsafe { PostMessageW(hwnd, WM_CLOSE, 0, 0); }
+}
+
+/// Check if a window is fullscreen by comparing its rect to the monitor it occupies.
+pub fn is_window_fullscreen(hwnd: HWND) -> bool {
+    unsafe {
+        let mut rect = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+        if GetWindowRect(hwnd, &mut rect) == 0 {
+            return false;
+        }
+        let hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        if hmon == 0 {
+            return false;
+        }
+        let mut info: MONITORINFO = std::mem::zeroed();
+        info.cb_size = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(hmon, &mut info) == 0 {
+            return false;
+        }
+        let mon = &info.rc_monitor;
+        // Check if window rect matches monitor bounds exactly
+        let exact_match = rect.left == mon.left
+            && rect.top == mon.top
+            && rect.right == mon.right
+            && rect.bottom == mon.bottom;
+        if exact_match {
+            return true;
+        }
+        // Also check WS_POPUP style covering the monitor (borderless fullscreen)
+        let style = GetWindowLongW(hwnd, GWL_STYLE);
+        let is_popup = (style & WS_POPUP) != 0;
+        let covers_monitor = rect.left <= mon.left
+            && rect.top <= mon.top
+            && rect.right >= mon.right
+            && rect.bottom >= mon.bottom;
+        is_popup && covers_monitor
+    }
+}
+
+/// Find the first visible window belonging to a given process ID.
+/// Returns the HWND and WindowInfo if found.
+pub fn find_window_by_pid(target_pid: u32) -> Option<(HWND, WindowInfo)> {
+    let mut hwnds: Vec<HWND> = Vec::new();
+
+    unsafe extern "system" fn enum_cb(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let list = &mut *(lparam as *mut Vec<HWND>);
+        list.push(hwnd);
+        1
+    }
+
+    unsafe {
+        EnumWindows(enum_cb, &mut hwnds as *mut Vec<HWND> as LPARAM);
+    }
+
+    let foreground = unsafe { GetForegroundWindow() };
+
+    for hwnd in hwnds {
+        unsafe {
+            if IsWindowVisible(hwnd) == 0 {
+                continue;
+            }
+            let mut pid: DWORD = 0;
+            GetWindowThreadProcessId(hwnd, &mut pid);
+            if pid != target_pid {
+                continue;
+            }
+            let len = GetWindowTextLengthW(hwnd);
+            if len <= 0 {
+                continue;
+            }
+            let mut buf = vec![0u16; (len + 1) as usize];
+            let written = GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32);
+            if written <= 0 {
+                continue;
+            }
+            let title = OsString::from_wide(&buf[..written as usize])
+                .to_string_lossy()
+                .into_owned();
+            let mut rect = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+            GetWindowRect(hwnd, &mut rect);
+            let process_name = get_process_name(pid);
+            let class_name = get_window_class_name(hwnd);
+            return Some((hwnd, WindowInfo {
+                title,
+                class_name,
+                pid,
+                x: rect.left,
+                y: rect.top,
+                width: rect.right - rect.left,
+                height: rect.bottom - rect.top,
+                process_name,
+                minimized: IsIconic(hwnd) != 0,
+                maximized: IsZoomed(hwnd) != 0,
+                focused: hwnd == foreground,
+            }));
+        }
+    }
+    None
+}
+
+/// Find all window handles belonging to a given process ID (including those without titles).
+pub fn find_hwnds_by_pid(target_pid: u32) -> Vec<HWND> {
+    let mut hwnds: Vec<HWND> = Vec::new();
+
+    unsafe extern "system" fn enum_cb(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let list = &mut *(lparam as *mut Vec<HWND>);
+        list.push(hwnd);
+        1
+    }
+
+    unsafe {
+        EnumWindows(enum_cb, &mut hwnds as *mut Vec<HWND> as LPARAM);
+    }
+
+    let mut result = Vec::new();
+    for hwnd in hwnds {
+        unsafe {
+            let mut pid: DWORD = 0;
+            GetWindowThreadProcessId(hwnd, &mut pid);
+            if pid == target_pid {
+                result.push(hwnd);
+            }
+        }
+    }
+    result
+}
+
+/// Check if a process with the given PID is still alive.
+pub fn is_process_alive(pid: DWORD) -> bool {
+    if let Ok(procs) = enumerate_processes() {
+        procs.iter().any(|(p, _)| *p == pid)
+    } else {
+        false
+    }
 }
 
 #[cfg(test)]

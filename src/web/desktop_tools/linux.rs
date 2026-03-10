@@ -132,6 +132,7 @@ pub struct INPUT {
 pub struct WindowInfo {
     pub title: String,
     pub class_name: String,
+    pub pid: u32,
     pub x: i32,
     pub y: i32,
     pub width: i32,
@@ -198,6 +199,7 @@ pub fn enumerate_windows() -> Vec<WindowInfo> {
         windows.push(WindowInfo {
             title,
             class_name: String::new(),
+            pid,
             x,
             y,
             width: w,
@@ -238,6 +240,7 @@ pub fn find_window_by_filter(filter: &str) -> Option<(HWND, WindowInfo)> {
             return Some((wid as HWND, WindowInfo {
                 title,
                 class_name: String::new(),
+                pid,
                 x: parts[3].parse().unwrap_or(0),
                 y: parts[4].parse().unwrap_or(0),
                 width: parts[5].parse().unwrap_or(0),
@@ -282,6 +285,7 @@ pub fn get_active_window_info() -> Option<(HWND, WindowInfo)> {
     Some((wid as HWND, WindowInfo {
         title,
         class_name: String::new(),
+        pid,
         x,
         y,
         width: w,
@@ -370,7 +374,23 @@ pub fn get_monitor_work_area(_hwnd: HWND) -> Result<RECT, String> {
 }
 
 pub fn is_window_blocked(_hwnd: HWND) -> Option<HWND> {
-    None
+    // Get active window ID
+    let wid = match std::process::Command::new("xdotool").arg("getactivewindow").output() {
+        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).trim().to_string(),
+        _ => return None,
+    };
+    // Check for modal state
+    match std::process::Command::new("xprop").args(&["-id", &wid, "_NET_WM_STATE"]).output() {
+        Ok(out) if out.status.success() => {
+            let props = String::from_utf8_lossy(&out.stdout);
+            if props.contains("_NET_WM_STATE_MODAL") {
+                Some(1)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
 }
 
 // --- Cursor ---
@@ -570,4 +590,13 @@ pub fn read_registry_value(_hkey_root: HKEY, _subkey: &str, _value_name: &str) -
 
 pub fn find_child_window(_parent: HWND, _class_name: &str) -> HWND {
     0
+}
+
+/// Check if a process with the given PID is still alive.
+pub fn is_process_alive(pid: DWORD) -> bool {
+    if let Ok(procs) = enumerate_processes() {
+        procs.iter().any(|(p, _)| *p == pid)
+    } else {
+        false
+    }
 }

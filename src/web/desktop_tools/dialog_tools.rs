@@ -8,7 +8,7 @@ use super::parse_int;
 /// Detect and interact with modal dialogs: read text, list buttons, click a button.
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_handle_dialog(args: &Value) -> NativeToolResult {
-    use super::ui_tools;
+    use super::ui_automation_tools;
     #[cfg(windows)]
     use super::win32;
     #[cfg(target_os = "macos")]
@@ -32,16 +32,15 @@ pub fn tool_handle_dialog(args: &Value) -> NativeToolResult {
 
     // Use UI Automation to enumerate elements in the dialog
     let hwnd = fg;
-    let elements = std::thread::spawn(move || {
+    let elements = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
         // Get all text elements
-        let texts = ui_tools::find_ui_elements_all(hwnd, None, Some("text"), 20)
+        let texts = ui_automation_tools::find_ui_elements_all(hwnd, None, Some("text"), 20)
             .unwrap_or_default();
         // Get all buttons
-        let buttons = ui_tools::find_ui_elements_all(hwnd, None, Some("button"), 20)
+        let buttons = ui_automation_tools::find_ui_elements_all(hwnd, None, Some("button"), 20)
             .unwrap_or_default();
         (texts, buttons)
     })
-    .join()
     .unwrap_or_else(|_| (Vec::new(), Vec::new()));
 
     let (texts, buttons) = elements;
@@ -100,13 +99,14 @@ pub fn tool_handle_dialog(args: &Value) -> NativeToolResult {
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_handle_dialog(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: handle_dialog is not available on this platform".to_string())
+    super::tool_error("handle_dialog", "not available on this platform")
 }
 
 /// Wait until a UI element reaches a specific state (enabled, disabled, visible, etc.).
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_wait_for_element_state(args: &Value) -> NativeToolResult {
-    use super::ui_tools;
+    use super::ui_automation_tools;
+    use super::screenshot_tools;
     #[cfg(windows)]
     use super::win32;
     #[cfg(target_os = "macos")]
@@ -118,28 +118,28 @@ pub fn tool_wait_for_element_state(args: &Value) -> NativeToolResult {
     let type_filter = args.get("control_type").and_then(|v| v.as_str());
     let target_state = match args.get("state").and_then(|v| v.as_str()) {
         Some(s) => s.to_lowercase(),
-        None => return NativeToolResult::text_only("Error: 'state' is required (exists/gone/enabled/disabled)".to_string()),
+        None => return super::tool_error("wait_for_element_state", "'state' is required (exists/gone/enabled/disabled)"),
     };
     let timeout_ms = args.get("timeout_ms").and_then(parse_int).unwrap_or(5000) as u64;
 
     if name_filter.is_none() && type_filter.is_none() {
-        return NativeToolResult::text_only("Error: 'name' or 'control_type' is required".to_string());
+        return super::tool_error("wait_for_element_state", "'name' or 'control_type' is required");
     }
 
     let title_filter = args.get("title").and_then(|v| v.as_str());
     let hwnd = if let Some(filter) = title_filter {
         match win32::find_window_by_filter(filter) {
             Some((h, _)) => h,
-            None => return NativeToolResult::text_only(format!("No window matches '{filter}'")),
+            None => return super::tool_error("wait_for_element_state", format!("no window matches '{filter}'")),
         }
     } else {
         match win32::get_active_window_info() {
             Some((h, _)) => h,
-            None => return NativeToolResult::text_only("No active window".to_string()),
+            None => return super::tool_error("wait_for_element_state", "no active window"),
         }
     };
 
-    if let Some(r) = ui_tools::check_gpu_app_guard(hwnd, "wait_for_element_state") { return r; }
+    if let Some(r) = ui_automation_tools::check_gpu_app_guard(hwnd, "wait_for_element_state") { return r; }
 
     let start = std::time::Instant::now();
     let mut attempt = 0u32;
@@ -155,11 +155,9 @@ pub fn tool_wait_for_element_state(args: &Value) -> NativeToolResult {
 
         let name_owned = name_filter.map(|s| s.to_lowercase());
         let type_owned = type_filter.map(|s| s.to_lowercase());
-        let found = std::thread::spawn(move || {
-            ui_tools::find_ui_elements_all(hwnd, name_owned.as_deref(), type_owned.as_deref(), 1)
-        })
-        .join()
-        .unwrap_or_else(|_| Err("Thread panicked".to_string()));
+        let found = super::spawn_with_timeout(std::time::Duration::from_secs(5), move || {
+            ui_automation_tools::find_ui_elements_all(hwnd, name_owned.as_deref(), type_owned.as_deref(), 1)
+        }).and_then(|r| r);
 
         let state_matches = match target_state.as_str() {
             "exists" | "visible" => found.as_ref().map_or(false, |v| !v.is_empty()),
@@ -186,7 +184,7 @@ pub fn tool_wait_for_element_state(args: &Value) -> NativeToolResult {
             };
         }
 
-        let poll_ms = ui_tools::adaptive_poll_ms(attempt, 200, 1000);
+        let poll_ms = screenshot_tools::adaptive_poll_ms(attempt, 200, 1000);
         std::thread::sleep(std::time::Duration::from_millis(poll_ms));
         attempt += 1;
     }
@@ -194,5 +192,5 @@ pub fn tool_wait_for_element_state(args: &Value) -> NativeToolResult {
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_wait_for_element_state(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: wait_for_element_state is not available on this platform".to_string())
+    super::tool_error("wait_for_element_state", "not available on this platform")
 }

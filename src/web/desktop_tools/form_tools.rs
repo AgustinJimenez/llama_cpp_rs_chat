@@ -8,7 +8,7 @@ use super::parse_int;
 /// Fill multiple form fields by label/name and value pairs.
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_fill_form(args: &Value) -> NativeToolResult {
-    use super::ui_tools;
+    use super::ui_automation_tools;
     #[cfg(windows)]
     use super::win32;
     #[cfg(target_os = "macos")]
@@ -19,9 +19,9 @@ pub fn tool_fill_form(args: &Value) -> NativeToolResult {
     let fields = match args.get("fields").and_then(|v| v.as_array()) {
         Some(f) => f,
         None => {
-            return NativeToolResult::text_only(
-                "Error: 'fields' array is required, e.g. [{\"label\":\"Name\",\"value\":\"John\"}]"
-                    .to_string(),
+            return super::tool_error(
+                "fill_form",
+                "'fields' array is required, e.g. [{\"label\":\"Name\",\"value\":\"John\"}]",
             )
         }
     };
@@ -30,16 +30,16 @@ pub fn tool_fill_form(args: &Value) -> NativeToolResult {
     let hwnd = if let Some(filter) = title_filter {
         match win32::find_window_by_filter(filter) {
             Some((h, _)) => h,
-            None => return NativeToolResult::text_only(format!("No window matches '{filter}'")),
+            None => return super::tool_error("fill_form", format!("no window matches '{filter}'")),
         }
     } else {
         match win32::get_active_window_info() {
             Some((h, _)) => h,
-            None => return NativeToolResult::text_only("No active window".to_string()),
+            None => return super::tool_error("fill_form", "no active window"),
         }
     };
 
-    if let Some(r) = ui_tools::check_gpu_app_guard(hwnd, "fill_form") { return r; }
+    if let Some(r) = ui_automation_tools::check_gpu_app_guard(hwnd, "fill_form") { return r; }
 
     let mut filled = Vec::new();
     let mut errors = Vec::new();
@@ -59,26 +59,69 @@ pub fn tool_fill_form(args: &Value) -> NativeToolResult {
 
         // Find the element by name
         let label_lower = label.to_lowercase();
-        let element = std::thread::spawn(move || {
-            ui_tools::find_ui_element(hwnd, Some(&label_lower), None)
-        })
-        .join()
-        .unwrap_or_else(|_| Err("Thread panicked".to_string()));
+        let element = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
+            ui_automation_tools::find_ui_element(hwnd, Some(&label_lower), None)
+        }).and_then(|r| r);
 
         match element {
             Ok(el) => {
-                // Click the element
-                super::tool_click_screen(&serde_json::json!({
-                    "x": el.cx, "y": el.cy, "delay_ms": 100, "screenshot": false
-                }));
-                // Clear and type
-                super::tool_press_key(&serde_json::json!({"key": "ctrl+a", "delay_ms": 50, "screenshot": false}));
-                super::tool_type_text(&serde_json::json!({
-                    "text": value, "delay_ms": 50, "screenshot": false
-                }));
-                // Tab to next field
-                super::tool_press_key(&serde_json::json!({"key": "tab", "delay_ms": 50, "screenshot": false}));
-                filled.push(format!("'{}' = '{}'", label, value));
+                // Allow per-field "type" override for control type detection
+                let effective_type = field.get("type")
+                    .and_then(|v| v.as_str())
+                    .map(|t| match t.to_lowercase().as_str() {
+                        "dropdown" | "combobox" | "combo" => "combobox".to_string(),
+                        "checkbox" | "check" => "checkbox".to_string(),
+                        "radio" | "radiobutton" | "radio button" => "radiobutton".to_string(),
+                        other => other.to_string(),
+                    })
+                    .unwrap_or_else(|| el.control_type.to_lowercase());
+
+                match effective_type.as_str() {
+                    "checkbox" => {
+                        // Toggle: click the checkbox element
+                        super::tool_click_screen(&serde_json::json!({
+                            "x": el.cx, "y": el.cy, "delay_ms": 150, "screenshot": false
+                        }));
+                        filled.push(format!("'{}' toggled (checkbox)", label));
+                    }
+                    "combobox" => {
+                        // Open dropdown: click, wait, then type value + Enter to select
+                        super::tool_click_screen(&serde_json::json!({
+                            "x": el.cx, "y": el.cy, "delay_ms": 200, "screenshot": false
+                        }));
+                        std::thread::sleep(std::time::Duration::from_millis(300));
+                        super::tool_type_text(&serde_json::json!({
+                            "text": value, "delay_ms": 50, "screenshot": false
+                        }));
+                        super::tool_press_key(&serde_json::json!({
+                            "key": "enter", "delay_ms": 100, "screenshot": false
+                        }));
+                        filled.push(format!("'{}' = '{}' (dropdown)", label, value));
+                    }
+                    "radiobutton" | "radio button" => {
+                        // Select: just click
+                        super::tool_click_screen(&serde_json::json!({
+                            "x": el.cx, "y": el.cy, "delay_ms": 150, "screenshot": false
+                        }));
+                        filled.push(format!("'{}' selected (radio)", label));
+                    }
+                    _ => {
+                        // Default: click → Ctrl+A → type → Tab
+                        super::tool_click_screen(&serde_json::json!({
+                            "x": el.cx, "y": el.cy, "delay_ms": 100, "screenshot": false
+                        }));
+                        super::tool_press_key(&serde_json::json!({
+                            "key": "ctrl+a", "delay_ms": 50, "screenshot": false
+                        }));
+                        super::tool_type_text(&serde_json::json!({
+                            "text": value, "delay_ms": 50, "screenshot": false
+                        }));
+                        super::tool_press_key(&serde_json::json!({
+                            "key": "tab", "delay_ms": 50, "screenshot": false
+                        }));
+                        filled.push(format!("'{}' = '{}'", label, value));
+                    }
+                }
             }
             Err(e) => errors.push(format!("'{}': {}", label, e)),
         }
@@ -98,17 +141,99 @@ pub fn tool_fill_form(args: &Value) -> NativeToolResult {
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_fill_form(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: fill_form is not available on this platform".to_string())
+    super::tool_error("fill_form", "not available on this platform")
 }
 
-/// Execute a sequence of desktop actions (click, type, press_key, paste, wait, clear).
+/// Execute a single action from an action sequence, returning a result string.
+/// This is extracted from the main loop to allow retry logic to call it repeatedly.
+fn execute_single_action(
+    action_type: &str,
+    action_args: &Value,
+    index: usize,
+) -> String {
+    match action_type {
+        "click" => {
+            let r = super::tool_click_screen(action_args);
+            format!("#{}: click -> {}", index, r.text)
+        }
+        "type" => {
+            let r = super::tool_type_text(action_args);
+            format!("#{}: type -> {}", index, r.text)
+        }
+        "press_key" | "key" => {
+            let r = super::tool_press_key(action_args);
+            format!("#{}: key -> {}", index, r.text)
+        }
+        "paste" => {
+            let r = super::input_tools::tool_paste(action_args);
+            format!("#{}: paste -> {}", index, r.text)
+        }
+        "clear" => {
+            let r = super::input_tools::tool_clear_field(action_args);
+            format!("#{}: clear -> {}", index, r.text)
+        }
+        "wait" => {
+            let ms = action_args.get("ms").and_then(parse_int).unwrap_or(500) as u64;
+            std::thread::sleep(std::time::Duration::from_millis(ms));
+            format!("#{}: waited {}ms", index, ms)
+        }
+        "scroll" => {
+            let r = super::tool_scroll_screen(action_args);
+            format!("#{}: scroll -> {}", index, r.text)
+        }
+        "move" => {
+            let r = super::tool_move_mouse(action_args);
+            format!("#{}: move -> {}", index, r.text)
+        }
+        "assert_text" => {
+            let text = action_args
+                .get("text")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if text.is_empty() {
+                return format!("#{}: assert_text skipped (no text)", index);
+            }
+            let ocr_result =
+                super::ocr_tools::tool_ocr_screen(&serde_json::json!({"monitor": 0}));
+            if ocr_result.text.to_lowercase().contains(&text.to_lowercase()) {
+                format!("#{}: assert_text OK -- '{}' found", index, text)
+            } else {
+                format!(
+                    "#{}: assert_text FAILED -- '{}' not found. Aborting sequence.",
+                    index, text
+                )
+            }
+        }
+        other => {
+            format!("#{}: unknown action '{}'", index, other)
+        }
+    }
+}
+
+/// Check whether a result string indicates failure (contains error/failure keywords).
+fn result_is_failure(result: &str) -> bool {
+    let lower = result.to_lowercase();
+    lower.contains("error") || lower.contains("failed")
+}
+
+/// Execute a sequence of desktop actions (click, type, press_key, paste, wait, clear, assert_text).
+///
+/// Parameters:
+/// - `actions`: array of action objects
+/// - `delay_between_ms`: default delay between actions (default: 200)
+/// - `screenshot_mode`: `"final_only"` (default), `"all"`, or `"none"`
+///
+/// Per-action optional fields:
+/// - `retry`: number of retries on failure (0-3, default 0)
+/// - `if_previous`: `"success"` or `"failure"` — skip action if condition not met
+/// - `abort_on_failure`: bool (default false) — stop sequence if this action fails
 pub fn tool_run_action_sequence(args: &Value) -> NativeToolResult {
     let actions = match args.get("actions").and_then(|v| v.as_array()) {
         Some(a) => a,
         None => {
-            return NativeToolResult::text_only(
-                "Error: 'actions' array is required, e.g. [{\"action\":\"click\",\"x\":100,\"y\":200}]"
-                    .to_string(),
+            return super::tool_error(
+                "run_action_sequence",
+                "'actions' array is required, e.g. [{\"action\":\"click\",\"x\":100,\"y\":200}]",
             )
         }
     };
@@ -118,7 +243,12 @@ pub fn tool_run_action_sequence(args: &Value) -> NativeToolResult {
         .and_then(parse_int)
         .unwrap_or(200) as u64;
 
-    let mut results = Vec::new();
+    let screenshot_mode = args
+        .get("screenshot_mode")
+        .and_then(|v| v.as_str())
+        .unwrap_or("final_only");
+
+    let mut results: Vec<String> = Vec::new();
 
     for (i, action) in actions.iter().enumerate() {
         let action_type = match action.get("action").and_then(|v| v.as_str()) {
@@ -129,51 +259,81 @@ pub fn tool_run_action_sequence(args: &Value) -> NativeToolResult {
             }
         };
 
-        // Suppress screenshots for intermediate actions
+        // Check if_previous condition
+        if let Some(condition) = action.get("if_previous").and_then(|v| v.as_str()) {
+            if let Some(last_result) = results.last() {
+                let prev_failed = result_is_failure(last_result);
+                match condition {
+                    "success" => {
+                        if prev_failed {
+                            results.push(format!("#{}: skipped (if_previous=success, but previous failed)", i + 1));
+                            continue;
+                        }
+                    }
+                    "failure" => {
+                        if !prev_failed {
+                            results.push(format!("#{}: skipped (if_previous=failure, but previous succeeded)", i + 1));
+                            continue;
+                        }
+                    }
+                    _ => {} // Unknown condition, ignore and proceed
+                }
+            }
+            // If no previous result yet, proceed regardless of condition
+        }
+
+        // Parse retry count (0-3, default 0)
+        let max_retries = action.get("retry")
+            .and_then(parse_int)
+            .unwrap_or(0)
+            .max(0).min(3) as u32;
+
+        // Parse abort_on_failure (default false)
+        let abort_on_failure = action.get("abort_on_failure")
+            .map(|v| super::parse_bool(v, false))
+            .unwrap_or(false);
+
+        // Suppress screenshots for intermediate actions unless screenshot_mode is "all"
         let mut action_args = action.clone();
         if let Some(obj) = action_args.as_object_mut() {
-            if i < actions.len() - 1 {
+            if i < actions.len() - 1 && screenshot_mode != "all" {
                 obj.insert("screenshot".to_string(), serde_json::json!(false));
             }
         }
 
-        match action_type {
-            "click" => {
-                let r = super::tool_click_screen(&action_args);
-                results.push(format!("#{}: click → {}", i + 1, r.text));
+        // Execute with retry logic
+        let result_str = if max_retries > 0 {
+            let retry_result = super::screenshot_tools::retry_on_failure(max_retries, 300, || {
+                let r = execute_single_action(action_type, &action_args, i + 1);
+                if result_is_failure(&r) {
+                    Err(r)
+                } else {
+                    Ok(r)
+                }
+            });
+            match retry_result {
+                Ok(s) => s,
+                Err(last_err) => {
+                    // All retries exhausted; use the last failure message
+                    format!("{} (after {} retries)", last_err, max_retries)
+                }
             }
-            "type" => {
-                let r = super::tool_type_text(&action_args);
-                results.push(format!("#{}: type → {}", i + 1, r.text));
-            }
-            "press_key" | "key" => {
-                let r = super::tool_press_key(&action_args);
-                results.push(format!("#{}: key → {}", i + 1, r.text));
-            }
-            "paste" => {
-                let r = super::input_tools::tool_paste(&action_args);
-                results.push(format!("#{}: paste → {}", i + 1, r.text));
-            }
-            "clear" => {
-                let r = super::input_tools::tool_clear_field(&action_args);
-                results.push(format!("#{}: clear → {}", i + 1, r.text));
-            }
-            "wait" => {
-                let ms = action.get("ms").and_then(parse_int).unwrap_or(500) as u64;
-                std::thread::sleep(std::time::Duration::from_millis(ms));
-                results.push(format!("#{}: waited {}ms", i + 1, ms));
-            }
-            "scroll" => {
-                let r = super::tool_scroll_screen(&action_args);
-                results.push(format!("#{}: scroll → {}", i + 1, r.text));
-            }
-            "move" => {
-                let r = super::tool_move_mouse(&action_args);
-                results.push(format!("#{}: move → {}", i + 1, r.text));
-            }
-            other => {
-                results.push(format!("#{}: unknown action '{}'", i + 1, other));
-            }
+        } else {
+            execute_single_action(action_type, &action_args, i + 1)
+        };
+
+        let action_failed = result_is_failure(&result_str);
+        results.push(result_str);
+
+        // assert_text FAILED still breaks the loop (legacy behavior)
+        if action_type == "assert_text" && action_failed {
+            break;
+        }
+
+        // abort_on_failure
+        if abort_on_failure && action_failed {
+            results.push(format!("Sequence aborted at action #{} due to abort_on_failure", i + 1));
+            break;
         }
 
         // Delay between actions (except after last)
@@ -186,8 +346,13 @@ pub fn tool_run_action_sequence(args: &Value) -> NativeToolResult {
         }
     }
 
-    // Final screenshot
-    let screenshot = super::capture_post_action_screenshot(0);
+    // Final screenshot based on screenshot_mode
+    let screenshot = if screenshot_mode == "none" {
+        NativeToolResult::text_only(String::new())
+    } else {
+        super::capture_post_action_screenshot(0)
+    };
+
     NativeToolResult {
         text: format!(
             "Executed {} action(s):\n{}",

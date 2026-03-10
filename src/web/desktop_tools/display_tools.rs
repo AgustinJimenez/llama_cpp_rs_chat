@@ -17,23 +17,23 @@ pub fn tool_move_to_monitor(args: &Value) -> NativeToolResult {
 
     let title = match args.get("title").and_then(|v| v.as_str()) {
         Some(t) => t,
-        None => return NativeToolResult::text_only("Error: 'title' is required".to_string()),
+        None => return super::tool_error("move_to_monitor", "'title' is required"),
     };
     let monitor_idx = args.get("monitor").and_then(parse_int).unwrap_or(0) as usize;
 
     let (hwnd, info) = match win32::find_window_by_filter(title) {
         Some(r) => r,
-        None => return NativeToolResult::text_only(format!("No window matches '{title}'")),
+        None => return super::tool_error("move_to_monitor", format!("no window matches '{title}'")),
     };
 
     let monitors = match xcap::Monitor::all() {
         Ok(m) => m,
-        Err(e) => return NativeToolResult::text_only(format!("Error listing monitors: {e}")),
+        Err(e) => return super::tool_error("move_to_monitor", format!("listing monitors: {e}")),
     };
 
     if monitor_idx >= monitors.len() {
-        return NativeToolResult::text_only(format!(
-            "Monitor {} out of range (0..{})",
+        return super::tool_error("move_to_monitor", format!(
+            "monitor {} out of range (0..{})",
             monitor_idx,
             monitors.len()
         ));
@@ -68,7 +68,7 @@ pub fn tool_move_to_monitor(args: &Value) -> NativeToolResult {
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_move_to_monitor(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: move_to_monitor is not available on this platform".to_string())
+    super::tool_error("move_to_monitor", "not available on this platform")
 }
 
 /// Set window transparency (opacity 0-100).
@@ -83,13 +83,13 @@ pub fn tool_set_window_opacity(args: &Value) -> NativeToolResult {
 
     let title = match args.get("title").and_then(|v| v.as_str()) {
         Some(t) => t,
-        None => return NativeToolResult::text_only("Error: 'title' is required".to_string()),
+        None => return super::tool_error("set_window_opacity", "'title' is required"),
     };
     let opacity = args.get("opacity").and_then(parse_int).unwrap_or(100).clamp(0, 100);
 
     let (hwnd, info) = match win32::find_window_by_filter(title) {
         Some(r) => r,
-        None => return NativeToolResult::text_only(format!("No window matches '{title}'")),
+        None => return super::tool_error("set_window_opacity", format!("no window matches '{title}'")),
     };
 
     let alpha = (opacity as f64 / 100.0 * 255.0) as u8;
@@ -98,24 +98,24 @@ pub fn tool_set_window_opacity(args: &Value) -> NativeToolResult {
             "Set '{}' opacity to {}% (alpha={})",
             info.title, opacity, alpha
         )),
-        Err(e) => NativeToolResult::text_only(format!("Error: {e}")),
+        Err(e) => super::tool_error("set_window_opacity", e),
     }
 }
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_set_window_opacity(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: set_window_opacity is not available on this platform".to_string())
+    super::tool_error("set_window_opacity", "not available on this platform")
 }
 
 /// Draw a crosshair marker on a screenshot at given coordinates (debugging aid).
 pub fn tool_highlight_point(args: &Value) -> NativeToolResult {
     let x = match args.get("x").and_then(parse_int) {
         Some(v) => v as u32,
-        None => return NativeToolResult::text_only("Error: 'x' is required".to_string()),
+        None => return super::tool_error("highlight_point", "'x' is required"),
     };
     let y = match args.get("y").and_then(parse_int) {
         Some(v) => v as u32,
-        None => return NativeToolResult::text_only("Error: 'y' is required".to_string()),
+        None => return super::tool_error("highlight_point", "'y' is required"),
     };
     let size = args.get("size").and_then(parse_int).unwrap_or(20) as u32;
     let color_name = args.get("color").and_then(|v| v.as_str()).unwrap_or("red");
@@ -131,14 +131,14 @@ pub fn tool_highlight_point(args: &Value) -> NativeToolResult {
     // Capture screen
     let monitors = match xcap::Monitor::all() {
         Ok(m) => m,
-        Err(e) => return NativeToolResult::text_only(format!("Error: {e}")),
+        Err(e) => return super::tool_error("highlight_point", e),
     };
     if monitor_idx >= monitors.len() {
-        return NativeToolResult::text_only(format!("Monitor {} out of range", monitor_idx));
+        return super::tool_error("highlight_point", format!("monitor {} out of range", monitor_idx));
     }
     let mut screen = match monitors[monitor_idx].capture_image() {
         Ok(i) => i,
-        Err(e) => return NativeToolResult::text_only(format!("Error capturing screen: {e}")),
+        Err(e) => return super::tool_error("highlight_point", format!("capturing screen: {e}")),
     };
 
     let (sw, sh) = (screen.width(), screen.height());
@@ -190,7 +190,7 @@ pub fn tool_highlight_point(args: &Value) -> NativeToolResult {
         sh,
         image::ExtendedColorType::Rgba8,
     ) {
-        return NativeToolResult::text_only(format!("Error encoding: {e}"));
+        return super::tool_error("highlight_point", format!("encoding: {e}"));
     }
 
     NativeToolResult {

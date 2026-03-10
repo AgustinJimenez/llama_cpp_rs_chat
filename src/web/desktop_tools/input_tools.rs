@@ -69,7 +69,7 @@ pub fn tool_clear_field(args: &Value) -> NativeToolResult {
 /// Hover over a UI element by name/type, wait, and capture tooltip if present.
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_hover_element(args: &Value) -> NativeToolResult {
-    use super::ui_tools;
+    use super::ui_automation_tools;
     #[cfg(windows)]
     use super::win32;
     #[cfg(target_os = "macos")]
@@ -82,7 +82,7 @@ pub fn tool_hover_element(args: &Value) -> NativeToolResult {
     let hover_ms = args.get("hover_ms").and_then(parse_int).unwrap_or(800) as u64;
 
     if name_filter.is_none() && type_filter.is_none() {
-        return NativeToolResult::text_only("Error: 'name' or 'control_type' is required".to_string());
+        return super::tool_error("hover_element", "'name' or 'control_type' is required");
     }
 
     // Find window
@@ -90,28 +90,26 @@ pub fn tool_hover_element(args: &Value) -> NativeToolResult {
     let hwnd = if let Some(filter) = title_filter {
         match win32::find_window_by_filter(filter) {
             Some((h, _)) => h,
-            None => return NativeToolResult::text_only(format!("No window matches '{filter}'")),
+            None => return super::tool_error("hover_element", format!("no window matches '{filter}'")),
         }
     } else {
         match win32::get_active_window_info() {
             Some((h, _)) => h,
-            None => return NativeToolResult::text_only("No active window".to_string()),
+            None => return super::tool_error("hover_element", "no active window"),
         }
     };
 
-    if let Some(r) = ui_tools::check_gpu_app_guard(hwnd, "hover_element") { return r; }
+    if let Some(r) = ui_automation_tools::check_gpu_app_guard(hwnd, "hover_element") { return r; }
 
     let name_owned = name_filter.map(|s| s.to_lowercase());
     let type_owned = type_filter.map(|s| s.to_lowercase());
 
-    let element = match std::thread::spawn(move || {
-        ui_tools::find_ui_element(hwnd, name_owned.as_deref(), type_owned.as_deref())
-    })
-    .join()
-    .unwrap_or_else(|_| Err("UI Automation thread panicked".to_string()))
+    let element = match super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
+        ui_automation_tools::find_ui_element(hwnd, name_owned.as_deref(), type_owned.as_deref())
+    }).and_then(|r| r)
     {
         Ok(el) => el,
-        Err(e) => return NativeToolResult::text_only(format!("Error: {e}")),
+        Err(e) => return super::tool_error("hover_element", e),
     };
 
     // Move mouse to element center
@@ -125,13 +123,12 @@ pub fn tool_hover_element(args: &Value) -> NativeToolResult {
     std::thread::sleep(std::time::Duration::from_millis(hover_ms));
 
     // Try to find tooltip in UI tree
-    let tooltip_text = std::thread::spawn(move || -> String {
-        match ui_tools::find_ui_elements_all(hwnd, None, Some("tooltip"), 1) {
+    let tooltip_text = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || -> String {
+        match ui_automation_tools::find_ui_elements_all(hwnd, None, Some("tooltip"), 1) {
             Ok(tips) if !tips.is_empty() => format!(" Tooltip: '{}'", tips[0].name),
             _ => String::new(),
         }
     })
-    .join()
     .unwrap_or_default();
 
     // Take screenshot showing hover state
@@ -148,5 +145,5 @@ pub fn tool_hover_element(args: &Value) -> NativeToolResult {
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_hover_element(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: hover_element is not available on this platform".to_string())
+    super::tool_error("hover_element", "not available on this platform")
 }

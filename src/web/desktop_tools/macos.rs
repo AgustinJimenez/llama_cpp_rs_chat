@@ -132,6 +132,7 @@ pub struct INPUT {
 pub struct WindowInfo {
     pub title: String,
     pub class_name: String,
+    pub pid: u32,
     pub x: i32,
     pub y: i32,
     pub width: i32,
@@ -197,6 +198,7 @@ end tell
                 process_name: parts[0].to_string(),
                 title: parts[1].to_string(),
                 class_name: String::new(),
+                pid: 0, // macOS osascript doesn't easily provide PIDs per window
                 x: parts[2].parse().unwrap_or(0),
                 y: parts[3].parse().unwrap_or(0),
                 width: parts[4].parse().unwrap_or(0),
@@ -246,6 +248,7 @@ end tell
             process_name: parts[0].to_string(),
             title: parts[1].to_string(),
             class_name: String::new(),
+            pid: 0,
             x: parts[2].parse().unwrap_or(0),
             y: parts[3].parse().unwrap_or(0),
             width: parts[4].parse().unwrap_or(0),
@@ -369,9 +372,26 @@ pub fn get_window_rect(hwnd: HWND) -> RECT {
     }
 }
 
-pub fn set_topmost(_hwnd: HWND, _topmost: bool) -> bool {
-    // Not supported on macOS without accessibility APIs
-    false
+pub fn set_topmost(hwnd: HWND, topmost: bool) -> bool {
+    if !topmost {
+        return false; // Can't un-pin on macOS
+    }
+    // Get window info to find process name
+    if let Some(info) = get_window_info_for_hwnd(hwnd) {
+        let script = format!(
+            r#"tell application "System Events" to set frontmost of process "{}" to true"#,
+            info.process_name
+        );
+        match std::process::Command::new("osascript")
+            .args(["-e", &script])
+            .output()
+        {
+            Ok(out) => out.status.success(),
+            Err(_) => false,
+        }
+    } else {
+        false
+    }
 }
 
 pub fn get_monitor_work_area(_hwnd: HWND) -> Result<RECT, String> {
@@ -390,7 +410,23 @@ pub fn get_monitor_work_area(_hwnd: HWND) -> Result<RECT, String> {
 }
 
 pub fn is_window_blocked(_hwnd: HWND) -> Option<HWND> {
-    None // No good equivalent on macOS
+    let script = r#"
+tell application "System Events"
+    set frontApp to first application process whose frontmost is true
+    try
+        set frontWin to window 1 of frontApp
+        set r to subrole of frontWin
+        if r is "AXSystemDialog" or r is "AXDialog" or r is "AXSheet" then
+            return "blocked"
+        end if
+    end try
+    return "ok"
+end tell
+"#;
+    match run_osascript(script) {
+        Ok(result) if result.trim() == "blocked" => Some(1),
+        _ => None,
+    }
 }
 
 // --- Cursor ---
@@ -594,4 +630,13 @@ pub fn read_registry_value(_hkey_root: HKEY, subkey: &str, value_name: &str) -> 
 
 pub fn find_child_window(_parent: HWND, _class_name: &str) -> HWND {
     0 // Not applicable on macOS
+}
+
+/// Check if a process with the given PID is still alive.
+pub fn is_process_alive(pid: DWORD) -> bool {
+    if let Ok(procs) = enumerate_processes() {
+        procs.iter().any(|(p, _)| *p == pid)
+    } else {
+        false
+    }
 }

@@ -21,7 +21,7 @@ pub fn tool_read_registry(args: &Value) -> NativeToolResult {
         .unwrap_or("HKCU");
     let key = match args.get("key").and_then(|v| v.as_str()) {
         Some(k) => k,
-        None => return NativeToolResult::text_only("Error: 'key' (subkey path) is required".to_string()),
+        None => return super::tool_error("read_registry", "'key' (subkey path) is required"),
     };
     let value_name = args.get("value").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -29,10 +29,10 @@ pub fn tool_read_registry(args: &Value) -> NativeToolResult {
         "HKCU" | "HKEY_CURRENT_USER" => win32::HKEY_CURRENT_USER,
         "HKLM" | "HKEY_LOCAL_MACHINE" => win32::HKEY_LOCAL_MACHINE,
         other => {
-            return NativeToolResult::text_only(format!(
-                "Error: unsupported hive '{}'. Use HKCU or HKLM",
-                other
-            ))
+            return super::tool_error(
+                "read_registry",
+                format!("unsupported hive '{}'. Use HKCU or HKLM", other),
+            )
         }
     };
 
@@ -44,19 +44,19 @@ pub fn tool_read_registry(args: &Value) -> NativeToolResult {
             if value_name.is_empty() { "(Default)" } else { value_name },
             val
         )),
-        Err(e) => NativeToolResult::text_only(format!("Error: {e}")),
+        Err(e) => super::tool_error("read_registry", e),
     }
 }
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_read_registry(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: read_registry is not available on this platform".to_string())
+    super::tool_error("read_registry", "not available on this platform")
 }
 
 /// Click a system tray icon by tooltip/name text.
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_click_tray_icon(args: &Value) -> NativeToolResult {
-    use super::ui_tools;
+    use super::ui_automation_tools;
     #[cfg(windows)]
     use super::win32;
     #[cfg(target_os = "macos")]
@@ -66,27 +66,25 @@ pub fn tool_click_tray_icon(args: &Value) -> NativeToolResult {
 
     let name = match args.get("name").and_then(|v| v.as_str()) {
         Some(n) => n,
-        None => return NativeToolResult::text_only("Error: 'name' (icon tooltip text) is required".to_string()),
+        None => return super::tool_error("click_tray_icon", "'name' (icon tooltip text) is required"),
     };
 
     // Find the system tray: Shell_TrayWnd → TrayNotifyWnd → SysPager → ToolbarWindow32
     let tray_wnd = win32::find_child_window(0, "Shell_TrayWnd");
     if tray_wnd == 0 {
-        return NativeToolResult::text_only("Error: cannot find Shell_TrayWnd".to_string());
+        return super::tool_error("click_tray_icon", "cannot find Shell_TrayWnd");
     }
 
     let notify_wnd = win32::find_child_window(tray_wnd, "TrayNotifyWnd");
     if notify_wnd == 0 {
-        return NativeToolResult::text_only("Error: cannot find TrayNotifyWnd".to_string());
+        return super::tool_error("click_tray_icon", "cannot find TrayNotifyWnd");
     }
 
     // Use UI Automation to find buttons in the notification area
     let name_lower = name.to_lowercase();
-    let result = std::thread::spawn(move || {
-        ui_tools::find_ui_elements_all(notify_wnd, Some(&name_lower), Some("button"), 5)
-    })
-    .join()
-    .unwrap_or_else(|_| Err("Thread panicked".to_string()));
+    let result = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
+        ui_automation_tools::find_ui_elements_all(notify_wnd, Some(&name_lower), Some("button"), 5)
+    }).and_then(|r| r);
 
     match result {
         Ok(elements) if !elements.is_empty() => {
@@ -108,11 +106,9 @@ pub fn tool_click_tray_icon(args: &Value) -> NativeToolResult {
         Ok(_) => {
             // Try searching without type filter (some tray icons aren't buttons)
             let name_lower2 = name.to_lowercase();
-            let result2 = std::thread::spawn(move || {
-                ui_tools::find_ui_elements_all(notify_wnd, Some(&name_lower2), None, 5)
-            })
-            .join()
-            .unwrap_or_else(|_| Err("Thread panicked".to_string()));
+            let result2 = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
+                ui_automation_tools::find_ui_elements_all(notify_wnd, Some(&name_lower2), None, 5)
+            }).and_then(|r| r);
 
             match result2 {
                 Ok(els) if !els.is_empty() => {
@@ -125,17 +121,17 @@ pub fn tool_click_tray_icon(args: &Value) -> NativeToolResult {
                         images: click_result.images,
                     }
                 }
-                Ok(_) => NativeToolResult::text_only(format!("Tray icon matching '{}' not found", name)),
-                Err(e) => NativeToolResult::text_only(format!("Error: {e}")),
+                Ok(_) => super::tool_error("click_tray_icon", format!("tray icon matching '{}' not found", name)),
+                Err(e) => super::tool_error("click_tray_icon", e),
             }
         }
-        Err(e) => NativeToolResult::text_only(format!("Error: {e}")),
+        Err(e) => super::tool_error("click_tray_icon", e),
     }
 }
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_click_tray_icon(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: click_tray_icon is not available on this platform".to_string())
+    super::tool_error("click_tray_icon", "not available on this platform")
 }
 
 /// Watch for window changes (new, closed, title changes) with timeout.
@@ -230,7 +226,7 @@ pub fn tool_watch_window(args: &Value) -> NativeToolResult {
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_watch_window(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: watch_window is not available on this platform".to_string())
+    super::tool_error("watch_window", "not available on this platform")
 }
 
 /// Send a desktop notification (toast on Windows, notify-send on Linux, osascript on macOS).
@@ -241,7 +237,7 @@ pub fn tool_send_notification(args: &Value) -> NativeToolResult {
         .unwrap_or("Claude Code");
     let message = match args.get("message").and_then(|v| v.as_str()) {
         Some(m) => m,
-        None => return NativeToolResult::text_only("Error: 'message' is required".to_string()),
+        None => return super::tool_error("send_notification", "'message' is required"),
     };
 
     #[cfg(windows)]
@@ -282,7 +278,7 @@ $n.Dispose();"#,
                     title, message
                 ))
             }
-            Err(e) => NativeToolResult::text_only(format!("Error sending notification: {e}")),
+            Err(e) => super::tool_error("send_notification", format!("sending notification: {e}")),
         }
     }
 
@@ -303,7 +299,7 @@ $n.Dispose();"#,
 
         match result {
             Ok(_) => NativeToolResult::text_only(format!("Notification sent: [{}] {}", title, message)),
-            Err(e) => NativeToolResult::text_only(format!("Error sending notification: {e}")),
+            Err(e) => super::tool_error("send_notification", format!("sending notification: {e}")),
         }
     }
 
@@ -317,12 +313,12 @@ $n.Dispose();"#,
 
         match result {
             Ok(_) => NativeToolResult::text_only(format!("Notification sent: [{}] {}", title, message)),
-            Err(e) => NativeToolResult::text_only(format!("Error sending notification: {e}")),
+            Err(e) => super::tool_error("send_notification", format!("sending notification: {e}")),
         }
     }
 
     #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
     {
-        NativeToolResult::text_only("Error: send_notification is not available on this platform".to_string())
+        super::tool_error("send_notification", "not available on this platform")
     }
 }

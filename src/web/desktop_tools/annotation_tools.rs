@@ -10,24 +10,21 @@ pub fn tool_annotate_screenshot(args: &Value) -> NativeToolResult {
     let shapes = match args.get("shapes").and_then(|v| v.as_array()) {
         Some(s) => s,
         None => {
-            return NativeToolResult::text_only(
-                "Error: 'shapes' array is required, e.g. [{\"type\":\"rect\",\"x\":10,\"y\":10,\"w\":100,\"h\":50}]"
-                    .to_string(),
-            )
+            return super::tool_error("annotate_screenshot", "'shapes' array is required, e.g. [{\"type\":\"rect\",\"x\":10,\"y\":10,\"w\":100,\"h\":50}]")
         }
     };
     let monitor_idx = args.get("monitor").and_then(parse_int).unwrap_or(0) as usize;
 
     let monitors = match xcap::Monitor::all() {
         Ok(m) => m,
-        Err(e) => return NativeToolResult::text_only(format!("Error: {e}")),
+        Err(e) => return super::tool_error("annotate_screenshot", e),
     };
     if monitor_idx >= monitors.len() {
-        return NativeToolResult::text_only(format!("Monitor {} out of range", monitor_idx));
+        return super::tool_error("annotate_screenshot", format!("monitor {} out of range", monitor_idx));
     }
     let mut screen = match monitors[monitor_idx].capture_image() {
         Ok(i) => i,
-        Err(e) => return NativeToolResult::text_only(format!("Error: {e}")),
+        Err(e) => return super::tool_error("annotate_screenshot", e),
     };
 
     let (sw, sh) = (screen.width(), screen.height());
@@ -75,7 +72,7 @@ pub fn tool_annotate_screenshot(args: &Value) -> NativeToolResult {
         sh,
         image::ExtendedColorType::Rgba8,
     ) {
-        return NativeToolResult::text_only(format!("Error encoding: {e}"));
+        return super::tool_error("annotate_screenshot", format!("encoding: {e}"));
     }
 
     NativeToolResult {
@@ -91,25 +88,25 @@ pub fn tool_ocr_region(args: &Value) -> NativeToolResult {
     let y = args.get("y").and_then(parse_int).unwrap_or(0) as u32;
     let width = match args.get("width").and_then(parse_int) {
         Some(w) => w as u32,
-        None => return NativeToolResult::text_only("Error: 'width' is required".to_string()),
+        None => return super::tool_error("ocr_region", "'width' is required"),
     };
     let height = match args.get("height").and_then(parse_int) {
         Some(h) => h as u32,
-        None => return NativeToolResult::text_only("Error: 'height' is required".to_string()),
+        None => return super::tool_error("ocr_region", "'height' is required"),
     };
     let monitor_idx = args.get("monitor").and_then(parse_int).unwrap_or(0) as usize;
 
     // Capture screen
     let monitors = match xcap::Monitor::all() {
         Ok(m) => m,
-        Err(e) => return NativeToolResult::text_only(format!("Error: {e}")),
+        Err(e) => return super::tool_error("ocr_region", e),
     };
     if monitor_idx >= monitors.len() {
-        return NativeToolResult::text_only(format!("Monitor {} out of range", monitor_idx));
+        return super::tool_error("ocr_region", format!("monitor {} out of range", monitor_idx));
     }
     let screen = match monitors[monitor_idx].capture_image() {
         Ok(i) => i,
-        Err(e) => return NativeToolResult::text_only(format!("Error: {e}")),
+        Err(e) => return super::tool_error("ocr_region", e),
     };
 
     // Crop to region
@@ -131,11 +128,11 @@ pub fn tool_ocr_region(args: &Value) -> NativeToolResult {
         height,
         image::ExtendedColorType::Rgba8,
     ) {
-        return NativeToolResult::text_only(format!("Error encoding: {e}"));
+        return super::tool_error("ocr_region", format!("encoding: {e}"));
     }
 
     // Use WinRT OCR on the full screen then filter by region
-    let result = super::ui_tools::tool_ocr_screen(&serde_json::json!({"monitor": monitor_idx}));
+    let result = super::ocr_tools::tool_ocr_screen(&serde_json::json!({"monitor": monitor_idx}));
 
     // Filter: extract text mentioning found items, or just return the OCR text with region note
     NativeToolResult {
@@ -149,14 +146,14 @@ pub fn tool_ocr_region(args: &Value) -> NativeToolResult {
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn tool_ocr_region(_args: &Value) -> NativeToolResult {
-    NativeToolResult::text_only("Error: ocr_region is not available on this platform".to_string())
+    super::tool_error("ocr_region", "not available on this platform")
 }
 
 /// Find pixels on screen matching a specific color (with tolerance).
 pub fn tool_find_color_on_screen(args: &Value) -> NativeToolResult {
     let color_str = match args.get("color").and_then(|v| v.as_str()) {
         Some(c) => c,
-        None => return NativeToolResult::text_only("Error: 'color' (hex #RRGGBB) is required".to_string()),
+        None => return super::tool_error("find_color_on_screen", "'color' (hex #RRGGBB) is required"),
     };
     let tolerance = args.get("tolerance").and_then(parse_int).unwrap_or(30) as i32;
     let max_results = args.get("max_results").and_then(parse_int).unwrap_or(10) as usize;
@@ -166,7 +163,7 @@ pub fn tool_find_color_on_screen(args: &Value) -> NativeToolResult {
     // Parse hex color
     let color_str = color_str.trim_start_matches('#');
     if color_str.len() != 6 {
-        return NativeToolResult::text_only("Error: color must be #RRGGBB hex format".to_string());
+        return super::tool_error("find_color_on_screen", "color must be #RRGGBB hex format");
     }
     let target_r = u8::from_str_radix(&color_str[0..2], 16).unwrap_or(0) as i32;
     let target_g = u8::from_str_radix(&color_str[2..4], 16).unwrap_or(0) as i32;
@@ -180,14 +177,14 @@ pub fn tool_find_color_on_screen(args: &Value) -> NativeToolResult {
 
     let monitors = match xcap::Monitor::all() {
         Ok(m) => m,
-        Err(e) => return NativeToolResult::text_only(format!("Error: {e}")),
+        Err(e) => return super::tool_error("find_color_on_screen", e),
     };
     if monitor_idx >= monitors.len() {
-        return NativeToolResult::text_only(format!("Monitor {} out of range", monitor_idx));
+        return super::tool_error("find_color_on_screen", format!("monitor {} out of range", monitor_idx));
     }
     let screen = match monitors[monitor_idx].capture_image() {
         Ok(i) => i,
-        Err(e) => return NativeToolResult::text_only(format!("Error: {e}")),
+        Err(e) => return super::tool_error("find_color_on_screen", e),
     };
 
     let (sw, sh) = (screen.width(), screen.height());
