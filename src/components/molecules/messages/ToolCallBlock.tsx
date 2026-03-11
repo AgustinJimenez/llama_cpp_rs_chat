@@ -296,23 +296,13 @@ function getOutputLanguage(name: string, args: Record<string, unknown> | string)
 const SingleToolCall: React.FC<{ toolCall: ToolCall; isGenerating?: boolean }> = ({ toolCall, isGenerating }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isOutputExpanded, setIsOutputExpanded] = useState(false);
-  const [wasExecuting, setWasExecuting] = useState(false);
   const summary = getToolSummary(toolCall.name, toolCall.arguments);
   // If generation is stopped, tool calls can't be executing anymore
   const isExecuting = isGenerating !== false && (toolCall.isStreaming === true || (toolCall.isPending === true && !toolCall.output));
   const elapsed = useElapsedTime(isExecuting);
   const outputLanguage = getOutputLanguage(toolCall.name, toolCall.arguments);
 
-  // Auto-expand output while executing, auto-collapse when done
-  React.useEffect(() => {
-    if (isExecuting) {
-      setIsOutputExpanded(true);
-      setWasExecuting(true);
-    } else if (wasExecuting) {
-      setIsOutputExpanded(false);
-      setWasExecuting(false);
-    }
-  }, [isExecuting, wasExecuting]);
+  const hasOutput = !!toolCall.output && toolCall.output.length > 0;
 
   return (
     <div
@@ -331,7 +321,9 @@ const SingleToolCall: React.FC<{ toolCall: ToolCall; isGenerating?: boolean }> =
               {formatToolArguments(toolCall.arguments)}
             </pre>
       ) : null}
-      {toolCall.output ? <CompletedOutput output={toolCall.output} isExpanded={isOutputExpanded} onToggle={() => setIsOutputExpanded(!isOutputExpanded)} language={outputLanguage} isStreaming={isExecuting} /> : null}
+      {hasOutput && toolCall.output!.trim().length > 0
+        ? <CompletedOutput output={toolCall.output!} isExpanded={isOutputExpanded} onToggle={() => setIsOutputExpanded(!isOutputExpanded)} language={outputLanguage} isStreaming={isExecuting} />
+        : null}
     </div>
   );
 };

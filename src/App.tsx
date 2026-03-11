@@ -128,6 +128,7 @@ function MainContent({
     <div className="flex-1 ml-[240px]">
       <div className="flex flex-col h-full">
         <ConnectionBanner />
+        {/* Header hidden during loading with no conversation — WelcomeMessage shows the loading progress instead (only one loading indicator at a time) */}
         {(messages.length > 0 || modelStatus.loaded) ? (
           <ChatHeader
             onModelUnload={handleModelUnload}
@@ -137,18 +138,22 @@ function MainContent({
 
         {messages.length === 0 ? (
           <WelcomeMessage>
-            <div className="w-full max-w-2xl px-6">
-              <MessageInput />
-            </div>
+            {modelStatus.loaded ? (
+              <div className="w-full max-w-2xl px-6">
+                <MessageInput />
+              </div>
+            ) : null}
           </WelcomeMessage>
         ) : (
           <>
             <MessagesArea />
-            <div className="px-6 pb-4 pt-2 animate-in slide-in-from-bottom-4 duration-300" data-testid="input-container">
-              <div className="max-w-3xl mx-auto">
-                <MessageInput timings={lastTimings} tokensUsed={tokensUsed} maxTokens={maxTokens} />
+            {modelStatus.loaded ? (
+              <div className="px-6 pb-4 pt-2 animate-in slide-in-from-bottom-4 duration-300" data-testid="input-container">
+                <div className="max-w-3xl mx-auto">
+                  <MessageInput timings={lastTimings} tokensUsed={tokensUsed} maxTokens={maxTokens} />
+                </div>
               </div>
-            </div>
+            ) : null}
           </>
         )}
       </div>

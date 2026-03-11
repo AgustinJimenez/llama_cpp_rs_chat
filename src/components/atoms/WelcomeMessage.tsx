@@ -11,17 +11,32 @@ export const WelcomeMessage: React.FC<WelcomeMessageProps> = ({ children }) => {
   const { status, isLoading, loadingAction, modelName, forceUnload } = useModelContext();
   const { openModelConfig } = useUIContext();
 
-  if (isLoading) {
-    const text = loadingAction === 'unloading' ? 'Unloading model...' : 'Loading model...';
+  // Show loading here only when the header is hidden (model not yet loaded).
+  // When status.loaded is true, the header is visible and its ModelSelector handles loading/unloading state — only one indicator at a time.
+  if (isLoading && !status.loaded) {
+    const progress = status.loading_progress;
+    const hasProgress = loadingAction === 'loading' && progress != null && progress > 0;
+    const text = loadingAction === 'unloading'
+      ? 'Unloading model...'
+      : hasProgress ? `Loading model... ${progress}%` : 'Loading model...';
     return (
       <div className="flex-1 flex flex-col items-center justify-center">
-        <Loader2 className="h-6 w-6 text-muted-foreground animate-spin" />
+        {hasProgress ? (
+          <div className="w-48 h-1.5 bg-muted rounded-full overflow-hidden">
+            <div
+              className="h-full bg-primary transition-all duration-300 ease-out rounded-full"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        ) : (
+          <Loader2 className="h-6 w-6 text-muted-foreground animate-spin" />
+        )}
         <p className="text-muted-foreground text-sm mt-3">{text}</p>
         {loadingAction === 'loading' ? (
           <button
             type="button"
             onClick={forceUnload}
-            className="mt-4 flex items-center gap-1.5 px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 rounded-md transition-colors"
+            className="mt-4 flex items-center gap-1.5 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors"
             aria-label="Cancel model loading"
           >
             <X className="h-3.5 w-3.5" />
