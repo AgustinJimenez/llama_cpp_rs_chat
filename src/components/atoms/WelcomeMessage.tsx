@@ -1,5 +1,5 @@
 import React from 'react';
-import { FolderOpen, Loader2 } from 'lucide-react';
+import { FolderOpen, Loader2, X } from 'lucide-react';
 import { useModelContext } from '../../contexts/ModelContext';
 import { useUIContext } from '../../contexts/UIContext';
 
@@ -8,7 +8,7 @@ interface WelcomeMessageProps {
 }
 
 export const WelcomeMessage: React.FC<WelcomeMessageProps> = ({ children }) => {
-  const { status, isLoading, loadingAction, modelName } = useModelContext();
+  const { status, isLoading, loadingAction, modelName, forceUnload } = useModelContext();
   const { openModelConfig } = useUIContext();
 
   if (isLoading) {
@@ -17,6 +17,17 @@ export const WelcomeMessage: React.FC<WelcomeMessageProps> = ({ children }) => {
       <div className="flex-1 flex flex-col items-center justify-center">
         <Loader2 className="h-6 w-6 text-muted-foreground animate-spin" />
         <p className="text-muted-foreground text-sm mt-3">{text}</p>
+        {loadingAction === 'loading' ? (
+          <button
+            type="button"
+            onClick={forceUnload}
+            className="mt-4 flex items-center gap-1.5 px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 rounded-md transition-colors"
+            aria-label="Cancel model loading"
+          >
+            <X className="h-3.5 w-3.5" />
+            Cancel
+          </button>
+        ) : null}
       </div>
     );
   }

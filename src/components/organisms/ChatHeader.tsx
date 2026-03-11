@@ -1,8 +1,7 @@
 import React from 'react';
-import { Unplug, Activity, SlidersHorizontal } from 'lucide-react';
+import { Unplug, Activity, SlidersHorizontal, X } from 'lucide-react';
 import { ModelSelector } from './ModelSelector';
 import { useModelContext } from '../../contexts/ModelContext';
-import { useChatContext } from '../../contexts/ChatContext';
 import { useUIContext } from '../../contexts/UIContext';
 import type { ViewMode } from '../../types';
 
@@ -38,7 +37,6 @@ interface ChatHeaderProps {
 
 export const ChatHeader = React.memo(function ChatHeader({ onModelUnload, onForceUnload }: ChatHeaderProps) {
   const { status: modelStatus, isLoading: isModelLoading, loadingAction, hasStatusError } = useModelContext();
-  const { currentConversationId } = useChatContext();
   const { viewMode, setViewMode, isRightSidebarOpen, toggleRightSidebar, isConfigSidebarOpen, toggleConfigSidebar, openModelConfig } = useUIContext();
 
   const modelLoaded = modelStatus.loaded;
@@ -49,22 +47,28 @@ export const ChatHeader = React.memo(function ChatHeader({ onModelUnload, onForc
       <div className="flex items-center gap-1 min-w-0">
         <ModelSelector
           currentModelPath={modelStatus.model_path ?? undefined}
-          isLoading={Boolean(isModelLoading && currentConversationId !== null)}
+          isLoading={isModelLoading}
           loadingAction={loadingAction}
           onOpen={openModelConfig}
         />
-        {modelLoaded ? <button
+        {isModelLoading && loadingAction === 'loading' ? <button
+            onClick={onForceUnload}
+            className="p-1.5 rounded-md text-destructive hover:bg-destructive/10 transition-colors"
+            title="Cancel model loading"
+            aria-label="Cancel model loading"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button> : null}
+        {!isModelLoading && modelLoaded ? <button
             onClick={onModelUnload}
-            disabled={isModelLoading}
-            className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
+            className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
             title="Unload model"
           >
             <Unplug className="h-3.5 w-3.5" />
           </button> : null}
-        {!modelLoaded && hasStatusError ? <button
+        {!isModelLoading && !modelLoaded && hasStatusError ? <button
             onClick={onForceUnload}
-            disabled={isModelLoading}
-            className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
+            className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
             title="Force unload"
           >
             <Unplug className="h-3.5 w-3.5" />
