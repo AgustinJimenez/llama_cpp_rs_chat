@@ -519,6 +519,8 @@ pub struct BrowseFilesResponse {
 #[derive(Serialize)]
 pub struct ModelStatus {
     pub loaded: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loading: Option<bool>,
     pub model_path: Option<String>,
     pub last_used: Option<String>,
     pub memory_usage_mb: Option<u64>,

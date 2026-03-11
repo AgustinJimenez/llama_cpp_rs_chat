@@ -10,6 +10,7 @@ import {
 
 interface ModelStatus {
   loaded: boolean;
+  loading?: boolean;
   model_path: string | null;
   last_used: string | null;
   memory_usage_mb: number | null;
@@ -54,10 +55,15 @@ export const useModel = () => {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const data = await getModelStatus();
-      setStatus(data as ModelStatus);
+      const data = await getModelStatus() as ModelStatus;
+      setStatus(data);
       setError(null);
       setHasStatusError(false);
+      // Sync loading state from server (e.g. after browser refresh during load)
+      if (data.loading && !data.loaded) {
+        setIsLoading(true);
+        setLoadingAction('loading');
+      }
     } catch (err) {
       setError('Network error while fetching model status');
       console.error('Model status fetch error:', err);
@@ -171,6 +177,25 @@ export const useModel = () => {
   useEffect(() => {
     fetchStatus();
   }, [fetchStatus]);
+
+  // Poll status while server reports loading (e.g. after browser refresh during load)
+  useEffect(() => {
+    if (!isLoading || loadingAction !== 'loading') return;
+    if (!status.loading) return;
+    const interval = setInterval(async () => {
+      try {
+        const data = await getModelStatus() as ModelStatus;
+        setStatus(data);
+        if (data.loaded || !data.loading) {
+          setIsLoading(false);
+          setLoadingAction(null);
+        }
+      } catch {
+        // Keep polling on error
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isLoading, loadingAction, status.loading]);
 
   return {
     status,

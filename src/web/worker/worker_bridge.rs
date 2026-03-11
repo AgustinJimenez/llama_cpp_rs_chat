@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use tokio::sync::{mpsc, oneshot, Mutex as TokioMutex};
@@ -39,6 +39,10 @@ pub struct WorkerBridge {
     active_generation: Arc<TokioMutex<Option<ActiveGeneration>>>,
     /// Cached model metadata.
     model_meta: Arc<TokioMutex<Option<ModelMeta>>>,
+    /// True while a model load is in progress.
+    loading: AtomicBool,
+    /// Model path being loaded (for status reporting during load).
+    loading_model_path: Arc<TokioMutex<Option<String>>>,
     /// Next request ID counter.
     next_id: AtomicU64,
     /// Process manager for kill/restart.
@@ -88,6 +92,8 @@ impl WorkerBridge {
             pending,
             active_generation,
             model_meta,
+            loading: AtomicBool::new(false),
+            loading_model_path: Arc::new(TokioMutex::new(None)),
             next_id: AtomicU64::new(1),
             process_manager,
         }
@@ -125,15 +131,21 @@ impl WorkerBridge {
 
     /// Load a model in the worker process.
     pub async fn load_model(&self, model_path: &str, gpu_layers: Option<u32>, mmproj_path: Option<String>) -> Result<ModelMeta, String> {
+        self.loading.store(true, Ordering::SeqCst);
+        *self.loading_model_path.lock().await = Some(model_path.to_string());
+
         let payload = self
             .send_and_wait(WorkerCommand::LoadModel {
                 model_path: model_path.to_string(),
                 gpu_layers,
                 mmproj_path,
             })
-            .await?;
+            .await;
 
-        match payload {
+        self.loading.store(false, Ordering::SeqCst);
+        *self.loading_model_path.lock().await = None;
+
+        match payload? {
             WorkerPayload::ModelLoaded {
                 model_path,
                 context_length,
@@ -156,6 +168,16 @@ impl WorkerBridge {
             WorkerPayload::Error { message } => Err(message),
             _ => Err("Unexpected response to LoadModel".to_string()),
         }
+    }
+
+    /// Check if a model is currently being loaded.
+    pub fn is_loading(&self) -> bool {
+        self.loading.load(Ordering::SeqCst)
+    }
+
+    /// Get the model path being loaded (if any).
+    pub async fn loading_path(&self) -> Option<String> {
+        self.loading_model_path.lock().await.clone()
     }
 
     /// Unload the model (within the worker process).

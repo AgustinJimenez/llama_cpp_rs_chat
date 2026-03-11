@@ -30,6 +30,7 @@ pub fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
 
                     ModelStatus {
                         loaded,
+                        loading: None,
                         model_path,
                         last_used,
                         memory_usage_mb: if loaded { Some(512) } else { None }, // Rough estimate
@@ -39,6 +40,7 @@ pub fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
                 }
                 None => ModelStatus {
                     loaded: false,
+                    loading: None,
                     model_path: None,
                     last_used: None,
                     memory_usage_mb: None,
@@ -49,6 +51,7 @@ pub fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
         }
         Err(_) => ModelStatus {
             loaded: false,
+            loading: None,
             model_path: None,
             last_used: None,
             memory_usage_mb: None,
@@ -87,7 +90,7 @@ fn parse_split_mode(s: &str) -> LlamaSplitMode {
 }
 
 // Helper function to load a model
-pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, requested_gpu_layers: Option<u32>, model_params: Option<&ModelParams>, _mmproj_path: Option<&str>) -> Result<(), String> {
+pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, requested_gpu_layers: Option<u32>, model_params: Option<&ModelParams>, mmproj_path: Option<&str>) -> Result<(), String> {
     log_debug!("system", "load_model called with path: {}", model_path);
 
     // Handle poisoned mutex by recovering from panic
