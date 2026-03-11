@@ -121,14 +121,14 @@ function MainContent({
   handleModelUnload: () => void;
   handleForceUnload: () => void;
 }) {
-  const { status: modelStatus, isLoading: isModelLoading } = useModelContext();
+  const { status: modelStatus } = useModelContext();
   const { messages, lastTimings, tokensUsed, maxTokens } = useChatContext();
 
   return (
     <div className="flex-1 ml-[240px]">
       <div className="flex flex-col h-full">
         <ConnectionBanner />
-        {(messages.length > 0 || modelStatus.loaded || isModelLoading) ? (
+        {(messages.length > 0 || modelStatus.loaded) ? (
           <ChatHeader
             onModelUnload={handleModelUnload}
             onForceUnload={handleForceUnload}
