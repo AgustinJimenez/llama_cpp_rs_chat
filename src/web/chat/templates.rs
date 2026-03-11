@@ -209,7 +209,7 @@ Independent tools in the array execute concurrently for faster results. Their ou
 - Use `undo_edit` if an edit_file went wrong — restores the previous version
 - Use `git_status`, `git_diff`, `git_commit` for git operations instead of `execute_command`
 - Use `execute_python` for any Python code (avoids shell quoting issues)
-- Use `execute_command` for shell tools like npm, curl, etc. Use `"background": true` for long commands (installs, builds, servers).
+- Use `execute_command` for shell tools like npm, curl, etc. Use `"background": true` ONLY for dev servers, watchers, daemons — NOT for installs or builds.
 - Use `check_background_process` to check on background processes. Add `"wait_seconds": 15` to wait before checking. When it reports "exited", the command is done.
 - Use `web_search` to find information online, then `web_fetch` to read specific pages
 - You can also put raw shell commands directly: {exec_open}{list_cmd}{exec_close}

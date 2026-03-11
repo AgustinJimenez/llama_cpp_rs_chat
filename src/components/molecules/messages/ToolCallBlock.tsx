@@ -6,6 +6,8 @@ import type { ToolCall } from '../../../types';
 
 interface ToolCallBlockProps {
   toolCalls: ToolCall[];
+  /** When false, override any streaming/pending flags (generation was stopped). */
+  isGenerating?: boolean;
 }
 
 /**
@@ -71,26 +73,42 @@ function getToolSummary(name: string, args: Record<string, unknown> | string): s
   return summarizer ? summarizer(args) : defaultToolSummary(args);
 }
 
-/** Track elapsed time while a condition is active. */
+/** Track elapsed time while a condition is active, with debounced deactivation. */
 function useElapsedTime(isActive: boolean): number {
   const startRef = React.useRef<number | null>(null);
   const [elapsed, setElapsed] = React.useState(0);
+  const deactivateTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   React.useEffect(() => {
-    if (isActive && startRef.current === null) {
-      startRef.current = Date.now();
-    }
-    if (!isActive) {
-      startRef.current = null;
-      setElapsed(0);
-      return;
-    }
-    const id = setInterval(() => {
-      if (startRef.current !== null) {
-        setElapsed(Math.floor((Date.now() - startRef.current) / 1000));
+    if (isActive) {
+      // Cancel any pending deactivation
+      if (deactivateTimer.current !== null) {
+        clearTimeout(deactivateTimer.current);
+        deactivateTimer.current = null;
       }
-    }, 1000);
-    return () => clearInterval(id);
+      if (startRef.current === null) {
+        startRef.current = Date.now();
+      }
+      const id = setInterval(() => {
+        if (startRef.current !== null) {
+          setElapsed(Math.floor((Date.now() - startRef.current) / 1000));
+        }
+      }, 1000);
+      return () => clearInterval(id);
+    } else if (startRef.current !== null) {
+      // Debounce: wait before resetting to survive brief flickers
+      deactivateTimer.current = setTimeout(() => {
+        startRef.current = null;
+        setElapsed(0);
+        deactivateTimer.current = null;
+      }, 2000);
+      return () => {
+        if (deactivateTimer.current !== null) {
+          clearTimeout(deactivateTimer.current);
+          deactivateTimer.current = null;
+        }
+      };
+    }
   }, [isActive]);
 
   return elapsed;
@@ -199,10 +217,13 @@ const ScrollableOutput: React.FC<{
 
   const containStyle = { borderTop: '1px solid hsl(220 8% 28%)', overscrollBehavior: 'contain' as const };
 
+  // Lock height during streaming to prevent layout shifts
+  const heightClass = isStreaming ? 'h-64 overflow-y-auto' : 'max-h-64 overflow-y-auto';
+
   if (language && output.length < 50000) {
     return (
       <div ref={scrollRef as React.RefObject<HTMLDivElement>} onScroll={handleScroll}
-        style={containStyle} className="max-h-64 overflow-y-auto">
+        style={containStyle} className={heightClass}>
         <SyntaxHighlighter
           style={dracula} language={language}
           customStyle={{ margin: 0, padding: '0.5rem 0.75rem', fontSize: '0.75rem', background: 'transparent' }}
@@ -212,7 +233,7 @@ const ScrollableOutput: React.FC<{
   }
   return (
     <pre ref={scrollRef as React.RefObject<HTMLPreElement>} onScroll={handleScroll}
-      className="text-xs text-foreground font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto"
+      className={`text-xs text-foreground font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap ${heightClass}`}
       style={containStyle}>{output}</pre>
   );
 };
@@ -228,7 +249,7 @@ const CompletedOutput: React.FC<{
     >
       <span className="text-xs font-medium text-foreground">Output</span>
       <span className="text-xs text-foreground truncate flex-1">
-        {output.length > 80 ? `${output.slice(0, 80)}...` : output}
+        {isStreaming ? 'Streaming...' : (output.length > 80 ? `${output.slice(0, 80)}...` : output)}
       </span>
       {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-foreground flex-shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 text-foreground flex-shrink-0" />}
     </button>
@@ -272,12 +293,13 @@ function getOutputLanguage(name: string, args: Record<string, unknown> | string)
   return null;
 }
 
-const SingleToolCall: React.FC<{ toolCall: ToolCall }> = ({ toolCall }) => {
+const SingleToolCall: React.FC<{ toolCall: ToolCall; isGenerating?: boolean }> = ({ toolCall, isGenerating }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isOutputExpanded, setIsOutputExpanded] = useState(false);
   const [wasExecuting, setWasExecuting] = useState(false);
   const summary = getToolSummary(toolCall.name, toolCall.arguments);
-  const isExecuting = toolCall.isStreaming === true || (toolCall.isPending === true && !toolCall.output);
+  // If generation is stopped, tool calls can't be executing anymore
+  const isExecuting = isGenerating !== false && (toolCall.isStreaming === true || (toolCall.isPending === true && !toolCall.output));
   const elapsed = useElapsedTime(isExecuting);
   const outputLanguage = getOutputLanguage(toolCall.name, toolCall.arguments);
 
@@ -295,7 +317,7 @@ const SingleToolCall: React.FC<{ toolCall: ToolCall }> = ({ toolCall }) => {
   return (
     <div
       className="rounded-xl overflow-hidden"
-      style={{ border: '1px solid hsl(220 8% 28%)' }}
+      style={{ border: '1px solid hsl(220 8% 28%)', contain: 'content' }}
     >
       {isExecuting
         ? <ExecutingHeader name={toolCall.name} summary={summary} hasOutput={!!toolCall.output} elapsed={elapsed} isExpanded={isExpanded} onToggle={() => setIsExpanded(!isExpanded)} />
@@ -318,13 +340,13 @@ const SingleToolCall: React.FC<{ toolCall: ToolCall }> = ({ toolCall }) => {
  * Compact tool call display with expandable details.
  * Shows executing/streaming state for in-progress tool calls.
  */
-export const ToolCallBlock = React.memo(function ToolCallBlock({ toolCalls }: ToolCallBlockProps) {
+export const ToolCallBlock = React.memo(function ToolCallBlock({ toolCalls, isGenerating }: ToolCallBlockProps) {
   if (toolCalls.length === 0) return null;
 
   return (
     <div className="space-y-2">
       {toolCalls.map((toolCall) => (
-        <SingleToolCall key={toolCall.id} toolCall={toolCall} />
+        <SingleToolCall key={toolCall.id} toolCall={toolCall} isGenerating={isGenerating} />
       ))}
     </div>
   );

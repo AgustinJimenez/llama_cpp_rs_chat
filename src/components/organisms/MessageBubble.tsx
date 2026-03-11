@@ -216,6 +216,7 @@ const AssistantMessage: React.FC<{
   isThinkingStreaming?: boolean;
   segments: MessageSegment[];
   isStreaming?: boolean;
+  isGenerating?: boolean;
 }> = ({
   message,
   viewMode,
@@ -223,6 +224,7 @@ const AssistantMessage: React.FC<{
   isThinkingStreaming,
   segments,
   isStreaming,
+  isGenerating,
 }) => (
   <div
     className="w-full flex justify-start"
@@ -251,6 +253,7 @@ const AssistantMessage: React.FC<{
                 <ToolCallBlock
                   key={`seg-tc-${index}`}
                   toolCalls={[segment.toolCall]}
+                  isGenerating={isGenerating}
                 />
               );
             }
@@ -314,6 +317,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({ message
       isThinkingStreaming={isThinkingStreaming}
       segments={segments}
       isStreaming={isStreaming}
+      isGenerating={isGenerating}
     />
   );
 });
