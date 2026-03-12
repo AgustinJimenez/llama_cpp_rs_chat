@@ -71,6 +71,7 @@ pub enum WorkerPayload {
         chat_template_type: Option<String>,
         chat_template_string: Option<String>,
         gpu_layers: Option<u32>,
+        block_count: Option<u32>,
         general_name: Option<String>,
         has_vision: Option<bool>,
     },
@@ -126,6 +127,8 @@ pub enum WorkerPayload {
     McpStatus {
         servers: Vec<McpServerStatus>,
     },
+    /// Model loading progress update (0-100).
+    LoadingProgress { progress: u8 },
     /// Health check response.
     Pong,
     /// An error occurred.

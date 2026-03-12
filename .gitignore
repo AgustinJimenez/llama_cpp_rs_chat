@@ -32,6 +32,7 @@ assets/conversations/
 Thumbs.db
 
 assets/model_path.txt
+assets/llama_chat.db
 
 target2/
 

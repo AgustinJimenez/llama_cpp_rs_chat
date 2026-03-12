@@ -50,7 +50,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
+        <div className="space-y-4 py-2 max-h-[60vh] overflow-y-auto">
           {/* Web Search Provider */}
           <div className="space-y-2">
             <label htmlFor="web-search-provider" className="text-sm font-medium text-foreground">

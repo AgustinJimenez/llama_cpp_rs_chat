@@ -49,6 +49,7 @@ export const ChatHeader = React.memo(function ChatHeader({ onModelUnload, onForc
           currentModelPath={modelStatus.model_path ?? undefined}
           isLoading={isModelLoading}
           loadingAction={loadingAction}
+          loadingProgress={modelStatus.loading_progress}
           onOpen={openModelConfig}
         />
         {isModelLoading && loadingAction === 'loading' ? <button
@@ -81,7 +82,8 @@ export const ChatHeader = React.memo(function ChatHeader({ onModelUnload, onForc
 
           <button
             onClick={toggleConfigSidebar}
-            className={`btn-icon ${isConfigSidebarOpen ? 'active' : ''}`}
+            disabled={isModelLoading}
+            className={`btn-icon ${isConfigSidebarOpen ? 'active' : ''} ${isModelLoading ? 'opacity-30 cursor-not-allowed' : ''}`}
             title="Conversation settings"
           >
             <SlidersHorizontal className="h-3.5 w-3.5" />

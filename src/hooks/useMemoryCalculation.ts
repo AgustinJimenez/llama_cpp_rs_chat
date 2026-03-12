@@ -3,9 +3,9 @@ import type { MemoryBreakdown } from '@/components/organisms/model-config/Memory
 import type { ModelMetadata } from '@/types';
 import { getKvCacheLayers, calculateKvCacheGb } from '@/utils/vramUtils';
 
-/** Default VRAM overhead for CUDA context (~0.5 GB), compute buffers (~0.5-1.5 GB),
- *  and scratch/activation memory. Typical range is 1.5-2.8 GB in llama.cpp. */
-const DEFAULT_OVERHEAD_GB = 1.5;
+/** VRAM overhead for CUDA context, compute buffers, scratch/activation memory.
+ *  Matches the optimizer's VRAM_HEADROOM_GB so the visual bar and auto-fit agree. */
+const DEFAULT_OVERHEAD_GB = 2.0;
 
 interface MemoryCalculationParams {
   modelMetadata: ModelMetadata | null;
@@ -25,6 +25,8 @@ interface ArchitectureParams {
   qHeads: number;
   kvHeads: number;
   embeddingLength: number;
+  headDimK?: number;  // Explicit key head dim from GGUF (overrides embeddingLength/qHeads)
+  headDimV?: number;  // Explicit value head dim from GGUF
 }
 
 /** Parse a metadata string field into a number, or return null */
@@ -59,6 +61,23 @@ export function extractArchitectureParams(meta: ModelMetadata): ArchitecturePara
 
   const kvAttentionLayers = getKvCacheLayers(meta);
 
+  // Check for explicit key/value head dimensions in GGUF metadata.
+  // Some architectures (e.g. Qwen3.5-35B-A3B) have key_length=256 but
+  // embeddingLength/qHeads=128, making the derived headDim wrong by 2x.
+  const gguf = meta.gguf_metadata || {};
+  let headDimK: number | undefined;
+  let headDimV: number | undefined;
+  for (const key of Object.keys(gguf)) {
+    if (key.endsWith('.attention.key_length')) {
+      const v = Number(gguf[key]);
+      if (v > 0 && isFinite(v)) headDimK = v;
+    }
+    if (key.endsWith('.attention.value_length')) {
+      const v = Number(gguf[key]);
+      if (v > 0 && isFinite(v)) headDimV = v;
+    }
+  }
+
   return {
     totalLayers,
     kvAttentionLayers,
@@ -66,6 +85,8 @@ export function extractArchitectureParams(meta: ModelMetadata): ArchitecturePara
     qHeads,
     kvHeads,
     embeddingLength,
+    headDimK,
+    headDimV,
   };
 }
 
@@ -105,7 +126,7 @@ export function useMemoryCalculation({
       return EMPTY_BREAKDOWN(availableVramGb, availableRamGb);
     }
 
-    const { totalLayers, kvAttentionLayers, modelSizeGb, qHeads, kvHeads, embeddingLength } =
+    const { totalLayers, kvAttentionLayers, modelSizeGb, qHeads, kvHeads, embeddingLength, headDimK, headDimV } =
       extractArchitectureParams(modelMetadata);
 
     // Calculate how much of model goes to GPU vs CPU
@@ -117,7 +138,7 @@ export function useMemoryCalculation({
 
     const kvCacheSizeGb = calculateKvCacheGb(
       contextSize, kvAttentionLayers, kvHeads, qHeads, embeddingLength,
-      cacheTypeK, cacheTypeV,
+      cacheTypeK, cacheTypeV, headDimK, headDimV,
     );
 
     const vramUsed = modelGpuSizeGb + kvCacheSizeGb + overheadGb;

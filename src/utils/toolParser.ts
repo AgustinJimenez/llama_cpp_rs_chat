@@ -172,8 +172,27 @@ const qwenParser: ToolParser = {
           }
         }
       } catch {
-        // Fallback: GLM native XML format — name\n<arg_key>k</arg_key>\n<arg_value>v</arg_value>
-        if (callJson.includes('<arg_key>')) {
+        // Fallback 1: Llama3 format inside <tool_call> tags — <function=name>{json} or <function=name>\n{json}
+        const funcMatch = callJson.match(/^<function=([^>]+)>([\s\S]*)$/);
+        if (funcMatch) {
+          const name = funcMatch[1].trim();
+          const body = funcMatch[2].trim();
+          // Try to extract JSON args from body (may be on same line or next line)
+          const jsonStart = body.indexOf('{');
+          if (jsonStart >= 0) {
+            const balanced = extractBalancedJson(body, jsonStart);
+            if (balanced) {
+              try {
+                const args = JSON.parse(balanced.json);
+                // Handle {"arguments": {...}} wrapper some models emit
+                const finalArgs = args.arguments && typeof args.arguments === 'object' && !args.name ? args.arguments : args;
+                toolCalls.push({ id: crypto.randomUUID(), name, arguments: finalArgs });
+              } catch { /* skip */ }
+            }
+          }
+        }
+        // Fallback 2: GLM native XML format — name\n<arg_key>k</arg_key>\n<arg_value>v</arg_value>
+        else if (callJson.includes('<arg_key>')) {
           const firstArgPos = callJson.indexOf('<arg_key>');
           const name = callJson.slice(0, firstArgPos).trim();
           if (name && !name.includes(' ') && !name.includes('{')) {
@@ -264,7 +283,9 @@ export function autoParseToolCalls(text: string): ToolCall[] {
 
   for (const parser of parsers) {
     if (parser.detect(text)) {
-      return parser.parse(text);
+      const results = parser.parse(text);
+      if (results.length > 0) return results;
+      // If detected but parsed nothing, try next parser
     }
   }
 

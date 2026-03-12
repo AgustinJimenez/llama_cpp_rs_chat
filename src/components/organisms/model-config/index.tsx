@@ -72,7 +72,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   const [mmprojPath, setMmprojPath] = useState('');
   const savedConfigLoaded = useRef(false);
 
-  const [overheadGb, setOverheadGb] = useState(1.5);
+  const [overheadGb, setOverheadGb] = useState(2.0);
 
   // Use global system resources (fetched at app startup)
   const { totalVramGb: availableVramGb, totalRamGb: availableRamGb } = useSystemResources();

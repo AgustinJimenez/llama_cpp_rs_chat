@@ -7,6 +7,18 @@ import { useModelContext } from '../../contexts/ModelContext';
 import { MarkdownContent } from '../molecules/MarkdownContent';
 import { ThinkingBlock, ToolCallBlock } from '../molecules/messages';
 
+/** Format a message timestamp for display. Returns null for fake counter values. */
+function formatTimestamp(ts: number): string | null {
+  if (ts < 1_000_000_000_000) return null; // fake counter or missing
+  const date = new Date(ts);
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+  const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+  if (isToday) return time;
+  const day = date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return `${day}, ${time}`;
+}
+
 interface MessageBubbleProps {
   message: Message;
   viewMode?: 'text' | 'markdown' | 'raw';
@@ -174,31 +186,36 @@ const UserMessage: React.FC<{
           <Pencil size={14} />
         </button>
       ) : null}
-      <div className="flat-message-user max-w-[85%] px-4 py-3">
-        {/* Attached images */}
-        {message.image_data && message.image_data.length > 0 ? (
-          <div className="mb-2 flex flex-wrap gap-2">
-            {message.image_data.map((img, i) => (
-              <img
-                key={i}
-                src={img}
-                alt={`Attached ${i + 1}`}
-                className="max-h-64 max-w-full rounded-lg object-contain"
-              />
-            ))}
-          </div>
+      <div className="max-w-[85%]">
+        <div className="flat-message-user px-4 py-3">
+          {/* Attached images */}
+          {message.image_data && message.image_data.length > 0 ? (
+            <div className="mb-2 flex flex-wrap gap-2">
+              {message.image_data.map((img, i) => (
+                <img
+                  key={i}
+                  src={img}
+                  alt={`Attached ${i + 1}`}
+                  className="max-h-64 max-w-full rounded-lg object-contain"
+                />
+              ))}
+            </div>
+          ) : null}
+          {viewMode === 'raw' ? (
+            <pre className="text-xs whitespace-pre-wrap leading-relaxed font-mono" data-testid="message-content">
+              {message.content}
+            </pre>
+          ) : viewMode === 'markdown' ? (
+            <MarkdownContent content={cleanContent} testId="message-content" />
+          ) : (
+            <p className="text-sm whitespace-pre-wrap leading-relaxed" data-testid="message-content">
+              {cleanContent}
+            </p>
+          )}
+        </div>
+        {formatTimestamp(message.timestamp) ? (
+          <div className="text-[10px] text-white/50 mt-0.5 text-right pr-1">{formatTimestamp(message.timestamp)}</div>
         ) : null}
-        {viewMode === 'raw' ? (
-          <pre className="text-xs whitespace-pre-wrap leading-relaxed font-mono" data-testid="message-content">
-            {message.content}
-          </pre>
-        ) : viewMode === 'markdown' ? (
-          <MarkdownContent content={cleanContent} testId="message-content" />
-        ) : (
-          <p className="text-sm whitespace-pre-wrap leading-relaxed" data-testid="message-content">
-            {cleanContent}
-          </p>
-        )}
       </div>
     </div>
   );
@@ -276,7 +293,9 @@ const AssistantMessage: React.FC<{
 
         </>
       )}
-
+      {!isStreaming && formatTimestamp(message.timestamp) ? (
+        <div className="text-[10px] text-white/50 mt-0.5 pl-1">{formatTimestamp(message.timestamp)}</div>
+      ) : null}
     </div>
   </div>
 );

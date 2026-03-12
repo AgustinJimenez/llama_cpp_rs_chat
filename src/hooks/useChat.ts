@@ -149,9 +149,20 @@ export function useChat() {
           }
           return m;
         });
-        const filtered = mapped.filter(
-          msg => msg.role !== 'system' && !msg.content.startsWith('[TOOL_RESULTS]')
-        );
+        // Keep the first system message (the system prompt) for the UI widget,
+        // filter out subsequent system messages (tool results, etc.)
+        let systemPromptSeen = false;
+        const filtered = mapped.filter(msg => {
+          if (msg.role === 'system') {
+            if (!systemPromptSeen) {
+              systemPromptSeen = true;
+              msg.isSystemPrompt = true;
+              return true;
+            }
+            return false;
+          }
+          return !msg.content.startsWith('[TOOL_RESULTS]');
+        });
         setMessages(filtered);
         setCurrentConversationId(filename);
       }
@@ -205,6 +216,21 @@ export function useChat() {
 
           if (!currentConversationId) {
             setCurrentConversationId(conversationId);
+            // New conversation — fetch system prompt from backend to show widget
+            getConversation(conversationId)
+              .then(data => {
+                const firstMsg = data.messages?.[0];
+                if (firstMsg?.role === 'system' && firstMsg.content) {
+                  setMessages(prev => [{
+                    id: `sys_${conversationId}`,
+                    role: 'system' as const,
+                    content: firstMsg.content,
+                    timestamp: Date.now(),
+                    isSystemPrompt: true,
+                  }, ...prev]);
+                }
+              })
+              .catch(() => {});
           }
           // Trigger delayed sidebar refresh to pick up auto-generated/updated title
           setTimeout(() => {
@@ -215,7 +241,7 @@ export function useChat() {
           if (timings) {
             setLastTimings(timings);
             setMessages(prev => prev.map(msg =>
-              msg.id === assistantMessageId ? { ...msg, timings } : msg
+              msg.id === assistantMessageId ? { ...msg, timings, timestamp: Date.now() } : msg
             ));
           }
 
@@ -316,7 +342,7 @@ export function useChat() {
         id: assistantMessageId,
         role: 'assistant' as const,
         content: '',
-        timestamp: Date.now(),
+        timestamp: 0, // set when response completes
       }]);
     });
 

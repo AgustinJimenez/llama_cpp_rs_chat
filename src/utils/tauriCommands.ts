@@ -9,6 +9,8 @@ import type { SamplerConfig, ToolCall, ToolTags } from '../types';
 
 interface ModelStatus {
   loaded: boolean;
+  loading?: boolean;
+  loading_progress?: number;
   model_path: string | null;
   last_used: string | null;
   memory_usage_mb: number | null;

@@ -24,6 +24,7 @@ pub struct ConversationRecord {
 pub struct MessageRecord {
     pub role: String,
     pub content: String,
+    pub timestamp: u64,
     pub prompt_tok_per_sec: Option<f64>,
     pub gen_tok_per_sec: Option<f64>,
     pub gen_eval_ms: Option<f64>,
@@ -371,7 +372,7 @@ impl Database {
         let conn = self.connection();
         let mut stmt = conn
             .prepare(
-                "SELECT role, content, prompt_tok_per_sec, gen_tok_per_sec, gen_eval_ms, gen_tokens, prompt_eval_ms, prompt_tokens FROM messages WHERE conversation_id = ?1 ORDER BY sequence_order ASC",
+                "SELECT role, content, timestamp, prompt_tok_per_sec, gen_tok_per_sec, gen_eval_ms, gen_tokens, prompt_eval_ms, prompt_tokens FROM messages WHERE conversation_id = ?1 ORDER BY sequence_order ASC",
             )
             .map_err(db_error("prepare statement"))?;
 
@@ -380,12 +381,13 @@ impl Database {
                 Ok(MessageRecord {
                     role: row.get(0)?,
                     content: row.get(1)?,
-                    prompt_tok_per_sec: row.get(2)?,
-                    gen_tok_per_sec: row.get(3)?,
-                    gen_eval_ms: row.get(4)?,
-                    gen_tokens: row.get(5)?,
-                    prompt_eval_ms: row.get(6)?,
-                    prompt_tokens: row.get(7)?,
+                    timestamp: row.get::<_, i64>(2).unwrap_or(0) as u64,
+                    prompt_tok_per_sec: row.get(3)?,
+                    gen_tok_per_sec: row.get(4)?,
+                    gen_eval_ms: row.get(5)?,
+                    gen_tokens: row.get(6)?,
+                    prompt_eval_ms: row.get(7)?,
+                    prompt_tokens: row.get(8)?,
                 })
             })
             .map_err(db_error("query messages"))?

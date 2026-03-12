@@ -119,20 +119,28 @@ async fn get_model_status(
             };
             ModelStatus {
                 loaded: meta.loaded,
+                loading: None,
+                loading_progress: None,
                 model_path: Some(meta.model_path),
                 last_used: None,
                 memory_usage_mb: if meta.loaded { Some(512) } else { None },
                 has_vision: Some(meta.has_vision),
                 tool_tags: tags,
+                gpu_layers: meta.gpu_layers,
+                block_count: meta.block_count,
             }
         }
         None => ModelStatus {
             loaded: false,
+            loading: None,
+            loading_progress: None,
             model_path: None,
             last_used: None,
             memory_usage_mb: None,
             has_vision: None,
             tool_tags: None,
+            gpu_layers: None,
+            block_count: None,
         },
     })
 }
@@ -151,11 +159,15 @@ async fn load_model(
                 message: format!("Model loaded successfully from {}", request.model_path),
                 status: Some(ModelStatus {
                     loaded: true,
-                    model_path: Some(meta.model_path),
+                    loading: None,
+                    loading_progress: None,
+                    model_path: Some(meta.model_path.clone()),
                     last_used: None,
                     memory_usage_mb: Some(512),
                     has_vision: Some(meta.has_vision),
                     tool_tags: Some(get_tool_tags_for_model(meta.general_name.as_deref())),
+                    gpu_layers: meta.gpu_layers,
+                    block_count: meta.block_count,
                 }),
             })
         }
@@ -177,11 +189,15 @@ async fn unload_model(
             message: "Model unloaded successfully".into(),
             status: Some(ModelStatus {
                 loaded: false,
+                loading: None,
+                loading_progress: None,
                 model_path: None,
                 last_used: None,
                 memory_usage_mb: None,
                 has_vision: None,
                 tool_tags: None,
+                gpu_layers: None,
+                block_count: None,
             }),
         }),
         Err(e) => Ok(ModelResponse {
@@ -738,6 +754,12 @@ fn parse_conversation_to_messages(content: &str) -> Vec<web::models::ChatMessage
             role: current_role.to_lowercase(),
             content: current_content.trim().to_string(),
             timestamp: sequence,
+            prompt_tok_per_sec: None,
+            gen_tok_per_sec: None,
+            gen_eval_ms: None,
+            gen_tokens: None,
+            prompt_eval_ms: None,
+            prompt_tokens: None,
         });
     }
 

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, KeyboardEvent, useEffect, useRef } from 'react';
-import { ArrowUp, Square, X, Image as ImageIcon, FileText, Loader2, Paperclip } from 'lucide-react';
+import { ArrowUp, Square, X, FileText, Loader2, Paperclip } from 'lucide-react';
 import { useChatContext } from '../../contexts/ChatContext';
 import { useModelContext } from '../../contexts/ModelContext';
 import { MessageStatistics } from './messages/MessageStatistics';
@@ -93,10 +93,11 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   maxTokens,
 }) => {
   const { sendMessage: onSendMessage, isLoading, stopGeneration } = useChatContext();
-  const { status } = useModelContext();
+  const { status, isLoading: isModelLoading, loadingAction } = useModelContext();
   const hasVision = status.has_vision ?? false;
+  const isModelBusy = isModelLoading && loadingAction === 'loading';
 
-  const disabled = isLoading;
+  const disabled = isLoading || isModelBusy;
   const [message, setMessage] = useState('');
   const [attachedImages, setAttachedImages] = useState<string[]>([]);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
@@ -300,7 +301,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
 
   const isMultiline = message.includes('\n') || (textareaRef.current?.scrollHeight ?? 0) > 40;
   const hasContent = message.trim() || attachedImages.length > 0 || attachedFiles.length > 0;
-  const placeholder = disabled && disabledReason ? disabledReason : "Ask anything";
+  const placeholder = isModelBusy ? "Loading model..." : disabled && disabledReason ? disabledReason : "Ask anything";
 
   return (
     <form
@@ -367,11 +368,6 @@ export const MessageInput: React.FC<MessageInputProps> = ({
         >
           <Paperclip className="h-4 w-4" />
         </button>
-        {hasVision && attachedImages.length === 0 ? (
-          <div className="flex-shrink-0 flex items-center py-1 opacity-30" title="Paste an image (Ctrl+V)">
-            <ImageIcon className="h-4 w-4" />
-          </div>
-        ) : null}
         <textarea
           ref={textareaRef}
           value={message}

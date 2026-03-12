@@ -361,13 +361,33 @@ export function collectQwenSpans(content: string, toolTags?: ToolTags): Span[] {
       tcMatches.push({ start: match.index, end: match.index + match[0].length, json: wrapped });
       continue;
     }
-    // Fallback 3: Llama3 XML format — <function=name><parameter=key>value</parameter></function>
+    // Fallback 3: Llama3 format inside <tool_call> — <function=name>{json}</function> or without </function>
     // Used by models like Qwen3-Coder whose Jinja template nests this inside <tool_call>
-    const funcMatch = body.match(/<function=([^>]+)>([\s\S]*)<\/function>/);
-    if (funcMatch) {
-      const args = parseXmlParams(funcMatch[2]);
-      const wrapped = JSON.stringify({ name: funcMatch[1].trim(), arguments: args });
+    const funcMatchClosed = body.match(/<function=([^>]+)>([\s\S]*)<\/function>/);
+    if (funcMatchClosed) {
+      const args = parseXmlParams(funcMatchClosed[2]);
+      const wrapped = JSON.stringify({ name: funcMatchClosed[1].trim(), arguments: args });
       tcMatches.push({ start: match.index, end: match.index + match[0].length, json: wrapped });
+      continue;
+    }
+    // Fallback 4: <function=name> without </function> — extract name + JSON args from body
+    const funcMatchOpen = body.match(/^<function=([^>]+)>([\s\S]*)$/);
+    if (funcMatchOpen) {
+      const name = funcMatchOpen[1].trim();
+      const rest = funcMatchOpen[2].trim();
+      const jsonStart = rest.indexOf('{');
+      if (jsonStart >= 0) {
+        const balanced = extractBalancedJson(rest, jsonStart);
+        if (balanced) {
+          try {
+            const args = JSON.parse(balanced.json);
+            // Handle {"arguments": {...}} wrapper some models emit
+            const finalArgs = args.arguments && typeof args.arguments === 'object' && !args.name ? args.arguments : args;
+            const wrapped = JSON.stringify({ name, arguments: finalArgs });
+            tcMatches.push({ start: match.index, end: match.index + match[0].length, json: wrapped });
+          } catch { /* skip */ }
+        }
+      }
     }
   }
 

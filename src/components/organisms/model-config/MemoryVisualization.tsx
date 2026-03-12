@@ -35,16 +35,12 @@ const MIN_CONTEXT = 512;
 const SLIDER_STEPS = 1000;
 
 function sliderToContext(t: number, min: number, max: number): number {
-  const logMin = Math.log2(min);
-  const logMax = Math.log2(max);
-  const value = Math.pow(2, logMin + t * (logMax - logMin));
+  const value = min + t * (max - min);
   return Math.round(value / 256) * 256;
 }
 
 function contextToSlider(value: number, min: number, max: number): number {
-  const logMin = Math.log2(min);
-  const logMax = Math.log2(max);
-  return (Math.log2(value) - logMin) / (logMax - logMin);
+  return (value - min) / (max - min);
 }
 
 function formatSize(n: number): string {
@@ -243,8 +239,8 @@ const MemorySliders: React.FC<MemorySlidersProps> = ({ gpuLayers, onGpuLayersCha
       display={`${gpuLayers} / ${maxLayers}`}
     />
     <SliderRow
-      color="bg-orange-500"
-      hexColor="#f97316"
+      color="bg-blue-500"
+      hexColor="#3b82f6"
       label="Context:"
       min={0}
       max={SLIDER_STEPS}
@@ -312,9 +308,9 @@ export const MemoryVisualization: React.FC<MemoryVisualizationProps> = ({ memory
       </CardTitle>
     </CardHeader>
     <CardContent className="space-y-4">
+      <MemoryLegend vram={memory.vram} ram={memory.ram} />
       <VramBar vram={memory.vram} />
       <RamBar ram={memory.ram} />
-      <MemoryLegend vram={memory.vram} ram={memory.ram} />
       <MemorySliders
         gpuLayers={gpuLayers}
         onGpuLayersChange={onGpuLayersChange}

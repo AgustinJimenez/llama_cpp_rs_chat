@@ -447,26 +447,34 @@ pub async fn handle_get_model_status(
                 } else {
                     None
                 };
+                let lp = if is_loading { Some(bridge.loading_progress()) } else { None };
                 crate::web::models::ModelStatus {
                     loaded: meta.loaded,
                     loading: if is_loading { Some(true) } else { None },
+                    loading_progress: lp,
                     model_path: Some(meta.model_path),
                     last_used: None,
                     memory_usage_mb: if meta.loaded { Some(512) } else { None },
                     has_vision: Some(meta.has_vision),
                     tool_tags: tags,
+                    gpu_layers: meta.gpu_layers,
+                    block_count: meta.block_count,
                 }
             }
             None => {
                 let loading_path = bridge.loading_path().await;
+                let lp = if is_loading { Some(bridge.loading_progress()) } else { None };
                 crate::web::models::ModelStatus {
                     loaded: false,
                     loading: if is_loading { Some(true) } else { None },
+                    loading_progress: lp,
                     model_path: loading_path,
                     last_used: None,
                     memory_usage_mb: None,
                     has_vision: None,
                     tool_tags: None,
+                    gpu_layers: None,
+                    block_count: None,
                 }
             },
         };
@@ -544,11 +552,14 @@ pub async fn handle_post_model_load(
                 let status = crate::web::models::ModelStatus {
                     loaded: true,
                     loading: None,
+                    loading_progress: None,
                     model_path: Some(meta.model_path),
                     last_used: None,
                     memory_usage_mb: Some(512),
                     has_vision: Some(meta.has_vision),
                     tool_tags: tags,
+                    gpu_layers: meta.gpu_layers,
+                    block_count: meta.block_count,
                 };
                 let response = ModelResponse {
                     success: true,
@@ -606,11 +617,14 @@ pub async fn handle_post_model_unload(
                 let status = crate::web::models::ModelStatus {
                     loaded: false,
                     loading: None,
+                    loading_progress: None,
                     model_path: None,
                     last_used: None,
                     memory_usage_mb: None,
                     has_vision: None,
                     tool_tags: None,
+                    gpu_layers: None,
+                    block_count: None,
                 };
                 let response = ModelResponse {
                     success: true,

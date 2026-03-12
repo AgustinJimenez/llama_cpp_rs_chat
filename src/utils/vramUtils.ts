@@ -74,12 +74,18 @@ export function calculateKvCacheGb(
   embeddingLength: number,
   cacheTypeK: string = 'f16',
   cacheTypeV: string = 'f16',
+  explicitKeyDim?: number,
+  explicitValueDim?: number,
 ): number {
   if (kvAttentionLayers <= 0 || kvHeads <= 0 || qHeads <= 0) return 0;
-  const headDim = embeddingLength / qHeads;
-  const bytesK = contextSize * kvAttentionLayers * kvHeads * headDim
+  // Use explicit GGUF key/value dimensions when available (e.g. Qwen3.5-35B-A3B
+  // has key_length=256 but embeddingLength/qHeads=128, so derived headDim is wrong)
+  const defaultHeadDim = embeddingLength / qHeads;
+  const headDimK = explicitKeyDim ?? defaultHeadDim;
+  const headDimV = explicitValueDim ?? defaultHeadDim;
+  const bytesK = contextSize * kvAttentionLayers * kvHeads * headDimK
     * getCacheBytesPerElement(cacheTypeK);
-  const bytesV = contextSize * kvAttentionLayers * kvHeads * headDim
+  const bytesV = contextSize * kvAttentionLayers * kvHeads * headDimV
     * getCacheBytesPerElement(cacheTypeV);
   return (bytesK + bytesV) / (1024 * 1024 * 1024);
 }

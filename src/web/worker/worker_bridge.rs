@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use tokio::sync::{mpsc, oneshot, Mutex as TokioMutex};
@@ -23,6 +23,8 @@ pub struct ModelMeta {
     pub chat_template_type: Option<String>,
     pub general_name: Option<String>,
     pub has_vision: bool,
+    pub gpu_layers: Option<u32>,
+    pub block_count: Option<u32>,
 }
 
 /// Shared reference to the WorkerBridge.
@@ -41,6 +43,8 @@ pub struct WorkerBridge {
     model_meta: Arc<TokioMutex<Option<ModelMeta>>>,
     /// True while a model load is in progress.
     loading: AtomicBool,
+    /// Model loading progress (0-100), updated by stdout reader from worker IPC.
+    loading_progress: Arc<AtomicU8>,
     /// Model path being loaded (for status reporting during load).
     loading_model_path: Arc<TokioMutex<Option<String>>>,
     /// Next request ID counter.
@@ -75,6 +79,7 @@ impl WorkerBridge {
         let active_generation: Arc<TokioMutex<Option<ActiveGeneration>>> =
             Arc::new(TokioMutex::new(None));
         let model_meta: Arc<TokioMutex<Option<ModelMeta>>> = Arc::new(TokioMutex::new(None));
+        let loading_progress: Arc<AtomicU8> = Arc::new(AtomicU8::new(0));
 
         // Stdin writer task
         tokio::spawn(stdin_writer_task(cmd_rx, stdin_handle));
@@ -85,6 +90,7 @@ impl WorkerBridge {
             pending.clone(),
             active_generation.clone(),
             model_meta.clone(),
+            loading_progress.clone(),
         ));
 
         Self {
@@ -93,6 +99,7 @@ impl WorkerBridge {
             active_generation,
             model_meta,
             loading: AtomicBool::new(false),
+            loading_progress,
             loading_model_path: Arc::new(TokioMutex::new(None)),
             next_id: AtomicU64::new(1),
             process_manager,
@@ -132,6 +139,7 @@ impl WorkerBridge {
     /// Load a model in the worker process.
     pub async fn load_model(&self, model_path: &str, gpu_layers: Option<u32>, mmproj_path: Option<String>) -> Result<ModelMeta, String> {
         self.loading.store(true, Ordering::SeqCst);
+        self.loading_progress.store(0, Ordering::Relaxed);
         *self.loading_model_path.lock().await = Some(model_path.to_string());
 
         let payload = self
@@ -143,6 +151,7 @@ impl WorkerBridge {
             .await;
 
         self.loading.store(false, Ordering::SeqCst);
+        self.loading_progress.store(0, Ordering::Relaxed);
         *self.loading_model_path.lock().await = None;
 
         match payload? {
@@ -152,6 +161,8 @@ impl WorkerBridge {
                 chat_template_type,
                 general_name,
                 has_vision,
+                gpu_layers,
+                block_count,
                 ..
             } => {
                 let meta = ModelMeta {
@@ -161,6 +172,8 @@ impl WorkerBridge {
                     chat_template_type,
                     general_name,
                     has_vision: has_vision.unwrap_or(false),
+                    gpu_layers,
+                    block_count,
                 };
                 *self.model_meta.lock().await = Some(meta.clone());
                 Ok(meta)
@@ -173,6 +186,11 @@ impl WorkerBridge {
     /// Check if a model is currently being loaded.
     pub fn is_loading(&self) -> bool {
         self.loading.load(Ordering::SeqCst)
+    }
+
+    /// Get model loading progress (0-100).
+    pub fn loading_progress(&self) -> u8 {
+        self.loading_progress.load(Ordering::Relaxed)
     }
 
     /// Get the model path being loaded (if any).
@@ -247,6 +265,7 @@ impl WorkerBridge {
                 self.pending.clone(),
                 self.active_generation.clone(),
                 self.model_meta.clone(),
+                self.loading_progress.clone(),
             ));
         }
     }
@@ -440,6 +459,7 @@ async fn stdout_reader_task(
     pending: Arc<TokioMutex<HashMap<u64, PendingRequest>>>,
     active_generation: Arc<TokioMutex<Option<ActiveGeneration>>>,
     model_meta: Arc<TokioMutex<Option<ModelMeta>>>,
+    loading_progress: Arc<AtomicU8>,
 ) {
     // Read stdout on a blocking thread (pipe reads are blocking on Windows)
     let (line_tx, mut line_rx) = mpsc::unbounded_channel::<String>();
@@ -495,6 +515,12 @@ async fn stdout_reader_task(
                     continue;
                 }
             }
+            continue;
+        }
+
+        // Handle loading progress — update atomic, don't dispatch
+        if let WorkerPayload::LoadingProgress { progress } = payload {
+            loading_progress.store(progress, Ordering::Relaxed);
             continue;
         }
 

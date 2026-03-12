@@ -521,6 +521,8 @@ pub struct ModelStatus {
     pub loaded: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub loading: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loading_progress: Option<u8>,
     pub model_path: Option<String>,
     pub last_used: Option<String>,
     pub memory_usage_mb: Option<u64>,
@@ -528,6 +530,10 @@ pub struct ModelStatus {
     pub has_vision: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_tags: Option<crate::web::chat::tool_tags::ToolTags>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gpu_layers: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub block_count: Option<u32>,
 }
 
 #[derive(Deserialize)]

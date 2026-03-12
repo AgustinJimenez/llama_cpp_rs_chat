@@ -5,6 +5,8 @@ use llama_cpp_2::{
 };
 use std::fs;
 use std::io::BufReader;
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::Arc;
 
 use super::models::{LlamaState, ModelStatus, SharedLlamaState};
 #[cfg(feature = "vision")]
@@ -31,32 +33,41 @@ pub fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
                     ModelStatus {
                         loaded,
                         loading: None,
+                        loading_progress: None,
                         model_path,
                         last_used,
                         memory_usage_mb: if loaded { Some(512) } else { None }, // Rough estimate
                         has_vision: None,
                         tool_tags: None,
+                        gpu_layers: state.gpu_layers,
+                        block_count: None,
                     }
                 }
                 None => ModelStatus {
                     loaded: false,
                     loading: None,
+                    loading_progress: None,
                     model_path: None,
                     last_used: None,
                     memory_usage_mb: None,
                     has_vision: None,
                     tool_tags: None,
+                    gpu_layers: None,
+                    block_count: None,
                 },
             }
         }
         Err(_) => ModelStatus {
             loaded: false,
             loading: None,
+            loading_progress: None,
             model_path: None,
             last_used: None,
             memory_usage_mb: None,
             has_vision: None,
             tool_tags: None,
+            gpu_layers: None,
+            block_count: None,
         },
     }
 }
@@ -89,8 +100,19 @@ fn parse_split_mode(s: &str) -> LlamaSplitMode {
     }
 }
 
+/// C callback for llama.cpp model loading progress.
+/// Writes progress (0-100) to an `AtomicU8` passed via `user_data`.
+extern "C" fn loading_progress_cb(progress: f32, user_data: *mut std::os::raw::c_void) -> bool {
+    if !user_data.is_null() {
+        let atomic = unsafe { &*(user_data as *const AtomicU8) };
+        let pct = (progress * 100.0).min(100.0) as u8;
+        atomic.store(pct, Ordering::Relaxed);
+    }
+    true // always continue loading
+}
+
 // Helper function to load a model
-pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, requested_gpu_layers: Option<u32>, model_params: Option<&ModelParams>, mmproj_path: Option<&str>) -> Result<(), String> {
+pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, requested_gpu_layers: Option<u32>, model_params: Option<&ModelParams>, mmproj_path: Option<&str>, progress: Option<Arc<AtomicU8>>) -> Result<(), String> {
     log_debug!("system", "load_model called with path: {}", model_path);
 
     // Handle poisoned mutex by recovering from panic
@@ -162,11 +184,21 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, request
     // Load new model with configured GPU acceleration and model params
     let defaults = ModelParams::default();
     let mp = model_params.unwrap_or(&defaults);
-    let llama_model_params = LlamaModelParams::default()
+    let mut llama_model_params = LlamaModelParams::default()
         .with_n_gpu_layers(optimal_gpu_layers)
         .with_use_mlock(mp.use_mlock)
         .with_main_gpu(mp.main_gpu)
         .with_split_mode(parse_split_mode(&mp.split_mode));
+
+    // Attach progress callback if caller provided an atomic progress tracker
+    if let Some(ref prog) = progress {
+        llama_model_params = unsafe {
+            llama_model_params.with_progress_callback(
+                Some(loading_progress_cb),
+                Arc::as_ptr(prog) as *mut std::os::raw::c_void,
+            )
+        };
+    }
 
     log_info!("system", "Loading model from: {}", model_path);
     log_info!(

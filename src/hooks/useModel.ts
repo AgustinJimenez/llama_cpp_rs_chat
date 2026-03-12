@@ -11,11 +11,14 @@ import {
 interface ModelStatus {
   loaded: boolean;
   loading?: boolean;
+  loading_progress?: number;
   model_path: string | null;
   last_used: string | null;
   memory_usage_mb: number | null;
   has_vision?: boolean;
   tool_tags?: ToolTags;
+  gpu_layers?: number;
+  block_count?: number;
 }
 
 interface ModelResponse {
@@ -178,24 +181,23 @@ export const useModel = () => {
     fetchStatus();
   }, [fetchStatus]);
 
-  // Poll status while server reports loading (e.g. after browser refresh during load)
+  // Poll status while loading to get progress updates and detect completion
   useEffect(() => {
     if (!isLoading || loadingAction !== 'loading') return;
-    if (!status.loading) return;
     const interval = setInterval(async () => {
       try {
         const data = await getModelStatus() as ModelStatus;
         setStatus(data);
-        if (data.loaded || !data.loading) {
+        if (data.loaded || (!data.loading && !isLoading)) {
           setIsLoading(false);
           setLoadingAction(null);
         }
       } catch {
         // Keep polling on error
       }
-    }, 1000);
+    }, 200);
     return () => clearInterval(interval);
-  }, [isLoading, loadingAction, status.loading]);
+  }, [isLoading, loadingAction]);
 
   return {
     status,

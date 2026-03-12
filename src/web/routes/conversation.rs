@@ -33,7 +33,7 @@ pub async fn handle_get_conversation(
                     id: format!("msg_{i}"),
                     role: rec.role.to_lowercase(),
                     content: rec.content.clone(),
-                    timestamp: i as u64,
+                    timestamp: rec.timestamp * 1000,
                     prompt_tok_per_sec: rec.prompt_tok_per_sec,
                     gen_tok_per_sec: rec.gen_tok_per_sec,
                     gen_eval_ms: rec.gen_eval_ms,

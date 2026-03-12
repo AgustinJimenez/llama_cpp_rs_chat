@@ -6,11 +6,14 @@ import { logToastError } from '../utils/toastLogger';
 
 interface ModelStatus {
   loaded: boolean;
+  loading_progress?: number;
   model_path: string | null;
   last_used: string | null;
   memory_usage_mb: number | null;
   has_vision?: boolean;
   tool_tags?: ToolTags;
+  gpu_layers?: number;
+  block_count?: number;
 }
 
 interface ModelContextValue {

@@ -57,7 +57,8 @@ fn build_context_params(
         .with_type_k(parse_kv_cache_type(&config.cache_type_k))
         .with_type_v(parse_kv_cache_type(&config.cache_type_v))
         .with_n_batch(config.n_batch)
-        .with_n_ubatch(config.n_ubatch);
+        .with_n_ubatch(config.n_ubatch)
+        .with_no_perf(false); // Enable internal perf timing (matches llama-server)
 
     if config.flash_attention {
         params = params.with_flash_attention_policy(1);
@@ -277,6 +278,8 @@ struct TokenGenConfig<'a> {
     use_htmd: bool,
     n_batch: u32,
     mcp_manager: Option<Arc<crate::web::mcp::McpManager>>,
+    backend: &'a llama_cpp_2::llama_backend::LlamaBackend,
+    chat_template_string: Option<&'a str>,
 }
 
 /// Vision context reference for tool response image injection.
@@ -362,6 +365,7 @@ fn run_generation_loop(
     log_debug!(cfg.conversation_id, "EOS token ID: {}", model.token_eos());
 
     let mut tool_call_rounds: usize = 0;
+    let mut stall_checkpoint = Instant::now();
 
     loop {
         let mut command_executed = false;
@@ -386,7 +390,29 @@ fn run_generation_loop(
                 log_debug!(cfg.conversation_id, "Generated {} tokens so far...", gen.total_tokens_generated);
             }
 
-            let token_start = Instant::now();
+            // Stall detection: amortized check every 16 tokens (saves 2 syscalls/token)
+            if i & 15 == 15 {
+                let batch_elapsed = stall_checkpoint.elapsed();
+                if batch_elapsed > TOKEN_STALL_TIMEOUT {
+                    let secs = batch_elapsed.as_secs();
+                    log_info!(cfg.conversation_id, "Generation stalled: 16 tokens took {}s. Aborting.", secs);
+                    if let Some(ref sender) = token_sender {
+                        let _ = sender.send(TokenData {
+                            token: format!(
+                                "\n\n[Generation stalled — batch of 16 tokens took {}s. The model may be too large for your hardware.]",
+                                secs
+                            ),
+                            tokens_used: gen.total_tokens_generated,
+                            max_tokens: cfg.max_total_tokens,
+                        });
+                    }
+                    gen.finish_reason = "error".to_string();
+                    hit_stop_condition = true;
+                    break;
+                }
+                stall_checkpoint = Instant::now();
+            }
+
             let next_token = sampler.sample(context, -1);
 
             if next_token == model.token_eos() {
@@ -395,6 +421,18 @@ fn run_generation_loop(
                     "EOS token detected at position {} (in_exec_block: {})",
                     gen.total_tokens_generated, gen.exec_tracker.is_inside()
                 );
+                // Append EOS token text so RAW view shows where model stopped
+                #[allow(deprecated)]
+                if let Ok(eos_str) = model.token_to_str(next_token, Special::Tokenize) {
+                    gen.response.push_str(&eos_str);
+                    if let Some(ref sender) = token_sender {
+                        let _ = sender.send(TokenData {
+                            token: eos_str,
+                            tokens_used: gen.token_pos,
+                            max_tokens: cfg.context_size as i32,
+                        });
+                    }
+                }
                 hit_stop_condition = true;
                 break;
             }
@@ -404,26 +442,6 @@ fn run_generation_loop(
                 .map_err(|e| format!("Batch add failed at token {}: {e}", gen.total_tokens_generated))?;
             context.decode(batch)
                 .map_err(|e| format!("Decode failed at token {}: {e}", gen.total_tokens_generated))?;
-
-            // Stall detection
-            let token_elapsed = token_start.elapsed();
-            if token_elapsed > TOKEN_STALL_TIMEOUT {
-                let secs = token_elapsed.as_secs();
-                log_info!(cfg.conversation_id, "Generation stalled: token took {}s. Aborting.", secs);
-                if let Some(ref sender) = token_sender {
-                    let _ = sender.send(TokenData {
-                        token: format!(
-                            "\n\n[Generation stalled — token took {}s. The model may be too large for your hardware.]",
-                            secs
-                        ),
-                        tokens_used: gen.total_tokens_generated,
-                        max_tokens: cfg.max_total_tokens,
-                    });
-                }
-                gen.finish_reason = "error".to_string();
-                hit_stop_condition = true;
-                break;
-            }
 
             gen.token_pos += 1;
             gen.total_tokens_generated += 1;
@@ -500,12 +518,18 @@ fn run_generation_loop(
                 gen.last_logger_sync = Instant::now();
             }
 
-            // Check for and execute commands in the response
+            // Check for and execute commands in the response.
+            // Fast gate: only call the expensive detector when the new token
+            // contains a character that could close a tool call block.
+            // This skips ~90% of tokens (no '>', ']', or '}').
+            let token_has_close_char = token_str.as_bytes().iter().any(|&b| b == b'>' || b == b']' || b == b'}');
+            if token_has_close_char {
             if let Some(exec_result) = check_and_execute_command_with_tags(
                 &gen.response, gen.last_exec_scan_pos, cfg.conversation_id, model, cfg.tags,
                 cfg.template_type, cfg.web_search_provider, cfg.web_search_api_key,
                 &mut gen.recent_commands, token_sender, gen.token_pos, cfg.context_size,
                 Some(cancel.clone()), cfg.use_rtk, cfg.use_htmd, cfg.mcp_manager.clone(),
+                cfg.backend, cfg.chat_template_string,
             )? {
                 // Sync accumulated content + command output to logger
                 {
@@ -568,6 +592,7 @@ fn run_generation_loop(
                 gen.exec_tracker = ExecBlockTracker::new();
                 break;
             }
+            } // token_has_close_char
         }
 
         if hit_stop_condition {
@@ -661,6 +686,9 @@ fn evaluate_text_prompt(
         }
     };
 
+    // Reset perf counters so timings cover only this turn (not accumulated from cache)
+    ctx.reset_timings();
+
     // Evaluate only new tokens (skip those already in KV cache)
     let new_tokens = &tokens[skip_tokens..];
     if !new_tokens.is_empty() {
@@ -693,7 +721,7 @@ fn evaluate_text_prompt(
 }
 
 /// Create a fresh LlamaContext with transmuted 'static lifetime for cache storage.
-fn create_fresh_context(
+pub(super) fn create_fresh_context(
     model: &LlamaModel,
     backend: &llama_cpp_2::llama_backend::LlamaBackend,
     n_ctx: NonZeroU32,
@@ -784,7 +812,7 @@ pub async fn generate_llama_response(
         .unwrap_or_else(get_common_stop_tokens);
 
     // Ensure model is loaded
-    load_model(llama_state.clone(), model_path, None, None, None).await?;
+    load_model(llama_state.clone(), model_path, None, None, None, None).await?;
 
     // Now use the shared state for generation (mutable for inference cache)
     let mut state_guard = llama_state
@@ -956,10 +984,8 @@ pub async fn generate_llama_response(
         log_info!(&conversation_id, "Using vision path with {} images", image_bytes_vec.len());
     }
 
-    let prompt_eval_start = Instant::now();
-
     // Two code paths: vision (mtmd) or standard text-only
-    let (mut context, _prompt_tokens, tokens, actually_evaluated) = if use_vision {
+    let (mut context, _prompt_tokens, tokens) = if use_vision {
         #[cfg(feature = "vision")]
         {
         // === VISION PATH: Use MtmdContext to process text + images ===
@@ -1018,7 +1044,7 @@ pub async fn generate_llama_response(
 
         // Create a dummy tokens vec for cache storage (vision doesn't use standard tokens)
         let dummy_tokens = vec![LlamaToken(0); n_past as usize];
-        (ctx, n_prompt_tokens, dummy_tokens, n_prompt_tokens)
+        (ctx, n_prompt_tokens, dummy_tokens)
         }
         #[cfg(not(feature = "vision"))]
         unreachable!("Vision feature not enabled")
@@ -1029,20 +1055,16 @@ pub async fn generate_llama_response(
             .map_err(|e| format!("Tokenization failed: {e}"))?;
         log_debug!(&conversation_id, "Tokenized to {} tokens", tokens.len());
 
-        let (ctx, skip_tokens) = evaluate_text_prompt(
+        let (ctx, _skip_tokens) = evaluate_text_prompt(
             &mut state.inference_cache, model, &state.backend,
             &tokens, &conversation_id, context_size,
             offload_kqv, flash_attention, &cache_type_k, &cache_type_v,
             &config, batch_cap,
         )?;
         let prompt_tokens = tokens.len();
-        let actually_evaluated = prompt_tokens - skip_tokens;
-        (ctx, prompt_tokens, tokens, actually_evaluated)
+        (ctx, prompt_tokens, tokens)
     };
 
-    let n_prompt_eval = actually_evaluated;
-
-    let prompt_eval_ms = prompt_eval_start.elapsed().as_secs_f64() * 1000.0;
     let gen_start = Instant::now();
 
     let mut batch = LlamaBatch::new(batch_cap, 1);
@@ -1091,6 +1113,8 @@ pub async fn generate_llama_response(
         use_htmd: config.use_htmd,
         n_batch,
         mcp_manager: mcp_manager.clone(),
+        backend: &state.backend,
+        chat_template_string: chat_template_string.as_deref(),
     };
 
     // Build vision context reference for tool response image injection
@@ -1105,31 +1129,38 @@ pub async fn generate_llama_response(
         vision_ctx_ref,
     )?;
 
-    let total_tokens_generated = gen.total_tokens_generated;
     let token_pos = gen.token_pos;
 
-    // Capture timing metrics via manual Instant timing
-    // (llama_perf_context returns 0ms in some llama.cpp builds)
-    let gen_eval_ms = gen_start.elapsed().as_secs_f64() * 1000.0;
-    let prompt_tok_per_sec = if prompt_eval_ms > 0.0 && n_prompt_eval > 0 {
-        Some(n_prompt_eval as f64 / prompt_eval_ms * 1000.0)
+    // Use llama.cpp internal perf timings (decode-only, matches llama-server measurement)
+    let timings = context.timings();
+    let gen_eval_ms = timings.t_eval_ms();
+    let prompt_eval_ms_internal = timings.t_p_eval_ms();
+    let n_eval = timings.n_eval() as usize;
+    let n_p_eval = timings.n_p_eval() as usize;
+
+    let prompt_tok_per_sec = if prompt_eval_ms_internal > 0.0 && n_p_eval > 0 {
+        Some(n_p_eval as f64 / prompt_eval_ms_internal * 1000.0)
     } else {
         None
     };
-    let gen_tok_per_sec = if gen_eval_ms > 0.0 && total_tokens_generated > 0 {
-        Some(total_tokens_generated as f64 / gen_eval_ms * 1000.0)
+    let gen_tok_per_sec = if gen_eval_ms > 0.0 && n_eval > 0 {
+        Some(n_eval as f64 / gen_eval_ms * 1000.0)
     } else {
         None
     };
+
+    // Also compute wall-clock for logging comparison
+    let wall_gen_ms = gen_start.elapsed().as_secs_f64() * 1000.0;
     log_info!(
         &conversation_id,
-        "Timing: prompt={:.1} tok/s ({} tokens in {:.0}ms), gen={:.1} tok/s ({} tokens in {:.0}ms)",
+        "Timing: prompt={:.1} tok/s ({} tokens in {:.0}ms), gen={:.1} tok/s ({} tokens in {:.0}ms, wall={:.0}ms)",
         prompt_tok_per_sec.unwrap_or(0.0),
-        n_prompt_eval,
-        prompt_eval_ms,
+        n_p_eval,
+        prompt_eval_ms_internal,
         gen_tok_per_sec.unwrap_or(0.0),
-        total_tokens_generated,
-        gen_eval_ms
+        n_eval,
+        gen_eval_ms,
+        wall_gen_ms
     );
 
     // Finish assistant message and persist metrics
@@ -1152,9 +1183,9 @@ pub async fn generate_llama_response(
             prompt_tok_per_sec,
             gen_tok_per_sec,
             if gen_eval_ms > 0.0 { Some(gen_eval_ms) } else { None },
-            if total_tokens_generated > 0 { Some(total_tokens_generated as i32) } else { None },
-            if prompt_eval_ms > 0.0 { Some(prompt_eval_ms) } else { None },
-            if n_prompt_eval > 0 { Some(n_prompt_eval as i32) } else { None },
+            if n_eval > 0 { Some(n_eval as i32) } else { None },
+            if prompt_eval_ms_internal > 0.0 { Some(prompt_eval_ms_internal) } else { None },
+            if n_p_eval > 0 { Some(n_p_eval as i32) } else { None },
         );
     }
 
@@ -1188,9 +1219,9 @@ pub async fn generate_llama_response(
         prompt_tok_per_sec,
         gen_tok_per_sec,
         gen_eval_ms: if gen_eval_ms > 0.0 { Some(gen_eval_ms) } else { None },
-        gen_tokens: if total_tokens_generated > 0 { Some(total_tokens_generated as i32) } else { None },
-        prompt_eval_ms: if prompt_eval_ms > 0.0 { Some(prompt_eval_ms) } else { None },
-        prompt_tokens: if n_prompt_eval > 0 { Some(n_prompt_eval as i32) } else { None },
+        gen_tokens: if n_eval > 0 { Some(n_eval as i32) } else { None },
+        prompt_eval_ms: if prompt_eval_ms_internal > 0.0 { Some(prompt_eval_ms_internal) } else { None },
+        prompt_tokens: if n_p_eval > 0 { Some(n_p_eval as i32) } else { None },
     })
 }
 

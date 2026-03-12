@@ -48,12 +48,12 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
         {isCheckingFile ? (
           <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />
         ) : (
-          <FolderOpen className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+          <FolderOpen className="h-4 w-4 text-foreground flex-shrink-0" />
         )}
         {modelPath ? (
           <span className="font-mono text-xs truncate">{modelPath}</span>
         ) : (
-          <span className="text-muted-foreground">Click to select a .gguf model file...</span>
+          <span className="text-foreground/60">Click to select a .gguf model file...</span>
         )}
       </button>
       {modelPath.trim() && (
@@ -128,7 +128,7 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
         <button
           type="button"
           onClick={() => setHistoryExpanded(!historyExpanded)}
-          className="w-full px-3 py-1.5 text-xs text-muted-foreground bg-muted/50 flex items-center gap-1.5 hover:bg-muted transition-colors"
+          className="w-full px-3 py-1.5 text-xs text-foreground bg-muted/50 flex items-center gap-1.5 hover:bg-muted transition-colors"
         >
           {historyExpanded ? (
             <ChevronDown className="h-3 w-3" />

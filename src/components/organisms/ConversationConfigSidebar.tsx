@@ -6,6 +6,7 @@ import { GpuLayersSection } from './model-config/GpuLayersSection';
 import { AdvancedContextSection } from './model-config/AdvancedContextSection';
 import { SamplingParametersSection } from './model-config/SamplingParametersSection';
 import { getConversationConfig, saveConversationConfig } from '../../utils/tauriCommands';
+import { useModelContext } from '../../contexts/ModelContext';
 import type { SamplerConfig } from '../../types';
 
 const CONTEXT_RELOAD_FIELDS: (keyof SamplerConfig)[] = [
@@ -28,6 +29,7 @@ export function ConversationConfigSidebar({
   currentModelPath,
   onReloadModel,
 }: ConversationConfigSidebarProps) {
+  const { status } = useModelContext();
   const [localConfig, setLocalConfig] = useState<SamplerConfig | null>(null);
   const [contextSize, setContextSize] = useState(32768);
   const [isSaving, setIsSaving] = useState(false);
@@ -74,6 +76,7 @@ export function ConversationConfigSidebar({
       }
       originalConfigRef.current = finalConfig;
       setLocalConfig(finalConfig);
+      onClose();
     } catch {
       toast.error('Failed to save config');
     } finally {
@@ -113,9 +116,9 @@ export function ConversationConfigSidebar({
           {showContent ? <>
               <ContextSizeSection contextSize={contextSize} setContextSize={setContextSize} modelInfo={null} />
               <GpuLayersSection
-                gpuLayers={localConfig.gpu_layers ?? 0}
+                gpuLayers={localConfig.gpu_layers ?? status.gpu_layers ?? 0}
                 onGpuLayersChange={(n) => handleConfigChange('gpu_layers', n)}
-                maxLayers={100}
+                maxLayers={status.block_count ?? 100}
               />
               <AdvancedContextSection config={localConfig} onConfigChange={handleConfigChange} />
               <div className="border-t border-border" />

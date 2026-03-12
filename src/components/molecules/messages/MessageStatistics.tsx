@@ -17,9 +17,11 @@ function formatNumber(n: number): string {
 }
 
 export function MessageStatistics({ timings, tokensUsed, maxTokens }: MessageStatisticsProps) {
-  const { genTokPerSec, genTokens, genEvalMs } = timings;
+  const { genTokPerSec, genTokens, genEvalMs, promptEvalMs } = timings;
 
   if (!genTokPerSec) return null;
+
+  const totalMs = (promptEvalMs || 0) + (genEvalMs || 0);
 
   return (
     <div className="flex items-center gap-3 text-xs text-white font-mono">
@@ -29,10 +31,10 @@ export function MessageStatistics({ timings, tokensUsed, maxTokens }: MessageSta
           {formatNumber(genTokens)} tokens
         </span>
       ) : null}
-      {genEvalMs ? (
-        <span className="inline-flex items-center gap-1" title="Generation time">
+      {totalMs ? (
+        <span className="inline-flex items-center gap-1" title={`Total: ${formatDuration(totalMs)} (prompt: ${formatDuration(promptEvalMs || 0)}, gen: ${formatDuration(genEvalMs || 0)})`}>
           <Clock className="h-3 w-3" />
-          {formatDuration(genEvalMs)}
+          {formatDuration(totalMs)}
         </span>
       ) : null}
       <span className="inline-flex items-center gap-1" title="Generation speed">

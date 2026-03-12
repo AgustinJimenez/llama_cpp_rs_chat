@@ -1,5 +1,7 @@
 use llama_cpp_2::{llama_batch::LlamaBatch, model::AddBos};
+use llama_cpp_2::sampling::LlamaSampler;
 use regex::Regex;
+use std::num::NonZeroU32;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -7,8 +9,187 @@ use tokio::sync::mpsc;
 use super::super::command::{execute_command_streaming, execute_command_background, sanitize_command_output, strip_ansi_codes};
 use super::super::models::*;
 use super::super::native_tools;
+use super::generation::create_fresh_context;
 use super::tool_tags::ToolTags;
-use crate::{log_info, log_debug};
+use crate::{log_info, log_debug, log_warn};
+
+// --- Tool output summarization via LLM sub-agent ---
+
+/// Minimum output size (chars) to trigger LLM summarization.
+/// Set to 0 to always summarize (useful for testing).
+const SUMMARIZE_THRESHOLD: usize = 1500;
+/// Context size for each summarization pass (tokens).
+const SUMMARY_CTX_SIZE: u32 = 4096;
+/// Maximum tokens to generate per summary.
+const SUMMARY_MAX_TOKENS: usize = 256;
+/// Maximum chars per chunk for map-reduce summarization.
+const SUMMARY_CHUNK_CHARS: usize = 5000;
+
+/// Run a single summarization pass: create temp context, eval prompt + text, generate summary.
+fn run_summary_pass(
+    model: &llama_cpp_2::model::LlamaModel,
+    backend: &llama_cpp_2::llama_backend::LlamaBackend,
+    text: &str,
+    chat_template_string: Option<&str>,
+    conversation_id: &str,
+) -> Result<String, String> {
+    let system_msg = "Summarize this tool output concisely. Keep: file names, errors, key values, success/failure status. Remove: verbose logs, repeated patterns, boilerplate.";
+
+    // Format prompt using chat template if available
+    let formatted_prompt = if let Some(template_str) = chat_template_string {
+        use super::jinja_templates::{apply_native_chat_template, ChatMessage};
+        #[allow(deprecated)]
+        use llama_cpp_2::model::Special;
+        #[allow(deprecated)]
+        let bos = model.token_to_str(model.token_bos(), Special::Tokenize).unwrap_or_else(|_| "<s>".into());
+        #[allow(deprecated)]
+        let eos = model.token_to_str(model.token_eos(), Special::Tokenize).unwrap_or_else(|_| "</s>".into());
+        let messages = vec![
+            ChatMessage { role: "system".into(), content: system_msg.into(), tool_calls: None },
+            ChatMessage { role: "user".into(), content: text.into(), tool_calls: None },
+        ];
+        apply_native_chat_template(template_str, messages, None, None, true, &bos, &eos)
+            .unwrap_or_else(|_| format!("SYSTEM:\n{system_msg}\n\nUSER:\n{text}\n\nASSISTANT:\n"))
+    } else {
+        format!("SYSTEM:\n{system_msg}\n\nUSER:\n{text}\n\nASSISTANT:\n")
+    };
+
+    let tokens = model
+        .str_to_token(&formatted_prompt, AddBos::Never)
+        .map_err(|e| format!("Summary tokenization failed: {e}"))?;
+
+    // Ensure prompt fits in context (leave room for generation)
+    if tokens.len() + SUMMARY_MAX_TOKENS > SUMMARY_CTX_SIZE as usize {
+        return Err(format!("Summary prompt too large: {} tokens", tokens.len()));
+    }
+
+    let n_ctx = NonZeroU32::new(SUMMARY_CTX_SIZE).unwrap();
+    let config = SamplerConfig::default();
+    // offload_kqv=false: keep summarization context on CPU to avoid competing for VRAM
+    // with the main context's KV cache (which may use nearly all GPU memory).
+    let mut ctx = create_fresh_context(model, backend, n_ctx, false, &config)?;
+
+    // Eval prompt in batches
+    let batch_cap = 512usize;
+    let mut batch = LlamaBatch::new(batch_cap, 1);
+    let n_chunks = tokens.len().div_ceil(batch_cap);
+    for chunk_idx in 0..n_chunks {
+        let start = chunk_idx * batch_cap;
+        let end = std::cmp::min(start + batch_cap, tokens.len());
+        batch.clear();
+        for (offset, &token) in tokens[start..end].iter().enumerate() {
+            let pos = (start + offset) as i32;
+            let is_last = start + offset == tokens.len() - 1;
+            batch.add(token, pos, &[0], is_last)
+                .map_err(|e| format!("Summary batch add failed: {e}"))?;
+        }
+        ctx.decode(&mut batch)
+            .map_err(|e| format!("Summary prompt decode failed: {e}"))?;
+    }
+
+    // Generate summary (low temperature for deterministic output)
+    let mut sampler = LlamaSampler::chain_simple(vec![
+        LlamaSampler::temp(0.3),
+        LlamaSampler::dist(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos() as u32)
+                .unwrap_or(42),
+        ),
+    ]);
+
+    let mut summary = String::new();
+    let mut token_pos = tokens.len() as i32;
+    let eos_token = model.token_eos();
+
+    for _ in 0..SUMMARY_MAX_TOKENS {
+        let next_token = sampler.sample(&ctx, -1);
+        if next_token == eos_token { break; }
+
+        #[allow(deprecated)]
+        let token_str = model
+            .token_to_str(next_token, llama_cpp_2::model::Special::Tokenize)
+            .unwrap_or_default();
+
+        summary.push_str(&token_str);
+
+        batch.clear();
+        batch.add(next_token, token_pos, &[0], true)
+            .map_err(|e| format!("Summary gen batch add failed: {e}"))?;
+        ctx.decode(&mut batch)
+            .map_err(|e| format!("Summary gen decode failed: {e}"))?;
+        token_pos += 1;
+    }
+
+    drop(ctx);
+    let result = summary.trim().to_string();
+    log_info!(conversation_id, "📝 Summary pass: {} input chars → {} output chars", text.len(), result.len());
+    Ok(result)
+}
+
+/// Summarize tool output using chunked map-reduce if needed.
+/// Returns the summary prefixed with `[Summarized from N chars]`.
+fn summarize_tool_output(
+    model: &llama_cpp_2::model::LlamaModel,
+    backend: &llama_cpp_2::llama_backend::LlamaBackend,
+    output: &str,
+    chat_template_string: Option<&str>,
+    conversation_id: &str,
+) -> Result<String, String> {
+    let original_len = output.len();
+
+    // Estimate if output fits in a single pass (~4 chars per token, leave room for prompt + generation)
+    let estimated_tokens = output.len() / 4;
+    let single_pass_limit = (SUMMARY_CTX_SIZE as usize) - SUMMARY_MAX_TOKENS - 200; // 200 tokens for prompt overhead
+
+    let summary = if estimated_tokens < single_pass_limit {
+        // Single pass — output fits in one context
+        run_summary_pass(model, backend, output, chat_template_string, conversation_id)?
+    } else {
+        // Chunked map-reduce: split → summarize each → combine → final pass if needed
+        let mut chunk_texts = Vec::new();
+        let mut pos = 0;
+        while pos < output.len() {
+            let mut end = std::cmp::min(pos + SUMMARY_CHUNK_CHARS, output.len());
+            // Adjust to char boundary
+            while end < output.len() && !output.is_char_boundary(end) {
+                end += 1;
+            }
+            chunk_texts.push(&output[pos..end]);
+            pos = end;
+        }
+
+        log_info!(conversation_id, "📝 Chunked summarization: {} chars → {} chunks", original_len, chunk_texts.len());
+
+        let mut chunk_summaries = Vec::new();
+        for (i, chunk) in chunk_texts.iter().enumerate() {
+            match run_summary_pass(model, backend, chunk, chat_template_string, conversation_id) {
+                Ok(s) => {
+                    log_info!(conversation_id, "📝 Chunk {}/{}: {} → {} chars", i + 1, chunk_texts.len(), chunk.len(), s.len());
+                    chunk_summaries.push(s);
+                }
+                Err(e) => {
+                    log_warn!(conversation_id, "📝 Chunk {}/{} failed: {}", i + 1, chunk_texts.len(), e);
+                    // Use truncated original for this chunk
+                    chunk_summaries.push(chunk.chars().take(200).collect::<String>() + "...");
+                }
+            }
+        }
+
+        let combined = chunk_summaries.join("\n");
+
+        // If combined summaries are still large, do a final reduction pass
+        if combined.len() > SUMMARIZE_THRESHOLD {
+            log_info!(conversation_id, "📝 Final reduction pass: {} chars", combined.len());
+            run_summary_pass(model, backend, &combined, chat_template_string, conversation_id)
+                .unwrap_or(combined)
+        } else {
+            combined
+        }
+    };
+
+    Ok(format!("[Summarized from {} chars]\n{}", original_len, summary))
+}
 
 /// Prefix a command with `rtk` for output compression, if RTK mode is enabled.
 fn maybe_rtk_prefix(cmd: &str, use_rtk: bool) -> String {
@@ -359,6 +540,8 @@ pub fn check_and_execute_command_with_tags(
     use_rtk: bool,
     use_htmd: bool,
     mcp_manager: Option<Arc<crate::web::mcp::McpManager>>,
+    backend: &llama_cpp_2::llama_backend::LlamaBackend,
+    chat_template_string: Option<&str>,
 ) -> Result<Option<CommandExecutionResult>, String> {
     // Only scan new content since last command execution
     let response_to_scan = if last_scan_pos < response.len() {
@@ -708,7 +891,38 @@ pub fn check_and_execute_command_with_tags(
         output.len()
     );
 
-    // Stream the output_close tag to frontend
+    // Sanitize output for model context: strip ANSI codes + truncate long output.
+    // The raw output was already streamed to the frontend above; this only affects
+    // what the model sees in its context window.
+    let sanitized = sanitize_command_output(&output);
+
+    // Summarize large outputs via LLM sub-agent to save context tokens.
+    // The user already sees the full raw output (streamed above); this only
+    // affects what the model receives in its context for subsequent reasoning.
+    let model_output = if sanitized.len() > SUMMARIZE_THRESHOLD {
+        match summarize_tool_output(model, backend, &sanitized, chat_template_string, conversation_id) {
+            Ok(summary) => {
+                log_info!(conversation_id, "📝 Summarized tool output: {} → {} chars", sanitized.len(), summary.len());
+                // Stream summary note inside the output block (before output_close)
+                if let Some(ref sender) = token_sender {
+                    let _ = sender.send(TokenData {
+                        token: format!("\n\n📝 Summarized for model: {} → {} chars", sanitized.len(), summary.len()),
+                        tokens_used: token_pos,
+                        max_tokens: context_size as i32,
+                    });
+                }
+                summary
+            }
+            Err(e) => {
+                log_warn!(conversation_id, "Summarization failed ({}), using raw output", e);
+                sanitized
+            }
+        }
+    } else {
+        sanitized
+    };
+
+    // Stream the output_close tag to frontend (after any summary note)
     if let Some(ref sender) = token_sender {
         let _ = sender.send(TokenData {
             token: output_close.clone(),
@@ -717,13 +931,8 @@ pub fn check_and_execute_command_with_tags(
         });
     }
 
-    // Sanitize output for model context: strip ANSI codes + truncate long output.
-    // The raw output was already streamed to the frontend above; this only affects
-    // what the model sees in its context window.
-    let output = sanitize_command_output(&output);
-
     // Format the full output block for model injection and logging
-    let output_block = format!("{}{}{}", output_open, output.trim(), output_close);
+    let output_block = format!("{}{}{}", output_open, model_output.trim(), output_close);
 
     // Build model injection block with chat template turn wrapping.
     // The model needs proper turn structure to know the tool response is from

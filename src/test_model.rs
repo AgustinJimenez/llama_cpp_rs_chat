@@ -56,7 +56,8 @@ fn main() {
         .with_offload_kqv(true)
         .with_type_k(KvCacheType::Q8_0)
         .with_type_v(KvCacheType::Q8_0)
-        .with_flash_attention_policy(1); // Flash attention ON
+        .with_flash_attention_policy(1) // Flash attention ON
+        .with_no_perf(false); // Enable internal perf timing
 
     let mut ctx = model
         .new_context(&backend, ctx_params)
@@ -148,18 +149,28 @@ fn main() {
     }
 
     let gen_time = gen_start.elapsed();
+    let wall_tps = n_generated as f32 / gen_time.as_secs_f32();
     println!(
         "✓ Generated {} tokens in {:.2}s\n",
         n_generated,
         gen_time.as_secs_f32()
     );
+    println!("  Wall-clock tok/s: {:.2}", wall_tps);
+
+    // Get llama.cpp internal timings (decode-only, excludes Rust overhead)
+    let timings = ctx.timings();
+    let internal_tps = timings.n_eval() as f64 / timings.t_eval_ms() * 1000.0;
+    println!("\n=== llama.cpp Internal Timings ===");
+    println!("{}", timings);
+    println!("  Internal decode-only tok/s: {:.2}", internal_tps);
     println!(
-        "  Tokens/sec: {:.2}",
-        n_generated as f32 / gen_time.as_secs_f32()
+        "  Rust overhead: {:.1}% ({:.2} vs {:.2} tok/s)",
+        (1.0 - wall_tps as f64 / internal_tps) * 100.0,
+        wall_tps,
+        internal_tps
     );
 
     println!("\n=== TEST PASSED ===");
-    println!("No crash occurred with 128K context!");
     println!(
         "Total time: {:.2}s",
         (load_time + ctx_time + token_time + decode_time + gen_time).as_secs_f32()

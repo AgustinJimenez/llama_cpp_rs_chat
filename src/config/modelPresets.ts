@@ -124,6 +124,8 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     top_k: 20,
     repeat_penalty: 1.05,
   },
+  // 262K ctx fits 24GB VRAM with q8_0 KV, but heavy tool-calling sessions
+  // may stall if VRAM is tight. Reduce to 32768 if you see "Generation stalled".
   "Qwen3.5-35B-A3B": {
     sampler_type: "Temperature",
     temperature: 0.7,
@@ -136,7 +138,7 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     flash_attention: true,
     cache_type_k: "q8_0",
     cache_type_v: "q8_0",
-    gpu_layers: 39,
+    gpu_layers: 40,
   },
   // Qwen3.5-9B (dense, 9.5GB Q8)
   "Qwen3.5-9B": {
@@ -165,7 +167,7 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     flash_attention: true,
     cache_type_k: "q8_0",
     cache_type_v: "q8_0",
-    gpu_layers: 39,
+    gpu_layers: 40,
   },
 
   // Mistral models

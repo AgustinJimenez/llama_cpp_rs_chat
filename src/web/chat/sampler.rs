@@ -101,7 +101,7 @@ pub(crate) fn create_sampler(
                 s.push(LlamaSampler::min_p(config.min_p as f32, 1));
             }
             s.push(LlamaSampler::dist(seed));
-            LlamaSampler::chain_simple(s)
+            LlamaSampler::chain(s, true)
         }
 
         "Mirostat" => {
@@ -128,7 +128,7 @@ pub(crate) fn create_sampler(
             push_top_n_sigma(&mut s, config);
             s.push(LlamaSampler::top_p(config.top_p as f32, 1));
             s.push(LlamaSampler::dist(seed));
-            LlamaSampler::chain_simple(s)
+            LlamaSampler::chain(s, true)
         }
 
         "TopK" => {
@@ -139,7 +139,7 @@ pub(crate) fn create_sampler(
             push_top_n_sigma(&mut s, config);
             s.push(LlamaSampler::top_k(config.top_k as i32));
             s.push(LlamaSampler::dist(seed));
-            LlamaSampler::chain_simple(s)
+            LlamaSampler::chain(s, true)
         }
 
         "Typical" => {
@@ -150,7 +150,7 @@ pub(crate) fn create_sampler(
             push_top_n_sigma(&mut s, config);
             s.push(LlamaSampler::typical(config.typical_p as f32, 1));
             s.push(LlamaSampler::dist(seed));
-            LlamaSampler::chain_simple(s)
+            LlamaSampler::chain(s, true)
         }
 
         "MinP" => {
@@ -161,7 +161,7 @@ pub(crate) fn create_sampler(
             push_top_n_sigma(&mut s, config);
             s.push(LlamaSampler::min_p(config.min_p as f32, 1));
             s.push(LlamaSampler::dist(seed));
-            LlamaSampler::chain_simple(s)
+            LlamaSampler::chain(s, true)
         }
 
         "TempExt" => {
@@ -177,7 +177,7 @@ pub(crate) fn create_sampler(
             // temp_ext(t, delta, exponent) — delta/exponent not yet exposed in UI
             s.push(LlamaSampler::temp_ext(config.temperature as f32, 0.0, 1.0));
             s.push(LlamaSampler::dist(seed));
-            LlamaSampler::chain_simple(s)
+            LlamaSampler::chain(s, true)
         }
 
         "ChainTempTopP" => {
@@ -193,7 +193,7 @@ pub(crate) fn create_sampler(
             s.push(LlamaSampler::temp(config.temperature as f32));
             s.push(LlamaSampler::top_p(config.top_p as f32, 1));
             s.push(LlamaSampler::dist(seed));
-            LlamaSampler::chain_simple(s)
+            LlamaSampler::chain(s, true)
         }
 
         "ChainTempTopK" => {
@@ -209,7 +209,7 @@ pub(crate) fn create_sampler(
             s.push(LlamaSampler::temp(config.temperature as f32));
             s.push(LlamaSampler::top_k(config.top_k as i32));
             s.push(LlamaSampler::dist(seed));
-            LlamaSampler::chain_simple(s)
+            LlamaSampler::chain(s, true)
         }
 
         "ChainFull" => {
@@ -232,7 +232,7 @@ pub(crate) fn create_sampler(
                 s.push(LlamaSampler::typical(config.typical_p as f32, 1));
             }
             s.push(LlamaSampler::dist(seed));
-            LlamaSampler::chain_simple(s)
+            LlamaSampler::chain(s, true)
         }
 
         // "Greedy" and any unknown type
@@ -243,7 +243,7 @@ pub(crate) fn create_sampler(
                 push_penalties(&mut s, config);
                 push_dry(&mut s, config, model);
                 s.push(LlamaSampler::greedy());
-                LlamaSampler::chain_simple(s)
+                LlamaSampler::chain(s, true)
             } else {
                 LlamaSampler::greedy()
             }

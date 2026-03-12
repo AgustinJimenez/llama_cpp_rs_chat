@@ -255,25 +255,52 @@ pub fn run_worker(db_path: &str) {
                     split_mode: db_config.split_mode.clone(),
                 };
 
-                // Load model synchronously (blocking is fine, no generation running)
-                let rt = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .expect("Failed to create tokio runtime");
+                // Progress tracking: AtomicU8 written by llama.cpp callback, polled inline below.
+                // We can't use token_tx here because the main loop (which reads token_rx) is
+                // blocked running this handler — messages would queue but never reach stdout.
+                let progress = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(0));
+                let progress_for_load = progress.clone();
 
-                let result = rt.block_on(load_model(state.clone(), &model_path, gpu_layers, Some(&model_params), mmproj_path.as_deref()));
+                // Run model loading in a background thread so we can poll progress from here
+                let state_for_load = state.clone();
+                let load_handle = std::thread::spawn(move || {
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .expect("Failed to create tokio runtime");
+                    rt.block_on(load_model(state_for_load, &model_path, gpu_layers, Some(&model_params), mmproj_path.as_deref(), Some(progress_for_load)))
+                });
+
+                // Poll progress from the main thread (which owns ipc_writer) and write directly
+                let mut last_sent: u8 = 0;
+                while !load_handle.is_finished() {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    let current = progress.load(std::sync::atomic::Ordering::Relaxed);
+                    if current != last_sent {
+                        write_response(&mut ipc_writer, &WorkerResponse::ok(
+                            req_id,
+                            WorkerPayload::LoadingProgress { progress: current },
+                        ));
+                        last_sent = current;
+                    }
+                }
+
+                let result = load_handle.join().expect("Model load thread panicked");
 
                 match result {
                     Ok(()) => {
                         // Read back metadata from state
                         let guard = state.lock().unwrap();
                         let s = guard.as_ref().unwrap();
+                        let block_count = s.current_model_path.as_deref()
+                            .and_then(crate::web::vram_calculator::read_gguf_block_count);
                         let payload = WorkerPayload::ModelLoaded {
                             model_path: s.current_model_path.clone().unwrap_or_default(),
                             context_length: s.model_context_length,
                             chat_template_type: s.chat_template_type.clone(),
                             chat_template_string: s.chat_template_string.clone(),
                             gpu_layers: s.gpu_layers,
+                            block_count,
                             general_name: s.general_name.clone(),
                             #[cfg(feature = "vision")]
                             has_vision: Some(s.vision_state.is_some()),
@@ -282,6 +309,9 @@ pub fn run_worker(db_path: &str) {
                         };
                         drop(guard);
                         eprintln!("[WORKER] Model loaded successfully");
+
+                        // Signal frontend that model file is loaded, now warming up system prompt
+                        write_response(&mut ipc_writer, &WorkerResponse::ok(0, WorkerPayload::LoadingProgress { progress: 101 }));
 
                         // Pre-evaluate system prompt into KV cache for faster first response
                         match warmup_system_prompt(state.clone(), &db) {

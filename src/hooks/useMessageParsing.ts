@@ -31,6 +31,8 @@ const MISTRAL_RESULT_CLEANUP = /\[TOOL_RESULTS\][\s\S]*?\[\/TOOL_RESULTS\]/g;
 const LFM2_RESULT_CLEANUP = /<\|tool_response_start\|>[\s\S]*?<\|tool_response_end\|>/g;
 // GLM vision/media tags — strip hallucinated image/video/box markers from display
 const GLM_VISION_CLEANUP = /<\|(?:begin_of_image|image|end_of_image|begin_of_video|video|end_of_video|begin_of_box|end_of_box)\|>/g;
+// EOS / stop tokens — strip from display (visible only in RAW view)
+const EOS_TOKEN_CLEANUP = /<\|(?:im_end|endoftext|end_of_text|eot_id|end)\|>/g;
 
 /**
  * Parse a message and extract various components:
@@ -42,7 +44,7 @@ const GLM_VISION_CLEANUP = /<\|(?:begin_of_image|image|end_of_image|begin_of_vid
  */
 export function useMessageParsing(message: Message, toolTags?: ToolTags): ParsedMessage {
   const harmony = useMemo(() => parseHarmonyContent(message.content), [message.content]);
-  const effectiveContent = harmony ? harmony.finalContent : message.content;
+  const effectiveContent = (harmony ? harmony.finalContent : message.content).replace(EOS_TOKEN_CLEANUP, '');
 
   const toolCalls = useMemo(() => {
     if (message.role === 'assistant') return autoParseToolCalls(effectiveContent);
@@ -58,7 +60,7 @@ export function useMessageParsing(message: Message, toolTags?: ToolTags): Parsed
         .replace(/<tool_response>[\s\S]*?<\/tool_response>/g, '')
         .replace(LFM2_RESULT_CLEANUP, '');
     }
-    return content;
+    return content.replace(EOS_TOKEN_CLEANUP, '');
   }, [effectiveContent, toolCalls.length, toolTags]);
 
   const thinkingContent = useMemo(() => {
@@ -93,6 +95,7 @@ export function useMessageParsing(message: Message, toolTags?: ToolTags): Parsed
       .replace(MISTRAL_CALL_CLEANUP, '')
       .replace(MISTRAL_RESULT_CLEANUP, '')
       .replace(GLM_VISION_CLEANUP, '')
+      .replace(EOS_TOKEN_CLEANUP, '')
       .trim();
   }, [cleanContent]);
 
