@@ -13,19 +13,14 @@ function formatSize(n: number): string {
   return String(n);
 }
 
-// Logarithmic slider: maps 0..1 ↔ min..max on a log₂ scale
+// Linear slider: maps 0..1 ↔ min..max, rounded to nearest 256
 function sliderToValue(t: number, min: number, max: number): number {
-  const logMin = Math.log2(min);
-  const logMax = Math.log2(max);
-  const value = Math.pow(2, logMin + t * (logMax - logMin));
-  // Round to nearest 256 for clean values
+  const value = min + t * (max - min);
   return Math.round(value / 256) * 256;
 }
 
 function valueToSlider(value: number, min: number, max: number): number {
-  const logMin = Math.log2(min);
-  const logMax = Math.log2(max);
-  return (Math.log2(value) - logMin) / (logMax - logMin);
+  return (value - min) / (max - min);
 }
 
 const MIN_CONTEXT = 512;

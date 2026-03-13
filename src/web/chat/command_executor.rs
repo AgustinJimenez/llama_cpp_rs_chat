@@ -402,11 +402,13 @@ fn run_native_tool_with_timeout(
     use_htmd: bool,
     browser_backend: crate::web::browser::BrowserBackend,
     mcp_manager: Option<Arc<crate::web::mcp::McpManager>>,
+    db: crate::web::database::SharedDatabase,
 ) -> Option<native_tools::NativeToolResult> {
     let cmd = command_text.to_string();
     let provider = web_search_provider.map(|s| s.to_string());
     let api_key = web_search_api_key.map(|s| s.to_string());
     let mcp = mcp_manager.clone();
+    let db = db.clone();
 
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -417,6 +419,7 @@ fn run_native_tool_with_timeout(
             use_htmd,
             &browser_backend,
             mcp.as_deref(),
+            Some(&db),
         );
         let _ = tx.send(result);
     });
@@ -451,6 +454,7 @@ fn execute_single_tool(
     use_htmd: bool,
     browser_backend: &crate::web::browser::BrowserBackend,
     mcp_manager: Option<Arc<crate::web::mcp::McpManager>>,
+    db: crate::web::database::SharedDatabase,
 ) -> (String, Vec<Vec<u8>>) {
     // execute_command gets streaming or background treatment (no images)
     if name == "execute_command" {
@@ -502,6 +506,7 @@ fn execute_single_tool(
         use_htmd,
         browser_backend.clone(),
         mcp_manager.clone(),
+        db.clone(),
     ) {
         log_info!(conversation_id, "📦 Batch: native tool '{}' dispatched (images={})", name, native_result.images.len());
         if let Some(ref sender) = token_sender {
@@ -545,6 +550,7 @@ pub fn check_and_execute_command_with_tags(
     use_htmd: bool,
     browser_backend: &crate::web::browser::BrowserBackend,
     mcp_manager: Option<Arc<crate::web::mcp::McpManager>>,
+    db: crate::web::database::SharedDatabase,
     backend: &llama_cpp_2::llama_backend::LlamaBackend,
     chat_template_string: Option<&str>,
 ) -> Result<Option<CommandExecutionResult>, String> {
@@ -720,6 +726,7 @@ pub fn check_and_execute_command_with_tags(
                         let tool_name = all_calls[idx].0.clone();
                         let mcp_clone = mcp_manager.clone();
                         let backend_clone = browser_backend.clone();
+                        let db_clone = db.clone();
                         s.spawn(move || {
                             let result = run_native_tool_with_timeout(
                                 json,
@@ -729,6 +736,7 @@ pub fn check_and_execute_command_with_tags(
                                 use_htmd,
                                 backend_clone,
                                 mcp_clone,
+                                db_clone,
                             );
                             let native_result = result.unwrap_or_else(|| {
                                 native_tools::NativeToolResult::text_only(
@@ -765,6 +773,7 @@ pub fn check_and_execute_command_with_tags(
                 use_htmd,
                 browser_backend,
                 mcp_manager.clone(),
+                db.clone(),
             );
             results[i] = Some((tool_output, tool_images));
         }
@@ -851,6 +860,7 @@ pub fn check_and_execute_command_with_tags(
             use_htmd,
             browser_backend.clone(),
             mcp_manager.clone(),
+            db.clone(),
         ) {
             log_info!(conversation_id, "📦 Dispatched to native tool handler (images={})", native_result.images.len());
             // Non-execute tools complete quickly, stream their output at once

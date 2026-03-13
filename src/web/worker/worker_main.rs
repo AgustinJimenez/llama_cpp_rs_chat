@@ -610,7 +610,7 @@ fn run_generation(params: GenerationParams) {
             shared_logger.clone(),
             Some(token_sender),
             true, // skip_user_logging — we already logged above
-            &db,
+            db.clone(),
             cancel,
             image_data.as_deref(),
             Some(mcp_manager),
@@ -644,6 +644,7 @@ fn run_generation(params: GenerationParams) {
                         prompt_eval_ms: output.prompt_eval_ms,
                         prompt_tokens: output.prompt_tokens,
                         finish_reason: Some(output.finish_reason),
+                        token_breakdown: output.token_breakdown,
                     },
                 ));
             }

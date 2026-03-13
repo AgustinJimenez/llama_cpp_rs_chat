@@ -1827,6 +1827,43 @@ pub fn get_available_tools() -> Vec<Value> {
                 "required": ["click_text", "expect_text"]
             }
         }),
+        // MCP server management tools
+        json!({
+            "name": "list_mcp_servers",
+            "description": "List all configured MCP (Model Context Protocol) servers with their connection status and available tools.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }),
+        json!({
+            "name": "add_mcp_server",
+            "description": "Add a new MCP server to extend your capabilities with external tools. Supports stdio (command-based) and http transports. New tools become available in the next message.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "Display name for the MCP server" },
+                    "transport": { "type": "string", "description": "Transport type: 'stdio' (default) or 'http'" },
+                    "command": { "type": "string", "description": "Command to run (required for stdio transport, e.g. 'npx', 'uvx', 'node')" },
+                    "args": { "type": "array", "items": { "type": "string" }, "description": "Command arguments (for stdio transport, e.g. ['-y', '@anthropic/mcp-server'])" },
+                    "url": { "type": "string", "description": "Server URL (required for http transport)" },
+                    "env_vars": { "type": "object", "description": "Environment variables to set for the server process (e.g. {\"API_KEY\": \"xxx\"})" }
+                },
+                "required": ["name"]
+            }
+        }),
+        json!({
+            "name": "remove_mcp_server",
+            "description": "Remove an MCP server by name. This disconnects the server and removes its configuration.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "Name of the MCP server to remove" }
+                },
+                "required": ["name"]
+            }
+        }),
     ];
 
     tools

@@ -110,6 +110,9 @@ pub enum WorkerPayload {
         prompt_tokens: Option<i32>,
         /// Why generation stopped: "stop", "length", "cancelled", "tool_calls", "error".
         finish_reason: Option<String>,
+        /// Token usage breakdown by category.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        token_breakdown: Option<crate::web::models::TokenBreakdown>,
     },
     /// Generation was cancelled by the user.
     GenerationCancelled,

@@ -1,6 +1,14 @@
 import type { ChatRequest } from '../types';
 import { isTauriEnv } from './tauri';
 
+export interface TokenBreakdown {
+  system_prompt: number;
+  tool_definitions: number;
+  conversation_messages: number;
+  tool_calls_and_results: number;
+  model_response: number;
+}
+
 export interface TimingInfo {
   promptTokPerSec?: number;
   genTokPerSec?: number;
@@ -9,6 +17,7 @@ export interface TimingInfo {
   promptEvalMs?: number;
   promptTokens?: number;
   finishReason?: string;
+  tokenBreakdown?: TokenBreakdown;
 }
 
 export interface StreamingCallbacks {
@@ -74,6 +83,7 @@ function handleStreamMessage(
         promptEvalMs: message.prompt_eval_ms,
         promptTokens: message.prompt_tokens,
         finishReason: message.finish_reason,
+        tokenBreakdown: message.token_breakdown,
       };
       callbacks.onComplete(crypto.randomUUID(), conversationId, state.lastTokensUsed, state.lastMaxTokens, timings);
       settle();
@@ -286,7 +296,7 @@ class TauriChatTransport implements ChatTransport {
       safeOnToken(event.payload.token, event.payload.tokens_used, event.payload.max_tokens);
     });
 
-    const unlistenDone = await listen<{ type: string; conversation_id?: string; tokens_used?: number; max_tokens?: number; error?: string; prompt_tok_per_sec?: number; gen_tok_per_sec?: number; gen_eval_ms?: number; gen_tokens?: number; prompt_eval_ms?: number; prompt_tokens?: number; finish_reason?: string }>('chat-done', (event) => {
+    const unlistenDone = await listen<{ type: string; conversation_id?: string; tokens_used?: number; max_tokens?: number; error?: string; prompt_tok_per_sec?: number; gen_tok_per_sec?: number; gen_eval_ms?: number; gen_tokens?: number; prompt_eval_ms?: number; prompt_tokens?: number; finish_reason?: string; token_breakdown?: import('./chatTransport').TokenBreakdown }>('chat-done', (event) => {
       if (settled || wasAborted) return;
       const payload = event.payload;
 
@@ -300,6 +310,7 @@ class TauriChatTransport implements ChatTransport {
           promptEvalMs: payload.prompt_eval_ms,
           promptTokens: payload.prompt_tokens,
           finishReason: payload.finish_reason,
+          tokenBreakdown: payload.token_breakdown,
         };
         safeOnComplete(crypto.randomUUID(), conversationId, payload.tokens_used, payload.max_tokens, timings);
         settle();

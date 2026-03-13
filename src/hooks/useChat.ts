@@ -221,13 +221,18 @@ export function useChat() {
               .then(data => {
                 const firstMsg = data.messages?.[0];
                 if (firstMsg?.role === 'system' && firstMsg.content) {
-                  setMessages(prev => [{
-                    id: `sys_${conversationId}`,
-                    role: 'system' as const,
-                    content: firstMsg.content,
-                    timestamp: Date.now(),
-                    isSystemPrompt: true,
-                  }, ...prev]);
+                  setMessages(prev => {
+                    // Guard: don't prepend if a system message already exists
+                    // (the conversation watcher may have already set it)
+                    if (prev.some(m => m.role === 'system')) return prev;
+                    return [{
+                      id: `sys_${conversationId}`,
+                      role: 'system' as const,
+                      content: firstMsg.content,
+                      timestamp: Date.now(),
+                      isSystemPrompt: true,
+                    }, ...prev];
+                  });
                 }
               })
               .catch(() => {});

@@ -36,6 +36,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
 
   const provider = localConfig?.web_search_provider || 'DuckDuckGo';
   const apiKey = localConfig?.web_search_api_key || '';
+  const browserBackend = localConfig?.web_browser_backend || 'chrome';
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -98,6 +99,31 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
               />
             </div>
           ) : null}
+
+          {/* Browser Backend */}
+          <div className="space-y-2">
+            <label htmlFor="web-browser-backend" className="text-sm font-medium text-foreground">
+              Browser Backend
+            </label>
+            <p className="text-xs text-muted-foreground">
+              Browser engine used for web_fetch and Chrome-based web_search. Lighter backends use less RAM.
+            </p>
+            <select
+              id="web-browser-backend"
+              className="w-full px-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground"
+              value={browserBackend}
+              onChange={(e) =>
+                setLocalConfig(prev =>
+                  prev ? { ...prev, web_browser_backend: e.target.value } : prev
+                )
+              }
+            >
+              <option value="chrome">Chrome (standard headless)</option>
+              <option value="chrome-headless-shell">Chrome Headless Shell (lightweight)</option>
+              <option value="agent-browser">Agent Browser (Playwright-based)</option>
+              <option value="none">None (HTTP-only, no JS rendering)</option>
+            </select>
+          </div>
 
           {/* Separator */}
           <div className="border-t border-border my-2" />

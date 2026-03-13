@@ -68,6 +68,16 @@ pub enum SystemPromptType {
 }
 
 
+/// Token usage breakdown by category, for UI visualization.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct TokenBreakdown {
+    pub system_prompt: i32,
+    pub tool_definitions: i32,
+    pub conversation_messages: i32,
+    pub tool_calls_and_results: i32,
+    pub model_response: i32,
+}
+
 // Configuration structure
 #[derive(Deserialize, Serialize, Clone)]
 pub struct SamplerConfig {
@@ -133,6 +143,8 @@ pub struct SamplerConfig {
     pub web_search_provider: Option<String>,
     #[serde(default)]
     pub web_search_api_key: Option<String>,
+    #[serde(default)]
+    pub web_browser_backend: Option<String>,
     // Hardware / context / sampler params
     #[serde(default = "default_seed")]
     pub seed: i32,
@@ -272,6 +284,7 @@ impl Default for SamplerConfig {
             tool_tag_output_close: None,
             web_search_provider: None,
             web_search_api_key: None,
+            web_browser_backend: None,
             seed: -1,
             n_ubatch: 512,
             n_threads: 0,

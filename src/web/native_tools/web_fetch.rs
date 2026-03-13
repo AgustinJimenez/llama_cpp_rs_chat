@@ -5,9 +5,9 @@ use std::io::Read;
 
 use super::{WEB_FETCH_CACHE, MAX_FETCH_CHARS};
 
-/// Fetch a web page using headless Chrome (JS-rendered), falling back to ureq.
+/// Fetch a web page using the configured browser backend (JS-rendered), falling back to ureq.
 /// Includes per-session URL cache and PDF text extraction.
-pub(super) fn tool_web_fetch(args: &Value, use_htmd: bool) -> String {
+pub(super) fn tool_web_fetch(args: &Value, use_htmd: bool, backend: &crate::web::browser::BrowserBackend) -> String {
     let url = match args.get("url").and_then(|v| v.as_str()) {
         Some(u) => u,
         None => return "Error: 'url' argument is required".to_string(),
@@ -38,7 +38,7 @@ pub(super) fn tool_web_fetch(args: &Value, use_htmd: bool) -> String {
     // This produces LLM-optimized markdown with links, headers, and formatting preserved
     if use_htmd {
         // Try Chrome first for JS-rendered content, convert to markdown via htmd
-        match crate::web::browser::chrome_web_fetch_html(url) {
+        match crate::web::browser::web_fetch_html(backend, url) {
             Ok(html) if !html.is_empty() => {
                 let result = html_to_markdown_truncated(&html, max_chars);
                 cache_result(url, &result);
@@ -66,7 +66,7 @@ pub(super) fn tool_web_fetch(args: &Value, use_htmd: bool) -> String {
     }
 
     // Default path: Try headless Chrome first (gets JS-rendered content)
-    let chrome_timed_out = match crate::web::browser::chrome_web_fetch(url, max_chars) {
+    let chrome_timed_out = match crate::web::browser::web_fetch(backend, url, max_chars) {
         Ok(content) if !content.is_empty() => {
             cache_result(url, &content);
             return content;

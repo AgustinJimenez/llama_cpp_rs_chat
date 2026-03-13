@@ -383,6 +383,7 @@ pub enum GenerationResult {
         prompt_eval_ms: Option<f64>,
         prompt_tokens: Option<i32>,
         finish_reason: Option<String>,
+        token_breakdown: Option<crate::web::models::TokenBreakdown>,
     },
     Cancelled,
     Error(String),
@@ -412,6 +413,7 @@ fn oneshot_adapter(
                     prompt_eval_ms,
                     prompt_tokens,
                     finish_reason,
+                    token_breakdown,
                 } => GenerationResult::Complete {
                     conversation_id,
                     tokens_used,
@@ -423,6 +425,7 @@ fn oneshot_adapter(
                     prompt_eval_ms,
                     prompt_tokens,
                     finish_reason,
+                    token_breakdown,
                 },
                 WorkerPayload::GenerationCancelled => GenerationResult::Cancelled,
                 WorkerPayload::Error { message } => GenerationResult::Error(message),

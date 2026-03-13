@@ -18,6 +18,13 @@ export type MessageSegment =
 
 export type Span = { start: number; end: number; segment: MessageSegment };
 
+/** Generate a stable tool call ID from name and character position in the message.
+ *  This ensures the same parse of the same content produces identical IDs,
+ *  preventing React key changes that reset expand/collapse state during streaming. */
+function stableToolId(name: string, charPos: number): string {
+  return `tc-${name}-${charPos}`;
+}
+
 // --- Regexes ---
 // Matches Qwen/GLM tool response tags (<tool_response>...</tool_response>)
 const TOOL_RESPONSE_REGEX = /<tool_response>([\s\S]*?)<\/tool_response>/g;
@@ -72,7 +79,7 @@ export function collectLlama3Spans(content: string, toolTags?: ToolTags): Span[]
       if (streaming) { output = streaming.output; isStreaming = true; spanEnd = streaming.end; }
     }
     spans.push({ start: spanStart, end: spanEnd, segment: { type: 'tool_call', toolCall: {
-      id: crypto.randomUUID(), name: func.name, arguments: func.args,
+      id: stableToolId(func.name, func.start), name: func.name, arguments: func.args,
       output, isStreaming, isPending: !tr && isLast,
     } } });
   }
@@ -103,7 +110,7 @@ function buildToolSpans(
       if (streaming) { output = streaming.output; isStreaming = true; spanEnd = streaming.end; }
     }
     spans.push({ start: call.start, end: spanEnd, segment: { type: 'tool_call', toolCall: {
-      id: crypto.randomUUID(), name: call.name, arguments: call.args,
+      id: stableToolId(call.name, call.start), name: call.name, arguments: call.args,
       output, isStreaming, isPending: !res && isLast,
     } } });
   }
@@ -247,7 +254,7 @@ export function collectExecSpans(content: string): Span[] {
         spans.push({
           start: exec.start, end: output.end,
           segment: { type: 'tool_call', toolCall: {
-            id: crypto.randomUUID(), name, arguments: args,
+            id: stableToolId(name, exec.start), name, arguments: args,
             output: output.output,
           } },
         });
@@ -259,7 +266,7 @@ export function collectExecSpans(content: string): Span[] {
           spans.push({
             start: exec.start, end: content.length,
             segment: { type: 'tool_call', toolCall: {
-              id: crypto.randomUUID(), name, arguments: args,
+              id: stableToolId(name, exec.start), name, arguments: args,
               output: partialMatch[1] || '', isStreaming: true, isPending: true,
             } },
           });
@@ -267,7 +274,7 @@ export function collectExecSpans(content: string): Span[] {
           spans.push({
             start: exec.start, end: exec.end,
             segment: { type: 'tool_call', toolCall: {
-              id: crypto.randomUUID(), name, arguments: args, isPending: true,
+              id: stableToolId(name, exec.start), name, arguments: args, isPending: true,
             } },
           });
         }
@@ -421,7 +428,7 @@ export function collectQwenSpans(content: string, toolTags?: ToolTags): Span[] {
         spans.push({
           start: tc.start, end: resolved.spanEnd,
           segment: { type: 'tool_call', toolCall: {
-            id: crypto.randomUUID(), name: item.name, arguments: item.arguments || {},
+            id: stableToolId(item.name, tc.start), name: item.name, arguments: item.arguments || {},
             output: resolved.output, isStreaming: resolved.isStreaming, isPending: isLastUnmatched,
           } },
         });
@@ -490,7 +497,7 @@ export function collectLfm2Spans(content: string, toolTags?: ToolTags): Span[] {
       start: tc.start,
       end: resolved.spanEnd,
       segment: { type: 'tool_call', toolCall: {
-        id: crypto.randomUUID(),
+        id: stableToolId(tc.name, tc.start),
         name: tc.name,
         arguments: tc.args,
         output: resolved.output,

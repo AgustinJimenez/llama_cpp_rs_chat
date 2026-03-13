@@ -110,7 +110,9 @@ pub fn dispatch_native_tool(
     web_search_provider: Option<&str>,
     web_search_api_key: Option<&str>,
     use_htmd: bool,
+    browser_backend: &super::browser::BrowserBackend,
     mcp_manager: Option<&super::mcp::McpManager>,
+    db: Option<&super::database::SharedDatabase>,
 ) -> Option<NativeToolResult> {
     let trimmed = text.trim();
 
@@ -354,8 +356,8 @@ pub fn dispatch_native_tool(
         "find_files" => tool_find_files(&args),
         "execute_python" => tool_execute_python(&args),
         "list_directory" => tool_list_directory(&args),
-        "web_search" => tool_web_search(&args, web_search_provider, web_search_api_key),
-        "web_fetch" => tool_web_fetch(&args, use_htmd),
+        "web_search" => tool_web_search(&args, web_search_provider, web_search_api_key, browser_backend),
+        "web_fetch" => tool_web_fetch(&args, use_htmd, browser_backend),
         "execute_command" => {
             // Delegate to shell execution via command.rs
             let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
@@ -390,6 +392,10 @@ pub fn dispatch_native_tool(
         "git_status" => tool_git_status(&args),
         "git_diff" => tool_git_diff(&args),
         "git_commit" => tool_git_commit(&args),
+        // MCP server management tools
+        "list_mcp_servers" => tool_list_mcp_servers(mcp_manager, db),
+        "add_mcp_server" => tool_add_mcp_server(&args, mcp_manager, db),
+        "remove_mcp_server" => tool_remove_mcp_server(&args, mcp_manager, db),
         _ => {
             // Check if it's an MCP tool before falling back to shell
             if let Some(mgr) = mcp_manager {
@@ -403,6 +409,183 @@ pub fn dispatch_native_tool(
             return None; // Unknown tool → fall back to shell
         }
     }))
+}
+
+// --- MCP server management tools ---
+
+fn tool_list_mcp_servers(
+    mcp_manager: Option<&super::mcp::McpManager>,
+    db: Option<&super::database::SharedDatabase>,
+) -> String {
+    let db = match db {
+        Some(d) => d,
+        None => return "Error: Database not available".to_string(),
+    };
+
+    let configs = super::database::mcp::load_mcp_servers(db);
+    if configs.is_empty() {
+        return "No MCP servers configured.".to_string();
+    }
+
+    let statuses = mcp_manager.map(|mgr| mgr.get_server_statuses()).unwrap_or_default();
+
+    let mut lines = vec!["MCP Servers:".to_string()];
+    for cfg in &configs {
+        let status = statuses.iter().find(|s| s.id == cfg.id);
+        let connected = status.map(|s| s.connected).unwrap_or(false);
+        let tool_count = status.map(|s| s.tool_count).unwrap_or(0);
+        let state = if !cfg.enabled {
+            "disabled"
+        } else if connected {
+            "connected"
+        } else {
+            "disconnected"
+        };
+        let transport = match &cfg.transport {
+            super::mcp::config::McpTransport::Stdio { command, args, .. } => {
+                if args.is_empty() {
+                    format!("stdio: {command}")
+                } else {
+                    format!("stdio: {command} {}", args.join(" "))
+                }
+            }
+            super::mcp::config::McpTransport::Http { url } => format!("http: {url}"),
+        };
+        lines.push(format!(
+            "  - {} [{}] ({}) — {} tool{}",
+            cfg.name, state, transport, tool_count,
+            if tool_count == 1 { "" } else { "s" }
+        ));
+        if let Some(st) = status {
+            for tool_name in &st.tools {
+                lines.push(format!("      • {tool_name}"));
+            }
+        }
+    }
+    lines.join("\n")
+}
+
+fn tool_add_mcp_server(
+    args: &Value,
+    mcp_manager: Option<&super::mcp::McpManager>,
+    db: Option<&super::database::SharedDatabase>,
+) -> String {
+    let db = match db {
+        Some(d) => d,
+        None => return "Error: Database not available".to_string(),
+    };
+
+    let name = match args.get("name").and_then(|v| v.as_str()) {
+        Some(n) if !n.is_empty() => n.to_string(),
+        _ => return "Error: 'name' argument is required".to_string(),
+    };
+
+    let transport_str = args.get("transport").and_then(|v| v.as_str()).unwrap_or("stdio");
+
+    let transport = match transport_str {
+        "stdio" => {
+            let command = match args.get("command").and_then(|v| v.as_str()) {
+                Some(c) if !c.is_empty() => c.to_string(),
+                _ => return "Error: 'command' argument is required for stdio transport".to_string(),
+            };
+            let cmd_args: Vec<String> = args.get("args")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                .unwrap_or_default();
+            let env_vars: std::collections::HashMap<String, String> = args.get("env_vars")
+                .and_then(|v| v.as_object())
+                .map(|obj| obj.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect())
+                .unwrap_or_default();
+            super::mcp::config::McpTransport::Stdio { command, args: cmd_args, env_vars }
+        }
+        "http" => {
+            let url = match args.get("url").and_then(|v| v.as_str()) {
+                Some(u) if !u.is_empty() => u.to_string(),
+                _ => return "Error: 'url' argument is required for http transport".to_string(),
+            };
+            super::mcp::config::McpTransport::Http { url }
+        }
+        other => return format!("Error: Unknown transport type '{other}'. Use 'stdio' or 'http'."),
+    };
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let config = super::mcp::config::McpServerConfig {
+        id,
+        name: name.clone(),
+        transport,
+        enabled: true,
+    };
+
+    if let Err(e) = super::database::mcp::save_mcp_server(db, &config) {
+        return format!("Error saving MCP server: {e}");
+    }
+
+    // Refresh connections to connect the new server
+    let mut tool_list = String::new();
+    if let Some(mgr) = mcp_manager {
+        if let Err(e) = mgr.refresh_connections(db) {
+            return format!("Server saved but failed to connect: {e}");
+        }
+        let statuses = mgr.get_server_statuses();
+        if let Some(status) = statuses.iter().find(|s| s.name == name) {
+            if status.connected {
+                tool_list = if status.tools.is_empty() {
+                    String::new()
+                } else {
+                    format!("\nAvailable tools: {}", status.tools.join(", "))
+                };
+            } else {
+                return format!("MCP server '{}' saved but failed to connect. Check the command/URL and try again.", name);
+            }
+        }
+    }
+
+    format!("Added MCP server '{name}' successfully.{tool_list}\nNote: New tools will be available in the next message.")
+}
+
+fn tool_remove_mcp_server(
+    args: &Value,
+    mcp_manager: Option<&super::mcp::McpManager>,
+    db: Option<&super::database::SharedDatabase>,
+) -> String {
+    let db = match db {
+        Some(d) => d,
+        None => return "Error: Database not available".to_string(),
+    };
+
+    let name = match args.get("name").and_then(|v| v.as_str()) {
+        Some(n) if !n.is_empty() => n,
+        _ => return "Error: 'name' argument is required".to_string(),
+    };
+
+    let configs = super::database::mcp::load_mcp_servers(db);
+    let server = configs.iter().find(|c| c.name.eq_ignore_ascii_case(name));
+
+    let server = match server {
+        Some(s) => s,
+        None => {
+            let available: Vec<&str> = configs.iter().map(|c| c.name.as_str()).collect();
+            return if available.is_empty() {
+                format!("MCP server '{name}' not found. No MCP servers are configured.")
+            } else {
+                format!("MCP server '{name}' not found. Available servers: {}", available.join(", "))
+            };
+        }
+    };
+
+    let server_id = server.id.clone();
+    let server_name = server.name.clone();
+
+    if let Err(e) = super::database::mcp::delete_mcp_server(db, &server_id) {
+        return format!("Error removing MCP server: {e}");
+    }
+
+    // Refresh to disconnect the removed server
+    if let Some(mgr) = mcp_manager {
+        let _ = mgr.refresh_connections(db);
+    }
+
+    format!("Removed MCP server '{server_name}' successfully.")
 }
 
 /// Read a file and return its contents.
@@ -1185,7 +1368,7 @@ mod tests {
             r#"{{"name": "read_file", "arguments": {{"path": "{}"}}}}"#,
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&json, None, None, false, None);
+        let result = dispatch_native_tool(&json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
         assert!(result.is_some());
         assert!(result.unwrap().text.contains("hello world"));
 
@@ -1199,7 +1382,7 @@ mod tests {
             r#"{{"name": "write_file", "arguments": {{"path": "{}", "content": "test content"}}}}"#,
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&json, None, None, false, None);
+        let result = dispatch_native_tool(&json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
         assert!(result.is_some());
         assert!(result.unwrap().text.contains("Written"));
         assert_eq!(std::fs::read_to_string(&temp).unwrap(), "test content");
@@ -1215,7 +1398,7 @@ mod tests {
             "{{\n  \"name\": \"write_file\",\n  \"arguments\": {{\n    \"path\": \"{}\",\n    \"content\": \"{{\n  \\\"name\\\": \\\"test\\\",\n  \\\"version\\\": \\\"1.0.0\\\"\n}}\"\n  }}\n}}",
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&json, None, None, false, None);
+        let result = dispatch_native_tool(&json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
         assert!(result.is_some(), "Should parse multiline JSON content: {json}");
         assert!(result.unwrap().text.contains("Written"));
         let content = std::fs::read_to_string(&temp).unwrap();
@@ -1237,7 +1420,7 @@ line3"}}"#;
     #[test]
     fn test_dispatch_list_directory() {
         let json = r#"{"name": "list_directory", "arguments": {"path": "."}}"#;
-        let result = dispatch_native_tool(json, None, None, false, None);
+        let result = dispatch_native_tool(json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
         assert!(result.is_some());
         assert!(result.unwrap().text.contains("Directory listing"));
     }
@@ -1245,13 +1428,13 @@ line3"}}"#;
     #[test]
     fn test_dispatch_unknown_tool_returns_none() {
         let json = r#"{"name": "unknown_tool", "arguments": {}}"#;
-        let result = dispatch_native_tool(json, None, None, false, None);
+        let result = dispatch_native_tool(json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
         assert!(result.is_none());
     }
 
     #[test]
     fn test_dispatch_non_json_returns_none() {
-        let result = dispatch_native_tool("ls -la", None, None, false, None);
+        let result = dispatch_native_tool("ls -la", None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
         assert!(result.is_none());
     }
 
@@ -1264,7 +1447,7 @@ line3"}}"#;
             r#"[{{"name": "read_file", "arguments": {{"path": "{}"}}}}]"#,
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&json, None, None, false, None);
+        let result = dispatch_native_tool(&json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
         assert!(result.is_some());
         assert!(result.unwrap().text.contains("mistral test"));
 
@@ -1281,7 +1464,7 @@ line3"}}"#;
             r#"read_file,{{"path": "{}"}}"#,
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&input, None, None, false, None);
+        let result = dispatch_native_tool(&input, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
         assert!(result.is_some(), "Should parse Mistral comma format");
         assert!(result.unwrap().text.contains("comma format test"));
 
@@ -1292,7 +1475,7 @@ line3"}}"#;
     fn test_dispatch_mistral_comma_execute_command() {
         // Devstral: execute_command,{"command": "echo hello"}
         let input = r#"execute_command,{"command": "echo hello"}"#;
-        let result = dispatch_native_tool(input, None, None, false, None);
+        let result = dispatch_native_tool(input, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
         assert!(result.is_some(), "Should parse comma format execute_command");
         assert!(result.unwrap().text.contains("hello"));
     }
@@ -1307,7 +1490,7 @@ line3"}}"#;
             "<function=read_file> <parameter=path> {} </parameter> </function>",
             temp.display()
         );
-        let result = dispatch_native_tool(&input, None, None, false, None);
+        let result = dispatch_native_tool(&input, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
         assert!(result.is_some(), "Should parse Llama3 XML format");
         assert!(result.unwrap().text.contains("xml format test"));
 
@@ -1321,7 +1504,7 @@ line3"}}"#;
             "<function=write_file> <parameter=path> {} </parameter> <parameter=content> hello world </parameter> </function>",
             temp.display()
         );
-        let result = dispatch_native_tool(&input, None, None, false, None);
+        let result = dispatch_native_tool(&input, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
         assert!(result.is_some(), "Should parse Llama3 XML write_file");
         assert!(result.unwrap().text.contains("Written"));
         assert_eq!(std::fs::read_to_string(&temp).unwrap(), "hello world");
@@ -1333,7 +1516,7 @@ line3"}}"#;
     fn test_dispatch_name_json_format() {
         // Granite outputs: list_directory{"path": "."}
         let input = r#"list_directory{"path": "."}"#;
-        let result = dispatch_native_tool(input, None, None, false, None);
+        let result = dispatch_native_tool(input, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
         assert!(result.is_some(), "Should parse name+JSON format");
         assert!(result.unwrap().text.contains("Directory listing"));
     }
@@ -1341,7 +1524,7 @@ line3"}}"#;
     #[test]
     fn test_execute_python_simple() {
         let json = r#"{"name": "execute_python", "arguments": {"code": "print('hello from python')"}}"#;
-        let result = dispatch_native_tool(json, None, None, false, None);
+        let result = dispatch_native_tool(json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
         assert!(result.is_some());
         let output = result.unwrap().text;
         // If python is available, should contain the output; if not, should contain an error
@@ -1385,7 +1568,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
         // Exact pattern GLM produces: multiline content + missing outer closing }
         let json = "{\"name\": \"write_file\", \"arguments\": {\"path\": \"/tmp/test-autoclose.txt\", \"content\": \"{\n  \\\"name\\\": \\\"test\\\",\n  \\\"version\\\": \\\"1.0.0\\\"\n}\"}}";
         // This should work (has both braces)
-        let result = dispatch_native_tool(json, None, None, false, None);
+        let result = dispatch_native_tool(json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
         assert!(result.is_some(), "Valid JSON should work: {:?}", result);
         let _ = std::fs::remove_file("/tmp/test-autoclose.txt");
 
@@ -1393,7 +1576,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
         let broken = "{\"name\": \"write_file\", \"arguments\": {\"path\": \"/tmp/test-autoclose2.txt\", \"content\": \"{\n  \\\"name\\\": \\\"test\\\",\n  \\\"version\\\": \\\"1.0.0\\\"\n}\"}}";
         // Remove last }
         let broken = &broken[..broken.len() - 1];
-        let result = dispatch_native_tool(broken, None, None, false, None);
+        let result = dispatch_native_tool(broken, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
         assert!(result.is_some(), "Should auto-close missing brace and dispatch write_file");
         let output = result.unwrap().text;
         assert!(output.contains("written") || output.contains("success") || output.contains("Written"),
@@ -1429,7 +1612,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
             r#"{{"name":"write_file","arguments":{{"path":"{}","content":"<?php\nnamespace App\Models;\nuse Illuminate\Database\Eloquent\Model;\n\nclass Person extends Model {{\n    protected $fillable = ['name'];\n}}"}}}}"#,
             temp.display()
         );
-        let result = dispatch_native_tool(&json, None, None, false, None);
+        let result = dispatch_native_tool(&json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
         assert!(result.is_some(), "Should parse PHP namespace JSON via fixup chain");
         let output = result.unwrap().text;
         assert!(output.contains("Written"), "Should write file: {}", output);
@@ -1473,7 +1656,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
     #[test]
     fn test_dispatch_web_search_missing_query() {
         let json = r#"{"name": "web_search", "arguments": {}}"#;
-        let result = dispatch_native_tool(json, None, None, false, None);
+        let result = dispatch_native_tool(json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
         assert!(result.is_some());
         assert!(result.unwrap().text.contains("Error"));
     }
@@ -1481,7 +1664,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
     #[test]
     fn test_dispatch_web_fetch_missing_url() {
         let json = r#"{"name": "web_fetch", "arguments": {}}"#;
-        let result = dispatch_native_tool(json, None, None, false, None);
+        let result = dispatch_native_tool(json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
         assert!(result.is_some());
         assert!(result.unwrap().text.contains("Error"));
     }

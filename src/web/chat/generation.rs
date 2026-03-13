@@ -21,7 +21,8 @@ use super::command_executor::{
     check_and_execute_command_with_tags, inject_output_tokens,
 };
 use super::stop_conditions::{check_stop_conditions, ExecBlockTracker};
-use super::templates::apply_system_prompt_by_type_with_tags;
+use super::templates::{apply_system_prompt_by_type_with_tags, get_behavioral_system_prompt};
+use super::jinja_templates::get_available_tools_openai_with_mcp;
 use super::tool_tags::{default_tags, derive_tool_tags_from_pairs, get_tool_tags_for_model, try_get_tool_tags_for_model, ToolTags};
 use super::sampler::create_sampler;
 use crate::{log_debug, log_info, log_warn, sys_debug};
@@ -246,6 +247,8 @@ pub struct GenerationOutput {
     pub prompt_eval_ms: Option<f64>,
     /// Number of prompt tokens evaluated.
     pub prompt_tokens: Option<i32>,
+    /// Token usage breakdown by category.
+    pub token_breakdown: Option<super::super::models::TokenBreakdown>,
 }
 
 /// Mutable state tracked across the token generation loop.
@@ -261,6 +264,8 @@ struct TokenGenState {
     last_exec_scan_pos: usize,
     /// Why generation stopped: "stop", "length", "cancelled", "tool_calls", "error".
     finish_reason: String,
+    /// Accumulated tokens from tool call responses injected into context.
+    tool_response_tokens: i32,
 }
 
 /// Read-only configuration for the token generation loop.
@@ -276,8 +281,10 @@ struct TokenGenConfig<'a> {
     web_search_api_key: Option<&'a str>,
     use_rtk: bool,
     use_htmd: bool,
+    browser_backend: &'a crate::web::browser::BrowserBackend,
     n_batch: u32,
     mcp_manager: Option<Arc<crate::web::mcp::McpManager>>,
+    db: super::super::database::SharedDatabase,
     backend: &'a llama_cpp_2::llama_backend::LlamaBackend,
     chat_template_string: Option<&'a str>,
 }
@@ -293,9 +300,7 @@ type VisionCtxRef<'a> = ();
 /// Stall detection: if a single token takes longer than this, abort generation.
 const TOKEN_STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
-/// Maximum number of tool call rounds before forcing generation to stop.
-/// Prevents infinite loops when models keep generating tool calls.
-const MAX_TOOL_CALL_ROUNDS: usize = 50;
+// Tool call round limit removed — context window is the natural limit.
 
 /// Minimum tokens generated before repetition detection kicks in.
 const REPETITION_CHECK_MIN_TOKENS: i32 = 500;
@@ -364,7 +369,7 @@ fn run_generation_loop(
     log_debug!(cfg.conversation_id, "Stop tokens configured: {:?}", cfg.stop_tokens);
     log_debug!(cfg.conversation_id, "EOS token ID: {}", model.token_eos());
 
-    let mut tool_call_rounds: usize = 0;
+    // tool_call_rounds tracking removed — no limit
     let mut stall_checkpoint = Instant::now();
 
     loop {
@@ -528,7 +533,8 @@ fn run_generation_loop(
                 &gen.response, gen.last_exec_scan_pos, cfg.conversation_id, model, cfg.tags,
                 cfg.template_type, cfg.web_search_provider, cfg.web_search_api_key,
                 &mut gen.recent_commands, token_sender, gen.token_pos, cfg.context_size,
-                Some(cancel.clone()), cfg.use_rtk, cfg.use_htmd, cfg.mcp_manager.clone(),
+                Some(cancel.clone()), cfg.use_rtk, cfg.use_htmd, cfg.browser_backend,
+                cfg.mcp_manager.clone(), cfg.db.clone(),
                 cfg.backend, cfg.chat_template_string,
             )? {
                 // Sync accumulated content + command output to logger
@@ -581,9 +587,10 @@ fn run_generation_loop(
                     )?;
                 }
 
+                gen.tool_response_tokens += exec_result.model_tokens.len() as i32;
                 gen.generated_token_ids.extend(exec_result.model_tokens.iter().map(|&id| LlamaToken(id)));
                 command_executed = true;
-                tool_call_rounds += 1;
+                // tool call round (no limit)
                 hit_stop_condition = false;
                 gen.last_exec_scan_pos = gen.response.len();
                 // Reset exec block tracker after tool execution — the tool call
@@ -603,23 +610,9 @@ fn run_generation_loop(
             break;
         }
 
-        if tool_call_rounds >= MAX_TOOL_CALL_ROUNDS {
-            log_info!(
-                cfg.conversation_id,
-                "🛑 Max tool call rounds ({}) reached, stopping generation",
-                MAX_TOOL_CALL_ROUNDS
-            );
-            if let Some(ref sender) = token_sender {
-                let _ = sender.send(TokenData {
-                    token: format!(
-                        "\n\n[Generation stopped: reached {} tool call rounds limit]",
-                        MAX_TOOL_CALL_ROUNDS
-                    ),
-                    tokens_used: gen.token_pos,
-                    max_tokens: cfg.context_size as i32,
-                });
-            }
-            gen.finish_reason = "tool_calls".to_string();
+        if false {
+            // Tool call round limit removed — let the model work until it's done
+            // (context window is the natural limit)
             break;
         }
 
@@ -771,7 +764,7 @@ pub async fn generate_llama_response(
     conversation_logger: SharedConversationLogger,
     token_sender: Option<mpsc::UnboundedSender<TokenData>>,
     skip_user_logging: bool,
-    db: &Database,
+    db: super::super::database::SharedDatabase,
     cancel: Arc<AtomicBool>,
     image_data: Option<&[String]>,
     mcp_manager: Option<Arc<crate::web::mcp::McpManager>>,
@@ -804,7 +797,7 @@ pub async fn generate_llama_response(
 
     // Load configuration to get model path and context size
     // Uses per-conversation config if available, falls back to global
-    let config = load_config_for_conversation(db, &conversation_id);
+    let config = load_config_for_conversation(&db, &conversation_id);
     let model_path = config.model_path.as_deref().unwrap_or(MODEL_PATH);
     let stop_tokens = config
         .stop_tokens
@@ -914,6 +907,26 @@ pub async fn generate_llama_response(
         prompt.len()
     );
 
+    // Compute token breakdown by category (system prompt, tool defs, conversation).
+    // Tokenizes each section independently (~0.1ms each, pure CPU).
+    let system_prompt_text = get_behavioral_system_prompt();
+    let system_prompt_token_count = model
+        .str_to_token(&system_prompt_text, AddBos::Never)
+        .map(|t| t.len() as i32)
+        .unwrap_or(0);
+    let tools_json = serde_json::to_string(
+        &get_available_tools_openai_with_mcp(mcp_tools_ref)
+    ).unwrap_or_default();
+    let tool_def_token_count = model
+        .str_to_token(&tools_json, AddBos::Never)
+        .map(|t| t.len() as i32)
+        .unwrap_or(0);
+    log_info!(
+        &conversation_id,
+        "Token breakdown: system_prompt={}, tool_definitions={}",
+        system_prompt_token_count, tool_def_token_count
+    );
+
     // Context parameters (n_ctx/n_batch used by vision feature)
     #[allow(unused_variables)]
     let n_ctx = NonZeroU32::new(context_size).expect("Context size must be non-zero");
@@ -985,7 +998,7 @@ pub async fn generate_llama_response(
     }
 
     // Two code paths: vision (mtmd) or standard text-only
-    let (mut context, _prompt_tokens, tokens) = if use_vision {
+    let (mut context, prompt_tokens, tokens) = if use_vision {
         #[cfg(feature = "vision")]
         {
         // === VISION PATH: Use MtmdContext to process text + images ===
@@ -1098,6 +1111,7 @@ pub async fn generate_llama_response(
         recent_commands: Vec::new(),
         last_exec_scan_pos: 0,
         finish_reason: "stop".to_string(),
+        tool_response_tokens: 0,
     };
 
     let cfg = TokenGenConfig {
@@ -1111,8 +1125,10 @@ pub async fn generate_llama_response(
         web_search_api_key: config.web_search_api_key.as_deref(),
         use_rtk: config.use_rtk,
         use_htmd: config.use_htmd,
+        browser_backend: &crate::web::browser::BrowserBackend::from_config(config.web_browser_backend.as_deref()),
         n_batch,
         mcp_manager: mcp_manager.clone(),
+        db: db.clone(),
         backend: &state.backend,
         chat_template_string: chat_template_string.as_deref(),
     };
@@ -1222,6 +1238,13 @@ pub async fn generate_llama_response(
         gen_tokens: if n_eval > 0 { Some(n_eval as i32) } else { None },
         prompt_eval_ms: if prompt_eval_ms_internal > 0.0 { Some(prompt_eval_ms_internal) } else { None },
         prompt_tokens: if n_p_eval > 0 { Some(n_p_eval as i32) } else { None },
+        token_breakdown: Some(TokenBreakdown {
+            system_prompt: system_prompt_token_count,
+            tool_definitions: tool_def_token_count,
+            conversation_messages: (prompt_tokens as i32 - system_prompt_token_count - tool_def_token_count).max(0),
+            tool_calls_and_results: gen.tool_response_tokens,
+            model_response: n_eval as i32,
+        }),
     })
 }
 

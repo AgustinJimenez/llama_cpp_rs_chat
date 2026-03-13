@@ -1,5 +1,6 @@
 import { Gauge, Hash, Clock, Database } from 'lucide-react';
 import type { TimingInfo } from '../../../utils/chatTransport';
+import { TokenBreakdownPopover } from './TokenBreakdownPopover';
 
 interface MessageStatisticsProps {
   timings: TimingInfo;
@@ -42,10 +43,19 @@ export function MessageStatistics({ timings, tokensUsed, maxTokens }: MessageSta
         {genTokPerSec.toFixed(1)} tok/s
       </span>
       {tokensUsed !== undefined && maxTokens !== undefined ? (
-        <span className="inline-flex items-center gap-1" title="Context usage">
-          <Database className="h-3 w-3" />
-          {formatNumber(tokensUsed)}/{formatNumber(maxTokens)}
-        </span>
+        timings.tokenBreakdown ? (
+          <TokenBreakdownPopover
+            breakdown={timings.tokenBreakdown}
+            tokensUsed={tokensUsed}
+            maxTokens={maxTokens}
+            formatNumber={formatNumber}
+          />
+        ) : (
+          <span className="inline-flex items-center gap-1" title="Context usage">
+            <Database className="h-3 w-3" />
+            {formatNumber(tokensUsed)}/{formatNumber(maxTokens)}
+          </span>
+        )
       ) : null}
       {timings.finishReason === 'length' ? (
         <span className="inline-flex items-center gap-1 text-yellow-400" title="Generation was cut off by max_tokens limit">

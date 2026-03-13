@@ -54,7 +54,7 @@ export const ChatHeader = React.memo(function ChatHeader({ onModelUnload, onForc
         />
         {isModelLoading && loadingAction === 'loading' ? <button
             onClick={onForceUnload}
-            className="p-1.5 rounded-md text-destructive hover:bg-destructive/10 transition-colors"
+            className="p-1.5 rounded-md text-white hover:bg-white/10 transition-colors"
             title="Cancel model loading"
             aria-label="Cancel model loading"
           >

@@ -6,7 +6,7 @@ use serde_json::Value;
 const MAX_SEARCH_RESULT_CHARS: usize = 8_000;
 
 /// Search the web using DuckDuckGo Instant Answer API, falling back to HTML scraping.
-pub(super) fn tool_web_search(args: &Value, provider: Option<&str>, api_key: Option<&str>) -> String {
+pub(super) fn tool_web_search(args: &Value, provider: Option<&str>, api_key: Option<&str>, backend: &crate::web::browser::BrowserBackend) -> String {
     let query = match args.get("query").and_then(|v| v.as_str()) {
         Some(q) => q,
         None => return "Error: 'query' argument is required".to_string(),
@@ -15,7 +15,7 @@ pub(super) fn tool_web_search(args: &Value, provider: Option<&str>, api_key: Opt
     let max_results = args
         .get("max_results")
         .and_then(|v| v.as_u64())
-        .unwrap_or(8) as usize;
+        .unwrap_or(20) as usize;
 
     match provider {
         Some("Brave") => {
@@ -32,8 +32,8 @@ pub(super) fn tool_web_search(args: &Value, provider: Option<&str>, api_key: Opt
             }
         }
         Some("Google") => {
-            eprintln!("[WEB_SEARCH] Using Google via headless Chrome");
-            tool_web_search_google_chrome(query, max_results)
+            eprintln!("[WEB_SEARCH] Using Google via browser backend");
+            tool_web_search_google_chrome(query, max_results, backend)
         }
         _ => {
             // DuckDuckGo (default)
@@ -133,7 +133,7 @@ fn tool_web_search_brave(
 
 /// Search using Google via headless Chrome.
 /// Navigates to Google search, extracts result titles, snippets, and URLs from the DOM.
-fn tool_web_search_google_chrome(query: &str, max_results: usize) -> String {
+fn tool_web_search_google_chrome(query: &str, max_results: usize, backend: &crate::web::browser::BrowserBackend) -> String {
     let url = format!(
         "https://www.google.com/search?q={}&num={}&hl=en",
         urlencoding::encode(query),
@@ -141,7 +141,7 @@ fn tool_web_search_google_chrome(query: &str, max_results: usize) -> String {
     );
 
     // Use Chrome to fetch the search results page
-    match crate::web::browser::chrome_web_fetch(&url, 50_000) {
+    match crate::web::browser::web_fetch(backend, &url, 50_000) {
         Ok(content) if !content.is_empty() => {
             // Detect CAPTCHA / bot block before parsing
             let content_lower = content.to_lowercase();

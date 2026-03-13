@@ -374,6 +374,12 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         [],
     );
 
+    // Browser backend for web_fetch / web_search
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN web_browser_backend TEXT DEFAULT 'chrome'",
+        [],
+    );
+
     // Add tag_pairs JSON column if missing
     let _ = conn.execute(
         "ALTER TABLE config ADD COLUMN tag_pairs TEXT",
