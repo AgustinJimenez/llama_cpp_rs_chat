@@ -400,6 +400,7 @@ fn run_native_tool_with_timeout(
     web_search_api_key: Option<&str>,
     conversation_id: &str,
     use_htmd: bool,
+    browser_backend: crate::web::browser::BrowserBackend,
     mcp_manager: Option<Arc<crate::web::mcp::McpManager>>,
 ) -> Option<native_tools::NativeToolResult> {
     let cmd = command_text.to_string();
@@ -414,6 +415,7 @@ fn run_native_tool_with_timeout(
             provider.as_deref(),
             api_key.as_deref(),
             use_htmd,
+            &browser_backend,
             mcp.as_deref(),
         );
         let _ = tx.send(result);
@@ -447,6 +449,7 @@ fn execute_single_tool(
     cancel: Option<Arc<AtomicBool>>,
     use_rtk: bool,
     use_htmd: bool,
+    browser_backend: &crate::web::browser::BrowserBackend,
     mcp_manager: Option<Arc<crate::web::mcp::McpManager>>,
 ) -> (String, Vec<Vec<u8>>) {
     // execute_command gets streaming or background treatment (no images)
@@ -497,6 +500,7 @@ fn execute_single_tool(
         web_search_api_key,
         conversation_id,
         use_htmd,
+        browser_backend.clone(),
         mcp_manager.clone(),
     ) {
         log_info!(conversation_id, "📦 Batch: native tool '{}' dispatched (images={})", name, native_result.images.len());
@@ -539,6 +543,7 @@ pub fn check_and_execute_command_with_tags(
     cancel: Option<Arc<AtomicBool>>,
     use_rtk: bool,
     use_htmd: bool,
+    browser_backend: &crate::web::browser::BrowserBackend,
     mcp_manager: Option<Arc<crate::web::mcp::McpManager>>,
     backend: &llama_cpp_2::llama_backend::LlamaBackend,
     chat_template_string: Option<&str>,
@@ -714,6 +719,7 @@ pub fn check_and_execute_command_with_tags(
                         let idx = *idx;
                         let tool_name = all_calls[idx].0.clone();
                         let mcp_clone = mcp_manager.clone();
+                        let backend_clone = browser_backend.clone();
                         s.spawn(move || {
                             let result = run_native_tool_with_timeout(
                                 json,
@@ -721,6 +727,7 @@ pub fn check_and_execute_command_with_tags(
                                 api_key.as_deref(),
                                 conv_id,
                                 use_htmd,
+                                backend_clone,
                                 mcp_clone,
                             );
                             let native_result = result.unwrap_or_else(|| {
@@ -756,6 +763,7 @@ pub fn check_and_execute_command_with_tags(
                 cancel.clone(),
                 use_rtk,
                 use_htmd,
+                browser_backend,
                 mcp_manager.clone(),
             );
             results[i] = Some((tool_output, tool_images));
@@ -841,6 +849,7 @@ pub fn check_and_execute_command_with_tags(
             web_search_api_key,
             conversation_id,
             use_htmd,
+            browser_backend.clone(),
             mcp_manager.clone(),
         ) {
             log_info!(conversation_id, "📦 Dispatched to native tool handler (images={})", native_result.images.len());
@@ -891,35 +900,42 @@ pub fn check_and_execute_command_with_tags(
         output.len()
     );
 
-    // Sanitize output for model context: strip ANSI codes + truncate long output.
-    // The raw output was already streamed to the frontend above; this only affects
-    // what the model sees in its context window.
+    // Sanitize output: strip ANSI codes + truncate long output.
     let sanitized = sanitize_command_output(&output);
 
     // Summarize large outputs via LLM sub-agent to save context tokens.
-    // The user already sees the full raw output (streamed above); this only
-    // affects what the model receives in its context for subsequent reasoning.
-    let model_output = if sanitized.len() > SUMMARIZE_THRESHOLD {
+    // The user sees the original output (persisted in output_block);
+    // the model only receives the summary (injected via model_block/model_tokens).
+    // Use original output length to decide summarization — the sanitized version may
+    // be heavily truncated but the user still sees the full streamed output.
+    let (display_text, model_text) = if output.len() > SUMMARIZE_THRESHOLD || sanitized.len() > SUMMARIZE_THRESHOLD {
         match summarize_tool_output(model, backend, &sanitized, chat_template_string, conversation_id) {
             Ok(summary) => {
                 log_info!(conversation_id, "📝 Summarized tool output: {} → {} chars", sanitized.len(), summary.len());
-                // Stream summary note inside the output block (before output_close)
+                // Stream summary with actual content to frontend (before output_close)
+                let summary_block = format!(
+                    "\n\n📝 Summary for model ({} → {} chars):\n{}",
+                    sanitized.len(), summary.len(), summary.trim()
+                );
                 if let Some(ref sender) = token_sender {
                     let _ = sender.send(TokenData {
-                        token: format!("\n\n📝 Summarized for model: {} → {} chars", sanitized.len(), summary.len()),
+                        token: summary_block.clone(),
                         tokens_used: token_pos,
                         max_tokens: context_size as i32,
                     });
                 }
-                summary
+                // Display: original output + summary with content
+                // Model: summary only
+                let display = format!("{}{}", sanitized, summary_block);
+                (display, summary)
             }
             Err(e) => {
                 log_warn!(conversation_id, "Summarization failed ({}), using raw output", e);
-                sanitized
+                (sanitized.clone(), sanitized)
             }
         }
     } else {
-        sanitized
+        (sanitized.clone(), sanitized)
     };
 
     // Stream the output_close tag to frontend (after any summary note)
@@ -931,13 +947,16 @@ pub fn check_and_execute_command_with_tags(
         });
     }
 
-    // Format the full output block for model injection and logging
-    let output_block = format!("{}{}{}", output_open, model_output.trim(), output_close);
+    // output_block: persisted in conversation — contains original output for user display
+    let output_block = format!("{}{}{}", output_open, display_text.trim(), output_close);
+
+    // model_injection_block: contains only the summary — this is what the LLM sees
+    let model_injection_block = format!("{}{}{}", output_open, model_text.trim(), output_close);
 
     // Build model injection block with chat template turn wrapping.
     // The model needs proper turn structure to know the tool response is from
     // a different role and that it should continue as assistant.
-    let model_block = wrap_output_for_model(&output_block, template_type);
+    let model_block = wrap_output_for_model(&model_injection_block, template_type);
     log_info!(
         conversation_id,
         "🔄 Model injection block (template={:?}):\n{}",
