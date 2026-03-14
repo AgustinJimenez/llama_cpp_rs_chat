@@ -1,6 +1,7 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[allow(dead_code)]
 mod web;
 
 use std::sync::Arc;
@@ -254,6 +255,7 @@ async fn get_conversations(
                 name: format!("{}.txt", r.id),
                 display_name: format!("Chat {timestamp_part}"),
                 timestamp: timestamp_part,
+                title: None,
             }
         })
         .collect();
@@ -382,6 +384,7 @@ async fn generate_stream(
                 gen_tokens,
                 prompt_eval_ms,
                 prompt_tokens,
+                ..
             }) => {
                 let _ = app.emit(
                     "chat-done",
