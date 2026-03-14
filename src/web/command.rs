@@ -43,6 +43,12 @@ fn kill_process_tree(pid: u32) {
         // Send SIGTERM to process group
         unsafe { libc::kill(-(pid as i32), libc::SIGTERM); }
     }
+    unpersist_bg_process(pid);
+}
+
+/// Public wrapper to kill a background process by PID (used by REST API).
+pub fn kill_background_process_by_pid(pid: u32) {
+    kill_process_tree(pid);
 }
 
 // ── Background process infrastructure ──────────────────────────────────────
@@ -70,6 +76,202 @@ struct BackgroundProcess {
 
 lazy_static::lazy_static! {
     static ref BACKGROUND_PROCESSES: StdMutex<Vec<BackgroundProcess>> = StdMutex::new(Vec::new());
+    /// Database reference for persisting background process PIDs across crashes.
+    static ref BG_DB_REF: StdMutex<Option<super::database::SharedDatabase>> = StdMutex::new(None);
+    /// Unique session ID generated at app startup. Used to detect orphaned processes
+    /// from previous sessions that crashed without cleanup.
+    static ref BG_SESSION_ID: StdMutex<String> = StdMutex::new(String::new());
+}
+
+/// Initialize the background process tracking system with DB and session ID.
+/// Called once at worker startup.
+pub fn init_background_tracking(db: super::database::SharedDatabase, session_id: String) {
+    if let Ok(mut db_ref) = BG_DB_REF.lock() {
+        *db_ref = Some(db);
+    }
+    if let Ok(mut sid) = BG_SESSION_ID.lock() {
+        *sid = session_id;
+    }
+}
+
+/// Persist a background process PID to the database.
+fn persist_bg_process(pid: u32, command: &str, conversation_id: Option<&str>) {
+    let db = match BG_DB_REF.lock().ok().and_then(|r| r.clone()) {
+        Some(d) => d,
+        None => return,
+    };
+    let session_id = BG_SESSION_ID.lock().ok().map(|s| s.clone()).unwrap_or_default();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let conn = db.connection();
+    let _ = conn.execute(
+        "INSERT OR REPLACE INTO background_processes (pid, command, conversation_id, started_at, session_id) VALUES (?1, ?2, ?3, ?4, ?5)",
+        rusqlite::params![pid as i64, command, conversation_id, now, session_id],
+    );
+}
+
+/// Remove a background process PID from the database (process exited or was killed).
+fn unpersist_bg_process(pid: u32) {
+    let db = match BG_DB_REF.lock().ok().and_then(|r| r.clone()) {
+        Some(d) => d,
+        None => return,
+    };
+    let conn = db.connection();
+    let _ = conn.execute("DELETE FROM background_processes WHERE pid = ?1", [pid as i64]);
+}
+
+/// Check if a process is still alive by PID.
+pub fn is_process_alive(pid: u32) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        // Use tasklist to check if PID exists (no extra dependencies)
+        Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .creation_flags(0x08000000)
+            .output()
+            .map(|o| {
+                let out = String::from_utf8_lossy(&o.stdout);
+                out.contains(&pid.to_string())
+            })
+            .unwrap_or(false)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        // kill with signal 0 checks existence without sending a signal
+        unsafe { libc::kill(pid as i32, 0) == 0 }
+    }
+}
+
+/// Get orphaned processes from previous sessions that are still running.
+/// Returns (pid, command, started_at_secs) for each orphan.
+pub fn get_orphaned_processes(db: &super::database::SharedDatabase) -> Vec<(u32, String, i64)> {
+    let session_id = BG_SESSION_ID.lock().ok().map(|s| s.clone()).unwrap_or_default();
+    let conn = db.connection();
+    let mut stmt = match conn.prepare(
+        "SELECT pid, command, started_at FROM background_processes WHERE session_id != ?1"
+    ) {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+    let rows = match stmt.query_map([&session_id], |row| {
+        let pid: i64 = row.get(0)?;
+        let command: String = row.get(1)?;
+        let started_at: i64 = row.get(2)?;
+        Ok((pid as u32, command, started_at))
+    }) {
+        Ok(r) => r,
+        Err(_) => return Vec::new(),
+    };
+    rows.filter_map(|r| r.ok())
+        .filter(|(pid, _, _)| is_process_alive(*pid))
+        .collect()
+}
+
+/// Remove all dead process records from the database (cleanup stale entries).
+pub fn cleanup_dead_process_records(db: &super::database::SharedDatabase) {
+    let conn = db.connection();
+    let mut stmt = match conn.prepare("SELECT pid FROM background_processes") {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let pids: Vec<u32> = stmt
+        .query_map([], |row| {
+            let pid: i64 = row.get(0)?;
+            Ok(pid as u32)
+        })
+        .ok()
+        .map(|rows| rows.filter_map(|r| r.ok()).collect())
+        .unwrap_or_default();
+
+    for pid in pids {
+        if !is_process_alive(pid) {
+            let _ = conn.execute("DELETE FROM background_processes WHERE pid = ?1", [pid as i64]);
+        }
+    }
+}
+
+/// Kill all background processes for the current session and clean up DB.
+pub fn kill_all_session_processes() {
+    let db = match BG_DB_REF.lock().ok().and_then(|r| r.clone()) {
+        Some(d) => d,
+        None => return,
+    };
+    let session_id = BG_SESSION_ID.lock().ok().map(|s| s.clone()).unwrap_or_default();
+    if session_id.is_empty() { return; }
+
+    let conn = db.connection();
+    let mut stmt = match conn.prepare(
+        "SELECT pid, command FROM background_processes WHERE session_id = ?1"
+    ) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let procs: Vec<(u32, String)> = stmt
+        .query_map([&session_id], |row| {
+            let pid: i64 = row.get(0)?;
+            let cmd: String = row.get(1)?;
+            Ok((pid as u32, cmd))
+        })
+        .ok()
+        .map(|rows| rows.filter_map(|r| r.ok()).collect())
+        .unwrap_or_default();
+
+    for (pid, cmd) in &procs {
+        if is_process_alive(*pid) {
+            eprintln!("[SHUTDOWN] Killing background process PID {}: {}", pid, cmd);
+            kill_process_tree(*pid);
+        }
+    }
+    let _ = conn.execute("DELETE FROM background_processes WHERE session_id = ?1", [&session_id]);
+}
+
+/// List all tracked background processes (in-memory + DB orphans).
+pub fn list_all_background_processes() -> Vec<(u32, String, bool, String)> {
+    let mut result = Vec::new();
+
+    // In-memory processes (current session)
+    if let Ok(procs) = BACKGROUND_PROCESSES.lock() {
+        for p in procs.iter() {
+            let is_running = p.running.load(Ordering::Relaxed);
+            let elapsed = p.started_at.elapsed();
+            let elapsed_str = if elapsed.as_secs() >= 60 {
+                format!("{}m{}s", elapsed.as_secs() / 60, elapsed.as_secs() % 60)
+            } else {
+                format!("{}s", elapsed.as_secs())
+            };
+            let status = if is_running { "running" } else { "exited" };
+            result.push((p.pid, p.command.clone(), is_running, format!("{} ({})", status, elapsed_str)));
+        }
+    }
+
+    // DB orphans from previous sessions
+    if let Some(db) = BG_DB_REF.lock().ok().and_then(|r| r.clone()) {
+        let orphans = get_orphaned_processes(&db);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        for (pid, cmd, started_at) in orphans {
+            // Skip if already in in-memory list
+            if result.iter().any(|(p, _, _, _)| *p == pid) { continue; }
+            let age_secs = (now - started_at).max(0);
+            let age_str = if age_secs >= 3600 {
+                format!("{}h{}m", age_secs / 3600, (age_secs % 3600) / 60)
+            } else if age_secs >= 60 {
+                format!("{}m{}s", age_secs / 60, age_secs % 60)
+            } else {
+                format!("{}s", age_secs)
+            };
+            result.push((pid, cmd, true, format!("orphaned (started {}ago)", age_str)));
+        }
+    }
+
+    result
 }
 
 // Helper function to parse command with proper quote handling
@@ -404,11 +606,14 @@ pub fn execute_command_streaming(
             let stdout_pipe = child.stdout.take();
 
             const INACTIVITY_TIMEOUT_SECS: u64 = 120;
+            const TOTAL_TIMEOUT_SECS: u64 = 300; // 5 min hard wall-clock limit
             // Check cancellation every 200ms — responsive enough without busy-waiting
             const POLL_INTERVAL_MS: u64 = 200;
 
             let mut was_cancelled = false;
             let mut inactivity_killed = false;
+            let mut total_timeout_killed = false;
+            let wall_start = Instant::now();
 
             if let Some(stdout) = stdout_pipe {
                 // Channel-based reader: a dedicated thread reads from the pipe and
@@ -446,6 +651,18 @@ pub fn execute_command_streaming(
                             was_cancelled = true;
                             break;
                         }
+                    }
+
+                    // Hard wall-clock limit — prevents commands that trickle
+                    // output (e.g. winget progress bars) from running forever
+                    if wall_start.elapsed().as_secs() >= TOTAL_TIMEOUT_SECS {
+                        eprintln!(
+                            "[STREAM] Total timeout ({}s), killing pid={}",
+                            TOTAL_TIMEOUT_SECS, child_pid
+                        );
+                        kill_process_tree(child_pid);
+                        total_timeout_killed = true;
+                        break;
                     }
 
                     match rx.recv_timeout(std::time::Duration::from_millis(POLL_INTERVAL_MS)) {
@@ -498,6 +715,11 @@ pub fn execute_command_streaming(
 
             if was_cancelled {
                 output.push_str("\n[Cancelled by user]\n");
+            } else if total_timeout_killed {
+                output.push_str(&format!(
+                    "\n[Process killed: exceeded {}s wall-clock limit]\n",
+                    TOTAL_TIMEOUT_SECS
+                ));
             } else if inactivity_killed {
                 output.push_str(&format!(
                     "\n[Process killed: no output for {}s — likely waiting for input]\n",
@@ -589,6 +811,7 @@ pub fn execute_command_background(
             // Persistent reader thread — runs until process exits (EOF)
             let buf_ref = output_buffer.clone();
             let running_ref = running.clone();
+            let reader_pid = pid;
             std::thread::spawn(move || {
                 let mut reader = std::io::BufReader::new(stdout_pipe);
                 let mut line_buf = String::new();
@@ -626,6 +849,7 @@ pub fn execute_command_background(
                     let _ = tx.send(line_buf);
                 }
                 running_ref.store(false, Ordering::Relaxed);
+                unpersist_bg_process(reader_pid);
             });
 
             // Collect initial output for BACKGROUND_CAPTURE_SECS
@@ -681,6 +905,9 @@ pub fn execute_command_background(
                     total_checks: AtomicUsize::new(0),
                 });
             }
+
+            // Persist to DB for crash recovery
+            persist_bg_process(pid, trimmed, None);
 
             // Forget the child handle so dropping it doesn't kill the process
             std::mem::forget(child);

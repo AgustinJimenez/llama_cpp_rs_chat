@@ -61,6 +61,8 @@ async fn handle_request_impl(
 
         // System monitoring
         (&Method::GET, "/api/system/usage") => web::routes::system::handle_system_usage().await?,
+        (&Method::GET, "/api/system/processes") => web::routes::system::handle_background_processes(db.clone()).await?,
+        (&Method::POST, "/api/system/processes/kill") => web::routes::system::handle_kill_process(req, db.clone()).await?,
 
         // Frontend log ingestion (web-only)
         (&Method::POST, "/api/logs/frontend") => {

@@ -1,9 +1,10 @@
 // System monitoring route handlers
 
-use hyper::{Body, Response, StatusCode};
+use hyper::{Body, Request, Response, StatusCode};
 use std::convert::Infallible;
 
-use crate::web::response_helpers::json_raw;
+use crate::web::database::SharedDatabase;
+use crate::web::response_helpers::{json_raw, json_response, json_error};
 use crate::{sys_debug, sys_warn};
 
 #[cfg(target_os = "windows")]
@@ -234,4 +235,98 @@ pub fn get_windows_system_usage() -> (f32, f32, f32, f32) {
 pub fn get_windows_system_usage() -> (f32, f32, f32, f32) {
     // Return placeholder values on non-Windows platforms
     (0.0, 0.0, 0.0, 100.0)
+}
+
+// ── Background process endpoints ────────────────────────────────────────────
+
+pub async fn handle_background_processes(
+    db: SharedDatabase,
+) -> Result<Response<Body>, Infallible> {
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = db.connection();
+
+        // Query all background processes from DB
+        let mut stmt = match conn.prepare(
+            "SELECT pid, command, conversation_id, started_at, session_id FROM background_processes"
+        ) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+
+        let rows: Vec<(i64, String, Option<String>, i64, String)> = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            })
+            .ok()
+            .map(|iter| iter.filter_map(|r| r.ok()).collect())
+            .unwrap_or_default();
+
+        let mut processes = Vec::new();
+        let mut dead_pids = Vec::new();
+
+        for (pid, command, conversation_id, started_at, _session_id) in rows {
+            let alive = crate::web::command::is_process_alive(pid as u32);
+            if !alive {
+                dead_pids.push(pid);
+            }
+            processes.push(serde_json::json!({
+                "pid": pid,
+                "command": command,
+                "conversationId": conversation_id,
+                "startedAt": started_at,
+                "alive": alive,
+            }));
+        }
+
+        // Clean up dead records
+        for pid in dead_pids {
+            let _ = conn.execute("DELETE FROM background_processes WHERE pid = ?1", [pid]);
+        }
+
+        // Only return alive processes
+        processes.retain(|p| p["alive"].as_bool().unwrap_or(false));
+        processes
+    })
+    .await
+    .unwrap_or_default();
+
+    Ok(json_response(StatusCode::OK, &result))
+}
+
+pub async fn handle_kill_process(
+    req: Request<Body>,
+    db: SharedDatabase,
+) -> Result<Response<Body>, Infallible> {
+    let body = match hyper::body::to_bytes(req.into_body()).await {
+        Ok(b) => b,
+        Err(_) => return Ok(json_error(StatusCode::BAD_REQUEST, "Failed to read body")),
+    };
+
+    let parsed: serde_json::Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(_) => return Ok(json_error(StatusCode::BAD_REQUEST, "Invalid JSON")),
+    };
+
+    let pid = match parsed["pid"].as_u64() {
+        Some(p) => p as u32,
+        None => return Ok(json_error(StatusCode::BAD_REQUEST, "Missing pid")),
+    };
+
+    tokio::task::spawn_blocking(move || {
+        // Kill the process tree
+        crate::web::command::kill_background_process_by_pid(pid);
+        // Remove from DB
+        let conn = db.connection();
+        let _ = conn.execute("DELETE FROM background_processes WHERE pid = ?1", [pid as i64]);
+    })
+    .await
+    .ok();
+
+    Ok(json_response(StatusCode::OK, &serde_json::json!({"success": true})))
 }

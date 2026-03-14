@@ -1,6 +1,10 @@
-import { Gauge, Hash, Clock, Database } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Gauge, Hash, Clock, Database, Terminal } from 'lucide-react';
 import type { TimingInfo } from '../../../utils/chatTransport';
 import { TokenBreakdownPopover } from './TokenBreakdownPopover';
+import { getBackgroundProcesses } from '../../../utils/tauriCommands';
+import type { BackgroundProcessInfo } from '../../../utils/tauriCommands';
+import { BackgroundProcessesModal } from '../../organisms/BackgroundProcessesModal';
 
 interface MessageStatisticsProps {
   timings: TimingInfo;
@@ -19,6 +23,23 @@ function formatNumber(n: number): string {
 
 export function MessageStatistics({ timings, tokensUsed, maxTokens }: MessageStatisticsProps) {
   const { genTokPerSec, genTokens, genEvalMs, promptEvalMs } = timings;
+  const [bgProcesses, setBgProcesses] = useState<BackgroundProcessInfo[]>([]);
+  const [modalOpen, setModalOpen] = useState(false);
+
+  const refreshProcesses = useCallback(async () => {
+    try {
+      const procs = await getBackgroundProcesses();
+      setBgProcesses(procs.filter(p => p.alive));
+    } catch {
+      // silent
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshProcesses();
+    const id = setInterval(refreshProcesses, 5000);
+    return () => clearInterval(id);
+  }, [refreshProcesses]);
 
   if (!genTokPerSec) return null;
 
@@ -61,6 +82,19 @@ export function MessageStatistics({ timings, tokensUsed, maxTokens }: MessageSta
         <span className="inline-flex items-center gap-1 text-yellow-400" title="Generation was cut off by max_tokens limit">
           truncated
         </span>
+      ) : null}
+      {bgProcesses.length > 0 ? (
+        <>
+          <button
+            onClick={() => setModalOpen(true)}
+            className="inline-flex items-center gap-1 text-emerald-400 hover:text-emerald-300 transition-colors cursor-pointer"
+            title="Click to manage background processes"
+          >
+            <Terminal className="h-3 w-3" />
+            {bgProcesses.length} {bgProcesses.length === 1 ? 'process' : 'processes'}
+          </button>
+          <BackgroundProcessesModal isOpen={modalOpen} onClose={() => setModalOpen(false)} />
+        </>
       ) : null}
     </div>
   );

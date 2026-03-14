@@ -451,3 +451,23 @@ export async function getSystemUsage(): Promise<SystemUsageData> {
   }
   return fetchJson<SystemUsageData>('/api/system/usage');
 }
+
+export interface BackgroundProcessInfo {
+  pid: number;
+  command: string;
+  conversationId?: string;
+  startedAt: number;
+  alive: boolean;
+}
+
+export async function getBackgroundProcesses(): Promise<BackgroundProcessInfo[]> {
+  return fetchJson<BackgroundProcessInfo[]>('/api/system/processes');
+}
+
+export async function killBackgroundProcess(pid: number): Promise<void> {
+  await fetchJson('/api/system/processes/kill', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pid }),
+  });
+}

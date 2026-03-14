@@ -451,10 +451,16 @@ pub struct ConversationLogger {
     current_tokens_used: i32,
     /// Context size from generation (avoids re-tokenization in watchers)
     current_max_tokens: i32,
+    /// Last time we flushed accumulated content to the DB (crash recovery)
+    last_db_flush: Option<Instant>,
+    /// Length of accumulated_content at last DB flush
+    last_db_flush_len: usize,
 }
 
 const STREAM_BROADCAST_MIN_INTERVAL: Duration = Duration::from_millis(200);
 const STREAM_BROADCAST_MIN_CHARS: usize = 64;
+/// How often to persist streaming content to DB for crash recovery
+const DB_FLUSH_INTERVAL: Duration = Duration::from_secs(5);
 
 impl ConversationLogger {
     /// Create a new conversation
@@ -481,6 +487,8 @@ impl ConversationLogger {
             last_broadcast_len: 0,
             current_tokens_used: 0,
             current_max_tokens: 0,
+            last_db_flush: None,
+            last_db_flush_len: 0,
         })
     }
 
@@ -506,6 +514,8 @@ impl ConversationLogger {
             last_broadcast_len: 0,
             current_tokens_used: 0,
             current_max_tokens: 0,
+            last_db_flush: None,
+            last_db_flush_len: 0,
         })
     }
 
@@ -609,7 +619,7 @@ impl ConversationLogger {
         }
         self.accumulated_content.push_str(chunk);
 
-        if self.current_message_id.is_some() {
+        if let Some(ref msg_id) = self.current_message_id {
             let now = Instant::now();
             let len = self.accumulated_content.len();
             let should_broadcast = match self.last_broadcast_at {
@@ -630,6 +640,22 @@ impl ConversationLogger {
                     max_tokens: self.current_max_tokens,
                     is_complete: false,
                 });
+            }
+
+            // Periodic DB flush for crash recovery — save content so far
+            let should_flush = match self.last_db_flush {
+                None => true,
+                Some(last) => now.duration_since(last) >= DB_FLUSH_INTERVAL
+                    && len > self.last_db_flush_len,
+            };
+            if should_flush {
+                let conn = self.db.connection();
+                let _ = conn.execute(
+                    "UPDATE messages SET content = ?1 WHERE id = ?2",
+                    rusqlite::params![&self.accumulated_content, msg_id],
+                );
+                self.last_db_flush = Some(now);
+                self.last_db_flush_len = len;
             }
         }
     }

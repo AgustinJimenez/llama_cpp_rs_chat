@@ -1864,6 +1864,16 @@ pub fn get_available_tools() -> Vec<Value> {
                 "required": ["name"]
             }
         }),
+        // Background process tracking
+        json!({
+            "name": "list_background_processes",
+            "description": "List all tracked background processes (running servers, daemons, etc.) with their PIDs, commands, and status. Also shows orphaned processes from previous sessions that are still running.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }),
     ];
 
     tools

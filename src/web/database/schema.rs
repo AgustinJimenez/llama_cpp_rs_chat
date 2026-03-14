@@ -138,6 +138,16 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
 )
 "#;
 
+const CREATE_BACKGROUND_PROCESSES_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS background_processes (
+    pid INTEGER PRIMARY KEY,
+    command TEXT NOT NULL,
+    conversation_id TEXT,
+    started_at INTEGER NOT NULL,
+    session_id TEXT NOT NULL
+)
+"#;
+
 const CREATE_LOGS_TABLE: &str = r#"
 CREATE TABLE IF NOT EXISTS logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -172,6 +182,7 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         ("model_history", CREATE_MODEL_HISTORY_TABLE),
         ("hub_downloads", CREATE_HUB_DOWNLOADS_TABLE),
         ("mcp_servers", CREATE_MCP_SERVERS_TABLE),
+        ("background_processes", CREATE_BACKGROUND_PROCESSES_TABLE),
         ("logs", CREATE_LOGS_TABLE),
         ("logs_conversation_index", CREATE_LOGS_CONVERSATION_INDEX),
         ("logs_timestamp_index", CREATE_LOGS_TIMESTAMP_INDEX),

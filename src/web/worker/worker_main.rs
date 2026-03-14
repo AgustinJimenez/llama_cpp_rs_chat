@@ -85,6 +85,33 @@ pub fn run_worker(db_path: &str) {
     let mcp_manager = Arc::new(McpManager::new());
     eprintln!("[WORKER] MCP manager created");
 
+    // Initialize background process tracking with DB persistence
+    let bg_session_id = uuid::Uuid::new_v4().to_string();
+    crate::web::command::init_background_tracking(db.clone(), bg_session_id);
+
+    // Detect orphaned processes from previous sessions
+    let orphans = crate::web::command::get_orphaned_processes(&db);
+    if !orphans.is_empty() {
+        eprintln!("[WORKER] ⚠️ Found {} orphaned background process(es) from previous session:", orphans.len());
+        for (pid, cmd, started_at) in &orphans {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            let age_secs = (now - started_at).max(0);
+            let age_str = if age_secs >= 3600 {
+                format!("{}h{}m ago", age_secs / 3600, (age_secs % 3600) / 60)
+            } else if age_secs >= 60 {
+                format!("{}m{}s ago", age_secs / 60, age_secs % 60)
+            } else {
+                format!("{}s ago", age_secs)
+            };
+            eprintln!("  PID {}: {} (started {})", pid, cmd, age_str);
+        }
+    }
+    // Clean up records for processes that no longer exist
+    crate::web::command::cleanup_dead_process_records(&db);
+
     // LlamaState — owned directly, wrapped in Arc<Mutex> for generate_llama_response compatibility
     let llama_state: SharedLlamaState = Arc::new(Mutex::new(None));
 
@@ -95,6 +122,15 @@ pub fn run_worker(db_path: &str) {
 
     // Cancellation flag for generation
     let cancel_flag = Arc::new(AtomicBool::new(false));
+
+    // Shutdown guard: kills tracked background processes when the worker exits
+    struct BgProcessGuard;
+    impl Drop for BgProcessGuard {
+        fn drop(&mut self) {
+            crate::web::command::kill_all_session_processes();
+        }
+    }
+    let _bg_guard = BgProcessGuard;
 
     // Thread 0: stdin reader
     thread::spawn(move || {

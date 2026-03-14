@@ -396,6 +396,7 @@ pub fn dispatch_native_tool(
         "list_mcp_servers" => tool_list_mcp_servers(mcp_manager, db),
         "add_mcp_server" => tool_add_mcp_server(&args, mcp_manager, db),
         "remove_mcp_server" => tool_remove_mcp_server(&args, mcp_manager, db),
+        "list_background_processes" => tool_list_background_processes(),
         _ => {
             // Check if it's an MCP tool before falling back to shell
             if let Some(mgr) = mcp_manager {
@@ -586,6 +587,18 @@ fn tool_remove_mcp_server(
     }
 
     format!("Removed MCP server '{server_name}' successfully.")
+}
+
+fn tool_list_background_processes() -> String {
+    let procs = super::command::list_all_background_processes();
+    if procs.is_empty() {
+        return "No background processes are currently tracked.".to_string();
+    }
+    let mut lines = vec![format!("Background processes ({}):", procs.len())];
+    for (pid, cmd, _alive, status) in &procs {
+        lines.push(format!("  PID {}: {} [{}]", pid, cmd, status));
+    }
+    lines.join("\n")
 }
 
 /// Read a file and return its contents.

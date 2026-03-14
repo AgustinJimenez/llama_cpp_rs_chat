@@ -597,6 +597,7 @@ fn run_generation_loop(
                 // block is now closed (result injected), so we must allow stop
                 // tokens to fire again for the model's continuation text.
                 gen.exec_tracker = ExecBlockTracker::new();
+                stall_checkpoint = Instant::now(); // Reset after tool execution
                 break;
             }
             } // token_has_close_char
