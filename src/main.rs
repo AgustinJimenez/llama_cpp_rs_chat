@@ -825,7 +825,8 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // Window state plugin disabled — was restoring stale fullscreen state
+        // .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_focus();
@@ -861,7 +862,9 @@ fn main() {
                 ProcessManager::spawn("assets/llama_chat.db")
                     .expect("Failed to spawn worker process"),
             );
-            let bridge: SharedWorkerBridge = Arc::new(WorkerBridge::new(pm));
+            let bridge: SharedWorkerBridge = Arc::new(
+                tauri::async_runtime::block_on(async { WorkerBridge::new(pm) }),
+            );
             eprintln!("[TAURI] Worker process spawned, bridge ready");
 
             // Register managed state

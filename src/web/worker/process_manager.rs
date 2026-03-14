@@ -85,13 +85,21 @@ fn spawn_worker(db_path: &str) -> Result<Child, String> {
 
     eprintln!("[PROCESS_MGR] Spawning worker: {} --worker --db-path {db_path}", exe.display());
 
-    Command::new(exe)
-        .arg("--worker")
+    let mut cmd = Command::new(exe);
+    cmd.arg("--worker")
         .arg("--db-path")
         .arg(db_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit()) // Worker logs go to parent's stderr
-        .spawn()
+        .stderr(Stdio::inherit()); // Worker logs go to parent's stderr
+
+    // On Windows, prevent the worker from opening a visible console window
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+
+    cmd.spawn()
         .map_err(|e| format!("Failed to spawn worker: {e}"))
 }

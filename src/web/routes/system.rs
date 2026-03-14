@@ -94,6 +94,18 @@ pub fn get_cached_windows_system_usage() -> (f32, f32, f32, f32) {
     (last.1, last.2, last.3, last.4)
 }
 
+/// Create a Command with CREATE_NO_WINDOW on Windows to prevent console flashing.
+#[cfg(target_os = "windows")]
+fn silent_command(program: &str) -> Command {
+    let mut cmd = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    cmd
+}
+
 #[cfg(target_os = "windows")]
 pub fn get_windows_system_usage() -> (f32, f32, f32, f32) {
     // Cache for 500ms to allow smooth real-time updates
@@ -103,7 +115,7 @@ pub fn get_windows_system_usage() -> (f32, f32, f32, f32) {
     }
 
     // Get CPU usage + performance percentage via PowerShell (single call)
-    let cpu_output = Command::new("powershell")
+    let cpu_output = silent_command("powershell")
         .args([
             "-NoProfile",
             "-NonInteractive",
@@ -129,7 +141,7 @@ pub fn get_windows_system_usage() -> (f32, f32, f32, f32) {
     };
 
     // Get RAM usage via PowerShell (using WMI)
-    let ram_output = Command::new("powershell")
+    let ram_output = silent_command("powershell")
         .args([
             "-NoProfile",
             "-NonInteractive",
@@ -154,7 +166,7 @@ pub fn get_windows_system_usage() -> (f32, f32, f32, f32) {
     };
 
     // Get GPU usage via nvidia-smi (if available)
-    let gpu_output = Command::new("nvidia-smi")
+    let gpu_output = silent_command("nvidia-smi")
         .args([
             "--query-gpu=utilization.gpu",
             "--format=csv,noheader,nounits",
@@ -182,7 +194,7 @@ pub fn get_windows_system_usage() -> (f32, f32, f32, f32) {
         let mut hw = HARDWARE_TOTALS.lock().unwrap();
         if hw.0 == 0.0 {
             // Total RAM via WMI (returns KB)
-            if let Ok(output) = Command::new("powershell")
+            if let Ok(output) = silent_command("powershell")
                 .args(["-NoProfile", "-NonInteractive", "-Command",
                     "gwmi Win32_OperatingSystem | % { $_.TotalVisibleMemorySize }"])
                 .output()
@@ -192,7 +204,7 @@ pub fn get_windows_system_usage() -> (f32, f32, f32, f32) {
                 }
             }
             // CPU logical processors + base clock
-            if let Ok(output) = Command::new("powershell")
+            if let Ok(output) = silent_command("powershell")
                 .args(["-NoProfile", "-NonInteractive", "-Command",
                     "Get-CimInstance Win32_Processor | ForEach-Object { $_.NumberOfLogicalProcessors; $_.MaxClockSpeed }"])
                 .output()
@@ -210,7 +222,7 @@ pub fn get_windows_system_usage() -> (f32, f32, f32, f32) {
                 }
             }
             // Total VRAM via nvidia-smi
-            if let Ok(output) = Command::new("nvidia-smi")
+            if let Ok(output) = silent_command("nvidia-smi")
                 .args(["--query-gpu=memory.total", "--format=csv,noheader,nounits"])
                 .output()
             {
