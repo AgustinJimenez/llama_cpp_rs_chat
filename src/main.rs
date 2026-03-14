@@ -784,8 +784,9 @@ impl<T> Pipe for T {}
 // ─── Setup & Main ─────────────────────────────────────────────────────
 
 fn setup_logging() -> Result<(), Box<dyn std::error::Error>> {
-    let log_dir = "logs";
-    std::fs::create_dir_all(log_dir)?;
+    let base = std::env::var("LLAMA_CHAT_DATA_DIR").unwrap_or_else(|_| ".".to_string());
+    let log_dir = format!("{base}/logs");
+    std::fs::create_dir_all(&log_dir)?;
     let timestamp = Local::now().format("%Y-%m-%d-%H_%M").to_string();
     let log_path = format!("{log_dir}/{timestamp}.log");
 
@@ -819,10 +820,6 @@ fn main() {
         return;
     }
 
-    if let Err(e) = setup_logging() {
-        eprintln!("Failed to set up logging: {e}");
-    }
-
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         // Window state plugin disabled — was restoring stale fullscreen state
@@ -834,14 +831,31 @@ fn main() {
         }))
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
-            eprintln!("[TAURI] Setting up WorkerBridge and Database...");
+            // Resolve app data directory for persistent storage
+            let data_dir = app.path().app_data_dir()
+                .expect("Failed to resolve app data directory");
+            std::fs::create_dir_all(&data_dir)
+                .expect("Failed to create app data directory");
+            let data_dir_str = data_dir.to_string_lossy().to_string();
+
+            // Set env var so worker process and log modules use the same directory
+            std::env::set_var("LLAMA_CHAT_DATA_DIR", &data_dir_str);
+            eprintln!("[TAURI] Data directory: {data_dir_str}");
+
+            // Initialize logging (after data dir is set)
+            if let Err(e) = setup_logging() {
+                eprintln!("Failed to set up logging: {e}");
+            }
+
+            let db_path = data_dir.join("llama_chat.db");
+            let db_path_str = db_path.to_string_lossy().to_string();
 
             // Initialize SQLite database
             let db: SharedDatabase = Arc::new(
-                Database::new("assets/llama_chat.db")
+                Database::new(&db_path_str)
                     .expect("Failed to initialize SQLite database"),
             );
-            eprintln!("[TAURI] Database initialized");
+            eprintln!("[TAURI] Database initialized at {db_path_str}");
 
             // Run migrations
             match web::database::migration::migrate_existing_conversations(&db) {
@@ -859,7 +873,7 @@ fn main() {
 
             // Spawn worker process
             let pm = Arc::new(
-                ProcessManager::spawn("assets/llama_chat.db")
+                ProcessManager::spawn(&db_path_str)
                     .expect("Failed to spawn worker process"),
             );
             let bridge: SharedWorkerBridge = Arc::new(

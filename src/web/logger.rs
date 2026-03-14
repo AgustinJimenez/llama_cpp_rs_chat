@@ -27,8 +27,9 @@ impl Logger {
 
         if !files.contains_key(conversation_id) {
             // Create logs directory if it doesn't exist
-            let log_dir = "logs/conversations";
-            std::fs::create_dir_all(log_dir)?;
+            let base = std::env::var("LLAMA_CHAT_DATA_DIR").unwrap_or_else(|_| ".".to_string());
+            let log_dir = format!("{base}/logs/conversations");
+            std::fs::create_dir_all(&log_dir)?;
 
             // Create log file path based on conversation ID
             let log_path = format!("{}/{}.log", log_dir, conversation_id.replace(".txt", ""));

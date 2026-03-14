@@ -63,8 +63,9 @@ pub async fn handle_post_frontend_logs(req: Request<Body>) -> Result<Response<Bo
     let entry_count = batch.logs.len();
 
     // Ensure log directory exists.
-    let log_dir = "logs/frontend";
-    if let Err(e) = std::fs::create_dir_all(log_dir) {
+    let base = std::env::var("LLAMA_CHAT_DATA_DIR").unwrap_or_else(|_| ".".to_string());
+    let log_dir = format!("{base}/logs/frontend");
+    if let Err(e) = std::fs::create_dir_all(&log_dir) {
         sys_warn!("[FRONTEND LOGS] Failed to create log dir: {}", e);
         return Ok(json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
