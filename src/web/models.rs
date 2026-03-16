@@ -145,6 +145,8 @@ pub struct SamplerConfig {
     pub web_search_api_key: Option<String>,
     #[serde(default)]
     pub web_browser_backend: Option<String>,
+    #[serde(default)]
+    pub models_directory: Option<String>,
     // Hardware / context / sampler params
     #[serde(default = "default_seed")]
     pub seed: i32,
@@ -285,6 +287,7 @@ impl Default for SamplerConfig {
             web_search_provider: None,
             web_search_api_key: None,
             web_browser_backend: None,
+            models_directory: None,
             seed: -1,
             n_ubatch: 512,
             n_threads: 0,

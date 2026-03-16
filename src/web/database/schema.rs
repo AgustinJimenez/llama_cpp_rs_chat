@@ -391,6 +391,12 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         [],
     );
 
+    // Models directory for hub downloads
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN models_directory TEXT",
+        [],
+    );
+
     // Add tag_pairs JSON column if missing
     let _ = conn.execute(
         "ALTER TABLE config ADD COLUMN tag_pairs TEXT",

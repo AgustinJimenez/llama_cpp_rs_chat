@@ -263,8 +263,8 @@ fn get_window_text_inner(_hwnd: isize, max_chars: usize) -> Result<String, Strin
 
     // Use the platform OCR to extract all text from the image
     #[cfg(target_os = "macos")]
-    let ocr_result = super::ocr_tools::ocr_image_vision(&img)
-        .or_else(|_| super::ocr_tools::ocr_image_tesseract(&img));
+    let ocr_result = super::ocr_tools::ocr_image_vision(&img, None)
+        .or_else(|_| super::ocr_tools::ocr_image_tesseract(&img, None));
 
     #[cfg(target_os = "linux")]
     let ocr_result = super::ocr_tools::ocr_image_tesseract(&img);
@@ -579,7 +579,7 @@ pub fn tool_drag_and_drop_element(args: &Value) -> NativeToolResult {
 
     // --- macOS/Linux: OCR fallback path ---
     #[cfg(not(windows))]
-    let positions: Result<((i32, i32, String), (i32, i32, String)), String> = {
+    let positions: Result<((i32, i32, String), (i32, i32, String)), String> = (|| {
         let from_search = match from_name {
             Some(n) => n.to_lowercase(),
             None => from_type.unwrap_or("").to_lowercase(),
@@ -592,7 +592,7 @@ pub fn tool_drag_and_drop_element(args: &Value) -> NativeToolResult {
         let from_pos = ocr_find_element_on_screen(&from_search)?;
         let to_pos = ocr_find_element_on_screen(&to_search)?;
         Ok((from_pos, to_pos))
-    };
+    })();
 
     match positions {
         Ok((from, to)) => {
@@ -754,14 +754,14 @@ pub fn tool_get_context_menu(args: &Value) -> NativeToolResult {
 
     // --- macOS/Linux: OCR fallback path ---
     #[cfg(not(windows))]
-    let menu_result: Result<(Vec<String>, Option<(i32, i32, String)>), String> = {
+    let menu_result: Result<(Vec<String>, Option<(i32, i32, String)>), String> = (|| {
         // Wait a little more for the context menu to fully render
         std::thread::sleep(std::time::Duration::from_millis(200));
 
         // Capture screen and OCR the region near the right-click point
         let monitors = xcap::Monitor::all().map_err(|e| format!("{e}"))?;
         if monitors.is_empty() {
-            return NativeToolResult::text_only("No monitors available".to_string());
+            return Err("No monitors available".to_string());
         }
         let img = monitors[0].capture_image().map_err(|e| format!("Screen capture: {e}"))?;
 
@@ -777,11 +777,11 @@ pub fn tool_get_context_menu(args: &Value) -> NativeToolResult {
 
         // Run OCR on the cropped region
         #[cfg(target_os = "macos")]
-        let ocr_text = super::ocr_tools::ocr_image_vision(&cropped)
-            .or_else(|_| super::ocr_tools::ocr_image_tesseract(&cropped));
+        let ocr_text = super::ocr_tools::ocr_image_vision(&cropped, None)
+            .or_else(|_| super::ocr_tools::ocr_image_tesseract(&cropped, None));
 
         #[cfg(target_os = "linux")]
-        let ocr_text = super::ocr_tools::ocr_image_tesseract(&cropped);
+        let ocr_text = super::ocr_tools::ocr_image_tesseract(&cropped, None);
 
         match ocr_text {
             Ok(text) => {
@@ -814,7 +814,7 @@ pub fn tool_get_context_menu(args: &Value) -> NativeToolResult {
             }
             Err(e) => Err(format!("OCR failed: {e}")),
         }
-    };
+    })();
 
     match menu_result {
         Ok((items, to_click)) => {

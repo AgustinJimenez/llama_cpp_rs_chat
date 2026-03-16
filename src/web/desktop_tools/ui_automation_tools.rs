@@ -180,6 +180,11 @@ fn ui_tree_winrt(hwnd: isize, max_depth: usize, exclude_types: &[String]) -> Res
     }
 }
 
+#[cfg(not(windows))]
+fn ui_tree_winrt(_hwnd: isize, _max_depth: usize, _exclude_types: &[String]) -> Result<String, String> {
+    Err("UI Automation tree requires Windows COM APIs".to_string())
+}
+
 #[cfg(windows)]
 fn get_element_info(elem: &windows::Win32::UI::Accessibility::IUIAutomationElement) -> Result<String, String> {
     let name = unsafe { elem.CurrentName() }
@@ -249,6 +254,7 @@ pub(super) fn control_type_name(id: i32) -> String {
 }
 
 #[cfg(not(windows))]
+#[allow(dead_code)]
 pub(super) fn control_type_name(_id: i32) -> String {
     "unknown".to_string()
 }
@@ -687,6 +693,11 @@ fn invoke_ui_action_inner(hwnd: isize, name_filter: Option<&str>, type_filter: O
     }
 }
 
+#[cfg(not(windows))]
+fn invoke_ui_action_inner(_hwnd: isize, _name_filter: Option<&str>, _type_filter: Option<&str>, _action: &str, _value: Option<&str>) -> Result<String, String> {
+    Err("UI Automation actions require Windows COM APIs".to_string())
+}
+
 /// Recursive search returning the raw IUIAutomationElement (needed for pattern invocation).
 #[cfg(windows)]
 pub(super) fn find_raw_ui_element(
@@ -737,6 +748,7 @@ pub(super) fn find_raw_ui_element(
 }
 
 #[cfg(not(windows))]
+#[allow(dead_code)]
 pub(super) fn find_raw_ui_element(
     _hwnd: isize,
     _name_filter: Option<&str>,
@@ -834,6 +846,11 @@ fn read_ui_element_value_inner(hwnd: isize, name_filter: Option<&str>, type_filt
 
     // Fallback to element name
     Ok(format!("[{control_type}] \"{elem_name}\"{rect_str}\nValue: (no ValuePattern, name shown above)"))
+}
+
+#[cfg(not(windows))]
+fn read_ui_element_value_inner(_hwnd: isize, _name_filter: Option<&str>, _type_filter: Option<&str>) -> Result<String, String> {
+    Err("UI element value reading requires Windows COM APIs".to_string())
 }
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]

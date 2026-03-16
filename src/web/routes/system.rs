@@ -5,6 +5,7 @@ use std::convert::Infallible;
 
 use crate::web::database::SharedDatabase;
 use crate::web::response_helpers::{json_raw, json_response, json_error};
+#[cfg(target_os = "windows")]
 use crate::{sys_debug, sys_warn};
 
 #[cfg(target_os = "windows")]
@@ -46,7 +47,7 @@ pub async fn handle_system_usage() -> Result<Response<Body>, Infallible> {
     };
 
     #[cfg(not(target_os = "windows"))]
-    let (cpu_usage, ram_usage, gpu_usage, cpu_perf_pct) = (0.0_f32, 0.0_f32, 0.0_f32, 100.0_f32);
+    let (cpu_usage, ram_usage, gpu_usage, _cpu_perf_pct) = (0.0_f32, 0.0_f32, 0.0_f32, 100.0_f32);
 
     // Get hardware totals (cached alongside usage)
     #[cfg(target_os = "windows")]
@@ -54,8 +55,20 @@ pub async fn handle_system_usage() -> Result<Response<Body>, Infallible> {
         let last = HARDWARE_TOTALS.lock().unwrap();
         (last.0, last.1, last.2, last.3)
     };
-    #[cfg(not(target_os = "windows"))]
-    let (total_ram_gb, total_vram_gb, cpu_cores, cpu_base_mhz) = (0.0_f32, 0.0_f32, 0_u32, 0_u32);
+    #[cfg(target_os = "macos")]
+    let (total_ram_gb, total_vram_gb, cpu_cores, _cpu_base_mhz) = {
+        use std::process::Command;
+        let ram = Command::new("sysctl").args(["-n", "hw.memsize"]).output()
+            .ok().and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<u64>().ok())
+            .map(|b| b as f32 / 1_073_741_824.0).unwrap_or(0.0);
+        let cores = Command::new("sysctl").args(["-n", "hw.ncpu"]).output()
+            .ok().and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<u32>().ok())
+            .unwrap_or(0);
+        // macOS unified memory — GPU shares RAM
+        (ram, ram, cores, 0_u32)
+    };
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let (total_ram_gb, total_vram_gb, cpu_cores, _cpu_base_mhz) = (0.0_f32, 0.0_f32, 0_u32, 0_u32);
 
     // Current CPU speed = base_mhz * (perf% / 100)
     #[cfg(target_os = "windows")]
@@ -244,6 +257,7 @@ pub fn get_windows_system_usage() -> (f32, f32, f32, f32) {
 }
 
 #[cfg(not(target_os = "windows"))]
+#[allow(dead_code)]
 pub fn get_windows_system_usage() -> (f32, f32, f32, f32) {
     // Return placeholder values on non-Windows platforms
     (0.0, 0.0, 0.0, 100.0)

@@ -4,7 +4,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '../atoms/dialog';
 import { Button } from '../atoms/button';
-import { fetchHubTree, pickDirectory, loadModel } from '@/utils/tauriCommands';
+import { fetchHubTree, loadModel, getConfig, saveConfig } from '@/utils/tauriCommands';
 import { useHubSearch } from '@/hooks/useHubSearch';
 import type { HubModel, HubSortField } from '@/hooks/useHubSearch';
 import type { HubFile, DownloadProgress, HubDownloadRecord } from '@/utils/tauriCommands';
@@ -77,13 +77,14 @@ function fileType(name: string): 'mmproj' | 'imatrix' | 'model' {
 }
 
 // eslint-disable-next-line complexity
-function FileRow({ file, modelId, onDownload, progress, persistedDone, pendingRecord }: {
+function FileRow({ file, modelId, onDownload, progress, persistedDone, pendingRecord, downloadsDisabled }: {
   file: HubFile;
   modelId: string;
   onDownload: (modelId: string, file: HubFile, resumeDest?: string) => void;
   progress?: DownloadProgress | null;
   persistedDone?: boolean;
   pendingRecord?: HubDownloadRecord | null;
+  downloadsDisabled?: boolean;
 }) {
   const quant = extractQuant(file.name);
   const type = fileType(file.name);
@@ -146,9 +147,9 @@ function FileRow({ file, modelId, onDownload, progress, persistedDone, pendingRe
           e.stopPropagation();
           onDownload(modelId, file, pendingRecord?.dest_path);
         }}
-        disabled={isDownloading}
+        disabled={isDownloading || downloadsDisabled}
         className="text-muted-foreground hover:text-foreground shrink-0 relative z-10 disabled:opacity-50"
-        title={isPaused ? 'Resume download' : isDownloading ? 'Downloading...' : 'Download to local disk'}
+        title={downloadsDisabled ? 'Set a download directory first' : isPaused ? 'Resume download' : isDownloading ? 'Downloading...' : 'Download to local disk'}
         aria-label={isPaused ? 'Resume download' : isDownloading ? 'Downloading' : 'Download file'}
       >
         {isDownloading
@@ -160,12 +161,13 @@ function FileRow({ file, modelId, onDownload, progress, persistedDone, pendingRe
   );
 }
 
-function ModelCard({ model, onDownload, downloads, downloadedSet, pendingDownloads }: {
+function ModelCard({ model, onDownload, downloads, downloadedSet, pendingDownloads, downloadsDisabled }: {
   model: HubModel;
   onDownload: (modelId: string, file: HubFile, resumeDest?: string) => void;
   downloads: Map<string, DownloadProgress>;
   downloadedSet: Set<string>;
   pendingDownloads: Map<string, HubDownloadRecord>;
+  downloadsDisabled?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [detailedFiles, setDetailedFiles] = useState<HubFile[] | null>(null);
@@ -243,6 +245,7 @@ function ModelCard({ model, onDownload, downloads, downloadedSet, pendingDownloa
                 progress={downloads.get(key)}
                 persistedDone={downloadedSet.has(key)}
                 pendingRecord={pendingDownloads.get(key)}
+                downloadsDisabled={downloadsDisabled}
               />
             );
           })}
@@ -427,6 +430,8 @@ function DownloadsTab({ completedDownloads, pendingDownloads, downloads, onResum
 export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => {
   const [activeTab, setActiveTab] = useState<TabId>('explore');
   const [query, setQuery] = useState('');
+  const [modelsDirectory, setModelsDirectory] = useState<string | null>(null);
+  const [dirInput, setDirInput] = useState('');
   const { models, isLoading, error, sort, searchModels, debouncedSearch, changeSort } = useHubSearch();
   const { downloads, downloadedSet, completedDownloads, pendingDownloads, startDownload, cancelDownload, refreshRecords } = useDownloadContext();
 
@@ -434,6 +439,11 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
     if (isOpen) {
       searchModels('');
       refreshRecords();
+      getConfig().then((cfg) => {
+        const dir = cfg.models_directory ?? null;
+        setModelsDirectory(dir);
+        setDirInput(dir ?? '');
+      }).catch(() => {});
     }
   }, [isOpen, searchModels, refreshRecords]);
 
@@ -454,10 +464,22 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
   };
 
   const handleDownloadClick = useCallback(async (modelId: string, file: HubFile, resumeDest?: string) => {
-    const dirPath = resumeDest ?? await pickDirectory();
+    const dirPath = resumeDest ?? modelsDirectory;
     if (!dirPath) return;
     startDownload(modelId, file, dirPath);
-  }, [startDownload]);
+  }, [startDownload, modelsDirectory]);
+
+  const handleSetDirectory = useCallback(async () => {
+    const trimmed = dirInput.trim();
+    if (!trimmed) return;
+    try {
+      const cfg = await getConfig();
+      await saveConfig({ ...cfg, models_directory: trimmed });
+      setModelsDirectory(trimmed);
+    } catch (err) {
+      console.error('Failed to save models directory:', err);
+    }
+  }, [dirInput]);
 
   const handleResume = useCallback((record: HubDownloadRecord) => {
     startDownload(record.model_id, { name: record.filename, size: record.file_size }, record.dest_path);
@@ -526,6 +548,31 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
         {/* Explore tab */}
         {activeTab === 'explore' ? (
           <>
+            {/* Models directory config */}
+            <div className="flex items-center gap-2 px-1 py-1.5 border rounded-md bg-muted/30">
+              <FolderOpen className="h-4 w-4 text-muted-foreground shrink-0 ml-1" />
+              <input
+                value={dirInput}
+                onChange={(e) => setDirInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleSetDirectory(); }}
+                placeholder="Set models download directory..."
+                className="flex-1 min-w-0 bg-transparent text-sm focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={handleSetDirectory}
+                disabled={!dirInput.trim() || dirInput.trim() === modelsDirectory}
+                className="text-xs font-medium px-2 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 shrink-0"
+              >
+                Set
+              </button>
+            </div>
+            {!modelsDirectory ? (
+              <p className="text-xs text-muted-foreground px-1">
+                Set a download directory to enable downloads.
+              </p>
+            ) : null}
+
             <div className="flex items-center gap-2">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -577,6 +624,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
                   downloads={downloads}
                   downloadedSet={downloadedSet}
                   pendingDownloads={pendingDownloads}
+                  downloadsDisabled={!modelsDirectory}
                 />
               ))}
             </div>

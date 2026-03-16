@@ -58,8 +58,14 @@ fn build_context_params(
         .with_type_k(parse_kv_cache_type(&config.cache_type_k))
         .with_type_v(parse_kv_cache_type(&config.cache_type_v))
         .with_n_batch(config.n_batch)
-        .with_n_ubatch(config.n_ubatch)
-        .with_no_perf(false); // Enable internal perf timing (matches llama-server)
+        .with_n_ubatch(config.n_ubatch);
+
+    // Enable perf timing (disabled by default in llama.cpp since no_perf defaults to true)
+    // SAFETY: LlamaContextParams is a newtype wrapper around llama_context_params.
+    unsafe {
+        let raw = &mut *(&mut params as *mut LlamaContextParams as *mut llama_cpp_sys_2::llama_context_params);
+        raw.no_perf = false;
+    }
 
     if config.flash_attention {
         params = params.with_flash_attention_policy(1);

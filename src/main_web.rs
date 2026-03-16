@@ -197,7 +197,7 @@ async fn handle_request_impl(
 
         // File operations
         (&Method::GET, "/api/browse") => web::routes::files::handle_get_browse(req, bridge.clone()).await?,
-        (&Method::POST, "/api/browse/pick-directory") => web::routes::files::handle_post_pick_directory(bridge.clone()).await?,
+        (&Method::POST, "/api/browse/pick-directory") => web::routes::files::handle_post_pick_directory(bridge.clone(), db.clone()).await?,
         (&Method::POST, "/api/browse/pick-file") => web::routes::files::handle_post_pick_file(bridge.clone()).await?,
 
         (&Method::POST, "/api/upload") => {

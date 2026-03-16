@@ -266,6 +266,7 @@ pub fn migrate_config(db: &Database) -> Result<bool, String> {
         web_search_provider: None,
         web_search_api_key: None,
         web_browser_backend: None,
+        models_directory: None,
         seed: -1,
         n_ubatch: 512,
         n_threads: 0,

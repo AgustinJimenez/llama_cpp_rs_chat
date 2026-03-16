@@ -1139,6 +1139,7 @@ pub fn tool_type_text(args: &Value) -> NativeToolResult {
         return tool_error("type_text", e);
     }
 
+    #[allow(unused_mut)]
     let mut summary = if text.len() > 50 {
         format!("Typed {} characters: \"{}...\"", text.len(), &text[..50])
     } else {

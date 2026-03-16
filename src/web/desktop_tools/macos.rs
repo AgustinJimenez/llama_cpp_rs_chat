@@ -1,6 +1,6 @@
 //! macOS platform helpers for desktop automation tools.
 //! Provides the same public API as win32.rs using osascript/AppleScript, arboard, and sysinfo.
-#![allow(dead_code)]
+#![allow(dead_code, non_snake_case)]
 
 use enigo::Key;
 use std::process::Command;
@@ -55,6 +55,8 @@ pub const ERROR_SUCCESS: DWORD = 0;
 pub const INPUT_KEYBOARD: u32 = 1;
 pub const KEYEVENTF_UNICODE: u32 = 0x0004;
 pub const KEYEVENTF_KEYUP: u32 = 0x0002;
+pub const KEYEVENTF_SCANCODE: u32 = 0x0008;
+pub const MAPVK_VK_TO_VSC: u32 = 0;
 
 // Structs — match win32.rs layout
 #[repr(C)]
@@ -141,6 +143,48 @@ pub struct WindowInfo {
     pub minimized: bool,
     pub maximized: bool,
     pub focused: bool,
+}
+
+// --- Win32-compatible stubs (no-ops on macOS) ---
+
+/// Stub: returns 0 (not maximized) on macOS.
+pub unsafe fn IsZoomed(_hwnd: HWND) -> BOOL {
+    0
+}
+
+/// Stub: no-op on macOS. Returns 1 (success).
+pub unsafe fn ShowWindow(_hwnd: HWND, _cmd_show: i32) -> BOOL {
+    1
+}
+
+/// Stub: no-op on macOS. Returns 1 (success).
+pub unsafe fn SetWindowPos(_hwnd: HWND, _insert_after: isize, _x: i32, _y: i32, _cx: i32, _cy: i32, _flags: u32) -> BOOL {
+    1
+}
+
+/// Stub: no-op on macOS. Returns 1 (success).
+pub unsafe fn PostMessageW(_hwnd: HWND, _msg: u32, _wparam: usize, _lparam: isize) -> BOOL {
+    1
+}
+
+/// Stub: no-op on macOS. Returns 1 (success).
+pub unsafe fn SetForegroundWindow(_hwnd: HWND) -> BOOL {
+    1
+}
+
+/// Stub: no-op on macOS. Returns 0.
+pub unsafe fn SendInput(_count: u32, _inputs: *const INPUT, _size: i32) -> u32 {
+    0
+}
+
+/// Stub: no-op on macOS. Returns 0.
+pub unsafe fn MapVirtualKeyW(_code: u32, _map_type: u32) -> u32 {
+    0
+}
+
+/// Stub: returns 0 (null handle) on macOS.
+pub unsafe fn GetForegroundWindow() -> HWND {
+    0
 }
 
 // --- Helper: run osascript ---
@@ -457,11 +501,15 @@ pub fn get_monitor_work_area(_hwnd: HWND) -> Result<RECT, String> {
     // Use xcap to get monitor dimensions
     let monitors = xcap::Monitor::all().map_err(|e| format!("xcap error: {e}"))?;
     if let Some(m) = monitors.first() {
+        let mx = m.x().unwrap_or(0);
+        let my = m.y().unwrap_or(0);
+        let mw = m.width().unwrap_or(0) as i32;
+        let mh = m.height().unwrap_or(0) as i32;
         Ok(RECT {
-            left: m.x(),
-            top: m.y(),
-            right: m.x() + m.width() as i32,
-            bottom: m.y() + m.height() as i32,
+            left: mx,
+            top: my,
+            right: mx + mw,
+            bottom: my + mh,
         })
     } else {
         Err("No monitors found".to_string())
@@ -516,8 +564,8 @@ pub fn get_pixel_color(x: i32, y: i32) -> Result<(u8, u8, u8), String> {
     let monitors = xcap::Monitor::all().map_err(|e| format!("xcap error: {e}"))?;
     let monitor = monitors.first().ok_or("No monitors")?;
     let img = monitor.capture_image().map_err(|e| format!("capture error: {e}"))?;
-    let mx = (x - monitor.x()) as u32;
-    let my = (y - monitor.y()) as u32;
+    let mx = (x - monitor.x().unwrap_or(0)) as u32;
+    let my = (y - monitor.y().unwrap_or(0)) as u32;
     if mx < img.width() && my < img.height() {
         let pixel = img.get_pixel(mx, my);
         Ok((pixel[0], pixel[1], pixel[2]))
@@ -659,7 +707,7 @@ pub fn get_window_class_name(_hwnd: HWND) -> String {
 pub fn get_system_dpi_scale() -> f64 {
     if let Ok(monitors) = xcap::Monitor::all() {
         if let Some(m) = monitors.first() {
-            return m.scale_factor() as f64;
+            return m.scale_factor().unwrap_or(1.0) as f64;
         }
     }
     1.0

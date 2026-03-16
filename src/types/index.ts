@@ -79,6 +79,7 @@ export interface SamplerConfig {
   web_search_provider?: string;
   web_search_api_key?: string;
   web_browser_backend?: string;  // "chrome" | "chrome-headless-shell" | "agent-browser" | "none"
+  models_directory?: string;
   // Hardware / context / sampler params
   seed?: number;           // -1 = random
   n_ubatch?: number;       // default 512

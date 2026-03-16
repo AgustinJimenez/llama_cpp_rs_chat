@@ -65,7 +65,7 @@ impl Database {
     }
 
     /// Get a reference to the connection (locked)
-    pub fn connection(&self) -> std::sync::MutexGuard<Connection> {
+    pub fn connection(&self) -> std::sync::MutexGuard<'_, Connection> {
         self.conn.lock().expect("Database lock poisoned")
     }
 

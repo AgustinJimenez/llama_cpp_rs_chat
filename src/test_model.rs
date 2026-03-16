@@ -56,8 +56,7 @@ fn main() {
         .with_offload_kqv(true)
         .with_type_k(KvCacheType::Q8_0)
         .with_type_v(KvCacheType::Q8_0)
-        .with_flash_attention_policy(1) // Flash attention ON
-        .with_no_perf(false); // Enable internal perf timing
+        .with_flash_attention_policy(1); // Flash attention ON
 
     let mut ctx = model
         .new_context(&backend, ctx_params)
