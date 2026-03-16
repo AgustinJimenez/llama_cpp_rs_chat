@@ -291,6 +291,11 @@ impl WorkerBridge {
         self.model_meta.lock().await.clone()
     }
 
+    /// Check if a generation is currently active (streaming tokens or executing tools).
+    pub async fn is_generating(&self) -> bool {
+        self.active_generation.lock().await.is_some()
+    }
+
     /// Start a generation request. Returns a receiver for streaming tokens.
     /// The caller reads `TokenData` from the receiver until it closes.
     pub async fn generate(

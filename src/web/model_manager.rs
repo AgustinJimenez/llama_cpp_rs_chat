@@ -34,6 +34,7 @@ pub fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
                         loaded,
                         loading: None,
                         loading_progress: None,
+                        generating: None,
                         model_path,
                         last_used,
                         memory_usage_mb: if loaded { Some(512) } else { None }, // Rough estimate
@@ -47,6 +48,7 @@ pub fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
                     loaded: false,
                     loading: None,
                     loading_progress: None,
+                    generating: None,
                     model_path: None,
                     last_used: None,
                     memory_usage_mb: None,
@@ -61,6 +63,7 @@ pub fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
             loaded: false,
             loading: None,
             loading_progress: None,
+            generating: None,
             model_path: None,
             last_used: None,
             memory_usage_mb: None,

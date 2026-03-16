@@ -539,6 +539,9 @@ pub struct ModelStatus {
     pub loading: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub loading_progress: Option<u8>,
+    /// True when a generation is active (streaming tokens or executing tools).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generating: Option<bool>,
     pub model_path: Option<String>,
     pub last_used: Option<String>,
     pub memory_usage_mb: Option<u64>,

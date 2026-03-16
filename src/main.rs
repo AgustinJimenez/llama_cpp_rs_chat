@@ -115,6 +115,7 @@ async fn get_model_status(
 ) -> Result<ModelStatus, String> {
     let is_loading = bridge.is_loading();
     let progress = if is_loading { Some(bridge.loading_progress()) } else { None };
+    let is_generating = bridge.is_generating().await;
 
     Ok(match bridge.model_status().await {
         Some(meta) => {
@@ -127,6 +128,7 @@ async fn get_model_status(
                 loaded: meta.loaded,
                 loading: if is_loading { Some(true) } else { None },
                 loading_progress: progress,
+                generating: if is_generating { Some(true) } else { None },
                 model_path: Some(meta.model_path),
                 last_used: None,
                 memory_usage_mb: if meta.loaded { Some(512) } else { None },
@@ -140,6 +142,7 @@ async fn get_model_status(
             loaded: false,
             loading: if is_loading { Some(true) } else { None },
             loading_progress: progress,
+            generating: if is_generating { Some(true) } else { None },
             model_path: None,
             last_used: None,
             memory_usage_mb: None,
@@ -167,6 +170,7 @@ async fn load_model(
                     loaded: true,
                     loading: None,
                     loading_progress: None,
+                    generating: None,
                     model_path: Some(meta.model_path.clone()),
                     last_used: None,
                     memory_usage_mb: Some(512),
@@ -197,6 +201,7 @@ async fn unload_model(
                 loaded: false,
                 loading: None,
                 loading_progress: None,
+                generating: None,
                 model_path: None,
                 last_used: None,
                 memory_usage_mb: None,

@@ -7,6 +7,7 @@ import { logToastError } from '../utils/toastLogger';
 interface ModelStatus {
   loaded: boolean;
   loading_progress?: number;
+  generating?: boolean;
   model_path: string | null;
   last_used: string | null;
   memory_usage_mb: number | null;
