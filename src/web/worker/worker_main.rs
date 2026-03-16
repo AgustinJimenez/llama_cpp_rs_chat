@@ -470,12 +470,30 @@ pub fn run_worker(db_path: &str) {
                 image_data,
             } => {
                 // Clean up finished generation thread before checking availability.
-                // Fixes race where thread sent GenerationComplete but hasn't exited yet.
                 if let Some(handle) = generation_thread.take() {
                     if handle.is_finished() {
                         let _ = handle.join();
+                    } else if cancel_flag.load(Ordering::SeqCst) {
+                        // Cancel was requested — wait up to 3s for the thread to finish
+                        eprintln!("[WORKER] Waiting for cancelled generation to finish...");
+                        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+                        while !handle.is_finished() && std::time::Instant::now() < deadline {
+                            std::thread::sleep(std::time::Duration::from_millis(50));
+                        }
+                        if handle.is_finished() {
+                            let _ = handle.join();
+                            eprintln!("[WORKER] Cancelled generation cleaned up");
+                        } else {
+                            // Still stuck after 3s — reject
+                            generation_thread = Some(handle);
+                            write_response(
+                                &mut ipc_writer,
+                                &WorkerResponse::error(req_id, "Generation still cancelling, please wait"),
+                            );
+                            continue;
+                        }
                     } else {
-                        // Still actually running — put it back and reject
+                        // Still actually running, not cancelled — reject
                         generation_thread = Some(handle);
                         write_response(
                             &mut ipc_writer,
