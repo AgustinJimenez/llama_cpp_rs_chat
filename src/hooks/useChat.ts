@@ -324,11 +324,11 @@ export function useChat() {
     // If a generation is in progress, cancel it first before sending new message
     if (isLoading && !bypassLoadingCheck) {
       abortControllerRef.current?.abort();
-      cancelGeneration().catch(() => {});
+      await cancelGeneration().catch(() => {});
       isStreamingRef.current = false;
       setIsLoading(false);
-      // Brief delay to let backend process the cancellation
-      await new Promise(resolve => setTimeout(resolve, 300));
+      // Wait for backend to fully cancel (kill subprocess + release generation slot)
+      await new Promise(resolve => setTimeout(resolve, 1500));
     }
 
     // Reset auto-continue counter on new user message

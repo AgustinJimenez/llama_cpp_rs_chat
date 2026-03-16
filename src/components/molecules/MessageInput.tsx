@@ -97,7 +97,8 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   const hasVision = status.has_vision ?? false;
   const isModelBusy = isModelLoading && loadingAction === 'loading';
 
-  const disabled = isLoading || isModelBusy;
+  // Only disable input while model is loading (not during generation — user can interrupt)
+  const disabled = isModelBusy;
   const [message, setMessage] = useState('');
   const [attachedImages, setAttachedImages] = useState<string[]>([]);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
