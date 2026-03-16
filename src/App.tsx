@@ -1,4 +1,4 @@
-import React, { useCallback, Suspense } from 'react';
+import React, { useCallback, useEffect, Suspense } from 'react';
 import { Toaster } from 'react-hot-toast';
 import { ChatHeader, Sidebar } from './components/organisms';
 import { MessagesArea } from './components/templates';
@@ -9,6 +9,7 @@ import { useChatContext } from './contexts/ChatContext';
 import { useUIContext } from './contexts/UIContext';
 import type { SamplerConfig } from './types';
 import { DownloadFloat } from './components/organisms/DownloadFloat';
+import { isTauriEnv } from './utils/tauri';
 
 // Lazy-load overlay components (only rendered when opened)
 const RightSidebar = React.lazy(() => import('./components/organisms/RightSidebar').then(m => ({ default: m.RightSidebar })));
@@ -19,7 +20,26 @@ const ModelConfigModal = React.lazy(() => import('./components/organisms/model-c
 function App() {
   const { status: modelStatus, loadModel, unloadModel, forceUnload } = useModelContext();
   const { clearMessages } = useChatContext();
-  const { closeModelConfig } = useUIContext();
+  const { closeModelConfig, openAppSettings } = useUIContext();
+
+  // Listen for Tauri menu/tray events
+  useEffect(() => {
+    if (!isTauriEnv()) return;
+    let unlisten: Array<() => void> = [];
+    (async () => {
+      const { listen } = await import('@tauri-apps/api/event');
+      unlisten.push(await listen('new-chat', () => {
+        clearMessages();
+        requestAnimationFrame(() => {
+          document.querySelector<HTMLTextAreaElement>('[data-testid="message-input"]')?.focus();
+        });
+      }));
+      unlisten.push(await listen('open-settings', () => {
+        openAppSettings();
+      }));
+    })();
+    return () => { unlisten.forEach(fn => fn()); };
+  }, [clearMessages, openAppSettings]);
 
   const handleNewConversation = useCallback(() => {
     clearMessages();

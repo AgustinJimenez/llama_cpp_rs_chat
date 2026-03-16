@@ -22,7 +22,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src ipc: http://ipc.localhost"
     }
   },
   "bundle": {
@@ -41,6 +41,17 @@
     "windows": {
       "nsis": {
         "installMode": "both"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": ["https://github.com/AgusMJimenez/llama_cpp_rs_chat/releases/latest/download/latest.json"],
+      "pubkey": ""
+    },
+    "deep-link": {
+      "desktop": {
+        "schemes": ["llamachat"]
       }
     }
   }

@@ -205,5 +205,39 @@ pub fn extract_model_info(decoded_path: &str) -> Result<serde_json::Value, Strin
         }
     }
 
+    // Scan for mmproj companion files in the model's directory
+    if let Some(parent) = path_obj.parent() {
+        let mut mmproj_files = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(parent) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_file() {
+                    if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                        let lower = name.to_lowercase();
+                        if lower.contains("mmproj") && lower.ends_with(".gguf") {
+                            let size = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+                            let size_str = if size >= 1_073_741_824 {
+                                format!("{:.1} GB", size as f64 / 1_073_741_824.0)
+                            } else if size >= 1_048_576 {
+                                format!("{:.0} MB", size as f64 / 1_048_576.0)
+                            } else {
+                                format!("{size} bytes")
+                            };
+                            mmproj_files.push(serde_json::json!({
+                                "name": name,
+                                "path": p.to_string_lossy(),
+                                "size": size_str
+                            }));
+                        }
+                    }
+                }
+            }
+        }
+        if !mmproj_files.is_empty() {
+            model_info["has_vision"] = serde_json::json!(true);
+            model_info["mmproj_files"] = serde_json::json!(mmproj_files);
+        }
+    }
+
     Ok(model_info)
 }

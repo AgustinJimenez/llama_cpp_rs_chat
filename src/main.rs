@@ -12,7 +12,9 @@ use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, WindowEvent};
+use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
+use tauri::tray::TrayIconBuilder;
 
 use web::config::{
     add_to_model_history, db_config_to_sampler_config, load_config, sampler_config_to_db,
@@ -111,6 +113,9 @@ async fn save_config(
 async fn get_model_status(
     bridge: tauri::State<'_, SharedWorkerBridge>,
 ) -> Result<ModelStatus, String> {
+    let is_loading = bridge.is_loading();
+    let progress = if is_loading { Some(bridge.loading_progress()) } else { None };
+
     Ok(match bridge.model_status().await {
         Some(meta) => {
             let tags = if meta.loaded {
@@ -120,8 +125,8 @@ async fn get_model_status(
             };
             ModelStatus {
                 loaded: meta.loaded,
-                loading: None,
-                loading_progress: None,
+                loading: if is_loading { Some(true) } else { None },
+                loading_progress: progress,
                 model_path: Some(meta.model_path),
                 last_used: None,
                 memory_usage_mb: if meta.loaded { Some(512) } else { None },
@@ -133,8 +138,8 @@ async fn get_model_status(
         }
         None => ModelStatus {
             loaded: false,
-            loading: None,
-            loading_progress: None,
+            loading: if is_loading { Some(true) } else { None },
+            loading_progress: progress,
             model_path: None,
             last_used: None,
             memory_usage_mb: None,
@@ -822,14 +827,31 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        // Window state plugin disabled — was restoring stale fullscreen state
-        // .plugin(tauri_plugin_window_state::Builder::default().build())
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::POSITION
+                        | tauri_plugin_window_state::StateFlags::SIZE
+                        | tauri_plugin_window_state::StateFlags::MAXIMIZED
+                        | tauri_plugin_window_state::StateFlags::VISIBLE,
+                )
+                .build(),
+        )
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
                 let _ = window.set_focus();
+            }
+            // Forward deep link URLs from second instance
+            for arg in &args {
+                if arg.starts_with("llamachat://") {
+                    let _ = app.emit("deep-link", arg.clone());
+                }
             }
         }))
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
             // Resolve app data directory for persistent storage
             let data_dir = app.path().app_data_dir()
@@ -885,7 +907,119 @@ fn main() {
             app.manage(db);
             app.manage(bridge);
 
+            // ─── App Menu ────────────────────────────────────────────
+            let new_chat = MenuItemBuilder::with_id("new-chat", "New Chat")
+                .accelerator("CmdOrCtrl+N")
+                .build(app)?;
+            let settings = MenuItemBuilder::with_id("open-settings", "Settings...")
+                .accelerator("CmdOrCtrl+,")
+                .build(app)?;
+            let quit = MenuItemBuilder::with_id("quit", "Quit")
+                .accelerator("CmdOrCtrl+Q")
+                .build(app)?;
+
+            let file_menu = SubmenuBuilder::new(app, "File")
+                .item(&new_chat)
+                .separator()
+                .item(&settings)
+                .separator()
+                .item(&quit)
+                .build()?;
+
+            let edit_menu = SubmenuBuilder::new(app, "Edit")
+                .item(&PredefinedMenuItem::undo(app, None)?)
+                .item(&PredefinedMenuItem::redo(app, None)?)
+                .separator()
+                .item(&PredefinedMenuItem::cut(app, None)?)
+                .item(&PredefinedMenuItem::copy(app, None)?)
+                .item(&PredefinedMenuItem::paste(app, None)?)
+                .item(&PredefinedMenuItem::select_all(app, None)?)
+                .build()?;
+
+            let menu = MenuBuilder::new(app)
+                .item(&file_menu)
+                .item(&edit_menu)
+                .build()?;
+
+            app.set_menu(menu)?;
+
+            // ─── System Tray ─────────────────────────────────────────
+            let tray_show = MenuItemBuilder::with_id("tray-show", "Show Window").build(app)?;
+            let tray_new = MenuItemBuilder::with_id("tray-new-chat", "New Chat").build(app)?;
+            let tray_quit = MenuItemBuilder::with_id("tray-quit", "Quit").build(app)?;
+
+            let tray_menu = MenuBuilder::new(app)
+                .item(&tray_show)
+                .item(&tray_new)
+                .separator()
+                .item(&tray_quit)
+                .build()?;
+
+            TrayIconBuilder::new()
+                .menu(&tray_menu)
+                .tooltip("LLaMA Chat")
+                .on_menu_event(|app, event| {
+                    match event.id().as_ref() {
+                        "tray-show" => {
+                            if let Some(w) = app.get_webview_window("main") {
+                                let _ = w.show();
+                                let _ = w.set_focus();
+                            }
+                        }
+                        "tray-new-chat" => {
+                            if let Some(w) = app.get_webview_window("main") {
+                                let _ = w.show();
+                                let _ = w.set_focus();
+                            }
+                            let _ = app.emit("new-chat", ());
+                        }
+                        "tray-quit" => {
+                            app.exit(0);
+                        }
+                        _ => {}
+                    }
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let tauri::tray::TrayIconEvent::Click {
+                        button: tauri::tray::MouseButton::Left,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        }
+                    }
+                })
+                .build(app)?;
+
+            eprintln!("[TAURI] Menu and tray icon initialized");
+
             Ok(())
+        })
+        // ─── Menu Event Handler ──────────────────────────────────────
+        .on_menu_event(|app, event| {
+            match event.id().as_ref() {
+                "new-chat" => {
+                    let _ = app.emit("new-chat", ());
+                }
+                "open-settings" => {
+                    let _ = app.emit("open-settings", ());
+                }
+                "quit" => {
+                    app.exit(0);
+                }
+                _ => {}
+            }
+        })
+        // ─── Window Close → Hide to Tray ─────────────────────────────
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                // Hide to tray instead of closing
+                let _ = window.hide();
+                api.prevent_close();
+            }
         })
         .invoke_handler(tauri::generate_handler![
             log_to_file,

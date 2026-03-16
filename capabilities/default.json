@@ -5,8 +5,12 @@
   "permissions": [
     "core:default",
     "core:window:default",
+    "core:tray:default",
+    "core:menu:default",
     "dialog:allow-open",
     "window-state:default",
-    "notification:default"
+    "notification:default",
+    "updater:default",
+    "deep-link:default"
   ]
 }

@@ -113,7 +113,7 @@ extern "C" fn loading_progress_cb(progress: f32, user_data: *mut std::os::raw::c
 }
 
 // Helper function to load a model
-pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, requested_gpu_layers: Option<u32>, model_params: Option<&ModelParams>, _mmproj_path: Option<&str>, progress: Option<Arc<AtomicU8>>) -> Result<(), String> {
+pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, requested_gpu_layers: Option<u32>, model_params: Option<&ModelParams>, mmproj_path: Option<&str>, progress: Option<Arc<AtomicU8>>) -> Result<(), String> {
     log_debug!("system", "load_model called with path: {}", model_path);
 
     // Handle poisoned mutex by recovering from panic
@@ -185,15 +185,20 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, request
     // Load new model with configured GPU acceleration and model params
     let defaults = ModelParams::default();
     let mp = model_params.unwrap_or(&defaults);
-    let llama_model_params = LlamaModelParams::default()
+    let mut llama_model_params = LlamaModelParams::default()
         .with_n_gpu_layers(optimal_gpu_layers)
         .with_use_mlock(mp.use_mlock)
         .with_main_gpu(mp.main_gpu)
         .with_split_mode(parse_split_mode(&mp.split_mode));
 
-    // Progress callback (with_progress_callback) is only available in our custom fork;
-    // skip it to stay compatible with upstream llama-cpp-rs.
-    let _ = &progress;
+    // Wire up progress callback if caller provided an AtomicU8
+    if let Some(ref progress_arc) = progress {
+        let raw_ptr = Arc::as_ptr(progress_arc) as *mut std::os::raw::c_void;
+        // SAFETY: progress_arc lives until load_from_file returns (held by caller's Arc)
+        llama_model_params = unsafe {
+            llama_model_params.with_progress_callback(Some(loading_progress_cb), raw_ptr)
+        };
+    }
 
     log_info!("system", "Loading model from: {}", model_path);
     log_info!(
