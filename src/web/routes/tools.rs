@@ -667,12 +667,12 @@ pub async fn handle_post_tools_execute(
                         "[BASH TOOL] Executing Windows command via PowerShell: {}",
                         cmd_string
                     );
-                    std::process::Command::new("powershell")
+                    crate::web::utils::silent_command("powershell")
                         .args(["-NoProfile", "-NonInteractive", "-Command", &cmd_string])
                         .output()
                 } else {
                     sys_debug!("[BASH TOOL] Executing Unix command: sh -c {}", cmd_string);
-                    std::process::Command::new("sh")
+                    crate::web::utils::silent_command("sh")
                         .arg("-c")
                         .arg(&cmd_string)
                         .output()

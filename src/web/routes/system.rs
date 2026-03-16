@@ -9,8 +9,6 @@ use crate::web::response_helpers::{json_raw, json_response, json_error};
 use crate::{sys_debug, sys_warn};
 
 #[cfg(target_os = "windows")]
-use std::process::Command;
-#[cfg(target_os = "windows")]
 use std::sync::Mutex;
 #[cfg(target_os = "windows")]
 use std::time::{Duration, Instant};
@@ -58,10 +56,10 @@ pub async fn handle_system_usage() -> Result<Response<Body>, Infallible> {
     #[cfg(target_os = "macos")]
     let (total_ram_gb, total_vram_gb, cpu_cores, _cpu_base_mhz) = {
         use std::process::Command;
-        let ram = Command::new("sysctl").args(["-n", "hw.memsize"]).output()
+        let ram = silent_command("sysctl").args(["-n", "hw.memsize"]).output()
             .ok().and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<u64>().ok())
             .map(|b| b as f32 / 1_073_741_824.0).unwrap_or(0.0);
-        let cores = Command::new("sysctl").args(["-n", "hw.ncpu"]).output()
+        let cores = silent_command("sysctl").args(["-n", "hw.ncpu"]).output()
             .ok().and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<u32>().ok())
             .unwrap_or(0);
         // macOS unified memory — GPU shares RAM
@@ -107,17 +105,7 @@ pub fn get_cached_windows_system_usage() -> (f32, f32, f32, f32) {
     (last.1, last.2, last.3, last.4)
 }
 
-/// Create a Command with CREATE_NO_WINDOW on Windows to prevent console flashing.
-#[cfg(target_os = "windows")]
-fn silent_command(program: &str) -> Command {
-    let mut cmd = Command::new(program);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    }
-    cmd
-}
+use crate::web::utils::silent_command;
 
 #[cfg(target_os = "windows")]
 pub fn get_windows_system_usage() -> (f32, f32, f32, f32) {

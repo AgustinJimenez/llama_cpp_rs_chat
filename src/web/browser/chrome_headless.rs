@@ -52,9 +52,9 @@ fn find_binary() -> Option<PathBuf> {
 
     // 3. Check PATH via `where` (Windows) or `which` (Unix)
     #[cfg(target_os = "windows")]
-    let check = std::process::Command::new("where").arg("chrome-headless-shell").output();
+    let check = crate::web::utils::silent_command("where").arg("chrome-headless-shell").output();
     #[cfg(not(target_os = "windows"))]
-    let check = std::process::Command::new("which").arg("chrome-headless-shell").output();
+    let check = crate::web::utils::silent_command("which").arg("chrome-headless-shell").output();
 
     if let Ok(output) = check {
         if output.status.success() {

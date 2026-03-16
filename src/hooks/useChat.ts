@@ -7,7 +7,7 @@ import { useConversationWatcher } from './useConversationWatcher';
 import { logToastError } from '../utils/toastLogger';
 import { notifyIfUnfocused } from '../utils/tauri';
 import { parseConversationFile } from '../utils/conversationParser';
-import { getConversation, truncateConversation } from '../utils/tauriCommands';
+import { getConversation, truncateConversation, cancelGeneration } from '../utils/tauriCommands';
 import { useConnection } from '../contexts/ConnectionContext';
 import type { Message, ChatRequest } from '../types';
 
@@ -319,8 +319,17 @@ export function useChat() {
     }
     const hasImages = imageData && imageData.length > 0;
     const trimmed = content.trim();
-    if (!bypassLoadingCheck && (isLoading || (!trimmed && !hasImages))) return;
     if (!trimmed && !hasImages) return;
+
+    // If a generation is in progress, cancel it first before sending new message
+    if (isLoading && !bypassLoadingCheck) {
+      abortControllerRef.current?.abort();
+      cancelGeneration().catch(() => {});
+      isStreamingRef.current = false;
+      setIsLoading(false);
+      // Brief delay to let backend process the cancellation
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
 
     // Reset auto-continue counter on new user message
     autoContinueCountRef.current = 0;

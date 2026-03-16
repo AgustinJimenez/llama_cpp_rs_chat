@@ -1,8 +1,10 @@
 use std::env;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
+
+use super::utils::silent_command;
 use std::time::Instant;
 
 #[cfg(target_os = "windows")]
@@ -19,7 +21,7 @@ use std::os::windows::process::CommandExt;
 fn kill_process_tree(pid: u32) {
     #[cfg(target_os = "windows")]
     {
-        match Command::new("taskkill")
+        match silent_command("taskkill")
             .args(["/T", "/F", "/PID", &pid.to_string()])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -127,7 +129,7 @@ pub fn is_process_alive(pid: u32) -> bool {
     #[cfg(target_os = "windows")]
     {
         // Use tasklist to check if PID exists (no extra dependencies)
-        Command::new("tasklist")
+        silent_command("tasklist")
             .args(["/FI", &format!("PID eq {pid}"), "/NH"])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -355,7 +357,7 @@ fn execute_windows(cmd: &str, parts: &[String]) -> std::io::Result<std::process:
     // Commands with shell operators (|, >, &&, etc.) must go through PowerShell
     if needs_shell(cmd) {
         let escaped = cmd.replace('$', "`$");
-        return Command::new("powershell")
+        return silent_command("powershell")
             .args(["-NoProfile", "-NonInteractive", "-Command", &escaped])
             .env("PATH", &path)
             .stdin(Stdio::null())
@@ -363,7 +365,7 @@ fn execute_windows(cmd: &str, parts: &[String]) -> std::io::Result<std::process:
     }
 
     // Try direct execution first — no shell means no quoting issues
-    let result = Command::new(&parts[0])
+    let result = silent_command(&parts[0])
         .args(&parts[1..])
         .env("PATH", &path)
         .stdin(Stdio::null())
@@ -375,7 +377,7 @@ fn execute_windows(cmd: &str, parts: &[String]) -> std::io::Result<std::process:
             // Command not found as executable — try PowerShell for aliases/builtins
             // (cat, dir, type, ls, etc. are PowerShell aliases, not real executables)
             let escaped = cmd.replace('$', "`$");
-            Command::new("powershell")
+            silent_command("powershell")
                 .args(["-NoProfile", "-NonInteractive", "-Command", &escaped])
                 .env("PATH", &path)
                 .stdin(Stdio::null())
@@ -412,13 +414,13 @@ pub fn execute_command(cmd: &str) -> String {
             }
         }
         #[cfg(target_os = "windows")]
-        let output = Command::new("cmd")
+        let output = silent_command("cmd")
             .raw_arg(format!("/C {trimmed}"))
             .env("PATH", enriched_windows_path())
             .stdin(Stdio::null())
             .output();
         #[cfg(not(target_os = "windows"))]
-        let output = Command::new("sh").arg("-c").arg(trimmed).stdin(Stdio::null()).output();
+        let output = silent_command("sh").arg("-c").arg(trimmed).stdin(Stdio::null()).output();
         return match output {
             Ok(o) => {
                 let stdout = String::from_utf8_lossy(&o.stdout);
@@ -476,7 +478,7 @@ pub fn execute_command(cmd: &str) -> String {
         let output = if is_windows {
             execute_windows(cmd.trim(), &parts)
         } else {
-            Command::new(&parts[0])
+            silent_command(&parts[0])
                 .args(&parts[1..])
                 .output()
         };
@@ -577,7 +579,7 @@ pub fn execute_command_streaming(
     #[cfg(target_os = "windows")]
     let child_result = {
         let path = enriched_windows_path();
-        let mut cmd = Command::new("cmd");
+        let mut cmd = silent_command("cmd");
         cmd.raw_arg(format!("/C {trimmed} 2>&1"))
             .env("PATH", &path);
         for (k, v) in &env_vars {
@@ -591,7 +593,7 @@ pub fn execute_command_streaming(
 
     #[cfg(not(target_os = "windows"))]
     let child_result = {
-        let mut cmd = Command::new("sh");
+        let mut cmd = silent_command("sh");
         cmd.arg("-c").arg(format!("{trimmed} 2>&1"));
         for (k, v) in &env_vars {
             cmd.env(k, v);
@@ -769,7 +771,7 @@ pub fn execute_command_background(
     #[cfg(target_os = "windows")]
     let child_result = {
         let path = enriched_windows_path();
-        let mut c = Command::new("cmd");
+        let mut c = silent_command("cmd");
         c.raw_arg(format!("/C {trimmed} 2>&1"))
             .env("PATH", &path);
         for (k, v) in &env_vars {
@@ -782,7 +784,7 @@ pub fn execute_command_background(
 
     #[cfg(not(target_os = "windows"))]
     let child_result = {
-        let mut c = Command::new("sh");
+        let mut c = silent_command("sh");
         c.arg("-c").arg(format!("{trimmed} 2>&1"));
         for (k, v) in &env_vars {
             c.env(k, v);
@@ -1219,7 +1221,7 @@ fn try_native_echo_redirect(cmd: &str) -> Option<String> {
     if parts.len() > 1 {
         let prefix_cmds = &parts[..parts.len() - 1];
         for prefix in prefix_cmds {
-            let output = Command::new("sh").arg("-c").arg(prefix).output();
+            let output = silent_command("sh").arg("-c").arg(prefix).output();
             match output {
                 Ok(o) if !o.status.success() => {
                     let stderr = String::from_utf8_lossy(&o.stderr);

@@ -3,7 +3,8 @@
 //! Uses the daemon-based `agent-browser` tool: `open <url>` then `get text body`
 //! or `get html body`. The daemon persists between commands for fast page loads.
 
-use std::process::{Command, Stdio};
+use std::process::Stdio;
+use crate::web::utils::silent_command;
 
 /// Try to find the agent-browser binary.
 fn find_binary() -> Option<String> {
@@ -14,9 +15,9 @@ fn find_binary() -> Option<String> {
 
     // 2. Check PATH via `where` (Windows) or `which` (Unix)
     #[cfg(target_os = "windows")]
-    let check = Command::new("where").arg("agent-browser").output();
+    let check = silent_command("where").arg("agent-browser").output();
     #[cfg(not(target_os = "windows"))]
-    let check = Command::new("which").arg("agent-browser").output();
+    let check = silent_command("which").arg("agent-browser").output();
 
     if let Ok(output) = check {
         if output.status.success() {
@@ -43,7 +44,7 @@ fn find_binary() -> Option<String> {
 
 /// Run an agent-browser command and return stdout.
 fn run_cmd(binary: &str, args: &[&str]) -> Result<String, String> {
-    let output = Command::new(binary)
+    let output = silent_command(binary)
         .args(args)
         .stdin(Stdio::null()) // CRITICAL: prevent IPC pipe inheritance
         .stdout(Stdio::piped())

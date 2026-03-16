@@ -1,4 +1,19 @@
 use serde_json;
+use std::process::Command;
+
+/// Create a Command that won't open a visible console window on Windows.
+/// Use this instead of `Command::new()` for any subprocess spawned from
+/// the Tauri desktop app to prevent terminal windows flashing on screen.
+#[allow(dead_code)]
+pub fn silent_command(program: &str) -> Command {
+    let mut cmd = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    cmd
+}
 
 #[allow(dead_code)]
 pub fn get_available_tools_json() -> String {

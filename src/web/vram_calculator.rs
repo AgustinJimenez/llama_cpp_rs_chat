@@ -9,9 +9,9 @@
 use gguf_llms::{GgufHeader, GgufReader, Value};
 use std::fs;
 use std::io::BufReader;
-use std::process::Command;
 
 use crate::{log_info, log_warn};
+use super::utils::silent_command;
 
 // Constants for VRAM calculations
 pub const DEFAULT_VRAM_GB: f64 = 22.0; // Default VRAM assumption if detection fails
@@ -43,7 +43,7 @@ pub const MIN_VRAM_RATIO: f64 = 0.1; // Minimum 10% VRAM required for GPU offloa
 #[allow(dead_code)]
 pub fn get_available_vram_gb() -> Option<f64> {
     // Try nvidia-smi first
-    if let Ok(output) = Command::new("nvidia-smi")
+    if let Ok(output) = silent_command("nvidia-smi")
         .args(["--query-gpu=memory.free", "--format=csv,noheader,nounits"])
         .output()
     {

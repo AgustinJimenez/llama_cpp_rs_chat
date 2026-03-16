@@ -26,8 +26,8 @@ impl NativeToolResult {
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;
-use std::process::Command;
 use std::sync::Mutex;
+use crate::web::utils::silent_command;
 
 use lazy_static::lazy_static;
 
@@ -1113,7 +1113,7 @@ fn tool_execute_python(args: &Value) -> String {
     }
 
     // Run python on the temp file — no shell involved
-    let result = Command::new("python")
+    let result = silent_command("python")
         .arg(&temp_file)
         .output();
 
@@ -1181,7 +1181,7 @@ fn tool_list_directory(args: &Value) -> String {
 /// Show git status of a repository.
 fn tool_git_status(args: &Value) -> String {
     let path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = silent_command("git");
     cmd.arg("status").arg("--short");
     cmd.current_dir(path);
     cmd.stdin(std::process::Stdio::null());
@@ -1209,7 +1209,7 @@ fn tool_git_diff(args: &Value) -> String {
         v.as_bool().or_else(|| v.as_str().map(|s| s.eq_ignore_ascii_case("true")))
     }).unwrap_or(false);
 
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = silent_command("git");
     cmd.arg("diff");
     if staged {
         cmd.arg("--staged");
@@ -1250,7 +1250,7 @@ fn tool_git_commit(args: &Value) -> String {
         v.as_bool().or_else(|| v.as_str().map(|s| s.eq_ignore_ascii_case("true")))
     }).unwrap_or(false);
 
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = silent_command("git");
     cmd.arg("commit");
     if all {
         cmd.arg("-a");

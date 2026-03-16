@@ -143,7 +143,7 @@ pub async fn handle_post_pick_file(
         {
             // rfd crashes on macOS in headless web server mode (no NSApplication).
             // Use osascript to show the native file picker instead.
-            let output = std::process::Command::new("osascript")
+            let output = crate::web::utils::silent_command("osascript")
                 .args(["-e", r#"POSIX path of (choose file of type {"public.data"} with prompt "Select a GGUF model file")"#])
                 .output();
             match output {
