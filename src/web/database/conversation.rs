@@ -31,6 +31,8 @@ pub struct MessageRecord {
     pub gen_tokens: Option<i32>,
     pub prompt_eval_ms: Option<f64>,
     pub prompt_tokens: Option<i32>,
+    /// True if this message has been compacted (summarized). The model skips these.
+    pub compacted: bool,
 }
 
 impl Database {
@@ -372,7 +374,7 @@ impl Database {
         let conn = self.connection();
         let mut stmt = conn
             .prepare(
-                "SELECT role, content, timestamp, prompt_tok_per_sec, gen_tok_per_sec, gen_eval_ms, gen_tokens, prompt_eval_ms, prompt_tokens FROM messages WHERE conversation_id = ?1 ORDER BY sequence_order ASC",
+                "SELECT role, content, timestamp, prompt_tok_per_sec, gen_tok_per_sec, gen_eval_ms, gen_tokens, prompt_eval_ms, prompt_tokens, COALESCE(compacted, 0) FROM messages WHERE conversation_id = ?1 ORDER BY sequence_order ASC",
             )
             .map_err(db_error("prepare statement"))?;
 
@@ -388,6 +390,7 @@ impl Database {
                     gen_tokens: row.get(6)?,
                     prompt_eval_ms: row.get(7)?,
                     prompt_tokens: row.get(8)?,
+                    compacted: row.get::<_, i32>(9).unwrap_or(0) != 0,
                 })
             })
             .map_err(db_error("query messages"))?
@@ -416,8 +419,12 @@ impl Database {
             }
         }
 
-        // Add messages
+        // Add messages (skip compacted ones — model reads summaries instead)
         for msg in messages {
+            if msg.compacted {
+                continue;
+            }
+
             let role_header = match msg.role.as_str() {
                 "user" => "USER",
                 "assistant" => "ASSISTANT",
@@ -432,6 +439,42 @@ impl Database {
         }
 
         Ok(text)
+    }
+
+    /// Mark messages as compacted and insert a summary message.
+    pub fn compact_messages(
+        &self,
+        conversation_id: &str,
+        up_to_sequence: i32,
+        summary: &str,
+        summary_sequence: i32,
+    ) -> Result<usize, String> {
+        let conn = self.connection();
+
+        // Mark old messages as compacted
+        let marked = conn.execute(
+            "UPDATE messages SET compacted = 1 WHERE conversation_id = ?1 AND sequence_order <= ?2 AND role != 'system' AND COALESCE(compacted, 0) = 0",
+            rusqlite::params![conversation_id, up_to_sequence],
+        ).map_err(db_error("mark messages compacted"))?;
+
+        // Insert summary message right before the first non-compacted message
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+
+        conn.execute(
+            "INSERT INTO messages (id, conversation_id, role, content, timestamp, sequence_order, is_streaming, compacted) VALUES (?1, ?2, 'system', ?3, ?4, ?5, 0, 0)",
+            rusqlite::params![
+                uuid::Uuid::new_v4().to_string(),
+                conversation_id,
+                format!("[Conversation summary — {} earlier messages compacted]\n{}", marked, summary),
+                timestamp,
+                summary_sequence,
+            ],
+        ).map_err(db_error("insert compaction summary"))?;
+
+        Ok(marked)
     }
 }
 

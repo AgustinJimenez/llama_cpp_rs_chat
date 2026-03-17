@@ -475,6 +475,12 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         [],
     );
 
+    // Compaction: mark messages that have been summarized (model skips these)
+    let _ = conn.execute(
+        "ALTER TABLE messages ADD COLUMN compacted INTEGER DEFAULT 0",
+        [],
+    );
+
     // Insert default config row if it doesn't exist
     conn.execute(
         "INSERT OR IGNORE INTO config (id, updated_at) VALUES (1, ?1)",
