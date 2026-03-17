@@ -7,6 +7,7 @@
 // - stop_conditions.rs: Stop condition checking logic
 
 mod command_executor;
+mod compaction;
 mod generation;
 pub mod jinja_templates;
 mod sampler;

@@ -842,7 +842,7 @@ pub async fn generate_llama_response(
     let mut sampler = create_sampler(&config, &conversation_id, Some(model));
 
     // Read conversation history from file and create chat prompt
-    let conversation_content = {
+    let raw_conversation_content = {
         let logger = conversation_logger
             .lock()
             .map_err(|_| "Failed to lock conversation logger")?;
@@ -850,6 +850,17 @@ pub async fn generate_llama_response(
             .load_conversation_from_file()
             .unwrap_or_else(|_| logger.get_full_conversation())
     };
+
+    // Auto-compact conversation if it's approaching context window limit
+    let conversation_content = super::compaction::maybe_compact_conversation(
+        &raw_conversation_content,
+        context_size,
+        &conversation_id,
+        &db,
+        model,
+        &state.backend,
+        state.chat_template_string.as_deref(),
+    );
 
     // Convert conversation to chat format using the new 3-system prompt approach
     let template_type = state.chat_template_type.clone();
