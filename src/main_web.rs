@@ -142,7 +142,7 @@ async fn handle_request_impl(
         }
 
         (&Method::GET, "/api/model/status") => {
-            web::routes::model::handle_get_model_status(bridge.clone()).await?
+            web::routes::model::handle_get_model_status(bridge.clone(), db.clone()).await?
         }
 
         (&Method::GET, "/api/model/history") => {

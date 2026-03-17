@@ -29,6 +29,8 @@ interface MemoryVisualizationProps {
   contextSize: number;
   onContextSizeChange: (size: number) => void;
   maxContextSize: number;
+  systemPromptTokens?: number;
+  toolDefinitionsTokens?: number;
 }
 
 const MIN_CONTEXT = 512;
@@ -224,9 +226,11 @@ interface MemorySlidersProps {
   maxContextSize: number;
   overheadGb: number;
   onOverheadChange: (v: number) => void;
+  systemPromptTokens?: number;
+  toolDefinitionsTokens?: number;
 }
 
-const MemorySliders: React.FC<MemorySlidersProps> = ({ gpuLayers, onGpuLayersChange, maxLayers, contextSize, onContextSizeChange, maxContextSize, overheadGb, onOverheadChange }) => (
+const MemorySliders: React.FC<MemorySlidersProps> = ({ gpuLayers, onGpuLayersChange, maxLayers, contextSize, onContextSizeChange, maxContextSize, overheadGb, onOverheadChange, systemPromptTokens, toolDefinitionsTokens }) => (
   <div className="space-y-2">
     <SliderRow
       color="bg-green-600"
@@ -255,6 +259,28 @@ const MemorySliders: React.FC<MemorySlidersProps> = ({ gpuLayers, onGpuLayersCha
       }}
       display={formatSize(contextSize)}
     />
+    {/* Token overhead bar — shows how much context is consumed by system prompt + tools */}
+    {(systemPromptTokens || toolDefinitionsTokens) ? (() => {
+      const total = (systemPromptTokens || 0) + (toolDefinitionsTokens || 0);
+      const pct = Math.min(100, (total / Math.max(contextSize, 1)) * 100);
+      const available = Math.max(0, contextSize - total);
+      return (
+        <div className="pl-1 -mt-0.5 mb-1">
+          <div className="flex items-center gap-1.5">
+            <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden flex">
+              <div className="h-full bg-indigo-500 rounded-l-full" style={{ width: `${Math.min(100, ((systemPromptTokens || 0) / Math.max(contextSize, 1)) * 100)}%` }} title={`System prompt: ${(systemPromptTokens || 0).toLocaleString()} tokens`} />
+              <div className="h-full bg-purple-500" style={{ width: `${Math.min(100, ((toolDefinitionsTokens || 0) / Math.max(contextSize, 1)) * 100)}%` }} title={`Tool definitions: ${(toolDefinitionsTokens || 0).toLocaleString()} tokens`} />
+            </div>
+            <span className="text-[9px] text-zinc-500 tabular-nums shrink-0">{pct.toFixed(0)}% overhead</span>
+          </div>
+          <div className="flex gap-3 mt-0.5 text-[9px] text-zinc-600">
+            <span><span className="inline-block w-1.5 h-1.5 bg-indigo-500 rounded-full mr-0.5" />System: {(systemPromptTokens || 0).toLocaleString()}</span>
+            <span><span className="inline-block w-1.5 h-1.5 bg-purple-500 rounded-full mr-0.5" />Tools: {(toolDefinitionsTokens || 0).toLocaleString()}</span>
+            <span className="text-zinc-500">Available: {available.toLocaleString()}</span>
+          </div>
+        </div>
+      );
+    })() : null}
     <SliderRow
       color="bg-purple-600"
       hexColor="#9333ea"
@@ -299,7 +325,7 @@ const MemoryWarnings: React.FC<{ memory: MemoryBreakdown }> = ({ memory }) => {
 // --- Main component ---
 
 // eslint-disable-next-line max-lines-per-function
-export const MemoryVisualization: React.FC<MemoryVisualizationProps> = ({ memory, overheadGb, onOverheadChange, gpuLayers, onGpuLayersChange, maxLayers, contextSize, onContextSizeChange, maxContextSize }) => (
+export const MemoryVisualization: React.FC<MemoryVisualizationProps> = ({ memory, overheadGb, onOverheadChange, gpuLayers, onGpuLayersChange, maxLayers, contextSize, onContextSizeChange, maxContextSize, systemPromptTokens, toolDefinitionsTokens }) => (
   <Card className="border-zinc-800 bg-zinc-900">
     <CardHeader className="pb-3">
       <CardTitle className="text-base font-medium flex items-center gap-2">
@@ -320,6 +346,8 @@ export const MemoryVisualization: React.FC<MemoryVisualizationProps> = ({ memory
         maxContextSize={maxContextSize}
         overheadGb={overheadGb}
         onOverheadChange={onOverheadChange}
+        systemPromptTokens={systemPromptTokens}
+        toolDefinitionsTokens={toolDefinitionsTokens}
       />
       <MemoryWarnings memory={memory} />
     </CardContent>

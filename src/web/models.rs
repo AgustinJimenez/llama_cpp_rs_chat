@@ -553,6 +553,12 @@ pub struct ModelStatus {
     pub gpu_layers: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub block_count: Option<u32>,
+    /// Cached token counts for system prompt + tool definitions overhead.
+    /// Populated after first generation from conversation_context table.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_prompt_tokens: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_definitions_tokens: Option<i32>,
 }
 
 #[derive(Deserialize)]

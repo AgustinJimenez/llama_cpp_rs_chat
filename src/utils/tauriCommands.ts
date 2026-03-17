@@ -16,6 +16,8 @@ interface ModelStatus {
   last_used: string | null;
   memory_usage_mb: number | null;
   tool_tags?: ToolTags;
+  system_prompt_tokens?: number;
+  tool_definitions_tokens?: number;
 }
 
 interface ModelResponse {

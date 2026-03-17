@@ -28,6 +28,7 @@ import { MemoryVisualization } from './MemoryVisualization';
 import { useMemoryCalculation } from '@/hooks/useMemoryCalculation';
 import { useVramOptimizer } from '@/hooks/useVramOptimizer';
 import { useModelPathValidation } from '@/hooks/useModelPathValidation';
+import { useModelContext } from '@/contexts/ModelContext';
 import { useSystemResources } from '@/contexts/SystemResourcesContext';
 
 // Import model presets for auto-configuration
@@ -71,6 +72,9 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   const [mmprojEnabled, setMmprojEnabled] = useState(false);
   const [mmprojPath, setMmprojPath] = useState('');
   const savedConfigLoaded = useRef(false);
+
+  // Get token overhead from model status (populated after first generation)
+  const { status: modelStatus } = useModelContext();
 
   const [overheadGb, setOverheadGb] = useState(2.0);
 
@@ -517,6 +521,8 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                       contextSize={contextSize}
                       onContextSizeChange={setContextSize}
                       maxContextSize={maxContextSize}
+                      systemPromptTokens={modelStatus.system_prompt_tokens}
+                      toolDefinitionsTokens={modelStatus.tool_definitions_tokens}
                     /> : null}
 
                   <ModelConfigSystemPrompt

@@ -435,12 +435,23 @@ pub async fn handle_get_model_info(
 pub async fn handle_get_model_status(
     #[cfg(not(feature = "mock"))] bridge: SharedWorkerBridge,
     #[cfg(feature = "mock")] _bridge: (),
+    db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     #[cfg(not(feature = "mock"))]
     {
         // Get model status from worker bridge cached metadata (no IPC round-trip)
         let is_loading = bridge.is_loading();
         let is_generating = bridge.is_generating().await;
+
+        // Get cached token overhead from the most recent conversation_context
+        let (sys_tokens, tool_tokens) = {
+            let conn = db.connection();
+            conn.query_row(
+                "SELECT system_prompt_tokens, tool_definitions_tokens FROM conversation_context ORDER BY updated_at DESC LIMIT 1",
+                [],
+                |row| Ok((row.get::<_, i32>(0)?, row.get::<_, i32>(1)?)),
+            ).unwrap_or((0, 0))
+        };
         let status = match bridge.model_status().await {
             Some(meta) => {
                 let tags = if meta.loaded {
@@ -461,6 +472,8 @@ pub async fn handle_get_model_status(
                     tool_tags: tags,
                     gpu_layers: meta.gpu_layers,
                     block_count: meta.block_count,
+                    system_prompt_tokens: if sys_tokens > 0 { Some(sys_tokens) } else { None },
+                    tool_definitions_tokens: if tool_tokens > 0 { Some(tool_tokens) } else { None },
                 }
             }
             None => {
@@ -478,6 +491,8 @@ pub async fn handle_get_model_status(
                     tool_tags: None,
                     gpu_layers: None,
                     block_count: None,
+                    system_prompt_tokens: if sys_tokens > 0 { Some(sys_tokens) } else { None },
+                    tool_definitions_tokens: if tool_tokens > 0 { Some(tool_tokens) } else { None },
                 }
             },
         };
@@ -564,6 +579,8 @@ pub async fn handle_post_model_load(
                     tool_tags: tags,
                     gpu_layers: meta.gpu_layers,
                     block_count: meta.block_count,
+                    system_prompt_tokens: None,
+                    tool_definitions_tokens: None,
                 };
                 let response = ModelResponse {
                     success: true,
@@ -630,6 +647,8 @@ pub async fn handle_post_model_unload(
                     tool_tags: None,
                     gpu_layers: None,
                     block_count: None,
+                    system_prompt_tokens: None,
+                    tool_definitions_tokens: None,
                 };
                 let response = ModelResponse {
                     success: true,

@@ -42,6 +42,8 @@ pub fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
                         tool_tags: None,
                         gpu_layers: state.gpu_layers,
                         block_count: None,
+                        system_prompt_tokens: None,
+                        tool_definitions_tokens: None,
                     }
                 }
                 None => ModelStatus {
@@ -56,6 +58,8 @@ pub fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
                     tool_tags: None,
                     gpu_layers: None,
                     block_count: None,
+            system_prompt_tokens: None,
+            tool_definitions_tokens: None,
                 },
             }
         }
@@ -71,6 +75,8 @@ pub fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
             tool_tags: None,
             gpu_layers: None,
             block_count: None,
+            system_prompt_tokens: None,
+            tool_definitions_tokens: None,
         },
     }
 }

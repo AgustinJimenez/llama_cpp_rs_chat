@@ -20,6 +20,8 @@ interface ModelStatus {
   tool_tags?: ToolTags;
   gpu_layers?: number;
   block_count?: number;
+  system_prompt_tokens?: number;
+  tool_definitions_tokens?: number;
 }
 
 interface ModelResponse {

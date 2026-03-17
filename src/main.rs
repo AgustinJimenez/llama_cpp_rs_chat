@@ -136,6 +136,8 @@ async fn get_model_status(
                 tool_tags: tags,
                 gpu_layers: meta.gpu_layers,
                 block_count: meta.block_count,
+                system_prompt_tokens: None,
+                tool_definitions_tokens: None,
             }
         }
         None => ModelStatus {
@@ -150,6 +152,8 @@ async fn get_model_status(
             tool_tags: None,
             gpu_layers: None,
             block_count: None,
+            system_prompt_tokens: None,
+            tool_definitions_tokens: None,
         },
     })
 }
@@ -178,6 +182,8 @@ async fn load_model(
                     tool_tags: Some(get_tool_tags_for_model(meta.general_name.as_deref())),
                     gpu_layers: meta.gpu_layers,
                     block_count: meta.block_count,
+                system_prompt_tokens: None,
+                tool_definitions_tokens: None,
                 }),
             })
         }
@@ -209,6 +215,8 @@ async fn unload_model(
                 tool_tags: None,
                 gpu_layers: None,
                 block_count: None,
+            system_prompt_tokens: None,
+            tool_definitions_tokens: None,
             }),
         }),
         Err(e) => Ok(ModelResponse {
