@@ -36,6 +36,9 @@ pub fn maybe_compact_conversation(
     let estimated_tokens = conversation_content.len() / 4;
     let threshold = (context_size as f64 * COMPACTION_THRESHOLD) as usize;
 
+    eprintln!("[COMPACTION] Check: {} chars, ~{} tokens, threshold={}, context_size={}, below={}",
+        conversation_content.len(), estimated_tokens, threshold, context_size, estimated_tokens < threshold);
+
     if estimated_tokens < threshold {
         return conversation_content.to_string();
     }
