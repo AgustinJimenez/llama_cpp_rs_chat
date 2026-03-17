@@ -24,6 +24,17 @@ function removeEmptyAssistantMessage(
   );
 }
 
+/** Map raw backend errors to user-friendly messages */
+function friendlyError(msg: string): string {
+  if (/generation already in progress/i.test(msg)) return 'The model is busy. Click Stop first, then try again.';
+  if (/generation still cancelling/i.test(msg)) return 'Still cancelling the previous request. Please wait a moment.';
+  if (/worker stdin closed/i.test(msg)) return 'Connection to the model worker was lost. Try reloading the model.';
+  if (/context.*full|context.*exceeded/i.test(msg)) return 'The conversation is too long. Start a new conversation or reduce context size.';
+  if (/model.*not.*loaded|no model/i.test(msg)) return 'No model is loaded. Please load a model first.';
+  if (/failed to load conversation/i.test(msg)) return 'Could not load this conversation. It may have been deleted.';
+  return msg;
+}
+
 function handleStreamError(
   err: unknown,
   streamSeq: number,
@@ -40,9 +51,9 @@ function handleStreamError(
   const isAbort = isAbortErrorMessage(errorMessage);
   setError(errorMessage);
   if (!isAbort) {
-    const display = `Chat error: ${errorMessage}`;
+    const display = friendlyError(errorMessage);
     toast.error(display, { duration: 5000 });
-    logToastError('useChat.sendMessage', display, err);
+    logToastError('useChat.sendMessage', `Chat error: ${errorMessage}`, err);
   }
   setIsLoading(false);
   if (isAbort) {
@@ -296,9 +307,9 @@ export function useChat() {
 
           const isAbort = isAbortErrorMessage(errorMsg);
           if (!isAbort) {
-            const display = `Chat error: ${errorMsg}`;
+            const display = friendlyError(errorMsg);
             toast.error(display, { duration: 5000 });
-            logToastError('useChat.streamMessage', display);
+            logToastError('useChat.streamMessage', `Chat error: ${errorMsg}`);
           }
 
           setIsLoading(false);
@@ -415,6 +426,47 @@ export function useChat() {
     await sendMessage(newContent, undefined, true);
   }, [isLoading, currentConversationId, sendMessage]);
 
+  // Regenerate: truncate from the assistant message and re-send the preceding user message
+  const regenerateFrom = useCallback(async (messageIndex: number) => {
+    if (!connectedRef.current) {
+      toast.error('Server is unreachable — please wait for reconnection', { duration: 3000, id: 'server-down' });
+      return;
+    }
+    if (isLoading) return;
+
+    // Find the user message just before this assistant message
+    const msgs = messagesRef.current;
+    let userMsgIndex = messageIndex - 1;
+    while (userMsgIndex >= 0 && msgs[userMsgIndex]?.role !== 'user') {
+      userMsgIndex--;
+    }
+    if (userMsgIndex < 0) return; // no user message found
+
+    const userContent = msgs[userMsgIndex].content;
+    const userImages = msgs[userMsgIndex].image_data;
+
+    // Compute DB sequence for the assistant message (truncate from here)
+    const systemMsgsBefore = msgs.slice(0, messageIndex)
+      .filter(m => m.role === 'system').length;
+    const fromSequence = messageIndex - systemMsgsBefore + 1;
+
+    if (currentConversationId) {
+      try {
+        await truncateConversation(currentConversationId, fromSequence);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to truncate conversation';
+        toast.error(msg, { duration: 5000 });
+        return;
+      }
+    }
+
+    // Truncate local messages (remove assistant message and everything after)
+    setMessages(prev => prev.slice(0, messageIndex));
+
+    // Re-send the original user message
+    await sendMessage(userContent, userImages, true);
+  }, [isLoading, currentConversationId, sendMessage]);
+
   // Stop the current generation
   const stopGeneration = useCallback(() => {
     // Always tell the backend to cancel, even if WS is already closed
@@ -433,6 +485,7 @@ export function useChat() {
     error,
     sendMessage,
     editMessage,
+    regenerateFrom,
     stopGeneration,
     clearMessages,
     loadConversation,

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Pencil } from 'lucide-react';
+import { Pencil, RefreshCw } from 'lucide-react';
 import type { Message } from '../../types';
 import type { MessageSegment } from '../../hooks/useMessageParsing';
 import { useMessageParsing } from '../../hooks/useMessageParsing';
@@ -25,7 +25,9 @@ interface MessageBubbleProps {
   isStreaming?: boolean;
   messageIndex?: number;
   onEditMessage?: (messageIndex: number, newContent: string) => void;
+  onRegenerate?: (messageIndex: number) => void;
   isGenerating?: boolean;
+  isLastMessage?: boolean;
 }
 
 /**
@@ -234,6 +236,8 @@ const AssistantMessage: React.FC<{
   segments: MessageSegment[];
   isStreaming?: boolean;
   isGenerating?: boolean;
+  isLastAssistant?: boolean;
+  onRegenerate?: () => void;
 }> = ({
   message,
   viewMode,
@@ -242,6 +246,8 @@ const AssistantMessage: React.FC<{
   segments,
   isStreaming,
   isGenerating,
+  isLastAssistant,
+  onRegenerate,
 }) => (
   <div
     className="w-full flex justify-start"
@@ -294,7 +300,18 @@ const AssistantMessage: React.FC<{
         </>
       )}
       {!isStreaming && formatTimestamp(message.timestamp) ? (
-        <div className="text-[10px] text-white/50 mt-0.5 pl-1">{formatTimestamp(message.timestamp)}</div>
+        <div className="flex items-center gap-2 mt-0.5 pl-1">
+          <span className="text-[10px] text-white/50">{formatTimestamp(message.timestamp)}</span>
+          {isLastAssistant && !isGenerating && onRegenerate ? (
+            <button
+              onClick={onRegenerate}
+              className="text-white/30 hover:text-white/70 transition-colors p-0.5"
+              title="Regenerate response"
+            >
+              <RefreshCw className="h-3 w-3" />
+            </button>
+          ) : null}
+        </div>
       ) : null}
     </div>
   </div>
@@ -303,7 +320,7 @@ const AssistantMessage: React.FC<{
 /**
  * Message bubble component - renders user, assistant, or system messages.
  */
-export const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({ message, viewMode = 'text', isStreaming, messageIndex, onEditMessage, isGenerating }) => {
+export const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({ message, viewMode = 'text', isStreaming, messageIndex, onEditMessage, onRegenerate, isGenerating, isLastMessage }) => {
   const { status } = useModelContext();
   const {
     cleanContent,
@@ -337,6 +354,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({ message
       segments={segments}
       isStreaming={isStreaming}
       isGenerating={isGenerating}
+      isLastAssistant={isLastMessage}
+      onRegenerate={onRegenerate && messageIndex != null ? () => onRegenerate(messageIndex) : undefined}
     />
   );
 });

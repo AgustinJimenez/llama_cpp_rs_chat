@@ -9,6 +9,7 @@ interface ChatContextValue {
   error: string | null;
   sendMessage: (content: string, imageData?: string[], bypassLoadingCheck?: boolean) => void;
   editMessage: (messageIndex: number, newContent: string) => void;
+  regenerateFrom: (messageIndex: number) => void;
   stopGeneration: () => void;
   clearMessages: () => void;
   loadConversation: (filename: string) => void;
@@ -28,7 +29,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const value = useMemo(() => chat, [
     chat.messages, chat.isLoading, chat.error,
-    chat.sendMessage, chat.editMessage, chat.stopGeneration,
+    chat.sendMessage, chat.editMessage, chat.regenerateFrom, chat.stopGeneration,
     chat.clearMessages, chat.loadConversation,
     chat.currentConversationId, chat.tokensUsed, chat.maxTokens, chat.lastTimings,
   ]);
