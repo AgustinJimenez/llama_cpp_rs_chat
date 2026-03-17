@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Pencil, RefreshCw } from 'lucide-react';
+import { Pencil, RefreshCw, ChevronDown, ChevronRight, Archive } from 'lucide-react';
 import type { Message } from '../../types';
 import type { MessageSegment } from '../../hooks/useMessageParsing';
 import { useMessageParsing } from '../../hooks/useMessageParsing';
@@ -29,6 +29,44 @@ interface MessageBubbleProps {
   isGenerating?: boolean;
   isLastMessage?: boolean;
 }
+
+/**
+ * Compaction summary divider — shows when older messages have been summarized.
+ */
+const CompactionSummary: React.FC<{ message: Message; cleanContent: string }> = ({
+  message,
+  cleanContent,
+}) => {
+  const [expanded, setExpanded] = useState(false);
+  // Extract the summary text (after the header line)
+  const lines = cleanContent.split('\n');
+  const header = lines[0] || 'Conversation summarized';
+  const summaryBody = lines.slice(1).join('\n').trim();
+
+  return (
+    <div
+      className="w-full flex justify-center my-2"
+      data-testid="compaction-summary"
+      data-message-id={message.id}
+    >
+      <div className="max-w-[90%] w-full">
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-white/40 hover:text-white/60 transition-colors border-t border-b border-white/10 hover:border-white/20"
+        >
+          <Archive className="h-3 w-3 shrink-0" />
+          <span className="truncate">{header}</span>
+          {expanded ? <ChevronDown className="h-3 w-3 shrink-0 ml-auto" /> : <ChevronRight className="h-3 w-3 shrink-0 ml-auto" />}
+        </button>
+        {expanded && summaryBody ? (
+          <div className="px-3 py-2 text-xs text-white/50 bg-white/5 border-b border-white/10 whitespace-pre-wrap">
+            {summaryBody}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+};
 
 /**
  * System message component (errors and warnings).
@@ -335,6 +373,10 @@ export const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({ message
   if (message.role === 'system') {
     if (message.isSystemPrompt) {
       return <SystemPromptMessage message={message} cleanContent={displayContent} />;
+    }
+    // Compaction summary messages
+    if (message.content.startsWith('[Conversation summary')) {
+      return <CompactionSummary message={message} cleanContent={displayContent} />;
     }
     return <SystemMessage message={message} cleanContent={displayContent} isError={isError} />;
   }
