@@ -12,7 +12,13 @@ use crate::{log_info, log_warn};
 const KEEP_RECENT_MESSAGES: usize = 6;
 
 /// Context usage threshold (fraction) to trigger compaction.
+/// Applied to the *available* context after subtracting system prompt + tool overhead.
 const COMPACTION_THRESHOLD: f64 = 0.70;
+
+/// Estimated overhead tokens for system prompt + tool definitions.
+/// These consume context but aren't part of conversation_content.
+/// Typical: ~800 system prompt + ~400 tool defs = ~1200 tokens.
+const ESTIMATED_OVERHEAD_TOKENS: usize = 1200;
 
 /// Check if conversation needs compaction and perform it if so.
 ///
@@ -34,10 +40,15 @@ pub fn maybe_compact_conversation(
 ) -> String {
     // Estimate token count (~4 chars per token)
     let estimated_tokens = conversation_content.len() / 4;
-    let threshold = (context_size as f64 * COMPACTION_THRESHOLD) as usize;
+    // Available context = total - system prompt/tool overhead
+    let available_context = (context_size as usize).saturating_sub(ESTIMATED_OVERHEAD_TOKENS);
+    let threshold = (available_context as f64 * COMPACTION_THRESHOLD) as usize;
 
-    eprintln!("[COMPACTION] Check: {} chars, ~{} tokens, threshold={}, context_size={}, below={}",
-        conversation_content.len(), estimated_tokens, threshold, context_size, estimated_tokens < threshold);
+    // Strip .txt suffix from conversation_id (logger adds it for backward compat)
+    let conversation_id = conversation_id.trim_end_matches(".txt");
+
+    eprintln!("[COMPACTION] Check: ~{} tokens, threshold={} (ctx={}, overhead={}), conv={}",
+        estimated_tokens, threshold, context_size, ESTIMATED_OVERHEAD_TOKENS, conversation_id);
 
     if estimated_tokens < threshold {
         return conversation_content.to_string();
@@ -65,8 +76,9 @@ pub fn maybe_compact_conversation(
         .filter(|(_, m)| !m.compacted && m.role != "system")
         .collect();
 
+    eprintln!("[COMPACTION] {} messages loaded, {} eligible for compaction", messages.len(), non_compacted.len());
     if non_compacted.len() <= KEEP_RECENT_MESSAGES + 1 {
-        log_info!(conversation_id, "📦 Only {} non-compacted messages, skipping", non_compacted.len());
+        eprintln!("[COMPACTION] Skipping: only {} msgs, need > {}", non_compacted.len(), KEEP_RECENT_MESSAGES);
         return conversation_content.to_string();
     }
 
@@ -84,11 +96,12 @@ pub fn maybe_compact_conversation(
     let up_to_sequence = match get_sequence_for_compaction(db, conversation_id, old_messages.len()) {
         Some(seq) => seq,
         None => {
-            log_warn!(conversation_id, "📦 Could not determine compaction sequence point");
+            eprintln!("[COMPACTION] Could not determine sequence point, skipping");
             return conversation_content.to_string();
         }
     };
 
+    eprintln!("[COMPACTION] Compacting {} old messages, keeping {} recent", old_messages.len(), KEEP_RECENT_MESSAGES);
     log_info!(
         conversation_id,
         "📦 Compacting {} messages ({} chars) up to sequence {}, keeping {} recent",
