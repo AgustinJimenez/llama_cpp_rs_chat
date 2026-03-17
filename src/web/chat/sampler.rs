@@ -1,6 +1,7 @@
 use llama_cpp_2::{model::LlamaModel, sampling::LlamaSampler};
 
 use super::super::models::SamplerConfig;
+use super::tool_grammar::create_tool_grammar_sampler;
 use crate::log_info;
 
 /// Common sequence breakers for the DRY anti-repetition sampler.
@@ -83,6 +84,15 @@ pub(crate) fn create_sampler(
         }
     }
 
+    /// Push lazy grammar sampler for JSON tool call constraints.
+    fn push_tool_grammar(samplers: &mut Vec<LlamaSampler>, model: Option<&LlamaModel>) {
+        if let Some(m) = model {
+            if let Some(grammar) = create_tool_grammar_sampler(m) {
+                samplers.push(grammar);
+            }
+        }
+    }
+
     match config.sampler_type.as_str() {
         "Temperature" => {
             log_info!(
@@ -100,6 +110,7 @@ pub(crate) fn create_sampler(
             if config.min_p > 0.0 {
                 s.push(LlamaSampler::min_p(config.min_p as f32, 1));
             }
+            push_tool_grammar(&mut s, model);
             s.push(LlamaSampler::dist(seed));
             LlamaSampler::chain(s, true)
         }
@@ -127,6 +138,7 @@ pub(crate) fn create_sampler(
             push_dry(&mut s, config, model);
             push_top_n_sigma(&mut s, config);
             s.push(LlamaSampler::top_p(config.top_p as f32, 1));
+            push_tool_grammar(&mut s, model);
             s.push(LlamaSampler::dist(seed));
             LlamaSampler::chain(s, true)
         }
@@ -138,6 +150,7 @@ pub(crate) fn create_sampler(
             push_dry(&mut s, config, model);
             push_top_n_sigma(&mut s, config);
             s.push(LlamaSampler::top_k(config.top_k as i32));
+            push_tool_grammar(&mut s, model);
             s.push(LlamaSampler::dist(seed));
             LlamaSampler::chain(s, true)
         }
@@ -149,6 +162,7 @@ pub(crate) fn create_sampler(
             push_dry(&mut s, config, model);
             push_top_n_sigma(&mut s, config);
             s.push(LlamaSampler::typical(config.typical_p as f32, 1));
+            push_tool_grammar(&mut s, model);
             s.push(LlamaSampler::dist(seed));
             LlamaSampler::chain(s, true)
         }
@@ -160,6 +174,7 @@ pub(crate) fn create_sampler(
             push_dry(&mut s, config, model);
             push_top_n_sigma(&mut s, config);
             s.push(LlamaSampler::min_p(config.min_p as f32, 1));
+            push_tool_grammar(&mut s, model);
             s.push(LlamaSampler::dist(seed));
             LlamaSampler::chain(s, true)
         }
@@ -176,6 +191,7 @@ pub(crate) fn create_sampler(
             push_top_n_sigma(&mut s, config);
             // temp_ext(t, delta, exponent) — delta/exponent not yet exposed in UI
             s.push(LlamaSampler::temp_ext(config.temperature as f32, 0.0, 1.0));
+            push_tool_grammar(&mut s, model);
             s.push(LlamaSampler::dist(seed));
             LlamaSampler::chain(s, true)
         }
@@ -192,6 +208,7 @@ pub(crate) fn create_sampler(
             push_top_n_sigma(&mut s, config);
             s.push(LlamaSampler::temp(config.temperature as f32));
             s.push(LlamaSampler::top_p(config.top_p as f32, 1));
+            push_tool_grammar(&mut s, model);
             s.push(LlamaSampler::dist(seed));
             LlamaSampler::chain(s, true)
         }
@@ -208,6 +225,7 @@ pub(crate) fn create_sampler(
             push_top_n_sigma(&mut s, config);
             s.push(LlamaSampler::temp(config.temperature as f32));
             s.push(LlamaSampler::top_k(config.top_k as i32));
+            push_tool_grammar(&mut s, model);
             s.push(LlamaSampler::dist(seed));
             LlamaSampler::chain(s, true)
         }
@@ -231,6 +249,7 @@ pub(crate) fn create_sampler(
             if config.typical_p < 1.0 {
                 s.push(LlamaSampler::typical(config.typical_p as f32, 1));
             }
+            push_tool_grammar(&mut s, model);
             s.push(LlamaSampler::dist(seed));
             LlamaSampler::chain(s, true)
         }
@@ -238,15 +257,15 @@ pub(crate) fn create_sampler(
         // "Greedy" and any unknown type
         _ => {
             log_info!(conversation_id, "Using Greedy sampler");
+            // Always chain for greedy so we can add grammar
+            let mut s: Vec<LlamaSampler> = Vec::new();
             if use_penalties {
-                let mut s: Vec<LlamaSampler> = Vec::new();
                 push_penalties(&mut s, config);
                 push_dry(&mut s, config, model);
-                s.push(LlamaSampler::greedy());
-                LlamaSampler::chain(s, true)
-            } else {
-                LlamaSampler::greedy()
             }
+            push_tool_grammar(&mut s, model);
+            s.push(LlamaSampler::greedy());
+            LlamaSampler::chain(s, true)
         }
     }
 }
