@@ -148,6 +148,19 @@ CREATE TABLE IF NOT EXISTS background_processes (
 )
 "#;
 
+const CREATE_CONVERSATION_CONTEXT_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS conversation_context (
+    conversation_id TEXT PRIMARY KEY,
+    system_prompt_text TEXT,
+    system_prompt_tokens INTEGER DEFAULT 0,
+    tool_definitions_json TEXT,
+    tool_definitions_tokens INTEGER DEFAULT 0,
+    content_hash TEXT,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+)
+"#;
+
 const CREATE_LOGS_TABLE: &str = r#"
 CREATE TABLE IF NOT EXISTS logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -183,6 +196,7 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         ("hub_downloads", CREATE_HUB_DOWNLOADS_TABLE),
         ("mcp_servers", CREATE_MCP_SERVERS_TABLE),
         ("background_processes", CREATE_BACKGROUND_PROCESSES_TABLE),
+        ("conversation_context", CREATE_CONVERSATION_CONTEXT_TABLE),
         ("logs", CREATE_LOGS_TABLE),
         ("logs_conversation_index", CREATE_LOGS_CONVERSATION_INDEX),
         ("logs_timestamp_index", CREATE_LOGS_TIMESTAMP_INDEX),
@@ -478,6 +492,12 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
     // Compaction: mark messages that have been summarized (model skips these)
     let _ = conn.execute(
         "ALTER TABLE messages ADD COLUMN compacted INTEGER DEFAULT 0",
+        [],
+    );
+
+    // Per-message token count cache for accurate context budgeting
+    let _ = conn.execute(
+        "ALTER TABLE messages ADD COLUMN token_count INTEGER",
         [],
     );
 

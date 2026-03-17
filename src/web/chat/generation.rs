@@ -761,6 +761,61 @@ fn resolve_tool_tags(config: &SamplerConfig, general_name: Option<&str>) -> Tool
     )
 }
 
+/// Compute and cache system prompt + tool definition token counts in conversation_context.
+/// Uses a content hash to skip re-tokenization when nothing changed.
+fn snapshot_context_overhead(
+    db: &super::super::database::SharedDatabase,
+    conversation_id: &str,
+    model: &llama_cpp_2::model::LlamaModel,
+    system_prompt_text: &str,
+    tools_json: &str,
+    log_id: &str,
+) -> (i32, i32) {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    // Compute hash of current content
+    let mut hasher = DefaultHasher::new();
+    system_prompt_text.hash(&mut hasher);
+    tools_json.hash(&mut hasher);
+    let current_hash = format!("{:x}", hasher.finish());
+
+    // Check if cached hash matches
+    if let Some(existing_hash) = db.get_context_hash(conversation_id) {
+        if existing_hash == current_hash {
+            let overhead = db.get_context_overhead_tokens(conversation_id);
+            if overhead > 0 {
+                if let Some(ctx) = db.get_conversation_context(conversation_id) {
+                    return (ctx.system_prompt_tokens, ctx.tool_definitions_tokens);
+                }
+            }
+        }
+    }
+
+    // Hash mismatch or no cache — tokenize and store
+    let sys_tokens = model
+        .str_to_token(system_prompt_text, llama_cpp_2::model::AddBos::Never)
+        .map(|t| t.len() as i32)
+        .unwrap_or(0);
+    let tool_tokens = model
+        .str_to_token(tools_json, llama_cpp_2::model::AddBos::Never)
+        .map(|t| t.len() as i32)
+        .unwrap_or(0);
+
+    if let Err(e) = db.upsert_conversation_context(
+        conversation_id,
+        system_prompt_text,
+        sys_tokens,
+        tools_json,
+        tool_tokens,
+        &current_hash,
+    ) {
+        log_warn!(log_id, "Failed to cache conversation context: {}", e);
+    }
+
+    (sys_tokens, tool_tokens)
+}
+
 /// Generate response from LLaMA model with streaming support.
 ///
 /// Handles token generation, stop conditions, command execution, and conversation logging.
@@ -852,6 +907,9 @@ pub async fn generate_llama_response(
     };
 
     // Auto-compact conversation if it's approaching context window limit
+    // Use real overhead from conversation_context if available (from previous generation)
+    let conv_id_for_overhead = conversation_id.trim_end_matches(".txt");
+    let cached_overhead = db.get_context_overhead_tokens(conv_id_for_overhead);
     let conversation_content = super::compaction::maybe_compact_conversation(
         &raw_conversation_content,
         context_size,
@@ -860,6 +918,7 @@ pub async fn generate_llama_response(
         model,
         &state.backend,
         state.chat_template_string.as_deref(),
+        if cached_overhead > 0 { Some(cached_overhead) } else { None },
     );
 
     // Convert conversation to chat format using the new 3-system prompt approach
@@ -925,23 +984,20 @@ pub async fn generate_llama_response(
         prompt.len()
     );
 
-    // Compute token breakdown by category (system prompt, tool defs, conversation).
-    // Tokenizes each section independently (~0.1ms each, pure CPU).
+    // Compute and cache token breakdown (system prompt + tool defs) in conversation_context table.
+    // Uses content hash to skip re-tokenization when nothing changed (~0.1ms each, pure CPU).
     let system_prompt_text = get_behavioral_system_prompt();
-    let system_prompt_token_count = model
-        .str_to_token(&system_prompt_text, AddBos::Never)
-        .map(|t| t.len() as i32)
-        .unwrap_or(0);
     let tools_json = serde_json::to_string(
         &get_available_tools_openai_with_mcp(mcp_tools_ref)
     ).unwrap_or_default();
-    let tool_def_token_count = model
-        .str_to_token(&tools_json, AddBos::Never)
-        .map(|t| t.len() as i32)
-        .unwrap_or(0);
+
+    let conv_id_clean = conversation_id.trim_end_matches(".txt");
+    let (system_prompt_token_count, tool_def_token_count) = snapshot_context_overhead(
+        &db, conv_id_clean, model, &system_prompt_text, &tools_json, &conversation_id,
+    );
     log_info!(
         &conversation_id,
-        "Token breakdown: system_prompt={}, tool_definitions={}",
+        "Token breakdown: system_prompt={}, tool_definitions={} (cached in conversation_context)",
         system_prompt_token_count, tool_def_token_count
     );
 
