@@ -854,7 +854,10 @@ pub async fn generate_llama_response(
         let mut logger = conversation_logger
             .lock()
             .map_err(|_| "Failed to lock conversation logger")?;
-        logger.log_message("USER", user_message);
+        // Estimate token count (~4 chars/token). Exact count requires model tokenizer
+        // which isn't available until after the model lock below.
+        let estimated_tokens = (user_message.len() / 4).max(1) as i32;
+        logger.log_message_with_tokens("USER", user_message, Some(estimated_tokens));
     }
 
     // Load configuration to get model path and context size

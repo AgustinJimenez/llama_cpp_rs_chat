@@ -625,7 +625,8 @@ fn run_generation(params: GenerationParams) {
         // Log user message immediately (unless caller already did)
         if !skip_user_logging {
             let mut logger = shared_logger.lock().unwrap();
-            logger.log_message("USER", &user_message);
+            let estimated_tokens = (user_message.len() / 4).max(1) as i32;
+            logger.log_message_with_tokens("USER", &user_message, Some(estimated_tokens));
         }
 
         // Create token streaming channel

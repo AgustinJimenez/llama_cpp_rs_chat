@@ -141,7 +141,8 @@ pub async fn handle_post_chat(
         // Log user message immediately so WebSocket can pick it up
         {
             let mut logger = conversation_logger.lock().unwrap();
-            logger.log_message("USER", &chat_request.message);
+            let estimated_tokens = (chat_request.message.len() / 4).max(1) as i32;
+            logger.log_message_with_tokens("USER", &chat_request.message, Some(estimated_tokens));
         }
 
         // Extract conversation ID immediately so we can return it

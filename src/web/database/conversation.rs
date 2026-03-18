@@ -212,13 +212,26 @@ impl Database {
         timestamp: u64,
         sequence_order: i32,
     ) -> Result<String, String> {
+        self.insert_message_with_tokens(conversation_id, role, content, timestamp, sequence_order, None)
+    }
+
+    /// Insert a message with an optional pre-computed token count.
+    pub fn insert_message_with_tokens(
+        &self,
+        conversation_id: &str,
+        role: &str,
+        content: &str,
+        timestamp: u64,
+        sequence_order: i32,
+        token_count: Option<i32>,
+    ) -> Result<String, String> {
         let message_id = uuid::Uuid::new_v4().to_string();
         let conn = self.connection();
 
         conn.execute(
-            "INSERT INTO messages (id, conversation_id, role, content, timestamp, sequence_order, is_streaming)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)",
-            params![message_id, conversation_id, role, content, timestamp as i64, sequence_order],
+            "INSERT INTO messages (id, conversation_id, role, content, timestamp, sequence_order, is_streaming, token_count)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7)",
+            params![message_id, conversation_id, role, content, timestamp as i64, sequence_order, token_count],
         )
         .map_err(db_error("insert message"))?;
 
@@ -311,7 +324,7 @@ impl Database {
         Ok(())
     }
 
-    /// Store generation timing metrics on a message row.
+    /// Store generation timing metrics and token count on a message row.
     pub fn update_message_timings(
         &self,
         message_id: &str,
@@ -324,7 +337,7 @@ impl Database {
     ) -> Result<(), String> {
         let conn = self.connection();
         conn.execute(
-            "UPDATE messages SET prompt_tok_per_sec = ?1, gen_tok_per_sec = ?2, gen_eval_ms = ?3, gen_tokens = ?4, prompt_eval_ms = ?5, prompt_tokens = ?6 WHERE id = ?7",
+            "UPDATE messages SET prompt_tok_per_sec = ?1, gen_tok_per_sec = ?2, gen_eval_ms = ?3, gen_tokens = ?4, prompt_eval_ms = ?5, prompt_tokens = ?6, token_count = ?4 WHERE id = ?7",
             params![prompt_tok_per_sec, gen_tok_per_sec, gen_eval_ms, gen_tokens, prompt_eval_ms, prompt_tokens, message_id],
         )
         .map_err(db_error("update message timings"))?;
@@ -557,15 +570,21 @@ impl ConversationLogger {
 
     /// Log a complete message (typically user message)
     pub fn log_message(&mut self, role: &str, message: &str) {
+        self.log_message_with_tokens(role, message, None);
+    }
+
+    /// Log a message with an optional pre-computed token count.
+    pub fn log_message_with_tokens(&mut self, role: &str, message: &str, token_count: Option<i32>) {
         let timestamp = current_timestamp_secs();
         let role_lower = role.to_lowercase();
 
-        if let Err(e) = self.db.insert_message(
+        if let Err(e) = self.db.insert_message_with_tokens(
             &self.conversation_id,
             &role_lower,
             message,
             timestamp,
             self.sequence_counter,
+            token_count,
         ) {
             sys_error!("Failed to log message: {}", e);
             return;
