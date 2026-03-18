@@ -188,9 +188,9 @@ export function BackgroundProcesses() {
             </div>
           )}
 
-          <div className="flex justify-between items-center pt-1 text-[10px] text-zinc-400">
+          <div className="flex justify-between items-center pt-1 text-[10px] text-zinc-300">
             <span>Auto-refreshes every 3s while open</span>
-            <button onClick={refresh} className="flex items-center gap-1 hover:text-zinc-400 transition-colors">
+            <button onClick={refresh} className="flex items-center gap-1 hover:text-white transition-colors">
               <RefreshCw className="h-3 w-3" />
               Refresh
             </button>
