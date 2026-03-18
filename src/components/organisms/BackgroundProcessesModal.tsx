@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Terminal, Skull, Trash2 } from 'lucide-react';
+import { Terminal, X, Trash2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -135,10 +135,10 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
                   <button
                     onClick={() => handleKill(proc.pid)}
                     disabled={killing.has(proc.pid)}
-                    className="flex-shrink-0 p-1.5 rounded-md hover:bg-destructive/20 text-destructive transition-colors disabled:opacity-50"
+                    className="flex-shrink-0 p-1.5 rounded-md hover:bg-zinc-700 text-white transition-colors disabled:opacity-50"
                     title="Kill process"
                   >
-                    <Skull className="h-4 w-4" />
+                    <X className="h-4 w-4" />
                   </button>
                 ) : null}
               </div>
