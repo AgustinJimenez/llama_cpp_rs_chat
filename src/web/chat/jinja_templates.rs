@@ -423,7 +423,7 @@ pub fn get_available_tools() -> Vec<Value> {
                     },
                     "timeout": {
                         "type": "integer",
-                        "description": "Optional. Max seconds before the command is killed. Default 300 (5 min). Use higher values (600-900) for long installs (composer, npm install, cargo build)."
+                        "description": "Optional. Max seconds of inactivity (no output) before the command is killed. Default 120 (2 min). Resets every time the command produces output. Use higher values for commands with long silent phases."
                     }
                 },
                 "required": ["command", "background"]

@@ -616,14 +616,13 @@ pub fn execute_command_streaming_with_timeout(
             let child_pid = child.id();
             let stdout_pipe = child.stdout.take();
 
-            const INACTIVITY_TIMEOUT_SECS: u64 = 120;
-            let total_timeout_secs: u64 = timeout_override.unwrap_or(300); // Default 5 min
+            let inactivity_timeout_secs: u64 = timeout_override.unwrap_or(120); // Default 2 min, resets on output
             // Check cancellation every 200ms — responsive enough without busy-waiting
             const POLL_INTERVAL_MS: u64 = 200;
 
             let mut was_cancelled = false;
             let mut inactivity_killed = false;
-            let mut total_timeout_killed = false;
+            let total_timeout_killed = false; // Kept for compat, no longer triggered separately
             let wall_start = Instant::now();
 
             if let Some(stdout) = stdout_pipe {
@@ -670,17 +669,9 @@ pub fn execute_command_streaming_with_timeout(
                         eprintln!("[STREAM] Still running: {}s elapsed, pid={}", elapsed_secs, child_pid);
                     }
 
-                    // Hard wall-clock limit — prevents commands that trickle
-                    // output (e.g. winget progress bars) from running forever
-                    if wall_start.elapsed().as_secs() >= total_timeout_secs {
-                        eprintln!(
-                            "[STREAM] Total timeout ({}s), killing pid={}",
-                            total_timeout_secs, child_pid
-                        );
-                        kill_process_tree(child_pid);
-                        total_timeout_killed = true;
-                        break;
-                    }
+                    // No separate wall-clock timeout — only inactivity timeout below.
+                    // If the command keeps producing output, it keeps running.
+                    // The inactivity check (after recv_timeout) handles stuck commands.
 
                     match rx.recv_timeout(std::time::Duration::from_millis(POLL_INTERVAL_MS)) {
                         Ok(data) => {
@@ -700,11 +691,11 @@ pub fn execute_command_streaming_with_timeout(
                             }
                         }
                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                            // No data — check inactivity threshold
-                            if last_data.elapsed().as_secs() >= INACTIVITY_TIMEOUT_SECS {
+                            // No data — check inactivity threshold (resets on each output)
+                            if last_data.elapsed().as_secs() >= inactivity_timeout_secs {
                                 eprintln!(
-                                    "[STREAM] Inactivity timeout ({}s), killing pid={}",
-                                    INACTIVITY_TIMEOUT_SECS, child_pid
+                                    "[STREAM] Inactivity timeout ({}s no output), killing pid={}",
+                                    inactivity_timeout_secs, child_pid
                                 );
                                 kill_process_tree(child_pid);
                                 inactivity_killed = true;
@@ -733,15 +724,10 @@ pub fn execute_command_streaming_with_timeout(
 
             if was_cancelled {
                 output.push_str("\n[Cancelled by user]\n");
-            } else if total_timeout_killed {
+            } else if total_timeout_killed || inactivity_killed {
                 output.push_str(&format!(
-                    "\n[Process killed: exceeded {}s wall-clock limit. TIP: Use \"timeout\": {} in your tool call for longer commands, or \"background\": true for servers/daemons.]\n",
-                    total_timeout_secs, total_timeout_secs * 2
-                ));
-            } else if inactivity_killed {
-                output.push_str(&format!(
-                    "\n[Process killed: no output for {}s — likely waiting for input]\n",
-                    INACTIVITY_TIMEOUT_SECS
+                    "\n[Process killed: no output for {}s. TIP: Use \"timeout\": {} in your tool call for slow commands, or \"background\": true for servers/daemons.]\n",
+                    inactivity_timeout_secs, inactivity_timeout_secs * 2
                 ));
             }
 
