@@ -8,6 +8,7 @@ const HubExplorer = React.lazy(() => import('./HubExplorer').then(m => ({ defaul
 import { useChatContext } from '../../contexts/ChatContext';
 import { useUIContext } from '../../contexts/UIContext';
 import { useDownloadContext } from '../../contexts/DownloadContext';
+import { BackgroundProcesses } from '../molecules/BackgroundProcesses';
 import { useConnection } from '../../contexts/ConnectionContext';
 
 interface ConversationFile {
@@ -273,6 +274,9 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
             ))
           )}
         </div>
+
+        {/* Background processes indicator */}
+        <BackgroundProcesses />
 
         {/* Bottom settings bar */}
         <div className="px-3 pb-3 pt-2 border-t border-border">
