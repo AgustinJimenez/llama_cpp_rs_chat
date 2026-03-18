@@ -583,7 +583,9 @@ fn execute_single_tool(
                         v.as_str().map(|s| matches!(s.trim().to_lowercase().as_str(), "true" | "1" | "yes")).unwrap_or(false)
                     })
                 }).unwrap_or(false);
-                let timeout_secs = args.get("timeout").and_then(|v| v.as_u64());
+                let timeout_secs = args.get("timeout").and_then(|v| {
+                    v.as_u64().or_else(|| v.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
+                });
                 let rtk_cmd = maybe_rtk_prefix(cmd, use_rtk);
                 if is_background {
                     log_info!(conversation_id, "🐚 Batch: background execute_command: {}", rtk_cmd);
