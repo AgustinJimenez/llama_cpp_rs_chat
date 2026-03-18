@@ -81,6 +81,65 @@ pub fn maybe_compact_conversation(
         .collect();
 
     eprintln!("[COMPACTION] {} messages loaded, {} eligible for compaction", messages.len(), non_compacted.len());
+
+    // Check for oversized single messages (e.g., a huge assistant response with many tool calls).
+    // Even with few messages, if one exceeds 50% of available context, summarize it.
+    let half_available = available_context / 2;
+    let oversized: Vec<(usize, &crate::web::database::conversation::MessageRecord)> = non_compacted.iter()
+        .filter(|(_, m)| m.content.len() / 4 > half_available)
+        .cloned()
+        .collect();
+
+    if !oversized.is_empty() {
+        eprintln!("[COMPACTION] Found {} oversized message(s), compacting regardless of message count", oversized.len());
+        // Summarize oversized messages and mark them as compacted
+        for (_, msg) in &oversized {
+            let summary = match summarize_conversation(model, backend, &msg.content, chat_template_string, conversation_id) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("[COMPACTION] Oversized message summarization failed: {}", e);
+                    continue;
+                }
+            };
+
+            // Find sequence_order for this message and compact it
+            let conn = db.connection();
+            let seq: Option<i32> = conn.query_row(
+                "SELECT sequence_order FROM messages WHERE conversation_id = ?1 AND role = ?2 AND LENGTH(content) = ?3 AND COALESCE(compacted, 0) = 0 ORDER BY sequence_order DESC LIMIT 1",
+                rusqlite::params![conversation_id, msg.role, msg.content.len()],
+                |row| row.get(0),
+            ).ok();
+
+            if let Some(seq) = seq {
+                // Mark the oversized message as compacted
+                let _ = conn.execute(
+                    "UPDATE messages SET compacted = 1 WHERE conversation_id = ?1 AND sequence_order = ?2",
+                    rusqlite::params![conversation_id, seq],
+                );
+                // Insert summary right after it
+                let summary_seq = seq + 1;
+                let timestamp = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                let _ = conn.execute(
+                    "INSERT INTO messages (id, conversation_id, role, content, timestamp, sequence_order, is_streaming, compacted) VALUES (?1, ?2, 'system', ?3, ?4, ?5, 0, 0)",
+                    rusqlite::params![
+                        uuid::Uuid::new_v4().to_string(),
+                        conversation_id,
+                        format!("[Conversation summary — oversized message compacted]\n{}", summary),
+                        timestamp,
+                        summary_seq,
+                    ],
+                );
+                eprintln!("[COMPACTION] Oversized message (seq={}) compacted: {} chars → {} chars", seq, msg.content.len(), summary.len());
+            }
+        }
+
+        // Reload and return
+        return db.get_conversation_as_text(conversation_id).unwrap_or_else(|_| conversation_content.to_string());
+    }
+
     if non_compacted.len() <= KEEP_RECENT_MESSAGES + 1 {
         eprintln!("[COMPACTION] Skipping: only {} msgs, need > {}", non_compacted.len(), KEEP_RECENT_MESSAGES);
         return conversation_content.to_string();
