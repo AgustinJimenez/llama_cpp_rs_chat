@@ -420,6 +420,10 @@ pub fn get_available_tools() -> Vec<Value> {
                     "background": {
                         "type": "boolean",
                         "description": "REQUIRED. Set true for long-running processes (dev servers, watchers, daemons like 'php artisan serve', 'npm run dev', 'python -m http.server'). Set false for everything else (installs, builds, one-shot commands). If true, returns after 5s with initial output and the PID."
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Optional. Max seconds before the command is killed. Default 300 (5 min). Use higher values (600-900) for long installs (composer, npm install, cargo build)."
                     }
                 },
                 "required": ["command", "background"]

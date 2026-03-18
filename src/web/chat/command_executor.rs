@@ -6,7 +6,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-use super::super::command::{execute_command_streaming, execute_command_background, sanitize_command_output, strip_ansi_codes};
+use super::super::command::{execute_command_streaming, execute_command_streaming_with_timeout, execute_command_background, sanitize_command_output, strip_ansi_codes};
 use super::super::models::*;
 use super::super::native_tools;
 use super::generation::create_fresh_context;
@@ -583,6 +583,7 @@ fn execute_single_tool(
                         v.as_str().map(|s| matches!(s.trim().to_lowercase().as_str(), "true" | "1" | "yes")).unwrap_or(false)
                     })
                 }).unwrap_or(false);
+                let timeout_secs = args.get("timeout").and_then(|v| v.as_u64());
                 let rtk_cmd = maybe_rtk_prefix(cmd, use_rtk);
                 if is_background {
                     log_info!(conversation_id, "🐚 Batch: background execute_command: {}", rtk_cmd);
@@ -598,9 +599,9 @@ fn execute_single_tool(
                     });
                     return (text, Vec::new());
                 } else {
-                    log_info!(conversation_id, "🐚 Batch: streaming execute_command: {}", rtk_cmd);
+                    log_info!(conversation_id, "🐚 Batch: streaming execute_command (timeout={}s): {}", timeout_secs.unwrap_or(300), rtk_cmd);
                     let sender_clone = token_sender.clone();
-                    let text = execute_command_streaming(&rtk_cmd, cancel, |line| {
+                    let text = execute_command_streaming_with_timeout(&rtk_cmd, cancel, timeout_secs, &mut |line| {
                         if let Some(ref sender) = sender_clone {
                             let _ = sender.send(TokenData {
                                 token: format!("{}\n", strip_ansi_codes(line)),

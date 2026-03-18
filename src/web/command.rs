@@ -537,6 +537,15 @@ pub fn execute_command_streaming(
     cancel: Option<Arc<AtomicBool>>,
     mut on_line: impl FnMut(&str),
 ) -> String {
+    execute_command_streaming_with_timeout(cmd, cancel, None, &mut on_line)
+}
+
+pub fn execute_command_streaming_with_timeout(
+    cmd: &str,
+    cancel: Option<Arc<AtomicBool>>,
+    timeout_override: Option<u64>,
+    on_line: &mut dyn FnMut(&str),
+) -> String {
     let trimmed = cmd.trim();
 
     let parts = parse_command_with_quotes(trimmed);
@@ -608,7 +617,7 @@ pub fn execute_command_streaming(
             let stdout_pipe = child.stdout.take();
 
             const INACTIVITY_TIMEOUT_SECS: u64 = 120;
-            const TOTAL_TIMEOUT_SECS: u64 = 300; // 5 min hard wall-clock limit
+            let total_timeout_secs: u64 = timeout_override.unwrap_or(300); // Default 5 min
             // Check cancellation every 200ms — responsive enough without busy-waiting
             const POLL_INTERVAL_MS: u64 = 200;
 
@@ -663,10 +672,10 @@ pub fn execute_command_streaming(
 
                     // Hard wall-clock limit — prevents commands that trickle
                     // output (e.g. winget progress bars) from running forever
-                    if wall_start.elapsed().as_secs() >= TOTAL_TIMEOUT_SECS {
+                    if wall_start.elapsed().as_secs() >= total_timeout_secs {
                         eprintln!(
                             "[STREAM] Total timeout ({}s), killing pid={}",
-                            TOTAL_TIMEOUT_SECS, child_pid
+                            total_timeout_secs, child_pid
                         );
                         kill_process_tree(child_pid);
                         total_timeout_killed = true;
@@ -726,8 +735,8 @@ pub fn execute_command_streaming(
                 output.push_str("\n[Cancelled by user]\n");
             } else if total_timeout_killed {
                 output.push_str(&format!(
-                    "\n[Process killed: exceeded {}s wall-clock limit]\n",
-                    TOTAL_TIMEOUT_SECS
+                    "\n[Process killed: exceeded {}s wall-clock limit. TIP: Use \"timeout\": {} in your tool call for longer commands, or \"background\": true for servers/daemons.]\n",
+                    total_timeout_secs, total_timeout_secs * 2
                 ));
             } else if inactivity_killed {
                 output.push_str(&format!(
