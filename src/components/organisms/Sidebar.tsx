@@ -116,7 +116,7 @@ ConversationItem.displayName = 'ConversationItem';
 
 // eslint-disable-next-line max-lines-per-function
 const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
-  const { loadConversation: onLoadConversation, currentConversationId } = useChatContext();
+  const { loadConversation: onLoadConversation, currentConversationId, messages } = useChatContext();
   const { openAppSettings: onOpenAppSettings } = useUIContext();
   const { activeCount: downloadActiveCount } = useDownloadContext();
   const { connected } = useConnection();
@@ -275,8 +275,9 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
           )}
         </div>
 
-        {/* Background processes indicator */}
-        <BackgroundProcesses />
+        {/* Background processes indicator — only in sidebar when no conversation is active
+            (when a conversation is open, the stats bar shows it instead) */}
+        {messages.length === 0 ? <BackgroundProcesses /> : null}
 
         {/* Bottom settings bar */}
         <div className="px-3 pb-3 pt-2 border-t border-border">
