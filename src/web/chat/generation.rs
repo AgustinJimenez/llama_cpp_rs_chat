@@ -780,6 +780,105 @@ fn resolve_tool_tags(config: &SamplerConfig, general_name: Option<&str>) -> Tool
     )
 }
 
+/// Quick Y/N check: ask the model if the current task is complete.
+/// Uses a tiny context (1024 tokens) for fast inference (~50ms).
+/// Returns true if complete, false if the model thinks more work is needed.
+fn quick_task_completion_check(
+    model: &llama_cpp_2::model::LlamaModel,
+    backend: &llama_cpp_2::llama_backend::LlamaBackend,
+    chat_template_string: Option<&str>,
+    conversation_id: &str,
+) -> bool {
+    use llama_cpp_2::llama_batch::LlamaBatch;
+    use llama_cpp_2::sampling::LlamaSampler;
+    use llama_cpp_2::model::AddBos;
+    use std::num::NonZeroU32;
+    use crate::web::models::SamplerConfig;
+
+    let prompt_text = "You just finished generating a response that involved executing tool calls (commands, file operations, etc.). Based on the conversation flow, is the task the user requested FULLY complete? Answer with a single word: YES or NO.";
+
+    let formatted = if let Some(template_str) = chat_template_string {
+        use super::jinja_templates::{apply_native_chat_template, ChatMessage};
+        #[allow(deprecated)]
+        use llama_cpp_2::model::Special;
+        #[allow(deprecated)]
+        let bos = model.token_to_str(model.token_bos(), Special::Tokenize).unwrap_or_else(|_| "<s>".into());
+        #[allow(deprecated)]
+        let eos = model.token_to_str(model.token_eos(), Special::Tokenize).unwrap_or_else(|_| "</s>".into());
+        let messages = vec![
+            ChatMessage { role: "system".into(), content: "Answer YES or NO only.".into(), tool_calls: None },
+            ChatMessage { role: "user".into(), content: prompt_text.into(), tool_calls: None },
+        ];
+        apply_native_chat_template(template_str, messages, None, None, true, &bos, &eos)
+            .unwrap_or_else(|_| format!("SYSTEM:\nAnswer YES or NO only.\n\nUSER:\n{prompt_text}\n\nASSISTANT:\n"))
+    } else {
+        format!("SYSTEM:\nAnswer YES or NO only.\n\nUSER:\n{prompt_text}\n\nASSISTANT:\n")
+    };
+
+    let tokens = match model.str_to_token(&formatted, AddBos::Never) {
+        Ok(t) => t,
+        Err(_) => return true, // Assume complete on error
+    };
+
+    let n_ctx = NonZeroU32::new(1024).unwrap();
+    let config = SamplerConfig::default();
+    let mut ctx = match create_fresh_context(model, backend, n_ctx, false, &config) {
+        Ok(c) => c,
+        Err(_) => return true,
+    };
+
+    // Eval prompt
+    let batch_cap = 512usize;
+    let mut batch = LlamaBatch::new(batch_cap, 1);
+    let n_chunks = tokens.len().div_ceil(batch_cap);
+    for chunk_idx in 0..n_chunks {
+        let start = chunk_idx * batch_cap;
+        let end = std::cmp::min(start + batch_cap, tokens.len());
+        batch.clear();
+        for (offset, &token) in tokens[start..end].iter().enumerate() {
+            let pos = (start + offset) as i32;
+            let is_last = start + offset == tokens.len() - 1;
+            if batch.add(token, pos, &[0], is_last).is_err() { return true; }
+        }
+        if ctx.decode(&mut batch).is_err() { return true; }
+    }
+
+    // Sample just 1-3 tokens
+    let mut sampler = LlamaSampler::chain_simple(vec![
+        LlamaSampler::temp(0.1),
+        LlamaSampler::dist(42),
+    ]);
+
+    let mut response = String::new();
+    let mut token_pos = tokens.len() as i32;
+    let eos_token = model.token_eos();
+
+    for _ in 0..5 {
+        let next_token = sampler.sample(&ctx, -1);
+        if next_token == eos_token { break; }
+
+        #[allow(deprecated)]
+        let token_str = model
+            .token_to_str(next_token, llama_cpp_2::model::Special::Tokenize)
+            .unwrap_or_default();
+        response.push_str(&token_str);
+
+        batch.clear();
+        if batch.add(next_token, token_pos, &[0], true).is_err() { break; }
+        if ctx.decode(&mut batch).is_err() { break; }
+        token_pos += 1;
+    }
+
+    drop(ctx);
+
+    let answer = response.trim().to_uppercase();
+    let is_complete = answer.starts_with("YES") || answer.starts_with('Y');
+    eprintln!("[TASK_CHECK] Tool calls made, completion check: '{}' → {}", answer, if is_complete { "complete" } else { "INCOMPLETE" });
+    log_info!(conversation_id, "🔍 Task completion check: '{}' → {}", answer, if is_complete { "complete" } else { "incomplete, will auto-continue" });
+
+    is_complete
+}
+
 /// Compute and cache system prompt + tool definition token counts in conversation_context.
 /// Uses a content hash to skip re-tokenization when nothing changed.
 fn snapshot_context_overhead(
@@ -1322,6 +1421,19 @@ pub async fn generate_llama_response(
         total_cached,
         gen_count
     );
+
+    // If the model stopped naturally (EOS) but was in an agentic task (tool calls made),
+    // do a quick Y/N check to see if the task is actually complete.
+    // This catches cases where the model emits EOS mid-task.
+    if gen.finish_reason == "stop" && gen.tool_response_tokens > 0 {
+        let is_complete = quick_task_completion_check(
+            model, &state.backend, state.chat_template_string.as_deref(), &conversation_id,
+        );
+        if !is_complete {
+            log_info!(&conversation_id, "🔄 Task incomplete detected (Y/N check), setting finish_reason=length for auto-continue");
+            gen.finish_reason = "length".to_string();
+        }
+    }
 
     Ok(GenerationOutput {
         response: gen.response.trim().to_string(),
