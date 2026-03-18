@@ -409,7 +409,7 @@ pub fn get_available_tools() -> Vec<Value> {
         }),
         json!({
             "name": "execute_command",
-            "description": "Execute a shell command (git, npm, curl, etc.). Set background=true ONLY for processes that run indefinitely (dev servers, watchers). Do NOT use background for package installs (composer, npm install, pip) — they run in foreground with streaming output.",
+            "description": "Execute a shell command (git, npm, curl, etc.). You MUST set the background flag for every call.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -419,10 +419,10 @@ pub fn get_available_tools() -> Vec<Value> {
                     },
                     "background": {
                         "type": "boolean",
-                        "description": "Run in background ONLY for dev servers, watchers, daemons. NOT for package installs or builds. Returns after 5s with initial output and the PID."
+                        "description": "REQUIRED. Set true for long-running processes (dev servers, watchers, daemons like 'php artisan serve', 'npm run dev', 'python -m http.server'). Set false for everything else (installs, builds, one-shot commands). If true, returns after 5s with initial output and the PID."
                     }
                 },
-                "required": ["command"]
+                "required": ["command", "background"]
             }
         }),
         json!({

@@ -49,7 +49,7 @@ fn core_behavior_block() -> String {
 - If a tool is not in PATH, use its full path (e.g., `C:\php\php.exe`) or download it and reference by full path.
 
 ## Background Processes
-- Use `"background": true` ONLY for processes that run indefinitely (dev servers, watchers, daemons).
+- The `"background"` flag is REQUIRED for execute_command. Set true for servers/daemons (php artisan serve, npm run dev, python -m http.server). Set false for everything else.
 - Package installs, builds, and one-shot commands run in FOREGROUND with streaming output.
 - Commands have a 5-minute wall-clock timeout to prevent indefinite hangs.
 - To poll: call `check_background_process` with `"wait_seconds": 15`. Repeat until "exited". Max 10 polls.
@@ -169,8 +169,9 @@ After execution, the system injects the result between {output_open} and {output
 ### list_directory — List files in a directory
 {exec_open}{{"name": "list_directory", "arguments": {{"path": "."}}}}{exec_close}
 
-### execute_command — Run a shell command
-{exec_open}{{"name": "execute_command", "arguments": {{"command": "{list_cmd}"}}}}{exec_close}
+### execute_command — Run a shell command (background flag REQUIRED)
+{exec_open}{{"name": "execute_command", "arguments": {{"command": "{list_cmd}", "background": false}}}}{exec_close}
+For servers/daemons: {exec_open}{{"name": "execute_command", "arguments": {{"command": "php artisan serve", "background": true}}}}{exec_close}
 
 ### execute_python — Run Python code (multi-line, imports, regex all work)
 {exec_open}{{"name": "execute_python", "arguments": {{"code": "print('hello')"}}}}{exec_close}
