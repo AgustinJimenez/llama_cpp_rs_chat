@@ -203,3 +203,124 @@ fn summarize_conversation(
 
     run_summary_pass_public(model, backend, &text_to_summarize, chat_template_string, conversation_id)
 }
+
+// ─── Mid-Task Incremental Compaction ─────────────────────────────────
+
+/// Threshold: compact when tool outputs consume this fraction of available context.
+const MID_TASK_THRESHOLD: f64 = 0.30;
+
+/// Minimum tool calls in current turn before mid-task compaction can trigger.
+const MIN_TOOL_CALLS_FOR_MID_TASK: usize = 3;
+
+/// Check if tool outputs are consuming too much context and compact if so.
+///
+/// Unlike `maybe_compact_conversation` (which runs at generation start),
+/// this runs DURING generation after each tool execution. It checks if
+/// accumulated tool output is eating too much context and summarizes
+/// older tool results in the DB for the next turn.
+///
+/// Returns Some(summary) if compaction happened, None otherwise.
+pub fn maybe_compact_mid_task(
+    conversation_id: &str,
+    db: &SharedDatabase,
+    model: &llama_cpp_2::model::LlamaModel,
+    backend: &llama_cpp_2::llama_backend::LlamaBackend,
+    chat_template_string: Option<&str>,
+    tool_response_tokens: i32,
+    tool_call_count: usize,
+    context_size: u32,
+    overhead_tokens: i32,
+) -> Option<String> {
+    // Strip .txt suffix
+    let conversation_id = conversation_id.trim_end_matches(".txt");
+
+    // Need at least N tool calls before considering mid-task compaction
+    if tool_call_count < MIN_TOOL_CALLS_FOR_MID_TASK {
+        return None;
+    }
+
+    // Check if tool outputs exceed threshold of available context
+    let overhead = if overhead_tokens > 0 { overhead_tokens as usize } else { FALLBACK_OVERHEAD_TOKENS };
+    let available = (context_size as usize).saturating_sub(overhead);
+    let threshold = (available as f64 * MID_TASK_THRESHOLD) as i32;
+
+    if tool_response_tokens < threshold {
+        return None;
+    }
+
+    eprintln!(
+        "[COMPACTION] Mid-task triggered: {} tool tokens > {} threshold ({} calls), conv={}",
+        tool_response_tokens, threshold, tool_call_count, conversation_id
+    );
+
+    // Load recent non-compacted messages that are tool-related
+    let messages = match db.get_messages(conversation_id) {
+        Ok(msgs) => msgs,
+        Err(_) => return None,
+    };
+
+    // Find assistant messages with tool calls (they contain <tool_call> or similar)
+    // and their following tool results — these are candidates for compaction
+    let non_compacted: Vec<_> = messages.iter()
+        .enumerate()
+        .filter(|(_, m)| !m.compacted)
+        .collect();
+
+    if non_compacted.len() <= KEEP_RECENT_MESSAGES + 1 {
+        return None;
+    }
+
+    // Take all but the last KEEP_RECENT_MESSAGES messages for compaction
+    let split = non_compacted.len() - KEEP_RECENT_MESSAGES;
+    let to_compact: Vec<_> = non_compacted[..split].iter()
+        .filter(|(_, m)| m.role != "system")
+        .collect();
+
+    if to_compact.is_empty() {
+        return None;
+    }
+
+    // Build text of messages to summarize
+    let old_text: String = to_compact.iter()
+        .map(|(_, m)| format!("{}:\n{}", m.role.to_uppercase(), m.content))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    if old_text.len() < 200 {
+        return None; // Not enough content to summarize
+    }
+
+    // Get sequence point for DB marking
+    let up_to_sequence = match get_sequence_for_compaction(db, conversation_id, to_compact.len()) {
+        Some(seq) => seq,
+        None => return None,
+    };
+
+    eprintln!(
+        "[COMPACTION] Mid-task: summarizing {} messages ({} chars)",
+        to_compact.len(), old_text.len()
+    );
+
+    // Summarize
+    let summary = match summarize_conversation(model, backend, &old_text, chat_template_string, conversation_id) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[COMPACTION] Mid-task summarization failed: {}", e);
+            return None;
+        }
+    };
+
+    // Persist to DB
+    let summary_sequence = up_to_sequence + 1;
+    if let Err(e) = db.compact_messages(conversation_id, up_to_sequence, &summary, summary_sequence) {
+        eprintln!("[COMPACTION] Mid-task DB update failed: {}", e);
+        return None;
+    }
+
+    eprintln!(
+        "[COMPACTION] Mid-task complete: {} messages compacted, summary={} chars",
+        to_compact.len(), summary.len()
+    );
+
+    Some(summary)
+}

@@ -596,6 +596,25 @@ fn run_generation_loop(
                 gen.tool_response_tokens += exec_result.model_tokens.len() as i32;
                 gen.generated_token_ids.extend(exec_result.model_tokens.iter().map(|&id| LlamaToken(id)));
                 command_executed = true;
+
+                // Mid-task compaction: if tool outputs are eating too much context,
+                // summarize older tool results in DB for the next turn.
+                let conv_id_clean = cfg.conversation_id.trim_end_matches(".txt");
+                let cached_overhead = cfg.db.get_context_overhead_tokens(conv_id_clean);
+                if let Some(_summary) = super::compaction::maybe_compact_mid_task(
+                    cfg.conversation_id,
+                    &cfg.db,
+                    model,
+                    cfg.backend,
+                    cfg.chat_template_string,
+                    gen.tool_response_tokens,
+                    gen.recent_commands.len(),
+                    cfg.context_size,
+                    cached_overhead,
+                ) {
+                    // Compaction happened — DB updated for next turn.
+                    // Current generation continues normally.
+                }
                 // tool call round (no limit)
                 hit_stop_condition = false;
                 gen.last_exec_scan_pos = gen.response.len();
