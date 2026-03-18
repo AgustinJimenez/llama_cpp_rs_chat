@@ -14,6 +14,7 @@ use crate::sys_error;
 
 /// Conversation metadata
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ConversationRecord {
     pub id: String,
     pub system_prompt: Option<String>,
@@ -98,6 +99,7 @@ impl Database {
     }
 
     /// Get conversation by ID
+    #[allow(dead_code)]
     pub fn get_conversation(&self, id: &str) -> Result<Option<ConversationRecord>, String> {
         let conn = self.connection();
         let result = conn.query_row(
@@ -400,24 +402,15 @@ impl Database {
         Ok(messages)
     }
 
-    /// Get conversation as text format (for backward compatibility with file-based format)
+    /// Get conversation as text format for the prompt builder.
+    ///
+    /// Returns ONLY user/assistant messages (+ compaction summaries).
+    /// System prompt and tool definitions are injected separately by the
+    /// prompt builder (templates.rs), NOT from conversation text.
+    /// This separation enables accurate token budgeting in conversation_context.
     pub fn get_conversation_as_text(&self, conversation_id: &str) -> Result<String, String> {
-        let conv = self.get_conversation(conversation_id)?;
         let messages = self.get_messages(conversation_id)?;
-
         let mut text = String::new();
-
-        // Add system prompt if present and not already stored as a system message.
-        let has_system_message = messages.iter().any(|msg| msg.role == "system");
-        if let Some(ref conv) = conv {
-            if let Some(ref prompt) = conv.system_prompt {
-                if !has_system_message {
-                    text.push_str("SYSTEM:\n");
-                    text.push_str(prompt);
-                    text.push_str("\n\n");
-                }
-            }
-        }
 
         // Add messages (skip compacted ones — model reads summaries instead)
         for msg in messages {
