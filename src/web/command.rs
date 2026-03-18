@@ -655,6 +655,12 @@ pub fn execute_command_streaming(
                         }
                     }
 
+                    // Log every 60s to confirm the loop is running
+                    let elapsed_secs = wall_start.elapsed().as_secs();
+                    if elapsed_secs > 0 && elapsed_secs % 60 == 0 && elapsed_secs / 60 != (elapsed_secs - 1) / 60 {
+                        eprintln!("[STREAM] Still running: {}s elapsed, pid={}", elapsed_secs, child_pid);
+                    }
+
                     // Hard wall-clock limit — prevents commands that trickle
                     // output (e.g. winget progress bars) from running forever
                     if wall_start.elapsed().as_secs() >= TOTAL_TIMEOUT_SECS {
@@ -697,6 +703,7 @@ pub fn execute_command_streaming(
                             }
                         }
                         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                            eprintln!("[STREAM] Pipe disconnected after {}s, pid={}", wall_start.elapsed().as_secs(), child_pid);
                             break; // Reader thread exited (pipe closed / process exited)
                         }
                     }
