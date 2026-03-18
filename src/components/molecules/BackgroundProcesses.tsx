@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Terminal, X, RefreshCw, Clock, Hash, Activity } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 import {
   Dialog,
   DialogContent,
@@ -26,16 +27,17 @@ async function fetchProcesses(): Promise<BackgroundProcess[]> {
   }
 }
 
-async function killProcess(pid: number): Promise<boolean> {
+async function killProcess(pid: number): Promise<{ success: boolean; message?: string }> {
   try {
     const res = await fetch('/api/system/processes/kill', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pid }),
     });
-    return res.ok;
+    const data = await res.json();
+    return { success: data.success ?? res.ok, message: data.message };
   } catch {
-    return false;
+    return { success: false, message: 'Failed to connect to server' };
   }
 }
 
@@ -79,9 +81,14 @@ export function BackgroundProcesses() {
 
   const handleKill = async (pid: number) => {
     setKilling(pid);
-    await killProcess(pid);
+    const result = await killProcess(pid);
     await refresh();
     setKilling(null);
+    if (result.success) {
+      toast.success(`Process ${pid} killed`, { duration: 2000 });
+    } else {
+      toast.error(result.message || `Failed to kill process ${pid}`, { duration: 4000 });
+    }
   };
 
   const handleKillAll = async () => {

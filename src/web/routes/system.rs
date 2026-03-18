@@ -332,15 +332,26 @@ pub async fn handle_kill_process(
         None => return Ok(json_error(StatusCode::BAD_REQUEST, "Missing pid")),
     };
 
-    tokio::task::spawn_blocking(move || {
+    let result = tokio::task::spawn_blocking(move || {
         // Kill the process tree
         crate::web::command::kill_background_process_by_pid(pid);
-        // Remove from DB
+
+        // Wait briefly for process to die, then verify
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let still_alive = crate::web::command::is_process_alive(pid);
+
+        // Remove from DB regardless (stale entries get cleaned on next list)
         let conn = db.connection();
         let _ = conn.execute("DELETE FROM background_processes WHERE pid = ?1", [pid as i64]);
+
+        !still_alive
     })
     .await
-    .ok();
+    .unwrap_or(false);
 
-    Ok(json_response(StatusCode::OK, &serde_json::json!({"success": true})))
+    if result {
+        Ok(json_response(StatusCode::OK, &serde_json::json!({"success": true, "message": "Process killed"})))
+    } else {
+        Ok(json_response(StatusCode::OK, &serde_json::json!({"success": false, "message": "Process may not have been killed. It might require elevated permissions."})))
+    }
 }
