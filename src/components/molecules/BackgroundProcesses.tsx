@@ -116,7 +116,7 @@ export function BackgroundProcesses() {
               <Terminal className="h-5 w-5 text-green-400" />
               Background Processes
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="text-zinc-300">
               Processes started by the model that are running in the background.
             </DialogDescription>
           </DialogHeader>
@@ -139,7 +139,7 @@ export function BackgroundProcesses() {
                   </div>
 
                   {/* Details row */}
-                  <div className="flex items-center gap-4 text-[11px] text-zinc-500 ml-4">
+                  <div className="flex items-center gap-4 text-[11px] text-zinc-300 ml-4">
                     <span className="flex items-center gap-1" title="Process ID">
                       <Hash className="h-3 w-3" />
                       PID {proc.pid}
@@ -188,7 +188,7 @@ export function BackgroundProcesses() {
             </div>
           )}
 
-          <div className="flex justify-between items-center pt-1 text-[10px] text-zinc-600">
+          <div className="flex justify-between items-center pt-1 text-[10px] text-zinc-400">
             <span>Auto-refreshes every 3s while open</span>
             <button onClick={refresh} className="flex items-center gap-1 hover:text-zinc-400 transition-colors">
               <RefreshCw className="h-3 w-3" />
