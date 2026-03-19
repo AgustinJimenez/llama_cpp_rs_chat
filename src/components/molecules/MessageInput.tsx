@@ -1,35 +1,20 @@
 import React, { useState, useCallback, KeyboardEvent, useEffect, useRef } from 'react';
-import { ArrowUp, Square, X, FileText, Loader2, Paperclip, Database, Clock } from 'lucide-react';
+import { ArrowUp, Square, X, FileText, Loader2, Paperclip, Database } from 'lucide-react';
 import { useChatContext } from '../../contexts/ChatContext';
 import { useModelContext } from '../../contexts/ModelContext';
 import { MessageStatistics } from './messages/MessageStatistics';
 import type { TimingInfo } from '../../utils/chatTransport';
 
 function LiveStreamingStats({ tokensUsed, maxTokens }: { tokensUsed?: number; maxTokens?: number }) {
-  const [elapsed, setElapsed] = useState(0);
-  useEffect(() => {
-    const start = Date.now();
-    const id = setInterval(() => setElapsed(Date.now() - start), 1000);
-    return () => clearInterval(id);
-  }, []);
   const fmt = (n: number) => n.toLocaleString('en-US').replace(/,/g, '.');
-  const secs = Math.floor(elapsed / 1000);
-  const mins = Math.floor(secs / 60);
-  const s = secs % 60;
-  const timeStr = mins > 0 ? `${mins}m ${s.toString().padStart(2, '0')}s` : `${s}s`;
   const pct = tokensUsed && maxTokens ? Math.round((tokensUsed / maxTokens) * 100) : 0;
+  if (tokensUsed === undefined || maxTokens === undefined) return null;
   return (
     <div className="flex items-center gap-3 text-xs text-zinc-400 font-mono">
-      <span className="inline-flex items-center gap-1">
-        <Clock className="h-3 w-3" />
-        {timeStr}
+      <span className={`inline-flex items-center gap-1 ${pct > 90 ? 'text-yellow-400' : ''}`} title={`Context: ${pct}% used`}>
+        <Database className="h-3 w-3" />
+        {fmt(tokensUsed)}/{fmt(maxTokens)}
       </span>
-      {tokensUsed !== undefined && maxTokens !== undefined ? (
-        <span className={`inline-flex items-center gap-1 ${pct > 90 ? 'text-yellow-400' : ''}`} title={`Context: ${pct}% used`}>
-          <Database className="h-3 w-3" />
-          {fmt(tokensUsed)}/{fmt(maxTokens)}
-        </span>
-      ) : null}
     </div>
   );
 }
