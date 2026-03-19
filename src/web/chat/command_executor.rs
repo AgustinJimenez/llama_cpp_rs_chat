@@ -595,7 +595,7 @@ fn execute_single_tool(
                             let _ = sender.send(TokenData {
                                 token: format!("{}\n", strip_ansi_codes(line)),
                                 tokens_used: token_pos,
-                                max_tokens: context_size as i32,
+                                max_tokens: context_size as i32, status: None,
                             });
                         }
                     });
@@ -608,7 +608,7 @@ fn execute_single_tool(
                             let _ = sender.send(TokenData {
                                 token: format!("{}\n", strip_ansi_codes(line)),
                                 tokens_used: token_pos,
-                                max_tokens: context_size as i32,
+                                max_tokens: context_size as i32, status: None,
                             });
                         }
                     });
@@ -634,7 +634,7 @@ fn execute_single_tool(
             let _ = sender.send(TokenData {
                 token: native_result.text.trim().to_string(),
                 tokens_used: token_pos,
-                max_tokens: context_size as i32,
+                max_tokens: context_size as i32, status: None,
             });
         }
         return (native_result.text, native_result.images);
@@ -646,7 +646,7 @@ fn execute_single_tool(
         let _ = sender.send(TokenData {
             token: err.clone(),
             tokens_used: token_pos,
-            max_tokens: context_size as i32,
+            max_tokens: context_size as i32, status: None,
         });
     }
     (err, Vec::new())
@@ -793,7 +793,7 @@ pub fn check_and_execute_command_with_tags(
         let _ = sender.send(TokenData {
             token: output_open.clone(),
             tokens_used: token_pos,
-            max_tokens: context_size as i32,
+            max_tokens: context_size as i32, status: None,
         });
     }
 
@@ -906,7 +906,7 @@ pub fn check_and_execute_command_with_tags(
                 let _ = sender.send(TokenData {
                     token: header.clone(),
                     tokens_used: token_pos,
-                    max_tokens: context_size as i32,
+                    max_tokens: context_size as i32, status: None,
                 });
             }
             combined_output.push_str(&header);
@@ -925,7 +925,7 @@ pub fn check_and_execute_command_with_tags(
                 let _ = sender.send(TokenData {
                     token: tool_output.trim().to_string(),
                     tokens_used: token_pos,
-                    max_tokens: context_size as i32,
+                    max_tokens: context_size as i32, status: None,
                 });
             }
             combined_output.push_str(tool_output.trim());
@@ -935,7 +935,7 @@ pub fn check_and_execute_command_with_tags(
                     let _ = sender.send(TokenData {
                         token: "\n\n".to_string(),
                         tokens_used: token_pos,
-                        max_tokens: context_size as i32,
+                        max_tokens: context_size as i32, status: None,
                     });
                 }
             }
@@ -956,7 +956,7 @@ pub fn check_and_execute_command_with_tags(
                         let _ = sender.send(TokenData {
                             token: format!("{}\n", strip_ansi_codes(line)),
                             tokens_used: token_pos,
-                            max_tokens: context_size as i32,
+                            max_tokens: context_size as i32, status: None,
                         });
                     }
                 })
@@ -968,7 +968,7 @@ pub fn check_and_execute_command_with_tags(
                         let _ = sender.send(TokenData {
                             token: format!("{}\n", strip_ansi_codes(line)),
                             tokens_used: token_pos,
-                            max_tokens: context_size as i32,
+                            max_tokens: context_size as i32, status: None,
                         });
                     }
                 })
@@ -989,7 +989,7 @@ pub fn check_and_execute_command_with_tags(
                 let _ = sender.send(TokenData {
                     token: native_result.text.trim().to_string(),
                     tokens_used: token_pos,
-                    max_tokens: context_size as i32,
+                    max_tokens: context_size as i32, status: None,
                 });
             }
             all_response_images.extend(native_result.images);
@@ -1004,7 +1004,7 @@ pub fn check_and_execute_command_with_tags(
                     let _ = sender.send(TokenData {
                         token: err_msg.clone(),
                         tokens_used: token_pos,
-                        max_tokens: context_size as i32,
+                        max_tokens: context_size as i32, status: None,
                     });
                 }
                 err_msg
@@ -1018,7 +1018,7 @@ pub fn check_and_execute_command_with_tags(
                         let _ = sender.send(TokenData {
                             token: format!("{}\n", strip_ansi_codes(line)),
                             tokens_used: token_pos,
-                            max_tokens: context_size as i32,
+                            max_tokens: context_size as i32, status: None,
                         });
                     }
                 })
@@ -1052,7 +1052,7 @@ pub fn check_and_execute_command_with_tags(
                     let _ = sender.send(TokenData {
                         token: summary_block.clone(),
                         tokens_used: token_pos,
-                        max_tokens: context_size as i32,
+                        max_tokens: context_size as i32, status: None,
                     });
                 }
                 // Display: original output + summary with content
@@ -1074,7 +1074,7 @@ pub fn check_and_execute_command_with_tags(
         let _ = sender.send(TokenData {
             token: output_close.clone(),
             tokens_used: token_pos,
-            max_tokens: context_size as i32,
+            max_tokens: context_size as i32, status: None,
         });
     }
 

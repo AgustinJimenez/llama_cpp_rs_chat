@@ -85,6 +85,7 @@ export function useChat() {
   const [tokensUsed, setTokensUsed] = useState<number | undefined>(undefined);
   const [maxTokens, setMaxTokens] = useState<number | undefined>(undefined);
   const [lastTimings, setLastTimings] = useState<TimingInfo | undefined>(undefined);
+  const [streamStatus, setStreamStatus] = useState<string | undefined>(undefined);
   const messagesRef = useRef<Message[]>([]);
 
   // Refs for streaming state
@@ -222,9 +223,14 @@ export function useChat() {
           if (tokenCount !== undefined) setTokensUsed(tokenCount);
           if (maxTokenCount !== undefined) setMaxTokens(maxTokenCount);
         },
+        onStatus: (message) => {
+          if (streamSeqRef.current !== streamSeq) return;
+          setStreamStatus(message);
+        },
         onComplete: (_messageId, conversationId, tokenCount, maxTokenCount, timings) => {
           if (streamSeqRef.current !== streamSeq) return;
           isStreamingRef.current = false;
+          setStreamStatus(undefined);
           console.log('[useChat] Streaming complete', timings ? `gen=${timings.genTokPerSec?.toFixed(1)} tok/s finish=${timings.finishReason ?? '?'}` : '');
 
           if (!currentConversationId) {
@@ -490,5 +496,6 @@ export function useChat() {
     tokensUsed,
     maxTokens,
     lastTimings,
+    streamStatus,
   };
 }

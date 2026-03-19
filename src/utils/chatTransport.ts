@@ -58,12 +58,18 @@ function handleStreamMessage(
     onToken: (token: string, tokensUsed?: number, maxTokens?: number) => void;
     onComplete: (messageId: string, conversationId: string, tokensUsed?: number, maxTokens?: number, timings?: TimingInfo) => void;
     onError: (error: string) => void;
+    onStatus?: (message: string) => void;
   },
   settle: (error?: Error) => void,
   markAborted: () => void
 ) {
   try {
     const message = JSON.parse(rawData);
+
+    if (message.type === 'status') {
+      callbacks.onStatus?.(message.message);
+      return;
+    }
 
     if (message.type === 'token') {
       if (message.tokens_used !== undefined) state.lastTokensUsed = message.tokens_used;

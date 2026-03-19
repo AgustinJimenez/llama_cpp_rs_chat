@@ -456,6 +456,8 @@ pub struct TokenData {
     pub token: String,
     pub tokens_used: i32,
     pub max_tokens: i32,
+    /// Optional status message (e.g. "Compacting 5/19...") shown in the UI during generation.
+    pub status: Option<String>,
 }
 
 // Request/Response structures

@@ -169,6 +169,14 @@ pub async fn handle_websocket(
                         token_result = rx.recv() => {
                             match token_result {
                                 Some(token_data) => {
+                                    // Status messages get sent immediately as their own type
+                                    if let Some(status) = &token_data.status {
+                                        let status_json = serde_json::json!({
+                                            "type": "status",
+                                            "message": status
+                                        });
+                                        let _ = ws_sender.send(WsMessage::Text(status_json.to_string())).await;
+                                    }
                                     pending_tokens.push_str(&token_data.token);
                                     pending_tokens_used = Some(token_data.tokens_used);
                                     pending_max_tokens = Some(token_data.max_tokens);

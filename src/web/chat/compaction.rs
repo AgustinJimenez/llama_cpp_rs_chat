@@ -6,7 +6,20 @@
 //! Original messages are preserved for the user to view.
 
 use crate::web::database::SharedDatabase;
+use crate::web::models::TokenData;
 use crate::{log_info, log_warn};
+
+/// Send a status update to the UI via the token channel.
+fn send_status(sender: Option<&tokio::sync::mpsc::UnboundedSender<TokenData>>, message: &str) {
+    if let Some(tx) = sender {
+        let _ = tx.send(TokenData {
+            token: String::new(),
+            tokens_used: 0,
+            max_tokens: 0,
+            status: Some(message.to_string()),
+        });
+    }
+}
 
 /// Minimum number of recent messages to preserve (not compacted).
 const KEEP_RECENT_MESSAGES: usize = 6;
@@ -36,6 +49,7 @@ pub fn maybe_compact_conversation(
     backend: &llama_cpp_2::llama_backend::LlamaBackend,
     chat_template_string: Option<&str>,
     overhead_tokens: Option<i32>,
+    status_sender: Option<&tokio::sync::mpsc::UnboundedSender<crate::web::models::TokenData>>,
 ) -> String {
     // Estimate token count (~4 chars per token)
     let estimated_tokens = conversation_content.len() / 4;
@@ -127,8 +141,9 @@ pub fn maybe_compact_conversation(
 
     // Summarize old messages using the model
     eprintln!("[COMPACTION] Running summarization on {} chars...", old_text.len());
+    send_status(status_sender, "Compacting conversation...");
     let summary = match summarize_conversation(
-        model, backend, &old_text, chat_template_string, conversation_id,
+        model, backend, &old_text, chat_template_string, conversation_id, status_sender,
     ) {
         Ok(s) => {
             eprintln!("[COMPACTION] Summarization succeeded: {} chars → {} chars", old_text.len(), s.len());
@@ -205,6 +220,7 @@ fn summarize_conversation(
     old_text: &str,
     chat_template_string: Option<&str>,
     conversation_id: &str,
+    status_sender: Option<&tokio::sync::mpsc::UnboundedSender<TokenData>>,
 ) -> Result<String, String> {
     use super::command_executor::run_summary_pass_public;
 
@@ -220,6 +236,7 @@ fn summarize_conversation(
     let mut chunk_summaries = Vec::new();
     let mut pos = 0;
     let mut chunk_num = 0;
+    let total_chunks = (old_text.len() + CHUNK_SIZE - 1) / CHUNK_SIZE;
 
     while pos < old_text.len() {
         let end = (pos + CHUNK_SIZE).min(old_text.len());
@@ -228,8 +245,10 @@ fn summarize_conversation(
         let chunk = &old_text[pos..end];
         chunk_num += 1;
 
+        let status_msg = format!("Compacting conversation ({}/{})", chunk_num, total_chunks);
+        send_status(status_sender, &status_msg);
         eprintln!("[COMPACTION] Map phase: summarizing chunk {}/{} ({} chars)...",
-            chunk_num, (old_text.len() + CHUNK_SIZE - 1) / CHUNK_SIZE, chunk.len());
+            chunk_num, total_chunks, chunk.len());
 
         match run_summary_pass_public(model, backend, chunk, chat_template_string, conversation_id) {
             Ok(summary) => {
@@ -248,6 +267,7 @@ fn summarize_conversation(
 
     // === REDUCE PHASE: combine chunk summaries into final summary ===
     let combined = chunk_summaries.join("\n\n");
+    send_status(status_sender, "Finalizing summary...");
     eprintln!("[COMPACTION] Reduce phase: {} chunk summaries ({} chars total) → final summary...",
         chunk_summaries.len(), combined.len());
 
@@ -256,7 +276,7 @@ fn summarize_conversation(
         run_summary_pass_public(model, backend, &combined, chat_template_string, conversation_id)
     } else {
         // Combined summaries still too large — recursively summarize
-        summarize_conversation(model, backend, &combined, chat_template_string, conversation_id)
+        summarize_conversation(model, backend, &combined, chat_template_string, conversation_id, status_sender)
     }
 }
 
@@ -358,7 +378,7 @@ pub fn maybe_compact_mid_task(
     );
 
     // Summarize
-    let summary = match summarize_conversation(model, backend, &old_text, chat_template_string, conversation_id) {
+    let summary = match summarize_conversation(model, backend, &old_text, chat_template_string, conversation_id, None) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("[COMPACTION] Mid-task summarization failed: {}", e);

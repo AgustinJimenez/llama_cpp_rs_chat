@@ -414,7 +414,7 @@ fn run_generation_loop(
                                 secs
                             ),
                             tokens_used: gen.total_tokens_generated,
-                            max_tokens: cfg.max_total_tokens,
+                            max_tokens: cfg.max_total_tokens, status: None,
                         });
                     }
                     gen.finish_reason = "error".to_string();
@@ -440,7 +440,7 @@ fn run_generation_loop(
                         let _ = sender.send(TokenData {
                             token: eos_str,
                             tokens_used: gen.token_pos,
-                            max_tokens: cfg.context_size as i32,
+                            max_tokens: cfg.context_size as i32, status: None,
                         });
                     }
                 }
@@ -518,7 +518,7 @@ fn run_generation_loop(
                     let _ = sender.send(TokenData {
                         token: "\n\n[Generation stopped: repetition loop detected]".to_string(),
                         tokens_used: gen.token_pos,
-                        max_tokens: cfg.context_size as i32,
+                        max_tokens: cfg.context_size as i32, status: None,
                     });
                 }
                 gen.finish_reason = "error".to_string();
@@ -531,7 +531,7 @@ fn run_generation_loop(
                 let _ = sender.send(TokenData {
                     token: token_str.clone(),
                     tokens_used: gen.token_pos,
-                    max_tokens: cfg.context_size as i32,
+                    max_tokens: cfg.context_size as i32, status: None,
                 });
             }
 
@@ -1076,6 +1076,7 @@ pub async fn generate_llama_response(
         &state.backend,
         state.chat_template_string.as_deref(),
         if cached_overhead > 0 { Some(cached_overhead) } else { None },
+        token_sender.as_ref(),
     );
 
     // If compaction changed the conversation, drop the old inference cache NOW

@@ -142,7 +142,7 @@ function MainContent({
   handleForceUnload: () => void;
 }) {
   const { status: modelStatus } = useModelContext();
-  const { messages, lastTimings, tokensUsed, maxTokens } = useChatContext();
+  const { messages, lastTimings, tokensUsed, maxTokens, streamStatus } = useChatContext();
 
   return (
     <div className="flex-1 ml-[240px]">
@@ -170,7 +170,7 @@ function MainContent({
             {modelStatus.loaded ? (
               <div className="px-6 pb-4 pt-2 animate-in slide-in-from-bottom-4 duration-300" data-testid="input-container">
                 <div className="max-w-3xl mx-auto">
-                  <MessageInput timings={lastTimings} tokensUsed={tokensUsed} maxTokens={maxTokens} />
+                  <MessageInput timings={lastTimings} tokensUsed={tokensUsed} maxTokens={maxTokens} streamStatus={streamStatus} />
                 </div>
               </div>
             ) : null}

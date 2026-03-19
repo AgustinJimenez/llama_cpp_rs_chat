@@ -519,6 +519,7 @@ async fn stdout_reader_task(
                         token,
                         tokens_used,
                         max_tokens,
+                        status: None,
                     });
                     continue;
                 }

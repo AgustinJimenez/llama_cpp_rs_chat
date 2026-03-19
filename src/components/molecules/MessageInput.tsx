@@ -5,16 +5,25 @@ import { useModelContext } from '../../contexts/ModelContext';
 import { MessageStatistics } from './messages/MessageStatistics';
 import type { TimingInfo } from '../../utils/chatTransport';
 
-function LiveStreamingStats({ tokensUsed, maxTokens }: { tokensUsed?: number; maxTokens?: number }) {
+function LiveStreamingStats({ tokensUsed, maxTokens, streamStatus }: { tokensUsed?: number; maxTokens?: number; streamStatus?: string }) {
   const fmt = (n: number) => n.toLocaleString('en-US').replace(/,/g, '.');
   const pct = tokensUsed && maxTokens ? Math.round((tokensUsed / maxTokens) * 100) : 0;
-  if (tokensUsed === undefined || maxTokens === undefined) return null;
+  const hasContext = tokensUsed !== undefined && maxTokens !== undefined;
+  if (!hasContext && !streamStatus) return null;
   return (
     <div className="flex items-center gap-3 text-xs text-zinc-400 font-mono">
-      <span className={`inline-flex items-center gap-1 ${pct > 90 ? 'text-yellow-400' : ''}`} title={`Context: ${pct}% used`}>
-        <Database className="h-3 w-3" />
-        {fmt(tokensUsed)}/{fmt(maxTokens)}
-      </span>
+      {streamStatus ? (
+        <span className="inline-flex items-center gap-1 text-cyan-400">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          {streamStatus}
+        </span>
+      ) : null}
+      {hasContext ? (
+        <span className={`inline-flex items-center gap-1 ${pct > 90 ? 'text-yellow-400' : ''}`} title={`Context: ${pct}% used`}>
+          <Database className="h-3 w-3" />
+          {fmt(tokensUsed!)}/{fmt(maxTokens!)}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -24,6 +33,7 @@ interface MessageInputProps {
   timings?: TimingInfo;
   tokensUsed?: number;
   maxTokens?: number;
+  streamStatus?: string;
 }
 
 interface AttachedFile {
@@ -105,6 +115,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   timings,
   tokensUsed,
   maxTokens,
+  streamStatus,
 }) => {
   const { sendMessage: onSendMessage, isLoading, stopGeneration } = useChatContext();
   const { status, isLoading: isModelLoading, loadingAction } = useModelContext();
@@ -341,7 +352,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
             {timings?.genTokPerSec ? (
               <MessageStatistics timings={timings} tokensUsed={tokensUsed} maxTokens={maxTokens} />
             ) : isLoading ? (
-              <LiveStreamingStats tokensUsed={tokensUsed} maxTokens={maxTokens} />
+              <LiveStreamingStats tokensUsed={tokensUsed} maxTokens={maxTokens} streamStatus={streamStatus} />
             ) : null}
           </div>
           {disabled ? (
