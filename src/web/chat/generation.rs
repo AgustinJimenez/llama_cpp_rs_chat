@@ -1306,12 +1306,27 @@ pub async fn generate_llama_response(
             .map_err(|e| format!("Tokenization failed: {e}"))?;
         log_debug!(&conversation_id, "Tokenized to {} tokens", tokens.len());
 
-        let (ctx, _skip_tokens) = evaluate_text_prompt(
+        let (ctx, _skip_tokens) = match evaluate_text_prompt(
             &mut state.inference_cache, model, &state.backend,
             &tokens, &conversation_id, context_size,
             offload_kqv, flash_attention, &cache_type_k, &cache_type_v,
             &config, batch_cap,
-        )?;
+        ) {
+            Ok(result) => result,
+            Err(e) if e.contains("Context too small") => {
+                // After compaction, VRAM may need time to reclaim. Retry once after a brief pause.
+                eprintln!("[GENERATION] Prompt decode failed after compaction, retrying in 2s...");
+                state.inference_cache = None; // ensure old context is fully dropped
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                evaluate_text_prompt(
+                    &mut state.inference_cache, model, &state.backend,
+                    &tokens, &conversation_id, context_size,
+                    offload_kqv, flash_attention, &cache_type_k, &cache_type_v,
+                    &config, batch_cap,
+                )?
+            },
+            Err(e) => return Err(e),
+        };
         let prompt_tokens = tokens.len();
         (ctx, prompt_tokens, tokens)
     };
