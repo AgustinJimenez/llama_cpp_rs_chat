@@ -214,6 +214,7 @@ fn get_sequence_for_compaction(
 
 /// Map-reduce summarization: split large text into chunks, summarize each,
 /// then combine all chunk summaries into one final summary.
+/// Uses a SINGLE reusable context to avoid CUDA memory fragmentation.
 fn summarize_conversation(
     model: &llama_cpp_2::model::LlamaModel,
     backend: &llama_cpp_2::llama_backend::LlamaBackend,
@@ -223,14 +224,43 @@ fn summarize_conversation(
     status_sender: Option<&tokio::sync::mpsc::UnboundedSender<TokenData>>,
 ) -> Result<String, String> {
     use super::command_executor::run_summary_pass_public;
+    use crate::web::chat::generation::create_fresh_context;
+    use crate::web::models::SamplerConfig;
+    use std::num::NonZeroU32;
 
-    // Each chunk should be ~10K chars (~2.5K tokens) to fit in the 4096-token summary context
     const CHUNK_SIZE: usize = 10000;
+    const SUMMARY_CTX: u32 = 4096;
 
     if old_text.len() <= CHUNK_SIZE {
-        // Small enough for a single pass
         return run_summary_pass_public(model, backend, old_text, chat_template_string, conversation_id);
     }
+
+    // Create ONE summary context, reuse for all chunks (avoids CUDA memory fragmentation)
+    let n_ctx = NonZeroU32::new(SUMMARY_CTX).unwrap();
+    let config = SamplerConfig::default();
+    let mut ctx = create_fresh_context(model, backend, n_ctx, false, &config)?;
+    eprintln!("[COMPACTION] Created reusable summary context ({})", SUMMARY_CTX);
+
+    let result = summarize_with_ctx(model, &mut ctx, old_text, chat_template_string, conversation_id, status_sender);
+
+    // Drop the single context — only one alloc/free cycle
+    drop(ctx);
+    eprintln!("[COMPACTION] Summary context released");
+
+    result
+}
+
+/// Inner map-reduce using a reusable context.
+fn summarize_with_ctx(
+    model: &llama_cpp_2::model::LlamaModel,
+    ctx: &mut llama_cpp_2::context::LlamaContext<'_>,
+    old_text: &str,
+    chat_template_string: Option<&str>,
+    conversation_id: &str,
+    status_sender: Option<&tokio::sync::mpsc::UnboundedSender<TokenData>>,
+) -> Result<String, String> {
+    use super::command_executor::run_summary_reusing_ctx;
+    const CHUNK_SIZE: usize = 10000;
 
     // === MAP PHASE: split into chunks and summarize each ===
     let mut chunk_summaries = Vec::new();
@@ -240,24 +270,21 @@ fn summarize_conversation(
 
     while pos < old_text.len() {
         let end = (pos + CHUNK_SIZE).min(old_text.len());
-        // Find valid UTF-8 boundary
         let end = (pos..=end).rev().find(|&i| old_text.is_char_boundary(i)).unwrap_or(end);
         let chunk = &old_text[pos..end];
         chunk_num += 1;
 
         let status_msg = format!("Compacting conversation ({}/{})", chunk_num, total_chunks);
         send_status(status_sender, &status_msg);
-        eprintln!("[COMPACTION] Map phase: summarizing chunk {}/{} ({} chars)...",
-            chunk_num, total_chunks, chunk.len());
+        eprintln!("[COMPACTION] Map phase: chunk {}/{} ({} chars)...", chunk_num, total_chunks, chunk.len());
 
-        match run_summary_pass_public(model, backend, chunk, chat_template_string, conversation_id) {
+        match run_summary_reusing_ctx(model, ctx, chunk, chat_template_string, conversation_id) {
             Ok(summary) => {
-                eprintln!("[COMPACTION] Chunk {} summary: {} chars", chunk_num, summary.len());
+                eprintln!("[COMPACTION] Chunk {} → {} chars", chunk_num, summary.len());
                 chunk_summaries.push(summary);
             }
             Err(e) => {
-                eprintln!("[COMPACTION] Chunk {} summarization failed: {}, using truncation", chunk_num, e);
-                // Fallback: take first 200 chars of chunk
+                eprintln!("[COMPACTION] Chunk {} failed: {}, truncating", chunk_num, e);
                 chunk_summaries.push(chunk.chars().take(200).collect::<String>() + "...");
             }
         }
@@ -265,18 +292,15 @@ fn summarize_conversation(
         pos = end;
     }
 
-    // === REDUCE PHASE: combine chunk summaries into final summary ===
+    // === REDUCE PHASE ===
     let combined = chunk_summaries.join("\n\n");
     send_status(status_sender, "Finalizing summary...");
-    eprintln!("[COMPACTION] Reduce phase: {} chunk summaries ({} chars total) → final summary...",
-        chunk_summaries.len(), combined.len());
+    eprintln!("[COMPACTION] Reduce: {} summaries ({} chars) → final...", chunk_summaries.len(), combined.len());
 
     if combined.len() <= CHUNK_SIZE {
-        // Combined summaries fit in one pass
-        run_summary_pass_public(model, backend, &combined, chat_template_string, conversation_id)
+        run_summary_reusing_ctx(model, ctx, &combined, chat_template_string, conversation_id)
     } else {
-        // Combined summaries still too large — recursively summarize
-        summarize_conversation(model, backend, &combined, chat_template_string, conversation_id, status_sender)
+        summarize_with_ctx(model, ctx, &combined, chat_template_string, conversation_id, status_sender)
     }
 }
 

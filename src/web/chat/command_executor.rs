@@ -245,6 +245,105 @@ fn run_summary_pass_with_system(
     Ok(result)
 }
 
+/// Run a summary pass reusing an existing context (clears memory between uses).
+/// This avoids CUDA memory fragmentation from creating/destroying many contexts.
+pub fn run_summary_reusing_ctx(
+    model: &llama_cpp_2::model::LlamaModel,
+    ctx: &mut llama_cpp_2::context::LlamaContext<'_>,
+    text: &str,
+    chat_template_string: Option<&str>,
+    conversation_id: &str,
+) -> Result<String, String> {
+    let system_msg = "Summarize this conversation history concisely. Keep: key decisions, user requests, important results, file paths, errors encountered, tools used and their outcomes. Remove: verbose tool output, repeated attempts, boilerplate. Write as a brief narrative paragraph.";
+
+    let formatted_prompt = if let Some(template_str) = chat_template_string {
+        use super::jinja_templates::apply_native_chat_template;
+        #[allow(deprecated)]
+        use llama_cpp_2::model::Special;
+        #[allow(deprecated)]
+        let bos = model.token_to_str(model.token_bos(), Special::Tokenize).unwrap_or_else(|_| "<s>".into());
+        #[allow(deprecated)]
+        let eos = model.token_to_str(model.token_eos(), Special::Tokenize).unwrap_or_else(|_| "</s>".into());
+        let messages = vec![
+            super::jinja_templates::ChatMessage { role: "system".into(), content: system_msg.into(), tool_calls: None },
+            super::jinja_templates::ChatMessage { role: "user".into(), content: text.into(), tool_calls: None },
+        ];
+        apply_native_chat_template(template_str, messages, None, None, true, &bos, &eos)
+            .unwrap_or_else(|_| format!("SYSTEM:\n{system_msg}\n\nUSER:\n{text}\n\nASSISTANT:\n"))
+    } else {
+        format!("SYSTEM:\n{system_msg}\n\nUSER:\n{text}\n\nASSISTANT:\n")
+    };
+
+    use llama_cpp_2::llama_batch::LlamaBatch;
+    use llama_cpp_2::sampling::LlamaSampler;
+    use llama_cpp_2::model::AddBos;
+
+    let tokens = model
+        .str_to_token(&formatted_prompt, AddBos::Never)
+        .map_err(|e| format!("Summary tokenization failed: {e}"))?;
+
+    if tokens.len() + SUMMARY_MAX_TOKENS > SUMMARY_CTX_SIZE as usize {
+        return Err(format!("Summary prompt too large: {} tokens", tokens.len()));
+    }
+
+    // Clear memory to reuse context for a fresh prompt
+    ctx.clear_memory();
+
+    let batch_cap = 512usize;
+    let mut batch = LlamaBatch::new(batch_cap, 1);
+    let n_chunks = tokens.len().div_ceil(batch_cap);
+    for chunk_idx in 0..n_chunks {
+        let start = chunk_idx * batch_cap;
+        let end = std::cmp::min(start + batch_cap, tokens.len());
+        batch.clear();
+        for (offset, &token) in tokens[start..end].iter().enumerate() {
+            let pos = (start + offset) as i32;
+            let is_last = start + offset == tokens.len() - 1;
+            batch.add(token, pos, &[0], is_last)
+                .map_err(|e| format!("Summary batch add failed: {e}"))?;
+        }
+        ctx.decode(&mut batch)
+            .map_err(|e| format!("Summary prompt decode failed: {e}"))?;
+    }
+
+    let mut sampler = LlamaSampler::chain_simple(vec![
+        LlamaSampler::temp(0.3),
+        LlamaSampler::dist(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos() as u32)
+                .unwrap_or(42),
+        ),
+    ]);
+
+    let mut summary = String::new();
+    let mut token_pos = tokens.len() as i32;
+    let eos_token = model.token_eos();
+
+    for _ in 0..SUMMARY_MAX_TOKENS {
+        let next_token = sampler.sample(ctx, -1);
+        if next_token == eos_token { break; }
+
+        #[allow(deprecated)]
+        let token_str = model
+            .token_to_str(next_token, llama_cpp_2::model::Special::Tokenize)
+            .unwrap_or_default();
+
+        summary.push_str(&token_str);
+
+        batch.clear();
+        batch.add(next_token, token_pos, &[0], true)
+            .map_err(|e| format!("Summary gen batch add failed: {e}"))?;
+        ctx.decode(&mut batch)
+            .map_err(|e| format!("Summary gen decode failed: {e}"))?;
+        token_pos += 1;
+    }
+
+    let result = summary.trim().to_string();
+    log_info!(conversation_id, "📦 Summary pass (reused ctx): {} input → {} output chars", text.len(), result.len());
+    Ok(result)
+}
+
 /// Summarize tool output using chunked map-reduce if needed.
 /// Returns the summary prefixed with `[Summarized from N chars]`.
 fn summarize_tool_output(
