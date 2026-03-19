@@ -283,6 +283,7 @@ export function useChat() {
               const convId = conversationId || currentConversationId;
               const newStreamSeq = (streamSeqRef.current += 1);
               isStreamingRef.current = true;
+              setLastTimings(undefined); // Clear old stats so live stats + compaction indicator show
               abortControllerRef.current = new AbortController();
 
               runStream({
