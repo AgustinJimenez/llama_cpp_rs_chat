@@ -112,8 +112,10 @@ export function useChat() {
   }, [messages]);
 
   // Derive lastTimings from the last assistant message so stats persist
-  // across conversation loads and page refreshes.
+  // across conversation loads and page refreshes. Skip during streaming
+  // so live stats show instead of stale completion stats.
   useEffect(() => {
+    if (isStreamingRef.current) return;
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === 'assistant' && messages[i].timings) {
         setLastTimings(messages[i].timings);
@@ -358,6 +360,7 @@ export function useChat() {
 
     try {
       isStreamingRef.current = true;
+      setLastTimings(undefined); // Clear old stats so live stats show during streaming
       console.log('[useChat] Streaming started');
       await runStream({
         request: { message: trimmed, conversation_id: currentConversationId || undefined, image_data: hasImages ? imageData : undefined },
