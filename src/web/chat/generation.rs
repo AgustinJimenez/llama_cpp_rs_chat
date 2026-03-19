@@ -451,12 +451,31 @@ fn run_generation_loop(
             batch.clear();
             batch.add(next_token, gen.token_pos, &[0], true)
                 .map_err(|e| format!("Batch add failed at token {}: {e}", gen.total_tokens_generated))?;
-            context.decode(batch)
-                .map_err(|e| format!("Decode failed at token {}: {e}", gen.total_tokens_generated))?;
+            if let Err(e) = context.decode(batch) {
+                let err_str = format!("{e}");
+                if err_str.contains("NoKvCacheSlot") || err_str.contains("no kv cache slot") {
+                    eprintln!("[CTX_GUARD] NoKvCacheSlot at token {} — treating as finish_reason=length", gen.total_tokens_generated);
+                    gen.finish_reason = "length".to_string();
+                    hit_stop_condition = true;
+                    break;
+                }
+                return Err(format!("Decode failed at token {}: {e}", gen.total_tokens_generated));
+            }
 
             gen.token_pos += 1;
             gen.total_tokens_generated += 1;
             gen.generated_token_ids.push(next_token);
+
+            // Context position guard: if we've consumed >95% of context, stop gracefully.
+            // This catches recurrent/hybrid models (Mamba/Jamba) where llama_decode returns
+            // success but internally fails (logs "failed to find a memory slot").
+            let ctx_limit = cfg.context_size.saturating_sub(cfg.context_size / 20);
+            if gen.token_pos as u32 >= ctx_limit {
+                eprintln!("[CTX_GUARD] Context 95% full ({}/{}, limit={}) — stopping with finish_reason=length", gen.token_pos, cfg.context_size, ctx_limit);
+                gen.finish_reason = "length".to_string();
+                hit_stop_condition = true;
+                break;
+            }
 
             #[allow(deprecated)]
             let token_str = match model.token_to_str(next_token, Special::Tokenize) {
@@ -587,10 +606,19 @@ fn run_generation_loop(
 
                 if !used_vision {
                     log_info!(cfg.conversation_id, "Injecting {} output tokens into context...", exec_result.model_tokens.len());
-                    inject_output_tokens(
+                    match inject_output_tokens(
                         &exec_result.model_tokens, batch, context,
                         &mut gen.token_pos, cfg.conversation_id,
-                    )?;
+                    ) {
+                        Ok(()) => {},
+                        Err(e) if e == "CONTEXT_EXHAUSTED" => {
+                            eprintln!("[CTX_GUARD] Context exhausted during tool output injection — setting finish_reason=length");
+                            gen.finish_reason = "length".to_string();
+                            hit_stop_condition = true;
+                            break;
+                        },
+                        Err(e) => return Err(e),
+                    }
                 }
 
                 gen.tool_response_tokens += exec_result.model_tokens.len() as i32;
@@ -728,9 +756,13 @@ fn evaluate_text_prompt(
                     .map_err(|e| format!("Batch add failed at prompt token {pos}: {e}"))?;
             }
 
-            ctx.decode(&mut batch).map_err(|e| {
-                format!("Prompt decode failed (chunk {}/{}): {e}", chunk_idx + 1, n_chunks)
-            })?;
+            if let Err(e) = ctx.decode(&mut batch) {
+                let err_str = format!("{e}");
+                if err_str.contains("NoKvCacheSlot") {
+                    return Err(format!("Context too small for conversation — try increasing context size or starting a new conversation"));
+                }
+                return Err(format!("Prompt decode failed (chunk {}/{}): {e}", chunk_idx + 1, n_chunks));
+            }
         }
     } else {
         log_info!(conversation_id, "All {} prompt tokens already in KV cache, skipping decode", tokens.len());
@@ -788,6 +820,7 @@ fn quick_task_completion_check(
     backend: &llama_cpp_2::llama_backend::LlamaBackend,
     chat_template_string: Option<&str>,
     conversation_id: &str,
+    response_tail: &str,
 ) -> bool {
     use llama_cpp_2::llama_batch::LlamaBatch;
     use llama_cpp_2::sampling::LlamaSampler;
@@ -795,7 +828,10 @@ fn quick_task_completion_check(
     use std::num::NonZeroU32;
     use crate::web::models::SamplerConfig;
 
-    let prompt_text = "You just finished generating a response that involved executing tool calls (commands, file operations, etc.). Based on the conversation flow, is the task the user requested FULLY complete? Answer with a single word: YES or NO.";
+    let prompt_text = format!(
+        "Here is the end of an AI assistant's response that used tool calls:\n\n{}\n\nDid the assistant FINISH the task completely, or did it stop mid-way (e.g., said 'Let me...' or 'Now I will...' but didn't do it)? Answer YES if complete, NO if incomplete.",
+        response_tail
+    );
 
     let formatted = if let Some(template_str) = chat_template_string {
         use super::jinja_templates::{apply_native_chat_template, ChatMessage};
@@ -807,7 +843,7 @@ fn quick_task_completion_check(
         let eos = model.token_to_str(model.token_eos(), Special::Tokenize).unwrap_or_else(|_| "</s>".into());
         let messages = vec![
             ChatMessage { role: "system".into(), content: "Answer YES or NO only.".into(), tool_calls: None },
-            ChatMessage { role: "user".into(), content: prompt_text.into(), tool_calls: None },
+            ChatMessage { role: "user".into(), content: prompt_text.clone().into(), tool_calls: None },
         ];
         apply_native_chat_template(template_str, messages, None, None, true, &bos, &eos)
             .unwrap_or_else(|_| format!("SYSTEM:\nAnswer YES or NO only.\n\nUSER:\n{prompt_text}\n\nASSISTANT:\n"))
@@ -1041,6 +1077,13 @@ pub async fn generate_llama_response(
         state.chat_template_string.as_deref(),
         if cached_overhead > 0 { Some(cached_overhead) } else { None },
     );
+
+    // If compaction changed the conversation, drop the old inference cache NOW
+    // so VRAM is freed before we create a new context.
+    if conversation_content != raw_conversation_content {
+        eprintln!("[COMPACTION] Conversation changed after compaction, clearing inference cache to free VRAM");
+        state.inference_cache = None;
+    }
 
     // Convert conversation to chat format using the new 3-system prompt approach
     let template_type = state.chat_template_type.clone();
@@ -1425,13 +1468,21 @@ pub async fn generate_llama_response(
     // If the model stopped naturally (EOS) but was in an agentic task (tool calls made),
     // do a quick Y/N check to see if the task is actually complete.
     // This catches cases where the model emits EOS mid-task.
+    eprintln!("[TASK_CHECK] finish_reason={}, tool_response_tokens={}, recent_commands={}", gen.finish_reason, gen.tool_response_tokens, gen.recent_commands.len());
     if gen.finish_reason == "stop" && gen.tool_response_tokens > 0 {
+        // Pass the last ~500 chars of the response for context
+        let response_tail = if gen.response.len() > 500 {
+            &gen.response[gen.response.len() - 500..]
+        } else {
+            &gen.response
+        };
         let is_complete = quick_task_completion_check(
             model, &state.backend, state.chat_template_string.as_deref(), &conversation_id,
+            response_tail,
         );
         if !is_complete {
-            log_info!(&conversation_id, "🔄 Task incomplete detected (Y/N check), setting finish_reason=length for auto-continue");
-            gen.finish_reason = "length".to_string();
+            eprintln!("[TASK_CHECK] Y/N check said NO → setting finish_reason=yn_continue for auto-continue");
+            gen.finish_reason = "yn_continue".to_string();
         }
     }
 

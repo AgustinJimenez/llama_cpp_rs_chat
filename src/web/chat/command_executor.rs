@@ -1147,11 +1147,23 @@ pub fn inject_output_tokens(
                 .map_err(|e| format!("Batch add failed for command output: {e}"))?;
         }
 
-        context
-            .decode(batch)
-            .map_err(|e| format!("Decode failed for command output: {e}"))?;
+        if let Err(e) = context.decode(batch) {
+            let err_str = format!("{e}");
+            if err_str.contains("NoKvCacheSlot") || err_str.contains("no kv cache slot") {
+                return Err("CONTEXT_EXHAUSTED".to_string());
+            }
+            return Err(format!("Decode failed for command output: {e}"));
+        }
 
         *token_pos += chunk.len() as i32;
+    }
+
+    // Check if we've consumed too much context after injection
+    // (catches recurrent/hybrid models where decode succeeds but context is full)
+    let ctx_size = context.n_ctx();
+    if *token_pos as u32 >= ctx_size.saturating_sub(ctx_size / 20) {
+        eprintln!("[INJECT] Context 95% full after injection ({}/{})", token_pos, ctx_size);
+        return Err("CONTEXT_EXHAUSTED".to_string());
     }
 
     Ok(())

@@ -120,11 +120,12 @@ pub async fn handle_websocket(
                 sys_debug!("[WS_CHAT] User message: {}", chat_request.message);
 
                 // Start generation via worker bridge
+                let skip_user_log = chat_request.auto_continue;
                 let (mut rx, done_rx) = match bridge
                     .generate(
                         chat_request.message.clone(),
                         chat_request.conversation_id.clone(),
-                        false, // Worker logs user message
+                        skip_user_log, // auto_continue: don't log "Continue" as user message
                         chat_request.image_data.clone(),
                     )
                     .await

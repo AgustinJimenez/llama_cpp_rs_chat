@@ -261,30 +261,24 @@ export function useChat() {
             ));
           }
 
-          // Auto-continue: if generation was cut off by max_tokens, re-send "Continue"
+          // Auto-continue: if generation was cut off by context or Y/N check, resume silently
           const finishReason = timings?.finishReason;
-          if (finishReason === 'length' && autoContinueCountRef.current < MAX_AUTO_CONTINUES) {
+          const isYnContinue = finishReason === 'yn_continue';
+          if ((finishReason === 'length' || isYnContinue) && autoContinueCountRef.current < MAX_AUTO_CONTINUES) {
             autoContinueCountRef.current += 1;
             const continueNum = autoContinueCountRef.current;
-            console.log(`[useChat] Auto-continue ${continueNum}/${MAX_AUTO_CONTINUES} (finish_reason=length)`);
+            const reason = isYnContinue ? 'task incomplete' : 'context full';
+            console.log(`[useChat] Auto-continue ${continueNum}/${MAX_AUTO_CONTINUES} (${reason})`);
 
-            // Append a visual indicator to the current assistant message
-            setMessages(prev => prev.map(msg =>
-              msg.id === assistantMessageId
-                ? { ...msg, content: msg.content + `\n\n*[Continuing... (${continueNum}/${MAX_AUTO_CONTINUES})]*\n\n` }
-                : msg
-            ));
-
-            // Brief delay then re-send
+            // Brief delay then resume — auto_continue flag skips logging a user message
             setTimeout(() => {
               const convId = conversationId || currentConversationId;
-              // Re-use the same assistant message — create a new stream sequence
               const newStreamSeq = (streamSeqRef.current += 1);
               isStreamingRef.current = true;
               abortControllerRef.current = new AbortController();
 
               runStream({
-                request: { message: 'Continue', conversation_id: convId || undefined },
+                request: { message: 'Continue', conversation_id: convId || undefined, auto_continue: true },
                 assistantMessageId,
                 streamSeq: newStreamSeq,
               }).catch(err => {

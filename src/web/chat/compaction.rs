@@ -82,77 +82,31 @@ pub fn maybe_compact_conversation(
 
     eprintln!("[COMPACTION] {} messages loaded, {} eligible for compaction", messages.len(), non_compacted.len());
 
-    // Check for oversized single messages (e.g., a huge assistant response with many tool calls).
-    // Even with few messages, if one exceeds 50% of available context, summarize it.
-    let half_available = available_context / 2;
-    let oversized: Vec<(usize, &crate::web::database::conversation::MessageRecord)> = non_compacted.iter()
-        .filter(|(_, m)| m.content.len() / 4 > half_available)
-        .cloned()
+    // Aggressive compaction: compact all large messages, keep only the last user message.
+    // Find messages to compact: everything except the last user message.
+    let last_user_idx = non_compacted.iter().rposition(|(_, m)| m.role == "user");
+    let to_compact: Vec<&(usize, &crate::web::database::conversation::MessageRecord)> = non_compacted.iter()
+        .enumerate()
+        .filter(|(i, _)| Some(*i) != last_user_idx)
+        .map(|(_, item)| item)
         .collect();
 
-    if !oversized.is_empty() {
-        eprintln!("[COMPACTION] Found {} oversized message(s), compacting regardless of message count", oversized.len());
-        // Summarize oversized messages and mark them as compacted
-        for (_, msg) in &oversized {
-            let summary = match summarize_conversation(model, backend, &msg.content, chat_template_string, conversation_id) {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("[COMPACTION] Oversized message summarization failed: {}", e);
-                    continue;
-                }
-            };
-
-            // Find sequence_order for this message and compact it
-            let conn = db.connection();
-            let seq: Option<i32> = conn.query_row(
-                "SELECT sequence_order FROM messages WHERE conversation_id = ?1 AND role = ?2 AND LENGTH(content) = ?3 AND COALESCE(compacted, 0) = 0 ORDER BY sequence_order DESC LIMIT 1",
-                rusqlite::params![conversation_id, msg.role, msg.content.len()],
-                |row| row.get(0),
-            ).ok();
-
-            if let Some(seq) = seq {
-                // Mark the oversized message as compacted
-                let _ = conn.execute(
-                    "UPDATE messages SET compacted = 1 WHERE conversation_id = ?1 AND sequence_order = ?2",
-                    rusqlite::params![conversation_id, seq],
-                );
-                // Insert summary right after it
-                let summary_seq = seq + 1;
-                let timestamp = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs() as i64)
-                    .unwrap_or(0);
-                let _ = conn.execute(
-                    "INSERT INTO messages (id, conversation_id, role, content, timestamp, sequence_order, is_streaming, compacted) VALUES (?1, ?2, 'system', ?3, ?4, ?5, 0, 0)",
-                    rusqlite::params![
-                        uuid::Uuid::new_v4().to_string(),
-                        conversation_id,
-                        format!("[Conversation summary — oversized message compacted]\n{}", summary),
-                        timestamp,
-                        summary_seq,
-                    ],
-                );
-                eprintln!("[COMPACTION] Oversized message (seq={}) compacted: {} chars → {} chars", seq, msg.content.len(), summary.len());
-            }
-        }
-
-        // Reload and return
-        return db.get_conversation_as_text(conversation_id).unwrap_or_else(|_| conversation_content.to_string());
-    }
-
-    if non_compacted.len() <= KEEP_RECENT_MESSAGES + 1 {
-        eprintln!("[COMPACTION] Skipping: only {} msgs, need > {}", non_compacted.len(), KEEP_RECENT_MESSAGES);
+    if to_compact.is_empty() {
+        eprintln!("[COMPACTION] Skipping: nothing to compact (only user messages)");
         return conversation_content.to_string();
     }
 
-    let split_point = non_compacted.len() - KEEP_RECENT_MESSAGES;
-    let old_messages = &non_compacted[..split_point];
+    let total_chars: usize = to_compact.iter().map(|(_, m)| m.content.len()).sum();
+    eprintln!("[COMPACTION] Will compact {} message(s) ({} chars total), keeping last user message", to_compact.len(), total_chars);
 
-    // Build text of old messages to summarize
-    let old_text: String = old_messages.iter()
+    // Build text of messages to summarize
+    let old_text: String = to_compact.iter()
         .map(|(_, m)| format!("{}:\n{}", m.role.to_uppercase(), m.content))
         .collect::<Vec<_>>()
         .join("\n\n");
+
+    // Use the old_messages slice for the sequence detection below
+    let old_messages = &non_compacted[..non_compacted.len().saturating_sub(1).max(1)];
 
     // Find the sequence_order of the last old message for DB marking
     // We need to get sequence_order from the DB — use a query
@@ -164,20 +118,24 @@ pub fn maybe_compact_conversation(
         }
     };
 
-    eprintln!("[COMPACTION] Compacting {} old messages, keeping {} recent", old_messages.len(), KEEP_RECENT_MESSAGES);
+    eprintln!("[COMPACTION] Compacting {} messages ({} chars) up to seq {}", to_compact.len(), old_text.len(), up_to_sequence);
     log_info!(
         conversation_id,
-        "📦 Compacting {} messages ({} chars) up to sequence {}, keeping {} recent",
-        old_messages.len(), old_text.len(), up_to_sequence, KEEP_RECENT_MESSAGES
+        "📦 Compacting {} messages ({} chars) up to sequence {}",
+        to_compact.len(), old_text.len(), up_to_sequence
     );
 
     // Summarize old messages using the model
+    eprintln!("[COMPACTION] Running summarization on {} chars...", old_text.len());
     let summary = match summarize_conversation(
         model, backend, &old_text, chat_template_string, conversation_id,
     ) {
-        Ok(s) => s,
+        Ok(s) => {
+            eprintln!("[COMPACTION] Summarization succeeded: {} chars → {} chars", old_text.len(), s.len());
+            s
+        },
         Err(e) => {
-            log_warn!(conversation_id, "📦 Summarization failed: {}, using truncation fallback", e);
+            eprintln!("[COMPACTION] Summarization failed: {}, using truncation fallback", e);
             old_text.chars().take(500).collect::<String>() + "\n[...older messages truncated...]"
         }
     };
@@ -186,10 +144,10 @@ pub fn maybe_compact_conversation(
     let summary_sequence = up_to_sequence + 1; // Place summary right after compacted messages
     match db.compact_messages(conversation_id, up_to_sequence, &summary, summary_sequence) {
         Ok(marked) => {
-            log_info!(conversation_id, "📦 DB compaction: {} messages marked, summary inserted at seq {}", marked, summary_sequence);
+            eprintln!("[COMPACTION] DB compaction done: {} messages marked as compacted, summary at seq {}", marked, summary_sequence);
         }
         Err(e) => {
-            log_warn!(conversation_id, "📦 DB compaction failed: {}", e);
+            eprintln!("[COMPACTION] DB compaction failed: {}", e);
         }
     }
 
@@ -239,6 +197,8 @@ fn get_sequence_for_compaction(
     }).ok()
 }
 
+/// Map-reduce summarization: split large text into chunks, summarize each,
+/// then combine all chunk summaries into one final summary.
 fn summarize_conversation(
     model: &llama_cpp_2::model::LlamaModel,
     backend: &llama_cpp_2::llama_backend::LlamaBackend,
@@ -248,19 +208,56 @@ fn summarize_conversation(
 ) -> Result<String, String> {
     use super::command_executor::run_summary_pass_public;
 
-    // If old text is very large, take beginning + end
-    let max_chars = 8000;
-    let text_to_summarize = if old_text.len() > max_chars {
-        let half = max_chars / 2;
-        let start = &old_text[..half];
-        let end_start = old_text.len() - half;
-        let end = &old_text[end_start..];
-        format!("{}\n[...{} chars omitted...]\n{}", start, old_text.len() - max_chars, end)
-    } else {
-        old_text.to_string()
-    };
+    // Each chunk should be ~10K chars (~2.5K tokens) to fit in the 4096-token summary context
+    const CHUNK_SIZE: usize = 10000;
 
-    run_summary_pass_public(model, backend, &text_to_summarize, chat_template_string, conversation_id)
+    if old_text.len() <= CHUNK_SIZE {
+        // Small enough for a single pass
+        return run_summary_pass_public(model, backend, old_text, chat_template_string, conversation_id);
+    }
+
+    // === MAP PHASE: split into chunks and summarize each ===
+    let mut chunk_summaries = Vec::new();
+    let mut pos = 0;
+    let mut chunk_num = 0;
+
+    while pos < old_text.len() {
+        let end = (pos + CHUNK_SIZE).min(old_text.len());
+        // Find valid UTF-8 boundary
+        let end = (pos..=end).rev().find(|&i| old_text.is_char_boundary(i)).unwrap_or(end);
+        let chunk = &old_text[pos..end];
+        chunk_num += 1;
+
+        eprintln!("[COMPACTION] Map phase: summarizing chunk {}/{} ({} chars)...",
+            chunk_num, (old_text.len() + CHUNK_SIZE - 1) / CHUNK_SIZE, chunk.len());
+
+        match run_summary_pass_public(model, backend, chunk, chat_template_string, conversation_id) {
+            Ok(summary) => {
+                eprintln!("[COMPACTION] Chunk {} summary: {} chars", chunk_num, summary.len());
+                chunk_summaries.push(summary);
+            }
+            Err(e) => {
+                eprintln!("[COMPACTION] Chunk {} summarization failed: {}, using truncation", chunk_num, e);
+                // Fallback: take first 200 chars of chunk
+                chunk_summaries.push(chunk.chars().take(200).collect::<String>() + "...");
+            }
+        }
+
+        pos = end;
+    }
+
+    // === REDUCE PHASE: combine chunk summaries into final summary ===
+    let combined = chunk_summaries.join("\n\n");
+    eprintln!("[COMPACTION] Reduce phase: {} chunk summaries ({} chars total) → final summary...",
+        chunk_summaries.len(), combined.len());
+
+    if combined.len() <= CHUNK_SIZE {
+        // Combined summaries fit in one pass
+        run_summary_pass_public(model, backend, &combined, chat_template_string, conversation_id)
+    } else {
+        // Combined summaries still too large — recursively summarize
+        summarize_conversation(model, backend, &combined, chat_template_string, conversation_id)
+    }
 }
 
 // ─── Mid-Task Incremental Compaction ─────────────────────────────────

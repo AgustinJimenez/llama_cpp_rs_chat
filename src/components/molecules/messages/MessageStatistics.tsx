@@ -79,8 +79,13 @@ export function MessageStatistics({ timings, tokensUsed, maxTokens }: MessageSta
         )
       ) : null}
       {timings.finishReason === 'length' ? (
-        <span className="inline-flex items-center gap-1 text-yellow-400" title="Generation was cut off by max_tokens limit">
+        <span className="inline-flex items-center gap-1 text-yellow-400" title="Generation was cut off by context limit">
           truncated
+        </span>
+      ) : null}
+      {timings.finishReason === 'yn_continue' ? (
+        <span className="inline-flex items-center gap-1 text-cyan-400" title="Y/N check detected incomplete task — auto-continuing">
+          task incomplete
         </span>
       ) : null}
       {bgProcesses.length > 0 ? (

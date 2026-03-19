@@ -467,6 +467,10 @@ pub struct ChatRequest {
     /// Supports multiple images per message.
     #[serde(default)]
     pub image_data: Option<Vec<String>>,
+    /// When true, this is an automatic continuation after context exhaustion or Y/N check.
+    /// The user message will NOT be logged to the conversation — the model simply resumes.
+    #[serde(default)]
+    pub auto_continue: bool,
 }
 
 #[derive(Serialize)]
