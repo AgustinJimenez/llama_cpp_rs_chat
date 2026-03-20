@@ -60,6 +60,7 @@ struct PendingRequest {
 struct ActiveGeneration {
     request_id: u64,
     token_tx: mpsc::UnboundedSender<TokenData>,
+    conversation_id: Option<String>,
 }
 
 impl WorkerBridge {
@@ -296,6 +297,11 @@ impl WorkerBridge {
         self.active_generation.lock().await.is_some()
     }
 
+    /// Get the conversation ID of the active generation, if any.
+    pub async fn active_conversation_id(&self) -> Option<String> {
+        self.active_generation.lock().await.as_ref()?.conversation_id.clone()
+    }
+
     /// Start a generation request. Returns a receiver for streaming tokens.
     /// The caller reads `TokenData` from the receiver until it closes.
     pub async fn generate(
@@ -320,6 +326,7 @@ impl WorkerBridge {
             *gen = Some(ActiveGeneration {
                 request_id: id,
                 token_tx,
+                conversation_id: conversation_id.clone(),
             });
         }
 

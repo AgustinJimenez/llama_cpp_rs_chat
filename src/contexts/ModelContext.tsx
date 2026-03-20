@@ -8,6 +8,7 @@ interface ModelStatus {
   loaded: boolean;
   loading_progress?: number;
   generating?: boolean;
+  active_conversation_id?: string;
   model_path: string | null;
   last_used: string | null;
   memory_usage_mb: number | null;

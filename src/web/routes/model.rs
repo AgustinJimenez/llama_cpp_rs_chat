@@ -442,6 +442,7 @@ pub async fn handle_get_model_status(
         // Get model status from worker bridge cached metadata (no IPC round-trip)
         let is_loading = bridge.is_loading();
         let is_generating = bridge.is_generating().await;
+        let active_conv_id = bridge.active_conversation_id().await;
 
         // Get cached token overhead from the most recent conversation_context
         let (sys_tokens, tool_tokens) = {
@@ -465,6 +466,7 @@ pub async fn handle_get_model_status(
                     loading: if is_loading { Some(true) } else { None },
                     loading_progress: lp,
                     generating: if is_generating { Some(true) } else { None },
+                    active_conversation_id: active_conv_id.clone(),
                     model_path: Some(meta.model_path),
                     last_used: None,
                     memory_usage_mb: if meta.loaded { Some(512) } else { None },
@@ -484,6 +486,7 @@ pub async fn handle_get_model_status(
                     loading: if is_loading { Some(true) } else { None },
                     loading_progress: lp,
                     generating: if is_generating { Some(true) } else { None },
+                    active_conversation_id: active_conv_id.clone(),
                     model_path: loading_path,
                     last_used: None,
                     memory_usage_mb: None,
@@ -572,6 +575,7 @@ pub async fn handle_post_model_load(
                     loading: None,
                     loading_progress: None,
                     generating: None,
+                    active_conversation_id: None,
                     model_path: Some(meta.model_path),
                     last_used: None,
                     memory_usage_mb: Some(512),
@@ -640,6 +644,7 @@ pub async fn handle_post_model_unload(
                     loading: None,
                     loading_progress: None,
                     generating: None,
+                    active_conversation_id: None,
                     model_path: None,
                     last_used: None,
                     memory_usage_mb: None,

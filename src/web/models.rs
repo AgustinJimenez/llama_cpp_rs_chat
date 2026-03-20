@@ -548,6 +548,9 @@ pub struct ModelStatus {
     /// True when a generation is active (streaming tokens or executing tools).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub generating: Option<bool>,
+    /// The conversation ID of the active generation, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_conversation_id: Option<String>,
     pub model_path: Option<String>,
     pub last_used: Option<String>,
     pub memory_usage_mb: Option<u64>,

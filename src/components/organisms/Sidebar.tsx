@@ -5,7 +5,9 @@ import { Button } from '../atoms/button';
 import { getConversations, deleteConversation } from '../../utils/tauriCommands';
 
 const HubExplorer = React.lazy(() => import('./HubExplorer').then(m => ({ default: m.HubExplorer })));
+import { Loader2 } from 'lucide-react';
 import { useChatContext } from '../../contexts/ChatContext';
+import { useModelContext } from '../../contexts/ModelContext';
 import { useUIContext } from '../../contexts/UIContext';
 import { useDownloadContext } from '../../contexts/DownloadContext';
 import { BackgroundProcesses } from '../molecules/BackgroundProcesses';
@@ -73,9 +75,10 @@ function getDateGroup(timestamp: string): string {
   return 'Older';
 }
 
-const ConversationItem = React.memo(({ conversation, isActive, flatIndex, onLoad, onDelete }: {
+const ConversationItem = React.memo(({ conversation, isActive, isGenerating, flatIndex, onLoad, onDelete }: {
   conversation: ConversationFile;
   isActive: boolean;
+  isGenerating: boolean;
   flatIndex: number;
   onLoad: (name: string) => void;
   onDelete: (e: React.MouseEvent, conversation: ConversationFile) => void;
@@ -94,9 +97,12 @@ const ConversationItem = React.memo(({ conversation, isActive, flatIndex, onLoad
     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onLoad(conversation.name); }}
     data-testid={`conversation-${flatIndex}`}
   >
-    <span className="truncate flex-1 min-w-0" title={conversation.title || conversation.display_name || conversation.name}>
-      {conversation.title || conversation.display_name || conversation.name}
-    </span>
+    <div className="flex items-center gap-1 truncate flex-1 min-w-0">
+      {isGenerating ? <Loader2 size={12} className="animate-spin text-cyan-400 flex-shrink-0" /> : null}
+      <span className="truncate" title={conversation.title || conversation.display_name || conversation.name}>
+        {conversation.title || conversation.display_name || conversation.name}
+      </span>
+    </div>
     <div className="flex items-center gap-1 flex-shrink-0 ml-2">
       <span className={`text-xs ${isActive ? 'text-black/50' : 'text-foreground/50'}`}>
         {relativeTime(conversation.timestamp)}
@@ -117,6 +123,8 @@ ConversationItem.displayName = 'ConversationItem';
 // eslint-disable-next-line max-lines-per-function
 const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
   const { loadConversation: onLoadConversation, currentConversationId, messages } = useChatContext();
+  const { status: modelStatus } = useModelContext();
+  const activeGeneratingId = modelStatus.active_conversation_id;
   const { openAppSettings: onOpenAppSettings } = useUIContext();
   const { activeCount: downloadActiveCount } = useDownloadContext();
   const { connected } = useConnection();
@@ -265,6 +273,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
                     key={conversation.name}
                     conversation={conversation}
                     isActive={currentConversationId === conversation.name}
+                    isGenerating={activeGeneratingId === conversation.name}
                     flatIndex={flatIndex}
                     onLoad={onLoadConversation}
                     onDelete={handleDeleteClick}
