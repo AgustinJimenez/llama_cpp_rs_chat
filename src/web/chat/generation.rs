@@ -1080,10 +1080,15 @@ pub async fn generate_llama_response(
     );
 
     // If compaction changed the conversation, drop the old inference cache NOW
-    // so VRAM is freed before we create a new context.
+    // Clear KV cache so the prompt will be fully re-decoded with the compacted conversation.
+    // IMPORTANT: keep the context alive (don't drop it) to avoid VRAM fragmentation
+    // when re-allocating a large context (128K+).
     if conversation_content != raw_conversation_content {
-        eprintln!("[COMPACTION] Conversation changed after compaction, clearing inference cache to free VRAM");
-        state.inference_cache = None;
+        eprintln!("[COMPACTION] Conversation changed after compaction, clearing KV cache for re-decode");
+        if let Some(ref mut cache) = state.inference_cache {
+            cache.context.clear_memory();
+            cache.evaluated_tokens.clear(); // force full re-decode
+        }
     }
 
     // Convert conversation to chat format using the new 3-system prompt approach
