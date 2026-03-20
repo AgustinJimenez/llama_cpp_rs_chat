@@ -605,7 +605,7 @@ pub struct CommandExecutionResult {
 }
 
 /// Maximum number of times the same command can be repeated before blocking.
-const MAX_COMMAND_REPEATS: usize = 2;
+const MAX_COMMAND_REPEATS: usize = 3;
 
 /// Timeout for native tool execution (web_search, web_fetch, etc.)
 const NATIVE_TOOL_TIMEOUT_SECS: u64 = 30;
@@ -844,6 +844,7 @@ pub fn check_and_execute_command_with_tags(
         || cmd_lower.contains("sleep")
         || cmd_lower.contains("check_background_process");
     let repeat_count = recent_commands.iter().filter(|c| *c == &normalized_cmd).count();
+    recent_commands.push(normalized_cmd.clone()); // Always track, even on loop
     if !is_wait_or_poll && repeat_count >= MAX_COMMAND_REPEATS {
         log_info!(
             conversation_id,
@@ -851,11 +852,20 @@ pub fn check_and_execute_command_with_tags(
             repeat_count + 1,
             normalized_cmd
         );
-        let output = format!(
-            "LOOP DETECTED: You have already run this exact command {} times with the same result. \
-             STOP repeating it. Try a COMPLETELY DIFFERENT approach, or explain to the user what is blocking you.",
-            repeat_count
-        );
+        let output = if repeat_count >= MAX_COMMAND_REPEATS + 2 {
+            // After 2 extra attempts beyond the warning, force the model to stop
+            format!(
+                "LOOP BLOCKED: This command has been repeated {} times. Execution REFUSED. \
+                 You MUST use a completely different approach or ask the user for help.",
+                repeat_count + 1
+            )
+        } else {
+            format!(
+                "LOOP DETECTED: You have already run this exact command {} times with the same result. \
+                 STOP repeating it. Try a COMPLETELY DIFFERENT approach, or explain to the user what is blocking you.",
+                repeat_count + 1
+            )
+        };
         let output_open = format!("\n{}\n", tags.output_open);
         let output_close = format!("\n{}\n", tags.output_close);
         let output_block = format!("{}{}{}", output_open, output.trim(), output_close);
@@ -870,7 +880,7 @@ pub fn check_and_execute_command_with_tags(
             response_images: Vec::new(),
         }));
     }
-    recent_commands.push(normalized_cmd);
+    // (normalized_cmd already pushed above for loop detection tracking)
 
     // Parse all tool calls from the command text (supports JSON arrays for batch calls)
     let all_calls = native_tools::try_parse_all_from_raw(&command_text);
