@@ -139,7 +139,7 @@ pub fn run_summary_pass_public(
     // Override the system message for conversation summarization
     run_summary_pass_with_system(
         model, backend, text, chat_template_string, conversation_id,
-        "Summarize this conversation history concisely. Keep: key decisions, user requests, important results, file paths, errors encountered, tools used and their outcomes. Remove: verbose tool output, repeated attempts, boilerplate. Write as a brief narrative paragraph.",
+        "Summarize this AI assistant conversation concisely. The ASSISTANT (not the user) is the one executing tools, writing code, and running commands. The USER only sends requests. Keep: what the user asked for, what the assistant did, key results, file paths, errors encountered. Remove: verbose tool output, repeated attempts, boilerplate. Write as a brief narrative paragraph.",
     )
 }
 
@@ -254,7 +254,7 @@ pub fn run_summary_reusing_ctx(
     chat_template_string: Option<&str>,
     conversation_id: &str,
 ) -> Result<String, String> {
-    let system_msg = "Summarize this conversation history concisely. Keep: key decisions, user requests, important results, file paths, errors encountered, tools used and their outcomes. Remove: verbose tool output, repeated attempts, boilerplate. Write as a brief narrative paragraph.";
+    let system_msg = "Summarize this AI assistant conversation concisely. The ASSISTANT (not the user) is the one executing tools, writing code, and running commands. The USER only sends requests. Keep: what the user asked for, what the assistant did, key results, file paths, errors encountered. Remove: verbose tool output, repeated attempts, boilerplate. Write as a brief narrative paragraph.";
 
     let formatted_prompt = if let Some(template_str) = chat_template_string {
         use super::jinja_templates::apply_native_chat_template;
