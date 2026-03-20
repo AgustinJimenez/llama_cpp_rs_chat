@@ -47,6 +47,8 @@ pub struct WorkerBridge {
     loading_progress: Arc<AtomicU8>,
     /// Model path being loaded (for status reporting during load).
     loading_model_path: Arc<TokioMutex<Option<String>>>,
+    /// Status message (e.g. "Compacting conversation (5/43)") visible via API.
+    status_message: Arc<TokioMutex<Option<String>>>,
     /// Next request ID counter.
     next_id: AtomicU64,
     /// Process manager for kill/restart.
@@ -102,6 +104,7 @@ impl WorkerBridge {
             loading: AtomicBool::new(false),
             loading_progress,
             loading_model_path: Arc::new(TokioMutex::new(None)),
+            status_message: Arc::new(TokioMutex::new(None)),
             next_id: AtomicU64::new(1),
             process_manager,
         }
@@ -300,6 +303,16 @@ impl WorkerBridge {
     /// Get the conversation ID of the active generation, if any.
     pub async fn active_conversation_id(&self) -> Option<String> {
         self.active_generation.lock().await.as_ref()?.conversation_id.clone()
+    }
+
+    /// Set a status message visible via the API (e.g. compaction progress).
+    pub async fn set_status_message(&self, msg: Option<String>) {
+        *self.status_message.lock().await = msg;
+    }
+
+    /// Get the current status message.
+    pub async fn status_message(&self) -> Option<String> {
+        self.status_message.lock().await.clone()
     }
 
     /// Start a generation request. Returns a receiver for streaming tokens.

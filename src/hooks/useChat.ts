@@ -494,7 +494,7 @@ export function useChat() {
 
     const startPolling = async () => {
       try {
-        const status = await getModelStatus() as { generating?: boolean; active_conversation_id?: string };
+        const status = await getModelStatus() as { generating?: boolean; active_conversation_id?: string; status_message?: string };
         if (!active) return;
 
         const convIdClean = currentConversationId.replace(/\.txt$/, '');
@@ -509,9 +509,10 @@ export function useChat() {
         intervalId = setInterval(async () => {
           if (!active) return;
           try {
-            // Check if still generating
-            const s = await getModelStatus() as { generating?: boolean; active_conversation_id?: string };
+            // Check if still generating + get status message
+            const s = await getModelStatus() as { generating?: boolean; active_conversation_id?: string; status_message?: string };
             const stillActive = s.generating && s.active_conversation_id?.replace(/\.txt$/, '') === convIdClean;
+            setStreamStatus(s.status_message || undefined);
 
             // Reload messages from DB
             const data = await getConversation(currentConversationId);
@@ -548,6 +549,7 @@ export function useChat() {
             if (!stillActive) {
               console.log('[useChat] Generation completed (detected via polling)');
               setIsLoading(false);
+              setStreamStatus(undefined);
               if (intervalId) clearInterval(intervalId);
             }
           } catch {

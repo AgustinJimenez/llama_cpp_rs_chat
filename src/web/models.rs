@@ -551,6 +551,9 @@ pub struct ModelStatus {
     /// The conversation ID of the active generation, if any.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_conversation_id: Option<String>,
+    /// Status message during compaction (e.g. "Compacting conversation (5/43)")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status_message: Option<String>,
     pub model_path: Option<String>,
     pub last_used: Option<String>,
     pub memory_usage_mb: Option<u64>,

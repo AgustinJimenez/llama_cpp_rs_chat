@@ -169,13 +169,14 @@ pub async fn handle_websocket(
                         token_result = rx.recv() => {
                             match token_result {
                                 Some(token_data) => {
-                                    // Status messages get sent immediately as their own type
+                                    // Status messages: send via WebSocket AND update bridge for API polling
                                     if let Some(status) = &token_data.status {
                                         let status_json = serde_json::json!({
                                             "type": "status",
                                             "message": status
                                         });
                                         let _ = ws_sender.send(WsMessage::Text(status_json.to_string())).await;
+                                        bridge.set_status_message(Some(status.clone())).await;
                                     }
                                     pending_tokens.push_str(&token_data.token);
                                     pending_tokens_used = Some(token_data.tokens_used);
@@ -196,6 +197,7 @@ pub async fn handle_websocket(
                                 }
                                 None => {
                                     // Channel closed, generation complete
+                                    bridge.set_status_message(None).await;
                                     sys_info!("[WS_CHAT] Generation complete, sending done message");
                                     let _ = flush_pending_tokens(
                                         &mut ws_sender,
