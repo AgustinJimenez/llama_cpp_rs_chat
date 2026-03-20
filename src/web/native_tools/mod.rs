@@ -397,6 +397,26 @@ pub fn dispatch_native_tool(
         "add_mcp_server" => tool_add_mcp_server(&args, mcp_manager, db),
         "remove_mcp_server" => tool_remove_mcp_server(&args, mcp_manager, db),
         "list_background_processes" => tool_list_background_processes(),
+        "open_url" => {
+            let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
+            if url.is_empty() {
+                "Error: 'url' argument is required".to_string()
+            } else if !url.starts_with("http://") && !url.starts_with("https://") {
+                format!("Error: URL must start with http:// or https://, got: {}", url)
+            } else {
+                // Open URL in default browser (cross-platform)
+                #[cfg(target_os = "windows")]
+                let result = std::process::Command::new("cmd").args(["/C", "start", "", url]).spawn();
+                #[cfg(target_os = "macos")]
+                let result = std::process::Command::new("open").arg(url).spawn();
+                #[cfg(target_os = "linux")]
+                let result = std::process::Command::new("xdg-open").arg(url).spawn();
+                match result {
+                    Ok(_) => format!("Opened {} in the default browser", url),
+                    Err(e) => format!("Failed to open URL: {}", e),
+                }
+            }
+        }
         _ => {
             // Check if it's an MCP tool before falling back to shell
             if let Some(mgr) = mcp_manager {

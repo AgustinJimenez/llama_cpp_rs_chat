@@ -279,6 +279,7 @@ export function useChat() {
             console.log(`[useChat] Auto-continue ${continueNum}/${MAX_AUTO_CONTINUES} (${reason})`);
 
             // Brief delay then resume — auto_continue flag skips logging a user message
+            setIsLoading(true); // Keep loading state so stats bar renders during compaction
             setTimeout(() => {
               const convId = conversationId || currentConversationId;
               const newStreamSeq = (streamSeqRef.current += 1);

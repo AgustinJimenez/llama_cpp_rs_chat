@@ -480,6 +480,20 @@ pub fn get_available_tools() -> Vec<Value> {
             }
         }),
         json!({
+            "name": "open_url",
+            "description": "Open a URL in the user's default web browser. Use this to show web apps, documentation, or results to the user. The URL opens in a new browser tab.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The URL to open (must start with http:// or https://)"
+                    }
+                },
+                "required": ["url"]
+            }
+        }),
+        json!({
             "name": "git_status",
             "description": "Show the working tree status. Returns modified, staged, and untracked files.",
             "parameters": {
