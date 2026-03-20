@@ -202,6 +202,20 @@ export const useModel = () => {
     return () => clearInterval(interval);
   }, [isLoading, loadingAction]);
 
+  // Poll status periodically to detect active generation (for sidebar indicator).
+  // Slower interval (5s) to avoid hammering the API.
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const data = await getModelStatus() as ModelStatus;
+        setStatus(data);
+      } catch {
+        // ignore
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
   return {
     status,
     isLoading,

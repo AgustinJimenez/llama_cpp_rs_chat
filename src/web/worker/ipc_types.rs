@@ -85,6 +85,10 @@ pub enum WorkerPayload {
         context_length: Option<u32>,
         gpu_layers: Option<u32>,
     },
+    /// Notification that generation started with a specific conversation ID.
+    GenerationStarted {
+        conversation_id: String,
+    },
     /// A streaming token during generation.
     Token {
         token: String,

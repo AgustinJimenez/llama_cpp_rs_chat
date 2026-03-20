@@ -534,6 +534,17 @@ async fn stdout_reader_task(
             continue;
         }
 
+        // Handle generation started — update active conversation ID
+        if let WorkerPayload::GenerationStarted { conversation_id } = &payload {
+            let mut gen = active_generation.lock().await;
+            if let Some(ref mut ag) = *gen {
+                if ag.request_id == id {
+                    ag.conversation_id = Some(conversation_id.clone());
+                }
+            }
+            continue;
+        }
+
         // Handle loading progress — update atomic, don't dispatch
         if let WorkerPayload::LoadingProgress { progress } = payload {
             loading_progress.store(progress, Ordering::Relaxed);

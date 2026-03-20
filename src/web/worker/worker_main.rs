@@ -622,6 +622,14 @@ fn run_generation(params: GenerationParams) {
             }
         };
 
+        // Notify the bridge of the conversation ID so the sidebar can show the generating indicator
+        {
+            let conv_id = shared_logger.lock().unwrap().get_conversation_id();
+            let _ = tx.send(WorkerResponse::ok(req_id, WorkerPayload::GenerationStarted {
+                conversation_id: conv_id,
+            }));
+        }
+
         // Log user message immediately (unless caller already did)
         if !skip_user_logging {
             let mut logger = shared_logger.lock().unwrap();
