@@ -7,7 +7,7 @@ import { useConversationWatcher } from './useConversationWatcher';
 import { logToastError } from '../utils/toastLogger';
 import { notifyIfUnfocused } from '../utils/tauri';
 import { parseConversationFile } from '../utils/conversationParser';
-import { getConversation, truncateConversation } from '../utils/tauriCommands';
+import { getConversation, getModelStatus, truncateConversation } from '../utils/tauriCommands';
 import { useConnection } from '../contexts/ConnectionContext';
 import type { Message, ChatRequest } from '../types';
 
@@ -482,6 +482,91 @@ export function useChat() {
     isStreamingRef.current = false;
     setIsLoading(false);
   }, []);
+
+  // Poll conversation content when viewing an actively generating conversation
+  // that we're not streaming (e.g. after browser refresh).
+  useEffect(() => {
+    if (!currentConversationId || isStreamingRef.current) return;
+
+    let active = true;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const startPolling = async () => {
+      try {
+        const status = await getModelStatus() as { generating?: boolean; active_conversation_id?: string };
+        if (!active) return;
+
+        const convIdClean = currentConversationId.replace(/\.txt$/, '');
+        const activeClean = status.active_conversation_id?.replace(/\.txt$/, '');
+
+        if (!status.generating || activeClean !== convIdClean) return;
+
+        // This conversation is actively generating — start polling
+        console.log('[useChat] Reconnecting to active generation via polling');
+        setIsLoading(true);
+
+        intervalId = setInterval(async () => {
+          if (!active) return;
+          try {
+            // Check if still generating
+            const s = await getModelStatus() as { generating?: boolean; active_conversation_id?: string };
+            const stillActive = s.generating && s.active_conversation_id?.replace(/\.txt$/, '') === convIdClean;
+
+            // Reload messages from DB
+            const data = await getConversation(currentConversationId);
+            if (!active) return;
+            if (data.messages) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const mapped = (data.messages as any[]).map((msg: any) => ({
+                id: msg.id,
+                role: msg.role,
+                content: msg.content,
+                timestamp: msg.timestamp,
+                ...(msg.gen_tok_per_sec != null ? {
+                  timings: {
+                    promptTokPerSec: msg.prompt_tok_per_sec,
+                    genTokPerSec: msg.gen_tok_per_sec,
+                    genEvalMs: msg.gen_eval_ms,
+                    genTokens: msg.gen_tokens,
+                    promptEvalMs: msg.prompt_eval_ms,
+                    promptTokens: msg.prompt_tokens,
+                  }
+                } : {}),
+              }));
+              let systemPromptSeen = false;
+              const filtered = mapped.filter((msg: Message) => {
+                if (msg.role === 'system') {
+                  if (!systemPromptSeen) { systemPromptSeen = true; return true; }
+                  return false;
+                }
+                return !msg.content.startsWith('[TOOL_RESULTS]');
+              });
+              setMessages(filtered);
+            }
+
+            if (!stillActive) {
+              console.log('[useChat] Generation completed (detected via polling)');
+              setIsLoading(false);
+              if (intervalId) clearInterval(intervalId);
+            }
+          } catch {
+            // ignore polling errors
+          }
+        }, 2000);
+      } catch {
+        // ignore
+      }
+    };
+
+    // Small delay to let the initial load finish
+    const timeout = setTimeout(startPolling, 1000);
+
+    return () => {
+      active = false;
+      clearTimeout(timeout);
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [currentConversationId]);
 
   return {
     messages,
