@@ -88,6 +88,11 @@ export function MessageStatistics({ timings, tokensUsed, maxTokens }: MessageSta
           task incomplete
         </span>
       ) : null}
+      {timings.finishReason === 'error' ? (
+        <span className="inline-flex items-center gap-1 text-red-400" title="Generation stopped due to an error (repetition loop, stall, or decode failure)">
+          stopped
+        </span>
+      ) : null}
       {bgProcesses.length > 0 ? (
         <>
           <button
