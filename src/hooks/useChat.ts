@@ -287,8 +287,15 @@ export function useChat() {
               setLastTimings(undefined); // Clear old stats so live stats + compaction indicator show
               abortControllerRef.current = new AbortController();
 
+              // Include the original user request so the model knows what to continue after compaction
+              const msgs = messagesRef.current;
+              const firstUserMsg = msgs.find(m => m.role === 'user');
+              const continueMsg = firstUserMsg
+                ? `Continue working on this task: "${firstUserMsg.content.slice(0, 200)}". Pick up where you left off.`
+                : 'Continue';
+
               runStream({
-                request: { message: 'Continue', conversation_id: convId || undefined, auto_continue: true },
+                request: { message: continueMsg, conversation_id: convId || undefined, auto_continue: true },
                 assistantMessageId,
                 streamSeq: newStreamSeq,
               }).catch(err => {
