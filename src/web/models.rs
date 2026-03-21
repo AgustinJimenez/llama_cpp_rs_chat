@@ -174,6 +174,11 @@ pub struct SamplerConfig {
     pub use_htmd: bool,
     #[serde(default)]
     pub tag_pairs: Option<Vec<crate::web::chat::tool_tags::TagPair>>,
+    /// Enable proactive compaction every N tool calls during generation.
+    /// Stops generation, compacts conversation, and auto-resumes.
+    /// false = only compact when context is full (default).
+    #[serde(default)]
+    pub proactive_compaction: bool,
 }
 
 fn default_true() -> bool {
@@ -301,6 +306,7 @@ impl Default for SamplerConfig {
             use_rtk: false,
             use_htmd: false,
             tag_pairs: None,
+            proactive_compaction: false,
         }
     }
 }

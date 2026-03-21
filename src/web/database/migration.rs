@@ -280,6 +280,7 @@ pub fn migrate_config(db: &Database) -> Result<bool, String> {
         use_rtk: false,
         use_htmd: false,
         tag_pairs: None,
+        proactive_compaction: false,
     };
 
     // Save to database

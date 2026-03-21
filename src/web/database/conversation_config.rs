@@ -182,6 +182,7 @@ impl Database {
                     models_directory: None,
                     use_rtk: false,
                     use_htmd: false,
+                    proactive_compaction: false,
                 })
             },
         )

@@ -62,6 +62,8 @@ pub struct DbSamplerConfig {
     pub use_htmd: bool,
     // Tag pairs (stored as JSON string in DB)
     pub tag_pairs: Option<String>,
+    // Proactive compaction during generation
+    pub proactive_compaction: bool,
 }
 
 impl Default for DbSamplerConfig {
@@ -115,7 +117,7 @@ impl Default for DbSamplerConfig {
             split_mode: "layer".to_string(),
             use_rtk: false,
             use_htmd: false,
-            tag_pairs: None,
+            tag_pairs: None, proactive_compaction: false,
         }
     }
 }
@@ -214,6 +216,7 @@ impl Database {
                         use_rtk: row.get::<_, Option<i32>>(45)?.unwrap_or(0) != 0,
                         use_htmd: row.get::<_, Option<i32>>(46)?.unwrap_or(0) != 0,
                         tag_pairs: row.get(47)?,
+                        proactive_compaction: false,
                     })
                 },
             )
@@ -590,7 +593,7 @@ mod tests {
             split_mode: "layer".to_string(),
             use_rtk: false,
             use_htmd: false,
-            tag_pairs: None,
+            tag_pairs: None, proactive_compaction: false,
         };
 
         db.save_config(&config).unwrap();

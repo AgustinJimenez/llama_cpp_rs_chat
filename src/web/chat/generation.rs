@@ -293,6 +293,7 @@ struct TokenGenConfig<'a> {
     db: super::super::database::SharedDatabase,
     backend: &'a llama_cpp_2::llama_backend::LlamaBackend,
     chat_template_string: Option<&'a str>,
+    proactive_compaction: bool,
 }
 
 /// Vision context reference for tool response image injection.
@@ -643,6 +644,19 @@ fn run_generation_loop(
                     // Compaction happened — DB updated for next turn.
                     // Current generation continues normally.
                 }
+                // Proactive compaction: every 30 tool calls, force auto-continue
+                // to compact conversation and free context space.
+                const PROACTIVE_COMPACT_INTERVAL: usize = 30;
+                if cfg.proactive_compaction
+                    && gen.recent_commands.len() > 0
+                    && gen.recent_commands.len() % PROACTIVE_COMPACT_INTERVAL == 0
+                {
+                    eprintln!("[PROACTIVE_COMPACT] {} tool calls reached, forcing compaction cycle", gen.recent_commands.len());
+                    gen.finish_reason = "length".to_string();
+                    hit_stop_condition = true;
+                    break;
+                }
+
                 // tool call round (no limit)
                 hit_stop_condition = false;
                 gen.last_exec_scan_pos = gen.response.len();
@@ -1390,6 +1404,7 @@ pub async fn generate_llama_response(
         db: db.clone(),
         backend: &state.backend,
         chat_template_string: chat_template_string.as_deref(),
+        proactive_compaction: config.proactive_compaction,
     };
 
     // Build vision context reference for tool response image injection

@@ -71,6 +71,7 @@ pub fn db_config_to_sampler_config(db_config: &DbSamplerConfig) -> SamplerConfig
         use_rtk: db_config.use_rtk,
         use_htmd: db_config.use_htmd,
         tag_pairs,
+        proactive_compaction: db_config.proactive_compaction,
     }
 }
 
@@ -130,6 +131,7 @@ pub fn sampler_config_to_db(config: &SamplerConfig) -> DbSamplerConfig {
         use_rtk: config.use_rtk,
         use_htmd: config.use_htmd,
         tag_pairs: tag_pairs_json,
+        proactive_compaction: config.proactive_compaction,
     }
 }
 
