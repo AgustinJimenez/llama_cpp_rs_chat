@@ -216,7 +216,7 @@ impl Database {
                         use_rtk: row.get::<_, Option<i32>>(45)?.unwrap_or(0) != 0,
                         use_htmd: row.get::<_, Option<i32>>(46)?.unwrap_or(0) != 0,
                         tag_pairs: row.get(47)?,
-                        proactive_compaction: false,
+                        proactive_compaction: row.get::<_, Option<i32>>(48)?.unwrap_or(0) != 0,
                     })
                 },
             )
@@ -263,10 +263,11 @@ impl Database {
               use_rtk,
               use_htmd,
               tag_pairs,
+              proactive_compaction,
               updated_at)
              VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
                      ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34,
-                     ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49)",
+                     ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50)",
             params![
                 config.sampler_type,
                 config.temperature,
@@ -316,6 +317,7 @@ impl Database {
                 config.use_rtk as i32,
                 config.use_htmd as i32,
                 tag_pairs_json,
+                config.proactive_compaction as i32,
                 current_timestamp_millis(),
             ],
         )
@@ -358,7 +360,8 @@ impl Database {
              use_rtk = ?46,
              use_htmd = ?47,
              tag_pairs = ?48,
-             updated_at = ?49
+             proactive_compaction = ?49,
+             updated_at = ?50
              WHERE id = 1",
             params![
                 config.sampler_type,
@@ -409,6 +412,7 @@ impl Database {
                 config.use_rtk as i32,
                 config.use_htmd as i32,
                 tag_pairs_json,
+                config.proactive_compaction as i32,
                 current_timestamp_millis(),
             ],
         )

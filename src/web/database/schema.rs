@@ -502,6 +502,12 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
     );
 
     // Insert default config row if it doesn't exist
+    // Add proactive_compaction column if missing
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN proactive_compaction INTEGER DEFAULT 0",
+        [],
+    );
+
     conn.execute(
         "INSERT OR IGNORE INTO config (id, updated_at) VALUES (1, ?1)",
         [super::current_timestamp_millis()],
