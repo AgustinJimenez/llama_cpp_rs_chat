@@ -155,9 +155,19 @@ pub fn maybe_compact_conversation(
         }
     };
 
+    // Prepend the original user request so the model retains task context after compaction
+    let first_user_msg = messages.iter()
+        .find(|m| m.role == "user" && !m.compacted)
+        .map(|m| m.content.chars().take(300).collect::<String>());
+    let summary_with_task = if let Some(task) = first_user_msg {
+        format!("Original user request: \"{}\"\n\n{}", task, summary)
+    } else {
+        summary
+    };
+
     // Persist to DB: mark old messages as compacted, insert summary
     let summary_sequence = up_to_sequence + 1; // Place summary right after compacted messages
-    match db.compact_messages(conversation_id, up_to_sequence, &summary, summary_sequence) {
+    match db.compact_messages(conversation_id, up_to_sequence, &summary_with_task, summary_sequence) {
         Ok(marked) => {
             eprintln!("[COMPACTION] DB compaction done: {} messages marked as compacted, summary at seq {}", marked, summary_sequence);
         }
