@@ -409,18 +409,31 @@ fn run_generation_loop(
                 let batch_elapsed = stall_checkpoint.elapsed();
                 if batch_elapsed > TOKEN_STALL_TIMEOUT {
                     let secs = batch_elapsed.as_secs();
-                    log_info!(cfg.conversation_id, "Generation stalled: 16 tokens took {}s. Aborting.", secs);
-                    if let Some(ref sender) = token_sender {
-                        let _ = sender.send(TokenData {
-                            token: format!(
-                                "\n\n[Generation stalled — batch of 16 tokens took {}s. The model may be too large for your hardware.]",
-                                secs
-                            ),
-                            tokens_used: gen.total_tokens_generated,
-                            max_tokens: cfg.max_total_tokens, status: None,
-                        });
+                    eprintln!("[STALL] Generation stalled: 16 tokens took {}s (loop_recoveries={})", secs, gen.loop_recoveries);
+                    if gen.loop_recoveries < 1 {
+                        // First stall: try recovery
+                        gen.loop_recoveries += 1;
+                        if let Some(ref sender) = token_sender {
+                            let _ = sender.send(TokenData {
+                                token: "\n\n[Generation stalled — retrying with different approach]".to_string(),
+                                tokens_used: gen.total_tokens_generated,
+                                max_tokens: cfg.max_total_tokens, status: None,
+                            });
+                        }
+                        gen.finish_reason = "loop_recovery".to_string();
+                    } else {
+                        if let Some(ref sender) = token_sender {
+                            let _ = sender.send(TokenData {
+                                token: format!(
+                                    "\n\n[Generation stalled — batch of 16 tokens took {}s. The model may be too large for your hardware.]",
+                                    secs
+                                ),
+                                tokens_used: gen.total_tokens_generated,
+                                max_tokens: cfg.max_total_tokens, status: None,
+                            });
+                        }
+                        gen.finish_reason = "error".to_string();
                     }
-                    gen.finish_reason = "error".to_string();
                     hit_stop_condition = true;
                     break;
                 }
