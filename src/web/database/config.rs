@@ -157,7 +157,8 @@ impl Database {
                         use_mlock, use_mmap, main_gpu, split_mode,
                         use_rtk,
                         use_htmd,
-                        tag_pairs
+                        tag_pairs,
+                        proactive_compaction
                  FROM config WHERE id = 1",
                 [],
                 |row| {
