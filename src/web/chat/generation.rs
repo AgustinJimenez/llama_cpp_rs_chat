@@ -272,6 +272,8 @@ struct TokenGenState {
     finish_reason: String,
     /// Accumulated tokens from tool call responses injected into context.
     tool_response_tokens: i32,
+    /// Number of loop recovery attempts (max 1 before giving up).
+    loop_recoveries: u32,
 }
 
 /// Read-only configuration for the token generation loop.
@@ -510,21 +512,33 @@ fn run_generation_loop(
                 && gen.total_tokens_generated % REPETITION_CHECK_INTERVAL == 0
                 && detect_repetition_loop(&gen.response)
             {
-                log_info!(
-                    cfg.conversation_id,
-                    "🛑 Repetition loop detected at token {}, stopping generation",
-                    gen.total_tokens_generated
-                );
-                if let Some(ref sender) = token_sender {
-                    let _ = sender.send(TokenData {
-                        token: "\n\n[Generation stopped: repetition loop detected]".to_string(),
-                        tokens_used: gen.token_pos,
-                        max_tokens: cfg.context_size as i32, status: None,
-                    });
+                eprintln!("[LOOP_RECOVERY] Repetition loop detected at token {}, loop_recoveries={}", gen.total_tokens_generated, gen.loop_recoveries);
+                if gen.loop_recoveries < 1 {
+                    // First loop: try to recover by auto-continuing with corrective message
+                    gen.loop_recoveries += 1;
+                    if let Some(ref sender) = token_sender {
+                        let _ = sender.send(TokenData {
+                            token: "\n\n[Repetition detected — retrying with different approach]".to_string(),
+                            tokens_used: gen.token_pos,
+                            max_tokens: cfg.context_size as i32, status: None,
+                        });
+                    }
+                    gen.finish_reason = "loop_recovery".to_string();
+                    hit_stop_condition = true;
+                    break;
+                } else {
+                    // Already tried recovery once, stop for real
+                    if let Some(ref sender) = token_sender {
+                        let _ = sender.send(TokenData {
+                            token: "\n\n[Generation stopped: repetition loop persists after recovery attempt]".to_string(),
+                            tokens_used: gen.token_pos,
+                            max_tokens: cfg.context_size as i32, status: None,
+                        });
+                    }
+                    gen.finish_reason = "error".to_string();
+                    hit_stop_condition = true;
+                    break;
                 }
-                gen.finish_reason = "error".to_string();
-                hit_stop_condition = true;
-                break;
             }
 
             // Stream token to frontend
@@ -1385,6 +1399,7 @@ pub async fn generate_llama_response(
         last_exec_scan_pos: 0,
         finish_reason: "stop".to_string(),
         tool_response_tokens: 0,
+        loop_recoveries: 0,
     };
 
     let cfg = TokenGenConfig {

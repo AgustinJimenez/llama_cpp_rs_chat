@@ -272,10 +272,11 @@ export function useChat() {
           // Auto-continue: if generation was cut off by context or Y/N check, resume silently
           const finishReason = timings?.finishReason;
           const isYnContinue = finishReason === 'yn_continue';
-          if ((finishReason === 'length' || isYnContinue) && autoContinueCountRef.current < MAX_AUTO_CONTINUES) {
+          const isLoopRecovery = finishReason === 'loop_recovery';
+          if ((finishReason === 'length' || isYnContinue || isLoopRecovery) && autoContinueCountRef.current < MAX_AUTO_CONTINUES) {
             autoContinueCountRef.current += 1;
             const continueNum = autoContinueCountRef.current;
-            const reason = isYnContinue ? 'task incomplete' : 'context full';
+            const reason = isLoopRecovery ? 'loop recovery' : isYnContinue ? 'task incomplete' : 'context full';
             console.log(`[useChat] Auto-continue ${continueNum}/${MAX_AUTO_CONTINUES} (${reason})`);
 
             // Brief delay then resume — auto_continue flag skips logging a user message
@@ -290,9 +291,14 @@ export function useChat() {
               // Include the original user request so the model knows what to continue after compaction
               const msgs = messagesRef.current;
               const firstUserMsg = msgs.find(m => m.role === 'user');
-              const continueMsg = firstUserMsg
-                ? `Continue working on this task: "${firstUserMsg.content.slice(0, 200)}". Pick up where you left off.`
-                : 'Continue';
+              let continueMsg: string;
+              if (isLoopRecovery) {
+                continueMsg = 'You got stuck in a repetition loop. STOP what you were doing and try a COMPLETELY DIFFERENT approach to solve the problem. Do NOT repeat the same commands.';
+              } else {
+                continueMsg = firstUserMsg
+                  ? `Continue working on this task: "${firstUserMsg.content.slice(0, 200)}". Pick up where you left off.`
+                  : 'Continue';
+              }
 
               runStream({
                 request: { message: continueMsg, conversation_id: convId || undefined, auto_continue: true },
