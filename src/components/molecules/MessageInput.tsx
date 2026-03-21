@@ -346,12 +346,12 @@ export const MessageInput: React.FC<MessageInputProps> = ({
           </div>
         </div>
       ) : null}
-      {(timings?.genTokPerSec || disabled) ? (
+      {(timings?.genTokPerSec || disabled || (tokensUsed !== undefined && maxTokens !== undefined)) ? (
         <div className="flex items-center justify-between mb-1">
           <div className="flex-1">
             {timings?.genTokPerSec ? (
               <MessageStatistics timings={timings} tokensUsed={tokensUsed} maxTokens={maxTokens} />
-            ) : isLoading ? (
+            ) : (tokensUsed !== undefined || isLoading || streamStatus) ? (
               <LiveStreamingStats tokensUsed={tokensUsed} maxTokens={maxTokens} streamStatus={streamStatus} />
             ) : null}
           </div>
