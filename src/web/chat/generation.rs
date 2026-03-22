@@ -1559,6 +1559,9 @@ pub async fn generate_llama_response(
         }
     }
 
+    // Clear global status on generation end
+    crate::web::event_log::clear_global_status();
+
     Ok(GenerationOutput {
         response: gen.response.trim().to_string(),
         tokens_used: token_pos,

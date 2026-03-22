@@ -443,7 +443,11 @@ pub async fn handle_get_model_status(
         let is_loading = bridge.is_loading();
         let is_generating = bridge.is_generating().await;
         let active_conv_id = bridge.active_conversation_id().await;
-        let status_msg = bridge.status_message().await;
+        // Try bridge status first (from WebSocket), fall back to worker global status (from IPC)
+        let status_msg = match bridge.status_message().await {
+            Some(s) => Some(s),
+            None => bridge.get_global_status().await,
+        };
 
         // Get cached token overhead from the most recent conversation_context
         let (sys_tokens, tool_tokens) = {

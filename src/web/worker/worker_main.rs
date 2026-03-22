@@ -260,6 +260,11 @@ pub fn run_worker(db_path: &str) {
                 write_response(&mut ipc_writer, &WorkerResponse::ok(req_id, WorkerPayload::ConversationEvents { events }));
             }
 
+            WorkerCommand::GetGlobalStatus => {
+                let status = crate::web::event_log::get_global_status();
+                write_response(&mut ipc_writer, &WorkerResponse::ok(req_id, WorkerPayload::GlobalStatus { status }));
+            }
+
             WorkerCommand::Ping => {
                 write_response(&mut ipc_writer, &WorkerResponse::ok(req_id, WorkerPayload::Pong));
             }

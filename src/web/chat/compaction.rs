@@ -11,6 +11,8 @@ use crate::{log_info, log_warn};
 
 /// Send a status update to the UI via the token channel.
 fn send_status(sender: Option<&tokio::sync::mpsc::UnboundedSender<TokenData>>, message: &str) {
+    // Also log as event for polling-based UI
+    crate::web::event_log::set_global_status(message);
     if let Some(tx) = sender {
         let _ = tx.send(TokenData {
             token: String::new(),

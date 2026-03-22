@@ -40,6 +40,29 @@ pub fn log_event(conversation_id: &str, event_type: &str, message: &str) {
     }
 }
 
+// Global status message (for compaction progress visible via API polling)
+static GLOBAL_STATUS: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+
+fn global_status() -> &'static Mutex<Option<String>> {
+    GLOBAL_STATUS.get_or_init(|| Mutex::new(None))
+}
+
+pub fn set_global_status(message: &str) {
+    if let Ok(mut s) = global_status().lock() {
+        *s = if message.is_empty() { None } else { Some(message.to_string()) };
+    }
+}
+
+pub fn clear_global_status() {
+    if let Ok(mut s) = global_status().lock() {
+        *s = None;
+    }
+}
+
+pub fn get_global_status() -> Option<String> {
+    global_status().lock().ok().and_then(|s| s.clone())
+}
+
 pub fn get_events(conversation_id: &str) -> Vec<ConversationEvent> {
     let conv_id = conversation_id.trim_end_matches(".txt");
     store()

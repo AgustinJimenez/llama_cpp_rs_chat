@@ -7,10 +7,32 @@ import type { TimingInfo } from '../../utils/chatTransport';
 
 function LiveStreamingStats({ tokensUsed, maxTokens, streamStatus }: { tokensUsed?: number; maxTokens?: number; streamStatus?: string }) {
   const [polledStatus, setPolledStatus] = useState<string | undefined>(undefined);
+  const [elapsed, setElapsed] = useState(0);
+  const [tokenCount, setTokenCount] = useState(0);
+  const startRef = useRef(Date.now());
+  const firstTokensUsedRef = useRef<number | null>(null);
   const fmt = (n: number) => n.toLocaleString('en-US').replace(/,/g, '.');
   const pct = tokensUsed && maxTokens ? Math.round((tokensUsed / maxTokens) * 100) : 0;
 
-  // Poll model status API for compaction progress when no WebSocket status is available
+  // Timer
+  useEffect(() => {
+    startRef.current = Date.now();
+    setTokenCount(0);
+    firstTokensUsedRef.current = null;
+    const id = setInterval(() => setElapsed(Date.now() - startRef.current), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Track token count from tokensUsed changes
+  useEffect(() => {
+    if (tokensUsed === undefined) return;
+    if (firstTokensUsedRef.current === null) {
+      firstTokensUsedRef.current = tokensUsed;
+    }
+    setTokenCount(tokensUsed - firstTokensUsedRef.current);
+  }, [tokensUsed]);
+
+  // Poll model status API for compaction progress
   useEffect(() => {
     if (streamStatus) { setPolledStatus(undefined); return; }
     const poll = async () => {
@@ -29,6 +51,9 @@ function LiveStreamingStats({ tokensUsed, maxTokens, streamStatus }: { tokensUse
 
   const displayStatus = streamStatus || polledStatus;
   const hasContext = tokensUsed !== undefined && maxTokens !== undefined;
+  const secs = Math.floor(elapsed / 1000);
+  const tokPerSec = secs > 0 && tokenCount > 0 ? (tokenCount / secs).toFixed(1) : null;
+
   if (!hasContext && !displayStatus) return null;
   return (
     <div className="flex items-center gap-3 text-xs text-zinc-400 font-mono">
@@ -36,6 +61,16 @@ function LiveStreamingStats({ tokensUsed, maxTokens, streamStatus }: { tokensUse
         <span className="inline-flex items-center gap-1 text-cyan-400">
           <Loader2 className="h-3 w-3 animate-spin" />
           {displayStatus}
+        </span>
+      ) : null}
+      {tokenCount > 0 ? (
+        <span className="inline-flex items-center gap-1" title="Tokens generated this turn">
+          # {fmt(tokenCount)}
+        </span>
+      ) : null}
+      {tokPerSec ? (
+        <span className="inline-flex items-center gap-1" title="Generation speed">
+          {tokPerSec} tok/s
         </span>
       ) : null}
       {hasContext ? (

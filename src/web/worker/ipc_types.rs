@@ -48,6 +48,8 @@ pub enum WorkerCommand {
     GetMcpStatus,
     /// Get conversation event log (stalls, compaction, tool calls, etc.).
     GetConversationEvents { conversation_id: String },
+    /// Get global status message (compaction progress visible during generation).
+    GetGlobalStatus,
     /// Health check.
     Ping,
     /// Graceful shutdown.
@@ -94,6 +96,10 @@ pub enum WorkerPayload {
     /// Conversation event log response.
     ConversationEvents {
         events: Vec<crate::web::event_log::ConversationEvent>,
+    },
+    /// Global status message response.
+    GlobalStatus {
+        status: Option<String>,
     },
     /// A streaming token during generation.
     Token {

@@ -310,6 +310,14 @@ impl WorkerBridge {
         *self.status_message.lock().await = msg;
     }
 
+    /// Get global status from the worker (compaction progress, etc.).
+    pub async fn get_global_status(&self) -> Option<String> {
+        match self.send_and_wait(WorkerCommand::GetGlobalStatus).await {
+            Ok(WorkerPayload::GlobalStatus { status }) => status,
+            _ => None,
+        }
+    }
+
     /// Get conversation event log from the worker.
     pub async fn get_conversation_events(&self, conversation_id: &str) -> Result<Vec<crate::web::event_log::ConversationEvent>, String> {
         match self.send_and_wait(WorkerCommand::GetConversationEvents {
