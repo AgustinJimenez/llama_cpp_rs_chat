@@ -229,8 +229,6 @@ export function useChat() {
         },
         onComplete: (_messageId, conversationId, tokenCount, maxTokenCount, timings) => {
           if (streamSeqRef.current !== streamSeq) return;
-          isStreamingRef.current = false;
-          setStreamStatus(undefined);
           console.log('[useChat] Streaming complete', timings ? `gen=${timings.genTokPerSec?.toFixed(1)} tok/s finish=${timings.finishReason ?? '?'}` : '');
 
           if (!currentConversationId) {
@@ -311,7 +309,9 @@ export function useChat() {
             return; // Don't set isLoading=false — we're continuing
           }
 
-          // Normal completion — reset auto-continue counter
+          // Normal completion — now safe to clear streaming state
+          isStreamingRef.current = false;
+          setStreamStatus(undefined);
           autoContinueCountRef.current = 0;
           notifyIfUnfocused('Generation complete', 'Your AI response is ready.');
           setIsLoading(false);
