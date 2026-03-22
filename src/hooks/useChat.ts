@@ -309,6 +309,13 @@ export function useChat() {
             return; // Don't set isLoading=false — we're continuing
           }
 
+          // Check if we hit max auto-continues — override finish reason so UI shows it
+          const hitMaxContinues = (finishReason === 'length' || isYnContinue || isLoopRecovery)
+            && autoContinueCountRef.current >= MAX_AUTO_CONTINUES;
+          if (hitMaxContinues && timings) {
+            timings.finishReason = 'max_continues';
+          }
+
           // Normal completion — now safe to clear streaming state
           isStreamingRef.current = false;
           setStreamStatus(undefined);

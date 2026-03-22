@@ -93,6 +93,11 @@ export function MessageStatistics({ timings, tokensUsed, maxTokens }: MessageSta
           stopped
         </span>
       ) : null}
+      {timings.finishReason === 'max_continues' ? (
+        <span className="inline-flex items-center gap-1 text-orange-400" title="Maximum auto-continue attempts reached — the model could not complete the task within the context limit">
+          max retries reached
+        </span>
+      ) : null}
       {bgProcesses.length > 0 ? (
         <>
           <button

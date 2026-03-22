@@ -26,6 +26,7 @@ fn env_block() -> (String, String, &'static str) {
 fn core_behavior_block() -> String {
     r#"## Behavior
 - Be autonomous and resourceful. Complete tasks fully without asking the user for help.
+- Before installing anything, CHECK if it's already installed (use `where`, `which`, or search common paths like `C:\Users\`, `C:\Program Files\`, `~/.local/bin`).
 - If a command fails, try a DIFFERENT approach. Do NOT retry the same failing command.
 - Do NOT tell the user to run commands manually — use your tools to solve problems yourself.
 - NEVER repeat the same failing command more than once. If it failed, change your approach.
