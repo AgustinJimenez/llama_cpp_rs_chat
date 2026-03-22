@@ -844,7 +844,27 @@ pub fn check_and_execute_command_with_tags(
         || cmd_lower.contains("sleep")
         || cmd_lower.contains("check_background_process");
     let repeat_count = recent_commands.iter().filter(|c| *c == &normalized_cmd).count();
+    // Fuzzy similarity: count commands that share 80%+ of their first 50 chars
+    let cmd_prefix: String = normalized_cmd.chars().take(50).collect();
+    let similar_count = if !is_wait_or_poll && cmd_prefix.len() >= 10 {
+        recent_commands.iter().filter(|c| {
+            let other_prefix: String = c.chars().take(50).collect();
+            if other_prefix.len() < 10 || cmd_prefix.len() < 10 { return false; }
+            let matches = cmd_prefix.chars().zip(other_prefix.chars()).filter(|(a, b)| a == b).count();
+            let max_len = cmd_prefix.len().max(other_prefix.len());
+            (matches * 100 / max_len) >= 80
+        }).count()
+    } else { 0 };
     recent_commands.push(normalized_cmd.clone()); // Always track, even on loop
+
+    // Fuzzy loop warning: inject a system hint when 3+ similar commands detected
+    let fuzzy_warning = if !is_wait_or_poll && similar_count >= 3 && repeat_count < MAX_COMMAND_REPEATS {
+        eprintln!("[FUZZY_LOOP] {} similar commands detected (prefix: {}...)", similar_count, &cmd_prefix[..cmd_prefix.len().min(30)]);
+        Some(format!("WARNING: You have run {} very similar commands. Make sure you are not stuck in a loop. Try a completely different approach if this keeps failing.", similar_count))
+    } else {
+        None
+    };
+
     if !is_wait_or_poll && repeat_count >= MAX_COMMAND_REPEATS {
         log_info!(
             conversation_id,
@@ -1190,8 +1210,15 @@ pub fn check_and_execute_command_with_tags(
     // output_block: persisted in conversation — contains original output for user display
     let output_block = format!("{}{}{}", output_open, display_text.trim(), output_close);
 
+    // Prepend fuzzy loop warning if detected
+    let model_text_with_warning = if let Some(ref warning) = fuzzy_warning {
+        format!("{}\n\n{}", warning, model_text.trim())
+    } else {
+        model_text.trim().to_string()
+    };
+
     // model_injection_block: contains only the summary — this is what the LLM sees
-    let model_injection_block = format!("{}{}{}", output_open, model_text.trim(), output_close);
+    let model_injection_block = format!("{}{}{}", output_open, model_text_with_warning, output_close);
 
     // Build model injection block with chat template turn wrapping.
     // The model needs proper turn structure to know the tool response is from
