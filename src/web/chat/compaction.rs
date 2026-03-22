@@ -278,7 +278,9 @@ fn summarize_with_ctx(
         let chunk = &old_text[pos..end];
         chunk_num += 1;
 
-        let status_msg = format!("Compacting conversation ({}/{})", chunk_num, total_chunks);
+        let total_steps = total_chunks + 1; // +1 for reduce phase
+        let pct = (chunk_num * 100) / total_steps;
+        let status_msg = format!("Compacting conversation ({}%)", pct);
         send_status(status_sender, &status_msg);
         eprintln!("[COMPACTION] Map phase: chunk {}/{} ({} chars)...", chunk_num, total_chunks, chunk.len());
 
@@ -298,7 +300,7 @@ fn summarize_with_ctx(
 
     // === REDUCE PHASE ===
     let combined = chunk_summaries.join("\n\n");
-    send_status(status_sender, "Finalizing summary...");
+    send_status(status_sender, "Compacting conversation (95%)");
     eprintln!("[COMPACTION] Reduce: {} summaries ({} chars) → final...", chunk_summaries.len(), combined.len());
 
     if combined.len() <= CHUNK_SIZE {
