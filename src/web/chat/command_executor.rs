@@ -845,22 +845,44 @@ pub fn check_and_execute_command_with_tags(
         || cmd_lower.contains("check_background_process");
     let repeat_count = recent_commands.iter().filter(|c| *c == &normalized_cmd).count();
     // Fuzzy similarity: count commands that share 80%+ of their first 50 chars
-    let cmd_prefix: String = normalized_cmd.chars().take(50).collect();
-    let similar_count = if !is_wait_or_poll && cmd_prefix.len() >= 10 {
+    // Fuzzy similarity: compare middle 100 chars (skips XML wrapper, catches actual arguments)
+    let cmd_mid: String = normalized_cmd.chars().skip(50).take(100).collect();
+    let similar_count = if !is_wait_or_poll && cmd_mid.len() >= 20 {
         recent_commands.iter().filter(|c| {
-            let other_prefix: String = c.chars().take(50).collect();
-            if other_prefix.len() < 10 || cmd_prefix.len() < 10 { return false; }
-            let matches = cmd_prefix.chars().zip(other_prefix.chars()).filter(|(a, b)| a == b).count();
-            let max_len = cmd_prefix.len().max(other_prefix.len());
+            let other_mid: String = c.chars().skip(50).take(100).collect();
+            if other_mid.len() < 20 || cmd_mid.len() < 20 { return false; }
+            let matches = cmd_mid.chars().zip(other_mid.chars()).filter(|(a, b)| a == b).count();
+            let max_len = cmd_mid.len().max(other_mid.len());
             (matches * 100 / max_len) >= 80
         }).count()
     } else { 0 };
     recent_commands.push(normalized_cmd.clone()); // Always track, even on loop
 
-    // Fuzzy loop warning: inject a system hint when 3+ similar commands detected
+    // Fuzzy loop: warn at 3+, block at 6+
     let fuzzy_warning = if !is_wait_or_poll && similar_count >= 3 && repeat_count < MAX_COMMAND_REPEATS {
-        eprintln!("[FUZZY_LOOP] {} similar commands detected (prefix: {}...)", similar_count, &cmd_prefix[..cmd_prefix.len().min(30)]);
-        Some(format!("WARNING: You have run {} very similar commands. Make sure you are not stuck in a loop. Try a completely different approach if this keeps failing.", similar_count))
+        eprintln!("[FUZZY_LOOP] {} similar commands detected", similar_count);
+        if similar_count >= 6 {
+            // Escalate: block execution like exact match loop
+            let output = format!(
+                "LOOP BLOCKED: You have run {} very similar commands. Execution REFUSED. \
+                 You MUST use a completely different tool or approach. Do NOT use the same tool with similar arguments.",
+                similar_count
+            );
+            let output_open = format!("\n{}\n", tags.output_open);
+            let output_close = format!("\n{}\n", tags.output_close);
+            let output_block = format!("{}{}{}", output_open, output.trim(), output_close);
+            let model_block = wrap_output_for_model(&output_block, template_type);
+            let model_tokens = model
+                .str_to_token(&model_block, AddBos::Never)
+                .map_err(|e| format!("Tokenization of fuzzy loop block failed: {e}"))?;
+            return Ok(Some(CommandExecutionResult {
+                output_block,
+                model_tokens: model_tokens.iter().map(|t| t.0).collect(),
+                model_block,
+                response_images: Vec::new(),
+            }));
+        }
+        Some(format!("WARNING: You have run {} very similar commands. You may be stuck in a loop. Try a completely different approach.", similar_count))
     } else {
         None
     };
@@ -1216,7 +1238,9 @@ pub fn check_and_execute_command_with_tags(
         let lower = model_trimmed.to_lowercase();
         if lower.contains("404") || lower.contains("not found") || lower.contains("403") || lower.contains("forbidden")
             || lower.contains("connection refused") || lower.contains("could not resolve host")
-            || lower.contains("ssl") && lower.contains("error")
+            || lower.contains("error 1010") || lower.contains("error 1015") || lower.contains("ray id")
+            || lower.contains("cloudflare") || lower.contains("enable cookies") || lower.contains("access denied")
+            || (lower.contains("ssl") && lower.contains("error"))
         {
             Some("TIP: This URL appears to be dead or inaccessible. Use web_search to find the correct/current URL instead of guessing.")
         } else {
