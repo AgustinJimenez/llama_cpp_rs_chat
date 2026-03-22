@@ -65,7 +65,7 @@ function LiveStreamingStats({ tokensUsed, maxTokens, streamStatus }: { tokensUse
       ) : null}
       {tokenCount > 0 ? (
         <span className="inline-flex items-center gap-1" title="Tokens generated this turn">
-          # {fmt(tokenCount)}
+          # {tokenCount.toLocaleString()}
         </span>
       ) : null}
       {tokPerSec ? (
