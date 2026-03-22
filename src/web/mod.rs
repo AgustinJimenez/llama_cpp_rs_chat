@@ -15,6 +15,7 @@ pub mod models;
 #[allow(dead_code, unused_imports)]
 pub mod mcp; // MCP (Model Context Protocol) client integration
 pub mod desktop_tools; // Desktop automation tools (mouse, keyboard, scroll)
+pub mod event_log; // In-memory event log for conversation debugging
 pub mod native_tools; // Native file I/O and code execution tools
 pub mod request;
 pub mod request_parsing; // Request body parsing utilities

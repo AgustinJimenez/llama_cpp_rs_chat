@@ -46,6 +46,8 @@ pub enum WorkerCommand {
     RefreshMcpServers,
     /// Get current MCP status (connected servers, discovered tools).
     GetMcpStatus,
+    /// Get conversation event log (stalls, compaction, tool calls, etc.).
+    GetConversationEvents { conversation_id: String },
     /// Health check.
     Ping,
     /// Graceful shutdown.
@@ -88,6 +90,10 @@ pub enum WorkerPayload {
     /// Notification that generation started with a specific conversation ID.
     GenerationStarted {
         conversation_id: String,
+    },
+    /// Conversation event log response.
+    ConversationEvents {
+        events: Vec<crate::web::event_log::ConversationEvent>,
     },
     /// A streaming token during generation.
     Token {

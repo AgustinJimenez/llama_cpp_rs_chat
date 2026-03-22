@@ -255,6 +255,11 @@ pub fn run_worker(db_path: &str) {
                 }));
             }
 
+            WorkerCommand::GetConversationEvents { conversation_id } => {
+                let events = crate::web::event_log::get_events(&conversation_id);
+                write_response(&mut ipc_writer, &WorkerResponse::ok(req_id, WorkerPayload::ConversationEvents { events }));
+            }
+
             WorkerCommand::Ping => {
                 write_response(&mut ipc_writer, &WorkerResponse::ok(req_id, WorkerPayload::Pong));
             }

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, Suspense } from 'react';
 import { Toaster } from 'react-hot-toast';
 import { ChatHeader, Sidebar } from './components/organisms';
+import { ConversationLog } from './components/organisms/ConversationLog';
 import { MessagesArea } from './components/templates';
 import { WelcomeMessage, ErrorBoundary } from './components/atoms';
 import { ConnectionBanner, MessageInput } from './components/molecules';
@@ -143,6 +144,7 @@ function MainContent({
 }) {
   const { status: modelStatus } = useModelContext();
   const { messages, lastTimings, tokensUsed, maxTokens, streamStatus } = useChatContext();
+  const { isEventLogOpen } = useUIContext();
 
   return (
     <div className="flex-1 ml-[240px]">
@@ -167,6 +169,7 @@ function MainContent({
         ) : (
           <>
             <MessagesArea />
+            {isEventLogOpen ? <ConversationLog /> : null}
             {modelStatus.loaded ? (
               <div className="px-6 pb-4 pt-2 animate-in slide-in-from-bottom-4 duration-300" data-testid="input-container">
                 <div className="max-w-3xl mx-auto">

@@ -16,6 +16,8 @@ interface UIContextValue {
   isModelConfigOpen: boolean;
   openModelConfig: () => void;
   closeModelConfig: () => void;
+  isEventLogOpen: boolean;
+  toggleEventLog: () => void;
 }
 
 const UIContext = createContext<UIContextValue | null>(null);
@@ -28,6 +30,7 @@ export function UIProvider({ children }: { children: ReactNode }) {
   const [isConfigSidebarOpen, setIsConfigSidebarOpen] = useState(false);
   const [isAppSettingsOpen, setIsAppSettingsOpen] = useState(false);
   const [isModelConfigOpen, setIsModelConfigOpen] = useState(false);
+  const [isEventLogOpen, setIsEventLogOpen] = useState(false);
 
   const setViewMode = useCallback((mode: ViewMode) => {
     setViewModeRaw(mode);
@@ -42,6 +45,7 @@ export function UIProvider({ children }: { children: ReactNode }) {
   const closeAppSettings = useCallback(() => setIsAppSettingsOpen(false), []);
   const openModelConfig = useCallback(() => setIsModelConfigOpen(true), []);
   const closeModelConfig = useCallback(() => setIsModelConfigOpen(false), []);
+  const toggleEventLog = useCallback(() => setIsEventLogOpen(p => !p), []);
 
   const value = useMemo<UIContextValue>(() => ({
     viewMode, setViewMode,
@@ -49,12 +53,14 @@ export function UIProvider({ children }: { children: ReactNode }) {
     isConfigSidebarOpen, toggleConfigSidebar, closeConfigSidebar,
     isAppSettingsOpen, openAppSettings, closeAppSettings,
     isModelConfigOpen, openModelConfig, closeModelConfig,
+    isEventLogOpen, toggleEventLog,
   }), [
     viewMode, setViewMode,
     isRightSidebarOpen, toggleRightSidebar, closeRightSidebar,
     isConfigSidebarOpen, toggleConfigSidebar, closeConfigSidebar,
     isAppSettingsOpen, openAppSettings, closeAppSettings,
     isModelConfigOpen, openModelConfig, closeModelConfig,
+    isEventLogOpen, toggleEventLog,
   ]);
 
   return (

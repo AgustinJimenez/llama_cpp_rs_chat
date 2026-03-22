@@ -113,6 +113,11 @@ async fn handle_request_impl(
             web::routes::config::handle_post_conversation_config(req, path, bridge.clone(), db.clone()).await?
         }
 
+        // Conversation event log (in-memory debug events)
+        (&Method::GET, path) if path.starts_with("/api/conversations/") && path.ends_with("/events") => {
+            web::routes::conversation::handle_get_conversation_events(path, bridge.clone()).await?
+        }
+
         // Conversation metrics
         (&Method::GET, path) if path.starts_with("/api/conversations/") && path.ends_with("/metrics") => {
             web::routes::conversation::handle_get_conversation_metrics(path, db.clone()).await?

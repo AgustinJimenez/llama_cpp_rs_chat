@@ -310,6 +310,16 @@ impl WorkerBridge {
         *self.status_message.lock().await = msg;
     }
 
+    /// Get conversation event log from the worker.
+    pub async fn get_conversation_events(&self, conversation_id: &str) -> Result<Vec<crate::web::event_log::ConversationEvent>, String> {
+        match self.send_and_wait(WorkerCommand::GetConversationEvents {
+            conversation_id: conversation_id.to_string(),
+        }).await? {
+            WorkerPayload::ConversationEvents { events } => Ok(events),
+            _ => Ok(Vec::new()),
+        }
+    }
+
     /// Get the current status message.
     pub async fn status_message(&self) -> Option<String> {
         self.status_message.lock().await.clone()

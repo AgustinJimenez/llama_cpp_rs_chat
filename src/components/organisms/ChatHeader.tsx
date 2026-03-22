@@ -1,5 +1,5 @@
 import React from 'react';
-import { Unplug, Activity, SlidersHorizontal, X } from 'lucide-react';
+import { Unplug, Activity, SlidersHorizontal, ScrollText, X } from 'lucide-react';
 import { ModelSelector } from './ModelSelector';
 import { useModelContext } from '../../contexts/ModelContext';
 import { useUIContext } from '../../contexts/UIContext';
@@ -37,7 +37,7 @@ interface ChatHeaderProps {
 
 export const ChatHeader = React.memo(function ChatHeader({ onModelUnload, onForceUnload }: ChatHeaderProps) {
   const { status: modelStatus, isLoading: isModelLoading, loadingAction, hasStatusError } = useModelContext();
-  const { viewMode, setViewMode, isRightSidebarOpen, toggleRightSidebar, isConfigSidebarOpen, toggleConfigSidebar, openModelConfig } = useUIContext();
+  const { viewMode, setViewMode, isRightSidebarOpen, toggleRightSidebar, isConfigSidebarOpen, toggleConfigSidebar, openModelConfig, isEventLogOpen, toggleEventLog } = useUIContext();
 
   const modelLoaded = modelStatus.loaded;
 
@@ -79,6 +79,14 @@ export const ChatHeader = React.memo(function ChatHeader({ onModelUnload, onForc
       {/* Right: context + view toggle + monitor */}
       {modelLoaded ? <div className="flex items-center gap-3">
           <ViewModeToggle viewMode={viewMode} onChange={setViewMode} />
+
+          <button
+            onClick={toggleEventLog}
+            className={`btn-icon ${isEventLogOpen ? 'active' : ''}`}
+            title="Event log"
+          >
+            <ScrollText className="h-3.5 w-3.5" />
+          </button>
 
           <button
             onClick={toggleConfigSidebar}

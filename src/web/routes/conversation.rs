@@ -103,6 +103,32 @@ pub async fn handle_get_conversations(
     Ok(json_raw(StatusCode::OK, response_json))
 }
 
+/// GET /api/conversations/:id/events — return in-memory event log for a conversation
+pub async fn handle_get_conversation_events(
+    path: &str,
+    bridge: crate::web::worker::worker_bridge::SharedWorkerBridge,
+) -> Result<Response<Body>, Infallible> {
+    let stripped = match path.strip_prefix("/api/conversations/") {
+        Some(s) => s,
+        None => return Ok(json_error(StatusCode::BAD_REQUEST, "Invalid path")),
+    };
+    let conv_id = match stripped.strip_suffix("/events") {
+        Some(s) => s.trim_end_matches(".txt"),
+        None => return Ok(json_error(StatusCode::BAD_REQUEST, "Invalid path")),
+    };
+
+    match bridge.get_conversation_events(conv_id).await {
+        Ok(events) => {
+            let response_json = serialize_with_fallback(&events, "[]");
+            Ok(json_raw(StatusCode::OK, response_json))
+        }
+        Err(e) => {
+            sys_error!("Failed to get events for {}: {}", conv_id, e);
+            Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to retrieve events"))
+        }
+    }
+}
+
 /// GET /api/conversations/:id/metrics — return generation metrics logs for a conversation
 pub async fn handle_get_conversation_metrics(
     path: &str,

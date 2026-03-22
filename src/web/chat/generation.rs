@@ -26,6 +26,7 @@ use super::jinja_templates::get_available_tools_openai_with_mcp;
 use super::tool_tags::{default_tags, derive_tool_tags_from_pairs, get_tool_tags_for_model, try_get_tool_tags_for_model, ToolTags};
 use super::sampler::create_sampler;
 use crate::{log_debug, log_info, log_warn, sys_debug};
+use crate::web::event_log::log_event;
 
 // Constants for LLaMA configuration
 const CONTEXT_SIZE: u32 = 32768;
@@ -411,6 +412,7 @@ fn run_generation_loop(
                 if batch_elapsed > TOKEN_STALL_TIMEOUT {
                     let secs = batch_elapsed.as_secs();
                     eprintln!("[STALL] Generation stalled: 16 tokens took {}s (loop_recoveries={})", secs, gen.loop_recoveries);
+                    log_event(cfg.conversation_id, "stall", &format!("16 tokens took {}s", secs));
                     if gen.loop_recoveries < 1 {
                         // First stall: try recovery
                         gen.loop_recoveries += 1;
@@ -472,6 +474,7 @@ fn run_generation_loop(
                 let err_str = format!("{e}");
                 if err_str.contains("NoKvCacheSlot") || err_str.contains("no kv cache slot") {
                     eprintln!("[CTX_GUARD] NoKvCacheSlot at token {} — treating as finish_reason=length", gen.total_tokens_generated);
+                    log_event(cfg.conversation_id, "context_guard", &format!("NoKvCacheSlot at token {}", gen.total_tokens_generated));
                     gen.finish_reason = "length".to_string();
                     hit_stop_condition = true;
                     break;
@@ -489,6 +492,7 @@ fn run_generation_loop(
             let ctx_limit = cfg.context_size.saturating_sub(cfg.context_size / 20);
             if gen.token_pos as u32 >= ctx_limit {
                 eprintln!("[CTX_GUARD] Context 95% full ({}/{}, limit={}) — stopping with finish_reason=length", gen.token_pos, cfg.context_size, ctx_limit);
+                log_event(cfg.conversation_id, "context_guard", &format!("Context 95% full ({}/{})", gen.token_pos, cfg.context_size));
                 gen.finish_reason = "length".to_string();
                 hit_stop_condition = true;
                 break;
@@ -527,6 +531,7 @@ fn run_generation_loop(
                 && detect_repetition_loop(&gen.response)
             {
                 eprintln!("[LOOP_RECOVERY] Repetition loop detected at token {}, loop_recoveries={}", gen.total_tokens_generated, gen.loop_recoveries);
+                log_event(cfg.conversation_id, "loop_recovery", &format!("Repetition loop at token {}", gen.total_tokens_generated));
                 if gen.loop_recoveries < 1 {
                     // First loop: try to recover by auto-continuing with corrective message
                     gen.loop_recoveries += 1;
@@ -642,6 +647,7 @@ fn run_generation_loop(
                         Ok(()) => {},
                         Err(e) if e == "CONTEXT_EXHAUSTED" => {
                             eprintln!("[CTX_GUARD] Context exhausted during tool output injection — setting finish_reason=length");
+                            log_event(cfg.conversation_id, "context_guard", "Context exhausted during tool output injection");
                             gen.finish_reason = "length".to_string();
                             hit_stop_condition = true;
                             break;
@@ -680,6 +686,7 @@ fn run_generation_loop(
                     && gen.recent_commands.len() % PROACTIVE_COMPACT_INTERVAL == 0
                 {
                     eprintln!("[PROACTIVE_COMPACT] {} tool calls reached, forcing compaction cycle", gen.recent_commands.len());
+                    log_event(cfg.conversation_id, "compaction", &format!("{} tool calls → proactive compact", gen.recent_commands.len()));
                     gen.finish_reason = "length".to_string();
                     hit_stop_condition = true;
                     break;
@@ -1547,6 +1554,7 @@ pub async fn generate_llama_response(
         );
         if !is_complete {
             eprintln!("[TASK_CHECK] Y/N check said NO → setting finish_reason=yn_continue for auto-continue");
+            log_event(&conversation_id, "yn_check", "Task incomplete → auto-continue");
             gen.finish_reason = "yn_continue".to_string();
         }
     }
