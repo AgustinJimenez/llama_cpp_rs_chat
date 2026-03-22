@@ -1210,12 +1210,28 @@ pub fn check_and_execute_command_with_tags(
     // output_block: persisted in conversation — contains original output for user display
     let output_block = format!("{}{}{}", output_open, display_text.trim(), output_close);
 
-    // Prepend fuzzy loop warning if detected
-    let model_text_with_warning = if let Some(ref warning) = fuzzy_warning {
-        format!("{}\n\n{}", warning, model_text.trim())
-    } else {
-        model_text.trim().to_string()
+    // Detect dead links / HTTP errors and hint the model to search online
+    let model_trimmed = model_text.trim();
+    let http_error_hint = {
+        let lower = model_trimmed.to_lowercase();
+        if lower.contains("404") || lower.contains("not found") || lower.contains("403") || lower.contains("forbidden")
+            || lower.contains("connection refused") || lower.contains("could not resolve host")
+            || lower.contains("ssl") && lower.contains("error")
+        {
+            Some("TIP: This URL appears to be dead or inaccessible. Use web_search to find the correct/current URL instead of guessing.")
+        } else {
+            None
+        }
     };
+
+    // Build model text with warnings
+    let mut model_text_with_warning = model_trimmed.to_string();
+    if let Some(ref warning) = fuzzy_warning {
+        model_text_with_warning = format!("{}\n\n{}", warning, model_text_with_warning);
+    }
+    if let Some(hint) = http_error_hint {
+        model_text_with_warning = format!("{}\n\n{}", model_text_with_warning, hint);
+    }
 
     // model_injection_block: contains only the summary — this is what the LLM sees
     let model_injection_block = format!("{}{}{}", output_open, model_text_with_warning, output_close);
