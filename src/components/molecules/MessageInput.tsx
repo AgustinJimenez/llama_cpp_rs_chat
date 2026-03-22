@@ -6,16 +6,36 @@ import { MessageStatistics } from './messages/MessageStatistics';
 import type { TimingInfo } from '../../utils/chatTransport';
 
 function LiveStreamingStats({ tokensUsed, maxTokens, streamStatus }: { tokensUsed?: number; maxTokens?: number; streamStatus?: string }) {
+  const [polledStatus, setPolledStatus] = useState<string | undefined>(undefined);
   const fmt = (n: number) => n.toLocaleString('en-US').replace(/,/g, '.');
   const pct = tokensUsed && maxTokens ? Math.round((tokensUsed / maxTokens) * 100) : 0;
+
+  // Poll model status API for compaction progress when no WebSocket status is available
+  useEffect(() => {
+    if (streamStatus) { setPolledStatus(undefined); return; }
+    const poll = async () => {
+      try {
+        const resp = await fetch('/api/model/status');
+        if (resp.ok) {
+          const data = await resp.json();
+          setPolledStatus(data.status_message || undefined);
+        }
+      } catch { /* ignore */ }
+    };
+    poll();
+    const id = setInterval(poll, 2000);
+    return () => clearInterval(id);
+  }, [streamStatus]);
+
+  const displayStatus = streamStatus || polledStatus;
   const hasContext = tokensUsed !== undefined && maxTokens !== undefined;
-  if (!hasContext && !streamStatus) return null;
+  if (!hasContext && !displayStatus) return null;
   return (
     <div className="flex items-center gap-3 text-xs text-zinc-400 font-mono">
-      {streamStatus ? (
+      {displayStatus ? (
         <span className="inline-flex items-center gap-1 text-cyan-400">
           <Loader2 className="h-3 w-3 animate-spin" />
-          {streamStatus}
+          {displayStatus}
         </span>
       ) : null}
       {hasContext ? (
