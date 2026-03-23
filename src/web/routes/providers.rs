@@ -80,8 +80,12 @@ pub async fn handle_claude_generate(
     let mut cost_usd = None;
     let mut duration_ms = None;
     let mut stop_reason = None;
+    let mut actual_model_id = None;
 
     while let Some(token_data) = rx.recv().await {
+        if token_data.model_id.is_some() {
+            actual_model_id = token_data.model_id.clone();
+        }
         if token_data.is_done {
             cost_usd = token_data.cost_usd;
             duration_ms = token_data.duration_ms;
@@ -91,13 +95,15 @@ pub async fn handle_claude_generate(
         full_response.push_str(&token_data.token);
     }
 
+    let display_model = actual_model_id.as_deref().unwrap_or(model.display_name());
+
     let result = serde_json::json!({
         "response": full_response,
         "cost_usd": cost_usd,
         "duration_ms": duration_ms,
         "stop_reason": stop_reason,
         "provider": "claude_code",
-        "model": model.display_name(),
+        "model": display_model,
     });
 
     let response_json = serialize_with_fallback(&result, "{}");

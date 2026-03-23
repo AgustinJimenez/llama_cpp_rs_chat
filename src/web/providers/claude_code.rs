@@ -107,6 +107,8 @@ pub struct ClaudeTokenData {
     pub stop_reason: Option<String>,
     pub cost_usd: Option<f64>,
     pub duration_ms: Option<u64>,
+    /// Actual model ID from CLI (e.g. "claude-sonnet-4-6")
+    pub model_id: Option<String>,
 }
 
 /// Get the claude CLI command name (handles Windows .cmd wrapper)
@@ -174,6 +176,7 @@ pub async fn generate(
     tokio::spawn(async move {
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
+        let mut actual_model_id: Option<String> = None;
 
         while let Ok(Some(line)) = lines.next_line().await {
             if line.trim().is_empty() {
@@ -183,9 +186,9 @@ pub async fn generate(
             match serde_json::from_str::<ClaudeEvent>(&line) {
                 Ok(ClaudeEvent::System { session_id, model, .. }) => {
                     eprintln!("[CLAUDE_CODE] Session started: {:?}, model: {:?}", session_id, model);
+                    actual_model_id = model;
                 }
                 Ok(ClaudeEvent::Assistant { message, .. }) => {
-                    // Extract text from content blocks
                     for block in &message.content {
                         if let ContentBlock::Text { text } = block {
                             let _ = tx.send(ClaudeTokenData {
@@ -195,6 +198,7 @@ pub async fn generate(
                                 stop_reason: None,
                                 cost_usd: None,
                                 duration_ms: None,
+                                model_id: actual_model_id.clone(),
                             });
                         }
                     }
@@ -209,6 +213,7 @@ pub async fn generate(
                         stop_reason,
                         cost_usd: total_cost_usd,
                         duration_ms,
+                        model_id: actual_model_id.clone(),
                     });
                 }
                 Ok(ClaudeEvent::RateLimit { rate_limit_info }) => {
@@ -232,6 +237,7 @@ pub async fn generate(
             stop_reason: Some("cli_exit".to_string()),
             cost_usd: None,
             duration_ms: None,
+            model_id: actual_model_id,
         });
 
         let _ = child.wait().await;
