@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Unplug, Activity, SlidersHorizontal, ScrollText, X } from 'lucide-react';
 import { ModelSelector } from './ModelSelector';
+import { ProviderSelector } from './ProviderSelector';
 import { useModelContext } from '../../contexts/ModelContext';
 import { useUIContext } from '../../contexts/UIContext';
 import type { ViewMode } from '../../types';
@@ -38,11 +39,28 @@ interface ChatHeaderProps {
 export const ChatHeader = React.memo(function ChatHeader({ onModelUnload, onForceUnload }: ChatHeaderProps) {
   const { status: modelStatus, isLoading: isModelLoading, loadingAction, hasStatusError } = useModelContext();
   const { viewMode, setViewMode, isRightSidebarOpen, toggleRightSidebar, isConfigSidebarOpen, toggleConfigSidebar, openModelConfig, isEventLogOpen, toggleEventLog } = useUIContext();
+  const [showProviderSelector, setShowProviderSelector] = useState(false);
 
   const modelLoaded = modelStatus.loaded;
 
   return (
     <div className="flex items-center justify-between px-4 py-2 border-b border-border" data-testid="chat-header">
+      {/* Provider selector modal */}
+      <ProviderSelector
+        isOpen={showProviderSelector}
+        onClose={() => setShowProviderSelector(false)}
+        onSelectLocal={() => {
+          setShowProviderSelector(false);
+          openModelConfig();
+        }}
+        onSelectClaude={(model) => {
+          setShowProviderSelector(false);
+          // TODO: switch to Claude Code provider with selected model
+          console.log('[Provider] Selected Claude Code:', model);
+        }}
+        currentProvider={modelLoaded ? 'local' : undefined}
+      />
+
       {/* Left: model selector + unload */}
       <div className="flex items-center gap-1 min-w-0">
         <ModelSelector
@@ -50,7 +68,7 @@ export const ChatHeader = React.memo(function ChatHeader({ onModelUnload, onForc
           isLoading={isModelLoading}
           loadingAction={loadingAction}
           loadingProgress={modelStatus.loading_progress}
-          onOpen={openModelConfig}
+          onOpen={() => setShowProviderSelector(true)}
         />
         {isModelLoading && loadingAction === 'loading' ? <button
             onClick={onForceUnload}
