@@ -141,6 +141,14 @@ async fn handle_request_impl(
             web::routes::conversation::handle_delete_conversation(path, bridge.clone(), db.clone()).await?
         }
 
+        // Provider endpoints
+        (&Method::GET, "/api/providers") => {
+            web::routes::providers::handle_list_providers().await?
+        }
+        (&Method::POST, "/api/providers/claude/generate") => {
+            web::routes::providers::handle_claude_generate(req).await?
+        }
+
         // Model endpoints
         (&Method::GET, "/api/model/info") => {
             web::routes::model::handle_get_model_info(req, bridge.clone()).await?
