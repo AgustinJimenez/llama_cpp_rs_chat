@@ -406,6 +406,7 @@ export function useChat() {
               model: providerRef.current.model,
               max_turns: 50,
               session_id: claudeSessionRef.current || undefined,
+              conversation_id: currentConversationId || undefined,
             }),
           });
           const data = await resp.json();
@@ -413,6 +414,10 @@ export function useChat() {
           if (data.session_id) {
             claudeSessionRef.current = data.session_id;
             console.log('[useChat] Claude session:', data.session_id);
+          }
+          // Store conversation_id for DB persistence
+          if (data.conversation_id && !currentConversationId) {
+            setCurrentConversationId(data.conversation_id);
           }
           if (data.response) {
             setMessages(prev => prev.map(msg =>

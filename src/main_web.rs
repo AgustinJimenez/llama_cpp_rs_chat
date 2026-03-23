@@ -146,7 +146,7 @@ async fn handle_request_impl(
             web::routes::providers::handle_list_providers().await?
         }
         (&Method::POST, "/api/providers/claude/generate") => {
-            web::routes::providers::handle_claude_generate(req).await?
+            web::routes::providers::handle_claude_generate(req, db.clone()).await?
         }
 
         // Model endpoints

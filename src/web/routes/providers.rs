@@ -40,6 +40,7 @@ pub async fn handle_list_providers() -> Result<Response<Body>, Infallible> {
 /// POST /api/providers/claude/generate — generate via Claude Code CLI
 pub async fn handle_claude_generate(
     req: hyper::Request<Body>,
+    db: crate::web::database::SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     let body = match hyper::body::to_bytes(req.into_body()).await {
         Ok(b) => b,
@@ -53,6 +54,7 @@ pub async fn handle_claude_generate(
         max_turns: Option<u32>,
         cwd: Option<String>,
         session_id: Option<String>,
+        conversation_id: Option<String>,
     }
 
     let request: GenerateRequest = match serde_json::from_slice(&body) {
@@ -103,6 +105,27 @@ pub async fn handle_claude_generate(
 
     let display_model = actual_model_id.as_deref().unwrap_or(model.display_name());
 
+    // Save messages to DB for conversation persistence
+    let conv_id = request.conversation_id.unwrap_or_else(|| {
+        format!("chat_{}", chrono::Local::now().format("%Y-%m-%d-%H-%M-%S-%3f"))
+    });
+    if !full_response.is_empty() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        // Get next sequence order
+        let next_seq = db.get_messages(&conv_id)
+            .map(|msgs| msgs.len() as i32 + 1)
+            .unwrap_or(1);
+
+        // Save user message
+        let _ = db.insert_message(&conv_id, "user", &request.prompt, now, next_seq);
+        // Save assistant response
+        let _ = db.insert_message(&conv_id, "assistant", &full_response, now, next_seq + 1);
+    }
+
     let result = serde_json::json!({
         "response": full_response,
         "cost_usd": cost_usd,
@@ -111,6 +134,7 @@ pub async fn handle_claude_generate(
         "provider": "claude_code",
         "model": display_model,
         "session_id": session_id,
+        "conversation_id": conv_id,
     });
 
     let response_json = serialize_with_fallback(&result, "{}");
