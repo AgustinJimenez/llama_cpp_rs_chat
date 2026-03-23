@@ -52,6 +52,7 @@ pub async fn handle_claude_generate(
         model: Option<String>,
         max_turns: Option<u32>,
         cwd: Option<String>,
+        session_id: Option<String>,
     }
 
     let request: GenerateRequest = match serde_json::from_slice(&body) {
@@ -70,6 +71,7 @@ pub async fn handle_claude_generate(
         &model,
         request.max_turns,
         request.cwd.as_deref(),
+        request.session_id.as_deref(),
     ).await {
         Ok(rx) => rx,
         Err(e) => return Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Failed to start Claude: {e}"))),
@@ -81,10 +83,14 @@ pub async fn handle_claude_generate(
     let mut duration_ms = None;
     let mut stop_reason = None;
     let mut actual_model_id = None;
+    let mut session_id = None;
 
     while let Some(token_data) = rx.recv().await {
         if token_data.model_id.is_some() {
             actual_model_id = token_data.model_id.clone();
+        }
+        if token_data.session_id.is_some() {
+            session_id = token_data.session_id.clone();
         }
         if token_data.is_done {
             cost_usd = token_data.cost_usd;
@@ -104,6 +110,7 @@ pub async fn handle_claude_generate(
         "stop_reason": stop_reason,
         "provider": "claude_code",
         "model": display_model,
+        "session_id": session_id,
     });
 
     let response_json = serialize_with_fallback(&result, "{}");

@@ -79,6 +79,8 @@ export function useChat() {
 
   // Provider override (set from ModelContext via setProviderRef)
   const providerRef = useRef<{ provider: string; model: string }>({ provider: 'local', model: '' });
+  // Claude Code session ID for conversation continuity
+  const claudeSessionRef = useRef<string | null>(null);
 
   // Core state
   const [messages, setMessages] = useState<Message[]>([]);
@@ -109,6 +111,7 @@ export function useChat() {
     setTokensUsed(undefined);
     setMaxTokens(undefined);
     setLastTimings(undefined);
+    claudeSessionRef.current = null; // Reset Claude session for new conversation
   }, []);
 
   useEffect(() => {
@@ -402,9 +405,15 @@ export function useChat() {
               prompt: trimmed,
               model: providerRef.current.model,
               max_turns: 50,
+              session_id: claudeSessionRef.current || undefined,
             }),
           });
           const data = await resp.json();
+          // Store session_id for conversation continuity
+          if (data.session_id) {
+            claudeSessionRef.current = data.session_id;
+            console.log('[useChat] Claude session:', data.session_id);
+          }
           if (data.response) {
             setMessages(prev => prev.map(msg =>
               msg.id === assistantMessageId

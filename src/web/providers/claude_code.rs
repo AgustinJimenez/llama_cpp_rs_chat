@@ -141,12 +141,14 @@ pub async fn get_version() -> Option<String> {
 }
 
 /// Generate a response using the Claude CLI.
+/// If `session_id` is provided, resumes that conversation.
 /// Returns a receiver that streams token events.
 pub async fn generate(
     prompt: &str,
     model: &ClaudeModel,
     max_turns: Option<u32>,
     cwd: Option<&str>,
+    session_id: Option<&str>,
 ) -> Result<mpsc::UnboundedReceiver<ClaudeTokenData>, String> {
     let (tx, rx) = mpsc::unbounded_channel();
 
@@ -160,6 +162,10 @@ pub async fn generate(
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .stdin(Stdio::null());
+
+    if let Some(sid) = session_id {
+        cmd.arg("--resume").arg(sid);
+    }
 
     if let Some(turns) = max_turns {
         cmd.arg("--max-turns").arg(turns.to_string());
