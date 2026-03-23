@@ -401,7 +401,7 @@ export function useChat() {
             body: JSON.stringify({
               prompt: trimmed,
               model: providerRef.current.model,
-              max_turns: 10,
+              max_turns: 50,
             }),
           });
           const data = await resp.json();

@@ -53,7 +53,8 @@ pub enum ClaudeEvent {
     #[serde(rename = "result")]
     Result {
         subtype: String,
-        result: String,
+        #[serde(default)]
+        result: Option<String>,
         stop_reason: Option<String>,
         duration_ms: Option<u64>,
         total_cost_usd: Option<f64>,
