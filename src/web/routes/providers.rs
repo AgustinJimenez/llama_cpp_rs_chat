@@ -115,15 +115,34 @@ pub async fn handle_claude_generate(
             .map(|d| d.as_secs())
             .unwrap_or(0);
 
+        // Ensure conversation exists in DB
+        let conn = db.connection();
+        let _ = conn.execute(
+            "INSERT OR IGNORE INTO conversations (id, created_at, updated_at, system_prompt, title) VALUES (?1, ?2, ?3, NULL, NULL)",
+            rusqlite::params![conv_id, now as i64, now as i64],
+        );
+
         // Get next sequence order
         let next_seq = db.get_messages(&conv_id)
             .map(|msgs| msgs.len() as i32 + 1)
             .unwrap_or(1);
 
         // Save user message
-        let _ = db.insert_message(&conv_id, "user", &request.prompt, now, next_seq);
+        match db.insert_message(&conv_id, "user", &request.prompt, now, next_seq) {
+            Ok(_) => eprintln!("[CLAUDE_SAVE] Saved user message to {}", conv_id),
+            Err(e) => eprintln!("[CLAUDE_SAVE] Failed to save user message: {}", e),
+        }
         // Save assistant response
-        let _ = db.insert_message(&conv_id, "assistant", &full_response, now, next_seq + 1);
+        match db.insert_message(&conv_id, "assistant", &full_response, now, next_seq + 1) {
+            Ok(_) => eprintln!("[CLAUDE_SAVE] Saved assistant message to {} ({} chars)", conv_id, full_response.len()),
+            Err(e) => eprintln!("[CLAUDE_SAVE] Failed to save assistant message: {}", e),
+        }
+
+        // Update conversation timestamp
+        let _ = conn.execute(
+            "UPDATE conversations SET updated_at = ?1 WHERE id = ?2",
+            rusqlite::params![now as i64, conv_id],
+        );
     }
 
     let result = serde_json::json!({
