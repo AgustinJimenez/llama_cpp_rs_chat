@@ -37,11 +37,11 @@ interface ChatHeaderProps {
 }
 
 export const ChatHeader = React.memo(function ChatHeader({ onModelUnload, onForceUnload }: ChatHeaderProps) {
-  const { status: modelStatus, isLoading: isModelLoading, loadingAction, hasStatusError } = useModelContext();
+  const { status: modelStatus, isLoading: isModelLoading, loadingAction, hasStatusError, activeProvider, activeClaudeModel, setClaudeProvider, setLocalProvider } = useModelContext();
   const { viewMode, setViewMode, isRightSidebarOpen, toggleRightSidebar, isConfigSidebarOpen, toggleConfigSidebar, openModelConfig, isEventLogOpen, toggleEventLog } = useUIContext();
   const [showProviderSelector, setShowProviderSelector] = useState(false);
 
-  const modelLoaded = modelStatus.loaded;
+  const modelLoaded = modelStatus.loaded || activeProvider === 'claude_code';
 
   return (
     <div className="flex items-center justify-between px-4 py-2 border-b border-border" data-testid="chat-header">
@@ -51,20 +51,24 @@ export const ChatHeader = React.memo(function ChatHeader({ onModelUnload, onForc
         onClose={() => setShowProviderSelector(false)}
         onSelectLocal={() => {
           setShowProviderSelector(false);
+          setLocalProvider();
           openModelConfig();
         }}
         onSelectClaude={(model) => {
           setShowProviderSelector(false);
-          // TODO: switch to Claude Code provider with selected model
-          console.log('[Provider] Selected Claude Code:', model);
+          setClaudeProvider(model);
         }}
-        currentProvider={modelLoaded ? 'local' : undefined}
+        currentProvider={activeProvider}
       />
 
       {/* Left: model selector + unload */}
       <div className="flex items-center gap-1 min-w-0">
         <ModelSelector
-          currentModelPath={modelStatus.model_path ?? undefined}
+          currentModelPath={
+            activeProvider === 'claude_code'
+              ? `Claude ${activeClaudeModel.charAt(0).toUpperCase() + activeClaudeModel.slice(1)}`
+              : modelStatus.model_path ?? undefined
+          }
           isLoading={isModelLoading}
           loadingAction={loadingAction}
           loadingProgress={modelStatus.loading_progress}

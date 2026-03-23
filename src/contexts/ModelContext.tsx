@@ -1,4 +1,4 @@
-import { createContext, useContext, useCallback, useMemo, type ReactNode } from 'react';
+import { createContext, useContext, useCallback, useMemo, useState, type ReactNode } from 'react';
 import { toast } from 'react-hot-toast';
 import { useModel, type LoadingAction } from '../hooks/useModel';
 import type { SamplerConfig, ToolTags } from '../types';
@@ -21,6 +21,8 @@ interface ModelStatus {
   tool_definitions_tokens?: number;
 }
 
+export type ActiveProvider = 'local' | 'claude_code';
+
 interface ModelContextValue {
   status: ModelStatus;
   isLoading: boolean;
@@ -32,6 +34,14 @@ interface ModelContextValue {
   unloadModel: () => Promise<void>;
   forceUnload: () => Promise<void>;
   refreshStatus: () => Promise<void>;
+  /** Active provider: 'local' (llama.cpp) or 'claude_code' */
+  activeProvider: ActiveProvider;
+  /** Claude Code model when using claude_code provider */
+  activeClaudeModel: string;
+  /** Switch to Claude Code provider with a specific model */
+  setClaudeProvider: (model: string) => void;
+  /** Switch back to local provider */
+  setLocalProvider: () => void;
 }
 
 const ModelContext = createContext<ModelContextValue | null>(null);
@@ -88,11 +98,28 @@ export function ModelProvider({ children }: { children: ReactNode }) {
     toast('Force-unloaded backend to free memory', { icon: '🧹' });
   }, [hardUnload]);
 
+  // Provider state
+  const [activeProvider, setActiveProvider] = useState<ActiveProvider>('local');
+  const [activeClaudeModel, setActiveClaudeModel] = useState('sonnet');
+
+  const setClaudeProvider = useCallback((model: string) => {
+    setActiveProvider('claude_code');
+    setActiveClaudeModel(model);
+    toast.success(`Switched to Claude Code (${model.charAt(0).toUpperCase() + model.slice(1)})`);
+  }, []);
+
+  const setLocalProvider = useCallback(() => {
+    setActiveProvider('local');
+    toast.success('Switched to Local Model');
+  }, []);
+
   const value = useMemo<ModelContextValue>(() => ({
     status, isLoading, loadingAction, hasStatusError, modelName,
     loadModel, unloadModel, forceUnload, refreshStatus,
+    activeProvider, activeClaudeModel, setClaudeProvider, setLocalProvider,
   }), [status, isLoading, loadingAction, hasStatusError, modelName,
-    loadModel, unloadModel, forceUnload, refreshStatus]);
+    loadModel, unloadModel, forceUnload, refreshStatus,
+    activeProvider, activeClaudeModel, setClaudeProvider, setLocalProvider]);
 
   return (
     <ModelContext.Provider value={value}>

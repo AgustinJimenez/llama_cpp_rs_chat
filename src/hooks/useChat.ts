@@ -77,6 +77,9 @@ export function useChat() {
   const connectedRef = useRef(connected);
   connectedRef.current = connected;
 
+  // Provider override (set from ModelContext via setProviderRef)
+  const providerRef = useRef<{ provider: string; model: string }>({ provider: 'local', model: '' });
+
   // Core state
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
@@ -387,6 +390,52 @@ export function useChat() {
     });
 
     try {
+      // Route to Claude Code provider if active
+      if (providerRef.current.provider === 'claude_code') {
+        console.log('[useChat] Using Claude Code provider:', providerRef.current.model);
+        setLastTimings(undefined);
+        try {
+          const resp = await fetch('/api/providers/claude/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prompt: trimmed,
+              model: providerRef.current.model,
+              max_turns: 10,
+            }),
+          });
+          const data = await resp.json();
+          if (data.response) {
+            setMessages(prev => prev.map(msg =>
+              msg.id === assistantMessageId
+                ? { ...msg, content: data.response, timestamp: Date.now(), timings: {
+                    genTokPerSec: data.duration_ms ? (data.response.length / 4) / (data.duration_ms / 1000) : undefined,
+                    genEvalMs: data.duration_ms,
+                    genTokens: Math.round(data.response.length / 4),
+                    finishReason: data.stop_reason === 'end_turn' ? 'stop' : data.stop_reason,
+                  } as TimingInfo }
+                : msg
+            ));
+            setLastTimings({
+              genTokPerSec: data.duration_ms ? (data.response.length / 4) / (data.duration_ms / 1000) : undefined,
+              genEvalMs: data.duration_ms,
+              genTokens: Math.round(data.response.length / 4),
+              finishReason: data.stop_reason === 'end_turn' ? 'stop' : data.stop_reason,
+            } as TimingInfo);
+          } else if (data.error) {
+            setError(data.error);
+            toast.error(data.error, { duration: 5000 });
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Claude Code request failed';
+          setError(msg);
+          toast.error(msg, { duration: 5000 });
+        } finally {
+          setIsLoading(false);
+        }
+        return;
+      }
+
       isStreamingRef.current = true;
       setLastTimings(undefined); // Clear old stats so live stats show during streaming
       console.log('[useChat] Streaming started');
@@ -606,5 +655,6 @@ export function useChat() {
     maxTokens,
     lastTimings,
     streamStatus,
+    providerRef,
   };
 }

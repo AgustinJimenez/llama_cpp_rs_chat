@@ -31,7 +31,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     chat.messages, chat.isLoading, chat.error,
     chat.sendMessage, chat.editMessage, chat.regenerateFrom, chat.stopGeneration,
     chat.clearMessages, chat.loadConversation,
-    chat.currentConversationId, chat.tokensUsed, chat.maxTokens, chat.lastTimings, chat.streamStatus,
+    chat.currentConversationId, chat.tokensUsed, chat.maxTokens, chat.lastTimings, chat.streamStatus, chat.providerRef,
   ]);
 
   return (

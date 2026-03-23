@@ -142,15 +142,20 @@ function MainContent({
   handleModelUnload: () => void;
   handleForceUnload: () => void;
 }) {
-  const { status: modelStatus } = useModelContext();
-  const { messages, lastTimings, tokensUsed, maxTokens, streamStatus } = useChatContext();
+  const { status: modelStatus, activeProvider, activeClaudeModel } = useModelContext();
+  const { messages, lastTimings, tokensUsed, maxTokens, streamStatus, providerRef } = useChatContext();
+
+  // Sync provider ref with model context
+  if (providerRef) {
+    providerRef.current = { provider: activeProvider, model: activeClaudeModel };
+  }
 
   return (
     <div className="flex-1 ml-[240px]">
       <div className="flex flex-col h-full">
         <ConnectionBanner />
         {/* Header hidden during loading with no conversation — WelcomeMessage shows the loading progress instead (only one loading indicator at a time) */}
-        {(messages.length > 0 || modelStatus.loaded) ? (
+        {(messages.length > 0 || modelStatus.loaded || activeProvider === 'claude_code') ? (
           <ChatHeader
             onModelUnload={handleModelUnload}
             onForceUnload={handleForceUnload}
@@ -169,7 +174,7 @@ function MainContent({
           <>
             <MessagesArea />
             <ConversationLog />
-            {modelStatus.loaded ? (
+            {(modelStatus.loaded || activeProvider === 'claude_code') ? (
               <div className="px-6 pb-4 pt-2 animate-in slide-in-from-bottom-4 duration-300" data-testid="input-container">
                 <div className="max-w-3xl mx-auto">
                   <MessageInput timings={lastTimings} tokensUsed={tokensUsed} maxTokens={maxTokens} streamStatus={streamStatus} />
