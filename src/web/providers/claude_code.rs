@@ -135,24 +135,32 @@ pub async fn generate(
 ) -> Result<mpsc::UnboundedReceiver<CliTokenData>, String> {
     let (tx, rx) = mpsc::unbounded_channel();
     let model = normalize_model(model);
+    eprintln!("[CLAUDE_CODE] generate() called with prompt={:?} model={} cwd={:?}", &prompt[..prompt.len().min(50)], model, cwd);
     let resolved_cwd = resolve_cli_cwd(cwd)?;
+    eprintln!("[CLAUDE_CODE] resolved_cwd={:?}", resolved_cwd);
 
     // On Windows, use the npm-installed claude binary directly (not the .cmd wrapper)
     // to avoid batch file argument escaping issues with tokio::process::Command.
     let claude_bin = if cfg!(target_os = "windows") {
-        // npm global installs put the actual .exe at AppData\Roaming\npm\node_modules\@anthropic-ai\claude-code\cli.js
-        // but the npx-style runner is at AppData\Roaming\npm\claude.cmd — use node directly
-        let npm_prefix = std::env::var("APPDATA").unwrap_or_default();
-        let cli_js = format!("{npm_prefix}\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli.js");
-        if std::path::Path::new(&cli_js).exists() {
-            cli_js
+        let appdata = std::env::var("APPDATA").unwrap_or_default();
+        let cli_js = std::path::PathBuf::from(&appdata)
+            .join("npm")
+            .join("node_modules")
+            .join("@anthropic-ai")
+            .join("claude-code")
+            .join("cli.js");
+        eprintln!("[CLAUDE_CODE] Looking for CLI at: {:?} (exists: {})", cli_js, cli_js.exists());
+        if cli_js.exists() {
+            cli_js.to_string_lossy().to_string()
         } else {
-            "claude".to_string() // fallback
+            eprintln!("[CLAUDE_CODE] cli.js not found, falling back to claude_cmd()");
+            claude_cmd().to_string() // fallback to .cmd
         }
     } else {
         "claude".to_string()
     };
 
+    eprintln!("[CLAUDE_CODE] Using binary: {}", claude_bin);
     let mut cmd = if claude_bin.ends_with(".js") {
         let mut c = Command::new("node");
         c.arg(&claude_bin);

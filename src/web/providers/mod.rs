@@ -37,6 +37,7 @@ pub struct CliTokenData {
     pub output_tokens: Option<u64>,
 }
 
+#[allow(dead_code)]
 fn remote_provider_tool_delta() -> &'static str {
     "You are running inside LLaMA Chat as a remote CLI-backed provider. Prefer your built-in native tools. Keep responses concise and action-oriented."
 }
@@ -67,8 +68,7 @@ pub fn compose_prompt(
         return user_prompt.to_string();
     }
 
-    // On Windows, newlines in CLI arguments break .cmd batch files.
-    // Skip the shim — the CLI's own system prompt is sufficient.
+    let _ = provider_id; // used in future for provider-specific prompts
     user_prompt.to_string()
 }
 
