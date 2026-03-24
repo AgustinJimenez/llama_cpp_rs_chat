@@ -9,31 +9,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
 
-/// Claude Code model options
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ClaudeModel {
-    Opus,
-    Sonnet,
-    Haiku,
-}
-
-impl ClaudeModel {
-    pub fn as_str(&self) -> &str {
-        match self {
-            ClaudeModel::Opus => "opus",
-            ClaudeModel::Sonnet => "sonnet",
-            ClaudeModel::Haiku => "haiku",
-        }
-    }
-
-    pub fn display_name(&self) -> &str {
-        match self {
-            ClaudeModel::Opus => "Claude Opus",
-            ClaudeModel::Sonnet => "Claude Sonnet",
-            ClaudeModel::Haiku => "Claude Haiku",
-        }
-    }
-}
+use super::{resolve_cli_cwd, CliTokenData};
 
 /// Events streamed from the Claude CLI
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,21 +78,20 @@ pub enum ContentBlock {
     Other,
 }
 
-/// Token data sent to the frontend (same format as llama.cpp provider)
-#[allow(dead_code)]
-pub struct ClaudeTokenData {
-    pub token: String,
-    pub is_done: bool,
-    pub session_id: Option<String>,
-    pub stop_reason: Option<String>,
-    pub cost_usd: Option<f64>,
-    pub duration_ms: Option<u64>,
-    /// Actual model ID from CLI (e.g. "claude-sonnet-4-6")
-    pub model_id: Option<String>,
-    /// Total input tokens (including cache)
-    pub input_tokens: Option<u64>,
-    /// Total output tokens
-    pub output_tokens: Option<u64>,
+fn normalize_model(model: Option<&str>) -> &str {
+    match model {
+        Some("opus") => "opus",
+        Some("haiku") => "haiku",
+        _ => "sonnet",
+    }
+}
+
+pub fn display_model_name(model: Option<&str>) -> String {
+    match normalize_model(model) {
+        "opus" => "Claude Opus".to_string(),
+        "haiku" => "Claude Haiku".to_string(),
+        _ => "Claude Sonnet".to_string(),
+    }
 }
 
 /// Get the claude CLI command name (handles Windows .cmd wrapper)
@@ -153,12 +128,14 @@ pub async fn get_version() -> Option<String> {
 /// Returns a receiver that streams token events.
 pub async fn generate(
     prompt: &str,
-    model: &ClaudeModel,
+    model: Option<&str>,
     max_turns: Option<u32>,
     cwd: Option<&str>,
     session_id: Option<&str>,
-) -> Result<mpsc::UnboundedReceiver<ClaudeTokenData>, String> {
+) -> Result<mpsc::UnboundedReceiver<CliTokenData>, String> {
     let (tx, rx) = mpsc::unbounded_channel();
+    let model = normalize_model(model);
+    let resolved_cwd = resolve_cli_cwd(cwd)?;
 
     let mut cmd = Command::new(claude_cmd());
     cmd.arg("--print")
@@ -166,7 +143,7 @@ pub async fn generate(
         .arg("--output-format")
         .arg("stream-json")
         .arg("--model")
-        .arg(model.as_str())
+        .arg(model)
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .stdin(Stdio::null());
@@ -179,9 +156,11 @@ pub async fn generate(
         cmd.arg("--max-turns").arg(turns.to_string());
     }
 
-    if let Some(dir) = cwd {
-        cmd.current_dir(dir);
-    }
+    // Reduce token usage: skip MCP tools and project settings that inflate the system prompt
+    cmd.arg("--no-mcp");
+    cmd.arg("--setting-sources").arg("none");
+
+    cmd.current_dir(&resolved_cwd);
 
     let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn claude CLI: {e}"))?;
     let stdout = child.stdout.take().ok_or("Failed to capture claude stdout")?;
@@ -206,7 +185,7 @@ pub async fn generate(
                     for block in &message.content {
                         match block {
                             ContentBlock::Text { text } => {
-                                let _ = tx.send(ClaudeTokenData {
+                                let _ = tx.send(CliTokenData {
                                     token: text.clone(),
                                     is_done: false,
                                     session_id: None,
@@ -221,7 +200,7 @@ pub async fn generate(
                                 let args_str = serde_json::to_string(input).unwrap_or_default();
                                 let args_short = if args_str.len() > 200 { format!("{}...", &args_str[..200]) } else { args_str };
                                 let tool_display = format!("\n\n**Tool: {}**\n```\n{}\n```\n", name, args_short);
-                                let _ = tx.send(ClaudeTokenData {
+                                let _ = tx.send(CliTokenData {
                                     token: tool_display,
                                     is_done: false,
                                     session_id: None,
@@ -255,7 +234,7 @@ pub async fn generate(
                                     format!("{}...", &result_str[..500])
                                 } else { result_str };
                                 let result_display = format!("\n**Output:**\n```\n{}\n```\n", truncated);
-                                let _ = tx.send(ClaudeTokenData {
+                                let _ = tx.send(CliTokenData {
                                     token: result_display,
                                     is_done: false,
                                     session_id: None,
@@ -275,7 +254,7 @@ pub async fn generate(
                     let output_tokens = usage.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
                     eprintln!("[CLAUDE_CODE] Done: stop_reason={:?}, cost=${:?}, duration={}ms, tokens={}in/{}out",
                         stop_reason, total_cost_usd, duration_ms.unwrap_or(0), input_tokens, output_tokens);
-                    let _ = tx.send(ClaudeTokenData {
+                    let _ = tx.send(CliTokenData {
                         token: String::new(),
                         is_done: true,
                         session_id,
@@ -301,7 +280,7 @@ pub async fn generate(
         }
 
         // Ensure done is sent if CLI exits without result
-        let _ = tx.send(ClaudeTokenData {
+        let _ = tx.send(CliTokenData {
             token: String::new(),
             is_done: true,
             session_id: None,
