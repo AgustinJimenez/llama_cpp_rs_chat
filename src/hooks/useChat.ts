@@ -393,12 +393,13 @@ export function useChat() {
     });
 
     try {
-      // Route to Claude Code provider if active
+      // Route to Claude Code provider if active — uses SSE streaming
       if (providerRef.current.provider === 'claude_code') {
-        console.log('[useChat] Using Claude Code provider:', providerRef.current.model);
+        console.log('[useChat] Using Claude Code provider (SSE):', providerRef.current.model);
         setLastTimings(undefined);
+        isStreamingRef.current = true;
         try {
-          const resp = await fetch('/api/providers/claude/generate', {
+          const resp = await fetch('/api/providers/claude/stream', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -409,42 +410,61 @@ export function useChat() {
               conversation_id: currentConversationId || undefined,
             }),
           });
-          const data = await resp.json();
-          // Store session_id for conversation continuity
-          if (data.session_id) {
-            claudeSessionRef.current = data.session_id;
-            console.log('[useChat] Claude session:', data.session_id);
-          }
-          // Store conversation_id for DB persistence
-          if (data.conversation_id && !currentConversationId) {
-            setCurrentConversationId(data.conversation_id);
-          }
-          if (data.response) {
-            setMessages(prev => prev.map(msg =>
-              msg.id === assistantMessageId
-                ? { ...msg, content: data.response, timestamp: Date.now(), timings: {
-                    genTokPerSec: data.duration_ms ? (data.response.length / 4) / (data.duration_ms / 1000) : undefined,
-                    genEvalMs: data.duration_ms,
-                    genTokens: Math.round(data.response.length / 4),
-                    finishReason: data.stop_reason === 'end_turn' ? 'stop' : data.stop_reason,
-                  } as TimingInfo }
-                : msg
-            ));
-            setLastTimings({
-              genTokPerSec: data.duration_ms ? (data.response.length / 4) / (data.duration_ms / 1000) : undefined,
-              genEvalMs: data.duration_ms,
-              genTokens: Math.round(data.response.length / 4),
-              finishReason: data.stop_reason === 'end_turn' ? 'stop' : data.stop_reason,
-            } as TimingInfo);
-          } else if (data.error) {
-            setError(data.error);
-            toast.error(data.error, { duration: 5000 });
+
+          const reader = resp.body?.getReader();
+          const decoder = new TextDecoder();
+          let accumulated = '';
+
+          if (reader) {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+
+              const chunk = decoder.decode(value, { stream: true });
+              const lines = chunk.split('\n');
+
+              for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                const jsonStr = line.slice(6);
+                try {
+                  const event = JSON.parse(jsonStr);
+                  if (event.type === 'token') {
+                    accumulated += event.token;
+                    setMessages(prev => prev.map(msg =>
+                      msg.id === assistantMessageId
+                        ? { ...msg, content: accumulated }
+                        : msg
+                    ));
+                  } else if (event.type === 'done') {
+                    if (event.session_id) claudeSessionRef.current = event.session_id;
+                    if (event.conversation_id && !currentConversationId) {
+                      setCurrentConversationId(event.conversation_id);
+                    }
+                    const outTokens = event.output_tokens || Math.round(accumulated.length / 4);
+                    const durationMs = event.duration_ms || 0;
+                    const timings: TimingInfo = {
+                      genTokPerSec: durationMs > 0 ? (outTokens / (durationMs / 1000)) : undefined,
+                      genEvalMs: durationMs,
+                      genTokens: outTokens,
+                      finishReason: event.stop_reason === 'end_turn' ? 'stop' : event.stop_reason,
+                    };
+                    setMessages(prev => prev.map(msg =>
+                      msg.id === assistantMessageId
+                        ? { ...msg, timestamp: Date.now(), timings }
+                        : msg
+                    ));
+                    setLastTimings(timings);
+                  }
+                } catch { /* skip unparseable lines */ }
+              }
+            }
           }
         } catch (err) {
           const msg = err instanceof Error ? err.message : 'Claude Code request failed';
           setError(msg);
           toast.error(msg, { duration: 5000 });
         } finally {
+          isStreamingRef.current = false;
           setIsLoading(false);
         }
         return;

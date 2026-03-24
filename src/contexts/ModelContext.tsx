@@ -98,18 +98,25 @@ export function ModelProvider({ children }: { children: ReactNode }) {
     toast('Force-unloaded backend to free memory', { icon: '🧹' });
   }, [hardUnload]);
 
-  // Provider state
-  const [activeProvider, setActiveProvider] = useState<ActiveProvider>('local');
-  const [activeClaudeModel, setActiveClaudeModel] = useState('sonnet');
+  // Provider state — persisted in localStorage
+  const [activeProvider, setActiveProvider] = useState<ActiveProvider>(
+    () => (localStorage.getItem('activeProvider') as ActiveProvider) || 'local'
+  );
+  const [activeClaudeModel, setActiveClaudeModel] = useState(
+    () => localStorage.getItem('activeClaudeModel') || 'sonnet'
+  );
 
   const setClaudeProvider = useCallback((model: string) => {
     setActiveProvider('claude_code');
     setActiveClaudeModel(model);
+    localStorage.setItem('activeProvider', 'claude_code');
+    localStorage.setItem('activeClaudeModel', model);
     toast.success(`Switched to Claude Code (${model.charAt(0).toUpperCase() + model.slice(1)})`);
   }, []);
 
   const setLocalProvider = useCallback(() => {
     setActiveProvider('local');
+    localStorage.setItem('activeProvider', 'local');
     toast.success('Switched to Local Model');
   }, []);
 

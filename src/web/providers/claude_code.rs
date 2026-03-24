@@ -200,16 +200,34 @@ pub async fn generate(
                 }
                 Ok(ClaudeEvent::Assistant { message, .. }) => {
                     for block in &message.content {
-                        if let ContentBlock::Text { text } = block {
-                            let _ = tx.send(ClaudeTokenData {
-                                token: text.clone(),
-                                is_done: false,
-                                session_id: None,
-                                stop_reason: None,
-                                cost_usd: None,
-                                duration_ms: None,
-                                model_id: actual_model_id.clone(), input_tokens: None, output_tokens: None,
-                            });
+                        match block {
+                            ContentBlock::Text { text } => {
+                                let _ = tx.send(ClaudeTokenData {
+                                    token: text.clone(),
+                                    is_done: false,
+                                    session_id: None,
+                                    stop_reason: None,
+                                    cost_usd: None,
+                                    duration_ms: None,
+                                    model_id: actual_model_id.clone(), input_tokens: None, output_tokens: None,
+                                });
+                            }
+                            ContentBlock::ToolUse { name, input, .. } => {
+                                // Format tool call for display
+                                let args_str = serde_json::to_string(input).unwrap_or_default();
+                                let args_short = if args_str.len() > 200 { format!("{}...", &args_str[..200]) } else { args_str };
+                                let tool_display = format!("\n\n**Tool: {}**\n```\n{}\n```\n", name, args_short);
+                                let _ = tx.send(ClaudeTokenData {
+                                    token: tool_display,
+                                    is_done: false,
+                                    session_id: None,
+                                    stop_reason: None,
+                                    cost_usd: None,
+                                    duration_ms: None,
+                                    model_id: actual_model_id.clone(), input_tokens: None, output_tokens: None,
+                                });
+                            }
+                            _ => {}
                         }
                     }
                 }

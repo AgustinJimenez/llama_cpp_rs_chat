@@ -145,6 +145,9 @@ async fn handle_request_impl(
         (&Method::GET, "/api/providers") => {
             web::routes::providers::handle_list_providers().await?
         }
+        (&Method::POST, "/api/providers/claude/stream") => {
+            web::routes::providers::handle_claude_stream(req, db.clone()).await?
+        }
         (&Method::POST, "/api/providers/claude/generate") => {
             web::routes::providers::handle_claude_generate(req, db.clone()).await?
         }
