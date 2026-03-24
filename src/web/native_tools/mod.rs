@@ -345,6 +345,14 @@ pub fn dispatch_native_tool(
         return Some(super::desktop_tools::tool_watch_window(&args));
     }
 
+    // spawn_agent is handled in command_executor.rs (needs model access).
+    // Recognize the name here to prevent falling through to shell execution.
+    if name == "spawn_agent" {
+        return Some(NativeToolResult::text_only(
+            "Error: spawn_agent must be handled by the generation pipeline".to_string()
+        ));
+    }
+
     // All other tools return text-only results
     Some(NativeToolResult::text_only(match name.as_str() {
         "read_file" => tool_read_file(&args),

@@ -61,6 +61,12 @@ fn core_behavior_block() -> String {
 - When you hit a blocker, investigate with `web_search`/`web_fetch` instead of writing workarounds.
 - Prefer official docs over Stack Overflow or blog posts.
 
+## Sub-Agents
+- Use `spawn_agent` for complex sub-tasks that might use lots of context (installing software, large file operations, research).
+- The agent runs in isolation with a fresh context and returns a summary of what it did.
+- Use it when a sub-task would consume too many tokens in your current context window.
+- The agent has access to the same tools as you.
+
 ## After calling a tool, the system injects the result automatically. Wait for it before continuing."#.to_string()
 }
 
@@ -192,6 +198,9 @@ For servers/daemons: {exec_open}{{"name": "execute_command", "arguments": {{"com
 ### list_background_processes — List all tracked background processes with status
 {exec_open}{{"name": "list_background_processes", "arguments": {{}}}}{exec_close}
 
+### spawn_agent — Spawn a sub-agent for an isolated sub-task (fresh context)
+{exec_open}{{"name": "spawn_agent", "arguments": {{"task": "Install Node.js and set up a React project", "context": "Target directory: E:/projects/myapp"}}}}{exec_close}
+
 ### web_search — Search the web
 {exec_open}{{"name": "web_search", "arguments": {{"query": "rust async tutorial"}}}}{exec_close}
 
@@ -296,6 +305,9 @@ to=web_fetch code<|message|>{{"url": "https://example.com"}}<|call|>
 
 ### take_screenshot — Capture the user's screen
 to=take_screenshot code<|message|>{{"monitor": 0}}<|call|>
+
+### spawn_agent — Spawn a sub-agent for an isolated sub-task (fresh context)
+to=spawn_agent code<|message|>{{"task": "Install Node.js and set up a React project"}}<|call|>
 
 {behavior}
 

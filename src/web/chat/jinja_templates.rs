@@ -1901,6 +1901,25 @@ pub fn get_available_tools() -> Vec<Value> {
                 "required": []
             }
         }),
+        // Sub-agent spawning
+        json!({
+            "name": "spawn_agent",
+            "description": "Spawn a sub-agent to handle an isolated sub-task. The agent gets a fresh context and returns a summary of what it did. Use for installation tasks, research, or any step that might use lots of context.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task": {
+                        "type": "string",
+                        "description": "The sub-task description for the agent to complete"
+                    },
+                    "context": {
+                        "type": "string",
+                        "description": "Additional context to provide to the agent (file contents, error messages, etc.)"
+                    }
+                },
+                "required": ["task"]
+            }
+        }),
     ];
 
     tools
