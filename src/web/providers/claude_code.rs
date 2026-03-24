@@ -62,6 +62,10 @@ pub enum ClaudeEvent {
         #[serde(default)]
         usage: serde_json::Value,
     },
+    #[serde(rename = "user")]
+    User {
+        message: AssistantMessage,
+    },
     #[serde(rename = "rate_limit_event")]
     RateLimit {
         rate_limit_info: serde_json::Value,
@@ -228,6 +232,39 @@ pub async fn generate(
                                 });
                             }
                             _ => {}
+                        }
+                    }
+                }
+                Ok(ClaudeEvent::User { message }) => {
+                    // Tool results from Claude's own execution
+                    for block in &message.content {
+                        if let ContentBlock::ToolResult { content, .. } = block {
+                            let result_str = match content {
+                                serde_json::Value::String(s) => s.clone(),
+                                serde_json::Value::Array(arr) => {
+                                    arr.iter().filter_map(|v| {
+                                        if v.get("type").and_then(|t| t.as_str()) == Some("text") {
+                                            v.get("text").and_then(|t| t.as_str()).map(|s| s.to_string())
+                                        } else { None }
+                                    }).collect::<Vec<_>>().join("\n")
+                                }
+                                other => serde_json::to_string(other).unwrap_or_default(),
+                            };
+                            if !result_str.is_empty() {
+                                let truncated = if result_str.len() > 500 {
+                                    format!("{}...", &result_str[..500])
+                                } else { result_str };
+                                let result_display = format!("\n**Output:**\n```\n{}\n```\n", truncated);
+                                let _ = tx.send(ClaudeTokenData {
+                                    token: result_display,
+                                    is_done: false,
+                                    session_id: None,
+                                    stop_reason: None,
+                                    cost_usd: None,
+                                    duration_ms: None,
+                                    model_id: actual_model_id.clone(), input_tokens: None, output_tokens: None,
+                                });
+                            }
                         }
                     }
                 }

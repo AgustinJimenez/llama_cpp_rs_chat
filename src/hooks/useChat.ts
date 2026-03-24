@@ -402,6 +402,7 @@ export function useChat() {
           const resp = await fetch('/api/providers/claude/stream', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            signal: abortControllerRef.current?.signal,
             body: JSON.stringify({
               prompt: trimmed,
               model: providerRef.current.model,
@@ -447,6 +448,7 @@ export function useChat() {
                       genEvalMs: durationMs,
                       genTokens: outTokens,
                       finishReason: event.stop_reason === 'end_turn' ? 'stop' : event.stop_reason,
+                      costUsd: event.cost_usd,
                     };
                     setMessages(prev => prev.map(msg =>
                       msg.id === assistantMessageId

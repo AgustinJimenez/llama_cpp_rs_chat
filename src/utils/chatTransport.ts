@@ -18,6 +18,7 @@ export interface TimingInfo {
   promptTokens?: number;
   finishReason?: string;
   tokenBreakdown?: TokenBreakdown;
+  costUsd?: number;
 }
 
 export interface StreamingCallbacks {

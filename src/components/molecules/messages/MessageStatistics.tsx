@@ -63,6 +63,11 @@ export function MessageStatistics({ timings, tokensUsed, maxTokens }: MessageSta
         <Gauge className="h-3 w-3" />
         {genTokPerSec.toFixed(1)} tok/s
       </span>
+      {timings.costUsd ? (
+        <span className="inline-flex items-center gap-1 text-emerald-400" title="Cost (from subscription)">
+          ${timings.costUsd.toFixed(3)}
+        </span>
+      ) : null}
       {tokensUsed !== undefined && maxTokens !== undefined ? (
         timings.tokenBreakdown ? (
           <TokenBreakdownPopover
