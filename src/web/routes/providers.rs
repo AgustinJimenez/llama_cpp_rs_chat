@@ -86,6 +86,8 @@ pub async fn handle_claude_generate(
     let mut stop_reason = None;
     let mut actual_model_id = None;
     let mut session_id = None;
+    let mut input_tokens = None;
+    let mut output_tokens = None;
 
     while let Some(token_data) = rx.recv().await {
         if token_data.model_id.is_some() {
@@ -98,6 +100,8 @@ pub async fn handle_claude_generate(
             cost_usd = token_data.cost_usd;
             duration_ms = token_data.duration_ms;
             stop_reason = token_data.stop_reason;
+            input_tokens = token_data.input_tokens;
+            output_tokens = token_data.output_tokens;
             break;
         }
         full_response.push_str(&token_data.token);
@@ -154,6 +158,8 @@ pub async fn handle_claude_generate(
         "model": display_model,
         "session_id": session_id,
         "conversation_id": conv_id,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
     });
 
     let response_json = serialize_with_fallback(&result, "{}");
