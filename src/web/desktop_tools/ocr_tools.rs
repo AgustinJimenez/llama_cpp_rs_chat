@@ -327,6 +327,11 @@ pub(super) fn ocr_png_and_search(img: &image::RgbaImage, search_lower: &str) -> 
 /// Supports optional `window` param to auto-crop to a window's rect.
 #[cfg(windows)]
 pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
+    // confidence_min is accepted for API consistency with ocr_find_text.
+    // WinRT's text-only OCR mode does not expose per-line confidence,
+    // so this parameter is reserved for future use in tool_ocr_screen.
+    let _confidence_min: f64 = args.get("confidence_min").and_then(super::parse_float).unwrap_or(0.0);
+
     let target = match capture_ocr_target(args, "ocr_screen") {
         Ok(target) => target,
         Err(result) => return result,
@@ -873,6 +878,8 @@ pub(super) fn ocr_find_text_vision(
 #[cfg(target_os = "macos")]
 pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
     let language = args.get("language").and_then(|v| v.as_str());
+    // confidence_min accepted for API consistency; reserved for future use in text-only OCR.
+    let _confidence_min: f64 = args.get("confidence_min").and_then(super::parse_float).unwrap_or(0.0);
     let target = match capture_ocr_target(args, "ocr_screen") {
         Ok(target) => target,
         Err(result) => return result,
@@ -907,6 +914,8 @@ pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
 #[cfg(target_os = "linux")]
 pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
     let language = args.get("language").and_then(|v| v.as_str());
+    // confidence_min accepted for API consistency; reserved for future use in text-only OCR.
+    let _confidence_min: f64 = args.get("confidence_min").and_then(super::parse_float).unwrap_or(0.0);
     let target = match capture_ocr_target(args, "ocr_screen") {
         Ok(target) => target,
         Err(result) => return result,
@@ -935,6 +944,7 @@ pub fn tool_ocr_find_text(args: &Value) -> NativeToolResult {
         None => return super::tool_error("ocr_find_text", "'text' argument is required"),
     };
     let search = search_text.to_lowercase();
+    let confidence_min = args.get("confidence_min").and_then(super::parse_float).unwrap_or(0.0);
     let target = match capture_ocr_target(args, "ocr_find_text") {
         Ok(target) => target,
         Err(result) => return result,
@@ -944,19 +954,20 @@ pub fn tool_ocr_find_text(args: &Value) -> NativeToolResult {
     if let Some(OcrCachePayload::Matches(matches)) =
         get_cached_ocr_payload(&cache_key, &target.raw, cache_max_age_ms, cache_threshold_pct)
     {
-        if matches.is_empty() {
+        let filtered: Vec<_> = matches.into_iter().filter(|m| m.confidence >= confidence_min).collect();
+        if filtered.is_empty() {
             return NativeToolResult::text_only(format!(
                 "Text '{}' not found in{} (cached)",
                 search_text, target.region_desc
             ));
         }
-        let lines: Vec<String> = matches.iter().map(|m| {
+        let lines: Vec<String> = filtered.iter().map(|m| {
             format!("\"{}\" at ({:.0},{:.0}) {:.0}x{:.0} conf={:.2}",
                 m.text, m.x, m.y, m.width, m.height, m.confidence)
         }).collect();
         return NativeToolResult::text_only(format!(
             "Found {} match(es) in{} (cached):\n{}",
-            matches.len(),
+            filtered.len(),
             target.region_desc,
             lines.join("\n")
         ));
@@ -977,16 +988,17 @@ pub fn tool_ocr_find_text(args: &Value) -> NativeToolResult {
     match result {
         Ok(matches) => {
             update_cached_ocr_payload(cache_key, raw, OcrCachePayload::Matches(matches.clone()));
-            if matches.is_empty() {
+            let filtered: Vec<_> = matches.into_iter().filter(|m| m.confidence >= confidence_min).collect();
+            if filtered.is_empty() {
                 NativeToolResult::text_only(format!("Text '{}' not found in{}", search_text, region_desc))
             } else {
-                let lines: Vec<String> = matches.iter().map(|m| {
+                let lines: Vec<String> = filtered.iter().map(|m| {
                     format!("\"{}\" at ({:.0},{:.0}) {:.0}x{:.0} conf={:.2}",
                         m.text, m.x, m.y, m.width, m.height, m.confidence)
                 }).collect();
                 NativeToolResult::text_only(format!(
                     "Found {} match(es) in{}:\n{}",
-                    matches.len(),
+                    filtered.len(),
                     region_desc,
                     lines.join("\n")
                 ))
@@ -1138,6 +1150,7 @@ pub fn tool_ocr_find_text(args: &Value) -> NativeToolResult {
         Some(s) => s,
         None => return super::tool_error("ocr_find_text", "'text' is required"),
     };
+    let confidence_min = args.get("confidence_min").and_then(super::parse_float).unwrap_or(0.0);
     let target = match capture_ocr_target(args, "ocr_find_text") {
         Ok(target) => target,
         Err(result) => return result,
@@ -1147,11 +1160,12 @@ pub fn tool_ocr_find_text(args: &Value) -> NativeToolResult {
     if let Some(OcrCachePayload::Matches(matches)) =
         get_cached_ocr_payload(&cache_key, &target.raw, cache_max_age_ms, cache_threshold_pct)
     {
-        if matches.is_empty() {
+        let filtered: Vec<_> = matches.into_iter().filter(|m| m.confidence >= confidence_min).collect();
+        if filtered.is_empty() {
             return NativeToolResult::text_only(format!("Text '{search}' not found in{} (cached)", target.region_desc));
         }
-        let mut lines = vec![format!("Found {} match(es) for '{search}' in{} (cached):", matches.len(), target.region_desc)];
-        for m in &matches {
+        let mut lines = vec![format!("Found {} match(es) for '{search}' in{} (cached):", filtered.len(), target.region_desc)];
+        for m in &filtered {
             lines.push(format!(
                 "  \"{}\" at ({:.0},{:.0}) {:.0}x{:.0} conf={:.2}",
                 m.text, m.x, m.y, m.width, m.height, m.confidence
@@ -1171,8 +1185,9 @@ pub fn tool_ocr_find_text(args: &Value) -> NativeToolResult {
         }
         Ok(matches) => {
             update_cached_ocr_payload(cache_key, target.raw, OcrCachePayload::Matches(matches.clone()));
-            let mut lines = vec![format!("Found {} match(es) for '{search}' in{}:", matches.len(), target.region_desc)];
-            for m in &matches {
+            let filtered: Vec<_> = matches.into_iter().filter(|m| m.confidence >= confidence_min).collect();
+            let mut lines = vec![format!("Found {} match(es) for '{search}' in{}:", filtered.len(), target.region_desc)];
+            for m in &filtered {
                 lines.push(format!(
                     "  \"{}\" at ({:.0},{:.0}) {:.0}x{:.0} conf={:.2}",
                     m.text, m.x, m.y, m.width, m.height, m.confidence
@@ -1192,6 +1207,7 @@ pub fn tool_ocr_find_text(args: &Value) -> NativeToolResult {
         Some(s) => s,
         None => return super::tool_error("ocr_find_text", "'text' is required"),
     };
+    let confidence_min = args.get("confidence_min").and_then(super::parse_float).unwrap_or(0.0);
     let target = match capture_ocr_target(args, "ocr_find_text") {
         Ok(target) => target,
         Err(result) => return result,
@@ -1201,11 +1217,12 @@ pub fn tool_ocr_find_text(args: &Value) -> NativeToolResult {
     if let Some(OcrCachePayload::Matches(matches)) =
         get_cached_ocr_payload(&cache_key, &target.raw, cache_max_age_ms, cache_threshold_pct)
     {
-        if matches.is_empty() {
+        let filtered: Vec<_> = matches.into_iter().filter(|m| m.confidence >= confidence_min).collect();
+        if filtered.is_empty() {
             return NativeToolResult::text_only(format!("Text '{search}' not found in{} (cached)", target.region_desc));
         }
-        let mut lines = vec![format!("Found {} match(es) for '{search}' in{} (cached):", matches.len(), target.region_desc)];
-        for m in &matches {
+        let mut lines = vec![format!("Found {} match(es) for '{search}' in{} (cached):", filtered.len(), target.region_desc)];
+        for m in &filtered {
             lines.push(format!(
                 "  \"{}\" at ({:.0},{:.0}) {:.0}x{:.0} conf={:.2}",
                 m.text, m.x, m.y, m.width, m.height, m.confidence
@@ -1220,8 +1237,9 @@ pub fn tool_ocr_find_text(args: &Value) -> NativeToolResult {
         }
         Ok(matches) => {
             update_cached_ocr_payload(cache_key, target.raw, OcrCachePayload::Matches(matches.clone()));
-            let mut lines = vec![format!("Found {} match(es) for '{search}' in{}:", matches.len(), target.region_desc)];
-            for m in &matches {
+            let filtered: Vec<_> = matches.into_iter().filter(|m| m.confidence >= confidence_min).collect();
+            let mut lines = vec![format!("Found {} match(es) for '{search}' in{}:", filtered.len(), target.region_desc)];
+            for m in &filtered {
                 lines.push(format!(
                     "  \"{}\" at ({:.0},{:.0}) {:.0}x{:.0} conf={:.2}",
                     m.text, m.x, m.y, m.width, m.height, m.confidence

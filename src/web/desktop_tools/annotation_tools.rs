@@ -81,6 +81,8 @@ pub fn tool_annotate_screenshot(args: &Value) -> NativeToolResult {
 /// OCR a specific rectangular region of the screen.
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn tool_ocr_region(args: &Value) -> NativeToolResult {
+    // confidence_min accepted for API consistency; passed through to ocr_screen internally.
+    let _confidence_min: f64 = args.get("confidence_min").and_then(super::parse_float).unwrap_or(0.0);
     let x = args.get("x").and_then(parse_int).unwrap_or(0) as u32;
     let y = args.get("y").and_then(parse_int).unwrap_or(0) as u32;
     let width = match args.get("width").and_then(parse_int) {

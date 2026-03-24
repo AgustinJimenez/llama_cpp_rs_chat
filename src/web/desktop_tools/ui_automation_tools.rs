@@ -24,7 +24,8 @@ pub(super) fn check_gpu_app_guard(hwnd: win32::HWND, tool_name: &str) -> Option<
     let guidance = gpu_app_db::build_guidance(gpu);
     Some(NativeToolResult::text_only(format!(
         "{} detected (process: {}). \
-         '{}' returned no results because {} renders its UI with GPU, not native widgets.\n\n{}",
+         '{}' returned no results because {} renders its UI with GPU, not native widgets.\n\n{}\n\n\
+         TIP: This app uses GPU rendering. Try execute_app_script or ocr_screen instead of UI Automation tools.",
         gpu.app_name, info.process_name, tool_name, gpu.app_name, guidance
     )))
 }

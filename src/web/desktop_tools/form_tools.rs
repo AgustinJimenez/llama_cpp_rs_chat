@@ -205,6 +205,57 @@ fn execute_single_action(
                 )
             }
         }
+        "if_text_on_screen" => {
+            let text = action_args
+                .get("text")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if text.is_empty() {
+                return format!("#{}: if_text_on_screen skipped (no text)", index);
+            }
+            let then_action = action_args.get("then").and_then(|v| v.as_str()).unwrap_or("");
+            let else_action = action_args.get("else").and_then(|v| v.as_str()).unwrap_or("");
+
+            let ocr_result =
+                super::ocr_tools::tool_ocr_screen(&serde_json::json!({"monitor": 0}));
+            let found = ocr_result.text.to_lowercase().contains(&text.to_lowercase());
+
+            let branch = if found { then_action } else { else_action };
+            if branch.is_empty() {
+                format!(
+                    "#{}: if_text_on_screen '{}' -> {} (no action for this branch)",
+                    index, text, if found { "FOUND" } else { "NOT FOUND" }
+                )
+            } else {
+                // Execute the branch action (simple: treat as press_key for key presses, or type)
+                let branch_result = execute_single_action(branch, action_args, index);
+                format!(
+                    "#{}: if_text_on_screen '{}' -> {} -> {}",
+                    index, text, if found { "FOUND" } else { "NOT FOUND" }, branch_result
+                )
+            }
+        }
+        "repeat" => {
+            let count = action_args.get("count").and_then(parse_int).unwrap_or(1).max(1).min(50) as usize;
+            let sub_actions = action_args.get("actions").and_then(|v| v.as_array());
+            match sub_actions {
+                Some(sub) if !sub.is_empty() => {
+                    let mut sub_results = Vec::new();
+                    for iteration in 0..count {
+                        for (si, sub_action) in sub.iter().enumerate() {
+                            let sub_type = sub_action.get("action").and_then(|v| v.as_str()).unwrap_or("wait");
+                            let sub_result = execute_single_action(sub_type, sub_action, si + 1);
+                            sub_results.push(format!("  iter {}/{}: {}", iteration + 1, count, sub_result));
+                            // Small delay between sub-actions within a repeat
+                            let delay = sub_action.get("delay_ms").and_then(parse_int).unwrap_or(100) as u64;
+                            std::thread::sleep(std::time::Duration::from_millis(delay));
+                        }
+                    }
+                    format!("#{}: repeat x{} ({} sub-results):\n{}", index, count, sub_results.len(), sub_results.join("\n"))
+                }
+                _ => format!("#{}: repeat skipped (no 'actions' array)", index),
+            }
+        }
         other => {
             format!("#{}: unknown action '{}'", index, other)
         }

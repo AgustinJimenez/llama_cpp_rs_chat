@@ -1577,6 +1577,7 @@ pub fn dispatch_desktop_tool(name: &str, args: &Value) -> Option<NativeToolResul
         "get_system_volume" => tool_get_system_volume(args),
         "set_system_volume" => tool_set_system_volume(args),
         "set_system_mute" => tool_set_system_mute(args),
+        "list_audio_devices" => tool_list_audio_devices(args),
 
         // Extended clipboard
         "clear_clipboard" => tool_clear_clipboard(args),

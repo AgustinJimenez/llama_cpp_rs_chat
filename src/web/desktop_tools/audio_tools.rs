@@ -259,6 +259,153 @@ fn set_system_volume_impl(_level: u32) -> Result<(), String> {
 }
 
 // ---------------------------------------------------------------------------
+// Tool: list_audio_devices
+// ---------------------------------------------------------------------------
+
+/// List available audio output devices on the system.
+///
+/// No required parameters.
+pub fn tool_list_audio_devices(_args: &Value) -> NativeToolResult {
+    match list_audio_devices_impl() {
+        Ok(text) => NativeToolResult::text_only(text),
+        Err(e) => tool_error("list_audio_devices", e),
+    }
+}
+
+#[cfg(windows)]
+fn list_audio_devices_impl() -> Result<String, String> {
+    use std::os::windows::process::CommandExt;
+    use std::process::{Command, Stdio};
+
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    let script = r#"
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+
+[Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IMMDevice {
+    int Activate(ref Guid iid, int ctx, IntPtr p, [MarshalAs(UnmanagedType.IUnknown)] out object aev);
+    int OpenPropertyStore(int access, [MarshalAs(UnmanagedType.IUnknown)] out object props);
+    int GetId([MarshalAs(UnmanagedType.LPWStr)] out string id);
+    int GetState(out int state);
+}
+
+[Guid("0BD7A1BE-7A1A-44DB-8397-CC5392387B5E"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IMMDeviceCollection {
+    int GetCount(out int count);
+    int Item(int index, [MarshalAs(UnmanagedType.Interface)] out IMMDevice device);
+}
+
+[Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IMMDeviceEnumerator {
+    int GetDefaultAudioEndpoint(int flow, int role, [MarshalAs(UnmanagedType.Interface)] out IMMDevice device);
+    int EnumAudioEndpoints(int flow, int stateMask, [MarshalAs(UnmanagedType.Interface)] out IMMDeviceCollection coll);
+}
+
+[ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
+class MMDeviceEnumerator {}
+"@
+
+$enum = New-Object MMDeviceEnumerator
+$coll = $null
+# flow=0 (render/output), stateMask=1 (DEVICE_STATE_ACTIVE)
+$enum.EnumAudioEndpoints(0, 1, [ref]$coll) | Out-Null
+$count = 0
+$coll.GetCount([ref]$count) | Out-Null
+
+$defaultDev = $null
+$enum.GetDefaultAudioEndpoint(0, 1, [ref]$defaultDev) | Out-Null
+$defaultId = ""
+if ($defaultDev) { $defaultDev.GetId([ref]$defaultId) | Out-Null }
+
+$results = @()
+for ($i = 0; $i -lt $count; $i++) {
+    $dev = $null
+    $coll.Item($i, [ref]$dev) | Out-Null
+    $id = ""
+    $dev.GetId([ref]$id) | Out-Null
+    $state = 0
+    $dev.GetState([ref]$state) | Out-Null
+    $isDefault = if ($id -eq $defaultId) { " [DEFAULT]" } else { "" }
+    $results += "$i. Device ID: $id State: $state$isDefault"
+}
+if ($results.Count -eq 0) { Write-Output "No active audio output devices found" }
+else { $results | ForEach-Object { Write-Output $_ } }
+"#;
+
+    let output = Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| format!("PowerShell launch failed: {e}"))?;
+
+    if output.status.success() {
+        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if text.is_empty() {
+            Ok("No active audio output devices found".to_string())
+        } else {
+            Ok(format!("Audio output devices:\n{text}"))
+        }
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(if stderr.is_empty() {
+            format!("PowerShell exited with {}", output.status)
+        } else {
+            stderr
+        })
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn list_audio_devices_impl() -> Result<String, String> {
+    // Use system_profiler to list audio devices
+    use std::process::Command;
+    let output = Command::new("system_profiler")
+        .args(["SPAudioDataType", "-json"])
+        .output()
+        .map_err(|e| format!("system_profiler failed: {e}"))?;
+    if output.status.success() {
+        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        Ok(format!("Audio devices:\n{text}"))
+    } else {
+        Err("system_profiler SPAudioDataType failed".to_string())
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn list_audio_devices_impl() -> Result<String, String> {
+    use std::process::Command;
+    // Try pactl first (PulseAudio/PipeWire), fall back to aplay
+    let output = Command::new("pactl")
+        .args(["list", "sinks", "short"])
+        .output();
+    if let Ok(out) = output {
+        if out.status.success() {
+            return Ok(format!("Audio sinks:\n{}", String::from_utf8_lossy(&out.stdout).trim()));
+        }
+    }
+    let output = Command::new("aplay")
+        .args(["-l"])
+        .output()
+        .map_err(|e| format!("aplay failed: {e}. Is alsa-utils installed?"))?;
+    if output.status.success() {
+        Ok(format!("Audio devices:\n{}", String::from_utf8_lossy(&output.stdout).trim()))
+    } else {
+        Err("aplay -l failed".to_string())
+    }
+}
+
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+fn list_audio_devices_impl() -> Result<String, String> {
+    Err("list_audio_devices is not supported on this platform".to_string())
+}
+
+// ---------------------------------------------------------------------------
 // Tool: set_system_mute
 // ---------------------------------------------------------------------------
 
