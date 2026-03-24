@@ -222,10 +222,12 @@ pub async fn generate(
                                 });
                             }
                             ContentBlock::ToolUse { name, input, .. } => {
-                                // Format tool call for display
-                                let args_str = serde_json::to_string(input).unwrap_or_default();
-                                let args_short = if args_str.len() > 200 { format!("{}...", &args_str[..200]) } else { args_str };
-                                let tool_display = format!("\n\n**Tool: {}**\n```\n{}\n```\n", name, args_short);
+                                // Format as our app's tool call tags so the UI renders with native widgets
+                                let args = serde_json::to_string(input).unwrap_or_default();
+                                let tool_display = format!(
+                                    "\n<tool_call>{{\"name\": \"{}\", \"arguments\": {}}}</tool_call>\n",
+                                    name, args
+                                );
                                 let _ = tx.send(CliTokenData {
                                     token: tool_display,
                                     is_done: false,
@@ -259,7 +261,7 @@ pub async fn generate(
                                 let truncated = if result_str.len() > 500 {
                                     format!("{}...", &result_str[..500])
                                 } else { result_str };
-                                let result_display = format!("\n**Output:**\n```\n{}\n```\n", truncated);
+                                let result_display = format!("\n<tool_response>\n{}\n</tool_response>\n", truncated);
                                 let _ = tx.send(CliTokenData {
                                     token: result_display,
                                     is_done: false,
