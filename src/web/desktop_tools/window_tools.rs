@@ -15,23 +15,29 @@ use super::linux as win32;
 
 /// Check if a window rect covers any monitor entirely (cross-platform fullscreen detection).
 fn is_fullscreen_by_rect(x: i32, y: i32, width: i32, height: i32) -> bool {
-    if let Ok(monitors) = xcap::Monitor::all() {
-        for m in &monitors {
-            let mx = m.x().unwrap_or(0);
-            let my = m.y().unwrap_or(0);
-            let mw = m.width().unwrap_or(0) as i32;
-            let mh = m.height().unwrap_or(0) as i32;
-            // Exact match: window position and size match monitor
-            if x == mx && y == my && width == mw && height == mh {
-                return true;
+    match xcap::Monitor::all() {
+        Ok(monitors) => {
+            for m in &monitors {
+                let mx = m.x().unwrap_or(0);
+                let my = m.y().unwrap_or(0);
+                let mw = m.width().unwrap_or(0) as i32;
+                let mh = m.height().unwrap_or(0) as i32;
+                // Exact match: window position and size match monitor
+                if x == mx && y == my && width == mw && height == mh {
+                    return true;
+                }
+                // Covers monitor: window encompasses the entire monitor area
+                if x <= mx && y <= my && (x + width) >= (mx + mw) && (y + height) >= (my + mh) {
+                    return true;
+                }
             }
-            // Covers monitor: window encompasses the entire monitor area
-            if x <= mx && y <= my && (x + width) >= (mx + mw) && (y + height) >= (my + mh) {
-                return true;
-            }
+            false
+        }
+        Err(e) => {
+            eprintln!("[desktop_tools] is_fullscreen_by_rect: failed to enumerate monitors: {e}");
+            false
         }
     }
-    false
 }
 
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
@@ -580,6 +586,11 @@ pub fn tool_list_monitors(args: &Value) -> NativeToolResult {
     }
 
     if let Some(idx) = index_filter {
+        if idx >= monitors.len() {
+            return super::tool_error("list_monitors", format!(
+                "monitor index {} out of range (0..{})", idx, monitors.len()
+            ));
+        }
         let m = &monitors[idx];
         return NativeToolResult::text_only(format!(
             "Monitor {idx}: \"{}\" {}x{} at ({},{}) scale={:.1} primary={}",
@@ -663,7 +674,28 @@ pub fn tool_snap_window(args: &Value) -> NativeToolResult {
 
     let work = match win32::get_monitor_work_area(hwnd) {
         Ok(r) => r,
-        Err(e) => return super::tool_error("snap_window", e),
+        Err(e) => {
+            // Fallback to primary monitor work area
+            eprintln!("[snap_window] get_monitor_work_area failed: {e}, falling back to primary monitor");
+            match xcap::Monitor::all() {
+                Ok(monitors) => {
+                    let m = monitors.iter()
+                        .find(|m| m.is_primary().unwrap_or(false))
+                        .or(monitors.first());
+                    match m {
+                        Some(m) => {
+                            let mx = m.x().unwrap_or(0);
+                            let my = m.y().unwrap_or(0);
+                            let mw = m.width().unwrap_or(1920) as i32;
+                            let mh = m.height().unwrap_or(1080) as i32;
+                            win32::RECT { left: mx, top: my, right: mx + mw, bottom: my + mh }
+                        }
+                        None => return super::tool_error("snap_window", format!("monitor query failed: {e}")),
+                    }
+                }
+                Err(e2) => return super::tool_error("snap_window", format!("monitor query failed: {e}, {e2}")),
+            }
+        }
     };
 
     let ww = work.right - work.left;

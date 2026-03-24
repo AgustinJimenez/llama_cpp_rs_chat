@@ -57,8 +57,8 @@ pub fn tool_clear_field(args: &Value) -> NativeToolResult {
             images: result.images,
         }
     } else {
-        // Take final screenshot
-        let result = super::tool_press_key(&serde_json::json!({"key": "delete", "delay_ms": delay_ms, "screenshot": true}));
+        // Take final screenshot (selection already deleted above, just capture)
+        let result = super::capture_post_action_screenshot(delay_ms);
         NativeToolResult {
             text: format!("Cleared field. {}", result.text),
             images: result.images,
@@ -119,8 +119,10 @@ pub fn tool_hover_element(args: &Value) -> NativeToolResult {
         "screenshot": false
     }));
 
-    // Wait for hover effects (tooltip)
-    std::thread::sleep(std::time::Duration::from_millis(hover_ms));
+    // Wait for hover effects (tooltip) — interruptible so it can be cancelled
+    if let Err(e) = super::interruptible_sleep(std::time::Duration::from_millis(hover_ms)) {
+        return super::tool_error("hover_element", e);
+    }
 
     // Try to find tooltip in UI tree
     let tooltip_text = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || -> String {

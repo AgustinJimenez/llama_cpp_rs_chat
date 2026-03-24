@@ -217,7 +217,7 @@ pub(super) fn pixel_diff_pct(a: &[u8], b: &[u8]) -> f64 {
     if a.len() != b.len() {
         return 100.0;
     }
-    let step = 16 * 4; // every 16th pixel, 4 bytes per pixel (RGBA)
+    let step = 32 * 4; // every 32nd pixel, 4 bytes per pixel (RGBA)
     let mut diff = 0u64;
     let mut total = 0u64;
     let mut i = 0;
@@ -655,7 +655,7 @@ fn capture_post_action_screenshot_ext(
 /// Uses a smart cache: if the screen hasn't changed significantly (<5% pixel diff),
 /// returns the cached image with an "(unchanged)" note to save tokens.
 fn capture_post_action_screenshot(delay_ms: u64) -> NativeToolResult {
-    capture_post_action_screenshot_ext(delay_ms, 2000, 5.0)
+    capture_post_action_screenshot_ext(delay_ms, 800, 5.0)
 }
 
 /// Helper: parse integer from JSON value (handles both number and string).

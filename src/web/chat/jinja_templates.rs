@@ -1648,6 +1648,15 @@ pub fn get_available_tools() -> Vec<Value> {
             }
         }),
         json!({
+            "name": "list_audio_devices",
+            "description": "List available audio output devices.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }),
+        json!({
             "name": "clear_clipboard",
             "description": "Clear all content from the system clipboard.",
             "parameters": {
@@ -1929,7 +1938,7 @@ pub(crate) const DESKTOP_TOOL_NAMES: &[&str] = &[
     "send_notification",
     "show_status_overlay", "update_status_overlay", "hide_status_overlay",
     // Round 4-5 tools
-    "get_system_volume", "set_system_volume", "set_system_mute",
+    "get_system_volume", "set_system_volume", "set_system_mute", "list_audio_devices",
     "clear_clipboard", "clipboard_file_paths", "clipboard_html",
     "save_window_layout", "restore_window_layout",
     "wait_for_process_exit", "get_process_tree", "get_system_metrics",

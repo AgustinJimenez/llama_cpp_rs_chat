@@ -83,6 +83,7 @@ fn get_cached_ocr_payload(
         return None;
     }
     let lock = OCR_CACHE.lock().unwrap_or_else(|poisoned| {
+        eprintln!("[ocr_tools] OCR_CACHE mutex poisoned — recovering from panic");
         crate::log_warn!("system", "Mutex poisoned in OCR_CACHE, recovering");
         poisoned.into_inner()
     });
@@ -99,6 +100,7 @@ fn get_cached_ocr_payload(
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 fn update_cached_ocr_payload(key: String, raw: Vec<u8>, payload: OcrCachePayload) {
     let mut lock = OCR_CACHE.lock().unwrap_or_else(|poisoned| {
+        eprintln!("[ocr_tools] OCR_CACHE mutex poisoned — recovering from panic");
         crate::log_warn!("system", "Mutex poisoned in OCR_CACHE, recovering");
         poisoned.into_inner()
     });
@@ -331,13 +333,14 @@ pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
     // WinRT's text-only OCR mode does not expose per-line confidence,
     // so this parameter is reserved for future use in tool_ocr_screen.
     let _confidence_min: f64 = args.get("confidence_min").and_then(super::parse_float).unwrap_or(0.0);
+    let language = args.get("language").and_then(|v| v.as_str());
 
     let target = match capture_ocr_target(args, "ocr_screen") {
         Ok(target) => target,
         Err(result) => return result,
     };
     let (cache_max_age_ms, cache_threshold_pct) = ocr_cache_settings(args);
-    let cache_key = format!("ocr_screen:{}", target.region_desc);
+    let cache_key = format!("ocr_screen:{}:{:?}", target.region_desc, language);
     if let Some(OcrCachePayload::Text(text)) =
         get_cached_ocr_payload(&cache_key, &target.raw, cache_max_age_ms, cache_threshold_pct)
     {
