@@ -137,14 +137,33 @@ pub async fn generate(
     let model = normalize_model(model);
     let resolved_cwd = resolve_cli_cwd(cwd)?;
 
-    let mut cmd = Command::new(claude_cmd());
-    cmd.arg("--print")
-        .arg(prompt)
-        .arg("--output-format")
-        .arg("stream-json")
-        .arg("--model")
-        .arg(model)
-        .stdout(Stdio::piped())
+    // On Windows, use the npm-installed claude binary directly (not the .cmd wrapper)
+    // to avoid batch file argument escaping issues with tokio::process::Command.
+    let claude_bin = if cfg!(target_os = "windows") {
+        // npm global installs put the actual .exe at AppData\Roaming\npm\node_modules\@anthropic-ai\claude-code\cli.js
+        // but the npx-style runner is at AppData\Roaming\npm\claude.cmd — use node directly
+        let npm_prefix = std::env::var("APPDATA").unwrap_or_default();
+        let cli_js = format!("{npm_prefix}\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli.js");
+        if std::path::Path::new(&cli_js).exists() {
+            cli_js
+        } else {
+            "claude".to_string() // fallback
+        }
+    } else {
+        "claude".to_string()
+    };
+
+    let mut cmd = if claude_bin.ends_with(".js") {
+        let mut c = Command::new("node");
+        c.arg(&claude_bin);
+        c
+    } else {
+        Command::new(&claude_bin)
+    };
+    cmd.arg("--print").arg(prompt)
+        .arg("--output-format").arg("stream-json")
+        .arg("--model").arg(model);
+    cmd.stdout(Stdio::piped())
         .stderr(Stdio::null())
         .stdin(Stdio::null());
 
@@ -156,9 +175,8 @@ pub async fn generate(
         cmd.arg("--max-turns").arg(turns.to_string());
     }
 
-    // Reduce token usage: skip MCP tools and project settings that inflate the system prompt
-    cmd.arg("--no-mcp");
-    cmd.arg("--setting-sources").arg("none");
+    // NOTE: --setting-sources none caused "batch file arguments are invalid" on Windows
+    // MCP tools and CLAUDE.md will be loaded but this ensures compatibility
 
     cmd.current_dir(&resolved_cwd);
 
