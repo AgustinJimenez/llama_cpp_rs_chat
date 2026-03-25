@@ -67,6 +67,8 @@ pub struct DbSamplerConfig {
     // Telegram notification settings
     pub telegram_bot_token: Option<String>,
     pub telegram_chat_id: Option<String>,
+    // Provider API keys (JSON blob for OpenAI-compatible providers)
+    pub provider_api_keys: Option<String>,
 }
 
 impl Default for DbSamplerConfig {
@@ -123,6 +125,7 @@ impl Default for DbSamplerConfig {
             tag_pairs: None, proactive_compaction: false,
             telegram_bot_token: None,
             telegram_chat_id: None,
+            provider_api_keys: None,
         }
     }
 }
@@ -165,7 +168,8 @@ impl Database {
                         tag_pairs,
                         proactive_compaction,
                         telegram_bot_token,
-                        telegram_chat_id
+                        telegram_chat_id,
+                        provider_api_keys
                  FROM config WHERE id = 1",
                 [],
                 |row| {
@@ -227,6 +231,7 @@ impl Database {
                         proactive_compaction: row.get::<_, Option<i32>>(48)?.unwrap_or(0) != 0,
                         telegram_bot_token: row.get(49)?,
                         telegram_chat_id: row.get(50)?,
+                        provider_api_keys: row.get(51)?,
                     })
                 },
             )
@@ -276,10 +281,11 @@ impl Database {
               proactive_compaction,
               telegram_bot_token,
               telegram_chat_id,
+              provider_api_keys,
               updated_at)
              VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
                      ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34,
-                     ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50, ?51, ?52)",
+                     ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50, ?51, ?52, ?53)",
             params![
                 config.sampler_type,
                 config.temperature,
@@ -332,6 +338,7 @@ impl Database {
                 config.proactive_compaction as i32,
                 config.telegram_bot_token,
                 config.telegram_chat_id,
+                config.provider_api_keys,
                 current_timestamp_millis(),
             ],
         )
@@ -377,7 +384,8 @@ impl Database {
              proactive_compaction = ?49,
              telegram_bot_token = ?50,
              telegram_chat_id = ?51,
-             updated_at = ?52
+             provider_api_keys = ?52,
+             updated_at = ?53
              WHERE id = 1",
             params![
                 config.sampler_type,
@@ -431,6 +439,7 @@ impl Database {
                 config.proactive_compaction as i32,
                 config.telegram_bot_token,
                 config.telegram_chat_id,
+                config.provider_api_keys,
                 current_timestamp_millis(),
             ],
         )

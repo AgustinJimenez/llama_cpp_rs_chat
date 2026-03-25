@@ -100,6 +100,8 @@ export interface SamplerConfig {
   // Telegram notification settings
   telegram_bot_token?: string;
   telegram_chat_id?: string;
+  // Provider API keys (JSON blob for OpenAI-compatible providers)
+  provider_api_keys?: string;
 }
 
 export type SamplerType = 

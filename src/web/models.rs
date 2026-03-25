@@ -184,6 +184,9 @@ pub struct SamplerConfig {
     pub telegram_bot_token: Option<String>,
     #[serde(default)]
     pub telegram_chat_id: Option<String>,
+    // Provider API keys (JSON blob for OpenAI-compatible providers)
+    #[serde(default)]
+    pub provider_api_keys: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -314,6 +317,7 @@ impl Default for SamplerConfig {
             proactive_compaction: false,
             telegram_bot_token: None,
             telegram_chat_id: None,
+            provider_api_keys: None,
         }
     }
 }

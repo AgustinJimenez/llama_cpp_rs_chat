@@ -185,6 +185,7 @@ impl Database {
                     proactive_compaction: false,
                     telegram_bot_token: None,
                     telegram_chat_id: None,
+                    provider_api_keys: None,
                 })
             },
         )

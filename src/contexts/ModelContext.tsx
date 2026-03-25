@@ -21,7 +21,7 @@ interface ModelStatus {
   tool_definitions_tokens?: number;
 }
 
-export type ActiveProvider = 'local' | 'claude_code';
+export type ActiveProvider = 'local' | 'claude_code' | 'codex' | (string & {});
 
 interface ModelContextValue {
   status: ModelStatus;
@@ -34,12 +34,12 @@ interface ModelContextValue {
   unloadModel: () => Promise<void>;
   forceUnload: () => Promise<void>;
   refreshStatus: () => Promise<void>;
-  /** Active provider: 'local' (llama.cpp) or 'claude_code' */
+  /** Active provider: 'local' (llama.cpp) or CLI-backed provider */
   activeProvider: ActiveProvider;
-  /** Claude Code model when using claude_code provider */
-  activeClaudeModel: string;
-  /** Switch to Claude Code provider with a specific model */
-  setClaudeProvider: (model: string) => void;
+  /** Active remote/provider model selection */
+  activeProviderModel: string;
+  /** Switch to a remote provider with a specific model */
+  setRemoteProvider: (provider: string, model: string) => void;
   /** Switch back to local provider */
   setLocalProvider: () => void;
 }
@@ -102,16 +102,34 @@ export function ModelProvider({ children }: { children: ReactNode }) {
   const [activeProvider, setActiveProvider] = useState<ActiveProvider>(
     () => (localStorage.getItem('activeProvider') as ActiveProvider) || 'local'
   );
-  const [activeClaudeModel, setActiveClaudeModel] = useState(
-    () => localStorage.getItem('activeClaudeModel') || 'sonnet'
+  const [activeProviderModel, setActiveProviderModel] = useState(
+    () => {
+      const provider = (localStorage.getItem('activeProvider') as ActiveProvider) || 'local';
+      const saved = localStorage.getItem('activeProviderModel') || localStorage.getItem('activeClaudeModel');
+      if (saved) return saved;
+      return provider === 'codex' ? 'gpt-5' : 'sonnet';
+    }
   );
 
-  const setClaudeProvider = useCallback((model: string) => {
-    setActiveProvider('claude_code');
-    setActiveClaudeModel(model);
-    localStorage.setItem('activeProvider', 'claude_code');
-    localStorage.setItem('activeClaudeModel', model);
-    toast.success(`Switched to Claude Code (${model.charAt(0).toUpperCase() + model.slice(1)})`);
+  const setRemoteProvider = useCallback((provider: string, model: string) => {
+    setActiveProvider(provider as ActiveProvider);
+    setActiveProviderModel(model);
+    localStorage.setItem('activeProvider', provider);
+    localStorage.setItem('activeProviderModel', model);
+    const providerNames: Record<string, string> = {
+      claude_code: 'Claude Code',
+      codex: 'Codex CLI',
+      groq: 'Groq',
+      gemini: 'Gemini',
+      sambanova: 'SambaNova',
+      cerebras: 'Cerebras',
+      openrouter: 'OpenRouter',
+      together: 'Together AI',
+      deepseek: 'DeepSeek',
+      custom_openai: 'Custom OpenAI',
+    };
+    const providerName = providerNames[provider] || provider;
+    toast.success(`Switched to ${providerName} (${model})`);
   }, []);
 
   const setLocalProvider = useCallback(() => {
@@ -123,10 +141,10 @@ export function ModelProvider({ children }: { children: ReactNode }) {
   const value = useMemo<ModelContextValue>(() => ({
     status, isLoading, loadingAction, hasStatusError, modelName,
     loadModel, unloadModel, forceUnload, refreshStatus,
-    activeProvider, activeClaudeModel, setClaudeProvider, setLocalProvider,
+    activeProvider, activeProviderModel, setRemoteProvider, setLocalProvider,
   }), [status, isLoading, loadingAction, hasStatusError, modelName,
     loadModel, unloadModel, forceUnload, refreshStatus,
-    activeProvider, activeClaudeModel, setClaudeProvider, setLocalProvider]);
+    activeProvider, activeProviderModel, setRemoteProvider, setLocalProvider]);
 
   return (
     <ModelContext.Provider value={value}>

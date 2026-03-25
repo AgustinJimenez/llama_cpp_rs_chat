@@ -8,8 +8,15 @@ interface WelcomeMessageProps {
 }
 
 export const WelcomeMessage: React.FC<WelcomeMessageProps> = ({ children }) => {
-  const { status, isLoading, loadingAction, modelName, forceUnload } = useModelContext();
+  const { status, isLoading, loadingAction, modelName, forceUnload, activeProvider, activeProviderModel } = useModelContext();
   const { openModelConfig } = useUIContext();
+  const providerLabels: Record<string, string> = {
+    claude_code: 'Claude', codex: 'Codex', groq: 'Groq', gemini: 'Gemini',
+    sambanova: 'SambaNova', cerebras: 'Cerebras', openrouter: 'OpenRouter',
+    together: 'Together', deepseek: 'DeepSeek', custom_openai: 'Custom',
+  };
+  const remoteProviderLabel = providerLabels[activeProvider] || activeProvider;
+  const remoteHeading = `${remoteProviderLabel} (${activeProviderModel})`;
 
   // Show loading here only when the header is hidden (model not yet loaded).
   // When status.loaded is true, the header is visible and its ModelSelector handles loading/unloading state — only one indicator at a time.
@@ -49,10 +56,10 @@ export const WelcomeMessage: React.FC<WelcomeMessageProps> = ({ children }) => {
     );
   }
 
-  if (status.loaded && modelName) {
+  if ((status.loaded && modelName) || activeProvider !== 'local') {
     return (
       <div className="flex-1 flex flex-col items-center justify-center">
-        <h2 className="text-xl font-semibold mb-6">{modelName}</h2>
+        <h2 className="text-xl font-semibold mb-6">{activeProvider !== 'local' ? remoteHeading : modelName}</h2>
         {children}
       </div>
     );

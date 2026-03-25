@@ -37,11 +37,24 @@ interface ChatHeaderProps {
 }
 
 export const ChatHeader = React.memo(function ChatHeader({ onModelUnload, onForceUnload }: ChatHeaderProps) {
-  const { status: modelStatus, isLoading: isModelLoading, loadingAction, hasStatusError, activeProvider, activeClaudeModel, setClaudeProvider, setLocalProvider } = useModelContext();
+  const { status: modelStatus, isLoading: isModelLoading, loadingAction, hasStatusError, activeProvider, activeProviderModel, setRemoteProvider, setLocalProvider } = useModelContext();
   const { viewMode, setViewMode, isRightSidebarOpen, toggleRightSidebar, isConfigSidebarOpen, toggleConfigSidebar, openModelConfig, isEventLogOpen, toggleEventLog } = useUIContext();
   const [showProviderSelector, setShowProviderSelector] = useState(false);
 
-  const modelLoaded = modelStatus.loaded || activeProvider === 'claude_code';
+  const modelLoaded = modelStatus.loaded || activeProvider !== 'local';
+  const providerLabels: Record<string, string> = {
+    claude_code: 'Claude',
+    codex: 'Codex',
+    groq: 'Groq',
+    gemini: 'Gemini',
+    sambanova: 'SambaNova',
+    cerebras: 'Cerebras',
+    openrouter: 'OpenRouter',
+    together: 'Together',
+    deepseek: 'DeepSeek',
+    custom_openai: 'Custom',
+  };
+  const remoteProviderLabel = providerLabels[activeProvider] || activeProvider;
 
   return (
     <div className="flex items-center justify-between px-4 py-2 border-b border-border" data-testid="chat-header">
@@ -54,9 +67,9 @@ export const ChatHeader = React.memo(function ChatHeader({ onModelUnload, onForc
           setLocalProvider();
           openModelConfig();
         }}
-        onSelectClaude={(model) => {
+        onSelectRemote={(provider, model) => {
           setShowProviderSelector(false);
-          setClaudeProvider(model);
+          setRemoteProvider(provider, model);
         }}
         currentProvider={activeProvider}
       />
@@ -65,8 +78,8 @@ export const ChatHeader = React.memo(function ChatHeader({ onModelUnload, onForc
       <div className="flex items-center gap-1 min-w-0">
         <ModelSelector
           currentModelPath={
-            activeProvider === 'claude_code'
-              ? `Claude ${activeClaudeModel.charAt(0).toUpperCase() + activeClaudeModel.slice(1)}`
+            activeProvider !== 'local'
+              ? `${remoteProviderLabel} (${activeProviderModel})`
               : modelStatus.model_path ?? undefined
           }
           isLoading={isModelLoading}

@@ -530,6 +530,12 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         [],
     );
 
+    // Provider API keys (JSON blob: {"groq": {"api_key": "..."}, "gemini": {"api_key": "...", "base_url": "..."}, ...})
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN provider_api_keys TEXT",
+        [],
+    );
+
     conn.execute(
         "INSERT OR IGNORE INTO config (id, updated_at) VALUES (1, ?1)",
         [super::current_timestamp_millis()],

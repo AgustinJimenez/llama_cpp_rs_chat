@@ -143,13 +143,21 @@ async fn handle_request_impl(
 
         // Provider endpoints
         (&Method::GET, "/api/providers") => {
-            web::routes::providers::handle_list_providers().await?
+            web::routes::providers::handle_list_providers(db.clone()).await?
         }
-        (&Method::POST, "/api/providers/claude/stream") => {
-            web::routes::providers::handle_claude_stream(req, db.clone()).await?
+        (&Method::POST, path) if path.starts_with("/api/providers/") && path.ends_with("/stream") => {
+            let provider_id = path
+                .trim_start_matches("/api/providers/")
+                .trim_end_matches("/stream")
+                .trim_end_matches('/');
+            web::routes::providers::handle_provider_stream(req, db.clone(), provider_id).await?
         }
-        (&Method::POST, "/api/providers/claude/generate") => {
-            web::routes::providers::handle_claude_generate(req, db.clone()).await?
+        (&Method::POST, path) if path.starts_with("/api/providers/") && path.ends_with("/generate") => {
+            let provider_id = path
+                .trim_start_matches("/api/providers/")
+                .trim_end_matches("/generate")
+                .trim_end_matches('/');
+            web::routes::providers::handle_provider_generate(req, db.clone(), provider_id).await?
         }
 
         // Model endpoints

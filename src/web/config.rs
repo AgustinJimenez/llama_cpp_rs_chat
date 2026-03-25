@@ -74,6 +74,7 @@ pub fn db_config_to_sampler_config(db_config: &DbSamplerConfig) -> SamplerConfig
         proactive_compaction: db_config.proactive_compaction,
         telegram_bot_token: db_config.telegram_bot_token.clone(),
         telegram_chat_id: db_config.telegram_chat_id.clone(),
+        provider_api_keys: db_config.provider_api_keys.clone(),
     }
 }
 
@@ -136,6 +137,7 @@ pub fn sampler_config_to_db(config: &SamplerConfig) -> DbSamplerConfig {
         proactive_compaction: config.proactive_compaction,
         telegram_bot_token: config.telegram_bot_token.clone(),
         telegram_chat_id: config.telegram_chat_id.clone(),
+        provider_api_keys: config.provider_api_keys.clone(),
     }
 }
 

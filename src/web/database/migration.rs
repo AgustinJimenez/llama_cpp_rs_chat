@@ -283,6 +283,7 @@ pub fn migrate_config(db: &Database) -> Result<bool, String> {
         proactive_compaction: false,
         telegram_bot_token: None,
         telegram_chat_id: None,
+        provider_api_keys: None,
     };
 
     // Save to database

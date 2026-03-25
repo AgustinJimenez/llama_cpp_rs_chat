@@ -11,6 +11,7 @@ use tokio::sync::mpsc;
 
 pub mod claude_code;
 pub mod codex;
+pub mod openai_compat;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ProviderInfo {
@@ -72,11 +73,11 @@ pub fn compose_prompt(
     user_prompt.to_string()
 }
 
-pub async fn list_providers() -> Vec<ProviderInfo> {
+pub async fn list_providers_with_keys(api_keys_json: Option<&str>) -> Vec<ProviderInfo> {
     let claude_available = claude_code::is_available().await;
     let codex_available = codex::is_available().await;
 
-    vec![
+    let mut providers = vec![
         ProviderInfo {
             id: "local",
             name: "Local Model (llama.cpp)",
@@ -109,7 +110,28 @@ pub async fn list_providers() -> Vec<ProviderInfo> {
             },
             models: vec!["gpt-5"],
         },
-    ]
+    ];
+
+    // Add OpenAI-compatible providers
+    for preset in openai_compat::PROVIDER_PRESETS {
+        let has_key = openai_compat::resolve_api_key(preset.id, api_keys_json).is_some();
+        // custom_openai needs both key and base_url to be "available"
+        let available = if preset.id == "custom_openai" {
+            has_key && openai_compat::resolve_base_url(preset.id, api_keys_json).is_some()
+        } else {
+            has_key
+        };
+        providers.push(ProviderInfo {
+            id: preset.id,
+            name: preset.name,
+            available,
+            description: preset.description,
+            version: None,
+            models: preset.models.to_vec(),
+        });
+    }
+
+    providers
 }
 
 pub async fn generate(
@@ -119,10 +141,18 @@ pub async fn generate(
     max_turns: Option<u32>,
     cwd: Option<&str>,
     session_id: Option<&str>,
+    api_keys_json: Option<&str>,
 ) -> Result<mpsc::UnboundedReceiver<CliTokenData>, String> {
     match provider_id {
         "claude_code" => claude_code::generate(prompt, model, max_turns, cwd, session_id).await,
         "codex" => codex::generate(prompt, model, max_turns, cwd, session_id).await,
+        id if openai_compat::is_openai_compat(id) => {
+            let api_key = openai_compat::resolve_api_key(id, api_keys_json)
+                .ok_or_else(|| format!("No API key configured for provider '{id}'. Set it in Settings or via environment variable."))?;
+            let base_url = openai_compat::resolve_base_url(id, api_keys_json)
+                .ok_or_else(|| format!("No base URL configured for provider '{id}'."))?;
+            openai_compat::generate(id, prompt, model, &base_url, &api_key).await
+        }
         _ => Err(format!("Unknown provider: {provider_id}")),
     }
 }
@@ -131,6 +161,12 @@ pub fn default_model(provider_id: &str) -> &'static str {
     match provider_id {
         "claude_code" => "sonnet",
         "codex" => "gpt-5",
-        _ => "",
+        _ => {
+            if let Some(preset) = openai_compat::get_preset(provider_id) {
+                preset.models.first().copied().unwrap_or("")
+            } else {
+                ""
+            }
+        }
     }
 }

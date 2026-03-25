@@ -13,6 +13,82 @@ import { McpSettingsSection } from './McpSettingsSection';
 import { toast } from 'react-hot-toast';
 import type { SamplerConfig } from '../../types';
 
+const CLOUD_PROVIDERS = [
+  { id: 'groq', name: 'Groq', envHint: 'GROQ_API_KEY' },
+  { id: 'gemini', name: 'Gemini', envHint: 'GEMINI_API_KEY' },
+  { id: 'sambanova', name: 'SambaNova', envHint: 'SAMBANOVA_API_KEY' },
+  { id: 'cerebras', name: 'Cerebras', envHint: 'CEREBRAS_API_KEY' },
+  { id: 'openrouter', name: 'OpenRouter', envHint: 'OPENROUTER_API_KEY' },
+  { id: 'together', name: 'Together AI', envHint: 'TOGETHER_API_KEY' },
+  { id: 'deepseek', name: 'DeepSeek', envHint: 'DEEPSEEK_API_KEY' },
+  { id: 'custom_openai', name: 'Custom OpenAI', envHint: '', hasBaseUrl: true },
+];
+
+function ProviderApiKeysSection({ providerApiKeys, onChange }: { providerApiKeys: string; onChange: (json: string) => void }) {
+  let keys: Record<string, { api_key?: string; base_url?: string }> = {};
+  try {
+    const parsed = JSON.parse(providerApiKeys || '{}');
+    // Normalize: accept both {"groq": "key"} and {"groq": {"api_key": "key"}}
+    for (const [k, v] of Object.entries(parsed)) {
+      if (typeof v === 'string') {
+        keys[k] = { api_key: v };
+      } else if (typeof v === 'object' && v !== null) {
+        keys[k] = v as { api_key?: string; base_url?: string };
+      }
+    }
+  } catch {
+    keys = {};
+  }
+
+  const updateKey = (providerId: string, field: 'api_key' | 'base_url', value: string) => {
+    const updated = { ...keys };
+    if (!updated[providerId]) updated[providerId] = {};
+    updated[providerId][field] = value;
+    // Clean empty entries
+    if (!updated[providerId].api_key && !updated[providerId].base_url) {
+      delete updated[providerId];
+    }
+    onChange(JSON.stringify(updated));
+  };
+
+  return (
+    <div className="space-y-2">
+      <label className="text-sm font-medium text-foreground">
+        Cloud Provider API Keys
+      </label>
+      <p className="text-xs text-muted-foreground">
+        Set API keys for OpenAI-compatible cloud providers. Keys are stored locally in your database.
+        Alternatively, set environment variables (e.g. GROQ_API_KEY).
+      </p>
+      <div className="space-y-3">
+        {CLOUD_PROVIDERS.map(({ id, name, envHint, hasBaseUrl }) => (
+          <div key={id} className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">{name}</label>
+            <input
+              type="password"
+              autoComplete="off"
+              placeholder={envHint ? `API Key (or set ${envHint})` : 'API Key'}
+              className="w-full px-3 py-1.5 rounded-lg bg-muted border border-border text-sm text-foreground placeholder:text-muted-foreground"
+              value={keys[id]?.api_key || ''}
+              onChange={(e) => updateKey(id, 'api_key', e.target.value)}
+            />
+            {hasBaseUrl && (
+              <input
+                type="text"
+                autoComplete="off"
+                placeholder="Base URL (e.g. http://localhost:11434/v1)"
+                className="w-full px-3 py-1.5 rounded-lg bg-muted border border-border text-sm text-foreground placeholder:text-muted-foreground"
+                value={keys[id]?.base_url || ''}
+                onChange={(e) => updateKey(id, 'base_url', e.target.value)}
+              />
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 interface AppSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -159,6 +235,19 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
               }
             />
           </div>
+
+          {/* Separator */}
+          <div className="border-t border-border my-2" />
+
+          {/* Cloud Provider API Keys */}
+          <ProviderApiKeysSection
+            providerApiKeys={localConfig?.provider_api_keys || '{}'}
+            onChange={(json) =>
+              setLocalConfig(prev =>
+                prev ? { ...prev, provider_api_keys: json } : prev
+              )
+            }
+          />
 
           {/* Separator */}
           <div className="border-t border-border my-2" />
