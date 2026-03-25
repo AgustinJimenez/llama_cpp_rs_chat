@@ -64,6 +64,9 @@ pub struct DbSamplerConfig {
     pub tag_pairs: Option<String>,
     // Proactive compaction during generation
     pub proactive_compaction: bool,
+    // Telegram notification settings
+    pub telegram_bot_token: Option<String>,
+    pub telegram_chat_id: Option<String>,
 }
 
 impl Default for DbSamplerConfig {
@@ -118,6 +121,8 @@ impl Default for DbSamplerConfig {
             use_rtk: false,
             use_htmd: false,
             tag_pairs: None, proactive_compaction: false,
+            telegram_bot_token: None,
+            telegram_chat_id: None,
         }
     }
 }
@@ -158,7 +163,9 @@ impl Database {
                         use_rtk,
                         use_htmd,
                         tag_pairs,
-                        proactive_compaction
+                        proactive_compaction,
+                        telegram_bot_token,
+                        telegram_chat_id
                  FROM config WHERE id = 1",
                 [],
                 |row| {
@@ -218,6 +225,8 @@ impl Database {
                         use_htmd: row.get::<_, Option<i32>>(46)?.unwrap_or(0) != 0,
                         tag_pairs: row.get(47)?,
                         proactive_compaction: row.get::<_, Option<i32>>(48)?.unwrap_or(0) != 0,
+                        telegram_bot_token: row.get(49)?,
+                        telegram_chat_id: row.get(50)?,
                     })
                 },
             )
@@ -265,10 +274,12 @@ impl Database {
               use_htmd,
               tag_pairs,
               proactive_compaction,
+              telegram_bot_token,
+              telegram_chat_id,
               updated_at)
              VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
                      ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34,
-                     ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50)",
+                     ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50, ?51, ?52)",
             params![
                 config.sampler_type,
                 config.temperature,
@@ -319,6 +330,8 @@ impl Database {
                 config.use_htmd as i32,
                 tag_pairs_json,
                 config.proactive_compaction as i32,
+                config.telegram_bot_token,
+                config.telegram_chat_id,
                 current_timestamp_millis(),
             ],
         )
@@ -362,7 +375,9 @@ impl Database {
              use_htmd = ?47,
              tag_pairs = ?48,
              proactive_compaction = ?49,
-             updated_at = ?50
+             telegram_bot_token = ?50,
+             telegram_chat_id = ?51,
+             updated_at = ?52
              WHERE id = 1",
             params![
                 config.sampler_type,
@@ -414,6 +429,8 @@ impl Database {
                 config.use_htmd as i32,
                 tag_pairs_json,
                 config.proactive_compaction as i32,
+                config.telegram_bot_token,
+                config.telegram_chat_id,
                 current_timestamp_millis(),
             ],
         )
@@ -599,6 +616,8 @@ mod tests {
             use_rtk: false,
             use_htmd: false,
             tag_pairs: None, proactive_compaction: false,
+            telegram_bot_token: None,
+            telegram_chat_id: None,
         };
 
         db.save_config(&config).unwrap();

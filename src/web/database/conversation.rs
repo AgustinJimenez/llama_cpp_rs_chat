@@ -18,6 +18,8 @@ use crate::sys_error;
 pub struct ConversationRecord {
     pub id: String,
     pub system_prompt: Option<String>,
+    pub provider_id: Option<String>,
+    pub provider_session_id: Option<String>,
 }
 
 /// Message record from database
@@ -45,8 +47,8 @@ impl Database {
         {
             let conn = self.connection();
             conn.execute(
-                "INSERT INTO conversations (id, created_at, updated_at, system_prompt, title)
-                 VALUES (?1, ?2, ?3, ?4, NULL)",
+                "INSERT INTO conversations (id, created_at, updated_at, system_prompt, title, provider_id, provider_session_id)
+                 VALUES (?1, ?2, ?3, ?4, NULL, NULL, NULL)",
                 params![id, now, now, system_prompt],
             )
             .map_err(db_error("create conversation"))?;
@@ -70,8 +72,8 @@ impl Database {
         {
             let conn = self.connection();
             conn.execute(
-                "INSERT INTO conversations (id, created_at, updated_at, system_prompt, title)
-                 VALUES (?1, ?2, ?3, ?4, NULL)",
+                "INSERT INTO conversations (id, created_at, updated_at, system_prompt, title, provider_id, provider_session_id)
+                 VALUES (?1, ?2, ?3, ?4, NULL, NULL, NULL)",
                 params![id, created_at, created_at, system_prompt],
             )
             .map_err(db_error("create conversation"))?;
@@ -103,12 +105,14 @@ impl Database {
     pub fn get_conversation(&self, id: &str) -> Result<Option<ConversationRecord>, String> {
         let conn = self.connection();
         let result = conn.query_row(
-            "SELECT id, system_prompt FROM conversations WHERE id = ?1",
+            "SELECT id, system_prompt, provider_id, provider_session_id FROM conversations WHERE id = ?1",
             [id],
             |row| {
                 Ok(ConversationRecord {
                     id: row.get(0)?,
                     system_prompt: row.get(1)?,
+                    provider_id: row.get(2)?,
+                    provider_session_id: row.get(3)?,
                 })
             },
         );
@@ -125,7 +129,7 @@ impl Database {
         let conn = self.connection();
         let mut stmt = conn
             .prepare(
-                "SELECT id, system_prompt FROM conversations ORDER BY created_at DESC",
+                "SELECT id, system_prompt, provider_id, provider_session_id FROM conversations ORDER BY created_at DESC",
             )
             .map_err(db_error("prepare statement"))?;
 
@@ -134,6 +138,8 @@ impl Database {
                 Ok(ConversationRecord {
                     id: row.get(0)?,
                     system_prompt: row.get(1)?,
+                    provider_id: row.get(2)?,
+                    provider_session_id: row.get(3)?,
                 })
             })
             .map_err(db_error("query conversations"))?
@@ -200,6 +206,40 @@ impl Database {
             Ok(title) => Ok(title),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(e) => Err(format!("Failed to get conversation title: {e}")),
+        }
+    }
+
+    /// Persist a provider-side session handle for a conversation.
+    pub fn set_conversation_provider_session_id(
+        &self,
+        id: &str,
+        provider_id: Option<&str>,
+        provider_session_id: Option<&str>,
+    ) -> Result<(), String> {
+        let conn = self.connection();
+        conn.execute(
+            "UPDATE conversations SET provider_id = ?1, provider_session_id = ?2 WHERE id = ?3",
+            params![provider_id, provider_session_id, id],
+        )
+        .map_err(db_error("update conversation provider session id"))?;
+        Ok(())
+    }
+
+    /// Get the provider identity + session handle for a conversation.
+    pub fn get_conversation_provider_session(
+        &self,
+        id: &str,
+    ) -> Result<(Option<String>, Option<String>), String> {
+        let conn = self.connection();
+        let result = conn.query_row(
+            "SELECT provider_id, provider_session_id FROM conversations WHERE id = ?1",
+            [id],
+            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?)),
+        );
+        match result {
+            Ok(provider_session) => Ok(provider_session),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok((None, None)),
+            Err(e) => Err(format!("Failed to get conversation provider session id: {e}")),
         }
     }
 

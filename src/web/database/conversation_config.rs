@@ -183,6 +183,8 @@ impl Database {
                     use_rtk: false,
                     use_htmd: false,
                     proactive_compaction: false,
+                    telegram_bot_token: None,
+                    telegram_chat_id: None,
                 })
             },
         )

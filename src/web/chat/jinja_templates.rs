@@ -1901,6 +1901,21 @@ pub fn get_available_tools() -> Vec<Value> {
                 "required": []
             }
         }),
+        // Telegram notification
+        json!({
+            "name": "send_telegram",
+            "description": "Send a notification message to the user via Telegram. Use to notify about task completion, errors, or important updates.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "description": "The message text to send (supports Markdown formatting)"
+                    }
+                },
+                "required": ["message"]
+            }
+        }),
         // Sub-agent spawning
         json!({
             "name": "spawn_agent",

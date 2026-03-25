@@ -97,6 +97,9 @@ export interface SamplerConfig {
   mmproj_path?: string;
   // Dynamic tag pairs (Stage 1 — stored in config, not yet used by pipeline)
   tag_pairs?: TagPair[];
+  // Telegram notification settings
+  telegram_bot_token?: string;
+  telegram_chat_id?: string;
 }
 
 export type SamplerType = 

@@ -179,6 +179,11 @@ pub struct SamplerConfig {
     /// false = only compact when context is full (default).
     #[serde(default)]
     pub proactive_compaction: bool,
+    // Telegram notification settings
+    #[serde(default)]
+    pub telegram_bot_token: Option<String>,
+    #[serde(default)]
+    pub telegram_chat_id: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -307,6 +312,8 @@ impl Default for SamplerConfig {
             use_htmd: false,
             tag_pairs: None,
             proactive_compaction: false,
+            telegram_bot_token: None,
+            telegram_chat_id: None,
         }
     }
 }
@@ -527,6 +534,10 @@ pub struct ConversationsResponse {
 pub struct ConversationContentResponse {
     pub content: String,
     pub messages: Vec<ChatMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_session_id: Option<String>,
 }
 
 #[derive(Serialize)]

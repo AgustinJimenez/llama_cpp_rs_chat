@@ -67,6 +67,9 @@ fn core_behavior_block() -> String {
 - Use it when a sub-task would consume too many tokens in your current context window.
 - The agent has access to the same tools as you.
 
+## Notifications
+- Use send_telegram to notify the user about important events (task completion, errors requiring attention).
+
 ## After calling a tool, the system injects the result automatically. Wait for it before continuing."#.to_string()
 }
 
@@ -198,6 +201,9 @@ For servers/daemons: {exec_open}{{"name": "execute_command", "arguments": {{"com
 ### list_background_processes — List all tracked background processes with status
 {exec_open}{{"name": "list_background_processes", "arguments": {{}}}}{exec_close}
 
+### send_telegram — Send a notification to the user via Telegram
+{exec_open}{{"name": "send_telegram", "arguments": {{"message": "Task completed successfully!"}}}}{exec_close}
+
 ### spawn_agent — Spawn a sub-agent for an isolated sub-task (fresh context)
 {exec_open}{{"name": "spawn_agent", "arguments": {{"task": "Install Node.js and set up a React project", "context": "Target directory: E:/projects/myapp"}}}}{exec_close}
 
@@ -305,6 +311,9 @@ to=web_fetch code<|message|>{{"url": "https://example.com"}}<|call|>
 
 ### take_screenshot — Capture the user's screen
 to=take_screenshot code<|message|>{{"monitor": 0}}<|call|>
+
+### send_telegram — Send a notification to the user via Telegram
+to=send_telegram code<|message|>{{"message": "Task completed successfully!"}}<|call|>
 
 ### spawn_agent — Spawn a sub-agent for an isolated sub-task (fresh context)
 to=spawn_agent code<|message|>{{"task": "Install Node.js and set up a React project"}}<|call|>

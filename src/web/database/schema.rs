@@ -10,7 +10,9 @@ CREATE TABLE IF NOT EXISTS conversations (
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     system_prompt TEXT,
-    title TEXT
+    title TEXT,
+    provider_id TEXT,
+    provider_session_id TEXT
 )
 "#;
 
@@ -326,6 +328,16 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         "ALTER TABLE config ADD COLUMN web_search_provider TEXT DEFAULT 'DuckDuckGo'",
         [],
     );
+
+    // Persist provider-side conversation/session handles (e.g. Claude Code --resume)
+    let _ = conn.execute(
+        "ALTER TABLE conversations ADD COLUMN provider_session_id TEXT",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE conversations ADD COLUMN provider_id TEXT",
+        [],
+    );
     let _ = conn.execute(
         "ALTER TABLE config ADD COLUMN web_search_api_key TEXT",
         [],
@@ -505,6 +517,16 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
     // Add proactive_compaction column if missing
     let _ = conn.execute(
         "ALTER TABLE config ADD COLUMN proactive_compaction INTEGER DEFAULT 0",
+        [],
+    );
+
+    // Add Telegram notification settings columns if missing
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN telegram_bot_token TEXT",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN telegram_chat_id TEXT",
         [],
     );
 
