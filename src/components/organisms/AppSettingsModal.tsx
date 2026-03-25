@@ -128,6 +128,41 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
           {/* Separator */}
           <div className="border-t border-border my-2" />
 
+          {/* Telegram Notifications */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">
+              Telegram Notifications
+            </label>
+            <p className="text-xs text-muted-foreground">
+              Let the model send you Telegram messages (task completion, errors). Create a bot via @BotFather.
+            </p>
+            <input
+              type="text"
+              placeholder="Bot Token (from @BotFather)"
+              className="w-full px-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground placeholder:text-muted-foreground"
+              value={localConfig?.telegram_bot_token || ''}
+              onChange={(e) =>
+                setLocalConfig(prev =>
+                  prev ? { ...prev, telegram_bot_token: e.target.value } : prev
+                )
+              }
+            />
+            <input
+              type="text"
+              placeholder="Chat ID (send /start to your bot, then check)"
+              className="w-full px-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground placeholder:text-muted-foreground"
+              value={localConfig?.telegram_chat_id || ''}
+              onChange={(e) =>
+                setLocalConfig(prev =>
+                  prev ? { ...prev, telegram_chat_id: e.target.value } : prev
+                )
+              }
+            />
+          </div>
+
+          {/* Separator */}
+          <div className="border-t border-border my-2" />
+
           {/* MCP Servers */}
           <McpSettingsSection />
         </div>
