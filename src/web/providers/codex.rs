@@ -34,6 +34,11 @@ struct CodexItem {
     #[serde(rename = "type")]
     item_type: String,
     text: Option<String>,
+    // Tool call fields (for function_call items)
+    name: Option<String>,
+    arguments: Option<String>,
+    // Tool result fields
+    output: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -136,21 +141,36 @@ pub async fn generate(
                     thread_id = Some(tid);
                 }
                 Ok(CodexEvent::ItemCompleted { item }) => {
-                    if item.item_type == "agent_message" {
-                        let text = item.text.unwrap_or_default();
-                        if !text.is_empty() {
-                            let _ = tx.send(CliTokenData {
-                                token: text,
-                                is_done: false,
-                                session_id: None,
-                                stop_reason: None,
-                                cost_usd: None,
-                                duration_ms: None,
-                                model_id: requested_model.clone(),
-                                input_tokens: None,
-                                output_tokens: None,
-                            });
+                    let token = match item.item_type.as_str() {
+                        "agent_message" => item.text.unwrap_or_default(),
+                        "function_call" | "tool_call" => {
+                            // Format as native tool call widget
+                            let name = item.name.as_deref().unwrap_or("unknown");
+                            let args = item.arguments.as_deref().unwrap_or("{}");
+                            format!("\n<tool_call>{{\"name\": \"{}\", \"arguments\": {}}}</tool_call>\n", name, args)
                         }
+                        "function_call_output" | "tool_result" => {
+                            // Format as native tool response widget
+                            let output = item.output.as_deref()
+                                .or(item.text.as_deref())
+                                .unwrap_or("");
+                            let truncated = if output.len() > 500 { &output[..500] } else { output };
+                            format!("\n<tool_response>\n{}\n</tool_response>\n", truncated)
+                        }
+                        _ => item.text.unwrap_or_default(),
+                    };
+                    if !token.is_empty() {
+                        let _ = tx.send(CliTokenData {
+                            token,
+                            is_done: false,
+                            session_id: None,
+                            stop_reason: None,
+                            cost_usd: None,
+                            duration_ms: None,
+                            model_id: requested_model.clone(),
+                            input_tokens: None,
+                            output_tokens: None,
+                        });
                     }
                 }
                 Ok(CodexEvent::TurnCompleted { usage }) => {
