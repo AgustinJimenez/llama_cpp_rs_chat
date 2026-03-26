@@ -1,5 +1,5 @@
 import React from 'react';
-import { FolderOpen, Loader2, X } from 'lucide-react';
+import { Zap, Loader2, X } from 'lucide-react';
 import { useModelContext } from '../../contexts/ModelContext';
 import { useUIContext } from '../../contexts/UIContext';
 
@@ -9,7 +9,7 @@ interface WelcomeMessageProps {
 
 export const WelcomeMessage: React.FC<WelcomeMessageProps> = ({ children }) => {
   const { status, isLoading, loadingAction, modelName, forceUnload, activeProvider, activeProviderModel } = useModelContext();
-  const { openModelConfig } = useUIContext();
+  const { openProviderSelector } = useUIContext();
   const providerLabels: Record<string, string> = {
     claude_code: 'Claude', codex: 'Codex', groq: 'Groq', gemini: 'Gemini',
     sambanova: 'SambaNova', cerebras: 'Cerebras', openrouter: 'OpenRouter',
@@ -71,15 +71,12 @@ export const WelcomeMessage: React.FC<WelcomeMessageProps> = ({ children }) => {
     <div className="flex-1 flex flex-col items-center justify-center gap-3">
       <button
         type="button"
-        onClick={openModelConfig}
+        onClick={openProviderSelector}
         className="flex flex-col items-center gap-3 px-10 py-8 rounded-xl bg-muted/50 hover:bg-muted transition-colors cursor-pointer"
       >
-        <FolderOpen className="h-8 w-8 text-foreground" />
-        <span className="text-sm font-medium text-foreground">Load a local model to start chatting</span>
+        <Zap className="h-8 w-8 text-foreground" />
+        <span className="text-sm font-medium text-foreground">Choose a provider to start chatting</span>
       </button>
-      <p className="text-xs text-muted-foreground">
-        Or choose a cloud provider from the header menu
-      </p>
     </div>
   );
 };

@@ -1,7 +1,6 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Unplug, Activity, SlidersHorizontal, ScrollText, X } from 'lucide-react';
 import { ModelSelector } from './ModelSelector';
-import { ProviderSelector } from './ProviderSelector';
 import { useModelContext } from '../../contexts/ModelContext';
 import { useUIContext } from '../../contexts/UIContext';
 import type { ViewMode } from '../../types';
@@ -37,9 +36,8 @@ interface ChatHeaderProps {
 }
 
 export const ChatHeader = React.memo(function ChatHeader({ onModelUnload, onForceUnload }: ChatHeaderProps) {
-  const { status: modelStatus, isLoading: isModelLoading, loadingAction, hasStatusError, activeProvider, activeProviderModel, setRemoteProvider, setLocalProvider } = useModelContext();
-  const { viewMode, setViewMode, isRightSidebarOpen, toggleRightSidebar, isConfigSidebarOpen, toggleConfigSidebar, openModelConfig, isEventLogOpen, toggleEventLog } = useUIContext();
-  const [showProviderSelector, setShowProviderSelector] = useState(false);
+  const { status: modelStatus, isLoading: isModelLoading, loadingAction, hasStatusError, activeProvider, activeProviderModel } = useModelContext();
+  const { viewMode, setViewMode, isRightSidebarOpen, toggleRightSidebar, isConfigSidebarOpen, toggleConfigSidebar, isEventLogOpen, toggleEventLog, openProviderSelector } = useUIContext();
 
   const modelLoaded = modelStatus.loaded || activeProvider !== 'local';
   const providerLabels: Record<string, string> = {
@@ -58,22 +56,6 @@ export const ChatHeader = React.memo(function ChatHeader({ onModelUnload, onForc
 
   return (
     <div className="flex items-center justify-between px-4 py-2 border-b border-border" data-testid="chat-header">
-      {/* Provider selector modal */}
-      <ProviderSelector
-        isOpen={showProviderSelector}
-        onClose={() => setShowProviderSelector(false)}
-        onSelectLocal={() => {
-          setShowProviderSelector(false);
-          setLocalProvider();
-          openModelConfig();
-        }}
-        onSelectRemote={(provider, model) => {
-          setShowProviderSelector(false);
-          setRemoteProvider(provider, model);
-        }}
-        currentProvider={activeProvider}
-      />
-
       {/* Left: model selector + unload */}
       <div className="flex items-center gap-1 min-w-0">
         <ModelSelector
@@ -85,7 +67,7 @@ export const ChatHeader = React.memo(function ChatHeader({ onModelUnload, onForc
           isLoading={isModelLoading}
           loadingAction={loadingAction}
           loadingProgress={modelStatus.loading_progress}
-          onOpen={() => setShowProviderSelector(true)}
+          onOpen={openProviderSelector}
         />
         {isModelLoading && loadingAction === 'loading' ? <button
             onClick={onForceUnload}

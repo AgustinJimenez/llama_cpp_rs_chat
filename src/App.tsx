@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, Suspense } from 'react';
 import { Toaster } from 'react-hot-toast';
 import { ChatHeader, Sidebar } from './components/organisms';
+import { ProviderSelector } from './components/organisms/ProviderSelector';
 import { ConversationLog } from './components/organisms/ConversationLog';
 import { MessagesArea } from './components/templates';
 import { WelcomeMessage, ErrorBoundary } from './components/atoms';
@@ -142,8 +143,9 @@ function MainContent({
   handleModelUnload: () => void;
   handleForceUnload: () => void;
 }) {
-  const { status: modelStatus, activeProvider, activeProviderModel } = useModelContext();
+  const { status: modelStatus, activeProvider, activeProviderModel, setRemoteProvider, setLocalProvider } = useModelContext();
   const { messages, lastTimings, tokensUsed, maxTokens, streamStatus, providerRef } = useChatContext();
+  const { isProviderSelectorOpen, closeProviderSelector, openModelConfig } = useUIContext();
 
   // Sync provider ref with model context
   if (providerRef) {
@@ -154,6 +156,21 @@ function MainContent({
     <div className="flex-1 ml-[240px]">
       <div className="flex flex-col h-full">
         <ConnectionBanner />
+        {/* Global provider selector — accessible from welcome screen and header */}
+        <ProviderSelector
+          isOpen={isProviderSelectorOpen}
+          onClose={closeProviderSelector}
+          onSelectLocal={() => {
+            closeProviderSelector();
+            setLocalProvider();
+            openModelConfig();
+          }}
+          onSelectRemote={(provider, model) => {
+            closeProviderSelector();
+            setRemoteProvider(provider, model);
+          }}
+          currentProvider={activeProvider}
+        />
         {/* Header hidden during loading with no conversation — WelcomeMessage shows the loading progress instead (only one loading indicator at a time) */}
         {(messages.length > 0 || modelStatus.loaded || activeProvider !== 'local') ? (
           <ChatHeader

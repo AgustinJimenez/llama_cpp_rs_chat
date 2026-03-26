@@ -18,7 +18,11 @@ interface UIContextValue {
   closeModelConfig: () => void;
   isEventLogOpen: boolean;
   toggleEventLog: () => void;
+  isProviderSelectorOpen: boolean;
+  openProviderSelector: () => void;
+  closeProviderSelector: () => void;
 }
+
 
 const UIContext = createContext<UIContextValue | null>(null);
 
@@ -31,6 +35,7 @@ export function UIProvider({ children }: { children: ReactNode }) {
   const [isAppSettingsOpen, setIsAppSettingsOpen] = useState(false);
   const [isModelConfigOpen, setIsModelConfigOpen] = useState(false);
   const [isEventLogOpen, setIsEventLogOpen] = useState(false);
+  const [isProviderSelectorOpen, setIsProviderSelectorOpen] = useState(false);
 
   const setViewMode = useCallback((mode: ViewMode) => {
     setViewModeRaw(mode);
@@ -46,6 +51,8 @@ export function UIProvider({ children }: { children: ReactNode }) {
   const openModelConfig = useCallback(() => setIsModelConfigOpen(true), []);
   const closeModelConfig = useCallback(() => setIsModelConfigOpen(false), []);
   const toggleEventLog = useCallback(() => setIsEventLogOpen(p => !p), []);
+  const openProviderSelector = useCallback(() => setIsProviderSelectorOpen(true), []);
+  const closeProviderSelector = useCallback(() => setIsProviderSelectorOpen(false), []);
 
   const value = useMemo<UIContextValue>(() => ({
     viewMode, setViewMode,
@@ -54,6 +61,7 @@ export function UIProvider({ children }: { children: ReactNode }) {
     isAppSettingsOpen, openAppSettings, closeAppSettings,
     isModelConfigOpen, openModelConfig, closeModelConfig,
     isEventLogOpen, toggleEventLog,
+    isProviderSelectorOpen, openProviderSelector, closeProviderSelector,
   }), [
     viewMode, setViewMode,
     isRightSidebarOpen, toggleRightSidebar, closeRightSidebar,
@@ -61,6 +69,7 @@ export function UIProvider({ children }: { children: ReactNode }) {
     isAppSettingsOpen, openAppSettings, closeAppSettings,
     isModelConfigOpen, openModelConfig, closeModelConfig,
     isEventLogOpen, toggleEventLog,
+    isProviderSelectorOpen, openProviderSelector, closeProviderSelector,
   ]);
 
   return (

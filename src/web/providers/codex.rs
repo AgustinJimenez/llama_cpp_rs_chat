@@ -49,11 +49,27 @@ struct CodexUsage {
 }
 
 fn codex_cmd() -> &'static str {
-    if cfg!(target_os = "windows") {
-        "codex.cmd"
-    } else {
-        "codex"
+    "codex"
+}
+
+/// On Windows, find the actual codex.js entrypoint and run via `node` directly.
+/// This avoids the .cmd batch wrapper which breaks with tokio::process::Command.
+#[cfg(target_os = "windows")]
+fn resolve_codex_js() -> Option<std::path::PathBuf> {
+    // Try npm user global: %APPDATA%/npm/node_modules/@openai/codex/bin/codex.js
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        let js = std::path::PathBuf::from(&appdata)
+            .join("npm/node_modules/@openai/codex/bin/codex.js");
+        if js.exists() {
+            return Some(js);
+        }
     }
+    // Try global nodejs dir
+    let global = std::path::PathBuf::from("C:/Program Files/nodejs/node_modules/@openai/codex/bin/codex.js");
+    if global.exists() {
+        return Some(global);
+    }
+    None
 }
 
 fn normalize_model(model: Option<&str>) -> Option<&str> {
@@ -68,6 +84,22 @@ pub fn display_model_name(model: Option<&str>) -> String {
 }
 
 pub async fn is_available() -> bool {
+    // On Windows, try node + codex.js directly (avoids broken .cmd wrapper)
+    #[cfg(target_os = "windows")]
+    if let Some(js) = resolve_codex_js() {
+        if let Ok(o) = Command::new("node")
+            .arg(&js)
+            .arg("--version")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()
+            .await
+        {
+            if o.status.success() {
+                return true;
+            }
+        }
+    }
     Command::new(codex_cmd())
         .arg("--version")
         .stdout(Stdio::piped())
@@ -79,6 +111,25 @@ pub async fn is_available() -> bool {
 }
 
 pub async fn get_version() -> Option<String> {
+    // On Windows, try node + codex.js directly
+    #[cfg(target_os = "windows")]
+    if let Some(js) = resolve_codex_js() {
+        if let Ok(o) = Command::new("node")
+            .arg(&js)
+            .arg("--version")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()
+            .await
+        {
+            if o.status.success() {
+                let v = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if !v.is_empty() {
+                    return Some(v);
+                }
+            }
+        }
+    }
     let output = Command::new(codex_cmd())
         .arg("--version")
         .stdout(Stdio::piped())
@@ -100,7 +151,18 @@ pub async fn generate(
     let requested_model = normalize_model(model).map(str::to_string);
     let resolved_cwd = resolve_cli_cwd(cwd)?;
 
+    // On Windows, use node + codex.js directly to avoid .cmd wrapper issues
+    #[cfg(target_os = "windows")]
+    let mut cmd = if let Some(js) = resolve_codex_js() {
+        let mut c = Command::new("node");
+        c.arg(js);
+        c
+    } else {
+        Command::new(codex_cmd())
+    };
+    #[cfg(not(target_os = "windows"))]
     let mut cmd = Command::new(codex_cmd());
+
     if let Some(sid) = session_id {
         cmd.arg("exec").arg("resume").arg("--json");
         cmd.arg("--dangerously-bypass-approvals-and-sandbox");

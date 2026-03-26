@@ -345,6 +345,26 @@ pub fn dispatch_native_tool(
         return Some(super::desktop_tools::tool_watch_window(&args));
     }
 
+    // Tool catalog (list_tools / get_tool_details)
+    if name == "list_tools" {
+        let category = args.get("category").and_then(|v| v.as_str()).unwrap_or("desktop");
+        let result = if category == "mcp" {
+            // MCP tools: query connected servers for their tool lists
+            tool_list_mcp_tools(mcp_manager, db)
+        } else {
+            super::chat::jinja_templates::get_tool_catalog(category)
+        };
+        return Some(NativeToolResult::text_only(result));
+    }
+    if name == "get_tool_details" {
+        let tool_name = args.get("tool_name").and_then(|v| v.as_str()).unwrap_or("");
+        // Check native tools first, then MCP tools
+        let result = super::chat::jinja_templates::get_tool_schema(tool_name)
+            .or_else(|| get_mcp_tool_schema(tool_name, mcp_manager))
+            .unwrap_or_else(|| format!("Tool '{}' not found. Use list_tools to see available tools.", tool_name));
+        return Some(NativeToolResult::text_only(result));
+    }
+
     // Telegram notification
     if name == "send_telegram" {
         return Some(NativeToolResult::text_only(tool_send_telegram(&args, db)));
@@ -533,6 +553,61 @@ fn tool_send_telegram(
 }
 
 // --- MCP server management tools ---
+
+/// List MCP tools with brief descriptions for the tool catalog.
+fn tool_list_mcp_tools(
+    mcp_manager: Option<&super::mcp::McpManager>,
+    db: Option<&super::database::SharedDatabase>,
+) -> String {
+    let db = match db {
+        Some(d) => d,
+        None => return "No MCP servers configured.".to_string(),
+    };
+
+    let configs = super::database::mcp::load_mcp_servers(db);
+    if configs.is_empty() {
+        return "No MCP servers configured. Add servers in Settings → MCP Servers.".to_string();
+    }
+
+    let statuses = mcp_manager.map(|mgr| mgr.get_server_statuses()).unwrap_or_default();
+    let tool_defs = mcp_manager.map(|mgr| mgr.get_tool_definitions()).unwrap_or_default();
+
+    let mut lines = Vec::new();
+    for cfg in &configs {
+        let status = statuses.iter().find(|s| s.id == cfg.id);
+        let connected = status.map(|s| s.connected).unwrap_or(false);
+        if !cfg.enabled || !connected {
+            continue;
+        }
+        lines.push(format!("## {} (connected)", cfg.name));
+        // List tools for this server with brief descriptions
+        for td in &tool_defs {
+            // MCP tool names are prefixed with mcp__<server>__
+            let prefix = format!("mcp__{}__", cfg.name);
+            if td.qualified_name.starts_with(&prefix) {
+                let brief = td.description.split('.').next().unwrap_or(&td.description);
+                lines.push(format!("  {}: {}", td.qualified_name, brief));
+            }
+        }
+    }
+
+    if lines.is_empty() {
+        return "No MCP servers are currently connected. Check Settings → MCP Servers and click Refresh.".to_string();
+    }
+    lines.join("\n")
+}
+
+/// Get the full schema for an MCP tool by name.
+fn get_mcp_tool_schema(
+    tool_name: &str,
+    mcp_manager: Option<&super::mcp::McpManager>,
+) -> Option<String> {
+    let mgr = mcp_manager?;
+    let tool_defs = mgr.get_tool_definitions();
+    let td = tool_defs.iter().find(|t| t.qualified_name == tool_name)?;
+    let schema = td.to_openai_function();
+    Some(serde_json::to_string_pretty(&schema).unwrap_or_default())
+}
 
 fn tool_list_mcp_servers(
     mcp_manager: Option<&super::mcp::McpManager>,

@@ -248,8 +248,69 @@ pub fn parse_conversation_for_jinja(
     messages
 }
 
-/// Get available tools for the template context
+/// Core tool names always included in the system prompt.
+/// Desktop and admin tools are discoverable via `list_tools`/`get_tool_details`.
+const CORE_TOOL_NAMES: &[&str] = &[
+    "read_file", "write_file", "edit_file", "undo_edit", "insert_text",
+    "search_files", "find_files", "execute_python", "execute_command",
+    "list_directory", "web_search", "web_fetch", "open_url",
+    "git_status", "git_diff", "git_commit",
+    "check_background_process", "list_background_processes",
+    "send_telegram", "spawn_agent",
+];
+
+/// Admin tool names (MCP server management).
+const ADMIN_TOOL_NAMES: &[&str] = &[
+    "list_mcp_servers", "add_mcp_server", "remove_mcp_server",
+];
+
+/// Get available tools for the template context — core tools + catalog tools only.
+/// Desktop and admin tools are discoverable on demand via `list_tools`/`get_tool_details`.
 pub fn get_available_tools() -> Vec<Value> {
+    let mut tools: Vec<Value> = get_all_tools()
+        .into_iter()
+        .filter(|tool| {
+            tool.get("name")
+                .and_then(|n| n.as_str())
+                .map_or(false, |name| CORE_TOOL_NAMES.contains(&name))
+        })
+        .collect();
+
+    // Add catalog tools for discovering desktop/admin/mcp tools
+    tools.push(json!({
+        "name": "list_tools",
+        "description": "List available tools in a category. Categories: 'desktop' (screen automation, mouse, keyboard, windows, OCR, clipboard), 'mcp' (connected MCP server tools), 'admin' (MCP server management). Returns tool names with brief descriptions.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string",
+                    "description": "Tool category: 'desktop', 'mcp', or 'admin'"
+                }
+            },
+            "required": ["category"]
+        }
+    }));
+    tools.push(json!({
+        "name": "get_tool_details",
+        "description": "Get the full parameter schema for a specific tool. Use after list_tools to see the exact parameters for a tool you want to use.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "tool_name": {
+                    "type": "string",
+                    "description": "Name of the tool to get details for"
+                }
+            },
+            "required": ["tool_name"]
+        }
+    }));
+
+    tools
+}
+
+/// Get ALL tools (core + desktop + admin). Used internally for tool lookup and MCP server.
+pub fn get_all_tools() -> Vec<Value> {
     let tools = vec![
         json!({
             "name": "read_file",
@@ -2020,10 +2081,10 @@ fn desktop_tool_available_on_current_platform(name: &str) -> bool {
 }
 
 /// Get only the desktop automation tool definitions (for the MCP server).
-/// Returns the subset of `get_available_tools()` that matches desktop tool names.
+/// Returns the subset of `get_all_tools()` that matches desktop tool names.
 #[allow(dead_code)]
 pub fn get_desktop_tool_definitions() -> Vec<Value> {
-    get_available_tools()
+    get_all_tools()
         .into_iter()
         .filter(|tool| {
             tool.get("name")
@@ -2031,6 +2092,56 @@ pub fn get_desktop_tool_definitions() -> Vec<Value> {
                 .map_or(false, |name| DESKTOP_TOOL_NAMES.contains(&name))
         })
         .collect()
+}
+
+/// Get brief descriptions for tools in a category.
+/// Returns one-liner descriptions like: "click_screen: Click the mouse at screen coordinates.\n..."
+pub fn get_tool_catalog(category: &str) -> String {
+    let all_tools = get_all_tools();
+    let filter_names: &[&str] = match category {
+        "desktop" => DESKTOP_TOOL_NAMES,
+        "admin" => ADMIN_TOOL_NAMES,
+        "mcp" => {
+            // MCP tools are not in our static list; caller should handle separately
+            return "MCP tools are dynamically loaded from connected servers. Use list_mcp_servers to see connected servers and their tools.".to_string();
+        }
+        _ => return format!("Unknown category '{}'. Valid categories: 'desktop', 'mcp', 'admin'", category),
+    };
+
+    let mut lines = Vec::new();
+    for tool in &all_tools {
+        let name = match tool.get("name").and_then(|n| n.as_str()) {
+            Some(n) => n,
+            None => continue,
+        };
+        if !filter_names.contains(&name) {
+            continue;
+        }
+        let desc = tool.get("description").and_then(|d| d.as_str()).unwrap_or("");
+        // Take first sentence (up to first period)
+        let brief = match desc.find('.') {
+            Some(pos) => &desc[..=pos],
+            None => desc,
+        };
+        lines.push(format!("{}: {}", name, brief));
+    }
+
+    if lines.is_empty() {
+        format!("No tools found in category '{}'.", category)
+    } else {
+        lines.join("\n")
+    }
+}
+
+/// Get full JSON schema for a specific tool by name.
+/// Looks up the tool in `get_all_tools()` and returns its JSON as a pretty-printed string.
+pub fn get_tool_schema(tool_name: &str) -> Option<String> {
+    get_all_tools()
+        .into_iter()
+        .find(|tool| {
+            tool.get("name").and_then(|n| n.as_str()) == Some(tool_name)
+        })
+        .map(|tool| serde_json::to_string_pretty(&tool).unwrap_or_else(|_| tool.to_string()))
 }
 
 #[cfg(test)]

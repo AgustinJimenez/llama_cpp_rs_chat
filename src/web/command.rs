@@ -669,9 +669,34 @@ pub fn execute_command_streaming_with_timeout(
                         eprintln!("[STREAM] Still running: {}s elapsed, pid={}", elapsed_secs, child_pid);
                     }
 
-                    // No separate wall-clock timeout — only inactivity timeout below.
-                    // If the command keeps producing output, it keeps running.
-                    // The inactivity check (after recv_timeout) handles stuck commands.
+                    // Wall-clock timeout: if the command has been running too long
+                    // (even if it keeps producing output), stop waiting and return
+                    // control to the model. The process keeps running — the model
+                    // can check on it or kill it.
+                    const MAX_WALL_CLOCK_SECS: u64 = 120;
+                    if wall_start.elapsed().as_secs() >= MAX_WALL_CLOCK_SECS {
+                        let pid = child_pid;
+                        eprintln!(
+                            "[STREAM] Wall-clock limit ({}s) reached, detaching from pid={}",
+                            MAX_WALL_CLOCK_SECS, pid
+                        );
+                        // Truncate output if huge — keep last 40 lines
+                        let lines: Vec<&str> = output.lines().collect();
+                        if lines.len() > 40 {
+                            output = format!(
+                                "[...{} earlier lines truncated...]\n{}",
+                                lines.len() - 40,
+                                lines[lines.len()-40..].join("\n")
+                            );
+                        }
+                        output.push_str(&format!(
+                            "\n[Command still running after {}s (PID {}). It may be stuck or very slow. You can kill it with: taskkill /F /T /PID {}]\n",
+                            MAX_WALL_CLOCK_SECS, pid, pid
+                        ));
+                        // Kill the process — don't leave orphans
+                        kill_process_tree(pid);
+                        return output;
+                    }
 
                     match rx.recv_timeout(std::time::Duration::from_millis(POLL_INTERVAL_MS)) {
                         Ok(data) => {
