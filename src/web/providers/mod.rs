@@ -15,13 +15,13 @@ pub mod openai_compat;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ProviderInfo {
-    pub id: &'static str,
-    pub name: &'static str,
+    pub id: String,
+    pub name: String,
     pub available: bool,
-    pub description: &'static str,
+    pub description: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
-    pub models: Vec<&'static str>,
+    pub models: Vec<String>,
 }
 
 /// Token/event data sent from CLI-backed providers to the frontend.
@@ -79,56 +79,79 @@ pub async fn list_providers_with_keys(api_keys_json: Option<&str>) -> Vec<Provid
 
     let mut providers = vec![
         ProviderInfo {
-            id: "local",
-            name: "Local Model (llama.cpp)",
+            id: "local".into(),
+            name: "Local Model (llama.cpp)".into(),
             available: true,
-            description: "Run models locally on your GPU",
+            description: "Run models locally on your GPU".into(),
             version: None,
             models: Vec::new(),
         },
         ProviderInfo {
-            id: "claude_code",
-            name: "Claude Code",
+            id: "claude_code".into(),
+            name: "Claude Code".into(),
             available: claude_available,
-            description: "Use your Claude Code subscription (Max/Pro)",
+            description: "Use your Claude Code subscription (Max/Pro)".into(),
             version: if claude_available {
                 claude_code::get_version().await
             } else {
                 None
             },
-            models: vec!["opus", "sonnet", "haiku"],
+            models: vec!["opus".into(), "sonnet".into(), "haiku".into()],
         },
         ProviderInfo {
-            id: "codex",
-            name: "Codex CLI",
+            id: "codex".into(),
+            name: "Codex CLI".into(),
             available: codex_available,
-            description: "Use your local Codex CLI session",
+            description: "Use your local Codex CLI session".into(),
             version: if codex_available {
                 codex::get_version().await
             } else {
                 None
             },
-            models: vec!["gpt-5"],
+            models: vec!["gpt-5".into()],
         },
     ];
 
-    // Add OpenAI-compatible providers
+    // Add OpenAI-compatible providers from presets
     for preset in openai_compat::PROVIDER_PRESETS {
         let has_key = openai_compat::resolve_api_key(preset.id, api_keys_json).is_some();
-        // custom_openai needs both key and base_url to be "available"
-        let available = if preset.id == "custom_openai" {
-            has_key && openai_compat::resolve_base_url(preset.id, api_keys_json).is_some()
-        } else {
-            has_key
-        };
+        let available = has_key;
         providers.push(ProviderInfo {
-            id: preset.id,
-            name: preset.name,
+            id: preset.id.into(),
+            name: preset.name.into(),
             available,
-            description: preset.description,
+            description: preset.description.into(),
             version: None,
-            models: preset.models.to_vec(),
+            models: preset.models.iter().map(|s| s.to_string()).collect(),
         });
+    }
+
+    // Add user-defined custom providers from api_keys_json
+    if let Some(json) = api_keys_json {
+        if let Ok(map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(json) {
+            for (id, val) in &map {
+                if val.get("custom").and_then(|v| v.as_bool()) == Some(true) {
+                    let name = val.get("name").and_then(|v| v.as_str()).unwrap_or("Custom");
+                    let base_url = val.get("base_url").and_then(|v| v.as_str()).unwrap_or("");
+                    let api_key = val.get("api_key").and_then(|v| v.as_str()).unwrap_or("");
+                    let models_str = val.get("models").and_then(|v| v.as_str()).unwrap_or("");
+                    let models: Vec<String> = models_str.split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    let available = !base_url.is_empty() && (!api_key.is_empty() || base_url.contains("localhost") || base_url.contains("127.0.0.1"));
+                    let display_name = if name.is_empty() { id.as_str() } else { name };
+                    providers.push(ProviderInfo {
+                        id: id.clone(),
+                        name: display_name.to_string(),
+                        available,
+                        description: format!("Custom: {}", base_url),
+                        version: None,
+                        models,
+                    });
+                }
+            }
+        }
     }
 
     providers
@@ -151,6 +174,13 @@ pub async fn generate(
                 .ok_or_else(|| format!("No API key configured for provider '{id}'. Set it in Settings or via environment variable."))?;
             let base_url = openai_compat::resolve_base_url(id, api_keys_json)
                 .ok_or_else(|| format!("No base URL configured for provider '{id}'."))?;
+            openai_compat::generate(id, prompt, model, &base_url, &api_key).await
+        }
+        id if id.starts_with("custom_") => {
+            // User-defined custom provider — resolve key/url from api_keys_json
+            let api_key = openai_compat::resolve_custom_field(id, "api_key", api_keys_json).unwrap_or_default();
+            let base_url = openai_compat::resolve_custom_field(id, "base_url", api_keys_json)
+                .ok_or_else(|| format!("No base URL configured for custom provider '{id}'."))?;
             openai_compat::generate(id, prompt, model, &base_url, &api_key).await
         }
         _ => Err(format!("Unknown provider: {provider_id}")),

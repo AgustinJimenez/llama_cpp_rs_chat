@@ -12,8 +12,8 @@ interface Provider {
 
 // CLI-backed providers (need local CLI installed)
 const CLI_PROVIDERS = ['claude_code', 'codex'];
-// OpenAI-compatible cloud providers
-const OPENAI_COMPAT_PROVIDERS = ['groq', 'gemini', 'sambanova', 'cerebras', 'openrouter', 'together', 'deepseek', 'custom_openai'];
+// Non-cloud provider IDs (everything else is OpenAI-compatible / custom)
+const NON_CLOUD = new Set(['local', 'claude_code', 'codex']);
 
 interface ProviderSelectorProps {
   isOpen: boolean;
@@ -41,7 +41,7 @@ export function ProviderSelector({ isOpen, onClose, onSelectLocal, onSelectRemot
 
   const localProvider = providers.find(p => p.id === 'local');
   const cliProviders = providers.filter(p => CLI_PROVIDERS.includes(p.id));
-  const openaiProviders = providers.filter(p => OPENAI_COMPAT_PROVIDERS.includes(p.id));
+  const openaiProviders = providers.filter(p => !NON_CLOUD.has(p.id));
 
   const cliInstallHints: Record<string, string> = {
     claude_code: 'npm i -g @anthropic-ai/claude-code',

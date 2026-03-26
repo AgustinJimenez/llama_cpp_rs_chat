@@ -128,7 +128,7 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
         name: "Gemini",
         base_url: "https://generativelanguage.googleapis.com/v1beta/openai",
         description: "Google Gemini via OpenAI-compatible API",
-        models: &["gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash"],
+        models: &["gemini-2.5-flash", "gemini-2.0-flash"],
         env_key: "GEMINI_API_KEY",
     },
     ProviderPreset {
@@ -136,7 +136,7 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
         name: "SambaNova",
         base_url: "https://api.sambanova.ai/v1",
         description: "SambaNova Cloud inference",
-        models: &["Meta-Llama-3.1-405B-Instruct", "Meta-Llama-3.1-70B-Instruct"],
+        models: &["DeepSeek-V3.2", "Meta-Llama-3.3-70B-Instruct", "Qwen3-235B", "Llama-4-Maverick-17B-128E-Instruct"],
         env_key: "SAMBANOVA_API_KEY",
     },
     ProviderPreset {
@@ -144,7 +144,7 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
         name: "Cerebras",
         base_url: "https://api.cerebras.ai/v1",
         description: "Cerebras fast inference",
-        models: &["llama-3.3-70b", "llama-3.1-8b"],
+        models: &["qwen-3-235b-a22b-instruct-2507", "llama3.1-8b"],
         env_key: "CEREBRAS_API_KEY",
     },
     ProviderPreset {
@@ -170,6 +170,54 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
         description: "DeepSeek AI models",
         models: &["deepseek-chat", "deepseek-reasoner"],
         env_key: "DEEPSEEK_API_KEY",
+    },
+    ProviderPreset {
+        id: "mistral",
+        name: "Mistral AI",
+        base_url: "https://api.mistral.ai/v1",
+        description: "Mistral AI models with tool calling",
+        models: &["mistral-small-latest", "mistral-large-latest", "codestral-latest", "open-mistral-nemo"],
+        env_key: "MISTRAL_API_KEY",
+    },
+    ProviderPreset {
+        id: "fireworks",
+        name: "Fireworks AI",
+        base_url: "https://api.fireworks.ai/inference/v1",
+        description: "Fast inference on open-weight models",
+        models: &["accounts/fireworks/models/llama-v3p3-70b-instruct", "accounts/fireworks/models/qwen2p5-72b-instruct"],
+        env_key: "FIREWORKS_API_KEY",
+    },
+    ProviderPreset {
+        id: "xai",
+        name: "xAI (Grok)",
+        base_url: "https://api.x.ai/v1",
+        description: "xAI Grok models with tool calling",
+        models: &["grok-2", "grok-2-mini"],
+        env_key: "XAI_API_KEY",
+    },
+    ProviderPreset {
+        id: "nvidia",
+        name: "NVIDIA NIM",
+        base_url: "https://integrate.api.nvidia.com/v1",
+        description: "NVIDIA hosted inference (free daily limit)",
+        models: &["meta/llama-3.1-70b-instruct", "mistralai/mistral-large-2-instruct"],
+        env_key: "NVIDIA_API_KEY",
+    },
+    ProviderPreset {
+        id: "huggingface",
+        name: "Hugging Face",
+        base_url: "https://router.huggingface.co/v1",
+        description: "Hugging Face Inference API (free tier)",
+        models: &["meta-llama/Llama-3.1-70B-Instruct", "mistralai/Mistral-7B-Instruct-v0.3"],
+        env_key: "HF_TOKEN",
+    },
+    ProviderPreset {
+        id: "cloudflare",
+        name: "Cloudflare Workers AI",
+        base_url: "",
+        description: "Cloudflare Workers AI (free 10K neurons/day)",
+        models: &["@cf/meta/llama-3.1-8b-instruct", "@cf/mistral/mistral-7b-instruct-v0.2"],
+        env_key: "CLOUDFLARE_API_TOKEN",
     },
     ProviderPreset {
         id: "custom_openai",
@@ -256,6 +304,18 @@ pub fn resolve_base_url(
     }
 
     None
+}
+
+/// Resolve a field from a user-defined custom provider entry in api_keys_json.
+pub fn resolve_custom_field(
+    provider_id: &str,
+    field: &str,
+    api_keys_json: Option<&str>,
+) -> Option<String> {
+    let json_str = api_keys_json?;
+    let map: serde_json::Value = serde_json::from_str(json_str).ok()?;
+    let val = map.get(provider_id)?.get(field)?.as_str()?;
+    if val.is_empty() { None } else { Some(val.to_string()) }
 }
 
 /// Resolve the model name. Uses the provided model or falls back to first preset default.

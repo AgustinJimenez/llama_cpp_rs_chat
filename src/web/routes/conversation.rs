@@ -44,9 +44,14 @@ pub async fn handle_get_conversation(
             }
             // Also provide text content for backward compatibility
             let content = db.get_conversation_as_text(conversation_id).unwrap_or_default();
+            let (provider_id, provider_session_id) = db
+                .get_conversation_provider_session(conversation_id)
+                .unwrap_or((None, None));
             let response = ConversationContentResponse {
                 content,
                 messages,
+                provider_id,
+                provider_session_id,
             };
 
             let response_json =
@@ -196,6 +201,7 @@ pub async fn handle_truncate_conversation(
 
     match db.truncate_messages(conv_id, from_sequence) {
         Ok(deleted) => {
+            let _ = db.set_conversation_provider_session_id(conv_id, None, None);
             sys_info!(
                 "Truncated {} messages from conversation {} at seq {}",
                 deleted,

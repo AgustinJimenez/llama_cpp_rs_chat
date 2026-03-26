@@ -45,6 +45,8 @@ interface ConversationContentResponse {
     content: string;
     timestamp: number;
   }>;
+  provider_id?: string;
+  provider_session_id?: string;
 }
 
 interface FileItem {

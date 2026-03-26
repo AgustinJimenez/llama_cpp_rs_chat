@@ -79,8 +79,8 @@ export function useChat() {
 
   // Provider override (set from ModelContext via setProviderRef)
   const providerRef = useRef<{ provider: string; model: string }>({ provider: 'local', model: '' });
-  // Claude Code session ID for conversation continuity
-  const claudeSessionRef = useRef<string | null>(null);
+  // CLI-provider session ID for conversation continuity
+  const providerSessionRef = useRef<string | null>(null);
 
   // Core state
   const [messages, setMessages] = useState<Message[]>([]);
@@ -111,7 +111,7 @@ export function useChat() {
     setTokensUsed(undefined);
     setMaxTokens(undefined);
     setLastTimings(undefined);
-    claudeSessionRef.current = null; // Reset Claude session for new conversation
+    providerSessionRef.current = null; // Reset provider session for new conversation
   }, []);
 
   useEffect(() => {
@@ -144,6 +144,9 @@ export function useChat() {
 
     try {
       const data = await getConversation(filename);
+      providerSessionRef.current = data.provider_id === providerRef.current.provider
+        ? (data.provider_session_id || null)
+        : null;
       if (data.content) {
         setMessages(parseConversationFile(data.content));
         setCurrentConversationId(filename);
@@ -393,13 +396,13 @@ export function useChat() {
     });
 
     try {
-      // Route to Claude Code provider if active — uses SSE streaming
-      if (providerRef.current.provider === 'claude_code') {
-        console.log('[useChat] Using Claude Code provider (SSE):', providerRef.current.model);
+      // Route to CLI-backed provider if active — uses SSE streaming
+      if (providerRef.current.provider !== 'local') {
+        console.log('[useChat] Using CLI provider (SSE):', providerRef.current.provider, providerRef.current.model);
         setLastTimings(undefined);
         isStreamingRef.current = true;
         try {
-          const resp = await fetch('/api/providers/claude/stream', {
+          const resp = await fetch(`/api/providers/${providerRef.current.provider}/stream`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             signal: abortControllerRef.current?.signal,
@@ -407,7 +410,7 @@ export function useChat() {
               prompt: trimmed,
               model: providerRef.current.model,
               max_turns: 50,
-              session_id: claudeSessionRef.current || undefined,
+              session_id: providerSessionRef.current || undefined,
               conversation_id: currentConversationId || undefined,
             }),
           });
@@ -437,7 +440,7 @@ export function useChat() {
                         : msg
                     ));
                   } else if (event.type === 'done') {
-                    if (event.session_id) claudeSessionRef.current = event.session_id;
+                    if (event.session_id) providerSessionRef.current = event.session_id;
                     if (event.conversation_id && !currentConversationId) {
                       setCurrentConversationId(event.conversation_id);
                     }
@@ -462,7 +465,7 @@ export function useChat() {
             }
           }
         } catch (err) {
-          const msg = err instanceof Error ? err.message : 'Claude Code request failed';
+          const msg = err instanceof Error ? err.message : 'Provider request failed';
           setError(msg);
           toast.error(msg, { duration: 5000 });
         } finally {
@@ -522,6 +525,7 @@ export function useChat() {
     if (currentConversationId) {
       try {
         await truncateConversation(currentConversationId, fromSequence);
+        providerSessionRef.current = null;
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Failed to truncate conversation';
         toast.error(msg, { duration: 5000 });
@@ -563,6 +567,7 @@ export function useChat() {
     if (currentConversationId) {
       try {
         await truncateConversation(currentConversationId, fromSequence);
+        providerSessionRef.current = null;
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Failed to truncate conversation';
         toast.error(msg, { duration: 5000 });

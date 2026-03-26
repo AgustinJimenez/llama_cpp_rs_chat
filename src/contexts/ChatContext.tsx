@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, type ReactNode } from 'react';
+import { createContext, useContext, useMemo, type ReactNode, type MutableRefObject } from 'react';
 import { useChat } from '../hooks/useChat';
 import type { Message } from '../types';
 import type { TimingInfo } from '../utils/chatTransport';
@@ -17,6 +17,8 @@ interface ChatContextValue {
   tokensUsed?: number;
   maxTokens?: number;
   lastTimings?: TimingInfo;
+  streamStatus?: string;
+  providerRef: MutableRefObject<{ provider: string; model: string }>;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);

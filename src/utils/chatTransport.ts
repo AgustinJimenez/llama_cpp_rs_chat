@@ -25,6 +25,7 @@ export interface StreamingCallbacks {
   onToken: (token: string, tokensUsed?: number, maxTokens?: number) => void;
   onComplete: (messageId: string, conversationId: string, tokensUsed?: number, maxTokens?: number, timings?: TimingInfo) => void;
   onError: (error: string) => void;
+  onStatus?: (message: string) => void;
 }
 
 export interface ChatTransport {

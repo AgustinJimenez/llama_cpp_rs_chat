@@ -142,12 +142,12 @@ function MainContent({
   handleModelUnload: () => void;
   handleForceUnload: () => void;
 }) {
-  const { status: modelStatus, activeProvider, activeClaudeModel } = useModelContext();
+  const { status: modelStatus, activeProvider, activeProviderModel } = useModelContext();
   const { messages, lastTimings, tokensUsed, maxTokens, streamStatus, providerRef } = useChatContext();
 
   // Sync provider ref with model context
   if (providerRef) {
-    providerRef.current = { provider: activeProvider, model: activeClaudeModel };
+    providerRef.current = { provider: activeProvider, model: activeProviderModel };
   }
 
   return (
@@ -155,7 +155,7 @@ function MainContent({
       <div className="flex flex-col h-full">
         <ConnectionBanner />
         {/* Header hidden during loading with no conversation — WelcomeMessage shows the loading progress instead (only one loading indicator at a time) */}
-        {(messages.length > 0 || modelStatus.loaded || activeProvider === 'claude_code') ? (
+        {(messages.length > 0 || modelStatus.loaded || activeProvider !== 'local') ? (
           <ChatHeader
             onModelUnload={handleModelUnload}
             onForceUnload={handleForceUnload}
@@ -164,7 +164,7 @@ function MainContent({
 
         {messages.length === 0 ? (
           <WelcomeMessage>
-            {modelStatus.loaded ? (
+            {(modelStatus.loaded || activeProvider !== 'local') ? (
               <div className="w-full max-w-2xl px-6">
                 <MessageInput />
               </div>
@@ -174,7 +174,7 @@ function MainContent({
           <>
             <MessagesArea />
             <ConversationLog />
-            {(modelStatus.loaded || activeProvider === 'claude_code') ? (
+            {(modelStatus.loaded || activeProvider !== 'local') ? (
               <div className="px-6 pb-4 pt-2 animate-in slide-in-from-bottom-4 duration-300" data-testid="input-container">
                 <div className="max-w-3xl mx-auto">
                   <MessageInput timings={lastTimings} tokensUsed={tokensUsed} maxTokens={maxTokens} streamStatus={streamStatus} />

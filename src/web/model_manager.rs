@@ -125,7 +125,7 @@ extern "C" fn loading_progress_cb(progress: f32, user_data: *mut std::os::raw::c
 }
 
 // Helper function to load a model
-pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, requested_gpu_layers: Option<u32>, model_params: Option<&ModelParams>, mmproj_path: Option<&str>, progress: Option<Arc<AtomicU8>>) -> Result<(), String> {
+pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, requested_gpu_layers: Option<u32>, model_params: Option<&ModelParams>, _mmproj_path: Option<&str>, progress: Option<Arc<AtomicU8>>) -> Result<(), String> {
     log_debug!("system", "load_model called with path: {}", model_path);
 
     // Handle poisoned mutex by recovering from panic
@@ -353,7 +353,7 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, request
 
     // Scan for mmproj companion file for vision support
     #[cfg(feature = "vision")]
-    let vision_state = scan_and_init_vision(&model, model_path, optimal_gpu_layers, mmproj_path);
+    let vision_state = scan_and_init_vision(&model, model_path, optimal_gpu_layers, _mmproj_path);
 
     state.model = Some(model);
     state.current_model_path = Some(model_path.to_string());

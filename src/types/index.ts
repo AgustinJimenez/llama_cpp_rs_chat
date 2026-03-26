@@ -33,6 +33,8 @@ export interface ChatRequest {
   /** Base64-encoded image data URIs for vision models. */
   image_data?: string[];
   tool_tags?: ToolTags;
+  /** When true, this is an auto-continuation request (no user message logged). */
+  auto_continue?: boolean;
 }
 
 export interface ChatResponse {
