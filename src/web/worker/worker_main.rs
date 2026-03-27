@@ -81,22 +81,9 @@ pub fn run_worker(db_path: &str) {
     );
     eprintln!("[WORKER] Database opened: {db_path}");
 
-    // Create MCP manager for external tool servers
+    // Create MCP manager for external tool servers (lazy — connects on first use)
     let mcp_manager = Arc::new(McpManager::new());
-    eprintln!("[WORKER] MCP manager created");
-
-    // Auto-connect to configured MCP servers at startup
-    match mcp_manager.refresh_connections(&db) {
-        Ok(()) => {
-            let tool_defs = mcp_manager.get_tool_definitions();
-            let connected = mcp_manager.get_connected_server_names();
-            if !connected.is_empty() {
-                eprintln!("[WORKER] MCP auto-connected: {} servers, {} tools ({})",
-                    connected.len(), tool_defs.len(), connected.join(", "));
-            }
-        }
-        Err(e) => eprintln!("[WORKER] MCP auto-connect failed (non-fatal): {e}"),
-    }
+    eprintln!("[WORKER] MCP manager created (lazy — servers connect on first use)");
 
     // Initialize background process tracking with DB persistence
     let bg_session_id = uuid::Uuid::new_v4().to_string();

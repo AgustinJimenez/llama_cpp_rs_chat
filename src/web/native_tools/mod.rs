@@ -452,6 +452,8 @@ pub fn dispatch_native_tool(
         }
         _ => {
             // Check if it's an MCP tool before falling back to shell
+            // Lazy connect MCP servers on first tool call
+            ensure_mcp_connected(mcp_manager, db);
             if let Some(mgr) = mcp_manager {
                 if mgr.is_mcp_tool(&name) {
                     return Some(NativeToolResult::text_only(match mgr.call_tool(&name, args) {
@@ -554,6 +556,31 @@ fn tool_send_telegram(
 
 // --- MCP server management tools ---
 
+/// Ensure MCP servers are connected (lazy init). Call before any MCP tool access.
+fn ensure_mcp_connected(
+    mcp_manager: Option<&super::mcp::McpManager>,
+    db: Option<&super::database::SharedDatabase>,
+) {
+    let (Some(mgr), Some(db)) = (mcp_manager, db) else { return };
+    // Only connect if we have configured servers but none are connected yet
+    let configs = super::database::mcp::load_mcp_servers(db);
+    if configs.is_empty() { return; }
+    let statuses = mgr.get_server_statuses();
+    let any_connected = statuses.iter().any(|s| s.connected);
+    if !any_connected {
+        eprintln!("[MCP] Lazy connect: {} configured servers, connecting on first use...", configs.len());
+        match mgr.refresh_connections(db) {
+            Ok(()) => {
+                let connected = mgr.get_connected_server_names();
+                let tools = mgr.get_tool_definitions().len();
+                eprintln!("[MCP] Lazy connect complete: {} servers, {} tools ({})",
+                    connected.len(), tools, connected.join(", "));
+            }
+            Err(e) => eprintln!("[MCP] Lazy connect failed: {e}"),
+        }
+    }
+}
+
 /// List MCP tools with brief descriptions for the tool catalog.
 fn tool_list_mcp_tools(
     mcp_manager: Option<&super::mcp::McpManager>,
@@ -568,6 +595,9 @@ fn tool_list_mcp_tools(
     if configs.is_empty() {
         return "No MCP servers configured. Add servers in Settings → MCP Servers.".to_string();
     }
+
+    // Lazy connect on first access
+    ensure_mcp_connected(mcp_manager, Some(db));
 
     let statuses = mcp_manager.map(|mgr| mgr.get_server_statuses()).unwrap_or_default();
     let tool_defs = mcp_manager.map(|mgr| mgr.get_tool_definitions()).unwrap_or_default();

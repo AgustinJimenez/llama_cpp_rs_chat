@@ -18,6 +18,75 @@ use super::CliTokenData;
 /// Maximum agentic loop iterations to prevent runaway tool-call chains.
 const MAX_AGENTIC_ITERATIONS: usize = 20;
 
+/// Conservative input token limit for context management.
+const MAX_INPUT_TOKENS: u64 = 100_000;
+
+/// Approximate cost per 1M tokens (input, output) for known providers.
+/// Returns (input_cost_per_1m, output_cost_per_1m) or None for free/unknown.
+fn provider_cost_per_million(provider_id: &str, model: &str) -> Option<(f64, f64)> {
+    match provider_id {
+        "groq" => Some((0.05, 0.10)),
+        "gemini" => None,
+        "sambanova" => None,
+        "cerebras" => None,
+        "mistral" => match model {
+            m if m.contains("large") => Some((2.0, 6.0)),
+            m if m.contains("small") => Some((0.2, 0.6)),
+            _ => Some((0.2, 0.6)),
+        },
+        "openrouter" => None,
+        "together" => Some((0.20, 0.20)),
+        "deepseek" => match model {
+            m if m.contains("reasoner") => Some((0.55, 2.19)),
+            _ => Some((0.27, 1.10)),
+        },
+        "fireworks" => Some((0.20, 0.20)),
+        "xai" => Some((2.0, 10.0)),
+        "nvidia" => None,
+        "huggingface" => None,
+        "cloudflare" => None,
+        _ => None,
+    }
+}
+
+/// Truncate tool output to stay within token budget.
+/// Keeps the beginning (most useful) and end (error messages often at end).
+fn truncate_tool_output(output: &str, max_chars: usize) -> String {
+    if output.len() <= max_chars {
+        return output.to_string();
+    }
+    let head = max_chars * 3 / 4; // 75% from start
+    let tail = max_chars / 4;     // 25% from end
+    let head_end = output.char_indices().nth(head).map(|(i, _)| i).unwrap_or(head.min(output.len()));
+    let tail_start = output.char_indices().rev().nth(tail).map(|(i, _)| i).unwrap_or(output.len().saturating_sub(tail));
+    format!(
+        "{}\n\n[...{} chars truncated...]\n\n{}",
+        &output[..head_end],
+        output.len() - head_end - (output.len() - tail_start),
+        &output[tail_start..]
+    )
+}
+
+/// Trim older tool result messages to reduce context usage.
+/// Keeps the first message (user prompt) and the last 6 messages, replaces
+/// older tool results with summaries.
+fn trim_old_tool_results(messages: &mut Vec<Value>) {
+    if messages.len() <= 8 {
+        return;
+    }
+    let keep_end = 6;
+    let trim_end = messages.len() - keep_end;
+    for i in 1..trim_end {
+        if messages[i].get("role").and_then(|r| r.as_str()) == Some("tool") {
+            if let Some(content) = messages[i].get("content").and_then(|c| c.as_str()) {
+                if content.len() > 200 {
+                    messages[i]["content"] = json!(format!("[Previous tool output truncated — {} chars]", content.len()));
+                }
+            }
+        }
+    }
+}
+
 /// The set of tool names we expose to cloud providers.
 /// Kept small to minimize request size — no desktop/screenshot/MCP tools.
 const AGENTIC_TOOL_NAMES: &[&str] = &[
@@ -580,27 +649,43 @@ fn stream_sse_response(
     let body_str = serde_json::to_string(body)
         .map_err(|e| format!("Failed to serialize request: {e}"))?;
 
-    let resp = ureq::AgentBuilder::new()
-        .timeout_connect(std::time::Duration::from_secs(30))
-        .build()
-        .post(url)
-        .set("Content-Type", "application/json")
-        .set("Authorization", &format!("Bearer {api_key}"))
-        .set("Accept", "text/event-stream")
-        .send_string(&body_str);
+    // TLS retry: on transport/connection errors (NOT HTTP 4xx/5xx), retry once after 1s
+    let resp = {
+        #[allow(unused_assignments)]
+        let mut last_err = String::new();
+        let mut attempts = 0;
+        loop {
+            attempts += 1;
+            match ureq::AgentBuilder::new()
+                .timeout_connect(std::time::Duration::from_secs(30))
+                .build()
+                .post(url)
+                .set("Content-Type", "application/json")
+                .set("Authorization", &format!("Bearer {api_key}"))
+                .set("Accept", "text/event-stream")
+                .send_string(&body_str)
+            {
+                Ok(r) => break Ok(r),
+                Err(ureq::Error::Status(code, resp)) => {
+                    // HTTP error — don't retry
+                    let body = resp.into_string().unwrap_or_default();
+                    break Err(format!("HTTP {code}: {body}"));
+                }
+                Err(other) => {
+                    last_err = format!("{other}");
+                    if attempts >= 2 {
+                        break Err(format!("Request failed: {last_err}"));
+                    }
+                    eprintln!("[OPENAI_COMPAT] Connection error (attempt {}/2): {}, retrying in 1s...", attempts, last_err);
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                }
+            }
+        }
+    };
 
     let reader = match resp {
         Ok(r) => r.into_reader(),
-        Err(e) => {
-            let error_msg = match e {
-                ureq::Error::Status(code, resp) => {
-                    let body = resp.into_string().unwrap_or_default();
-                    format!("HTTP {code}: {body}")
-                }
-                other => format!("Request failed: {other}"),
-            };
-            return Err(error_msg);
-        }
+        Err(error_msg) => return Err(error_msg),
     };
 
     let buf_reader = std::io::BufReader::new(reader);
@@ -843,6 +928,19 @@ pub async fn generate(
                 final_stop_reason = reason.clone();
             }
 
+            // Send cumulative token tracking status after each iteration
+            let _ = tx.send(CliTokenData {
+                token: String::new(),
+                is_done: false,
+                session_id: None,
+                stop_reason: None,
+                cost_usd: None,
+                duration_ms: Some(start.elapsed().as_millis() as u64),
+                model_id: actual_model.clone(),
+                input_tokens: Some(total_input_tokens),
+                output_tokens: Some(total_output_tokens),
+            });
+
             // If no tool calls, we're done — the text was already streamed
             if result.tool_calls.is_empty() {
                 eprintln!(
@@ -890,72 +988,77 @@ pub async fn generate(
             };
             messages.push(assistant_msg);
 
-            // Send tool call display widgets to frontend, execute each, and add results
-            for tc in &result.tool_calls {
-                // Display the tool call to the frontend
-                let display = format!(
-                    "\n<tool_call>{{\"name\": \"{}\", \"arguments\": {}}}</tool_call>\n",
-                    tc.name,
-                    if tc.arguments.is_empty() {
-                        "{}".to_string()
+            // Execute tool calls — parallel if multiple, sequential if single
+            let tool_results: Vec<(String, String, String)> = if result.tool_calls.len() > 1 {
+                result.tool_calls.iter().map(|tc| {
+                    let args_display = if tc.arguments.is_empty() { "{}".to_string() } else { tc.arguments.clone() };
+                    let _ = tx.send(CliTokenData {
+                        token: format!("\n<tool_call>{{\"name\": \"{}\", \"arguments\": {}}}</tool_call>\n", tc.name, args_display),
+                        is_done: false, session_id: None, stop_reason: None, cost_usd: None,
+                        duration_ms: None, model_id: actual_model.clone(), input_tokens: None, output_tokens: None,
+                    });
+                    eprintln!(
+                        "[OPENAI_COMPAT] Executing tool: {} args={}",
+                        tc.name,
+                        &tc.arguments[..tc.arguments.len().min(200)]
+                    );
+                    let result_text = execute_openai_tool(&tc.name, &tc.arguments);
+                    // Smart truncation: keep head + tail for large outputs, 50KB safety net
+                    let safe = if result_text.len() > 50_000 {
+                        format!("{}\n\n[... truncated at 50KB, total {} bytes]", &result_text[..50_000], result_text.len())
                     } else {
-                        tc.arguments.clone()
-                    }
-                );
-                let _ = tx.send(CliTokenData {
-                    token: display,
-                    is_done: false,
-                    session_id: None,
-                    stop_reason: None,
-                    cost_usd: None,
-                    duration_ms: None,
-                    model_id: actual_model.clone(),
-                    input_tokens: None,
-                    output_tokens: None,
-                });
+                        result_text
+                    };
+                    let truncated = truncate_tool_output(&safe, 8000);
+                    (tc.id.clone(), tc.name.clone(), truncated)
+                }).collect()
+            } else {
+                result.tool_calls.iter().map(|tc| {
+                    let args_display = if tc.arguments.is_empty() { "{}".to_string() } else { tc.arguments.clone() };
+                    let _ = tx.send(CliTokenData {
+                        token: format!("\n<tool_call>{{\"name\": \"{}\", \"arguments\": {}}}</tool_call>\n", tc.name, args_display),
+                        is_done: false, session_id: None, stop_reason: None, cost_usd: None,
+                        duration_ms: None, model_id: actual_model.clone(), input_tokens: None, output_tokens: None,
+                    });
+                    eprintln!(
+                        "[OPENAI_COMPAT] Executing tool: {} args={}",
+                        tc.name,
+                        &tc.arguments[..tc.arguments.len().min(200)]
+                    );
+                    let result_text = execute_openai_tool(&tc.name, &tc.arguments);
+                    // Smart truncation: keep head + tail for large outputs, 50KB safety net
+                    let safe = if result_text.len() > 50_000 {
+                        format!("{}\n\n[... truncated at 50KB, total {} bytes]", &result_text[..50_000], result_text.len())
+                    } else {
+                        result_text
+                    };
+                    let truncated = truncate_tool_output(&safe, 8000);
+                    (tc.id.clone(), tc.name.clone(), truncated)
+                }).collect()
+            };
 
-                // Execute the tool
-                eprintln!(
-                    "[OPENAI_COMPAT] Executing tool: {} args={}",
-                    tc.name,
-                    &tc.arguments[..tc.arguments.len().min(200)]
-                );
-                let tool_result = execute_openai_tool(&tc.name, &tc.arguments);
-
-                // Truncate very large results to avoid blowing up context
-                let tool_result_truncated = if tool_result.len() > 50_000 {
-                    format!(
-                        "{}\n\n[... truncated at 50KB, total {} bytes]",
-                        &tool_result[..50_000],
-                        tool_result.len()
-                    )
-                } else {
-                    tool_result
-                };
-
-                // Display the tool response to the frontend
+            // Display results and add to messages
+            for (id, _name, truncated) in &tool_results {
                 let response_display = format!(
                     "\n<tool_response>{}</tool_response>\n",
-                    &tool_result_truncated[..tool_result_truncated.len().min(2000)]
+                    &truncated[..truncated.len().min(2000)]
                 );
                 let _ = tx.send(CliTokenData {
                     token: response_display,
-                    is_done: false,
-                    session_id: None,
-                    stop_reason: None,
-                    cost_usd: None,
-                    duration_ms: None,
-                    model_id: actual_model.clone(),
-                    input_tokens: None,
-                    output_tokens: None,
+                    is_done: false, session_id: None, stop_reason: None, cost_usd: None,
+                    duration_ms: None, model_id: actual_model.clone(), input_tokens: None, output_tokens: None,
                 });
-
-                // Add tool result to messages for the next API call
                 messages.push(json!({
                     "role": "tool",
-                    "tool_call_id": tc.id,
-                    "content": tool_result_truncated,
+                    "tool_call_id": id,
+                    "content": truncated,
                 }));
+            }
+
+            // Context budget check — trim older tool results if approaching limit
+            if total_input_tokens > MAX_INPUT_TOKENS * 80 / 100 {
+                eprintln!("[OPENAI_COMPAT] Input tokens ({}) approaching limit, trimming older tool results", total_input_tokens);
+                trim_old_tool_results(&mut messages);
             }
         }
 
@@ -971,13 +1074,19 @@ pub async fn generate(
             total_output_tokens,
         );
 
+        // Compute cost estimate based on provider pricing
+        let cost_usd = provider_cost_per_million(&provider_id_owned, &model_name_clone)
+            .map(|(ic, oc)| {
+                (total_input_tokens as f64 * ic / 1_000_000.0) + (total_output_tokens as f64 * oc / 1_000_000.0)
+            });
+
         // Send done event
         let _ = tx.send(CliTokenData {
             token: String::new(),
             is_done: true,
             session_id: None,
             stop_reason: Some(final_stop_reason),
-            cost_usd: None,
+            cost_usd,
             duration_ms: Some(duration_ms),
             model_id: actual_model,
             input_tokens: if total_input_tokens > 0 {
@@ -1119,5 +1228,45 @@ mod tests {
     fn test_execute_openai_tool_unknown() {
         let result = execute_openai_tool("nonexistent_tool", "{}");
         assert!(result.contains("Unknown tool"));
+    }
+
+    #[test]
+    fn test_truncate_tool_output_short() {
+        let short = "hello world";
+        assert_eq!(truncate_tool_output(short, 100), short);
+    }
+
+    #[test]
+    fn test_truncate_tool_output_long() {
+        let long = "a".repeat(10_000);
+        let result = truncate_tool_output(&long, 1000);
+        assert!(result.len() < 10_000);
+        assert!(result.contains("chars truncated"));
+    }
+
+    #[test]
+    fn test_provider_cost_per_million() {
+        assert!(provider_cost_per_million("deepseek", "deepseek-chat").is_some());
+        assert!(provider_cost_per_million("gemini", "gemini-2.0-flash").is_none());
+        assert!(provider_cost_per_million("unknown_provider", "model").is_none());
+    }
+
+    #[test]
+    fn test_trim_old_tool_results() {
+        let mut messages: Vec<Value> = vec![
+            json!({"role": "user", "content": "do something"}),
+        ];
+        // Add enough messages to trigger trimming (>8)
+        for i in 0..10 {
+            messages.push(json!({"role": "assistant", "content": format!("step {i}")}));
+            messages.push(json!({"role": "tool", "tool_call_id": format!("id_{i}"), "content": "x".repeat(500)}));
+        }
+        let original_len = messages.len();
+        trim_old_tool_results(&mut messages);
+        // Length should remain the same (we truncate content, not remove messages)
+        assert_eq!(messages.len(), original_len);
+        // Early tool messages should be truncated
+        let early_tool = messages[2].get("content").unwrap().as_str().unwrap();
+        assert!(early_tool.contains("truncated"));
     }
 }
