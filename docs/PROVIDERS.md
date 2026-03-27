@@ -20,7 +20,7 @@ All OpenAI-compatible providers support the agentic tool loop (read files, write
 | 12 | NVIDIA NIM | - | - | - | |
 | 13 | Hugging Face | - | - | - | |
 | 14 | Cloudflare | - | - | - | |
-| 15 | Codex CLI | - | - | - | Needs local Codex CLI |
+| 15 | Codex CLI | PASS | PASS (gpt-5) | PASS (tools) | Tested 2026-03-26. Windows fix: node+codex.js |
 | 16 | Custom OpenAI | - | - | - | User-provided endpoint |
 
 ## Provider Details

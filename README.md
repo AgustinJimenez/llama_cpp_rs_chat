@@ -1,19 +1,22 @@
 # LLaMA Chat
 
-A local AI chat application built with Rust and React. Runs GGUF models via llama.cpp with GPU acceleration (CUDA/Metal). Available as a web app, desktop app (Tauri), or CLI.
+A multi-provider AI chat application built with Rust and React. Run local GGUF models via llama.cpp, or connect to 15+ cloud providers (Groq, Gemini, Claude, Mistral, etc.) — all with agentic tool execution. Available as a web app, desktop app (Tauri), or CLI.
 
 ## Features
 
+- **Multi-provider** — Local (llama.cpp), Claude Code, Codex CLI, and 13 OpenAI-compatible cloud providers with agentic tool loop
+- **117 native tools** — organized via tool catalog (22 core tools in prompt, 94 desktop tools discoverable on demand)
 - **Local inference** powered by llama-cpp-2 with CUDA and Metal GPU acceleration
 - **Web and desktop** modes (Tauri) from the same codebase
-- **25+ native tools** — file I/O, shell commands, Python execution, web search/fetch, screenshots, and more
-- **Desktop automation (computer use)** — click, type, press keys, scroll via `enigo` crate with auto-screenshot feedback loop
+- **Desktop automation (computer use)** — click, type, press keys, scroll, OCR, UI tree inspection via `enigo` crate
 - **Vision support** — paste/drop images in chat, screenshot tool for screen capture (always compiled)
-- **MCP (Model Context Protocol)** — connect external tool servers for extensible tool capabilities
+- **MCP (Model Context Protocol)** — connect external tool servers, auto-connect on startup
 - **Web search and fetch** — Brave Search API, Google via headless Chrome, DuckDuckGo fallback
+- **Custom providers** — add any OpenAI-compatible endpoint (vLLM, Ollama, LM Studio)
 - **Jinja2 prompt templates** — renders native chat templates from GGUF metadata via minijinja
 - **Auto-configuration** — extracts optimal sampling parameters from GGUF metadata
 - **11 sampler types** — Greedy, Temperature, TopP, TopK, MinP, Mirostat, DRY, and chain variants
+- **Conversation compaction** — map-reduce summarization when context fills up, auto-continue
 - **Conversation history** stored in SQLite with auto-generated titles
 - **Out-of-process worker** — model runs in child process; kill to reclaim all VRAM instantly
 - **Docker support** — CPU and CUDA images included
