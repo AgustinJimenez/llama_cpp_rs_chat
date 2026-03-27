@@ -18,6 +18,19 @@ use super::CliTokenData;
 /// Maximum agentic loop iterations to prevent runaway tool-call chains.
 const MAX_AGENTIC_ITERATIONS: usize = 20;
 
+/// System prompt for cloud provider agentic loops.
+fn get_cloud_system_prompt() -> &'static str {
+    r#"You are an AI assistant with access to tools for file operations, command execution, web search, and more. Follow these guidelines:
+
+1. INVESTIGATE before acting: Check existing files, directory structure, and installed tools before creating or modifying anything.
+2. Use web_search when you need current information, documentation, or to find solutions to errors.
+3. For execute_command: ALWAYS set the "background" field. Use background=true ONLY for servers/daemons, false for everything else.
+4. When creating projects: use the standard tooling (django-admin, npm init, cargo init, etc.) rather than writing every file manually.
+5. After making changes, verify they work (run tests, check syntax, start the server briefly).
+6. If a command fails, read the error carefully and fix the issue rather than retrying the same command.
+7. Keep responses concise. Show what you did and the result, not lengthy explanations."#
+}
+
 /// Conservative input token limit for context management.
 const MAX_INPUT_TOKENS: u64 = 100_000;
 
@@ -306,6 +319,47 @@ pub fn get_preset(provider_id: &str) -> Option<&'static ProviderPreset> {
 /// Check if a provider ID is an OpenAI-compatible provider.
 pub fn is_openai_compat(provider_id: &str) -> bool {
     get_preset(provider_id).is_some()
+}
+
+/// Query available models from a provider's /v1/models endpoint.
+/// Returns model IDs or falls back to preset defaults on error.
+pub fn fetch_models(provider_id: &str, base_url: &str, api_key: &str) -> Vec<String> {
+    let url = format!("{}/models", base_url.trim_end_matches('/'));
+    let resp = ureq::AgentBuilder::new()
+        .timeout_connect(std::time::Duration::from_secs(5))
+        .timeout_read(std::time::Duration::from_secs(10))
+        .build()
+        .get(&url)
+        .set("Authorization", &format!("Bearer {api_key}"))
+        .call();
+
+    match resp {
+        Ok(r) => {
+            if let Ok(body) = r.into_string() {
+                if let Ok(json) = serde_json::from_str::<Value>(&body) {
+                    if let Some(data) = json.get("data").and_then(|d| d.as_array()) {
+                        let mut models: Vec<String> = data
+                            .iter()
+                            .filter_map(|m| m.get("id").and_then(|id| id.as_str()).map(|s| s.to_string()))
+                            .collect();
+                        models.sort();
+                        if !models.is_empty() {
+                            return models;
+                        }
+                    }
+                }
+            }
+            // Fall back to preset
+            get_preset(provider_id)
+                .map(|p| p.models.iter().map(|s| s.to_string()).collect())
+                .unwrap_or_default()
+        }
+        Err(_) => {
+            get_preset(provider_id)
+                .map(|p| p.models.iter().map(|s| s.to_string()).collect())
+                .unwrap_or_default()
+        }
+    }
 }
 
 /// Resolve the API key for a provider. Checks config JSON blob first, then env var.
@@ -855,8 +909,9 @@ pub async fn generate(
             tools.len()
         );
 
-        // Build initial messages array
+        // Build initial messages array with system prompt
         let mut messages: Vec<Value> = vec![
+            json!({"role": "system", "content": get_cloud_system_prompt()}),
             json!({"role": "user", "content": prompt_owned}),
         ];
 
@@ -897,9 +952,20 @@ pub async fn generate(
             ) {
                 Ok(r) => r,
                 Err(error_msg) => {
-                    eprintln!("[OPENAI_COMPAT] Error: {error_msg}");
+                    eprintln!("[OPENAI_COMPAT] Error on iteration {}: {error_msg}", iteration + 1);
+                    let hint = if error_msg.contains("429") || error_msg.contains("rate_limit") {
+                        "\nHint: Rate limit reached. Wait a moment and try again, or use a different provider."
+                    } else if error_msg.contains("401") || error_msg.contains("403") {
+                        "\nHint: Authentication failed. Check your API key in Settings."
+                    } else if error_msg.contains("404") {
+                        "\nHint: Model not found. The model ID may have changed — try a different model."
+                    } else if error_msg.contains("Connection") || error_msg.contains("tls") {
+                        "\nHint: Connection failed. The provider may be down or unreachable."
+                    } else {
+                        ""
+                    };
                     let _ = tx.send(CliTokenData {
-                        token: format!("\n**Error:** {error_msg}"),
+                        token: format!("\n**Error:** {error_msg}{hint}"),
                         is_done: false,
                         session_id: None,
                         stop_reason: None,

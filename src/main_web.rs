@@ -145,6 +145,13 @@ async fn handle_request_impl(
         (&Method::GET, "/api/providers") => {
             web::routes::providers::handle_list_providers(db.clone()).await?
         }
+        (&Method::GET, path) if path.starts_with("/api/providers/") && path.ends_with("/models") => {
+            let provider_id = path
+                .trim_start_matches("/api/providers/")
+                .trim_end_matches("/models")
+                .trim_end_matches('/');
+            web::routes::providers::handle_provider_models(provider_id, db.clone()).await?
+        }
         (&Method::POST, path) if path.starts_with("/api/providers/") && path.ends_with("/stream") => {
             let provider_id = path
                 .trim_start_matches("/api/providers/")

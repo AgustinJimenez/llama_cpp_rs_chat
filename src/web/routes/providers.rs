@@ -190,6 +190,20 @@ pub async fn handle_provider_stream(
                 break;
             }
 
+            if token_data.token.is_empty() && (token_data.input_tokens.is_some() || token_data.duration_ms.is_some()) {
+                // Status update (cumulative token tracking, no visible text)
+                let status_json = serde_json::json!({
+                    "type": "status",
+                    "input_tokens": token_data.input_tokens,
+                    "output_tokens": token_data.output_tokens,
+                    "duration_ms": token_data.duration_ms,
+                });
+                let _ = sse_tx
+                    .send_data(hyper::body::Bytes::from(format!("data: {}\n\n", status_json)))
+                    .await;
+                continue;
+            }
+
             full_response.push_str(&token_data.token);
 
             let token_json = serde_json::json!({
@@ -317,4 +331,28 @@ pub async fn handle_provider_generate(
 
     let response_json = serialize_with_fallback(&result, "{}");
     Ok(json_raw(StatusCode::OK, response_json))
+}
+
+/// GET /api/providers/{provider}/models — fetch available models from provider
+pub async fn handle_provider_models(
+    provider_id: &str,
+    db: crate::web::database::SharedDatabase,
+) -> Result<Response<Body>, Infallible> {
+    let api_keys = load_api_keys_json(&db);
+    let api_key = match crate::web::providers::openai_compat::resolve_api_key(provider_id, api_keys.as_deref()) {
+        Some(k) => k,
+        None => return Ok(json_error(StatusCode::BAD_REQUEST, "No API key configured for this provider")),
+    };
+    let base_url = match crate::web::providers::openai_compat::resolve_base_url(provider_id, api_keys.as_deref()) {
+        Some(u) => u,
+        None => return Ok(json_error(StatusCode::BAD_REQUEST, "No base URL for this provider")),
+    };
+
+    let models = crate::web::providers::openai_compat::fetch_models(provider_id, &base_url, &api_key);
+    let body = serde_json::json!({ "models": models });
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Type", "application/json")
+        .body(Body::from(serde_json::to_string(&body).unwrap()))
+        .unwrap())
 }
