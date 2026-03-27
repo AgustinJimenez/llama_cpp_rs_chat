@@ -122,6 +122,10 @@ pub async fn handle_provider_stream(
         request.session_id.as_deref(),
     );
 
+    let conv_id = request.conversation_id.unwrap_or_else(|| {
+        format!("chat_{}", chrono::Local::now().format("%Y-%m-%d-%H-%M-%S-%3f"))
+    });
+
     let api_keys = load_api_keys_json(&db);
     let mut rx = match providers::generate(
         provider_id,
@@ -131,6 +135,8 @@ pub async fn handle_provider_stream(
         request.cwd.as_deref(),
         request.session_id.as_deref(),
         api_keys.as_deref(),
+        Some(&conv_id),
+        Some(&db),
     )
     .await
     {
@@ -142,10 +148,6 @@ pub async fn handle_provider_stream(
             ))
         }
     };
-
-    let conv_id = request.conversation_id.unwrap_or_else(|| {
-        format!("chat_{}", chrono::Local::now().format("%Y-%m-%d-%H-%M-%S-%3f"))
-    });
     let prompt = request.prompt.clone();
     let provider_name = provider_id.to_string();
 
@@ -247,6 +249,7 @@ pub async fn handle_provider_generate(
         request.session_id.as_deref(),
     );
 
+    let conv_id_for_history = request.conversation_id.as_deref().unwrap_or("");
     let api_keys = load_api_keys_json(&db);
     let mut rx = match providers::generate(
         provider_id,
@@ -256,6 +259,8 @@ pub async fn handle_provider_generate(
         request.cwd.as_deref(),
         request.session_id.as_deref(),
         api_keys.as_deref(),
+        if conv_id_for_history.is_empty() { None } else { Some(conv_id_for_history) },
+        Some(&db),
     )
     .await
     {

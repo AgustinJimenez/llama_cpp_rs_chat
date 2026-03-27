@@ -482,210 +482,48 @@ fn get_agentic_tools() -> Vec<Value> {
 
 // ── Local tool execution ───────────────────────────────────────────────────
 
-/// Execute a tool call locally and return the result as a string.
-///
-/// This is a self-contained executor that handles the essential tools without
-/// needing the full `dispatch_native_tool` machinery (which requires model/backend refs).
+/// Execute a tool call using the full native tool dispatch system.
 fn execute_openai_tool(name: &str, arguments_json: &str) -> String {
+    // Build the JSON format that dispatch_native_tool expects
     let args: Value = match serde_json::from_str(arguments_json) {
         Ok(v) => v,
         Err(e) => return format!("Error parsing tool arguments: {e}"),
     };
 
-    match name {
-        "read_file" => {
-            let path = match args.get("path").and_then(|v| v.as_str()) {
-                Some(p) => p,
-                None => return "Error: 'path' argument is required".to_string(),
-            };
-            match std::fs::read_to_string(path) {
-                Ok(content) => {
-                    // Truncate large files
-                    if content.len() > 100_000 {
-                        format!("{}\n\n[... truncated at 100KB, total {} bytes]", &content[..100_000], content.len())
-                    } else {
-                        content
-                    }
-                }
-                Err(e) => format!("Error reading file: {e}"),
-            }
-        }
+    let tool_json = json!({
+        "name": name,
+        "arguments": args
+    }).to_string();
 
-        "write_file" => {
-            let path = match args.get("path").and_then(|v| v.as_str()) {
-                Some(p) => p,
-                None => return "Error: 'path' argument is required".to_string(),
-            };
-            let content = match args.get("content").and_then(|v| v.as_str()) {
-                Some(c) => c,
-                None => return "Error: 'content' argument is required".to_string(),
-            };
-            // Create parent directories
-            if let Some(parent) = std::path::Path::new(path).parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            match std::fs::write(path, content) {
-                Ok(_) => format!("Successfully wrote {} bytes to {}", content.len(), path),
-                Err(e) => format!("Error writing file: {e}"),
-            }
+    // Use dispatch_native_tool for full tool support
+    match crate::web::native_tools::dispatch_native_tool(
+        &tool_json,
+        None, // web_search_provider
+        None, // web_search_api_key
+        true, // use_htmd (allow web_fetch html-to-md)
+        &crate::web::browser::BrowserBackend::Chrome,
+        None, // mcp_manager
+        None, // db
+    ) {
+        Some(result) => result.text,
+        None => {
+            // dispatch_native_tool returns None for unknown tools
+            format!("Unknown tool: {name}. Available tools: read_file, write_file, edit_file, execute_command, execute_python, list_directory, search_files, find_files, web_search, web_fetch, send_telegram")
         }
+    }
+}
 
-        "edit_file" => {
-            let path = match args.get("path").and_then(|v| v.as_str()) {
-                Some(p) => p,
-                None => return "Error: 'path' argument is required".to_string(),
-            };
-            let old_string = match args.get("old_string").and_then(|v| v.as_str()) {
-                Some(s) => s,
-                None => return "Error: 'old_string' argument is required".to_string(),
-            };
-            let new_string = match args.get("new_string").and_then(|v| v.as_str()) {
-                Some(s) => s,
-                None => return "Error: 'new_string' argument is required".to_string(),
-            };
-            let content = match std::fs::read_to_string(path) {
-                Ok(c) => c,
-                Err(e) => return format!("Error reading file: {e}"),
-            };
-            let count = content.matches(old_string).count();
-            if count == 0 {
-                return format!("Error: old_string not found in {path}");
-            }
-            if count > 1 {
-                return format!("Error: old_string found {count} times in {path} (must be unique)");
-            }
-            let new_content = content.replacen(old_string, new_string, 1);
-            match std::fs::write(path, &new_content) {
-                Ok(_) => format!("Successfully edited {path}"),
-                Err(e) => format!("Error writing file: {e}"),
-            }
-        }
-
-        "execute_command" => {
-            let command = match args.get("command").and_then(|v| v.as_str()) {
-                Some(c) => c,
-                None => return "Error: 'command' argument is required".to_string(),
-            };
-            if command.is_empty() {
-                return "Error: 'command' argument must not be empty".to_string();
-            }
-            crate::web::command::execute_command(command)
-        }
-
-        "execute_python" => {
-            let code = match args.get("code").and_then(|v| v.as_str()) {
-                Some(c) => c,
-                None => return "Error: 'code' argument is required".to_string(),
-            };
-            let output = crate::web::utils::silent_command("python")
-                .args(["-c", code])
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .output();
-            match output {
-                Ok(out) => {
-                    let stdout = String::from_utf8_lossy(&out.stdout);
-                    let stderr = String::from_utf8_lossy(&out.stderr);
-                    let mut result = String::new();
-                    if !stdout.is_empty() {
-                        result.push_str(&stdout);
-                    }
-                    if !stderr.is_empty() {
-                        if !result.is_empty() {
-                            result.push('\n');
-                        }
-                        result.push_str("[stderr] ");
-                        result.push_str(&stderr);
-                    }
-                    if result.is_empty() {
-                        format!("Python exited with code {}", out.status.code().unwrap_or(-1))
-                    } else {
-                        result
-                    }
-                }
-                Err(e) => format!("Error running python: {e}"),
-            }
-        }
-
-        "list_directory" => {
-            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
-            match std::fs::read_dir(path) {
-                Ok(entries) => {
-                    let mut items: Vec<String> = Vec::new();
-                    for entry in entries.flatten() {
-                        let name = entry.file_name().to_string_lossy().to_string();
-                        let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
-                        items.push(if is_dir { format!("{name}/") } else { name });
-                    }
-                    items.sort();
-                    if items.is_empty() {
-                        format!("Directory {path} is empty")
-                    } else {
-                        items.join("\n")
-                    }
-                }
-                Err(e) => format!("Error listing directory: {e}"),
-            }
-        }
-
-        "search_files" => {
-            // Delegate to the native tool via a simple JSON dispatch
-            let json_str = json!({"name": "search_files", "arguments": args}).to_string();
-            match crate::web::native_tools::dispatch_native_tool(
-                &json_str, None, None, false,
-                &crate::web::browser::BrowserBackend::Chrome, None, None,
-            ) {
-                Some(result) => result.text,
-                None => "Error: search_files dispatch failed".to_string(),
-            }
-        }
-
-        "find_files" => {
-            let json_str = json!({"name": "find_files", "arguments": args}).to_string();
-            match crate::web::native_tools::dispatch_native_tool(
-                &json_str, None, None, false,
-                &crate::web::browser::BrowserBackend::Chrome, None, None,
-            ) {
-                Some(result) => result.text,
-                None => "Error: find_files dispatch failed".to_string(),
-            }
-        }
-
-        "web_search" => {
-            let json_str = json!({"name": "web_search", "arguments": args}).to_string();
-            match crate::web::native_tools::dispatch_native_tool(
-                &json_str, None, None, false,
-                &crate::web::browser::BrowserBackend::Chrome, None, None,
-            ) {
-                Some(result) => result.text,
-                None => "Error: web_search dispatch failed".to_string(),
-            }
-        }
-
-        "web_fetch" => {
-            let json_str = json!({"name": "web_fetch", "arguments": args}).to_string();
-            match crate::web::native_tools::dispatch_native_tool(
-                &json_str, None, None, true,
-                &crate::web::browser::BrowserBackend::Chrome, None, None,
-            ) {
-                Some(result) => result.text,
-                None => "Error: web_fetch dispatch failed".to_string(),
-            }
-        }
-
-        "send_telegram" => {
-            let json_str = json!({"name": "send_telegram", "arguments": args}).to_string();
-            match crate::web::native_tools::dispatch_native_tool(
-                &json_str, None, None, false,
-                &crate::web::browser::BrowserBackend::Chrome, None, None,
-            ) {
-                Some(result) => result.text,
-                None => "Error: send_telegram dispatch failed".to_string(),
-            }
-        }
-
-        _ => format!("Unknown tool: {name}"),
+/// Get provider-specific default parameters.
+fn provider_default_params(provider_id: &str) -> Value {
+    match provider_id {
+        "groq" => json!({"temperature": 0.6, "max_tokens": 4096}),
+        "gemini" => json!({"temperature": 0.7, "max_tokens": 8192}),
+        "sambanova" => json!({"temperature": 0.6, "max_tokens": 4096}),
+        "cerebras" => json!({"temperature": 0.6, "max_tokens": 4096}),
+        "mistral" => json!({"temperature": 0.7, "max_tokens": 4096}),
+        "deepseek" => json!({"temperature": 0.6, "max_tokens": 8192}),
+        "openrouter" => json!({"temperature": 0.7, "max_tokens": 4096}),
+        _ => json!({"temperature": 0.7, "max_tokens": 4096}),
     }
 }
 
@@ -881,6 +719,8 @@ pub async fn generate(
     model: Option<&str>,
     base_url: &str,
     api_key: &str,
+    conversation_id: Option<&str>,
+    db: Option<&crate::web::database::SharedDatabase>,
 ) -> Result<mpsc::UnboundedReceiver<CliTokenData>, String> {
     let (tx, rx) = mpsc::unbounded_channel();
     let model_name = resolve_model(provider_id, model);
@@ -895,6 +735,8 @@ pub async fn generate(
     let provider_id_owned = provider_id.to_string();
     let model_name_clone = model_name.clone();
     let prompt_owned = prompt.to_string();
+    let conv_id_owned = conversation_id.map(|s| s.to_string());
+    let db_owned = db.cloned();
 
     // Use ureq in a blocking task for the streaming HTTP request + agentic loop
     tokio::task::spawn_blocking(move || {
@@ -912,8 +754,20 @@ pub async fn generate(
         // Build initial messages array with system prompt
         let mut messages: Vec<Value> = vec![
             json!({"role": "system", "content": get_cloud_system_prompt()}),
-            json!({"role": "user", "content": prompt_owned}),
         ];
+
+        // Add prior conversation turns from DB
+        if let (Some(conv_id), Some(ref db)) = (&conv_id_owned, &db_owned) {
+            if let Ok(msgs) = db.get_messages(conv_id) {
+                for m in &msgs {
+                    if m.compacted || m.role == "system" { continue; }
+                    messages.push(json!({"role": m.role, "content": m.content}));
+                }
+            }
+        }
+
+        // Add current user message
+        messages.push(json!({"role": "user", "content": prompt_owned}));
 
         // Track total tokens across all iterations
         let mut total_input_tokens: u64 = 0;
@@ -929,6 +783,12 @@ pub async fn generate(
                 messages.len()
             );
 
+            // Check if frontend disconnected (receiver dropped)
+            if tx.is_closed() {
+                eprintln!("[OPENAI_COMPAT] Frontend disconnected, stopping agentic loop");
+                break;
+            }
+
             // Build request body
             let mut body = json!({
                 "model": model_name_clone,
@@ -936,6 +796,15 @@ pub async fn generate(
                 "stream": true,
                 "stream_options": {"include_usage": true},
             });
+
+            // Apply provider-specific default parameters
+            let defaults = provider_default_params(&provider_id_owned);
+            if let Some(temp) = defaults.get("temperature") {
+                body["temperature"] = temp.clone();
+            }
+            if let Some(max) = defaults.get("max_tokens") {
+                body["max_tokens"] = max.clone();
+            }
 
             // Include tools only if we have them
             if has_tools {
@@ -1119,6 +988,12 @@ pub async fn generate(
                     "tool_call_id": id,
                     "content": truncated,
                 }));
+            }
+
+            // Check if frontend disconnected after tool execution
+            if tx.is_closed() {
+                eprintln!("[OPENAI_COMPAT] Frontend disconnected after tool execution, stopping agentic loop");
+                break;
             }
 
             // Context budget check — trim older tool results if approaching limit

@@ -165,23 +165,27 @@ pub async fn generate(
     cwd: Option<&str>,
     session_id: Option<&str>,
     api_keys_json: Option<&str>,
+    conversation_id: Option<&str>,
+    db: Option<&crate::web::database::SharedDatabase>,
 ) -> Result<mpsc::UnboundedReceiver<CliTokenData>, String> {
     match provider_id {
         "claude_code" => claude_code::generate(prompt, model, max_turns, cwd, session_id).await,
         "codex" => codex::generate(prompt, model, max_turns, cwd, session_id).await,
+        // TODO (#6): Hybrid Claude/Codex provider — route to Claude Code or Codex
+        // with conversation history and tool dispatch. Too complex for this batch.
         id if openai_compat::is_openai_compat(id) => {
             let api_key = openai_compat::resolve_api_key(id, api_keys_json)
                 .ok_or_else(|| format!("No API key configured for provider '{id}'. Set it in Settings or via environment variable."))?;
             let base_url = openai_compat::resolve_base_url(id, api_keys_json)
                 .ok_or_else(|| format!("No base URL configured for provider '{id}'."))?;
-            openai_compat::generate(id, prompt, model, &base_url, &api_key).await
+            openai_compat::generate(id, prompt, model, &base_url, &api_key, conversation_id, db).await
         }
         id if id.starts_with("custom_") => {
             // User-defined custom provider — resolve key/url from api_keys_json
             let api_key = openai_compat::resolve_custom_field(id, "api_key", api_keys_json).unwrap_or_default();
             let base_url = openai_compat::resolve_custom_field(id, "base_url", api_keys_json)
                 .ok_or_else(|| format!("No base URL configured for custom provider '{id}'."))?;
-            openai_compat::generate(id, prompt, model, &base_url, &api_key).await
+            openai_compat::generate(id, prompt, model, &base_url, &api_key, conversation_id, db).await
         }
         _ => Err(format!("Unknown provider: {provider_id}")),
     }
