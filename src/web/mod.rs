@@ -2,6 +2,7 @@
 
 pub mod browser; // Headless Chrome for web search/fetch
 pub mod chat;
+pub mod background; // Background process tracking and lifecycle
 pub mod command;
 pub mod config;
 pub mod database;

@@ -6,7 +6,8 @@ use std::sync::atomic::{AtomicBool, AtomicU32};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-use super::super::command::{execute_command_streaming, execute_command_streaming_with_timeout, execute_command_background, sanitize_command_output, strip_ansi_codes};
+use super::super::background::execute_command_background;
+use super::super::command::{execute_command_streaming, execute_command_streaming_with_timeout, sanitize_command_output, strip_ansi_codes};
 use super::super::models::*;
 use super::super::native_tools;
 use super::generation::create_fresh_context;

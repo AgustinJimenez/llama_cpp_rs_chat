@@ -2,6 +2,7 @@ import React from 'react';
 import { Zap, Loader2, X } from 'lucide-react';
 import { useModelContext } from '../../contexts/ModelContext';
 import { useUIContext } from '../../contexts/UIContext';
+import { getProviderLabel } from '../../utils/providerLabels';
 
 interface WelcomeMessageProps {
   children?: React.ReactNode;
@@ -10,14 +11,7 @@ interface WelcomeMessageProps {
 export const WelcomeMessage: React.FC<WelcomeMessageProps> = ({ children }) => {
   const { status, isLoading, loadingAction, modelName, forceUnload, activeProvider, activeProviderModel } = useModelContext();
   const { openProviderSelector } = useUIContext();
-  const providerLabels: Record<string, string> = {
-    claude_code: 'Claude', codex: 'Codex', groq: 'Groq', gemini: 'Gemini',
-    sambanova: 'SambaNova', cerebras: 'Cerebras', openrouter: 'OpenRouter',
-    together: 'Together', deepseek: 'DeepSeek', mistral: 'Mistral',
-    fireworks: 'Fireworks', xai: 'Grok', nvidia: 'NVIDIA NIM',
-    huggingface: 'Hugging Face', cloudflare: 'Cloudflare', custom_openai: 'Custom',
-  };
-  const remoteProviderLabel = providerLabels[activeProvider] || activeProvider;
+  const remoteProviderLabel = getProviderLabel(activeProvider);
   const remoteHeading = `${remoteProviderLabel} (${activeProviderModel})`;
 
   // Show loading here only when the header is hidden (model not yet loaded).

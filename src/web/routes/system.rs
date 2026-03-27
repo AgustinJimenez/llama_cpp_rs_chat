@@ -285,7 +285,7 @@ pub async fn handle_background_processes(
         let mut dead_pids = Vec::new();
 
         for (pid, command, conversation_id, started_at, _session_id) in rows {
-            let alive = crate::web::command::is_process_alive(pid as u32);
+            let alive = crate::web::background::is_process_alive(pid as u32);
             if !alive {
                 dead_pids.push(pid);
             }
@@ -334,11 +334,11 @@ pub async fn handle_kill_process(
 
     let result = tokio::task::spawn_blocking(move || {
         // Kill the process tree
-        crate::web::command::kill_background_process_by_pid(pid);
+        crate::web::background::kill_background_process_by_pid(pid);
 
         // Wait briefly for process to die, then verify
         std::thread::sleep(std::time::Duration::from_millis(500));
-        let still_alive = crate::web::command::is_process_alive(pid);
+        let still_alive = crate::web::background::is_process_alive(pid);
 
         // Remove from DB regardless (stale entries get cleaned on next list)
         let conn = db.connection();

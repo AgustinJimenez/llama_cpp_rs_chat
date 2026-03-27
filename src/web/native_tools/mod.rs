@@ -24,26 +24,8 @@ impl NativeToolResult {
 }
 
 use serde_json::Value;
-use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Mutex;
 use crate::web::utils::silent_command;
-
-use lazy_static::lazy_static;
-
-lazy_static! {
-    /// Per-URL cache for web_fetch results within a session.
-    /// Prevents re-fetching the same URL multiple times in a conversation.
-    /// Key: URL, Value: fetched content string.
-    static ref WEB_FETCH_CACHE: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
-}
-
-/// Clear the web fetch cache (call on new conversation or model reload).
-pub fn clear_web_fetch_cache() {
-    if let Ok(mut cache) = WEB_FETCH_CACHE.lock() {
-        cache.clear();
-    }
-}
 
 mod parsing;
 pub use parsing::*;
@@ -55,12 +37,13 @@ use web_search::{tool_web_search_ddg_api, parse_ddg_results};
 mod web_fetch;
 pub use web_fetch::*;
 use web_fetch::tool_web_fetch;
+mod mcp_tools;
+mod telegram;
+
+pub use web_fetch::clear_web_fetch_cache;
 
 /// Maximum file size to return inline (100 KB).
 const MAX_READ_SIZE: usize = 100 * 1024;
-
-/// Maximum characters to return from web page fetch.
-const MAX_FETCH_CHARS: usize = 15_000;
 
 /// If the text is an `execute_command` tool call, extract the command string and background flag.
 /// Returns `(command, is_background)`.
@@ -350,7 +333,7 @@ pub fn dispatch_native_tool(
         let category = args.get("category").and_then(|v| v.as_str()).unwrap_or("desktop");
         let result = if category == "mcp" {
             // MCP tools: query connected servers for their tool lists
-            tool_list_mcp_tools(mcp_manager, db)
+            mcp_tools::tool_list_mcp_tools(mcp_manager, db)
         } else {
             super::chat::jinja_templates::get_tool_catalog(category)
         };
@@ -360,14 +343,14 @@ pub fn dispatch_native_tool(
         let tool_name = args.get("tool_name").and_then(|v| v.as_str()).unwrap_or("");
         // Check native tools first, then MCP tools
         let result = super::chat::jinja_templates::get_tool_schema(tool_name)
-            .or_else(|| get_mcp_tool_schema(tool_name, mcp_manager))
+            .or_else(|| mcp_tools::get_mcp_tool_schema(tool_name, mcp_manager))
             .unwrap_or_else(|| format!("Tool '{}' not found. Use list_tools to see available tools.", tool_name));
         return Some(NativeToolResult::text_only(result));
     }
 
     // Telegram notification
     if name == "send_telegram" {
-        return Some(NativeToolResult::text_only(tool_send_telegram(&args, db)));
+        return Some(NativeToolResult::text_only(telegram::tool_send_telegram(&args, db)));
     }
 
     // spawn_agent is handled in command_executor.rs (needs model access).
@@ -411,7 +394,7 @@ pub fn dispatch_native_tool(
             let wait_seconds = args.get("wait_seconds").and_then(|v| {
                 v.as_u64().or_else(|| v.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
             }).unwrap_or(0);
-            super::command::check_background_process(pid, wait_seconds)
+            super::background::check_background_process(pid, wait_seconds)
         }
         "wait" => {
             // Legacy: still supported but models should prefer check_background_process(wait_seconds=N)
@@ -426,9 +409,9 @@ pub fn dispatch_native_tool(
         "git_diff" => tool_git_diff(&args),
         "git_commit" => tool_git_commit(&args),
         // MCP server management tools
-        "list_mcp_servers" => tool_list_mcp_servers(mcp_manager, db),
-        "add_mcp_server" => tool_add_mcp_server(&args, mcp_manager, db),
-        "remove_mcp_server" => tool_remove_mcp_server(&args, mcp_manager, db),
+        "list_mcp_servers" => mcp_tools::tool_list_mcp_servers(mcp_manager, db),
+        "add_mcp_server" => mcp_tools::tool_add_mcp_server(&args, mcp_manager, db),
+        "remove_mcp_server" => mcp_tools::tool_remove_mcp_server(&args, mcp_manager, db),
         "list_background_processes" => tool_list_background_processes(),
         "open_url" => {
             let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
@@ -453,7 +436,7 @@ pub fn dispatch_native_tool(
         _ => {
             // Check if it's an MCP tool before falling back to shell
             // Lazy connect MCP servers on first tool call
-            ensure_mcp_connected(mcp_manager, db);
+            mcp_tools::ensure_mcp_connected(mcp_manager, db);
             if let Some(mgr) = mcp_manager {
                 if mgr.is_mcp_tool(&name) {
                     return Some(NativeToolResult::text_only(match mgr.call_tool(&name, args) {
@@ -467,355 +450,12 @@ pub fn dispatch_native_tool(
     }))
 }
 
-// --- Telegram notification tool ---
+// Telegram tool: see telegram.rs
+// MCP tools: see mcp_tools.rs
 
-/// Send a message via Telegram Bot API.
-///
-/// Reads bot token and chat ID from:
-/// 1. Environment variables: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
-/// 2. DB config table: telegram_bot_token, telegram_chat_id
-///
-/// Uses curl via std::process::Command to avoid requiring an async HTTP client.
-fn tool_send_telegram(
-    args: &Value,
-    db: Option<&super::database::SharedDatabase>,
-) -> String {
-    let message = match args.get("message").and_then(|v| v.as_str()) {
-        Some(m) if !m.is_empty() => m,
-        _ => return "Error: 'message' argument is required and must be non-empty".to_string(),
-    };
-
-    // Resolve bot token: env var first, then DB config
-    let bot_token = std::env::var("TELEGRAM_BOT_TOKEN").ok().or_else(|| {
-        db.and_then(|d| {
-            let config = d.load_config();
-            config.telegram_bot_token
-        })
-    });
-
-    let chat_id = std::env::var("TELEGRAM_CHAT_ID").ok().or_else(|| {
-        db.and_then(|d| {
-            let config = d.load_config();
-            config.telegram_chat_id
-        })
-    });
-
-    let bot_token = match bot_token {
-        Some(t) if !t.is_empty() => t,
-        _ => return "Error: Telegram bot token not configured. Set TELEGRAM_BOT_TOKEN env var or configure in app settings.".to_string(),
-    };
-
-    let chat_id = match chat_id {
-        Some(c) if !c.is_empty() => c,
-        _ => return "Error: Telegram chat ID not configured. Set TELEGRAM_CHAT_ID env var or configure in app settings.".to_string(),
-    };
-
-    let url = format!("https://api.telegram.org/bot{bot_token}/sendMessage");
-    let body = serde_json::json!({
-        "chat_id": chat_id,
-        "text": message,
-        "parse_mode": "Markdown"
-    });
-    let body_str = body.to_string();
-
-    // Use curl to POST the message (available on Windows 10+, Linux, macOS)
-    let result = silent_command("curl")
-        .args([
-            "-s",
-            "-X", "POST",
-            &url,
-            "-H", "Content-Type: application/json",
-            "-d", &body_str,
-            "--max-time", "10",
-        ])
-        .output();
-
-    match result {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            if output.status.success() {
-                // Parse the Telegram response to check for API-level errors
-                if let Ok(resp) = serde_json::from_str::<Value>(&stdout) {
-                    if resp.get("ok").and_then(|v| v.as_bool()) == Some(true) {
-                        "Telegram message sent successfully.".to_string()
-                    } else {
-                        let desc = resp.get("description").and_then(|v| v.as_str()).unwrap_or("Unknown error");
-                        format!("Telegram API error: {desc}")
-                    }
-                } else {
-                    "Telegram message sent (could not parse response).".to_string()
-                }
-            } else {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                format!("Failed to send Telegram message: {stderr}")
-            }
-        }
-        Err(e) => format!("Failed to run curl: {e}. Make sure curl is installed."),
-    }
-}
-
-// --- MCP server management tools ---
-
-/// Ensure MCP servers are connected (lazy init). Call before any MCP tool access.
-fn ensure_mcp_connected(
-    mcp_manager: Option<&super::mcp::McpManager>,
-    db: Option<&super::database::SharedDatabase>,
-) {
-    let (Some(mgr), Some(db)) = (mcp_manager, db) else { return };
-    // Only connect if we have configured servers but none are connected yet
-    let configs = super::database::mcp::load_mcp_servers(db);
-    if configs.is_empty() { return; }
-    let statuses = mgr.get_server_statuses();
-    let any_connected = statuses.iter().any(|s| s.connected);
-    if !any_connected {
-        eprintln!("[MCP] Lazy connect: {} configured servers, connecting on first use...", configs.len());
-        match mgr.refresh_connections(db) {
-            Ok(()) => {
-                let connected = mgr.get_connected_server_names();
-                let tools = mgr.get_tool_definitions().len();
-                eprintln!("[MCP] Lazy connect complete: {} servers, {} tools ({})",
-                    connected.len(), tools, connected.join(", "));
-            }
-            Err(e) => eprintln!("[MCP] Lazy connect failed: {e}"),
-        }
-    }
-}
-
-/// List MCP tools with brief descriptions for the tool catalog.
-fn tool_list_mcp_tools(
-    mcp_manager: Option<&super::mcp::McpManager>,
-    db: Option<&super::database::SharedDatabase>,
-) -> String {
-    let db = match db {
-        Some(d) => d,
-        None => return "No MCP servers configured.".to_string(),
-    };
-
-    let configs = super::database::mcp::load_mcp_servers(db);
-    if configs.is_empty() {
-        return "No MCP servers configured. Add servers in Settings → MCP Servers.".to_string();
-    }
-
-    // Lazy connect on first access
-    ensure_mcp_connected(mcp_manager, Some(db));
-
-    let statuses = mcp_manager.map(|mgr| mgr.get_server_statuses()).unwrap_or_default();
-    let tool_defs = mcp_manager.map(|mgr| mgr.get_tool_definitions()).unwrap_or_default();
-
-    let mut lines = Vec::new();
-    for cfg in &configs {
-        let status = statuses.iter().find(|s| s.id == cfg.id);
-        let connected = status.map(|s| s.connected).unwrap_or(false);
-        if !cfg.enabled || !connected {
-            continue;
-        }
-        lines.push(format!("## {} (connected)", cfg.name));
-        // List tools for this server with brief descriptions
-        for td in &tool_defs {
-            // MCP tool names are prefixed with mcp__<server>__
-            let prefix = format!("mcp__{}__", cfg.name);
-            if td.qualified_name.starts_with(&prefix) {
-                let brief = td.description.split('.').next().unwrap_or(&td.description);
-                lines.push(format!("  {}: {}", td.qualified_name, brief));
-            }
-        }
-    }
-
-    if lines.is_empty() {
-        return "No MCP servers are currently connected. Check Settings → MCP Servers and click Refresh.".to_string();
-    }
-    lines.join("\n")
-}
-
-/// Get the full schema for an MCP tool by name.
-fn get_mcp_tool_schema(
-    tool_name: &str,
-    mcp_manager: Option<&super::mcp::McpManager>,
-) -> Option<String> {
-    let mgr = mcp_manager?;
-    let tool_defs = mgr.get_tool_definitions();
-    let td = tool_defs.iter().find(|t| t.qualified_name == tool_name)?;
-    let schema = td.to_openai_function();
-    Some(serde_json::to_string_pretty(&schema).unwrap_or_default())
-}
-
-fn tool_list_mcp_servers(
-    mcp_manager: Option<&super::mcp::McpManager>,
-    db: Option<&super::database::SharedDatabase>,
-) -> String {
-    let db = match db {
-        Some(d) => d,
-        None => return "Error: Database not available".to_string(),
-    };
-
-    let configs = super::database::mcp::load_mcp_servers(db);
-    if configs.is_empty() {
-        return "No MCP servers configured.".to_string();
-    }
-
-    let statuses = mcp_manager.map(|mgr| mgr.get_server_statuses()).unwrap_or_default();
-
-    let mut lines = vec!["MCP Servers:".to_string()];
-    for cfg in &configs {
-        let status = statuses.iter().find(|s| s.id == cfg.id);
-        let connected = status.map(|s| s.connected).unwrap_or(false);
-        let tool_count = status.map(|s| s.tool_count).unwrap_or(0);
-        let state = if !cfg.enabled {
-            "disabled"
-        } else if connected {
-            "connected"
-        } else {
-            "disconnected"
-        };
-        let transport = match &cfg.transport {
-            super::mcp::config::McpTransport::Stdio { command, args, .. } => {
-                if args.is_empty() {
-                    format!("stdio: {command}")
-                } else {
-                    format!("stdio: {command} {}", args.join(" "))
-                }
-            }
-            super::mcp::config::McpTransport::Http { url } => format!("http: {url}"),
-        };
-        lines.push(format!(
-            "  - {} [{}] ({}) — {} tool{}",
-            cfg.name, state, transport, tool_count,
-            if tool_count == 1 { "" } else { "s" }
-        ));
-        if let Some(st) = status {
-            for tool_name in &st.tools {
-                lines.push(format!("      • {tool_name}"));
-            }
-        }
-    }
-    lines.join("\n")
-}
-
-fn tool_add_mcp_server(
-    args: &Value,
-    mcp_manager: Option<&super::mcp::McpManager>,
-    db: Option<&super::database::SharedDatabase>,
-) -> String {
-    let db = match db {
-        Some(d) => d,
-        None => return "Error: Database not available".to_string(),
-    };
-
-    let name = match args.get("name").and_then(|v| v.as_str()) {
-        Some(n) if !n.is_empty() => n.to_string(),
-        _ => return "Error: 'name' argument is required".to_string(),
-    };
-
-    let transport_str = args.get("transport").and_then(|v| v.as_str()).unwrap_or("stdio");
-
-    let transport = match transport_str {
-        "stdio" => {
-            let command = match args.get("command").and_then(|v| v.as_str()) {
-                Some(c) if !c.is_empty() => c.to_string(),
-                _ => return "Error: 'command' argument is required for stdio transport".to_string(),
-            };
-            let cmd_args: Vec<String> = args.get("args")
-                .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
-                .unwrap_or_default();
-            let env_vars: std::collections::HashMap<String, String> = args.get("env_vars")
-                .and_then(|v| v.as_object())
-                .map(|obj| obj.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect())
-                .unwrap_or_default();
-            super::mcp::config::McpTransport::Stdio { command, args: cmd_args, env_vars }
-        }
-        "http" => {
-            let url = match args.get("url").and_then(|v| v.as_str()) {
-                Some(u) if !u.is_empty() => u.to_string(),
-                _ => return "Error: 'url' argument is required for http transport".to_string(),
-            };
-            super::mcp::config::McpTransport::Http { url }
-        }
-        other => return format!("Error: Unknown transport type '{other}'. Use 'stdio' or 'http'."),
-    };
-
-    let id = uuid::Uuid::new_v4().to_string();
-    let config = super::mcp::config::McpServerConfig {
-        id,
-        name: name.clone(),
-        transport,
-        enabled: true,
-    };
-
-    if let Err(e) = super::database::mcp::save_mcp_server(db, &config) {
-        return format!("Error saving MCP server: {e}");
-    }
-
-    // Refresh connections to connect the new server
-    let mut tool_list = String::new();
-    if let Some(mgr) = mcp_manager {
-        if let Err(e) = mgr.refresh_connections(db) {
-            return format!("Server saved but failed to connect: {e}");
-        }
-        let statuses = mgr.get_server_statuses();
-        if let Some(status) = statuses.iter().find(|s| s.name == name) {
-            if status.connected {
-                tool_list = if status.tools.is_empty() {
-                    String::new()
-                } else {
-                    format!("\nAvailable tools: {}", status.tools.join(", "))
-                };
-            } else {
-                return format!("MCP server '{}' saved but failed to connect. Check the command/URL and try again.", name);
-            }
-        }
-    }
-
-    format!("Added MCP server '{name}' successfully.{tool_list}\nNote: New tools will be available in the next message.")
-}
-
-fn tool_remove_mcp_server(
-    args: &Value,
-    mcp_manager: Option<&super::mcp::McpManager>,
-    db: Option<&super::database::SharedDatabase>,
-) -> String {
-    let db = match db {
-        Some(d) => d,
-        None => return "Error: Database not available".to_string(),
-    };
-
-    let name = match args.get("name").and_then(|v| v.as_str()) {
-        Some(n) if !n.is_empty() => n,
-        _ => return "Error: 'name' argument is required".to_string(),
-    };
-
-    let configs = super::database::mcp::load_mcp_servers(db);
-    let server = configs.iter().find(|c| c.name.eq_ignore_ascii_case(name));
-
-    let server = match server {
-        Some(s) => s,
-        None => {
-            let available: Vec<&str> = configs.iter().map(|c| c.name.as_str()).collect();
-            return if available.is_empty() {
-                format!("MCP server '{name}' not found. No MCP servers are configured.")
-            } else {
-                format!("MCP server '{name}' not found. Available servers: {}", available.join(", "))
-            };
-        }
-    };
-
-    let server_id = server.id.clone();
-    let server_name = server.name.clone();
-
-    if let Err(e) = super::database::mcp::delete_mcp_server(db, &server_id) {
-        return format!("Error removing MCP server: {e}");
-    }
-
-    // Refresh to disconnect the removed server
-    if let Some(mgr) = mcp_manager {
-        let _ = mgr.refresh_connections(db);
-    }
-
-    format!("Removed MCP server '{server_name}' successfully.")
-}
 
 fn tool_list_background_processes() -> String {
-    let procs = super::command::list_all_background_processes();
+    let procs = super::background::list_all_background_processes();
     if procs.is_empty() {
         return "No background processes are currently tracked.".to_string();
     }

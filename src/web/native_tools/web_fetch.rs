@@ -2,8 +2,27 @@
 
 use serde_json::Value;
 use std::io::Read;
+use std::collections::HashMap;
+use std::sync::Mutex;
 
-use super::{WEB_FETCH_CACHE, MAX_FETCH_CHARS};
+use lazy_static::lazy_static;
+
+/// Maximum characters to return from web page fetch.
+const MAX_FETCH_CHARS: usize = 15_000;
+
+lazy_static! {
+    /// Per-URL cache for web_fetch results within a session.
+    /// Prevents re-fetching the same URL multiple times in a conversation.
+    /// Key: URL, Value: fetched content string.
+    pub(crate) static ref WEB_FETCH_CACHE: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
+}
+
+/// Clear the web fetch cache (call on new conversation or model reload).
+pub fn clear_web_fetch_cache() {
+    if let Ok(mut cache) = WEB_FETCH_CACHE.lock() {
+        cache.clear();
+    }
+}
 
 /// Fetch a web page using the configured browser backend (JS-rendered), falling back to ureq.
 /// Includes per-session URL cache and PDF text extraction.

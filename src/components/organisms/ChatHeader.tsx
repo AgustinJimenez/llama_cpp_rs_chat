@@ -3,6 +3,7 @@ import { Unplug, Activity, SlidersHorizontal, ScrollText, X } from 'lucide-react
 import { ModelSelector } from './ModelSelector';
 import { useModelContext } from '../../contexts/ModelContext';
 import { useUIContext } from '../../contexts/UIContext';
+import { getProviderLabel } from '../../utils/providerLabels';
 import type { ViewMode } from '../../types';
 
 const VIEW_MODES = [
@@ -40,19 +41,7 @@ export const ChatHeader = React.memo(function ChatHeader({ onModelUnload, onForc
   const { viewMode, setViewMode, isRightSidebarOpen, toggleRightSidebar, isConfigSidebarOpen, toggleConfigSidebar, isEventLogOpen, toggleEventLog, openProviderSelector } = useUIContext();
 
   const modelLoaded = modelStatus.loaded || activeProvider !== 'local';
-  const providerLabels: Record<string, string> = {
-    claude_code: 'Claude',
-    codex: 'Codex',
-    groq: 'Groq',
-    gemini: 'Gemini',
-    sambanova: 'SambaNova',
-    cerebras: 'Cerebras',
-    openrouter: 'OpenRouter',
-    together: 'Together',
-    deepseek: 'DeepSeek',
-    custom_openai: 'Custom',
-  };
-  const remoteProviderLabel = providerLabels[activeProvider] || activeProvider;
+  const remoteProviderLabel = getProviderLabel(activeProvider);
 
   return (
     <div className="flex items-center justify-between px-4 py-2 border-b border-border" data-testid="chat-header">
