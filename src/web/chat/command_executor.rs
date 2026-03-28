@@ -614,6 +614,7 @@ pub fn check_and_execute_command_with_tags(
     web_search_provider: Option<&str>,
     web_search_api_key: Option<&str>,
     recent_commands: &mut Vec<String>,
+    consecutive_loop_blocks: &mut usize,
     token_sender: &Option<mpsc::UnboundedSender<TokenData>>,
     token_pos: i32,
     context_size: u32,
@@ -687,7 +688,12 @@ pub fn check_and_execute_command_with_tags(
     log_info!(conversation_id, "🔧 Command detected: {}", command_text);
 
     // Loop detection: check if this command was recently executed
-    match loop_detection::check_loop(&command_text, recent_commands, tags, template_type, model, conversation_id)? {
+    match loop_detection::check_loop(&command_text, recent_commands, consecutive_loop_blocks, tags, template_type, model, conversation_id)? {
+        LoopCheckResult::ForceStop(mut result) => {
+            // Append a signal for the generation loop to stop
+            result.output_block.push_str("\n[INFINITE_LOOP_DETECTED]\n");
+            return Ok(Some(result));
+        }
         LoopCheckResult::Blocked(result) => return Ok(Some(result)),
         LoopCheckResult::Continue(fuzzy_warning) => {
             // Continue with execution; fuzzy_warning may be Some

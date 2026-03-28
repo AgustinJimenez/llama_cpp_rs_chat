@@ -103,6 +103,11 @@ export function MessageStatistics({ timings, tokensUsed, maxTokens }: MessageSta
           max retries reached
         </span>
       ) : null}
+      {timings.finishReason === 'infinite_loop' ? (
+        <span className="inline-flex items-center gap-1 text-red-400" title="Model got stuck repeating the same tool call — generation force-stopped">
+          infinite loop
+        </span>
+      ) : null}
       {bgProcesses.length > 0 ? (
         <>
           <button

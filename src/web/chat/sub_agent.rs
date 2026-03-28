@@ -163,6 +163,7 @@ pub fn run_sub_agent(
     let eos_token = model.token_eos();
     let mut last_exec_scan_pos = 0usize;
     let mut recent_commands: Vec<String> = Vec::new();
+    let mut consecutive_loop_blocks: usize = 0;
     let cancel = Arc::new(AtomicBool::new(false));
     let mut tool_calls_executed = 0u32;
     const MAX_AGENT_TOOL_CALLS: u32 = 20;
@@ -202,7 +203,7 @@ pub fn run_sub_agent(
                 &response, last_exec_scan_pos, conversation_id, model, tags,
                 None, // template_type
                 web_search_provider, web_search_api_key,
-                &mut recent_commands, token_sender, token_pos,
+                &mut recent_commands, &mut consecutive_loop_blocks, token_sender, token_pos,
                 AGENT_CTX_SIZE, Some(cancel.clone()),
                 use_rtk, use_htmd, browser_backend,
                 mcp_manager.clone(), db.clone(),

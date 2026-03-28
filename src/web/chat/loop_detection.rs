@@ -15,6 +15,9 @@ pub(crate) enum LoopCheckResult {
     Continue(Option<String>),
     /// Loop detected, return this result immediately instead of executing.
     Blocked(CommandExecutionResult),
+    /// Infinite loop: too many consecutive blocks. Generation must stop immediately.
+    /// Contains the finish reason tag for the UI.
+    ForceStop(CommandExecutionResult),
 }
 
 /// Check if the given command is being repeated (exact or fuzzy match).
@@ -23,9 +26,13 @@ pub(crate) enum LoopCheckResult {
 /// Returns `LoopCheckResult::Blocked` with a pre-built `CommandExecutionResult`
 /// if execution should be refused, or `LoopCheckResult::Continue` with an
 /// optional fuzzy warning string otherwise.
+/// Maximum consecutive blocked loops before force-stopping generation.
+const MAX_CONSECUTIVE_BLOCKS: usize = 3;
+
 pub(crate) fn check_loop(
     command_text: &str,
     recent_commands: &mut Vec<String>,
+    consecutive_blocks: &mut usize,
     tags: &ToolTags,
     template_type: Option<&str>,
     model: &llama_cpp_2::model::LlamaModel,
@@ -56,6 +63,17 @@ pub(crate) fn check_loop(
 
     recent_commands.push(normalized_cmd.clone()); // Always track, even on loop
 
+    // Helper: check if we should escalate to ForceStop
+    let maybe_force_stop = |result: CommandExecutionResult, blocks: &mut usize| -> LoopCheckResult {
+        *blocks += 1;
+        if *blocks >= MAX_CONSECUTIVE_BLOCKS {
+            eprintln!("[LOOP] {} consecutive blocks — force-stopping generation", blocks);
+            LoopCheckResult::ForceStop(result)
+        } else {
+            LoopCheckResult::Blocked(result)
+        }
+    };
+
     // Fuzzy loop: warn at 3+, block at 6+
     let fuzzy_warning = if !is_wait_or_poll && similar_count >= 3 && repeat_count < MAX_COMMAND_REPEATS {
         eprintln!("[FUZZY_LOOP] {} similar commands detected", similar_count);
@@ -73,12 +91,12 @@ pub(crate) fn check_loop(
             let model_tokens = model
                 .str_to_token(&model_block, AddBos::Never)
                 .map_err(|e| format!("Tokenization of fuzzy loop block failed: {e}"))?;
-            return Ok(LoopCheckResult::Blocked(CommandExecutionResult {
+            return Ok(maybe_force_stop(CommandExecutionResult {
                 output_block,
                 model_tokens: model_tokens.iter().map(|t| t.0).collect(),
                 model_block,
                 response_images: Vec::new(),
-            }));
+            }, consecutive_blocks));
         }
         Some(format!("WARNING: You have run {} very similar commands. You may be stuck in a loop. Try a completely different approach.", similar_count))
     } else {
@@ -113,14 +131,16 @@ pub(crate) fn check_loop(
         let model_tokens = model
             .str_to_token(&model_block, AddBos::Never)
             .map_err(|e| format!("Tokenization of loop detection block failed: {e}"))?;
-        return Ok(LoopCheckResult::Blocked(CommandExecutionResult {
+        return Ok(maybe_force_stop(CommandExecutionResult {
             output_block,
             model_tokens: model_tokens.iter().map(|t| t.0).collect(),
             model_block,
             response_images: Vec::new(),
-        }));
+        }, consecutive_blocks));
     }
 
+    // Successful execution — reset consecutive block counter
+    *consecutive_blocks = 0;
     Ok(LoopCheckResult::Continue(fuzzy_warning))
 }
 

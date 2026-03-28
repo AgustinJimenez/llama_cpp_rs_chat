@@ -268,6 +268,7 @@ struct TokenGenState {
     last_logger_sync: Instant,
     exec_tracker: ExecBlockTracker,
     recent_commands: Vec<String>,
+    consecutive_loop_blocks: usize,
     last_exec_scan_pos: usize,
     /// Why generation stopped: "stop", "length", "cancelled", "tool_calls", "error".
     finish_reason: String,
@@ -591,7 +592,7 @@ fn run_generation_loop(
             if let Some(exec_result) = check_and_execute_command_with_tags(
                 &gen.response, gen.last_exec_scan_pos, cfg.conversation_id, model, cfg.tags,
                 cfg.template_type, cfg.web_search_provider, cfg.web_search_api_key,
-                &mut gen.recent_commands, token_sender, gen.token_pos, cfg.context_size,
+                &mut gen.recent_commands, &mut gen.consecutive_loop_blocks, token_sender, gen.token_pos, cfg.context_size,
                 Some(cancel.clone()), cfg.use_rtk, cfg.use_htmd, cfg.browser_backend,
                 cfg.mcp_manager.clone(), cfg.db.clone(),
                 cfg.backend, cfg.chat_template_string,
@@ -659,6 +660,15 @@ fn run_generation_loop(
                 gen.tool_response_tokens += exec_result.model_tokens.len() as i32;
                 gen.generated_token_ids.extend(exec_result.model_tokens.iter().map(|&id| LlamaToken(id)));
                 command_executed = true;
+
+                // Force-stop on infinite loop detection
+                if exec_result.output_block.contains("[INFINITE_LOOP_DETECTED]") {
+                    eprintln!("[LOOP] Infinite loop detected — force-stopping generation");
+                    log_event(cfg.conversation_id, "infinite_loop", "Force-stopped: model stuck in infinite tool call loop");
+                    gen.finish_reason = "infinite_loop".to_string();
+                    hit_stop_condition = true;
+                    break;
+                }
 
                 // Mid-task compaction: if tool outputs are eating too much context,
                 // summarize older tool results in DB for the next turn.
@@ -1417,6 +1427,7 @@ pub async fn generate_llama_response(
         last_logger_sync: Instant::now(),
         exec_tracker: ExecBlockTracker::new(),
         recent_commands: Vec::new(),
+        consecutive_loop_blocks: 0,
         last_exec_scan_pos: 0,
         finish_reason: "stop".to_string(),
         tool_response_tokens: 0,
