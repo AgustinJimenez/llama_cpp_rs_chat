@@ -170,6 +170,9 @@ pub fn maybe_compact_conversation(
         }
     }
 
+    // Clear compaction status indicator
+    crate::web::event_log::clear_global_status();
+
     // Reload conversation text from DB (now reflects compaction)
     match db.get_conversation_as_text(conversation_id) {
         Ok(text) => {
