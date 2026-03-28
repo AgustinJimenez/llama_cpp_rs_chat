@@ -46,9 +46,28 @@ function freshResponseMatches(content: string): { start: number; end: number; co
 
 function parseXmlParams(body: string): Record<string, unknown> {
   const args: Record<string, unknown> = {};
-  const re = /<parameter=([^>]+)>([\s\S]*?)<\/parameter>/g;
+  // Find all <parameter=key> opening tags and their positions
+  const openRe = /<parameter=([^>]+)>/g;
+  const opens: { key: string; contentStart: number }[] = [];
   let m;
-  while ((m = re.exec(body)) !== null) args[m[1].trim()] = m[2].trim();
+  while ((m = openRe.exec(body)) !== null) {
+    opens.push({ key: m[1].trim(), contentStart: m.index + m[0].length });
+  }
+  // For each opening tag, find its closing </parameter>
+  // Use the next opening tag's position as boundary, or end of body for the last one
+  for (let i = 0; i < opens.length; i++) {
+    const start = opens[i].contentStart;
+    const boundary = i + 1 < opens.length
+      ? body.lastIndexOf('</parameter>', opens[i + 1].contentStart)
+      : body.lastIndexOf('</parameter>');
+    if (boundary > start) {
+      args[opens[i].key] = body.slice(start, boundary).trim();
+    } else {
+      // No closing tag — take everything to end (or next param)
+      const end = i + 1 < opens.length ? opens[i + 1].contentStart - `<parameter=${opens[i + 1].key}>`.length : body.length;
+      args[opens[i].key] = body.slice(start, end).replace(/<\/parameter>\s*$/, '').trim();
+    }
+  }
   return args;
 }
 
