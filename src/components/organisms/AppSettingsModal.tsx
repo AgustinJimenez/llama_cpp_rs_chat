@@ -246,9 +246,13 @@ interface AppSettingsModalProps {
   onClose: () => void;
 }
 
+const TABS = ['General', 'Providers', 'Notifications', 'MCP'] as const;
+type Tab = typeof TABS[number];
+
 export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onClose }) => {
   const { config, updateConfig } = useSettings();
   const [localConfig, setLocalConfig] = useState<SamplerConfig | null>(null);
+  const [activeTab, setActiveTab] = useState<Tab>('General');
 
   useEffect(() => {
     if (config) setLocalConfig(config);
@@ -279,133 +283,155 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-2 max-h-[60vh] overflow-y-auto">
-          {/* Web Search Provider */}
-          <div className="space-y-2">
-            <label htmlFor="web-search-provider" className="text-sm font-medium text-foreground">
-              Web Search Provider
-            </label>
-            <p className="text-xs text-muted-foreground">
-              Choose which search engine the model uses for web_search tool calls.
-            </p>
-            <select
-              id="web-search-provider"
-              className="w-full px-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground"
-              value={provider}
-              onChange={(e) =>
-                setLocalConfig(prev =>
-                  prev ? { ...prev, web_search_provider: e.target.value } : prev
-                )
-              }
+        <div className="flex border-b border-border mb-4">
+          {TABS.map(tab => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setActiveTab(tab)}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === tab
+                  ? 'border-primary text-foreground'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
             >
-              <option value="DuckDuckGo">DuckDuckGo (API + HTML scraping)</option>
-              <option value="Brave">Brave (API key required)</option>
-              <option value="Google">Google (via headless Chrome)</option>
-            </select>
-          </div>
+              {tab}
+            </button>
+          ))}
+        </div>
 
-          {provider === 'Brave' ? (
-            <div className="space-y-2">
-              <label htmlFor="brave-api-key" className="text-sm font-medium text-foreground">
-                Brave API Key
-              </label>
-              <p className="text-xs text-muted-foreground">
-                Stored in your local database and used only for Brave web_search.
-              </p>
-              <input
-                id="brave-api-key"
-                type="password"
-                autoComplete="off"
-                className="w-full px-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground"
-                value={apiKey}
-                placeholder="BRAVE_SEARCH_API_KEY"
-                onChange={(e) =>
+        <div className="py-2 max-h-[60vh] overflow-y-auto">
+          {activeTab === 'General' && (
+            <div className="space-y-4">
+              {/* Web Search Provider */}
+              <div className="space-y-2">
+                <label htmlFor="web-search-provider" className="text-sm font-medium text-foreground">
+                  Web Search Provider
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  Choose which search engine the model uses for web_search tool calls.
+                </p>
+                <select
+                  id="web-search-provider"
+                  className="w-full px-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground"
+                  value={provider}
+                  onChange={(e) =>
+                    setLocalConfig(prev =>
+                      prev ? { ...prev, web_search_provider: e.target.value } : prev
+                    )
+                  }
+                >
+                  <option value="DuckDuckGo">DuckDuckGo (API + HTML scraping)</option>
+                  <option value="Brave">Brave (API key required)</option>
+                  <option value="Google">Google (via headless Chrome)</option>
+                </select>
+              </div>
+
+              {provider === 'Brave' ? (
+                <div className="space-y-2">
+                  <label htmlFor="brave-api-key" className="text-sm font-medium text-foreground">
+                    Brave API Key
+                  </label>
+                  <p className="text-xs text-muted-foreground">
+                    Stored in your local database and used only for Brave web_search.
+                  </p>
+                  <input
+                    id="brave-api-key"
+                    type="password"
+                    autoComplete="off"
+                    className="w-full px-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground"
+                    value={apiKey}
+                    placeholder="BRAVE_SEARCH_API_KEY"
+                    onChange={(e) =>
+                      setLocalConfig(prev =>
+                        prev ? { ...prev, web_search_api_key: e.target.value } : prev
+                      )
+                    }
+                  />
+                </div>
+              ) : null}
+
+              {/* Browser Backend */}
+              <div className="space-y-2">
+                <label htmlFor="web-browser-backend" className="text-sm font-medium text-foreground">
+                  Browser Backend
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  Browser engine used for web_fetch and Chrome-based web_search. Lighter backends use less RAM.
+                </p>
+                <select
+                  id="web-browser-backend"
+                  className="w-full px-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground"
+                  value={browserBackend}
+                  onChange={(e) =>
+                    setLocalConfig(prev =>
+                      prev ? { ...prev, web_browser_backend: e.target.value } : prev
+                    )
+                  }
+                >
+                  <option value="chrome">Chrome (standard headless)</option>
+                  <option value="chrome-headless-shell">Chrome Headless Shell (lightweight)</option>
+                  <option value="agent-browser">Agent Browser (Playwright-based)</option>
+                  <option value="none">None (HTTP-only, no JS rendering)</option>
+                </select>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'Providers' && (
+            <div className="space-y-4">
+              <ProviderApiKeysSection
+                providerApiKeys={localConfig?.provider_api_keys || '{}'}
+                onChange={(json) =>
                   setLocalConfig(prev =>
-                    prev ? { ...prev, web_search_api_key: e.target.value } : prev
+                    prev ? { ...prev, provider_api_keys: json } : prev
                   )
                 }
               />
             </div>
-          ) : null}
+          )}
 
-          {/* Browser Backend */}
-          <div className="space-y-2">
-            <label htmlFor="web-browser-backend" className="text-sm font-medium text-foreground">
-              Browser Backend
-            </label>
-            <p className="text-xs text-muted-foreground">
-              Browser engine used for web_fetch and Chrome-based web_search. Lighter backends use less RAM.
-            </p>
-            <select
-              id="web-browser-backend"
-              className="w-full px-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground"
-              value={browserBackend}
-              onChange={(e) =>
-                setLocalConfig(prev =>
-                  prev ? { ...prev, web_browser_backend: e.target.value } : prev
-                )
-              }
-            >
-              <option value="chrome">Chrome (standard headless)</option>
-              <option value="chrome-headless-shell">Chrome Headless Shell (lightweight)</option>
-              <option value="agent-browser">Agent Browser (Playwright-based)</option>
-              <option value="none">None (HTTP-only, no JS rendering)</option>
-            </select>
-          </div>
+          {activeTab === 'Notifications' && (
+            <div className="space-y-4">
+              {/* Telegram Notifications */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">
+                  Telegram Notifications
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  Let the model send you Telegram messages (task completion, errors). Create a bot via @BotFather.
+                </p>
+                <input
+                  type="text"
+                  placeholder="Bot Token (from @BotFather)"
+                  className="w-full px-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground placeholder:text-muted-foreground"
+                  value={localConfig?.telegram_bot_token || ''}
+                  onChange={(e) =>
+                    setLocalConfig(prev =>
+                      prev ? { ...prev, telegram_bot_token: e.target.value } : prev
+                    )
+                  }
+                />
+                <input
+                  type="text"
+                  placeholder="Chat ID (send /start to your bot, then check)"
+                  className="w-full px-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground placeholder:text-muted-foreground"
+                  value={localConfig?.telegram_chat_id || ''}
+                  onChange={(e) =>
+                    setLocalConfig(prev =>
+                      prev ? { ...prev, telegram_chat_id: e.target.value } : prev
+                    )
+                  }
+                />
+              </div>
+            </div>
+          )}
 
-          {/* Separator */}
-          <div className="border-t border-border my-2" />
-
-          {/* Telegram Notifications */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">
-              Telegram Notifications
-            </label>
-            <p className="text-xs text-muted-foreground">
-              Let the model send you Telegram messages (task completion, errors). Create a bot via @BotFather.
-            </p>
-            <input
-              type="text"
-              placeholder="Bot Token (from @BotFather)"
-              className="w-full px-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground placeholder:text-muted-foreground"
-              value={localConfig?.telegram_bot_token || ''}
-              onChange={(e) =>
-                setLocalConfig(prev =>
-                  prev ? { ...prev, telegram_bot_token: e.target.value } : prev
-                )
-              }
-            />
-            <input
-              type="text"
-              placeholder="Chat ID (send /start to your bot, then check)"
-              className="w-full px-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground placeholder:text-muted-foreground"
-              value={localConfig?.telegram_chat_id || ''}
-              onChange={(e) =>
-                setLocalConfig(prev =>
-                  prev ? { ...prev, telegram_chat_id: e.target.value } : prev
-                )
-              }
-            />
-          </div>
-
-          {/* Separator */}
-          <div className="border-t border-border my-2" />
-
-          {/* Cloud Provider API Keys */}
-          <ProviderApiKeysSection
-            providerApiKeys={localConfig?.provider_api_keys || '{}'}
-            onChange={(json) =>
-              setLocalConfig(prev =>
-                prev ? { ...prev, provider_api_keys: json } : prev
-              )
-            }
-          />
-
-          {/* Separator */}
-          <div className="border-t border-border my-2" />
-
-          {/* MCP Servers */}
-          <McpSettingsSection />
+          {activeTab === 'MCP' && (
+            <div className="space-y-4">
+              <McpSettingsSection />
+            </div>
+          )}
         </div>
 
         <DialogFooter>

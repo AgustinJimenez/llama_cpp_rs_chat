@@ -212,18 +212,40 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
     setConversationToDelete(null);
   };
 
+  const { isMobileSidebarOpen, closeMobileSidebar } = useUIContext();
+
+  const handleNewChat = useCallback(() => {
+    onNewChat();
+    closeMobileSidebar();
+  }, [onNewChat, closeMobileSidebar]);
+
+  const handleLoadConversation = useCallback((name: string) => {
+    onLoadConversation(name);
+    closeMobileSidebar();
+  }, [onLoadConversation, closeMobileSidebar]);
+
   return (
     <>
-      {/* Sidebar — always visible */}
+      {/* Mobile backdrop */}
+      {isMobileSidebarOpen ? (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          onClick={closeMobileSidebar}
+        />
+      ) : null}
+
+      {/* Sidebar — hidden on mobile by default, overlay when toggled */}
       <div
-        className="fixed top-0 left-0 h-screen w-[240px] bg-card border-r border-border z-40 flex flex-col"
+        className={`fixed top-0 left-0 h-screen w-[240px] bg-card border-r border-border z-50 flex flex-col transition-transform duration-200 md:translate-x-0 md:z-40 ${
+          isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
         data-testid="sidebar"
       >
         {/* Top actions */}
         <div className="px-3 pt-3 pb-2 space-y-0.5">
           <button
             className="flex items-center gap-2 w-full px-3 py-2 text-sm text-foreground/70 hover:text-foreground hover:bg-muted rounded-lg transition-colors"
-            onClick={onNewChat}
+            onClick={handleNewChat}
             data-testid="new-chat-btn"
           >
             <Plus size={16} />
@@ -275,7 +297,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
                     isActive={currentConversationId === conversation.name}
                     isGenerating={activeGeneratingId === conversation.name}
                     flatIndex={flatIndex}
-                    onLoad={onLoadConversation}
+                    onLoad={handleLoadConversation}
                     onDelete={handleDeleteClick}
                   />
                 ))}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Unplug, Activity, SlidersHorizontal, ScrollText, X } from 'lucide-react';
+import { Unplug, Activity, SlidersHorizontal, ScrollText, X, Menu } from 'lucide-react';
 import { ModelSelector } from './ModelSelector';
 import { useModelContext } from '../../contexts/ModelContext';
 import { useUIContext } from '../../contexts/UIContext';
@@ -38,15 +38,23 @@ interface ChatHeaderProps {
 
 export const ChatHeader = React.memo(function ChatHeader({ onModelUnload, onForceUnload }: ChatHeaderProps) {
   const { status: modelStatus, isLoading: isModelLoading, loadingAction, hasStatusError, activeProvider, activeProviderModel } = useModelContext();
-  const { viewMode, setViewMode, isRightSidebarOpen, toggleRightSidebar, isConfigSidebarOpen, toggleConfigSidebar, isEventLogOpen, toggleEventLog, openProviderSelector } = useUIContext();
+  const { viewMode, setViewMode, isRightSidebarOpen, toggleRightSidebar, isConfigSidebarOpen, toggleConfigSidebar, isEventLogOpen, toggleEventLog, openProviderSelector, toggleMobileSidebar } = useUIContext();
 
   const modelLoaded = modelStatus.loaded || activeProvider !== 'local';
   const remoteProviderLabel = getProviderLabel(activeProvider);
 
   return (
     <div className="flex items-center justify-between px-4 py-2 border-b border-border" data-testid="chat-header">
-      {/* Left: model selector + unload */}
+      {/* Left: hamburger (mobile) + model selector + unload */}
       <div className="flex items-center gap-1 min-w-0">
+        <button
+          onClick={toggleMobileSidebar}
+          className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors md:hidden"
+          title="Toggle sidebar"
+          aria-label="Toggle sidebar"
+        >
+          <Menu className="h-4 w-4" />
+        </button>
         <ModelSelector
           currentModelPath={
             activeProvider !== 'local'
@@ -83,8 +91,10 @@ export const ChatHeader = React.memo(function ChatHeader({ onModelUnload, onForc
       </div>
 
       {/* Right: context + view toggle + monitor */}
-      {modelLoaded ? <div className="flex items-center gap-3">
-          <ViewModeToggle viewMode={viewMode} onChange={setViewMode} />
+      {modelLoaded ? <div className="flex items-center gap-1.5 md:gap-3">
+          <div className="hidden md:block">
+            <ViewModeToggle viewMode={viewMode} onChange={setViewMode} />
+          </div>
 
           <button
             onClick={toggleEventLog}

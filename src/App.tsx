@@ -9,6 +9,7 @@ import { ConnectionBanner, MessageInput } from './components/molecules';
 import { useModelContext } from './contexts/ModelContext';
 import { useChatContext } from './contexts/ChatContext';
 import { useUIContext } from './contexts/UIContext';
+import { Menu } from 'lucide-react';
 import type { SamplerConfig } from './types';
 import { DownloadFloat } from './components/organisms/DownloadFloat';
 import { isTauriEnv } from './utils/tauri';
@@ -145,7 +146,7 @@ function MainContent({
 }) {
   const { status: modelStatus, activeProvider, activeProviderModel, setRemoteProvider, setLocalProvider } = useModelContext();
   const { messages, lastTimings, tokensUsed, maxTokens, streamStatus, providerRef } = useChatContext();
-  const { isProviderSelectorOpen, closeProviderSelector, openModelConfig } = useUIContext();
+  const { isProviderSelectorOpen, closeProviderSelector, openModelConfig, toggleMobileSidebar } = useUIContext();
 
   // Sync provider ref with model context
   if (providerRef) {
@@ -153,7 +154,7 @@ function MainContent({
   }
 
   return (
-    <div className="flex-1 ml-[240px]">
+    <div className="flex-1 ml-0 md:ml-[240px]">
       <div className="flex flex-col h-full">
         <ConnectionBanner />
         {/* Global provider selector — accessible from welcome screen and header */}
@@ -177,12 +178,22 @@ function MainContent({
             onModelUnload={handleModelUnload}
             onForceUnload={handleForceUnload}
           />
-        ) : null}
+        ) : (
+          /* Mobile hamburger when header is hidden */
+          <button
+            onClick={toggleMobileSidebar}
+            className="absolute top-3 left-3 z-30 p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors md:hidden"
+            title="Toggle sidebar"
+            aria-label="Toggle sidebar"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+        )}
 
         {messages.length === 0 ? (
           <WelcomeMessage>
             {(modelStatus.loaded || activeProvider !== 'local') ? (
-              <div className="w-full max-w-2xl px-6">
+              <div className="w-full max-w-2xl px-3 md:px-6">
                 <MessageInput />
               </div>
             ) : null}
@@ -192,7 +203,7 @@ function MainContent({
             <MessagesArea />
             <ConversationLog />
             {(modelStatus.loaded || activeProvider !== 'local') ? (
-              <div className="px-6 pb-4 pt-2 animate-in slide-in-from-bottom-4 duration-300" data-testid="input-container">
+              <div className="px-3 md:px-6 pb-4 pt-2 animate-in slide-in-from-bottom-4 duration-300" data-testid="input-container">
                 <div className="max-w-3xl mx-auto">
                   <MessageInput timings={lastTimings} tokensUsed={tokensUsed} maxTokens={maxTokens} streamStatus={streamStatus} />
                 </div>

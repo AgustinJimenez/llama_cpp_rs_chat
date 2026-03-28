@@ -21,6 +21,9 @@ interface UIContextValue {
   isProviderSelectorOpen: boolean;
   openProviderSelector: () => void;
   closeProviderSelector: () => void;
+  isMobileSidebarOpen: boolean;
+  toggleMobileSidebar: () => void;
+  closeMobileSidebar: () => void;
 }
 
 
@@ -36,6 +39,7 @@ export function UIProvider({ children }: { children: ReactNode }) {
   const [isModelConfigOpen, setIsModelConfigOpen] = useState(false);
   const [isEventLogOpen, setIsEventLogOpen] = useState(false);
   const [isProviderSelectorOpen, setIsProviderSelectorOpen] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   const setViewMode = useCallback((mode: ViewMode) => {
     setViewModeRaw(mode);
@@ -53,6 +57,8 @@ export function UIProvider({ children }: { children: ReactNode }) {
   const toggleEventLog = useCallback(() => setIsEventLogOpen(p => !p), []);
   const openProviderSelector = useCallback(() => setIsProviderSelectorOpen(true), []);
   const closeProviderSelector = useCallback(() => setIsProviderSelectorOpen(false), []);
+  const toggleMobileSidebar = useCallback(() => setIsMobileSidebarOpen(p => !p), []);
+  const closeMobileSidebar = useCallback(() => setIsMobileSidebarOpen(false), []);
 
   const value = useMemo<UIContextValue>(() => ({
     viewMode, setViewMode,
@@ -62,6 +68,7 @@ export function UIProvider({ children }: { children: ReactNode }) {
     isModelConfigOpen, openModelConfig, closeModelConfig,
     isEventLogOpen, toggleEventLog,
     isProviderSelectorOpen, openProviderSelector, closeProviderSelector,
+    isMobileSidebarOpen, toggleMobileSidebar, closeMobileSidebar,
   }), [
     viewMode, setViewMode,
     isRightSidebarOpen, toggleRightSidebar, closeRightSidebar,
@@ -70,6 +77,7 @@ export function UIProvider({ children }: { children: ReactNode }) {
     isModelConfigOpen, openModelConfig, closeModelConfig,
     isEventLogOpen, toggleEventLog,
     isProviderSelectorOpen, openProviderSelector, closeProviderSelector,
+    isMobileSidebarOpen, toggleMobileSidebar, closeMobileSidebar,
   ]);
 
   return (

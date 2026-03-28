@@ -100,12 +100,30 @@ const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bm
 const TEXT_EXTENSIONS = new Set([
   '.txt', '.json', '.xml', '.md', '.rs', '.py', '.js', '.ts', '.tsx',
   '.jsx', '.html', '.css', '.toml', '.yaml', '.yml', '.sh', '.bat', '.c',
-  '.cpp', '.h', '.go', '.java', '.rb', '.php', '.sql', '.log', '.cfg', '.ini',
+  '.cpp', '.h', '.hpp', '.cs', '.go', '.java', '.rb', '.php', '.sql',
+  '.log', '.cfg', '.ini', '.nim', '.ex', '.exs', '.kt', '.swift', '.r',
+  '.lua', '.pl', '.scala', '.zig', '.v', '.dart',
 ]);
 const DOCUMENT_EXTENSIONS = new Set([
   '.pdf', '.docx', '.pptx', '.xlsx', '.xls', '.xlsm',
   '.epub', '.odt', '.rtf', '.zip', '.csv', '.eml',
 ]);
+
+const MAX_TEXT_FILE_SIZE = 100 * 1024; // 100KB
+
+// Map extensions to markdown language identifiers for code blocks
+const EXT_TO_LANG: Record<string, string> = {
+  '.py': 'python', '.js': 'javascript', '.ts': 'typescript', '.tsx': 'tsx',
+  '.jsx': 'jsx', '.rs': 'rust', '.go': 'go', '.java': 'java', '.c': 'c',
+  '.cpp': 'cpp', '.h': 'c', '.hpp': 'cpp', '.cs': 'csharp', '.rb': 'ruby',
+  '.php': 'php', '.html': 'html', '.css': 'css', '.json': 'json',
+  '.yaml': 'yaml', '.yml': 'yaml', '.toml': 'toml', '.md': 'markdown',
+  '.txt': 'text', '.sh': 'bash', '.bat': 'batch', '.sql': 'sql',
+  '.nim': 'nim', '.ex': 'elixir', '.exs': 'elixir', '.kt': 'kotlin',
+  '.swift': 'swift', '.r': 'r', '.lua': 'lua', '.pl': 'perl',
+  '.scala': 'scala', '.zig': 'zig', '.v': 'v', '.dart': 'dart',
+  '.xml': 'xml', '.log': 'text', '.cfg': 'ini', '.ini': 'ini',
+};
 
 function getFileExtension(name: string): string {
   const dot = name.lastIndexOf('.');
@@ -216,6 +234,11 @@ export const MessageInput: React.FC<MessageInputProps> = ({
 
       // Text/code files → read directly in browser
       if (TEXT_EXTENSIONS.has(ext)) {
+        if (file.size > MAX_TEXT_FILE_SIZE) {
+          console.warn(`File ${file.name} exceeds 100KB limit (${(file.size / 1024).toFixed(1)}KB)`);
+          alert(`File "${file.name}" exceeds the 100KB size limit (${(file.size / 1024).toFixed(1)}KB).`);
+          continue;
+        }
         const text = await file.text();
         setAttachedFiles(prev => [...prev, { name: file.name, text }]);
         continue;
@@ -245,6 +268,11 @@ export const MessageInput: React.FC<MessageInputProps> = ({
 
       // Unknown extension — try as text
       try {
+        if (file.size > MAX_TEXT_FILE_SIZE) {
+          console.warn(`File ${file.name} exceeds 100KB limit (${(file.size / 1024).toFixed(1)}KB)`);
+          alert(`File "${file.name}" exceeds the 100KB size limit (${(file.size / 1024).toFixed(1)}KB).`);
+          continue;
+        }
         const text = await file.text();
         setAttachedFiles(prev => [...prev, { name: file.name, text }]);
       } catch {
@@ -258,11 +286,13 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     const hasContent = message.trim() || attachedImages.length > 0 || attachedFiles.length > 0;
     if (!hasContent || disabled || isExtracting > 0) return;
 
-    // Build message with file context prepended
+    // Build message with file context prepended as code blocks
     let finalMessage = '';
     if (attachedFiles.length > 0) {
       for (const f of attachedFiles) {
-        finalMessage += `[File: ${f.name}]\n${f.text}\n\n`;
+        const ext = getFileExtension(f.name);
+        const lang = EXT_TO_LANG[ext] || 'text';
+        finalMessage += `File: ${f.name}\n\`\`\`${lang}\n${f.text}\n\`\`\`\n\n`;
       }
     }
     finalMessage += message.trim() || (attachedImages.length > 0 ? 'What is in this image?' : '');
@@ -438,7 +468,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
         multiple
         className="hidden"
         onChange={handleFileInputChange}
-        accept=".pdf,.docx,.pptx,.xlsx,.xls,.xlsm,.epub,.odt,.rtf,.zip,.csv,.eml,.txt,.json,.xml,.md,.rs,.py,.js,.ts,.tsx,.jsx,.html,.css,.toml,.yaml,.yml,.sh,.bat,.c,.cpp,.h,.go,.java,.rb,.php,.sql,.log,.png,.jpg,.jpeg,.gif,.webp"
+        accept=".pdf,.docx,.pptx,.xlsx,.xls,.xlsm,.epub,.odt,.rtf,.zip,.csv,.eml,.txt,.json,.xml,.md,.rs,.py,.js,.ts,.tsx,.jsx,.html,.css,.toml,.yaml,.yml,.sh,.bat,.c,.cpp,.h,.hpp,.cs,.go,.java,.rb,.php,.sql,.log,.cfg,.ini,.nim,.ex,.exs,.kt,.swift,.r,.lua,.pl,.scala,.zig,.v,.dart,.png,.jpg,.jpeg,.gif,.webp"
       />
       <div className={`flat-input-container flex items-end gap-2 px-5 py-2.5 ${isMultiline ? '!rounded-2xl' : ''}`}>
         <button
