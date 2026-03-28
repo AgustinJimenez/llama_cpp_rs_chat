@@ -527,6 +527,8 @@ pub struct ConversationFile {
     pub timestamp: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
 }
 
 #[derive(Serialize)]

@@ -99,6 +99,7 @@ pub async fn handle_get_conversations(
                     display_name,
                     timestamp: timestamp_part,
                     title,
+                    provider_id: record.provider_id.clone(),
                 });
             }
         }

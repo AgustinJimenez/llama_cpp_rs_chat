@@ -115,6 +115,12 @@ async fn handle_request_impl(
         (&Method::POST, "/api/config/provider-keys") => {
             web::routes::config::handle_set_provider_key(req, db.clone()).await?
         }
+        (&Method::GET, "/api/config/active-provider") => {
+            web::routes::config::handle_get_active_provider(db.clone()).await?
+        }
+        (&Method::POST, "/api/config/active-provider") => {
+            web::routes::config::handle_set_active_provider(req, db.clone()).await?
+        }
 
         // Conversation config (must be before the catch-all /api/conversation/ route)
         (&Method::GET, path) if path.starts_with("/api/conversations/") && path.ends_with("/config") => {

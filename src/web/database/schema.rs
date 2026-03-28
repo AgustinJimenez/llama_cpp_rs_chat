@@ -536,6 +536,16 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         [],
     );
 
+    // Active provider preference (persisted so API clients can query it)
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN active_provider TEXT DEFAULT 'local'",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN active_provider_model TEXT",
+        [],
+    );
+
     conn.execute(
         "INSERT OR IGNORE INTO config (id, updated_at) VALUES (1, ?1)",
         [super::current_timestamp_millis()],

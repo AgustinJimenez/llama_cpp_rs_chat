@@ -254,3 +254,59 @@ pub async fn handle_set_provider_key(
         Err(e) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Failed: {e}"))),
     }
 }
+
+/// GET /api/config/active-provider — get active provider and model
+pub async fn handle_get_active_provider(
+    db: SharedDatabase,
+) -> Result<Response<Body>, Infallible> {
+    let conn = db.connection();
+    let result: (String, Option<String>) = conn
+        .query_row(
+            "SELECT COALESCE(active_provider, 'local'), active_provider_model FROM config LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap_or(("local".to_string(), None));
+
+    Ok(json_raw(
+        StatusCode::OK,
+        serde_json::to_string(&serde_json::json!({
+            "provider": result.0,
+            "model": result.1,
+        })).unwrap(),
+    ))
+}
+
+/// POST /api/config/active-provider — set active provider and model
+pub async fn handle_set_active_provider(
+    req: Request<Body>,
+    db: SharedDatabase,
+) -> Result<Response<Body>, Infallible> {
+    let body = match hyper::body::to_bytes(req.into_body()).await {
+        Ok(b) => b,
+        Err(_) => return Ok(json_error(StatusCode::BAD_REQUEST, "Failed to read body")),
+    };
+    let json: serde_json::Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(_) => return Ok(json_error(StatusCode::BAD_REQUEST, "Invalid JSON")),
+    };
+
+    let provider = json.get("provider").and_then(|p| p.as_str()).unwrap_or("local");
+    let model = json.get("model").and_then(|m| m.as_str());
+
+    let conn = db.connection();
+    match conn.execute(
+        "UPDATE config SET active_provider = ?1, active_provider_model = ?2",
+        rusqlite::params![provider, model],
+    ) {
+        Ok(_) => Ok(json_raw(
+            StatusCode::OK,
+            serde_json::to_string(&serde_json::json!({
+                "success": true,
+                "provider": provider,
+                "model": model,
+            })).unwrap(),
+        )),
+        Err(e) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Failed: {e}"))),
+    }
+}
