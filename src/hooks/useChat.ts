@@ -100,6 +100,9 @@ export function useChat() {
   const streamSeqRef = useRef(0);
   const transportRef = useRef<ChatTransport>(createChatTransport());
 
+  // Track compaction state to reload messages after compaction completes
+  const compactingRef = useRef(false);
+
   // Auto-continue: when generation hits max_tokens (not EOS), re-send "Continue"
   const MAX_AUTO_CONTINUES = 3;
   const autoContinueCountRef = useRef(0);
@@ -236,6 +239,37 @@ export function useChat() {
         onStatus: (message) => {
           if (streamSeqRef.current !== streamSeq) return;
           setStreamStatus(message);
+          // After compaction completes, reload messages from DB
+          // so the frontend reflects the compacted state (summary replaces old messages)
+          if (compactingRef.current && (!message || !message.includes('Compacting'))) {
+            compactingRef.current = false;
+            const convId = currentConversationId;
+            if (convId) {
+              getConversation(convId).then(data => {
+                if (data.messages) {
+                  const mapped: Message[] = (data.messages as Array<Record<string, unknown>>).map((msg: Record<string, unknown>) => ({
+                    id: msg.id as string,
+                    role: msg.role as Message['role'],
+                    content: msg.content as string,
+                    timestamp: msg.timestamp as number,
+                  }));
+                  // Keep only non-system, non-tool-result messages + first system
+                  let systemSeen = false;
+                  const filtered = mapped.filter((m: { role: string; content: string }) => {
+                    if (m.role === 'system') {
+                      if (!systemSeen) { systemSeen = true; return true; }
+                      return false;
+                    }
+                    return !m.content.startsWith('[TOOL_RESULTS]');
+                  });
+                  setMessages(filtered);
+                }
+              }).catch(() => {});
+            }
+          }
+          if (message?.includes('Compacting')) {
+            compactingRef.current = true;
+          }
         },
         onComplete: (_messageId, conversationId, tokenCount, maxTokenCount, timings) => {
           if (streamSeqRef.current !== streamSeq) return;
