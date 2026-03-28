@@ -20,6 +20,19 @@ use crate::sys_debug;
 #[cfg(not(feature = "mock"))]
 use crate::web::worker::worker_bridge::SharedWorkerBridge;
 
+/// GET /api/tools/available — list all available tools with their schemas
+pub async fn handle_get_available_tools(
+    #[cfg(not(feature = "mock"))] _bridge: SharedWorkerBridge,
+    #[cfg(feature = "mock")] _bridge: (),
+) -> Result<Response<Body>, Infallible> {
+    let core_tools = crate::web::chat::jinja_templates::get_available_tools();
+    let body = serde_json::json!({
+        "core_tools": core_tools.len(),
+        "tools": core_tools,
+    });
+    Ok(json_raw(StatusCode::OK, serde_json::to_string(&body).unwrap()))
+}
+
 #[derive(serde::Deserialize)]
 struct ToolExecuteRequest {
     tool_name: String,

@@ -5,7 +5,7 @@ use serde::Serialize;
 
 /// Standard CORS headers
 const CORS_ORIGIN: &str = "*";
-const CORS_METHODS: &str = "GET, POST, PUT, DELETE, OPTIONS";
+const CORS_METHODS: &str = "GET, POST, PUT, PATCH, DELETE, OPTIONS";
 const CORS_HEADERS: &str = "content-type, authorization";
 
 /// Apply CORS headers to a response builder

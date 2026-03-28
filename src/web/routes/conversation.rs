@@ -1,6 +1,7 @@
 // Conversation route handlers
 
-use hyper::{Body, Response, StatusCode};
+use hyper::{Body, Request, Response, StatusCode};
+use serde_json::{json, Value};
 use std::convert::Infallible;
 
 use crate::web::{
@@ -220,6 +221,67 @@ pub async fn handle_truncate_conversation(
                 "Failed to truncate conversation",
             ))
         }
+    }
+}
+
+/// PATCH /api/conversations/{id}/title — rename a conversation
+pub async fn handle_rename_conversation(
+    req: Request<Body>,
+    conversation_id: &str,
+    db: SharedDatabase,
+) -> Result<Response<Body>, Infallible> {
+    let body = match hyper::body::to_bytes(req.into_body()).await {
+        Ok(b) => b,
+        Err(_) => return Ok(json_error(StatusCode::BAD_REQUEST, "Failed to read body")),
+    };
+    let json: Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(_) => return Ok(json_error(StatusCode::BAD_REQUEST, "Invalid JSON")),
+    };
+    let title = match json.get("title").and_then(|t| t.as_str()) {
+        Some(t) if !t.is_empty() => t,
+        _ => return Ok(json_error(StatusCode::BAD_REQUEST, "title is required")),
+    };
+
+    let conn = db.connection();
+    match conn.execute(
+        "UPDATE conversations SET title = ?1, updated_at = ?2 WHERE id = ?3",
+        rusqlite::params![title, chrono::Utc::now().timestamp(), conversation_id.trim_end_matches(".txt")],
+    ) {
+        Ok(0) => Ok(json_error(StatusCode::NOT_FOUND, "Conversation not found")),
+        Ok(_) => Ok(json_raw(
+            StatusCode::OK,
+            serde_json::to_string(&json!({"success": true, "title": title})).unwrap(),
+        )),
+        Err(e) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Failed: {e}"))),
+    }
+}
+
+/// POST /api/conversations — create a new empty conversation
+pub async fn handle_create_conversation(
+    req: Request<Body>,
+    db: SharedDatabase,
+) -> Result<Response<Body>, Infallible> {
+    let body = hyper::body::to_bytes(req.into_body()).await.unwrap_or_default();
+    let json: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
+    let title = json.get("title").and_then(|t| t.as_str()).unwrap_or("New conversation");
+
+    let conv_id = format!("chat_{}", chrono::Local::now().format("%Y-%m-%d-%H-%M-%S-%3f"));
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+
+    let conn = db.connection();
+    match conn.execute(
+        "INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?1, ?2, ?3, ?3)",
+        rusqlite::params![conv_id, title, now],
+    ) {
+        Ok(_) => Ok(json_raw(
+            StatusCode::OK,
+            serde_json::to_string(&json!({"id": conv_id, "title": title})).unwrap(),
+        )),
+        Err(e) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Failed: {e}"))),
     }
 }
 

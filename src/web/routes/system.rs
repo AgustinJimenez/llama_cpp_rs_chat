@@ -17,6 +17,89 @@ use tokio::task::spawn_blocking;
 #[cfg(target_os = "windows")]
 use tokio::time::timeout;
 
+/// GET /api/info — app and system information
+pub async fn handle_app_info() -> Result<Response<Body>, Infallible> {
+    let info = serde_json::json!({
+        "app": "llama-chat",
+        "version": env!("CARGO_PKG_VERSION"),
+        "platform": std::env::consts::OS,
+        "arch": std::env::consts::ARCH,
+        "features": {
+            "vision": cfg!(feature = "vision"),
+            "cuda": cfg!(feature = "cuda"),
+        },
+    });
+    Ok(json_raw(
+        StatusCode::OK,
+        serde_json::to_string(&info).unwrap(),
+    ))
+}
+
+/// GET /api/docs — list all API endpoints
+pub async fn handle_api_docs() -> Result<Response<Body>, Infallible> {
+    let docs = serde_json::json!({
+        "endpoints": [
+            {"method": "GET", "path": "/health", "description": "Health check"},
+            {"method": "GET", "path": "/api/info", "description": "App and system info"},
+            {"method": "GET", "path": "/api/docs", "description": "This endpoint — API documentation"},
+
+            {"method": "POST", "path": "/api/chat", "description": "Send message (local model)", "body": {"message": "string", "conversation_id": "string?"}},
+            {"method": "POST", "path": "/api/chat/stream", "description": "Send message with SSE streaming (local model)"},
+            {"method": "POST", "path": "/api/chat/cancel", "description": "Cancel current generation"},
+
+            {"method": "GET", "path": "/api/conversations", "description": "List all conversations"},
+            {"method": "POST", "path": "/api/conversations", "description": "Create new conversation", "body": {"title": "string?"}},
+            {"method": "GET", "path": "/api/conversation/{id}", "description": "Get conversation messages"},
+            {"method": "DELETE", "path": "/api/conversations/{id}", "description": "Delete a conversation"},
+            {"method": "PATCH", "path": "/api/conversations/{id}/title", "description": "Rename conversation", "body": {"title": "string"}},
+            {"method": "POST", "path": "/api/conversations/{id}/truncate", "description": "Truncate conversation at message"},
+            {"method": "GET", "path": "/api/conversations/{id}/events", "description": "Get conversation event log"},
+            {"method": "GET", "path": "/api/conversations/{id}/metrics", "description": "Get conversation metrics"},
+
+            {"method": "GET", "path": "/api/model/status", "description": "Current model status (loaded, generating, etc.)"},
+            {"method": "GET", "path": "/api/model/info", "description": "Detailed model info (GGUF metadata)"},
+            {"method": "POST", "path": "/api/model/load", "description": "Load a GGUF model", "body": {"model_path": "string"}},
+            {"method": "POST", "path": "/api/model/unload", "description": "Unload current model"},
+            {"method": "POST", "path": "/api/model/hard-unload", "description": "Force-kill worker to reclaim all VRAM"},
+            {"method": "GET", "path": "/api/model/history", "description": "Recently used model paths"},
+
+            {"method": "GET", "path": "/api/providers", "description": "List all providers with availability"},
+            {"method": "GET", "path": "/api/providers/{id}/models", "description": "Fetch available models from provider API"},
+            {"method": "POST", "path": "/api/providers/{id}/generate", "description": "Generate with cloud provider (blocking)"},
+            {"method": "POST", "path": "/api/providers/{id}/stream", "description": "Generate with cloud provider (SSE streaming)"},
+
+            {"method": "GET", "path": "/api/config", "description": "Get sampler/app configuration"},
+            {"method": "POST", "path": "/api/config", "description": "Update configuration"},
+
+            {"method": "GET", "path": "/api/tools/available", "description": "List available tools with schemas"},
+            {"method": "POST", "path": "/api/tools/execute", "description": "Execute a tool call"},
+            {"method": "GET", "path": "/api/tools/web-fetch", "description": "Fetch web page as text"},
+
+            {"method": "GET", "path": "/api/mcp/servers", "description": "List MCP servers"},
+            {"method": "POST", "path": "/api/mcp/servers", "description": "Add MCP server"},
+            {"method": "DELETE", "path": "/api/mcp/servers/{id}", "description": "Remove MCP server"},
+            {"method": "POST", "path": "/api/mcp/servers/{id}/toggle", "description": "Enable/disable MCP server"},
+            {"method": "POST", "path": "/api/mcp/refresh", "description": "Refresh MCP connections"},
+            {"method": "GET", "path": "/api/mcp/tools", "description": "List discovered MCP tools"},
+
+            {"method": "GET", "path": "/api/system/usage", "description": "CPU/memory/GPU usage"},
+            {"method": "GET", "path": "/api/system/processes", "description": "List background processes"},
+            {"method": "POST", "path": "/api/system/processes/kill", "description": "Kill a background process"},
+
+            {"method": "GET", "path": "/api/browse", "description": "Browse filesystem for model files"},
+            {"method": "POST", "path": "/api/upload", "description": "Upload a model file"},
+
+            {"method": "GET", "path": "/api/hub/search", "description": "Search HuggingFace Hub"},
+            {"method": "POST", "path": "/api/hub/download", "description": "Download model from Hub"},
+            {"method": "GET", "path": "/api/hub/downloads", "description": "List active downloads"},
+        ]
+    });
+    Ok(json_raw(
+        StatusCode::OK,
+        serde_json::to_string_pretty(&docs).unwrap(),
+    ))
+}
+
 pub async fn handle_system_usage() -> Result<Response<Body>, Infallible> {
     // Get system usage using Windows-native commands
     #[cfg(target_os = "windows")]

@@ -59,6 +59,10 @@ async fn handle_request_impl(
         // Health check
         (&Method::GET, "/health") => web::routes::health::handle(bridge.clone()).await?,
 
+        // App info & API docs
+        (&Method::GET, "/api/info") => web::routes::system::handle_app_info().await?,
+        (&Method::GET, "/api/docs") => web::routes::system::handle_api_docs().await?,
+
         // System monitoring
         (&Method::GET, "/api/system/usage") => web::routes::system::handle_system_usage().await?,
         (&Method::GET, "/api/system/processes") => web::routes::system::handle_background_processes(db.clone()).await?,
@@ -128,6 +132,12 @@ async fn handle_request_impl(
             web::routes::conversation::handle_truncate_conversation(req, path, db.clone()).await?
         }
 
+        // Conversation rename (PATCH must be before DELETE catch-all)
+        (&Method::PATCH, path) if path.starts_with("/api/conversations/") && path.ends_with("/title") => {
+            let id = &path["/api/conversations/".len()..path.len() - "/title".len()];
+            web::routes::conversation::handle_rename_conversation(req, id, db.clone()).await?
+        }
+
         // Conversation endpoints
         (&Method::GET, path) if path.starts_with("/api/conversation/") => {
             web::routes::conversation::handle_get_conversation(path, bridge.clone(), db.clone()).await?
@@ -135,6 +145,10 @@ async fn handle_request_impl(
 
         (&Method::GET, "/api/conversations") => {
             web::routes::conversation::handle_get_conversations(bridge.clone(), db.clone()).await?
+        }
+
+        (&Method::POST, "/api/conversations") => {
+            web::routes::conversation::handle_create_conversation(req, db.clone()).await?
         }
 
         (&Method::DELETE, path) if path.starts_with("/api/conversations/") => {
@@ -236,6 +250,9 @@ async fn handle_request_impl(
         }
 
         // Tool execution
+        (&Method::GET, "/api/tools/available") => {
+            web::routes::tools::handle_get_available_tools(bridge.clone()).await?
+        }
         (&Method::POST, "/api/tools/execute") => {
             web::routes::tools::handle_post_tools_execute(req, bridge.clone()).await?
         }
