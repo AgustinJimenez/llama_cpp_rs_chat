@@ -47,7 +47,7 @@ pub async fn handle_api_docs() -> Result<Response<Body>, Infallible> {
             {"method": "POST", "path": "/api/chat/stream", "description": "Send message with SSE streaming (local model)"},
             {"method": "POST", "path": "/api/chat/cancel", "description": "Cancel current generation"},
 
-            {"method": "GET", "path": "/api/conversations", "description": "List all conversations"},
+            {"method": "GET", "path": "/api/conversations", "description": "List all conversations (optional ?q=term to search by title)"},
             {"method": "POST", "path": "/api/conversations", "description": "Create new conversation", "body": {"title": "string?"}},
             {"method": "GET", "path": "/api/conversation/{id}", "description": "Get conversation messages"},
             {"method": "DELETE", "path": "/api/conversations/{id}", "description": "Delete a conversation"},
@@ -55,6 +55,8 @@ pub async fn handle_api_docs() -> Result<Response<Body>, Infallible> {
             {"method": "POST", "path": "/api/conversations/{id}/truncate", "description": "Truncate conversation at message"},
             {"method": "GET", "path": "/api/conversations/{id}/events", "description": "Get conversation event log"},
             {"method": "GET", "path": "/api/conversations/{id}/metrics", "description": "Get conversation metrics"},
+            {"method": "GET", "path": "/api/conversation/{id}/export", "description": "Export conversation as markdown or JSON (?format=md|json)"},
+            {"method": "DELETE", "path": "/api/conversations/batch", "description": "Delete multiple conversations", "body": {"ids": ["string"]}},
 
             {"method": "GET", "path": "/api/model/status", "description": "Current model status (loaded, generating, etc.)"},
             {"method": "GET", "path": "/api/model/info", "description": "Detailed model info (GGUF metadata)"},
@@ -70,6 +72,8 @@ pub async fn handle_api_docs() -> Result<Response<Body>, Infallible> {
 
             {"method": "GET", "path": "/api/config", "description": "Get sampler/app configuration"},
             {"method": "POST", "path": "/api/config", "description": "Update configuration"},
+            {"method": "GET", "path": "/api/config/provider-keys", "description": "Get configured provider API keys (masked)"},
+            {"method": "POST", "path": "/api/config/provider-keys", "description": "Set a provider API key", "body": {"provider": "string", "api_key": "string", "base_url": "string?"}},
 
             {"method": "GET", "path": "/api/tools/available", "description": "List available tools with schemas"},
             {"method": "POST", "path": "/api/tools/execute", "description": "Execute a tool call"},

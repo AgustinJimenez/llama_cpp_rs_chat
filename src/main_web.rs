@@ -108,6 +108,14 @@ async fn handle_request_impl(
             web::routes::config::handle_post_config(req, bridge.clone(), db.clone()).await?
         }
 
+        // Provider API keys
+        (&Method::GET, "/api/config/provider-keys") => {
+            web::routes::config::handle_get_provider_keys(db.clone()).await?
+        }
+        (&Method::POST, "/api/config/provider-keys") => {
+            web::routes::config::handle_set_provider_key(req, db.clone()).await?
+        }
+
         // Conversation config (must be before the catch-all /api/conversation/ route)
         (&Method::GET, path) if path.starts_with("/api/conversations/") && path.ends_with("/config") => {
             web::routes::config::handle_get_conversation_config(path, bridge.clone(), db.clone()).await?
@@ -138,17 +146,28 @@ async fn handle_request_impl(
             web::routes::conversation::handle_rename_conversation(req, id, db.clone()).await?
         }
 
+        // Conversation export (must be before generic /api/conversation/{id})
+        (&Method::GET, path) if path.starts_with("/api/conversation/") && path.ends_with("/export") => {
+            let id = &path["/api/conversation/".len()..path.len()-"/export".len()];
+            web::routes::conversation::handle_export_conversation(&req, id, db.clone()).await?
+        }
+
         // Conversation endpoints
         (&Method::GET, path) if path.starts_with("/api/conversation/") => {
             web::routes::conversation::handle_get_conversation(path, bridge.clone(), db.clone()).await?
         }
 
         (&Method::GET, "/api/conversations") => {
-            web::routes::conversation::handle_get_conversations(bridge.clone(), db.clone()).await?
+            web::routes::conversation::handle_get_conversations(&req, bridge.clone(), db.clone()).await?
         }
 
         (&Method::POST, "/api/conversations") => {
             web::routes::conversation::handle_create_conversation(req, db.clone()).await?
+        }
+
+        // Batch delete (must be before single delete /api/conversations/{id})
+        (&Method::DELETE, "/api/conversations/batch") => {
+            web::routes::conversation::handle_batch_delete_conversations(req, db.clone()).await?
         }
 
         (&Method::DELETE, path) if path.starts_with("/api/conversations/") => {

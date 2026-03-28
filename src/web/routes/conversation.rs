@@ -65,10 +65,15 @@ pub async fn handle_get_conversation(
 }
 
 pub async fn handle_get_conversations(
+    req: &Request<Body>,
     #[cfg(not(feature = "mock"))] _llama_state: crate::web::worker::worker_bridge::SharedWorkerBridge,
     #[cfg(feature = "mock")] _llama_state: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
+    // Parse optional search query from URL
+    let query = crate::web::request_parsing::get_query_param(req.uri(), "q")
+        .map(|v| v.to_lowercase());
+
     // Fetch conversations from database
     let mut conversations = Vec::new();
 
@@ -100,6 +105,15 @@ pub async fn handle_get_conversations(
         Err(e) => {
             sys_error!("Failed to list conversations from database: {}", e);
         }
+    }
+
+    // If search query provided, filter by title, display_name, or ID containing the query
+    if let Some(ref q) = query {
+        conversations.retain(|c| {
+            c.display_name.to_lowercase().contains(q)
+                || c.name.to_lowercase().contains(q)
+                || c.title.as_ref().map(|t| t.to_lowercase().contains(q)).unwrap_or(false)
+        });
     }
 
     // Conversations are already sorted by created_at DESC from database
@@ -323,4 +337,94 @@ pub async fn handle_delete_conversation(
             ))
         }
     }
+}
+
+/// GET /api/conversation/{id}/export — export conversation as markdown or JSON
+pub async fn handle_export_conversation(
+    req: &Request<Body>,
+    conversation_id: &str,
+    db: SharedDatabase,
+) -> Result<Response<Body>, Infallible> {
+    let format = crate::web::request_parsing::get_query_param(req.uri(), "format")
+        .unwrap_or_else(|| "md".to_string());
+
+    let conv_id = conversation_id.trim_end_matches(".txt");
+    let messages = match db.get_messages(conv_id) {
+        Ok(msgs) => msgs,
+        Err(e) => return Ok(json_error(StatusCode::NOT_FOUND, &format!("Conversation not found: {e}"))),
+    };
+
+    match format.as_str() {
+        "json" => {
+            let json_msgs: Vec<serde_json::Value> = messages.iter()
+                .filter(|m| !m.compacted)
+                .map(|m| json!({
+                    "role": m.role,
+                    "content": m.content,
+                    "timestamp": m.timestamp,
+                }))
+                .collect();
+            let body = json!({ "conversation_id": conv_id, "messages": json_msgs });
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", "application/json")
+                .header("Content-Disposition", format!("attachment; filename=\"{conv_id}.json\""))
+                .body(Body::from(serde_json::to_string_pretty(&body).unwrap()))
+                .unwrap())
+        }
+        _ => {
+            // Markdown format
+            let mut md = format!("# Conversation: {conv_id}\n\n");
+            for m in &messages {
+                if m.compacted { continue; }
+                let role_label = match m.role.as_str() {
+                    "user" => "**User**",
+                    "assistant" => "**Assistant**",
+                    "system" => "**System**",
+                    _ => &m.role,
+                };
+                md.push_str(&format!("### {role_label}\n\n{}\n\n---\n\n", m.content));
+            }
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", "text/markdown; charset=utf-8")
+                .header("Content-Disposition", format!("attachment; filename=\"{conv_id}.md\""))
+                .body(Body::from(md))
+                .unwrap())
+        }
+    }
+}
+
+/// DELETE /api/conversations/batch — delete multiple conversations
+pub async fn handle_batch_delete_conversations(
+    req: Request<Body>,
+    db: SharedDatabase,
+) -> Result<Response<Body>, Infallible> {
+    let body = match hyper::body::to_bytes(req.into_body()).await {
+        Ok(b) => b,
+        Err(_) => return Ok(json_error(StatusCode::BAD_REQUEST, "Failed to read body")),
+    };
+    let parsed: Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(_) => return Ok(json_error(StatusCode::BAD_REQUEST, "Invalid JSON")),
+    };
+
+    let ids: Vec<String> = match parsed.get("ids").and_then(|i| i.as_array()) {
+        Some(arr) => arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect(),
+        None => return Ok(json_error(StatusCode::BAD_REQUEST, "ids array is required")),
+    };
+
+    let mut deleted = 0;
+    let mut failed = 0;
+    for id in &ids {
+        match db.delete_conversation(id.trim_end_matches(".txt")) {
+            Ok(_) => deleted += 1,
+            Err(_) => failed += 1,
+        }
+    }
+
+    Ok(json_raw(
+        StatusCode::OK,
+        serde_json::to_string(&json!({"deleted": deleted, "failed": failed, "total": ids.len()})).unwrap(),
+    ))
 }
