@@ -375,12 +375,19 @@ pub fn dispatch_native_tool(
         "web_search" => tool_web_search(&args, web_search_provider, web_search_api_key, browser_backend),
         "web_fetch" => tool_web_fetch(&args, use_htmd, browser_backend),
         "execute_command" => {
-            // Delegate to shell execution via command.rs
             let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
             if command.is_empty() {
                 return Some(NativeToolResult::text_only("Error: 'command' argument is required".to_string()));
             }
-            super::command::execute_command(command)
+            let is_background = args.get("background").and_then(|v| v.as_bool()).unwrap_or(false);
+            if is_background {
+                super::background::execute_command_background(command, |_| {})
+            } else {
+                // Use streaming with timeout (120s wall-clock) instead of blocking .output()
+                // to prevent commands like `winget install` from hanging indefinitely
+                let timeout = args.get("timeout").and_then(|v| v.as_u64());
+                super::command::execute_command_streaming_with_timeout(command, None, timeout, &mut |_| {})
+            }
         }
         "check_background_process" => {
             // PID may be a JSON number or a string (Llama3 XML format returns strings)

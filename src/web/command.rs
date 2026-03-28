@@ -445,7 +445,8 @@ pub fn execute_command_streaming_with_timeout(
                     // control to the model. The process keeps running — the model
                     // can check on it or kill it.
                     const MAX_WALL_CLOCK_SECS: u64 = 120;
-                    if wall_start.elapsed().as_secs() >= MAX_WALL_CLOCK_SECS {
+                    let elapsed = wall_start.elapsed().as_secs();
+                    if elapsed >= MAX_WALL_CLOCK_SECS {
                         let pid = child_pid;
                         eprintln!(
                             "[STREAM] Wall-clock limit ({}s) reached, detaching from pid={}",
@@ -513,8 +514,26 @@ pub fn execute_command_streaming_with_timeout(
                 }
             }
 
-            // Reap child process
-            let status = child.wait();
+            // Reap child process — with wall-clock timeout to avoid blocking forever
+            // (e.g. winget may close its pipe but keep running for minutes)
+            let wait_deadline = std::time::Duration::from_secs(5);
+            let status = match child.try_wait() {
+                Ok(Some(s)) => Ok(s),
+                Ok(None) => {
+                    // Not exited yet — wait briefly, then kill if still alive
+                    eprintln!("[STREAM] Child pid={} still alive after pipe closed, waiting {}s...", child_pid, wait_deadline.as_secs());
+                    std::thread::sleep(wait_deadline);
+                    match child.try_wait() {
+                        Ok(Some(s)) => Ok(s),
+                        _ => {
+                            eprintln!("[STREAM] Child pid={} still alive after {}s wait, killing", child_pid, wait_deadline.as_secs());
+                            kill_process_tree(child_pid);
+                            child.wait()
+                        }
+                    }
+                }
+                Err(e) => Err(e),
+            };
             let exit_code = status.as_ref().ok().and_then(|s| s.code()).unwrap_or(-1);
             let success = status.as_ref().map(|s| s.success()).unwrap_or(false);
 
