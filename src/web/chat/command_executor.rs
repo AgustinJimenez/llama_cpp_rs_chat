@@ -687,14 +687,34 @@ pub fn check_and_execute_command_with_tags(
 
     log_info!(conversation_id, "🔧 Command detected: {}", command_text);
 
+    // Extract tool name for logging
+    let tool_name_for_log = {
+        let lower = command_text.to_lowercase();
+        if let Some(start) = lower.find("\"name\"") {
+            let rest = &command_text[start..];
+            if let Some(q1) = rest.find(':').and_then(|c| rest[c..].find('"').map(|q| c + q + 1)) {
+                if let Some(q2) = rest[q1..].find('"') {
+                    rest[q1..q1+q2].to_string()
+                } else { "unknown".to_string() }
+            } else { "unknown".to_string() }
+        } else if let Some(start) = lower.find("<function=") {
+            let rest = &command_text[start + 10..];
+            rest.split('>').next().unwrap_or("unknown").to_string()
+        } else { "unknown".to_string() }
+    };
+    crate::web::event_log::log_event(conversation_id, "tool_call", &format!("{} (cmd #{})", tool_name_for_log, recent_commands.len() + 1));
+
     // Loop detection: check if this command was recently executed
     match loop_detection::check_loop(&command_text, recent_commands, consecutive_loop_blocks, tags, template_type, model, conversation_id)? {
         LoopCheckResult::ForceStop(mut result) => {
-            // Append a signal for the generation loop to stop
+            crate::web::event_log::log_event(conversation_id, "infinite_loop", &format!("Force-stop after {} consecutive blocks", consecutive_loop_blocks));
             result.output_block.push_str("\n[INFINITE_LOOP_DETECTED]\n");
             return Ok(Some(result));
         }
-        LoopCheckResult::Blocked(result) => return Ok(Some(result)),
+        LoopCheckResult::Blocked(result) => {
+            crate::web::event_log::log_event(conversation_id, "loop_blocked", &format!("{} blocked (consecutive: {})", tool_name_for_log, consecutive_loop_blocks));
+            return Ok(Some(result));
+        }
         LoopCheckResult::Continue(fuzzy_warning) => {
             // Continue with execution; fuzzy_warning may be Some
 
@@ -905,8 +925,10 @@ pub fn check_and_execute_command_with_tags(
                         })
                     } else {
                         log_info!(conversation_id, "🐚 Streaming execute_command: {}", rtk_cmd);
+                        crate::web::event_log::log_event(conversation_id, "tool_exec", &format!("execute_command: {}", &rtk_cmd[..rtk_cmd.len().min(100)]));
+                        let exec_start = std::time::Instant::now();
                         let sender_clone = token_sender.clone();
-                        execute_command_streaming(&rtk_cmd, cancel.clone(), |line| {
+                        let result = execute_command_streaming(&rtk_cmd, cancel.clone(), |line| {
                             if let Some(ref sender) = sender_clone {
                                 let _ = sender.send(TokenData {
                                     token: format!("{}\n", strip_ansi_codes(line)),
@@ -914,7 +936,10 @@ pub fn check_and_execute_command_with_tags(
                                     max_tokens: context_size as i32, status: None,
                                 });
                             }
-                        })
+                        });
+                        let elapsed_ms = exec_start.elapsed().as_millis();
+                        crate::web::event_log::log_event(conversation_id, "tool_done", &format!("execute_command done in {}ms ({} chars)", elapsed_ms, result.len()));
+                        result
                     }
                 } else if let Some(native_result) = run_native_tool_with_timeout(
                     &command_text,

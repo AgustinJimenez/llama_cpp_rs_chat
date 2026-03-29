@@ -385,6 +385,7 @@ pub fn execute_command_streaming_with_timeout(
         Ok(mut child) => {
             let mut output = String::new();
             let child_pid = child.id();
+            eprintln!("[STREAM] Started: pid={} cmd={}", child_pid, &trimmed[..trimmed.len().min(100)]);
             let stdout_pipe = child.stdout.take();
 
             let inactivity_timeout_secs: u64 = timeout_override.unwrap_or(120); // Default 2 min, resets on output
@@ -446,6 +447,10 @@ pub fn execute_command_streaming_with_timeout(
                     // can check on it or kill it.
                     const MAX_WALL_CLOCK_SECS: u64 = 120;
                     let elapsed = wall_start.elapsed().as_secs();
+                    // Debug: log at 60s and 110s to confirm loop is running
+                    if elapsed == 60 || elapsed == 110 {
+                        eprintln!("[STREAM] Wall-clock check: {}s / {}s limit, pid={}", elapsed, MAX_WALL_CLOCK_SECS, child_pid);
+                    }
                     if elapsed >= MAX_WALL_CLOCK_SECS {
                         let pid = child_pid;
                         eprintln!(
