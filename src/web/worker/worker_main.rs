@@ -89,6 +89,9 @@ pub fn run_worker(db_path: &str) {
     let bg_session_id = uuid::Uuid::new_v4().to_string();
     crate::web::background::init_background_tracking(db.clone(), bg_session_id);
 
+    // Initialize event log with DB persistence
+    crate::web::event_log::init_event_log(db.clone());
+
     // Detect orphaned processes from previous sessions
     let orphans = crate::web::background::get_orphaned_processes(&db);
     if !orphans.is_empty() {
