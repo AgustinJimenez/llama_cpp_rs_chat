@@ -33,6 +33,8 @@ const LFM2_RESULT_CLEANUP = /<\|tool_response_start\|>[\s\S]*?<\|tool_response_e
 const GLM_VISION_CLEANUP = /<\|(?:begin_of_image|image|end_of_image|begin_of_video|video|end_of_video|begin_of_box|end_of_box)\|>/g;
 // EOS / stop tokens — strip from display (visible only in RAW view)
 const EOS_TOKEN_CLEANUP = /<\|(?:im_end|endoftext|end_of_text|eot_id|end)\|>/g;
+// Internal system signals — strip from display
+const INTERNAL_SIGNALS_CLEANUP = /\[INFINITE_LOOP_DETECTED\]/g;
 
 /**
  * Parse a message and extract various components:
@@ -44,7 +46,7 @@ const EOS_TOKEN_CLEANUP = /<\|(?:im_end|endoftext|end_of_text|eot_id|end)\|>/g;
  */
 export function useMessageParsing(message: Message, toolTags?: ToolTags): ParsedMessage {
   const harmony = useMemo(() => parseHarmonyContent(message.content), [message.content]);
-  const effectiveContent = (harmony ? harmony.finalContent : message.content).replace(EOS_TOKEN_CLEANUP, '');
+  const effectiveContent = (harmony ? harmony.finalContent : message.content).replace(EOS_TOKEN_CLEANUP, '').replace(INTERNAL_SIGNALS_CLEANUP, '');
 
   const toolCalls = useMemo(() => {
     if (message.role === 'assistant') return autoParseToolCalls(effectiveContent);
