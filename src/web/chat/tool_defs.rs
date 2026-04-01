@@ -78,7 +78,7 @@ impl ToolDef {
 // ─── Verification helpers (cfg test) ────────────────────────────────────────
 /// Number of tools defined. Used by tests to catch accidental omissions.
 #[cfg(test)]
-pub const EXPECTED_TOOL_COUNT: usize = 117;
+pub const EXPECTED_TOOL_COUNT: usize = 120;
 
 // ─── Shorthand constructors ─────────────────────────────────────────────────
 const fn p(name: &'static str, param_type: &'static str, description: &'static str) -> ParamDef {
@@ -149,9 +149,12 @@ static ALL_TOOLS: &[ToolDef] = &[
     // ─── 1. read_file ───
     ToolDef {
         name: "read_file",
-        description: "Read the contents of a file. Supports PDF, DOCX, XLSX, PPTX, EPUB, ODT, RTF, CSV, EML, ZIP, and non-UTF8 encoded files. Returns the file text (truncated at 100KB for large files).",
+        description: "Read the contents of a file. Supports PDF, DOCX, XLSX, PPTX, EPUB, ODT, RTF, CSV, EML, ZIP, and non-UTF8 encoded files. Returns the file text (truncated at 100KB for large files). Binary files (exe, images, audio, etc.) are rejected — use a specialized tool for those.",
         params: Params::Simple(&[
             p("path", "string", "Path to the file to read"),
+            p("offset", "integer", "Line number to start reading from (1-based). Use with limit to read specific portions of large files."),
+            p("limit", "integer", "Maximum number of lines to read. Defaults to all lines."),
+            p("pages", "string", "Page range for PDF files (e.g. '1-5', '3', '10-20'). Only for PDF files."),
         ]),
         required: &["path"],
     },
@@ -318,7 +321,19 @@ static ALL_TOOLS: &[ToolDef] = &[
         ]),
         required: &["pid"],
     },
-    // ─── 18. take_screenshot ───
+    // ─── 18. lsp_query ───
+    ToolDef {
+        name: "lsp_query",
+        description: "Query code intelligence: find definitions, references, symbols. Uses ripgrep and ctags-like heuristics. For Rust projects, uses cargo/rust-analyzer if available.",
+        params: Params::Simple(&[
+            p("action", "string", "Action: 'definition' (find where symbol is defined), 'references' (find all usages), 'symbols' (list symbols in file), 'hover' (get type info)"),
+            p("symbol", "string", "Symbol name to query (e.g. 'MyStruct', 'my_function')"),
+            p("file", "string", "File path for context (where the symbol is used)"),
+            p("path", "string", "Project root directory to search in"),
+        ]),
+        required: &["action", "symbol"],
+    },
+    // ─── 19. take_screenshot ───
     ToolDef {
         name: "take_screenshot",
         description: "Capture a screenshot of the user's screen. Returns the file path and image dimensions. Use monitor=-1 to list available monitors without capturing.",
@@ -1203,7 +1218,16 @@ static ALL_TOOLS: &[ToolDef] = &[
         params: Params::Simple(&[]),
         required: &[],
     },
-    // ─── 102. send_telegram ───
+    // ─── 102. sleep ───
+    ToolDef {
+        name: "sleep",
+        description: "Wait for a specified number of seconds. Use between retries, or after starting a background server to give it time to initialize. Maximum 30 seconds.",
+        params: Params::Simple(&[
+            p("seconds", "integer", "Number of seconds to wait (1-30)"),
+        ]),
+        required: &["seconds"],
+    },
+    // ─── 103. send_telegram ───
     ToolDef {
         name: "send_telegram",
         description: "Send a notification message to the user via Telegram. Use to notify about task completion, errors, or important updates.",
@@ -1212,7 +1236,7 @@ static ALL_TOOLS: &[ToolDef] = &[
         ]),
         required: &["message"],
     },
-    // ─── 103. spawn_agent ───
+    // ─── 104. spawn_agent ───
     ToolDef {
         name: "spawn_agent",
         description: "Spawn a sub-agent to handle an isolated sub-task. The agent gets a fresh context and returns a summary of what it did. Use for installation tasks, research, or any step that might use lots of context.",
@@ -1221,6 +1245,22 @@ static ALL_TOOLS: &[ToolDef] = &[
             p("context", "string", "Additional context to provide to the agent (file contents, error messages, etc.)"),
         ]),
         required: &["task"],
+    },
+    // ─── 105. todo_write ───
+    ToolDef {
+        name: "todo_write",
+        description: "Update the task checklist for this session. Use to track progress on multi-step tasks. Each todo has a status: pending, in_progress, or completed.",
+        params: Params::Simple(&[
+            p("todos", "string", "JSON array of todos: [{\"id\": 1, \"task\": \"description\", \"status\": \"pending|in_progress|completed\"}]"),
+        ]),
+        required: &["todos"],
+    },
+    // ─── 106. todo_read ───
+    ToolDef {
+        name: "todo_read",
+        description: "Read the current task checklist for this session.",
+        params: Params::Simple(&[]),
+        required: &[],
     },
 ];
 

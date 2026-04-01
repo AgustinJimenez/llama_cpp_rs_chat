@@ -252,7 +252,7 @@ pub fn parse_conversation_for_jinja(
 /// Desktop and admin tools are discoverable via `list_tools`/`get_tool_details`.
 const CORE_TOOL_NAMES: &[&str] = &[
     "read_file", "write_file", "edit_file", "undo_edit", "insert_text",
-    "search_files", "find_files", "execute_python", "execute_command",
+    "search_files", "find_files", "lsp_query", "execute_python", "execute_command",
     "list_directory", "web_search", "web_fetch", "open_url",
     "git_status", "git_diff", "git_commit",
     "check_background_process", "list_background_processes",

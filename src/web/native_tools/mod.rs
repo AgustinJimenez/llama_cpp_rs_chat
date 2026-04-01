@@ -25,7 +25,36 @@ impl NativeToolResult {
 
 use serde_json::Value;
 use std::path::Path;
+use std::sync::OnceLock;
+use std::collections::HashMap;
+use std::sync::Mutex as StdMutex;
 use crate::web::utils::silent_command;
+
+// ─── In-memory todo store (per conversation) ─────────────────────────────────
+#[allow(dead_code)]
+static TODO_STORE: OnceLock<StdMutex<HashMap<String, String>>> = OnceLock::new();
+
+#[allow(dead_code)]
+fn todo_store() -> &'static StdMutex<HashMap<String, String>> {
+    TODO_STORE.get_or_init(|| StdMutex::new(HashMap::new()))
+}
+
+// ─── File modification time cache (for edit_file concurrent modification detection) ──
+#[allow(dead_code)]
+static FILE_MTIME_CACHE: OnceLock<StdMutex<HashMap<String, u64>>> = OnceLock::new();
+
+#[allow(dead_code)]
+fn file_mtime_cache() -> &'static StdMutex<HashMap<String, u64>> {
+    FILE_MTIME_CACHE.get_or_init(|| StdMutex::new(HashMap::new()))
+}
+
+#[allow(dead_code)]
+fn get_file_mtime(path: &str) -> Option<u64> {
+    std::fs::metadata(path).ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+}
 
 mod parsing;
 pub use parsing::*;
@@ -424,6 +453,63 @@ pub fn dispatch_native_tool(
             std::thread::sleep(std::time::Duration::from_secs(seconds));
             format!("Waited {} seconds. You can now check on background processes or continue.", seconds)
         }
+        "lsp_query" => {
+            let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("definition");
+            let symbol = args.get("symbol").and_then(|v| v.as_str()).unwrap_or("");
+            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
+
+            if symbol.is_empty() {
+                "Error: 'symbol' is required".to_string()
+            } else {
+                let result = match action {
+                    "definition" => {
+                        let escaped = regex::escape(symbol);
+                        let patterns = [
+                            format!(r"(fn|pub fn|pub\(crate\) fn|async fn|pub async fn)\s+{}\s*[\(<]", escaped),
+                            format!(r"(struct|enum|trait|type|pub struct|pub enum|pub trait|pub type)\s+{}\s*[\{{<]", escaped),
+                            format!(r"(class|interface|function|const|let|var|def|defn?)\s+{}\s*[\({{:<= ]", escaped),
+                            format!(r"(impl|impl<[^>]*>)\s+{}\s", escaped),
+                        ];
+                        let combined = patterns.join("|");
+                        let cmd = format!(
+                            "rg -n -e \"{}\" \"{}\" --type-add \"code:*.{{rs,ts,tsx,js,jsx,py,go,java,c,cpp,h,hpp,nim,ex}}\" -t code --max-count 20",
+                            combined.replace('"', "\\\""), path
+                        );
+                        super::command::execute_command(&cmd)
+                    }
+                    "references" => {
+                        let cmd = format!(
+                            "rg -n -w \"{}\" \"{}\" --type-add \"code:*.{{rs,ts,tsx,js,jsx,py,go,java,c,cpp,h,hpp,nim,ex}}\" -t code --max-count 30",
+                            symbol, path
+                        );
+                        super::command::execute_command(&cmd)
+                    }
+                    "symbols" => {
+                        let file = args.get("file").and_then(|v| v.as_str()).unwrap_or(path);
+                        let cmd = format!(
+                            "rg -n \"(fn |struct |enum |trait |class |interface |function |def |const |type |impl )\" \"{}\" --max-count 50",
+                            file
+                        );
+                        super::command::execute_command(&cmd)
+                    }
+                    "hover" => {
+                        let escaped = regex::escape(symbol);
+                        let pattern = format!(r"(fn|struct|enum|trait|type|class|def|interface)\s+{}", escaped);
+                        let cmd = format!(
+                            "rg -n -A 5 \"{}\" \"{}\" --type-add \"code:*.{{rs,ts,tsx,js,jsx,py,go,java,c,cpp,h,hpp}}\" -t code --max-count 5",
+                            pattern, path
+                        );
+                        super::command::execute_command(&cmd)
+                    }
+                    _ => format!("Unknown action '{}'. Use: definition, references, symbols, hover", action),
+                };
+                if result.trim().is_empty() {
+                    format!("No results found for '{}' ({}) in {}", symbol, action, path)
+                } else {
+                    result
+                }
+            }
+        }
         "git_status" => tool_git_status(&args),
         "git_diff" => tool_git_diff(&args),
         "git_commit" => tool_git_commit(&args),
@@ -432,6 +518,34 @@ pub fn dispatch_native_tool(
         "add_mcp_server" => mcp_tools::tool_add_mcp_server(&args, mcp_manager, db),
         "remove_mcp_server" => mcp_tools::tool_remove_mcp_server(&args, mcp_manager, db),
         "list_background_processes" => tool_list_background_processes(),
+        "sleep" => {
+            let seconds = args.get("seconds").and_then(|v| v.as_u64()).unwrap_or(5).min(30);
+            std::thread::sleep(std::time::Duration::from_secs(seconds));
+            format!("Waited {} seconds", seconds)
+        }
+        "todo_write" => {
+            let todos = args.get("todos").and_then(|v| v.as_str()).unwrap_or("[]");
+            match serde_json::from_str::<serde_json::Value>(todos) {
+                Ok(val) => {
+                    let formatted = serde_json::to_string_pretty(&val).unwrap_or_else(|_| todos.to_string());
+                    if let Ok(mut store) = todo_store().lock() {
+                        store.insert("default".to_string(), formatted.clone());
+                    }
+                    format!("Todo list updated:\n{}", formatted)
+                }
+                Err(e) => format!("Error: Invalid JSON for todos: {e}. Expected array of {{id, task, status}} objects.")
+            }
+        }
+        "todo_read" => {
+            let todos = todo_store().lock().ok()
+                .and_then(|store| store.get("default").cloned())
+                .unwrap_or_else(|| "[]".to_string());
+            if todos == "[]" {
+                "No todos yet. Use todo_write to create a task checklist.".to_string()
+            } else {
+                format!("Current todos:\n{}", todos)
+            }
+        }
         "open_url" => {
             let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
             if url.is_empty() {
@@ -486,6 +600,30 @@ fn tool_list_background_processes() -> String {
 }
 
 /// Read a file and return its contents.
+/// Check if a file has a binary extension that cannot be meaningfully read as text.
+fn has_binary_extension(path: &str) -> bool {
+    let binary_extensions = [
+        "exe", "dll", "so", "dylib", "o", "obj", "a", "lib",
+        "zip", "tar", "gz", "bz2", "xz", "7z", "rar",
+        "png", "jpg", "jpeg", "gif", "bmp", "ico", "webp", "svg",
+        "mp3", "mp4", "wav", "avi", "mkv", "mov", "flac",
+        "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+        "gguf", "bin", "dat", "db", "sqlite",
+        "pyc", "class", "wasm",
+    ];
+    if let Some(ext) = std::path::Path::new(path).extension().and_then(|e| e.to_str()) {
+        binary_extensions.contains(&ext.to_lowercase().as_str())
+    } else {
+        false
+    }
+}
+
+/// Extensions that are binary but have dedicated text-extraction support.
+const EXTRACTABLE_EXTENSIONS: &[&str] = &[
+    "pdf", "docx", "xlsx", "xls", "xlsm", "pptx", "epub", "odt", "rtf", "csv", "eml", "msg",
+    "zip", "7z",
+];
+
 fn tool_read_file(args: &Value) -> String {
     let path = match args.get("path").and_then(|v| v.as_str()) {
         Some(p) => p,
@@ -493,6 +631,21 @@ fn tool_read_file(args: &Value) -> String {
     };
 
     let path_lower = path.to_ascii_lowercase();
+
+    // Binary file detection: reject non-extractable binary files early
+    if has_binary_extension(path) {
+        let ext = std::path::Path::new(path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+        if !EXTRACTABLE_EXTENSIONS.contains(&ext.to_lowercase().as_str()) {
+            return format!(
+                "Error: '{}' is a binary file and cannot be read as text. \
+                 Use a specialized tool or command to inspect it.",
+                path
+            );
+        }
+    }
 
     // PDF files: extract text instead of returning binary garbage
     if path_lower.ends_with(".pdf") {
@@ -574,20 +727,72 @@ fn tool_read_file(args: &Value) -> String {
         };
     }
 
+    // Parse offset/limit parameters
+    let offset = args.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+    let limit = args.get("limit").and_then(|v| v.as_u64()).map(|v| v as usize);
+
     // Try UTF-8 first, fall back to encoding detection for non-UTF8 files
-    match std::fs::read_to_string(path) {
-        Ok(content) => truncate_text_content(&content, MAX_READ_SIZE),
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
         Err(e) => {
             // If UTF-8 failed, try reading as raw bytes and detect encoding
             if e.kind() == std::io::ErrorKind::InvalidData {
                 match std::fs::read(path) {
-                    Ok(bytes) => read_with_encoding_detection(&bytes, MAX_READ_SIZE),
-                    Err(e2) => format!("Error reading '{path}': {e2}"),
+                    Ok(bytes) => return read_with_encoding_detection(&bytes, MAX_READ_SIZE),
+                    Err(e2) => return format!("Error reading '{path}': {e2}"),
                 }
             } else {
-                format!("Error reading '{path}': {e}")
+                return format!("Error reading '{path}': {e}");
             }
         }
+    };
+
+    // Cache file mtime for concurrent modification detection in edit_file
+    if let Some(mtime) = get_file_mtime(path) {
+        if let Ok(mut cache) = file_mtime_cache().lock() {
+            cache.insert(path.to_string(), mtime);
+        }
+    }
+
+    // Apply offset/limit and format with line numbers + token estimate
+    let lines: Vec<&str> = content.lines().collect();
+    let total_lines = lines.len();
+
+    let start = if offset > 0 { (offset - 1).min(total_lines) } else { 0 };
+    let end = limit.map(|l| (start + l).min(total_lines)).unwrap_or(total_lines);
+
+    let selected_lines = &lines[start..end];
+    let selected_text: String = selected_lines.join("\n");
+
+    // Estimate tokens (~4 chars per token)
+    let estimated_tokens = (selected_text.len() + 3) / 4;
+
+    // Build header
+    let range_info = if offset > 0 || limit.is_some() {
+        format!(" (lines {}-{})", start + 1, end)
+    } else {
+        String::new()
+    };
+    let header = format!(
+        "[File: {} | {} lines{} | ~{} tokens]",
+        path, total_lines, range_info, estimated_tokens
+    );
+
+    // Format with line numbers (cat -n style)
+    let numbered: String = selected_lines
+        .iter()
+        .enumerate()
+        .map(|(i, line)| format!("{:>6}\t{}", start + i + 1, line))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let result = format!("{}\n{}", header, numbered);
+
+    // Apply truncation if still too large
+    if result.len() > MAX_READ_SIZE {
+        truncate_text_content(&result, MAX_READ_SIZE)
+    } else {
+        result
     }
 }
 
@@ -643,7 +848,15 @@ fn tool_write_file(args: &Value) -> String {
     }
 
     match std::fs::write(path, content) {
-        Ok(()) => format!("Written {} bytes to {}", content.len(), path),
+        Ok(()) => {
+            // Update mtime cache after successful write
+            if let Some(mtime) = get_file_mtime(path) {
+                if let Ok(mut cache) = file_mtime_cache().lock() {
+                    cache.insert(path.to_string(), mtime);
+                }
+            }
+            format!("Written {} bytes to {}", content.len(), path)
+        }
         Err(e) => format!("Error writing '{path}': {e}"),
     }
 }
@@ -674,6 +887,15 @@ fn tool_edit_file(args: &Value) -> String {
         return "Error: 'old_string' cannot be empty".to_string();
     }
 
+    // Check if file was modified since last read (concurrent modification detection)
+    if let Some(cached_mtime) = file_mtime_cache().lock().ok().and_then(|c| c.get(path).copied()) {
+        if let Some(current_mtime) = get_file_mtime(path) {
+            if current_mtime > cached_mtime {
+                eprintln!("[EDIT_FILE] File {} modified since last read (cached={}s, current={}s)", path, cached_mtime, current_mtime);
+            }
+        }
+    }
+
     // Read the file
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
@@ -696,7 +918,14 @@ fn tool_edit_file(args: &Value) -> String {
             let backup_path = format!("{path}.llama_bak");
             let _ = std::fs::write(&backup_path, &content);
             return match std::fs::write(path, &new_content) {
-                Ok(()) => format!("Edited {path} (curly quotes normalized): replaced {} chars with {} chars at line {line_num}", norm_old.len(), norm_new.len()),
+                Ok(()) => {
+                    if let Some(mtime) = get_file_mtime(path) {
+                        if let Ok(mut cache) = file_mtime_cache().lock() {
+                            cache.insert(path.to_string(), mtime);
+                        }
+                    }
+                    format!("Edited {path} (curly quotes normalized): replaced {} chars with {} chars at line {line_num}", norm_old.len(), norm_new.len())
+                }
                 Err(e) => format!("Error writing '{path}': {e}"),
             };
         }
@@ -721,7 +950,15 @@ fn tool_edit_file(args: &Value) -> String {
     let _ = std::fs::write(&backup_path, &content);
 
     match std::fs::write(path, &new_content) {
-        Ok(()) => format!("Edited {path}: replaced {} chars with {} chars at line {line_num}", old_string.len(), new_string.len()),
+        Ok(()) => {
+            // Update mtime cache after successful edit
+            if let Some(mtime) = get_file_mtime(path) {
+                if let Ok(mut cache) = file_mtime_cache().lock() {
+                    cache.insert(path.to_string(), mtime);
+                }
+            }
+            format!("Edited {path}: replaced {} chars with {} chars at line {line_num}", old_string.len(), new_string.len())
+        }
         Err(e) => format!("Error writing '{path}': {e}"),
     }
 }
