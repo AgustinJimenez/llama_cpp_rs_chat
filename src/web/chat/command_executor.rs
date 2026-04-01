@@ -411,6 +411,45 @@ fn summarize_tool_output(
     Ok(format!("[Summarized from {} chars]\n{}", original_len, summary))
 }
 
+/// Threshold above which tool output gets smart-truncated before context injection.
+/// ~2K tokens worth of chars — preserves head (context) and tail (errors often at end).
+const TOOL_OUTPUT_TRUNCATION_THRESHOLD: usize = 8000;
+
+/// Smart-truncate large tool output, preserving start and end.
+/// Tools like write_file/edit_file produce small output and should NOT be truncated.
+/// Returns the original output if it's small enough.
+pub fn maybe_truncate_tool_output(output: &str, tool_name: &str, conversation_id: &str) -> String {
+    if output.len() <= TOOL_OUTPUT_TRUNCATION_THRESHOLD {
+        return output.to_string();
+    }
+
+    // Skip truncation for tools that produce small, important output
+    match tool_name {
+        "write_file" | "edit_file" | "read_file" => return output.to_string(),
+        _ => {}
+    }
+
+    crate::web::event_log::log_event(
+        conversation_id, "tool_truncate",
+        &format!("{}: truncated {} -> {} chars", tool_name, output.len(), TOOL_OUTPUT_TRUNCATION_THRESHOLD),
+    );
+    log_info!(
+        conversation_id,
+        "✂️ Truncating {} output: {} -> {} chars",
+        tool_name, output.len(), TOOL_OUTPUT_TRUNCATION_THRESHOLD
+    );
+
+    let head = TOOL_OUTPUT_TRUNCATION_THRESHOLD * 3 / 4; // 6000 chars from start
+    let tail = TOOL_OUTPUT_TRUNCATION_THRESHOLD / 4;     // 2000 chars from end (errors often at end)
+    format!(
+        "{}\n\n[...{} chars truncated — {} total. Key info may be at the end.]\n\n{}",
+        &output[..head.min(output.len())],
+        output.len() - head - tail,
+        output.len(),
+        &output[output.len().saturating_sub(tail)..]
+    )
+}
+
 /// Prefix a command with `rtk` for output compression, if RTK mode is enabled.
 fn maybe_rtk_prefix(cmd: &str, use_rtk: bool) -> String {
     if use_rtk {
@@ -859,6 +898,8 @@ pub fn check_and_execute_command_with_tags(
 
                     let (tool_output, tool_images) = results[i].take().unwrap_or_default();
                     all_response_images.extend(tool_images);
+                    // Truncate individual tool output before merging
+                    let tool_output = maybe_truncate_tool_output(&tool_output, name, conversation_id);
                     log_info!(
                         conversation_id,
                         "📤 Tool {} ({}) output: {} chars",
@@ -1001,6 +1042,9 @@ pub fn check_and_execute_command_with_tags(
 
             // Sanitize output: strip ANSI codes + truncate long output.
             let sanitized = sanitize_command_output(&output);
+
+            // Smart-truncate large output before LLM summarization to bound context usage.
+            let sanitized = maybe_truncate_tool_output(&sanitized, &tool_name_for_log, conversation_id);
 
             // Summarize large outputs via LLM sub-agent to save context tokens.
             // The user sees the original output (persisted in output_block);
