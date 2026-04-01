@@ -257,6 +257,7 @@ const CORE_TOOL_NAMES: &[&str] = &[
     "git_status", "git_diff", "git_commit",
     "check_background_process", "list_background_processes",
     "send_telegram", "spawn_agent",
+    "list_skills", "use_skill", "set_response_style",
 ];
 
 /// Admin tool names (MCP server management).

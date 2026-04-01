@@ -78,7 +78,7 @@ impl ToolDef {
 // ─── Verification helpers (cfg test) ────────────────────────────────────────
 /// Number of tools defined. Used by tests to catch accidental omissions.
 #[cfg(test)]
-pub const EXPECTED_TOOL_COUNT: usize = 120;
+pub const EXPECTED_TOOL_COUNT: usize = 123;
 
 // ─── Shorthand constructors ─────────────────────────────────────────────────
 const fn p(name: &'static str, param_type: &'static str, description: &'static str) -> ParamDef {
@@ -1262,6 +1262,32 @@ static ALL_TOOLS: &[ToolDef] = &[
         params: Params::Simple(&[]),
         required: &[],
     },
+    // ─── 107. list_skills ───
+    ToolDef {
+        name: "list_skills",
+        description: "List available prompt skills (reusable templates). Skills are .md files in the skills/ directory.",
+        params: Params::Simple(&[]),
+        required: &[],
+    },
+    // ─── 108. use_skill ───
+    ToolDef {
+        name: "use_skill",
+        description: "Execute a skill (prompt template) by name. The skill's content becomes your instructions.",
+        params: Params::Simple(&[
+            p("name", "string", "Skill name to execute"),
+            p("args", "string", "Arguments to substitute in the template (JSON object, e.g. {\"language\": \"python\", \"path\": \"./myapp\"})"),
+        ]),
+        required: &["name"],
+    },
+    // ─── 109. set_response_style ───
+    ToolDef {
+        name: "set_response_style",
+        description: "Switch between brief and detailed response styles. Use 'brief' for short, action-focused responses (less explanation). Use 'detailed' for thorough explanations.",
+        params: Params::Simple(&[
+            p("style", "string", "Response style: 'brief' or 'detailed'"),
+        ]),
+        required: &["style"],
+    },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1507,7 +1533,7 @@ fn complex_tool_definitions() -> Vec<Value> {
     ]
 }
 
-/// Build the complete list of all 117 tool definitions.
+/// Build the complete list of all tool definitions.
 ///
 /// Merges the compact static definitions with the complex runtime-built ones.
 /// The complex tools override any same-named tool from the static list (but

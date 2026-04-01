@@ -546,6 +546,50 @@ pub fn dispatch_native_tool(
                 format!("Current todos:\n{}", todos)
             }
         }
+        "list_skills" => {
+            let cwd = std::env::current_dir().unwrap_or_default();
+            let skills = super::skills::discover_skills(&cwd);
+            if skills.is_empty() {
+                "No skills found. Create .md files in a 'skills/' directory with YAML frontmatter (name, description).".to_string()
+            } else {
+                let mut output = format!("{} skills available:\n", skills.len());
+                for s in &skills {
+                    output.push_str(&format!("  {} — {}\n", s.name, s.description));
+                }
+                output
+            }
+        }
+        "use_skill" => {
+            let skill_name = args.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let template_args = args.get("args").and_then(|v| v.as_str()).unwrap_or("{}");
+
+            let cwd = std::env::current_dir().unwrap_or_default();
+            match super::skills::get_skill(&cwd, skill_name) {
+                Some(skill) => {
+                    // Simple template substitution: replace {{key}} with values
+                    let mut content = skill.content.clone();
+                    if let Ok(args_map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(template_args) {
+                        for (key, val) in &args_map {
+                            let placeholder = format!("{{{{{}}}}}", key);
+                            let replacement = match val.as_str() {
+                                Some(s) => s.to_string(),
+                                None => val.to_string(),
+                            };
+                            content = content.replace(&placeholder, &replacement);
+                        }
+                    }
+                    format!("Skill '{}' loaded:\n\n{}", skill_name, content)
+                }
+                None => format!("Skill '{}' not found. Use list_skills to see available skills.", skill_name),
+            }
+        }
+        "set_response_style" => {
+            let style = args.get("style").and_then(|v| v.as_str()).unwrap_or("detailed");
+            match style {
+                "brief" => "Response style set to BRIEF. From now on: be concise, skip explanations, show only results and actions. No preamble or summaries.".to_string(),
+                "detailed" | _ => "Response style set to DETAILED. From now on: explain your reasoning, show context, and provide thorough responses.".to_string(),
+            }
+        }
         "open_url" => {
             let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
             if url.is_empty() {

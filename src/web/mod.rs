@@ -23,6 +23,7 @@ pub mod request;
 pub mod request_parsing; // Request body parsing utilities
 pub mod response_helpers; // Reusable HTTP response builders
 pub mod routes;
+pub mod skills; // Skills system: markdown-based prompt templates
 pub mod utils;
 pub mod vram_calculator; // GPU/VRAM calculations
 pub mod websocket;

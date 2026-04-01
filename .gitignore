@@ -43,6 +43,11 @@ tools/*/Cargo.lock
 # Test data artifacts
 test_data/
 
+# Skills: ignore user-created skills, keep bundled examples
+skills/*
+!skills/create-project.md
+!skills/fix-errors.md
+
 # PHP/Composer artifacts (from tool execution tests)
 vendor/
 composer.lock

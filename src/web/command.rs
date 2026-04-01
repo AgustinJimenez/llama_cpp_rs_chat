@@ -392,6 +392,7 @@ pub fn execute_command_streaming_with_timeout(
             // Check cancellation every 200ms — responsive enough without busy-waiting
             const POLL_INTERVAL_MS: u64 = 200;
 
+            const MAX_WALL_CLOCK_SECS: u64 = 120;
             let mut was_cancelled = false;
             let mut inactivity_killed = false;
             let total_timeout_killed = false; // Kept for compat, no longer triggered separately
@@ -445,7 +446,6 @@ pub fn execute_command_streaming_with_timeout(
                     // (even if it keeps producing output), stop waiting and return
                     // control to the model. The process keeps running — the model
                     // can check on it or kill it.
-                    const MAX_WALL_CLOCK_SECS: u64 = 120;
                     let elapsed = wall_start.elapsed().as_secs();
                     // Debug: log at 60s and 110s to confirm loop is running
                     if elapsed == 60 || elapsed == 110 {
@@ -519,28 +519,51 @@ pub fn execute_command_streaming_with_timeout(
                 }
             }
 
-            // Reap child process — with wall-clock timeout to avoid blocking forever
+            // Wall-clock safety net: if we've been running too long, kill and return
+            // immediately. This catches the case where the pipe disconnects at 0s
+            // (e.g. winget) but the child process keeps running.
+            const POST_PIPE_WALL_LIMIT: u64 = MAX_WALL_CLOCK_SECS;
+            if wall_start.elapsed().as_secs() >= POST_PIPE_WALL_LIMIT {
+                eprintln!("[STREAM] Wall-clock exceeded after pipe closed ({}s), killing pid={}",
+                    wall_start.elapsed().as_secs(), child_pid);
+                kill_process_tree(child_pid);
+                output.push_str(&format!("\n[Command killed after {}s wall-clock limit]\n", wall_start.elapsed().as_secs()));
+                return output;
+            }
+
+            // Reap child process — with timeout to avoid blocking forever
             // (e.g. winget may close its pipe but keep running for minutes)
-            let wait_deadline = std::time::Duration::from_secs(5);
-            let status = match child.try_wait() {
-                Ok(Some(s)) => Ok(s),
-                Ok(None) => {
-                    // Not exited yet — wait briefly, then kill if still alive
-                    eprintln!("[STREAM] Child pid={} still alive after pipe closed, waiting {}s...", child_pid, wait_deadline.as_secs());
-                    std::thread::sleep(wait_deadline);
-                    match child.try_wait() {
-                        Ok(Some(s)) => Ok(s),
-                        _ => {
-                            eprintln!("[STREAM] Child pid={} still alive after {}s wait, killing", child_pid, wait_deadline.as_secs());
-                            kill_process_tree(child_pid);
-                            child.wait()
+            let mut exit_code = -1i32;
+            let mut success = false;
+            let reap_deadline = std::time::Duration::from_secs(
+                if wall_start.elapsed().as_secs() >= POST_PIPE_WALL_LIMIT { 1 } else { 5 }
+            );
+            let reap_start = Instant::now();
+            loop {
+                match child.try_wait() {
+                    Ok(Some(s)) => {
+                        exit_code = s.code().unwrap_or(-1);
+                        success = s.success();
+                        break;
+                    }
+                    Ok(None) if reap_start.elapsed() < reap_deadline
+                        && wall_start.elapsed().as_secs() < MAX_WALL_CLOCK_SECS =>
+                    {
+                        std::thread::sleep(std::time::Duration::from_millis(200));
+                    }
+                    _ => {
+                        eprintln!("[STREAM] Killing unreaped child pid={}", child_pid);
+                        kill_process_tree(child_pid);
+                        // Give it a moment to die, then best-effort reap
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                        if let Ok(Some(s)) = child.try_wait() {
+                            exit_code = s.code().unwrap_or(-1);
+                            success = s.success();
                         }
+                        break;
                     }
                 }
-                Err(e) => Err(e),
-            };
-            let exit_code = status.as_ref().ok().and_then(|s| s.code()).unwrap_or(-1);
-            let success = status.as_ref().map(|s| s.success()).unwrap_or(false);
+            }
 
             if was_cancelled {
                 output.push_str("\n[Cancelled by user]\n");

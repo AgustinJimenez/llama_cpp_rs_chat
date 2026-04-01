@@ -450,6 +450,70 @@ pub fn maybe_truncate_tool_output(output: &str, tool_name: &str, conversation_id
     )
 }
 
+/// Summarize large tool output using the loaded model (sub-agent approach).
+/// Falls back to truncation if the model is not available or summarization fails.
+/// This is a unified entry point: truncate first, then summarize if still large.
+pub fn maybe_summarize_tool_output(
+    output: &str,
+    tool_name: &str,
+    model: &llama_cpp_2::model::LlamaModel,
+    backend: &llama_cpp_2::llama_backend::LlamaBackend,
+    chat_template_string: Option<&str>,
+    conversation_id: &str,
+) -> String {
+    const SUMMARY_THRESHOLD: usize = 8000;
+
+    if output.len() <= SUMMARY_THRESHOLD {
+        return output.to_string();
+    }
+
+    // Skip summarization for tools where raw output is important
+    let lower_name = tool_name.to_lowercase();
+    if lower_name.contains("read_file") || lower_name.contains("write_file") || lower_name.contains("edit_file") {
+        return maybe_truncate_tool_output(output, tool_name, conversation_id);
+    }
+
+    log_info!(conversation_id, "📝 [TOOL_SUMMARY] Summarizing {} output: {} chars", tool_name, output.len());
+    crate::web::event_log::log_event(conversation_id, "tool_summary",
+        &format!("{}: {} chars -> summarizing", tool_name, output.len()));
+
+    let system_prompt = format!(
+        "Summarize this {} tool output concisely. Extract ONLY:\n\
+         - Key results and status\n\
+         - Error messages with file paths and line numbers\n\
+         - Important warnings\n\
+         - Actionable information\n\n\
+         Remove verbose logs, progress bars, repeated output, boilerplate.\n\
+         Keep under 500 words.",
+        tool_name
+    );
+
+    // Pre-truncate if too large for the summary context (4096 tokens ~ 16K chars)
+    let text_to_summarize = if output.len() > 14000 {
+        let head = 10000;
+        let tail = 4000;
+        format!("{}\n\n[...{} chars omitted...]\n\n{}",
+            &output[..head], output.len() - head - tail, &output[output.len()-tail..])
+    } else {
+        output.to_string()
+    };
+
+    match run_summary_pass_with_system(
+        model, backend, &text_to_summarize, chat_template_string, conversation_id, &system_prompt,
+    ) {
+        Ok(summary) => {
+            log_info!(conversation_id, "📝 [TOOL_SUMMARY] {} chars -> {} chars", output.len(), summary.len());
+            crate::web::event_log::log_event(conversation_id, "tool_summary",
+                &format!("{}: {} -> {} chars", tool_name, output.len(), summary.len()));
+            format!("[Summarized {} output: {} -> {} chars]\n{}", tool_name, output.len(), summary.len(), summary)
+        }
+        Err(e) => {
+            log_warn!(conversation_id, "[TOOL_SUMMARY] Failed: {}, falling back to truncation", e);
+            maybe_truncate_tool_output(output, tool_name, conversation_id)
+        }
+    }
+}
+
 /// Prefix a command with `rtk` for output compression, if RTK mode is enabled.
 fn maybe_rtk_prefix(cmd: &str, use_rtk: bool) -> String {
     if use_rtk {
@@ -983,8 +1047,8 @@ pub fn check_and_execute_command_with_tags(
 
                     let (tool_output, tool_images) = results[i].take().unwrap_or_default();
                     all_response_images.extend(tool_images);
-                    // Truncate individual tool output before merging
-                    let tool_output = maybe_truncate_tool_output(&tool_output, name, conversation_id);
+                    // Summarize (or truncate as fallback) individual tool output before merging
+                    let tool_output = maybe_summarize_tool_output(&tool_output, name, model, backend, chat_template_string, conversation_id);
                     log_info!(
                         conversation_id,
                         "📤 Tool {} ({}) output: {} chars",
