@@ -1,8 +1,24 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Square } from 'lucide-react';
 import { SyntaxHighlighter, dracula } from '../../../utils/syntaxHighlighterSetup';
 import { detectLanguageFromPath } from '../../../utils/languageDetect';
 import type { ToolCall } from '../../../types';
+
+/** Desktop automation tool names that can be aborted via /api/desktop/abort. */
+const DESKTOP_TOOLS = new Set([
+  'click_screen', 'type_text', 'press_key', 'move_mouse', 'scroll_screen',
+  'mouse_drag', 'mouse_button', 'paste', 'clear_field', 'hover_element',
+  'screenshot_region', 'screenshot_diff', 'window_screenshot',
+  'wait_for_screen_change', 'ocr_screen', 'ocr_find_text', 'ocr_region',
+  'get_ui_tree', 'click_ui_element', 'invoke_ui_action',
+  'read_ui_element_value', 'wait_for_ui_element', 'find_ui_elements',
+  'focus_window', 'click_window_relative', 'snap_window',
+  'set_window_topmost', 'open_application', 'send_keys_to_window',
+  'find_and_click_text', 'type_into_element', 'file_dialog_navigate',
+  'drag_and_drop_element', 'wait_for_text_on_screen', 'scroll_element',
+  'click_and_verify', 'fill_form', 'run_action_sequence',
+  'mouse_drag', 'handle_dialog', 'wait_for_element_state',
+]);
 
 interface ToolCallBlockProps {
   toolCalls: ToolCall[];
@@ -160,18 +176,34 @@ const ExecutingHeader: React.FC<{
   name: string; summary: string; hasOutput: boolean; elapsed: number; isExpanded: boolean; onToggle: () => void;
 }> = ({ name, summary, elapsed, isExpanded, onToggle }) => {
   const elapsedStr = formatElapsed(elapsed);
+  const isDesktop = DESKTOP_TOOLS.has(name);
   return (
-    <button
-      onClick={onToggle}
-      className="w-full bg-muted px-3 py-2 flex items-center gap-2 text-left hover:bg-accent transition-colors"
-    >
-      <span className="inline-block w-3 h-3 border-2 border-foreground/50 border-t-transparent rounded-full animate-spin flex-shrink-0" />
-      <span className="text-xs font-medium text-foreground whitespace-nowrap">
-        {formatToolName(name)}{elapsedStr ? ` (${elapsedStr})` : null}
-      </span>
-      <span className="text-xs text-foreground truncate flex-1">{summary}</span>
-      {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-foreground flex-shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 text-foreground flex-shrink-0" />}
-    </button>
+    <div className="w-full bg-muted px-3 py-2 flex items-center gap-2 hover:bg-accent transition-colors">
+      <button
+        onClick={onToggle}
+        className="flex items-center gap-2 text-left flex-1 min-w-0"
+      >
+        <span className="inline-block w-3 h-3 border-2 border-foreground/50 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+        <span className="text-xs font-medium text-foreground whitespace-nowrap">
+          {formatToolName(name)}{elapsedStr ? ` (${elapsedStr})` : null}
+        </span>
+        <span className="text-xs text-foreground truncate flex-1">{summary}</span>
+        {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-foreground flex-shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 text-foreground flex-shrink-0" />}
+      </button>
+      {isDesktop && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            fetch('/api/desktop/abort', { method: 'POST' }).catch(() => {});
+          }}
+          className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-destructive/20 hover:bg-destructive/40 text-destructive transition-colors flex-shrink-0"
+          title="Abort desktop automation"
+        >
+          <Square className="h-2.5 w-2.5 fill-current" />
+          Abort
+        </button>
+      )}
+    </div>
   );
 };
 

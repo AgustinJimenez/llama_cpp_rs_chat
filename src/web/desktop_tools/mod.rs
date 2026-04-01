@@ -14,6 +14,62 @@ use serde_json::Value;
 
 use super::native_tools::NativeToolResult;
 
+// ─── Global desktop abort flag (set via /api/desktop/abort) ─────────────────
+static DESKTOP_ABORT: AtomicBool = AtomicBool::new(false);
+
+/// Set the global desktop abort flag. Called from the HTTP abort endpoint.
+pub fn set_desktop_abort(abort: bool) {
+    DESKTOP_ABORT.store(abort, Ordering::Relaxed);
+}
+
+/// Check (and auto-reset) the global desktop abort flag.
+/// Returns `true` if abort was requested.
+pub fn check_desktop_abort() -> bool {
+    DESKTOP_ABORT.compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed).is_ok()
+}
+
+/// Returns `true` if the given tool name is a known desktop automation tool.
+pub fn is_desktop_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "click_screen" | "type_text" | "press_key" | "move_mouse"
+            | "scroll_screen" | "mouse_drag" | "mouse_button"
+            | "paste" | "clear_field" | "hover_element"
+            | "take_screenshot" | "screenshot_region" | "screenshot_diff"
+            | "window_screenshot" | "wait_for_screen_change"
+            | "ocr_screen" | "ocr_find_text" | "ocr_region"
+            | "get_ui_tree" | "click_ui_element" | "invoke_ui_action"
+            | "read_ui_element_value" | "wait_for_ui_element"
+            | "clipboard_image" | "find_ui_elements"
+            | "list_windows" | "get_active_window" | "focus_window"
+            | "minimize_window" | "maximize_window" | "close_window"
+            | "resize_window" | "wait_for_window" | "click_window_relative"
+            | "snap_window" | "set_window_topmost" | "open_application"
+            | "list_processes" | "kill_process" | "send_keys_to_window"
+            | "switch_virtual_desktop" | "get_process_info"
+            | "read_clipboard" | "write_clipboard"
+            | "get_cursor_position" | "get_pixel_color" | "list_monitors"
+            | "find_and_click_text" | "type_into_element" | "get_window_text"
+            | "file_dialog_navigate" | "drag_and_drop_element"
+            | "wait_for_text_on_screen" | "get_context_menu"
+            | "scroll_element" | "smart_wait" | "click_and_verify"
+            | "handle_dialog" | "wait_for_element_state"
+            | "fill_form" | "run_action_sequence"
+            | "move_to_monitor" | "set_window_opacity" | "highlight_point"
+            | "annotate_screenshot" | "find_color_on_screen" | "find_image_on_screen"
+            | "read_registry" | "click_tray_icon" | "watch_window"
+            | "execute_app_script" | "send_notification"
+            | "show_status_overlay" | "update_status_overlay" | "hide_status_overlay"
+            | "get_system_volume" | "set_system_volume" | "set_system_mute" | "list_audio_devices"
+            | "clear_clipboard" | "clipboard_file_paths" | "clipboard_html"
+            | "save_window_layout" | "restore_window_layout"
+            | "wait_for_process_exit" | "get_process_tree" | "get_system_metrics"
+            | "wait_for_notification" | "dismiss_all_notifications"
+            | "start_screen_recording" | "stop_screen_recording" | "capture_gif"
+            | "dialog_handler_start" | "dialog_handler_stop"
+    )
+}
+
 /// Default timeout for thread-spawned operations (OCR, UI Automation, etc.).
 const DEFAULT_THREAD_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -66,6 +122,10 @@ pub(super) fn current_desktop_cancellation_context() -> Option<DesktopCancellati
 }
 
 pub(super) fn desktop_call_cancelled() -> bool {
+    // Check the global abort flag first (set via /api/desktop/abort)
+    if DESKTOP_ABORT.load(Ordering::Relaxed) {
+        return true;
+    }
     current_desktop_cancellation_context()
         .map(|ctx| ctx.is_cancelled())
         .unwrap_or(false)
@@ -243,6 +303,84 @@ fn encode_image_to_png(img: &image::RgbaImage) -> Result<Vec<u8>, String> {
     img.write_to(&mut buf, image::ImageFormat::Png)
         .map_err(|e| format!("PNG encode failed: {e}"))?;
     Ok(buf.into_inner())
+}
+
+/// Maximum dimension (width or height) for screenshots sent to vision models.
+/// Keeps token cost manageable while preserving enough detail for UI analysis.
+const SCREENSHOT_MAX_DIM: u32 = 1280;
+
+/// Resize screenshot PNG bytes so the longest side is at most `max_dim` pixels.
+/// Returns the original bytes unchanged if the image is already small enough.
+pub(crate) fn resize_screenshot_for_vision(png_bytes: &[u8], max_dim: u32) -> Vec<u8> {
+    use image::GenericImageView;
+    let img = match image::load_from_memory(png_bytes) {
+        Ok(i) => i,
+        Err(_) => return png_bytes.to_vec(),
+    };
+    let (w, h) = img.dimensions();
+    if w <= max_dim && h <= max_dim {
+        return png_bytes.to_vec(); // Already small enough
+    }
+    let ratio = max_dim as f32 / w.max(h) as f32;
+    let new_w = (w as f32 * ratio) as u32;
+    let new_h = (h as f32 * ratio) as u32;
+    let resized = img.resize(new_w, new_h, image::imageops::FilterType::Lanczos3);
+    let mut buf = Vec::new();
+    if resized
+        .write_to(
+            &mut std::io::Cursor::new(&mut buf),
+            image::ImageFormat::Jpeg,
+        )
+        .is_ok()
+        && !buf.is_empty()
+    {
+        eprintln!(
+            "[SCREENSHOT] Resized {}x{} → {}x{} and JPEG-compressed: {} → {} bytes ({:.0}% reduction)",
+            w, h, new_w, new_h,
+            png_bytes.len(), buf.len(),
+            (1.0 - buf.len() as f64 / png_bytes.len() as f64) * 100.0
+        );
+        buf
+    } else {
+        png_bytes.to_vec()
+    }
+}
+
+/// Encode PNG bytes as JPEG with the given quality (0-100).
+/// Falls back to the original PNG bytes on any error.
+#[allow(dead_code)]
+pub(crate) fn encode_as_jpeg(png_bytes: &[u8], quality: u8) -> Vec<u8> {
+    let img = match image::load_from_memory(png_bytes) {
+        Ok(i) => i,
+        Err(_) => return png_bytes.to_vec(),
+    };
+    // Convert to RGB8 (JPEG doesn't support alpha)
+    let rgb = img.to_rgb8();
+    let mut buf = Vec::new();
+    let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(
+        std::io::Cursor::new(&mut buf),
+        quality,
+    );
+    if image::ImageEncoder::write_image(
+        encoder,
+        &rgb,
+        rgb.width(),
+        rgb.height(),
+        image::ExtendedColorType::Rgb8,
+    )
+    .is_ok()
+        && !buf.is_empty()
+    {
+        buf
+    } else {
+        png_bytes.to_vec()
+    }
+}
+
+/// Convenience: resize + JPEG-compress a screenshot for vision models.
+/// Uses SCREENSHOT_MAX_DIM and 75% JPEG quality (similar to Claude Code).
+pub(crate) fn optimize_screenshot_for_vision(png_bytes: &[u8]) -> Vec<u8> {
+    resize_screenshot_for_vision(png_bytes, SCREENSHOT_MAX_DIM)
 }
 
 fn desktop_trace_path() -> std::path::PathBuf {
@@ -592,6 +730,10 @@ fn finalize_desktop_result(name: &str, args: &Value, started_at: std::time::Inst
 /// Helper: take a screenshot after an action with configurable cache parameters.
 /// `cache_max_age_ms` — how old a cached screenshot can be before it's considered stale.
 /// `cache_threshold_pct` — pixel-diff percentage below which the screen is "unchanged".
+///
+/// TODO: Own-window exclusion — for Tauri desktop builds, minimize our window before
+/// capturing and restore after, so the model sees the target app instead of our UI.
+/// For web mode (browser tab), this isn't feasible without browser extensions.
 fn capture_post_action_screenshot_ext(
     delay_ms: u64,
     cache_max_age_ms: u64,
@@ -631,9 +773,10 @@ fn capture_post_action_screenshot_ext(
     if let Some((cached_raw, cached_png)) = get_cached_screenshot(cache_max_age_ms) {
         let diff = pixel_diff_pct(&cached_raw, &new_raw);
         if diff < cache_threshold_pct {
+            let optimized = optimize_screenshot_for_vision(&cached_png);
             return NativeToolResult::with_image(
                 format!("Screenshot {}x{} (unchanged)", width, height),
-                (*cached_png).clone(),
+                optimized,
             );
         }
     }
@@ -645,9 +788,12 @@ fn capture_post_action_screenshot_ext(
     };
     update_screenshot_cache(new_raw, png_bytes.clone());
 
+    // Resize + JPEG-compress for vision models (saves tokens)
+    let optimized = optimize_screenshot_for_vision(&png_bytes);
+
     NativeToolResult::with_image(
         format!("Screenshot {}x{}", width, height),
-        png_bytes,
+        optimized,
     )
 }
 
@@ -1472,6 +1618,12 @@ pub use recording_tools::*;
 /// Used by the MCP server binary to route tool calls to existing implementations.
 #[allow(dead_code)]
 pub fn dispatch_desktop_tool(name: &str, args: &Value) -> Option<NativeToolResult> {
+    // Check global abort flag before executing any desktop tool
+    if check_desktop_abort() {
+        return Some(NativeToolResult::text_only(
+            "Desktop action aborted by user".to_string(),
+        ));
+    }
     let started_at = std::time::Instant::now();
     let result = match name {
         // Core input tools (mod.rs)

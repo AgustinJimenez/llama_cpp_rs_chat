@@ -80,9 +80,11 @@ pub fn tool_screenshot_region(args: &Value) -> NativeToolResult {
         return super::tool_error("screenshot_region", format!("encoding PNG: {e}"));
     }
 
+    // Resize + JPEG-compress for vision models (saves tokens)
+    let optimized = super::optimize_screenshot_for_vision(&png_buf);
     NativeToolResult::with_image(
         format!("Screenshot region: ({x},{y}) {w}x{h} from monitor {monitor_idx}"),
-        png_buf,
+        optimized,
     )
 }
 
@@ -199,7 +201,8 @@ pub fn tool_screenshot_diff(args: &Value) -> NativeToolResult {
             let mut png_buf = Vec::new();
             let mut cursor = std::io::Cursor::new(&mut png_buf);
             if diff_img.write_to(&mut cursor, image::ImageFormat::Png).is_ok() {
-                return NativeToolResult::with_image(summary, png_buf);
+                let optimized = super::optimize_screenshot_for_vision(&png_buf);
+                return NativeToolResult::with_image(summary, optimized);
             }
             // Fall through to text-only if PNG encoding fails
         }
@@ -249,10 +252,12 @@ pub fn tool_window_screenshot(args: &Value) -> NativeToolResult {
         return super::tool_error("window_screenshot", format!("encoding PNG: {e}"));
     }
 
+    // Resize + JPEG-compress for vision models (saves tokens)
+    let optimized = super::optimize_screenshot_for_vision(&png_data);
     let window_title = window.title().unwrap_or_default();
     NativeToolResult::with_image(
         format!("Window screenshot of '{window_title}' ({}x{})", capture.width(), capture.height()),
-        png_data,
+        optimized,
     )
 }
 

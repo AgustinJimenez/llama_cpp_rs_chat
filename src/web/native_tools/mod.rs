@@ -137,6 +137,15 @@ pub fn dispatch_native_tool(
     };
 
     // Desktop automation tools return NativeToolResult directly (may carry image bytes for vision)
+    // Check global abort flag before any desktop action tool (excludes take_screenshot — read-only)
+    if name != "take_screenshot"
+        && super::desktop_tools::is_desktop_tool(&name)
+        && super::desktop_tools::check_desktop_abort()
+    {
+        return Some(NativeToolResult::text_only(
+            "Desktop action aborted by user".to_string(),
+        ));
+    }
     if name == "take_screenshot" {
         return Some(tool_take_screenshot_with_image(&args));
     }
@@ -1555,7 +1564,9 @@ pub(crate) fn tool_take_screenshot_with_image(args: &Value) -> NativeToolResult 
     if png_bytes.is_empty() {
         NativeToolResult::text_only(text)
     } else {
-        NativeToolResult::with_image(text, png_bytes)
+        // Resize + JPEG-compress for vision models (saves tokens)
+        let optimized = crate::web::desktop_tools::optimize_screenshot_for_vision(&png_bytes);
+        NativeToolResult::with_image(text, optimized)
     }
 }
 

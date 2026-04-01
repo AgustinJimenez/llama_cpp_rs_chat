@@ -89,6 +89,7 @@ pub async fn handle_api_docs() -> Result<Response<Body>, Infallible> {
             {"method": "GET", "path": "/api/system/usage", "description": "CPU/memory/GPU usage"},
             {"method": "GET", "path": "/api/system/processes", "description": "List background processes"},
             {"method": "POST", "path": "/api/system/processes/kill", "description": "Kill a background process"},
+            {"method": "POST", "path": "/api/desktop/abort", "description": "Abort current desktop automation"},
 
             {"method": "GET", "path": "/api/browse", "description": "Browse filesystem for model files"},
             {"method": "POST", "path": "/api/upload", "description": "Upload a model file"},
@@ -101,6 +102,19 @@ pub async fn handle_api_docs() -> Result<Response<Body>, Infallible> {
     Ok(json_raw(
         StatusCode::OK,
         serde_json::to_string_pretty(&docs).unwrap(),
+    ))
+}
+
+/// POST /api/desktop/abort — abort current desktop automation
+pub async fn handle_desktop_abort() -> Result<Response<Body>, Infallible> {
+    crate::web::desktop_tools::set_desktop_abort(true);
+    Ok(json_raw(
+        StatusCode::OK,
+        serde_json::to_string(&serde_json::json!({
+            "success": true,
+            "message": "Desktop abort signal sent"
+        }))
+        .unwrap(),
     ))
 }
 
