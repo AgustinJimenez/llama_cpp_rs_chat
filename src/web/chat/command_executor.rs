@@ -459,6 +459,82 @@ fn maybe_rtk_prefix(cmd: &str, use_rtk: bool) -> String {
     }
 }
 
+/// Check if a command is potentially destructive and return a warning.
+fn detect_destructive_command(cmd: &str) -> Option<&'static str> {
+    let lower = cmd.to_lowercase();
+
+    // File deletion
+    if (lower.contains("rm ") || lower.contains("del ") || lower.contains("remove-item"))
+        && (lower.contains("-rf") || lower.contains("-r") || lower.contains("--force") || lower.contains("-recurse"))
+    {
+        return Some("WARNING: This command may permanently delete files/directories.");
+    }
+
+    // Git destructive operations
+    if lower.contains("git") {
+        if lower.contains("reset --hard") {
+            return Some("WARNING: git reset --hard discards uncommitted changes.");
+        }
+        if lower.contains("push") && (lower.contains("--force") || lower.contains("-f")) {
+            return Some("WARNING: Force push may overwrite remote history.");
+        }
+        if lower.contains("clean") && lower.contains("-f") && !lower.contains("-n") && !lower.contains("--dry-run") {
+            return Some("WARNING: git clean -f permanently deletes untracked files.");
+        }
+        if lower.contains("checkout -- .") || lower.contains("restore -- .") {
+            return Some("WARNING: May discard all working tree changes.");
+        }
+    }
+
+    // Database operations
+    if lower.contains("drop table") || lower.contains("drop database") || lower.contains("truncate table") {
+        return Some("WARNING: This SQL command causes irreversible data loss.");
+    }
+
+    // Disk operations
+    if lower.contains("format ") || lower.contains("mkfs") || lower.contains("dd if=") {
+        return Some("WARNING: This command may destroy disk data.");
+    }
+
+    // Process killing
+    if (lower.contains("taskkill") || lower.contains("kill -9") || lower.contains("killall"))
+        && !lower.contains("/pid") // Our own PID-based kills are fine
+    {
+        return Some("WARNING: This command kills processes.");
+    }
+
+    None
+}
+
+/// Check for potential command injection patterns.
+/// Returns an error message if dangerous patterns are found.
+fn detect_command_injection(cmd: &str) -> Option<String> {
+    // Check for command substitution that could be injection
+    let patterns = [
+        ("$(", "command substitution $()"),
+        ("${", "parameter expansion ${}"),
+        ("`", "backtick command substitution"),
+    ];
+
+    // Only flag these if they appear in tool arguments (not in the command itself)
+    // For now, just log a warning but don't block execution
+    for (pattern, desc) in &patterns {
+        if cmd.contains(pattern) {
+            eprintln!("[SECURITY] Command contains {}: {}", desc, &cmd[..cmd.len().min(100)]);
+        }
+    }
+
+    // Block obviously dangerous patterns
+    if cmd.contains("| base64") && cmd.contains("curl") {
+        return Some("BLOCKED: Potential data exfiltration detected (curl + base64 pipe)".to_string());
+    }
+    if cmd.contains("eval ") && (cmd.contains("curl") || cmd.contains("wget")) {
+        return Some("BLOCKED: Potential remote code execution (eval + download)".to_string());
+    }
+
+    None
+}
+
 /// Result of command execution
 pub struct CommandExecutionResult {
     /// Display block for frontend/logging (just the output tags, no chat template wrapping)
@@ -568,6 +644,15 @@ fn execute_single_tool(
     if name == "execute_command" {
         if let Some(cmd) = args.get("command").and_then(|v| v.as_str()) {
             if !cmd.is_empty() {
+                // Security checks
+                if let Some(injection_msg) = detect_command_injection(cmd) {
+                    return (injection_msg, Vec::new());
+                }
+                if let Some(warning) = detect_destructive_command(cmd) {
+                    eprintln!("[SECURITY] {}: {}", warning, &cmd[..cmd.len().min(100)]);
+                    crate::web::event_log::log_event(conversation_id, "security_warning", &format!("{}: {}", warning, &cmd[..cmd.len().min(80)]));
+                }
+
                 let is_background = args.get("background").map(|v| {
                     v.as_bool().unwrap_or_else(|| {
                         v.as_str().map(|s| matches!(s.trim().to_lowercase().as_str(), "true" | "1" | "yes")).unwrap_or(false)
@@ -951,6 +1036,15 @@ pub fn check_and_execute_command_with_tags(
                 // Check if this is an `execute_command` tool call — route through streaming or background path
                 // so the UI shows line-by-line output for long-running commands (composer, npm, etc.)
                 else if let Some((cmd, is_background)) = native_tools::extract_execute_command_with_opts(&command_text) {
+                    // Security checks
+                    if let Some(injection_msg) = detect_command_injection(&cmd) {
+                        injection_msg
+                    } else {
+                    if let Some(warning) = detect_destructive_command(&cmd) {
+                        eprintln!("[SECURITY] {}: {}", warning, &cmd[..cmd.len().min(100)]);
+                        crate::web::event_log::log_event(conversation_id, "security_warning", &format!("{}: {}", warning, &cmd[..cmd.len().min(80)]));
+                    }
+
                     let rtk_cmd = maybe_rtk_prefix(&cmd, use_rtk);
                     if is_background {
                         log_info!(conversation_id, "🐚 Background execute_command: {}", rtk_cmd);
@@ -982,6 +1076,7 @@ pub fn check_and_execute_command_with_tags(
                         crate::web::event_log::log_event(conversation_id, "tool_done", &format!("execute_command done in {}ms ({} chars)", elapsed_ms, result.len()));
                         result
                     }
+                    } // end security injection check else block
                 } else if let Some(native_result) = run_native_tool_with_timeout(
                     &command_text,
                     web_search_provider,

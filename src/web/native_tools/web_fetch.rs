@@ -24,6 +24,54 @@ pub fn clear_web_fetch_cache() {
     }
 }
 
+/// Apply prompt-based keyword extraction to fetched content.
+/// Searches for lines containing keywords from the prompt and returns them with context.
+pub(super) fn apply_prompt_extraction(content: &str, prompt: &str, max_length: usize) -> String {
+    let keywords: Vec<&str> = prompt.split_whitespace()
+        .filter(|w| w.len() > 3)
+        .collect();
+
+    if keywords.is_empty() {
+        return content.to_string();
+    }
+
+    let lines: Vec<&str> = content.lines().collect();
+    let mut relevant: Vec<String> = Vec::new();
+    let mut seen: std::collections::HashSet<usize> = std::collections::HashSet::new();
+
+    for (i, line) in lines.iter().enumerate() {
+        let lower = line.to_lowercase();
+        if keywords.iter().any(|k| lower.contains(&k.to_lowercase())) {
+            // Include context: 2 lines before and after
+            let start = i.saturating_sub(2);
+            let end = (i + 3).min(lines.len());
+            for j in start..end {
+                if seen.insert(j) {
+                    relevant.push(lines[j].to_string());
+                }
+            }
+        }
+    }
+
+    if !relevant.is_empty() {
+        let extracted = relevant.join("\n");
+        let truncated = if extracted.len() > max_length {
+            let mut end = max_length;
+            while end > 0 && !extracted.is_char_boundary(end) {
+                end -= 1;
+            }
+            &extracted[..end]
+        } else {
+            &extracted
+        };
+        format!("Extracted for '{}' ({} relevant lines from {} total):\n\n{}",
+            prompt, relevant.len(), lines.len(), truncated)
+    } else {
+        // No matches — return full content (prompt keywords didn't match)
+        content.to_string()
+    }
+}
+
 /// Fetch a web page using the configured browser backend (JS-rendered), falling back to ureq.
 /// Includes per-session URL cache and PDF text extraction.
 pub(super) fn tool_web_fetch(args: &Value, use_htmd: bool, backend: &crate::web::browser::BrowserBackend) -> String {

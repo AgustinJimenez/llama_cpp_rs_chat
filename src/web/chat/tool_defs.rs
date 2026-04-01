@@ -262,10 +262,11 @@ static ALL_TOOLS: &[ToolDef] = &[
     // ─── 12. web_fetch ───
     ToolDef {
         name: "web_fetch",
-        description: "Fetch a web page and return its content as plain text (HTML is stripped). Use this to read articles, documentation, or any web page after finding its URL via web_search.",
+        description: "Fetch a web page and return its content as plain text. Use the prompt parameter to extract specific information instead of getting the full page.",
         params: Params::Simple(&[
             p("url", "string", "The URL to fetch"),
             p("max_length", "integer", "Maximum characters to return (default: 15000)"),
+            p("prompt", "string", "What to extract from the page (e.g. 'Find the download link for Windows x64'). If set, returns only the relevant information instead of the full page."),
         ]),
         required: &["url"],
     },

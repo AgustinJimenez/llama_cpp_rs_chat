@@ -373,7 +373,19 @@ pub fn dispatch_native_tool(
         "execute_python" => tool_execute_python(&args),
         "list_directory" => tool_list_directory(&args),
         "web_search" => tool_web_search(&args, web_search_provider, web_search_api_key, browser_backend),
-        "web_fetch" => tool_web_fetch(&args, use_htmd, browser_backend),
+        "web_fetch" => {
+            let content = tool_web_fetch(&args, use_htmd, browser_backend);
+            if let Some(prompt) = args.get("prompt").and_then(|v| v.as_str()) {
+                if !prompt.is_empty() && !content.starts_with("Error") {
+                    let max_len = args.get("max_length").and_then(|v| v.as_u64()).unwrap_or(15_000) as usize;
+                    web_fetch::apply_prompt_extraction(&content, prompt, max_len)
+                } else {
+                    content
+                }
+            } else {
+                content
+            }
+        }
         "execute_command" => {
             let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
             if command.is_empty() {
@@ -638,6 +650,15 @@ fn tool_write_file(args: &Value) -> String {
 
 /// Edit a file by replacing an exact string match.
 /// `old_string` must appear exactly once in the file (uniqueness check).
+/// Normalize curly/smart quotes to straight quotes.
+/// Models sometimes generate curly quotes which cause edit_file "not found" errors.
+fn normalize_quotes(s: &str) -> String {
+    s.replace('\u{2018}', "'")  // left single curly
+     .replace('\u{2019}', "'")  // right single curly
+     .replace('\u{201C}', "\"") // left double curly
+     .replace('\u{201D}', "\"") // right double curly
+}
+
 fn tool_edit_file(args: &Value) -> String {
     let path = match args.get("path").and_then(|v| v.as_str()) {
         Some(p) => p,
@@ -662,6 +683,26 @@ fn tool_edit_file(args: &Value) -> String {
     // Count occurrences
     let match_count = content.matches(old_string).count();
     if match_count == 0 {
+        // Fallback: try with curly quotes normalized to straight quotes
+        let norm_content = normalize_quotes(&content);
+        let norm_old = normalize_quotes(old_string);
+        let norm_count = norm_content.matches(&norm_old).count();
+        if norm_count == 1 {
+            let norm_new = normalize_quotes(new_string);
+            let new_content = norm_content.replacen(&norm_old, &norm_new, 1);
+            let match_pos = norm_content.find(&norm_old).unwrap();
+            let line_num = norm_content[..match_pos].lines().count().max(1);
+            // Save backup for undo_edit
+            let backup_path = format!("{path}.llama_bak");
+            let _ = std::fs::write(&backup_path, &content);
+            return match std::fs::write(path, &new_content) {
+                Ok(()) => format!("Edited {path} (curly quotes normalized): replaced {} chars with {} chars at line {line_num}", norm_old.len(), norm_new.len()),
+                Err(e) => format!("Error writing '{path}': {e}"),
+            };
+        }
+        if norm_count > 1 {
+            return format!("Error: old_string found {norm_count} times in {path} (after curly quote normalization). Include more surrounding context to make it unique.");
+        }
         return format!("Error: old_string not found in {path}. Make sure the text matches exactly (including whitespace and newlines).");
     }
     if match_count > 1 {
