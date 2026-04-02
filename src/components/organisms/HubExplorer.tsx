@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Loader2, ExternalLink, ChevronDown, ChevronRight, Download, Heart, ArrowUpDown, ArrowDownToLine, Play, FolderOpen, X } from 'lucide-react';
+import { Search, Loader2, ExternalLink, ChevronDown, ChevronRight, Download, Heart, ArrowUpDown, ArrowDownToLine, Play, Pause, FolderOpen, X } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '../atoms/dialog';
@@ -256,11 +256,12 @@ function ModelCard({ model, onDownload, downloads, downloadedSet, pendingDownloa
 
 // ─── Downloads Tab ──────────────────────────────────────────────────
 
-function DownloadRow({ record, progress, onResume, onLoad, onCancel }: {
+function DownloadRow({ record, progress, onResume, onLoad, onPause, onCancel }: {
   record: HubDownloadRecord;
   progress?: DownloadProgress | null;
   onResume: (record: HubDownloadRecord) => void;
   onLoad: (record: HubDownloadRecord) => void;
+  onPause: (key: string) => void;
   onCancel: (key: string) => void;
 }) {
   const shortName = record.filename.split('/').pop() ?? record.filename;
@@ -325,7 +326,15 @@ function DownloadRow({ record, progress, onResume, onLoad, onCancel }: {
             <Play className="h-4 w-4" />
           </button>
         ) : isDownloading ? (
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          <button
+            type="button"
+            onClick={() => onPause(`${record.model_id}/${record.filename}`)}
+            className="text-muted-foreground hover:text-yellow-500"
+            title="Pause download"
+            aria-label="Pause download"
+          >
+            <Pause className="h-4 w-4" />
+          </button>
         ) : (
           <button
             type="button"
@@ -351,12 +360,13 @@ function DownloadRow({ record, progress, onResume, onLoad, onCancel }: {
   );
 }
 
-function DownloadsTab({ completedDownloads, pendingDownloads, downloads, onResume, onLoad, onCancel }: {
+function DownloadsTab({ completedDownloads, pendingDownloads, downloads, onResume, onLoad, onPause, onCancel }: {
   completedDownloads: Map<string, HubDownloadRecord>;
   pendingDownloads: Map<string, HubDownloadRecord>;
   downloads: Map<string, DownloadProgress>;
   onResume: (record: HubDownloadRecord) => void;
   onLoad: (record: HubDownloadRecord) => void;
+  onPause: (key: string) => void;
   onCancel: (key: string) => void;
 }) {
   const pendingList = Array.from(pendingDownloads.values());
@@ -390,6 +400,7 @@ function DownloadsTab({ completedDownloads, pendingDownloads, downloads, onResum
                   progress={downloads.get(key)}
                   onResume={onResume}
                   onLoad={onLoad}
+                  onPause={onPause}
                   onCancel={onCancel}
                 />
               );
@@ -413,6 +424,7 @@ function DownloadsTab({ completedDownloads, pendingDownloads, downloads, onResum
                   progress={downloads.get(key)}
                   onResume={onResume}
                   onLoad={onLoad}
+                  onPause={onPause}
                   onCancel={onCancel}
                 />
               );
@@ -433,7 +445,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
   const [modelsDirectory, setModelsDirectory] = useState<string | null>(null);
   const [dirInput, setDirInput] = useState('');
   const { models, isLoading, error, sort, searchModels, debouncedSearch, changeSort } = useHubSearch();
-  const { downloads, downloadedSet, completedDownloads, pendingDownloads, startDownload, cancelDownload, refreshRecords } = useDownloadContext();
+  const { downloads, downloadedSet, completedDownloads, pendingDownloads, startDownload, pauseDownload, cancelDownload, refreshRecords } = useDownloadContext();
 
   useEffect(() => {
     if (isOpen) {
@@ -640,6 +652,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
               downloads={downloads}
               onResume={handleResume}
               onLoad={handleLoad}
+              onPause={pauseDownload}
               onCancel={cancelDownload}
             />
           </div>

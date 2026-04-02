@@ -16,6 +16,7 @@ interface DownloadContextValue {
 
   // Actions
   startDownload: (modelId: string, file: HubFileRef, destPath: string) => void;
+  pauseDownload: (key: string) => void;
   cancelDownload: (key: string) => Promise<void>;
   refreshRecords: () => Promise<void>;
 
@@ -102,6 +103,23 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     abortControllers.current.set(key, controller);
   }, [refreshRecords]);
 
+  const pauseDownload = useCallback((key: string) => {
+    // Abort the SSE stream but keep the DB record (preserves bytes_downloaded)
+    const ctrl = abortControllers.current.get(key);
+    if (ctrl) {
+      ctrl.abort();
+      abortControllers.current.delete(key);
+    }
+    // Remove from active downloads UI so it shows as "Paused"
+    setDownloads(prev => {
+      const next = new Map(prev);
+      next.delete(key);
+      return next;
+    });
+    // Refresh records to show updated state
+    refreshRecords();
+  }, [refreshRecords]);
+
   const cancelDownload = useCallback(async (key: string) => {
     // Abort active SSE stream if running
     const ctrl = abortControllers.current.get(key);
@@ -150,10 +168,10 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<DownloadContextValue>(() => ({
     downloads, downloadedSet, completedDownloads, pendingDownloads,
-    startDownload, cancelDownload, refreshRecords,
+    startDownload, pauseDownload, cancelDownload, refreshRecords,
     activeCount, pendingCount,
   }), [downloads, downloadedSet, completedDownloads, pendingDownloads,
-    startDownload, cancelDownload, refreshRecords, activeCount, pendingCount]);
+    startDownload, pauseDownload, cancelDownload, refreshRecords, activeCount, pendingCount]);
 
   return (
     <DownloadContext.Provider value={value}>
