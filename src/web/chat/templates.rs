@@ -30,7 +30,7 @@ fn core_behavior_block() -> String {
 - If a command fails, try a DIFFERENT approach. Do NOT retry the same failing command.
 - Do NOT tell the user to run commands manually — use your tools to solve problems yourself.
 - NEVER repeat the same failing command more than once. If it failed, change your approach.
-- When creating files, use `write_file` directly. Do not show code and ask the user to copy it.
+- NEVER output file contents as text in your response. ALWAYS use `write_file` to save code/config/HTML to disk. If you write code without using write_file, IT WILL NOT BE SAVED.
 - Use `edit_file` for small changes to existing files instead of rewriting with `write_file`.
 - When a task requires multiple steps, execute them one by one using your tools. Do not skip steps.
 - For complex tasks, briefly outline your plan before starting.
