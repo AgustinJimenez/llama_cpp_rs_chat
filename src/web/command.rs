@@ -1,14 +1,99 @@
+use std::collections::HashMap;
 use std::env;
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 
 use super::utils::silent_command;
 use std::time::Instant;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+
+// ── Persistent shell environment ─────────────────────────────────────────────
+// Each command runs in a fresh subshell, so `export`/`set` assignments are lost.
+// We parse explicit assignments from commands and inject them into subsequent
+// child processes, giving the illusion of persistent shell state.
+
+static SHELL_ENV: OnceLock<StdMutex<HashMap<String, String>>> = OnceLock::new();
+
+fn shell_env() -> &'static StdMutex<HashMap<String, String>> {
+    SHELL_ENV.get_or_init(|| StdMutex::new(HashMap::new()))
+}
+
+/// Get the persisted shell environment as a HashMap.
+pub fn get_shell_env() -> HashMap<String, String> {
+    shell_env()
+        .lock()
+        .ok()
+        .map(|env| env.clone())
+        .unwrap_or_default()
+}
+
+/// Parse and persist explicit environment variable assignments from a command.
+/// Recognises `set VAR=value` (Windows) and `export VAR=value` / `VAR=value` (Unix).
+fn capture_env_from_command(cmd: &str) {
+    let trimmed = cmd.trim();
+
+    // Split on && and ; to handle chained commands
+    for part in trimmed.split("&&").flat_map(|s| s.split(';')) {
+        let part = part.trim();
+
+        #[cfg(target_os = "windows")]
+        {
+            if let Some(rest) = part
+                .strip_prefix("set ")
+                .or_else(|| part.strip_prefix("SET "))
+            {
+                if let Some((key, value)) = rest.split_once('=') {
+                    let key = key.trim().to_string();
+                    let value = value.trim().trim_matches('"').to_string();
+                    if !key.is_empty() {
+                        eprintln!(
+                            "[SHELL_ENV] Captured: {}={}",
+                            key,
+                            &value[..value.len().min(50)]
+                        );
+                        if let Ok(mut env) = shell_env().lock() {
+                            env.insert(key, value);
+                        }
+                    }
+                }
+            }
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            let assignment = part.strip_prefix("export ").unwrap_or(part);
+            if let Some((key, value)) = assignment.split_once('=') {
+                let key = key.trim().to_string();
+                // Only capture if it looks like a variable name
+                if key
+                    .chars()
+                    .next()
+                    .map(|c| c.is_ascii_alphabetic() || c == '_')
+                    .unwrap_or(false)
+                    && !key.contains(' ')
+                {
+                    let value = value
+                        .trim()
+                        .trim_matches('"')
+                        .trim_matches('\'')
+                        .to_string();
+                    eprintln!(
+                        "[SHELL_ENV] Captured: {}={}",
+                        key,
+                        &value[..value.len().min(50)]
+                    );
+                    if let Ok(mut env) = shell_env().lock() {
+                        env.insert(key, value);
+                    }
+                }
+            }
+        }
+    }
+}
 
 // ── Process tree kill (Windows) ─────────────────────────────────────────────
 // On Windows, `child.kill()` only terminates the top-level process (cmd.exe).
@@ -173,23 +258,27 @@ pub fn enriched_windows_path() -> String {
 /// Fall back to PowerShell for shell builtins (cat, dir, type) and commands with shell operators.
 fn execute_windows(cmd: &str, parts: &[String]) -> std::io::Result<std::process::Output> {
     let path = enriched_windows_path();
+    let persisted_env = get_shell_env();
 
     // Commands with shell operators (|, >, &&, etc.) must go through PowerShell
     if needs_shell(cmd) {
         let escaped = cmd.replace('$', "`$");
-        return silent_command("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-Command", &escaped])
-            .env("PATH", &path)
-            .stdin(Stdio::null())
-            .output();
+        let mut c = silent_command("powershell");
+        c.args(["-NoProfile", "-NonInteractive", "-Command", &escaped])
+            .env("PATH", &path);
+        for (k, v) in &persisted_env {
+            c.env(k, v);
+        }
+        return c.stdin(Stdio::null()).output();
     }
 
     // Try direct execution first — no shell means no quoting issues
-    let result = silent_command(&parts[0])
-        .args(&parts[1..])
-        .env("PATH", &path)
-        .stdin(Stdio::null())
-        .output();
+    let mut c = silent_command(&parts[0]);
+    c.args(&parts[1..]).env("PATH", &path);
+    for (k, v) in &persisted_env {
+        c.env(k, v);
+    }
+    let result = c.stdin(Stdio::null()).output();
 
     match &result {
         Ok(_) => result,
@@ -197,11 +286,13 @@ fn execute_windows(cmd: &str, parts: &[String]) -> std::io::Result<std::process:
             // Command not found as executable — try PowerShell for aliases/builtins
             // (cat, dir, type, ls, etc. are PowerShell aliases, not real executables)
             let escaped = cmd.replace('$', "`$");
-            silent_command("powershell")
-                .args(["-NoProfile", "-NonInteractive", "-Command", &escaped])
-                .env("PATH", &path)
-                .stdin(Stdio::null())
-                .output()
+            let mut c = silent_command("powershell");
+            c.args(["-NoProfile", "-NonInteractive", "-Command", &escaped])
+                .env("PATH", &path);
+            for (k, v) in &persisted_env {
+                c.env(k, v);
+            }
+            c.stdin(Stdio::null()).output()
         }
         Err(_) => result,
     }
@@ -234,16 +325,30 @@ pub fn execute_command(cmd: &str) -> String {
             }
         }
         let original_cwd = std::env::current_dir().unwrap_or_default();
+        let persisted_env = get_shell_env();
         #[cfg(target_os = "windows")]
-        let output = silent_command("cmd")
-            .raw_arg(format!("/C {trimmed}"))
-            .env("PATH", enriched_windows_path())
-            .stdin(Stdio::null())
-            .output();
+        let output = {
+            let mut c = silent_command("cmd");
+            c.raw_arg(format!("/C {trimmed}"))
+                .env("PATH", enriched_windows_path());
+            for (k, v) in &persisted_env {
+                c.env(k, v);
+            }
+            c.stdin(Stdio::null()).output()
+        };
         #[cfg(not(target_os = "windows"))]
-        let output = silent_command("sh").arg("-c").arg(trimmed).stdin(Stdio::null()).output();
+        let output = {
+            let mut c = silent_command("sh");
+            c.arg("-c").arg(trimmed);
+            for (k, v) in &persisted_env {
+                c.env(k, v);
+            }
+            c.stdin(Stdio::null()).output()
+        };
         // Persist CWD if compound command started with cd
         track_cwd_change(trimmed);
+        // Capture any env var assignments from the command
+        capture_env_from_command(trimmed);
         return match output {
             Ok(o) => {
                 let stdout = String::from_utf8_lossy(&o.stdout);
@@ -299,12 +404,18 @@ pub fn execute_command(cmd: &str) -> String {
         // Normal command execution for non-cd commands
         let is_windows = cfg!(target_os = "windows");
 
+        // Capture any env var assignments (e.g. standalone `set VAR=value`)
+        capture_env_from_command(trimmed);
+
         let output = if is_windows {
             execute_windows(cmd.trim(), &parts)
         } else {
-            silent_command(&parts[0])
-                .args(&parts[1..])
-                .output()
+            let mut c = silent_command(&parts[0]);
+            c.args(&parts[1..]);
+            for (k, v) in &get_shell_env() {
+                c.env(k, v);
+            }
+            c.output()
         };
 
         match output {
@@ -411,6 +522,7 @@ pub fn execute_command_streaming_with_timeout(
         ("GIT_FLUSH", "1"),
         ("CI", "true"),
     ];
+    let persisted_env = get_shell_env();
 
     #[cfg(target_os = "windows")]
     let child_result = {
@@ -419,6 +531,10 @@ pub fn execute_command_streaming_with_timeout(
         cmd.raw_arg(format!("/C {trimmed} 2>&1"))
             .env("PATH", &path);
         for (k, v) in &env_vars {
+            cmd.env(k, v);
+        }
+        // Inject persisted shell environment variables
+        for (k, v) in &persisted_env {
             cmd.env(k, v);
         }
         // CRITICAL: null stdin so child doesn't inherit the worker's IPC pipe.
@@ -432,6 +548,10 @@ pub fn execute_command_streaming_with_timeout(
         let mut cmd = silent_command("sh");
         cmd.arg("-c").arg(format!("{trimmed} 2>&1"));
         for (k, v) in &env_vars {
+            cmd.env(k, v);
+        }
+        // Inject persisted shell environment variables
+        for (k, v) in &persisted_env {
             cmd.env(k, v);
         }
         cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()
@@ -632,6 +752,8 @@ pub fn execute_command_streaming_with_timeout(
 
             // Persist CWD if compound command started with cd
             track_cwd_change(trimmed);
+            // Capture any env var assignments from the command
+            capture_env_from_command(trimmed);
             let annotation = cwd_annotation(&original_cwd).unwrap_or_default();
 
             if output.trim().is_empty() {

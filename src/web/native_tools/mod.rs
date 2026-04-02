@@ -39,6 +39,80 @@ fn todo_store() -> &'static StdMutex<HashMap<String, String>> {
     TODO_STORE.get_or_init(|| StdMutex::new(HashMap::new()))
 }
 
+// ─── ctags cache for lsp_query ─────────────────────────────────────────────────
+static CTAGS_CACHE: OnceLock<StdMutex<HashMap<String, (std::time::Instant, String)>>> = OnceLock::new();
+
+fn ctags_cache() -> &'static StdMutex<HashMap<String, (std::time::Instant, String)>> {
+    CTAGS_CACHE.get_or_init(|| StdMutex::new(HashMap::new()))
+}
+
+/// Generate or retrieve cached ctags output for a project/file path.
+/// Returns None if ctags is not installed or fails.
+fn get_ctags(path: &str) -> Option<String> {
+    let cache_ttl = std::time::Duration::from_secs(300); // 5 min cache
+
+    // Check cache
+    if let Ok(cache) = ctags_cache().lock() {
+        if let Some((time, data)) = cache.get(path) {
+            if time.elapsed() < cache_ttl {
+                return Some(data.clone());
+            }
+        }
+    }
+
+    // Try to generate with ctags/universal-ctags (JSON output for easy parsing)
+    let output = std::process::Command::new("ctags")
+        .args(["--recurse", "--output-format=json", "--fields=+n", "-f", "-"])
+        .arg(path)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let result = String::from_utf8_lossy(&output.stdout).to_string();
+    if result.trim().is_empty() {
+        return None;
+    }
+
+    // Cache it
+    if let Ok(mut cache) = ctags_cache().lock() {
+        cache.insert(path.to_string(), (std::time::Instant::now(), result.clone()));
+    }
+
+    Some(result)
+}
+
+/// ripgrep-based definition search (fallback when ctags unavailable)
+fn lsp_ripgrep_definition(symbol: &str, path: &str) -> String {
+    let escaped = regex::escape(symbol);
+    let patterns = [
+        format!(r"(fn|pub fn|pub\(crate\) fn|async fn|pub async fn)\s+{}\s*[\(<]", escaped),
+        format!(r"(struct|enum|trait|type|pub struct|pub enum|pub trait|pub type)\s+{}\s*[\{{<]", escaped),
+        format!(r"(class|interface|function|const|let|var|def|defn?)\s+{}\s*[\({{:<= ]", escaped),
+        format!(r"(impl|impl<[^>]*>)\s+{}\s", escaped),
+    ];
+    let combined = patterns.join("|");
+    let cmd = format!(
+        "rg -n -e \"{}\" \"{}\" --type-add \"code:*.{{rs,ts,tsx,js,jsx,py,go,java,c,cpp,h,hpp,nim,ex}}\" -t code --max-count 20",
+        combined.replace('"', "\\\""), path
+    );
+    super::command::execute_command(&cmd)
+}
+
+/// ripgrep-based symbol listing (fallback when ctags unavailable)
+fn lsp_ripgrep_symbols(target: &str) -> String {
+    let cmd = format!(
+        "rg -n \"(fn |struct |enum |trait |class |interface |function |def |const |type |impl )\" \"{}\" --max-count 50",
+        target
+    );
+    super::command::execute_command(&cmd)
+}
+
 // ─── File modification time cache (for edit_file concurrent modification detection) ──
 #[allow(dead_code)]
 static FILE_MTIME_CACHE: OnceLock<StdMutex<HashMap<String, u64>>> = OnceLock::new();
@@ -465,28 +539,37 @@ pub fn dispatch_native_tool(
         "lsp_query" => {
             let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("definition");
             let symbol = args.get("symbol").and_then(|v| v.as_str()).unwrap_or("");
+            let file = args.get("file").and_then(|v| v.as_str());
             let path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
 
-            if symbol.is_empty() {
+            if symbol.is_empty() && action != "symbols" && action != "diagnostics" {
                 "Error: 'symbol' is required".to_string()
             } else {
                 let result = match action {
                     "definition" => {
-                        let escaped = regex::escape(symbol);
-                        let patterns = [
-                            format!(r"(fn|pub fn|pub\(crate\) fn|async fn|pub async fn)\s+{}\s*[\(<]", escaped),
-                            format!(r"(struct|enum|trait|type|pub struct|pub enum|pub trait|pub type)\s+{}\s*[\{{<]", escaped),
-                            format!(r"(class|interface|function|const|let|var|def|defn?)\s+{}\s*[\({{:<= ]", escaped),
-                            format!(r"(impl|impl<[^>]*>)\s+{}\s", escaped),
-                        ];
-                        let combined = patterns.join("|");
-                        let cmd = format!(
-                            "rg -n -e \"{}\" \"{}\" --type-add \"code:*.{{rs,ts,tsx,js,jsx,py,go,java,c,cpp,h,hpp,nim,ex}}\" -t code --max-count 20",
-                            combined.replace('"', "\\\""), path
-                        );
-                        super::command::execute_command(&cmd)
+                        // Try ctags first for real symbol indexing
+                        if let Some(ctags) = get_ctags(path) {
+                            let matches: Vec<&str> = ctags.lines()
+                                .filter(|line| {
+                                    // ctags JSON: {"name":"symbol",...}
+                                    line.contains(&format!("\"name\":\"{}\"", symbol)) ||
+                                    // ctags traditional: symbol\tfile\tpattern
+                                    line.starts_with(&format!("{}\t", symbol))
+                                })
+                                .take(10)
+                                .collect();
+                            if !matches.is_empty() {
+                                format!("Definitions found via ctags:\n{}", matches.join("\n"))
+                            } else {
+                                // Fallback to ripgrep
+                                lsp_ripgrep_definition(symbol, path)
+                            }
+                        } else {
+                            lsp_ripgrep_definition(symbol, path)
+                        }
                     }
                     "references" => {
+                        // References always use ripgrep (ctags only indexes definitions)
                         let cmd = format!(
                             "rg -n -w \"{}\" \"{}\" --type-add \"code:*.{{rs,ts,tsx,js,jsx,py,go,java,c,cpp,h,hpp,nim,ex}}\" -t code --max-count 30",
                             symbol, path
@@ -494,12 +577,51 @@ pub fn dispatch_native_tool(
                         super::command::execute_command(&cmd)
                     }
                     "symbols" => {
-                        let file = args.get("file").and_then(|v| v.as_str()).unwrap_or(path);
-                        let cmd = format!(
-                            "rg -n \"(fn |struct |enum |trait |class |interface |function |def |const |type |impl )\" \"{}\" --max-count 50",
-                            file
-                        );
-                        super::command::execute_command(&cmd)
+                        let target = file.unwrap_or(path);
+                        // Try ctags for real symbol indexing
+                        if let Some(ctags) = get_ctags(target) {
+                            let file_matches: Vec<&str> = ctags.lines()
+                                .filter(|line| {
+                                    if let Some(f) = file {
+                                        line.contains(f)
+                                    } else {
+                                        true
+                                    }
+                                })
+                                .take(50)
+                                .collect();
+                            if !file_matches.is_empty() {
+                                format!("Symbols:\n{}", file_matches.join("\n"))
+                            } else {
+                                lsp_ripgrep_symbols(target)
+                            }
+                        } else {
+                            lsp_ripgrep_symbols(target)
+                        }
+                    }
+                    "diagnostics" => {
+                        // Run language-specific diagnostic/type-checking tools
+                        let ext = file.and_then(|f| std::path::Path::new(f).extension())
+                            .and_then(|e| e.to_str()).unwrap_or("");
+                        match ext {
+                            "rs" => super::command::execute_command("cargo check --message-format=short 2>&1 | head -30"),
+                            "py" => {
+                                if let Some(f) = file {
+                                    super::command::execute_command(&format!("python -m py_compile {} 2>&1", f))
+                                } else {
+                                    "Error: 'file' is required for Python diagnostics".to_string()
+                                }
+                            }
+                            "ts" | "tsx" => super::command::execute_command("npx tsc --noEmit 2>&1 | head -30"),
+                            "nim" => {
+                                if let Some(f) = file {
+                                    super::command::execute_command(&format!("nim check {} 2>&1 | head -30", f))
+                                } else {
+                                    "Error: 'file' is required for Nim diagnostics".to_string()
+                                }
+                            }
+                            _ => "No diagnostic tool available for this file type. Use execute_command to run your build tool.".to_string(),
+                        }
                     }
                     "hover" => {
                         let escaped = regex::escape(symbol);
@@ -510,7 +632,7 @@ pub fn dispatch_native_tool(
                         );
                         super::command::execute_command(&cmd)
                     }
-                    _ => format!("Unknown action '{}'. Use: definition, references, symbols, hover", action),
+                    _ => format!("Unknown action '{}'. Use: definition, references, symbols, hover, diagnostics", action),
                 };
                 if result.trim().is_empty() {
                     format!("No results found for '{}' ({}) in {}", symbol, action, path)
