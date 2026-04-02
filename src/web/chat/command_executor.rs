@@ -258,7 +258,19 @@ pub fn run_summary_reusing_ctx(
     conversation_id: &str,
 ) -> Result<String, String> {
     let system_msg = "Summarize this AI assistant conversation concisely. The ASSISTANT (not the user) is the one executing tools, writing code, and running commands. The USER only sends requests. Keep: what the user asked for, what the assistant did, key results, file paths, errors encountered. Remove: verbose tool output, repeated attempts, boilerplate. Write as a brief narrative paragraph.";
+    run_summary_reusing_ctx_with_system(model, ctx, text, chat_template_string, conversation_id, system_msg)
+}
 
+/// Run a summary pass reusing an existing context with a CUSTOM system prompt.
+/// Used for both conversation compaction and tool output summarization.
+pub fn run_summary_reusing_ctx_with_system(
+    model: &llama_cpp_2::model::LlamaModel,
+    ctx: &mut llama_cpp_2::context::LlamaContext<'_>,
+    text: &str,
+    chat_template_string: Option<&str>,
+    conversation_id: &str,
+    system_msg: &str,
+) -> Result<String, String> {
     let formatted_prompt = if let Some(template_str) = chat_template_string {
         use super::jinja_templates::apply_native_chat_template;
         #[allow(deprecated)]
@@ -522,9 +534,10 @@ pub fn maybe_truncate_tool_output(output: &str, tool_name: &str, conversation_id
     )
 }
 
-/// Summarize large tool output using the loaded model (sub-agent approach).
-/// Falls back to truncation if the model is not available or summarization fails.
-/// This is a unified entry point: truncate first, then summarize if still large.
+/// Summarize large tool output using recursive map-reduce (sub-agent approach).
+/// Handles arbitrarily large outputs by chunking, summarizing each chunk,
+/// combining summaries, and recursing if needed — same pattern as conversation compaction.
+/// Falls back to truncation if summarization fails.
 pub fn maybe_summarize_tool_output(
     output: &str,
     tool_name: &str,
@@ -533,9 +546,11 @@ pub fn maybe_summarize_tool_output(
     chat_template_string: Option<&str>,
     conversation_id: &str,
 ) -> String {
-    const SUMMARY_THRESHOLD: usize = 8000;
+    const PASS_THROUGH_THRESHOLD: usize = 8000;
+    const SINGLE_PASS_LIMIT: usize = 10000;
+    const MAP_REDUCE_CTX: u32 = 4096;
 
-    if output.len() <= SUMMARY_THRESHOLD {
+    if output.len() <= PASS_THROUGH_THRESHOLD {
         return output.to_string();
     }
 
@@ -544,10 +559,6 @@ pub fn maybe_summarize_tool_output(
     if lower_name.contains("read_file") || lower_name.contains("write_file") || lower_name.contains("edit_file") {
         return maybe_truncate_tool_output(output, tool_name, conversation_id);
     }
-
-    log_info!(conversation_id, "📝 [TOOL_SUMMARY] Summarizing {} output: {} chars", tool_name, output.len());
-    crate::web::event_log::log_event(conversation_id, "tool_summary",
-        &format!("{}: {} chars -> summarizing", tool_name, output.len()));
 
     let system_prompt = format!(
         "Summarize this {} tool output concisely. Extract ONLY:\n\
@@ -560,29 +571,107 @@ pub fn maybe_summarize_tool_output(
         tool_name
     );
 
-    // Pre-truncate if too large for the summary context (4096 tokens ~ 16K chars)
-    let text_to_summarize = if output.len() > 14000 {
-        let head = 10000;
-        let tail = 4000;
-        format!("{}\n\n[...{} chars omitted...]\n\n{}",
-            &output[..head], output.len() - head - tail, &output[output.len()-tail..])
-    } else {
-        output.to_string()
+    log_info!(conversation_id, "📝 [TOOL_SUMMARY] Summarizing {} output: {} chars", tool_name, output.len());
+    crate::web::event_log::log_event(conversation_id, "tool_summary",
+        &format!("{}: {} chars -> summarizing", tool_name, output.len()));
+
+    // Small enough for a single summary pass (no map-reduce needed)
+    if output.len() <= SINGLE_PASS_LIMIT {
+        match run_summary_pass_with_system(
+            model, backend, output, chat_template_string, conversation_id, &system_prompt,
+        ) {
+            Ok(summary) => {
+                log_info!(conversation_id, "📝 [TOOL_SUMMARY] Single pass: {} -> {} chars", output.len(), summary.len());
+                crate::web::event_log::log_event(conversation_id, "tool_summary",
+                    &format!("{}: {} -> {} chars (single)", tool_name, output.len(), summary.len()));
+                return format!("[Summarized {} output: {} -> {} chars]\n{}", tool_name, output.len(), summary.len(), summary);
+            }
+            Err(e) => {
+                log_warn!(conversation_id, "[TOOL_SUMMARY] Single pass failed: {}, falling back to truncation", e);
+                return maybe_truncate_tool_output(output, tool_name, conversation_id);
+            }
+        }
+    }
+
+    // Large output: map-reduce with a reusable context (avoids CUDA memory fragmentation)
+    eprintln!("[TOOL_SUMMARY] Map-reduce summarizing {} output: {} chars", tool_name, output.len());
+
+    let n_ctx = NonZeroU32::new(MAP_REDUCE_CTX).unwrap();
+    let config = SamplerConfig::default();
+    let mut ctx = match create_fresh_context(model, backend, n_ctx, false, &config) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[TOOL_SUMMARY] Failed to create summary context: {}", e);
+            return maybe_truncate_tool_output(output, tool_name, conversation_id);
+        }
     };
 
-    match run_summary_pass_with_system(
-        model, backend, &text_to_summarize, chat_template_string, conversation_id, &system_prompt,
-    ) {
+    match map_reduce_summarize_tool_output(model, &mut ctx, output, chat_template_string, conversation_id, &system_prompt) {
         Ok(summary) => {
-            log_info!(conversation_id, "📝 [TOOL_SUMMARY] {} chars -> {} chars", output.len(), summary.len());
+            log_info!(conversation_id, "📝 [TOOL_SUMMARY] Map-reduce: {} -> {} chars", output.len(), summary.len());
             crate::web::event_log::log_event(conversation_id, "tool_summary",
-                &format!("{}: {} -> {} chars", tool_name, output.len(), summary.len()));
+                &format!("{}: {} -> {} chars (map-reduce)", tool_name, output.len(), summary.len()));
             format!("[Summarized {} output: {} -> {} chars]\n{}", tool_name, output.len(), summary.len(), summary)
         }
         Err(e) => {
-            log_warn!(conversation_id, "[TOOL_SUMMARY] Failed: {}, falling back to truncation", e);
+            log_warn!(conversation_id, "[TOOL_SUMMARY] Map-reduce failed: {}, falling back to truncation", e);
             maybe_truncate_tool_output(output, tool_name, conversation_id)
         }
+    }
+}
+
+/// Recursive map-reduce summarization for tool output.
+/// Splits text into chunks, summarizes each with a reusable context,
+/// combines the summaries, and recurses if the combined result is still too large.
+fn map_reduce_summarize_tool_output(
+    model: &llama_cpp_2::model::LlamaModel,
+    ctx: &mut llama_cpp_2::context::LlamaContext<'_>,
+    text: &str,
+    chat_template_string: Option<&str>,
+    conversation_id: &str,
+    system_prompt: &str,
+) -> Result<String, String> {
+    const CHUNK_SIZE: usize = 10000;
+
+    // === MAP PHASE: split into chunks and summarize each ===
+    let mut summaries = Vec::new();
+    let mut pos = 0;
+    let total_chunks = (text.len() + CHUNK_SIZE - 1) / CHUNK_SIZE;
+    let mut chunk_num = 0;
+
+    while pos < text.len() {
+        let end = (pos + CHUNK_SIZE).min(text.len());
+        // Ensure we land on a UTF-8 char boundary
+        let end = (pos..=end).rev().find(|&i| text.is_char_boundary(i)).unwrap_or(end);
+        let chunk = &text[pos..end];
+        chunk_num += 1;
+
+        eprintln!("[TOOL_SUMMARY] Map chunk {}/{} ({} chars)", chunk_num, total_chunks, chunk.len());
+
+        match run_summary_reusing_ctx_with_system(model, ctx, chunk, chat_template_string, conversation_id, system_prompt) {
+            Ok(summary) => {
+                eprintln!("[TOOL_SUMMARY] Chunk {} -> {} chars", chunk_num, summary.len());
+                summaries.push(summary);
+            }
+            Err(e) => {
+                eprintln!("[TOOL_SUMMARY] Chunk {} failed: {}, using truncated fallback", chunk_num, e);
+                summaries.push(chunk.chars().take(200).collect::<String>() + "...");
+            }
+        }
+
+        pos = end;
+    }
+
+    // === REDUCE PHASE: combine summaries ===
+    let combined = summaries.join("\n\n");
+    eprintln!("[TOOL_SUMMARY] Reduce: {} summaries ({} chars)", summaries.len(), combined.len());
+
+    if combined.len() <= CHUNK_SIZE {
+        // Final summary pass on the combined chunk summaries
+        run_summary_reusing_ctx_with_system(model, ctx, &combined, chat_template_string, conversation_id, system_prompt)
+    } else {
+        // Still too large — recurse
+        map_reduce_summarize_tool_output(model, ctx, &combined, chat_template_string, conversation_id, system_prompt)
     }
 }
 
