@@ -324,7 +324,7 @@ static ALL_TOOLS: &[ToolDef] = &[
     // ─── 18. lsp_query ───
     ToolDef {
         name: "lsp_query",
-        description: "Query code intelligence: find definitions, references, symbols, diagnostics. Uses ctags (if available) with ripgrep fallback.",
+        description: "Query code intelligence: find definitions, references, symbols, diagnostics. Uses ctags (if available) with ripgrep fallback. For more precise results, you can install a real language server (rust-analyzer for Rust, typescript-language-server for TS, pyright for Python, gopls for Go, clangd for C/C++) and use execute_command to query it directly.",
         params: Params::Simple(&[
             p("action", "string", "Action: 'definition' (find where symbol is defined), 'references' (find all usages), 'symbols' (list symbols in file), 'hover' (get type info), 'diagnostics' (run language-specific type checker)"),
             p("symbol", "string", "Symbol name to query (e.g. 'MyStruct', 'my_function')"),
