@@ -191,6 +191,110 @@ pub fn extract_execute_command_with_opts(text: &str) -> Option<(String, bool)> {
 ///
 /// Note: `execute_command` is handled here as a blocking fallback. The command executor
 /// should prefer `extract_execute_command_with_opts()` + streaming/background path.
+
+// ─── Tool input schema validation ────────────────────────────────────────────
+
+/// Core tools that should be validated against their schema.
+/// Desktop tools and MCP tools are excluded (desktop has complex optional params,
+/// MCP tools are validated by their own servers).
+const VALIDATED_TOOLS: &[&str] = &[
+    "read_file", "write_file", "edit_file", "execute_command", "execute_python",
+    "search_files", "find_files", "list_directory", "web_search", "web_fetch",
+    "git_status", "git_diff", "git_commit", "open_url", "send_telegram",
+    "check_background_process", "lsp_query", "sleep", "todo_write",
+    "use_skill", "set_response_style", "insert_text", "undo_edit",
+];
+
+/// Validate tool arguments against the tool's schema definition.
+/// Returns Ok(()) if valid, Err(message) with a helpful error for the model.
+fn validate_tool_args(tool_name: &str, args: &serde_json::Value) -> Result<(), String> {
+    // Only validate core tools — skip MCP, desktop, and unknown tools
+    if !VALIDATED_TOOLS.contains(&tool_name) {
+        return Ok(());
+    }
+
+    use crate::web::chat::tool_defs::all_tool_definitions;
+
+    // Find the tool definition
+    let all_tools = all_tool_definitions();
+    let tool_def = match all_tools.iter().find(|t| {
+        t.get("name").and_then(|n| n.as_str()) == Some(tool_name)
+    }) {
+        Some(t) => t,
+        None => return Ok(()), // Not in definitions — skip validation
+    };
+
+    let params = match tool_def.get("parameters") {
+        Some(p) => p,
+        None => return Ok(()),
+    };
+
+    // Check required fields
+    if let Some(required) = params.get("required").and_then(|r| r.as_array()) {
+        for req in required {
+            if let Some(field_name) = req.as_str() {
+                let value = args.get(field_name);
+                match value {
+                    None | Some(&serde_json::Value::Null) => {
+                        return Err(format!(
+                            "Missing required parameter '{}' for tool '{}'. Required parameters: {:?}",
+                            field_name, tool_name,
+                            required.iter().filter_map(|r| r.as_str()).collect::<Vec<_>>()
+                        ));
+                    }
+                    Some(v) if v.as_str() == Some("") => {
+                        return Err(format!(
+                            "Required parameter '{}' is empty for tool '{}'. Please provide a value.",
+                            field_name, tool_name
+                        ));
+                    }
+                    _ => {} // value present and non-empty
+                }
+            }
+        }
+    }
+
+    // Check types for provided parameters (lenient: accept strings for numbers/booleans)
+    if let Some(properties) = params.get("properties").and_then(|p| p.as_object()) {
+        for (key, schema) in properties {
+            if let Some(value) = args.get(key) {
+                if value.is_null() { continue; }
+
+                let expected_type = schema.get("type").and_then(|t| t.as_str()).unwrap_or("string");
+                let type_ok = match expected_type {
+                    "string" => value.is_string(),
+                    "integer" | "number" => {
+                        value.is_number()
+                            || value.as_str().map(|s| s.parse::<f64>().is_ok()).unwrap_or(false)
+                    }
+                    "boolean" => {
+                        value.is_boolean()
+                            || value.as_str().map(|s| s == "true" || s == "false").unwrap_or(false)
+                    }
+                    "array" => value.is_array(),
+                    "object" => value.is_object(),
+                    _ => true,
+                };
+
+                if !type_ok {
+                    let actual = if value.is_string() { "string" }
+                        else if value.is_number() { "number" }
+                        else if value.is_boolean() { "boolean" }
+                        else if value.is_array() { "array" }
+                        else if value.is_object() { "object" }
+                        else { "unknown" };
+                    return Err(format!(
+                        "Parameter '{}' for tool '{}' should be {} but got {}. Please fix the parameter type.",
+                        key, tool_name, expected_type, actual
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 pub fn dispatch_native_tool(
     text: &str,
     web_search_provider: Option<&str>,
@@ -209,6 +313,11 @@ pub fn dispatch_native_tool(
     } else {
         return None;
     };
+
+    // Validate tool arguments against schema before dispatch
+    if let Err(validation_error) = validate_tool_args(&name, &args) {
+        return Some(NativeToolResult::text_only(validation_error));
+    }
 
     // Desktop automation tools return NativeToolResult directly (may carry image bytes for vision)
     // Check global abort flag before any desktop action tool (excludes take_screenshot — read-only)
@@ -1047,6 +1156,75 @@ fn normalize_quotes(s: &str) -> String {
      .replace('\u{201D}', "\"") // right double curly
 }
 
+/// Generate a compact unified diff between old and new content.
+fn simple_diff(old: &str, new: &str, path: &str) -> String {
+    let old_lines: Vec<&str> = old.lines().collect();
+    let new_lines: Vec<&str> = new.lines().collect();
+
+    let mut diff = format!("--- a/{}\n+++ b/{}\n", path, path);
+    let mut has_changes = false;
+
+    // Find changed regions
+    let max_lines = old_lines.len().max(new_lines.len());
+    let mut i = 0;
+    while i < max_lines {
+        let old_line = old_lines.get(i).copied().unwrap_or("");
+        let new_line = new_lines.get(i).copied().unwrap_or("");
+
+        if old_line != new_line {
+            has_changes = true;
+            // Show context: 2 lines before
+            let ctx_start = i.saturating_sub(2);
+            if ctx_start < i {
+                for j in ctx_start..i {
+                    if let Some(l) = old_lines.get(j) {
+                        diff.push_str(&format!(" {}\n", l));
+                    }
+                }
+            }
+
+            // Find the extent of the change
+            let mut change_end = i;
+            while change_end < max_lines {
+                let ol = old_lines.get(change_end).copied().unwrap_or("");
+                let nl = new_lines.get(change_end).copied().unwrap_or("");
+                if ol == nl && change_end > i { break; }
+                change_end += 1;
+            }
+
+            // Output removed lines
+            for j in i..change_end.min(old_lines.len()) {
+                diff.push_str(&format!("-{}\n", old_lines[j]));
+            }
+            // Output added lines
+            for j in i..change_end.min(new_lines.len()) {
+                diff.push_str(&format!("+{}\n", new_lines[j]));
+            }
+
+            // Show 2 lines after
+            for j in change_end..change_end.saturating_add(2).min(new_lines.len()) {
+                diff.push_str(&format!(" {}\n", new_lines[j]));
+            }
+
+            i = change_end;
+        } else {
+            i += 1;
+        }
+    }
+
+    if !has_changes {
+        return "No visible changes in diff".to_string();
+    }
+
+    // Truncate if too long
+    if diff.len() > 2000 {
+        diff.truncate(1800);
+        diff.push_str("\n... (diff truncated)\n");
+    }
+
+    diff
+}
+
 fn tool_edit_file(args: &Value) -> String {
     let path = match args.get("path").and_then(|v| v.as_str()) {
         Some(p) => p,
@@ -1099,7 +1277,8 @@ fn tool_edit_file(args: &Value) -> String {
                             cache.insert(path.to_string(), mtime);
                         }
                     }
-                    format!("Edited {path} (curly quotes normalized): replaced {} chars with {} chars at line {line_num}", norm_old.len(), norm_new.len())
+                    let diff = simple_diff(&norm_content, &new_content, path);
+                    format!("Edited {path} (curly quotes normalized) at line {line_num}:\n{diff}")
                 }
                 Err(e) => format!("Error writing '{path}': {e}"),
             };
@@ -1132,7 +1311,8 @@ fn tool_edit_file(args: &Value) -> String {
                     cache.insert(path.to_string(), mtime);
                 }
             }
-            format!("Edited {path}: replaced {} chars with {} chars at line {line_num}", old_string.len(), new_string.len())
+            let diff = simple_diff(&content, &new_content, path);
+            format!("Edited {path} at line {line_num}:\n{diff}")
         }
         Err(e) => format!("Error writing '{path}': {e}"),
     }
