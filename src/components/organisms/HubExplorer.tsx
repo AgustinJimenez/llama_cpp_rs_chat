@@ -580,7 +580,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
                   value={query}
                   onChange={handleChange}
                   onKeyDown={handleKeyDown}
-                  placeholder="Search HuggingFace models..."
+                  placeholder="Search models or paste repo ID (e.g. unsloth/gemma-4-26B-A4B-it-GGUF)..."
                   className="w-full pl-9 pr-3 py-2 border rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   // eslint-disable-next-line jsx-a11y/no-autofocus
                   autoFocus

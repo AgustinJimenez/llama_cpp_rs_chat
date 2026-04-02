@@ -1,8 +1,19 @@
 import { useState, useCallback, useRef } from 'react';
-import { searchHubModels } from '../utils/tauriCommands';
+import { searchHubModels, fetchHubTree } from '../utils/tauriCommands';
 import type { HubModel, HubSortField } from '../utils/tauriCommands';
 
 export type { HubModel, HubSortField };
+
+/** Check if input looks like a HuggingFace repo ID (author/model) or URL */
+function extractRepoId(input: string): string | null {
+  const trimmed = input.trim();
+  // URL: https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF
+  const urlMatch = trimmed.match(/huggingface\.co\/([^/]+\/[^/\s?#]+)/);
+  if (urlMatch) return urlMatch[1];
+  // Direct repo ID: unsloth/gemma-4-26B-A4B-it-GGUF
+  if (/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(trimmed)) return trimmed;
+  return null;
+}
 
 export function useHubSearch() {
   const [models, setModels] = useState<HubModel[]>([]);
@@ -15,8 +26,24 @@ export function useHubSearch() {
     setIsLoading(true);
     setError(null);
     try {
-      const results = await searchHubModels(query.trim() || 'GGUF', 20, sortField ?? sort);
-      setModels(results);
+      // If input looks like a repo ID or HF URL, fetch tree directly
+      const repoId = extractRepoId(query);
+      if (repoId) {
+        const files = await fetchHubTree(repoId);
+        // Convert tree response to a single HubModel with files
+        setModels([{
+          id: repoId,
+          author: repoId.split('/')[0] || '',
+          downloads: 0,
+          likes: 0,
+          last_modified: '',
+          pipeline_tag: '',
+          files: files || [],
+        }]);
+      } else {
+        const results = await searchHubModels(query.trim() || 'GGUF', 20, sortField ?? sort);
+        setModels(results);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Search failed');
       setModels([]);
