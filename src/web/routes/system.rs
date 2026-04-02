@@ -37,78 +37,66 @@ pub async fn handle_app_info() -> Result<Response<Body>, Infallible> {
 
 /// GET /api/docs — list all API endpoints
 pub async fn handle_api_docs() -> Result<Response<Body>, Infallible> {
-    let docs = serde_json::json!({
-        "endpoints": [
-            {"method": "GET", "path": "/health", "description": "Health check"},
-            {"method": "GET", "path": "/api/info", "description": "App and system info"},
-            {"method": "GET", "path": "/api/docs", "description": "This endpoint — API documentation"},
-
-            {"method": "POST", "path": "/api/chat", "description": "Send message (local model)", "body": {"message": "string", "conversation_id": "string?"}},
-            {"method": "POST", "path": "/api/chat/stream", "description": "Send message with SSE streaming (local model)"},
-            {"method": "POST", "path": "/api/chat/cancel", "description": "Cancel current generation"},
-
-            {"method": "GET", "path": "/api/conversations", "description": "List all conversations (optional ?q=term to search by title)"},
-            {"method": "POST", "path": "/api/conversations", "description": "Create new conversation", "body": {"title": "string?"}},
-            {"method": "GET", "path": "/api/conversation/{id}", "description": "Get conversation messages"},
-            {"method": "DELETE", "path": "/api/conversations/{id}", "description": "Delete a conversation"},
-            {"method": "PATCH", "path": "/api/conversations/{id}/title", "description": "Rename conversation", "body": {"title": "string"}},
-            {"method": "POST", "path": "/api/conversations/{id}/truncate", "description": "Truncate conversation at message"},
-            {"method": "GET", "path": "/api/conversations/{id}/events", "description": "Get conversation event log"},
-            {"method": "GET", "path": "/api/conversations/{id}/metrics", "description": "Get conversation metrics"},
-            {"method": "GET", "path": "/api/conversation/{id}/export", "description": "Export conversation as markdown or JSON (?format=md|json)"},
-            {"method": "DELETE", "path": "/api/conversations/batch", "description": "Delete multiple conversations", "body": {"ids": ["string"]}},
-
-            {"method": "GET", "path": "/api/model/status", "description": "Current model status (loaded, generating, etc.)"},
-            {"method": "GET", "path": "/api/model/info", "description": "Detailed model info (GGUF metadata)"},
-            {"method": "POST", "path": "/api/model/load", "description": "Load a GGUF model", "body": {"model_path": "string"}},
-            {"method": "POST", "path": "/api/model/unload", "description": "Unload current model"},
-            {"method": "POST", "path": "/api/model/hard-unload", "description": "Force-kill worker to reclaim all VRAM"},
-            {"method": "GET", "path": "/api/model/history", "description": "Recently used model paths"},
-
-            {"method": "GET", "path": "/api/providers", "description": "List all providers with availability"},
-            {"method": "GET", "path": "/api/providers/{id}/models", "description": "Fetch available models from provider API"},
-            {"method": "POST", "path": "/api/providers/{id}/generate", "description": "Generate with cloud provider (blocking)"},
-            {"method": "POST", "path": "/api/providers/{id}/stream", "description": "Generate with cloud provider (SSE streaming)"},
-
-            {"method": "GET", "path": "/api/config", "description": "Get sampler/app configuration"},
-            {"method": "POST", "path": "/api/config", "description": "Update configuration"},
-            {"method": "GET", "path": "/api/config/provider-keys", "description": "Get configured provider API keys (masked)"},
-            {"method": "POST", "path": "/api/config/provider-keys", "description": "Set a provider API key", "body": {"provider": "string", "api_key": "string", "base_url": "string?"}},
-
-            {"method": "GET", "path": "/api/tools/available", "description": "List available tools with schemas"},
-            {"method": "POST", "path": "/api/tools/execute", "description": "Execute a tool call"},
-            {"method": "GET", "path": "/api/tools/web-fetch", "description": "Fetch web page as text"},
-
-            {"method": "GET", "path": "/api/mcp/servers", "description": "List MCP servers"},
-            {"method": "POST", "path": "/api/mcp/servers", "description": "Add MCP server"},
-            {"method": "DELETE", "path": "/api/mcp/servers/{id}", "description": "Remove MCP server"},
-            {"method": "POST", "path": "/api/mcp/servers/{id}/toggle", "description": "Enable/disable MCP server"},
-            {"method": "POST", "path": "/api/mcp/refresh", "description": "Refresh MCP connections"},
-            {"method": "GET", "path": "/api/mcp/tools", "description": "List discovered MCP tools"},
-
-            {"method": "GET", "path": "/api/system/usage", "description": "CPU/memory/GPU usage"},
-            {"method": "GET", "path": "/api/system/processes", "description": "List background processes"},
-            {"method": "POST", "path": "/api/system/processes/kill", "description": "Kill a background process"},
-            {"method": "POST", "path": "/api/desktop/abort", "description": "Abort current desktop automation"},
-
-            {"method": "GET", "path": "/api/browse", "description": "Browse filesystem for model files"},
-            {"method": "POST", "path": "/api/upload", "description": "Upload a model file"},
-
-            {"method": "GET", "path": "/api/hub/search", "description": "Search HuggingFace Hub"},
-            {"method": "GET", "path": "/api/hub/tree", "description": "List files in a HuggingFace repo"},
-            {"method": "POST", "path": "/api/hub/download", "description": "Download model from Hub"},
-            {"method": "GET", "path": "/api/hub/downloads", "description": "List active downloads"},
-            {"method": "DELETE", "path": "/api/hub/downloads", "description": "Cancel a download"},
-            {"method": "POST", "path": "/api/hub/downloads/verify", "description": "Verify downloaded file integrity"},
-
-            {"method": "PATCH", "path": "/api/conversations/{id}/title", "description": "Rename a conversation"},
-            {"method": "GET", "path": "/api/conversations/{id}/token-analysis", "description": "Token usage breakdown (system/user/assistant/tools)"},
-            {"method": "GET", "path": "/api/conversations/{id}/export", "description": "Export conversation as markdown or JSON"},
-
-            {"method": "GET", "path": "/api/config/active-provider", "description": "Get active provider and model"},
-            {"method": "POST", "path": "/api/config/active-provider", "description": "Set active provider and model"},
-        ]
-    });
+    let e = |method: &str, path: &str, desc: &str| -> serde_json::Value {
+        serde_json::json!({"method": method, "path": path, "description": desc})
+    };
+    let endpoints = vec![
+        e("GET", "/health", "Health check"),
+        e("GET", "/api/info", "App and system info"),
+        e("GET", "/api/docs", "This endpoint — API documentation"),
+        e("POST", "/api/chat", "Send message (local model)"),
+        e("POST", "/api/chat/stream", "Send message with SSE streaming (local model)"),
+        e("POST", "/api/chat/cancel", "Cancel current generation"),
+        e("GET", "/api/conversations", "List all conversations (optional ?q=term to search)"),
+        e("POST", "/api/conversations", "Create new conversation"),
+        e("GET", "/api/conversation/{id}", "Get conversation messages"),
+        e("DELETE", "/api/conversations/{id}", "Delete a conversation"),
+        e("DELETE", "/api/conversations/batch", "Delete multiple conversations"),
+        e("PATCH", "/api/conversations/{id}/title", "Rename a conversation"),
+        e("POST", "/api/conversations/{id}/truncate", "Truncate conversation at message"),
+        e("GET", "/api/conversations/{id}/events", "Get conversation event log"),
+        e("GET", "/api/conversations/{id}/metrics", "Get conversation metrics"),
+        e("GET", "/api/conversations/{id}/token-analysis", "Token usage breakdown"),
+        e("GET", "/api/conversation/{id}/export", "Export as markdown or JSON (?format=md|json)"),
+        e("GET", "/api/model/status", "Current model status"),
+        e("GET", "/api/model/info", "Detailed model info (GGUF metadata)"),
+        e("POST", "/api/model/load", "Load a GGUF model"),
+        e("POST", "/api/model/unload", "Unload current model"),
+        e("POST", "/api/model/hard-unload", "Force-kill worker to reclaim all VRAM"),
+        e("GET", "/api/model/history", "Recently used model paths"),
+        e("GET", "/api/providers", "List all providers with availability"),
+        e("GET", "/api/providers/{id}/models", "Fetch available models from provider API"),
+        e("POST", "/api/providers/{id}/generate", "Generate with cloud provider (blocking)"),
+        e("POST", "/api/providers/{id}/stream", "Generate with cloud provider (SSE streaming)"),
+        e("GET", "/api/config", "Get sampler/app configuration"),
+        e("POST", "/api/config", "Update configuration"),
+        e("GET", "/api/config/provider-keys", "Get configured provider API keys (masked)"),
+        e("POST", "/api/config/provider-keys", "Set a provider API key"),
+        e("GET", "/api/config/active-provider", "Get active provider and model"),
+        e("POST", "/api/config/active-provider", "Set active provider and model"),
+        e("GET", "/api/tools/available", "List available tools with schemas"),
+        e("POST", "/api/tools/execute", "Execute a tool call"),
+        e("GET", "/api/tools/web-fetch", "Fetch web page as text"),
+        e("GET", "/api/mcp/servers", "List MCP servers"),
+        e("POST", "/api/mcp/servers", "Add MCP server"),
+        e("DELETE", "/api/mcp/servers/{id}", "Remove MCP server"),
+        e("POST", "/api/mcp/servers/{id}/toggle", "Enable/disable MCP server"),
+        e("POST", "/api/mcp/refresh", "Refresh MCP connections"),
+        e("GET", "/api/mcp/tools", "List discovered MCP tools"),
+        e("GET", "/api/system/usage", "CPU/memory/GPU usage"),
+        e("GET", "/api/system/processes", "List background processes"),
+        e("POST", "/api/system/processes/kill", "Kill a background process"),
+        e("POST", "/api/desktop/abort", "Abort current desktop automation"),
+        e("GET", "/api/browse", "Browse filesystem for model files"),
+        e("POST", "/api/upload", "Upload a model file"),
+        e("GET", "/api/hub/search", "Search HuggingFace Hub"),
+        e("GET", "/api/hub/tree", "List files in a HuggingFace repo"),
+        e("POST", "/api/hub/download", "Download model from Hub"),
+        e("GET", "/api/hub/downloads", "List active downloads"),
+        e("DELETE", "/api/hub/downloads", "Cancel a download"),
+        e("POST", "/api/hub/downloads/verify", "Verify downloaded file integrity"),
+    ];
+    let docs = serde_json::json!({"endpoints": endpoints});
     Ok(json_raw(
         StatusCode::OK,
         serde_json::to_string_pretty(&docs).unwrap(),
