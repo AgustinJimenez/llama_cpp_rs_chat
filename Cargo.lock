@@ -5125,6 +5125,7 @@ dependencies = [
  "pin-project-lite",
  "process-wrap",
  "rand 0.10.0",
+ "reqwest",
  "schemars 1.2.1",
  "serde",
  "serde_json",

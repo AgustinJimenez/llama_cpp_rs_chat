@@ -119,7 +119,7 @@ rusqlite = { version = "0.30", features = ["bundled"] }
 crossbeam-channel = "0.5"
 
 # MCP (Model Context Protocol) client + server for external tool servers
-rmcp = { version = "1.1", default-features = false, features = ["client", "server", "transport-child-process", "transport-io", "transport-streamable-http-server"] }
+rmcp = { version = "1.1", default-features = false, features = ["client", "server", "transport-child-process", "transport-io", "transport-streamable-http-server", "transport-streamable-http-client-reqwest"] }
 
 # HTTP framework for MCP HTTP/SSE transport (avoids stdio pipe stalling)
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }

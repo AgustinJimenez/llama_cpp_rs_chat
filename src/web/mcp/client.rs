@@ -7,7 +7,7 @@ use rmcp::{
     ServiceExt,
     model::{CallToolRequestParams, Tool},
     service::{RunningService, RoleClient},
-    transport::{ConfigureCommandExt, TokioChildProcess},
+    transport::{ConfigureCommandExt, TokioChildProcess, StreamableHttpClientTransport},
 };
 use serde_json::Value;
 use tokio::process::Command;
@@ -54,8 +54,14 @@ impl McpClient {
                     .await
                     .map_err(|e| format!("MCP handshake failed for '{}': {e}", config.name))?
             }
-            McpTransport::Http { url: _ } => {
-                return Err("HTTP/SSE transport not yet implemented".to_string());
+            McpTransport::Http { url } => {
+                log_info!("system", "MCP: using HTTP/SSE transport for '{}' at {}", config.name, url);
+
+                let transport = StreamableHttpClientTransport::from_uri(url.as_str());
+
+                ().serve(transport)
+                    .await
+                    .map_err(|e| format!("MCP HTTP handshake failed for '{}': {e}", config.name))?
             }
         };
 

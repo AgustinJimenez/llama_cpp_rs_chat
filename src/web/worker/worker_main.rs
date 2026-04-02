@@ -202,6 +202,7 @@ pub fn run_worker(db_path: &str) {
                             eprintln!("[WORKER] Stdin channel disconnected, shutting down");
                             // Use a sentinel to break the outer loop
                             write_response(&mut ipc_writer, &WorkerResponse::error(0, "stdin closed".to_string()));
+                            crate::web::prevent_sleep::force_release();
                             std::process::exit(0);
                         }
                     }
@@ -564,6 +565,7 @@ pub fn run_worker(db_path: &str) {
     }
 
     eprintln!("[WORKER] Exiting");
+    crate::web::prevent_sleep::force_release();
     std::process::exit(0);
 }
 
@@ -587,6 +589,16 @@ fn run_generation(params: GenerationParams) {
     use crate::web::config::get_resolved_system_prompt;
     use crate::web::database::conversation::ConversationLogger;
     use tokio::sync::mpsc;
+
+    // Prevent system/display sleep for the duration of generation
+    crate::web::prevent_sleep::retain();
+    struct SleepGuard;
+    impl Drop for SleepGuard {
+        fn drop(&mut self) {
+            crate::web::prevent_sleep::release();
+        }
+    }
+    let _sleep_guard = SleepGuard;
 
     // Create a tokio runtime for the generation (it uses async internally)
     let rt = tokio::runtime::Builder::new_current_thread()
