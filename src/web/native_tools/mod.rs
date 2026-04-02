@@ -897,6 +897,117 @@ fn tool_list_background_processes() -> String {
     lines.join("\n")
 }
 
+/// Detect binary content by inspecting the first bytes.
+/// More reliable than extension-only checking — catches misnamed files.
+fn is_binary_content(bytes: &[u8]) -> bool {
+    let check_size = bytes.len().min(8192);
+    let mut non_printable = 0;
+
+    for &byte in &bytes[..check_size] {
+        // Null byte is a strong binary indicator
+        if byte == 0 {
+            return true;
+        }
+        // Count non-printable, non-whitespace bytes
+        // Printable ASCII: 32-126, plus tab(9), newline(10), carriage return(13)
+        if byte < 32 && byte != 9 && byte != 10 && byte != 13 {
+            non_printable += 1;
+        }
+    }
+
+    // If >10% non-printable, likely binary
+    check_size > 0 && (non_printable * 100 / check_size) > 10
+}
+
+// ─── LRU file content cache ──────────────────────────────────────────────────
+
+const FILE_CACHE_MAX_ENTRIES: usize = 50;
+const FILE_CACHE_MAX_BYTES: usize = 25 * 1024 * 1024; // 25MB total
+
+struct FileCacheEntry {
+    content: String,
+    mtime: u64,
+    access_order: u64,
+}
+
+static FILE_CONTENT_CACHE: OnceLock<StdMutex<(HashMap<String, FileCacheEntry>, u64, usize)>> = OnceLock::new();
+
+fn file_content_cache() -> &'static StdMutex<(HashMap<String, FileCacheEntry>, u64, usize)> {
+    FILE_CONTENT_CACHE.get_or_init(|| StdMutex::new((HashMap::new(), 0, 0)))
+}
+
+/// Get cached file content if mtime matches, otherwise read from disk and cache.
+fn read_file_cached(path: &str) -> Result<String, String> {
+    let current_mtime = get_file_mtime(path).unwrap_or(0);
+
+    // Check cache
+    if let Ok(mut cache) = file_content_cache().lock() {
+        let (ref mut map, ref mut counter, _) = *cache;
+        if let Some(entry) = map.get_mut(path) {
+            if entry.mtime == current_mtime {
+                *counter += 1;
+                entry.access_order = *counter;
+                return Ok(entry.content.clone());
+            }
+        }
+    }
+
+    // Cache miss — read from disk as bytes for binary detection
+    let bytes = std::fs::read(path).map_err(|e| format!("Error reading file: {e}"))?;
+
+    // Content-based binary check
+    if has_binary_extension(path) || is_binary_content(&bytes) {
+        let ext = std::path::Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("");
+        if !EXTRACTABLE_EXTENSIONS.contains(&ext.to_lowercase().as_str()) {
+            return Err(format!("Error: '{}' appears to be a binary file ({} bytes). Cannot read as text.", path, bytes.len()));
+        }
+    }
+
+    let content = String::from_utf8_lossy(&bytes).to_string();
+
+    // Store in cache (evict oldest if needed)
+    if let Ok(mut cache) = file_content_cache().lock() {
+        let (ref mut map, ref mut counter, ref mut total_bytes) = *cache;
+        *counter += 1;
+
+        let content_len = content.len();
+
+        // Evict if over limits
+        while (map.len() >= FILE_CACHE_MAX_ENTRIES || *total_bytes + content_len > FILE_CACHE_MAX_BYTES) && !map.is_empty() {
+            // Find oldest entry
+            if let Some(oldest_key) = map.iter()
+                .min_by_key(|(_, v)| v.access_order)
+                .map(|(k, _)| k.clone())
+            {
+                if let Some(removed) = map.remove(&oldest_key) {
+                    *total_bytes = total_bytes.saturating_sub(removed.content.len());
+                }
+            } else {
+                break;
+            }
+        }
+
+        *total_bytes += content_len;
+        map.insert(path.to_string(), FileCacheEntry {
+            content: content.clone(),
+            mtime: current_mtime,
+            access_order: *counter,
+        });
+    }
+
+    Ok(content)
+}
+
+/// Invalidate the LRU file content cache for a path (call after writes/edits).
+fn invalidate_file_cache(path: &str) {
+    if let Ok(mut cache) = file_content_cache().lock() {
+        let (ref mut map, _, ref mut total_bytes) = *cache;
+        if let Some(removed) = map.remove(path) {
+            *total_bytes = total_bytes.saturating_sub(removed.content.len());
+        }
+    }
+}
+
 /// Read a file and return its contents.
 /// Check if a file has a binary extension that cannot be meaningfully read as text.
 fn has_binary_extension(path: &str) -> bool {
@@ -930,18 +1041,21 @@ fn tool_read_file(args: &Value) -> String {
 
     let path_lower = path.to_ascii_lowercase();
 
-    // Binary file detection: reject non-extractable binary files early
-    if has_binary_extension(path) {
-        let ext = std::path::Path::new(path)
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
-        if !EXTRACTABLE_EXTENSIONS.contains(&ext.to_lowercase().as_str()) {
-            return format!(
-                "Error: '{}' is a binary file and cannot be read as text. \
-                 Use a specialized tool or command to inspect it.",
-                path
-            );
+    // Content-based binary detection: read bytes first for reliable detection
+    // (runs BEFORE duplicate read check — reject binary files immediately)
+    {
+        let bytes_check = match std::fs::read(path) {
+            Ok(b) => b,
+            Err(e) => return format!("Error reading '{path}': {e}"),
+        };
+        if has_binary_extension(path) || is_binary_content(&bytes_check) {
+            let ext = std::path::Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("");
+            if !EXTRACTABLE_EXTENSIONS.contains(&ext.to_lowercase().as_str()) {
+                return format!(
+                    "Error: '{}' appears to be a binary file ({} bytes). Cannot read as text.",
+                    path, bytes_check.len()
+                );
+            }
         }
     }
 
@@ -1046,18 +1160,18 @@ fn tool_read_file(args: &Value) -> String {
         }
     }
 
-    // Try UTF-8 first, fall back to encoding detection for non-UTF8 files
-    let content = match std::fs::read_to_string(path) {
+    // Use LRU cache for file content (handles binary detection internally)
+    let content = match read_file_cached(path) {
         Ok(c) => c,
         Err(e) => {
-            // If UTF-8 failed, try reading as raw bytes and detect encoding
-            if e.kind() == std::io::ErrorKind::InvalidData {
-                match std::fs::read(path) {
-                    Ok(bytes) => return read_with_encoding_detection(&bytes, MAX_READ_SIZE),
-                    Err(e2) => return format!("Error reading '{path}': {e2}"),
-                }
-            } else {
-                return format!("Error reading '{path}': {e}");
+            // If cache returned a binary error, propagate it
+            if e.starts_with("Error:") || e.starts_with("Binary file:") {
+                return e;
+            }
+            // If reading failed, try encoding detection fallback
+            match std::fs::read(path) {
+                Ok(bytes) => return read_with_encoding_detection(&bytes, MAX_READ_SIZE),
+                Err(e2) => return format!("Error reading '{path}': {e2}"),
             }
         }
     };
@@ -1194,8 +1308,9 @@ fn tool_write_file(args: &Value) -> String {
                     cache.insert(path.to_string(), mtime);
                 }
             }
-            // Invalidate read cache so next read_file returns fresh content
+            // Invalidate read cache and LRU content cache so next read_file returns fresh content
             invalidate_read_cache(path);
+            invalidate_file_cache(path);
             format!("Written {} bytes to {}", content.len(), path)
         }
         Err(e) => format!("Error writing '{path}': {e}"),
@@ -1335,6 +1450,7 @@ fn tool_edit_file(args: &Value) -> String {
                         }
                     }
                     invalidate_read_cache(path);
+                    invalidate_file_cache(path);
                     let diff = simple_diff(&norm_content, &new_content, path);
                     format!("Edited {path} (curly quotes normalized) at line {line_num}:\n{diff}")
                 }
@@ -1370,6 +1486,7 @@ fn tool_edit_file(args: &Value) -> String {
                 }
             }
             invalidate_read_cache(path);
+            invalidate_file_cache(path);
             let diff = simple_diff(&content, &new_content, path);
             format!("Edited {path} at line {line_num}:\n{diff}")
         }
