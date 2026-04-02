@@ -122,6 +122,20 @@ fn file_mtime_cache() -> &'static StdMutex<HashMap<String, u64>> {
     FILE_MTIME_CACHE.get_or_init(|| StdMutex::new(HashMap::new()))
 }
 
+// ─── Duplicate read detection cache: path → (mtime, line_count) ───────────────
+static READ_FILE_CACHE: OnceLock<StdMutex<HashMap<String, (u64, usize)>>> = OnceLock::new();
+
+fn read_file_cache() -> &'static StdMutex<HashMap<String, (u64, usize)>> {
+    READ_FILE_CACHE.get_or_init(|| StdMutex::new(HashMap::new()))
+}
+
+/// Clear the read-file duplicate cache entry for a path (call after writes/edits).
+fn invalidate_read_cache(path: &str) {
+    if let Ok(mut cache) = read_file_cache().lock() {
+        cache.remove(path);
+    }
+}
+
 #[allow(dead_code)]
 fn get_file_mtime(path: &str) -> Option<u64> {
     std::fs::metadata(path).ok()
@@ -1015,6 +1029,23 @@ fn tool_read_file(args: &Value) -> String {
     let offset = args.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
     let limit = args.get("limit").and_then(|v| v.as_u64()).map(|v| v as usize);
 
+    // Duplicate read detection: if full re-read (no offset/limit) and file unchanged, return stub
+    if offset == 0 && limit.is_none() {
+        let current_mtime = get_file_mtime(path);
+        if let Ok(cache) = read_file_cache().lock() {
+            if let Some(&(cached_mtime, cached_lines)) = cache.get(path) {
+                if current_mtime == Some(cached_mtime) {
+                    return format!(
+                        "File unchanged since last read ({} lines, ~{} tokens). \
+                         The content from the earlier read is still current — use offset/limit \
+                         to read specific sections, or search_files to find specific content.",
+                        cached_lines, cached_lines * 10 / 4
+                    );
+                }
+            }
+        }
+    }
+
     // Try UTF-8 first, fall back to encoding detection for non-UTF8 files
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
@@ -1042,8 +1073,15 @@ fn tool_read_file(args: &Value) -> String {
     let lines: Vec<&str> = content.lines().collect();
     let total_lines = lines.len();
 
+    // Default cap: 2000 lines when no limit specified and file exceeds it
+    const MAX_LINES_DEFAULT: usize = 2000;
+    let was_truncated_by_cap = limit.is_none() && total_lines > MAX_LINES_DEFAULT;
+
     let start = if offset > 0 { (offset - 1).min(total_lines) } else { 0 };
-    let end = limit.map(|l| (start + l).min(total_lines)).unwrap_or(total_lines);
+    let effective_limit = limit.unwrap_or_else(|| {
+        if total_lines > MAX_LINES_DEFAULT { MAX_LINES_DEFAULT } else { total_lines }
+    });
+    let end = (start + effective_limit).min(total_lines);
 
     let selected_lines = &lines[start..end];
     let selected_text: String = selected_lines.join("\n");
@@ -1070,7 +1108,24 @@ fn tool_read_file(args: &Value) -> String {
         .collect::<Vec<_>>()
         .join("\n");
 
-    let result = format!("{}\n{}", header, numbered);
+    let mut result = format!("{}\n{}", header, numbered);
+
+    // Append truncation notice if capped at MAX_LINES_DEFAULT
+    if was_truncated_by_cap {
+        result.push_str(&format!(
+            "\n[File truncated at {} lines. Total: {} lines (~{} tokens). \
+             Use offset and limit parameters to read specific portions, \
+             or search_files to find specific content.]",
+            MAX_LINES_DEFAULT, total_lines, total_lines * 10 / 4
+        ));
+    }
+
+    // Cache this read for duplicate detection (mtime + line count)
+    if let Some(mtime) = get_file_mtime(path) {
+        if let Ok(mut cache) = read_file_cache().lock() {
+            cache.insert(path.to_string(), (mtime, total_lines));
+        }
+    }
 
     // Apply truncation if still too large
     if result.len() > MAX_READ_SIZE {
@@ -1139,6 +1194,8 @@ fn tool_write_file(args: &Value) -> String {
                     cache.insert(path.to_string(), mtime);
                 }
             }
+            // Invalidate read cache so next read_file returns fresh content
+            invalidate_read_cache(path);
             format!("Written {} bytes to {}", content.len(), path)
         }
         Err(e) => format!("Error writing '{path}': {e}"),
@@ -1277,6 +1334,7 @@ fn tool_edit_file(args: &Value) -> String {
                             cache.insert(path.to_string(), mtime);
                         }
                     }
+                    invalidate_read_cache(path);
                     let diff = simple_diff(&norm_content, &new_content, path);
                     format!("Edited {path} (curly quotes normalized) at line {line_num}:\n{diff}")
                 }
@@ -1311,6 +1369,7 @@ fn tool_edit_file(args: &Value) -> String {
                     cache.insert(path.to_string(), mtime);
                 }
             }
+            invalidate_read_cache(path);
             let diff = simple_diff(&content, &new_content, path);
             format!("Edited {path} at line {line_num}:\n{diff}")
         }

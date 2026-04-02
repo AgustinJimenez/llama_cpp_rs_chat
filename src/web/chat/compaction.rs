@@ -33,6 +33,9 @@ const COMPACTION_THRESHOLD: f64 = 0.70;
 /// Fallback overhead estimate when no conversation_context is cached yet.
 const FALLBACK_OVERHEAD_TOKENS: usize = 1200;
 
+/// Recursion guard for recompaction: prevents infinite loops.
+static RECOMPACT_DEPTH: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 /// Check if conversation needs compaction and perform it if so.
 ///
 /// This checks the conversation text size against context limits.
@@ -53,6 +56,14 @@ pub fn maybe_compact_conversation(
     overhead_tokens: Option<i32>,
     status_sender: Option<&tokio::sync::mpsc::UnboundedSender<crate::web::models::TokenData>>,
 ) -> String {
+    // Recursion guard: prevent infinite recompaction
+    let depth = RECOMPACT_DEPTH.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    if depth >= 2 {
+        RECOMPACT_DEPTH.store(0, std::sync::atomic::Ordering::Relaxed);
+        eprintln!("[COMPACTION] Max recompaction depth reached, stopping");
+        return conversation_content.to_string();
+    }
+
     // Count tokens using the model's tokenizer (exact), fallback to chars/4 heuristic
     let estimated_tokens = model
         .str_to_token(conversation_content, llama_cpp_2::model::AddBos::Never)
@@ -74,6 +85,7 @@ pub fn maybe_compact_conversation(
         if overhead_tokens.is_some() { " real" } else { " est" }, conversation_id);
 
     if estimated_tokens < threshold {
+        RECOMPACT_DEPTH.store(0, std::sync::atomic::Ordering::Relaxed);
         return conversation_content.to_string();
     }
 
@@ -188,9 +200,30 @@ pub fn maybe_compact_conversation(
                 "📦 Compaction result: ~{} → ~{} estimated tokens (saved ~{})",
                 estimated_tokens, new_estimated, estimated_tokens.saturating_sub(new_estimated)
             );
+
+            // If first pass didn't free enough, recompact more aggressively
+            if new_estimated > threshold {
+                eprintln!(
+                    "[COMPACTION] First pass insufficient: {} > {} threshold, recompacting...",
+                    new_estimated, threshold
+                );
+                log_info!(
+                    conversation_id,
+                    "📦 Recompaction triggered: {} still > {} threshold",
+                    new_estimated, threshold
+                );
+                return maybe_compact_conversation(
+                    &text, context_size, conversation_id, db, model, backend,
+                    chat_template_string, overhead_tokens, status_sender,
+                );
+            }
+
+            // Reset recursion guard on successful completion
+            RECOMPACT_DEPTH.store(0, std::sync::atomic::Ordering::Relaxed);
             text
         }
         Err(e) => {
+            RECOMPACT_DEPTH.store(0, std::sync::atomic::Ordering::Relaxed);
             log_warn!(conversation_id, "📦 Failed to reload after compaction: {}", e);
             conversation_content.to_string()
         }

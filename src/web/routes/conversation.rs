@@ -2,6 +2,7 @@
 
 use hyper::{Body, Request, Response, StatusCode};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::convert::Infallible;
 
 use crate::web::{
@@ -427,5 +428,99 @@ pub async fn handle_batch_delete_conversations(
     Ok(json_raw(
         StatusCode::OK,
         serde_json::to_string(&json!({"deleted": deleted, "failed": failed, "total": ids.len()})).unwrap(),
+    ))
+}
+
+/// GET /api/conversations/:id/token-analysis — estimate token usage breakdown
+pub async fn handle_conversation_token_analysis(
+    conversation_id: &str,
+    db: SharedDatabase,
+) -> Result<Response<Body>, Infallible> {
+    let conv_id = conversation_id.trim_end_matches(".txt");
+    let messages = match db.get_messages(conv_id) {
+        Ok(m) => m,
+        Err(e) => return Ok(json_error(StatusCode::NOT_FOUND, &format!("{e}"))),
+    };
+
+    let mut total_chars = 0usize;
+    let mut user_chars = 0usize;
+    let mut assistant_chars = 0usize;
+    let mut system_chars = 0usize;
+    let mut tool_call_count = 0usize;
+    let mut tool_response_chars = 0usize;
+    let mut compacted_count = 0usize;
+
+    // Track per-tool token usage
+    let mut _tool_usage: HashMap<String, (usize, usize)> = HashMap::new();
+
+    for msg in &messages {
+        let chars = msg.content.len();
+        total_chars += chars;
+
+        if msg.compacted {
+            compacted_count += 1;
+            continue;
+        }
+
+        match msg.role.as_str() {
+            "user" => user_chars += chars,
+            "assistant" => {
+                assistant_chars += chars;
+                // Count tool calls in assistant messages
+                let tc_count = msg.content.matches("<tool_call>").count()
+                    + msg
+                        .content
+                        .matches("\"name\"")
+                        .count()
+                        .min(msg.content.matches("<tool_call>").count().max(1));
+                tool_call_count += tc_count;
+            }
+            "system" => {
+                system_chars += chars;
+            }
+            _ => {}
+        }
+
+        // Detect tool responses
+        if msg.content.contains("<tool_response>") || msg.content.starts_with("[TOOL_RESULTS]") {
+            tool_response_chars += chars;
+        }
+    }
+
+    let est_tokens = |c: usize| c / 4;
+
+    let analysis = json!({
+        "total_messages": messages.len(),
+        "compacted_messages": compacted_count,
+        "total_chars": total_chars,
+        "total_tokens_estimate": est_tokens(total_chars),
+        "breakdown": {
+            "system": {
+                "chars": system_chars,
+                "tokens": est_tokens(system_chars),
+                "pct": if total_chars > 0 { system_chars * 100 / total_chars } else { 0 }
+            },
+            "user": {
+                "chars": user_chars,
+                "tokens": est_tokens(user_chars),
+                "pct": if total_chars > 0 { user_chars * 100 / total_chars } else { 0 }
+            },
+            "assistant": {
+                "chars": assistant_chars,
+                "tokens": est_tokens(assistant_chars),
+                "pct": if total_chars > 0 { assistant_chars * 100 / total_chars } else { 0 }
+            },
+            "tool_responses": {
+                "chars": tool_response_chars,
+                "tokens": est_tokens(tool_response_chars),
+                "pct": if total_chars > 0 { tool_response_chars * 100 / total_chars } else { 0 }
+            }
+        },
+        "tool_calls": tool_call_count
+    });
+
+    Ok(json_raw(
+        StatusCode::OK,
+        serde_json::to_string(&analysis).unwrap(),
     ))
 }

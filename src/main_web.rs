@@ -137,6 +137,12 @@ async fn handle_request_impl(
             web::routes::conversation::handle_get_conversation_events(path, bridge.clone()).await?
         }
 
+        // Conversation token analysis
+        (&Method::GET, path) if path.starts_with("/api/conversations/") && path.ends_with("/token-analysis") => {
+            let id = &path["/api/conversations/".len()..path.len()-"/token-analysis".len()];
+            web::routes::conversation::handle_conversation_token_analysis(id, db.clone()).await?
+        }
+
         // Conversation metrics
         (&Method::GET, path) if path.starts_with("/api/conversations/") && path.ends_with("/metrics") => {
             web::routes::conversation::handle_get_conversation_metrics(path, db.clone()).await?
