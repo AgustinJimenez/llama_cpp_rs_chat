@@ -102,7 +102,7 @@ function FileRow({ file, modelId, onDownload, progress, persistedDone, pendingRe
   return (
     <div className="flex items-center gap-2 py-1.5 px-1 rounded hover:bg-accent/30 transition-colors relative overflow-hidden">
       {isDownloading ? <div
-          className="absolute inset-0 bg-primary/10 rounded transition-all duration-300"
+          className="absolute inset-y-0 left-0 bg-emerald-500/20 rounded transition-all duration-500 ease-out"
           style={{ width: `${pct}%` }}
         /> : null}
       {isPaused && pendingRecord.file_size > 0 ? <div
@@ -277,7 +277,7 @@ function DownloadRow({ record, progress, onResume, onLoad, onCancel }: {
     <div className="flex items-center gap-2 py-2 px-2 rounded hover:bg-accent/30 transition-colors relative overflow-hidden">
       {/* Progress bar background */}
       {isDownloading ? <div
-          className="absolute inset-0 bg-primary/10 rounded transition-all duration-300"
+          className="absolute inset-y-0 left-0 bg-emerald-500/20 rounded transition-all duration-500 ease-out"
           style={{ width: `${pct}%` }}
         /> : null}
       {!isCompleted && !isDownloading && record.file_size > 0 ? <div
