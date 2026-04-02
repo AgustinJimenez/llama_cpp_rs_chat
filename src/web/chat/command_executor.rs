@@ -777,6 +777,24 @@ pub struct CommandExecutionResult {
     pub response_images: Vec<Vec<u8>>,
 }
 
+/// Tools that are safe to execute in parallel (no side effects).
+/// `execute_command` is always serial since it's hard to detect read-only shell commands reliably.
+const READ_ONLY_TOOLS: &[&str] = &[
+    "read_file", "search_files", "find_files", "list_directory",
+    "web_search", "web_fetch", "lsp_query", "git_status", "git_diff",
+    "check_background_process", "list_background_processes",
+    "todo_read", "list_tools", "get_tool_details", "list_skills",
+    "take_screenshot", "list_windows", "get_cursor_position",
+    "get_active_window", "list_monitors", "ocr_screen",
+];
+
+/// Maximum number of tools to execute concurrently in a parallel batch.
+const MAX_PARALLEL_TOOLS: usize = 10;
+
+fn is_read_only_tool(name: &str) -> bool {
+    READ_ONLY_TOOLS.contains(&name)
+}
+
 /// Timeout for native tool execution (web_search, web_fetch, etc.)
 const NATIVE_TOOL_TIMEOUT_SECS: u64 = 30;
 
@@ -1095,103 +1113,143 @@ pub fn check_and_execute_command_with_tags(
             let mut all_response_images: Vec<Vec<u8>> = Vec::new();
 
             let output = if is_batch {
-                // === Batch execution path: parallel for native tools, sequential for execute_command ===
+                // === Batch execution path: group consecutive read-only tools for parallel execution ===
                 let mut combined_output = String::new();
 
-                // Partition tool calls into parallel (native) and sequential (execute_command)
-                let mut parallel_indices: Vec<usize> = Vec::new();
-                let mut sequential_indices: Vec<usize> = Vec::new();
+                // Group consecutive tool calls by read-only vs write classification.
+                // Consecutive read-only tools are executed in parallel; write tools are executed serially.
+                let mut groups: Vec<(bool, Vec<usize>)> = Vec::new(); // (is_read_only, indices)
                 for (i, (name, _args)) in all_calls.iter().enumerate() {
-                    if name == "execute_command" || name == "spawn_agent" {
-                        sequential_indices.push(i);
+                    let is_ro = is_read_only_tool(name);
+                    if let Some(last) = groups.last_mut() {
+                        if last.0 == is_ro {
+                            last.1.push(i);
+                            continue;
+                        }
+                    }
+                    groups.push((is_ro, vec![i]));
+                }
+
+                // Log the execution plan
+                for (is_ro, indices) in &groups {
+                    let names: Vec<&str> = indices.iter().map(|&i| all_calls[i].0.as_str()).collect();
+                    if *is_ro && indices.len() > 1 {
+                        log_info!(conversation_id, "⚡ Parallel group ({} read-only): {:?}", indices.len(), names);
                     } else {
-                        parallel_indices.push(i);
+                        log_info!(conversation_id, "🔄 Serial group ({}): {:?}", indices.len(), names);
                     }
                 }
 
                 // Pre-allocate result slots: (text, images)
                 let mut results: Vec<Option<(String, Vec<Vec<u8>>)>> = vec![None; all_calls.len()];
 
-                // Execute parallel (native) tools concurrently via thread::scope
-                if !parallel_indices.is_empty() {
-                    log_info!(
-                        conversation_id,
-                        "⚡ Executing {} native tools in parallel",
-                        parallel_indices.len()
-                    );
+                for (is_read_only, indices) in &groups {
+                    if *is_read_only && indices.len() > 1 {
+                        // Execute consecutive read-only tools in parallel via thread::scope
+                        let parallel_count = indices.len().min(MAX_PARALLEL_TOOLS);
+                        log_info!(
+                            conversation_id,
+                            "[BATCH] Executing {} read-only tools in parallel",
+                            parallel_count
+                        );
 
-                    // Prepare owned data for threads
-                    let thread_data: Vec<(usize, String, Option<String>, Option<String>, String)> = parallel_indices
-                        .iter()
-                        .map(|&i| {
-                            let (name, args) = &all_calls[i];
-                            let single_json = serde_json::json!({"name": name, "arguments": args}).to_string();
-                            let provider = web_search_provider.map(|s| s.to_string());
-                            let api_key = web_search_api_key.map(|s| s.to_string());
-                            let conv_id = conversation_id.to_string();
-                            (i, single_json, provider, api_key, conv_id)
-                        })
-                        .collect();
-
-                    std::thread::scope(|s| {
-                        let handles: Vec<_> = thread_data
+                        // Prepare owned data for threads
+                        let thread_data: Vec<(usize, String, Option<String>, Option<String>, String)> = indices
                             .iter()
-                            .map(|(idx, json, provider, api_key, conv_id)| {
-                                let idx = *idx;
-                                let tool_name = all_calls[idx].0.clone();
-                                let mcp_clone = mcp_manager.clone();
-                                let backend_clone = browser_backend.clone();
-                                let db_clone = db.clone();
-                                s.spawn(move || {
-                                    let result = run_native_tool_with_timeout(
-                                        json,
-                                        provider.as_deref(),
-                                        api_key.as_deref(),
-                                        conv_id,
-                                        use_htmd,
-                                        backend_clone,
-                                        mcp_clone,
-                                        db_clone,
-                                    );
-                                    let native_result = result.unwrap_or_else(|| {
-                                        native_tools::NativeToolResult::text_only(
-                                            format!("Error: Tool '{}' returned no output", tool_name)
-                                        )
-                                    });
-                                    (idx, native_result.text, native_result.images)
-                                })
+                            .take(MAX_PARALLEL_TOOLS)
+                            .map(|&i| {
+                                let (name, args) = &all_calls[i];
+                                let single_json = serde_json::json!({"name": name, "arguments": args}).to_string();
+                                let provider = web_search_provider.map(|s| s.to_string());
+                                let api_key = web_search_api_key.map(|s| s.to_string());
+                                let conv_id = conversation_id.to_string();
+                                (i, single_json, provider, api_key, conv_id)
                             })
                             .collect();
 
-                        for handle in handles {
-                            if let Ok((idx, text, images)) = handle.join() {
-                                results[idx] = Some((text, images));
-                            }
-                        }
-                    });
-                }
+                        std::thread::scope(|s| {
+                            let handles: Vec<_> = thread_data
+                                .iter()
+                                .map(|(idx, json, provider, api_key, conv_id)| {
+                                    let idx = *idx;
+                                    let tool_name = all_calls[idx].0.clone();
+                                    let mcp_clone = mcp_manager.clone();
+                                    let backend_clone = browser_backend.clone();
+                                    let db_clone = db.clone();
+                                    s.spawn(move || {
+                                        let result = run_native_tool_with_timeout(
+                                            json,
+                                            provider.as_deref(),
+                                            api_key.as_deref(),
+                                            conv_id,
+                                            use_htmd,
+                                            backend_clone,
+                                            mcp_clone,
+                                            db_clone,
+                                        );
+                                        let native_result = result.unwrap_or_else(|| {
+                                            native_tools::NativeToolResult::text_only(
+                                                format!("Error: Tool '{}' returned no output", tool_name)
+                                            )
+                                        });
+                                        (idx, native_result.text, native_result.images)
+                                    })
+                                })
+                                .collect();
 
-                // Execute sequential tools (execute_command) in order
-                for &i in &sequential_indices {
-                    let (name, args) = &all_calls[i];
-                    let single_json = serde_json::json!({"name": name, "arguments": args}).to_string();
-                    let (tool_output, tool_images) = execute_single_tool(
-                        name, args, &single_json,
-                        conversation_id,
-                        web_search_provider,
-                        web_search_api_key,
-                        token_sender,
-                        token_pos,
-                        context_size,
-                        cancel.clone(),
-                        use_rtk,
-                        use_htmd,
-                        browser_backend,
-                        mcp_manager.clone(),
-                        db.clone(),
-                        model, backend, chat_template_string, tags,
-                    );
-                    results[i] = Some((tool_output, tool_images));
+                            for handle in handles {
+                                if let Ok((idx, text, images)) = handle.join() {
+                                    results[idx] = Some((text, images));
+                                }
+                            }
+                        });
+
+                        // Execute any overflow beyond MAX_PARALLEL_TOOLS serially
+                        for &i in indices.iter().skip(MAX_PARALLEL_TOOLS) {
+                            let (name, args) = &all_calls[i];
+                            let single_json = serde_json::json!({"name": name, "arguments": args}).to_string();
+                            let (tool_output, tool_images) = execute_single_tool(
+                                name, args, &single_json,
+                                conversation_id,
+                                web_search_provider,
+                                web_search_api_key,
+                                token_sender,
+                                token_pos,
+                                context_size,
+                                cancel.clone(),
+                                use_rtk,
+                                use_htmd,
+                                browser_backend,
+                                mcp_manager.clone(),
+                                db.clone(),
+                                model, backend, chat_template_string, tags,
+                            );
+                            results[i] = Some((tool_output, tool_images));
+                        }
+                    } else {
+                        // Execute serially: write tools, single read-only tools, or mixed
+                        for &i in indices {
+                            let (name, args) = &all_calls[i];
+                            let single_json = serde_json::json!({"name": name, "arguments": args}).to_string();
+                            let (tool_output, tool_images) = execute_single_tool(
+                                name, args, &single_json,
+                                conversation_id,
+                                web_search_provider,
+                                web_search_api_key,
+                                token_sender,
+                                token_pos,
+                                context_size,
+                                cancel.clone(),
+                                use_rtk,
+                                use_htmd,
+                                browser_backend,
+                                mcp_manager.clone(),
+                                db.clone(),
+                                model, backend, chat_template_string, tags,
+                            );
+                            results[i] = Some((tool_output, tool_images));
+                        }
+                    }
                 }
 
                 // Merge results in original order, streaming to frontend
