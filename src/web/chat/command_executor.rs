@@ -358,8 +358,11 @@ fn summarize_tool_output(
 ) -> Result<String, String> {
     let original_len = output.len();
 
-    // Estimate if output fits in a single pass (~4 chars per token, leave room for prompt + generation)
-    let estimated_tokens = output.len() / 4;
+    // Estimate if output fits in a single pass (use tokenizer if available, else ~4 chars per token)
+    let estimated_tokens = model
+        .str_to_token(output, llama_cpp_2::model::AddBos::Never)
+        .map(|t| t.len())
+        .unwrap_or(output.len() / 4);
     let single_pass_limit = (SUMMARY_CTX_SIZE as usize) - SUMMARY_MAX_TOKENS - 200; // 200 tokens for prompt overhead
 
     let summary = if estimated_tokens < single_pass_limit {
@@ -411,14 +414,81 @@ fn summarize_tool_output(
     Ok(format!("[Summarized from {} chars]\n{}", original_len, summary))
 }
 
+/// Generate a compact one-line summary of a tool execution result.
+/// Used for logging and for prepending to truncated tool output so the model
+/// always sees a quick status line even when output is large.
+pub fn tool_use_one_liner(tool_name: &str, args_hint: &str, output: &str, duration_ms: u64) -> String {
+    let status = if output.contains("Error") || output.contains("error:") || output.contains("FAILED") {
+        "FAILED"
+    } else {
+        "OK"
+    };
+
+    // Extract key info based on tool type
+    let detail = match tool_name {
+        "execute_command" => {
+            if let Some(line) = output.lines().rev().find(|l| l.contains("exit code")) {
+                line.trim().to_string()
+            } else {
+                format!("{} chars output", output.len())
+            }
+        }
+        "write_file" => {
+            if let Some(bytes) = output.split("wrote ").nth(1).and_then(|s| s.split(' ').next()) {
+                format!("wrote {}", bytes)
+            } else {
+                output.lines().next().unwrap_or("done").to_string()
+            }
+        }
+        "read_file" => {
+            let lines = output.lines().count();
+            format!("{} lines", lines)
+        }
+        "web_search" => {
+            let results = output.matches("URL:").count().max(output.matches("http").count().min(10));
+            format!("{} results", results)
+        }
+        "web_fetch" => {
+            format!("{} chars fetched", output.len())
+        }
+        _ => {
+            let first_line = output.lines().next().unwrap_or("done");
+            if first_line.len() > 80 {
+                format!("{}...", &first_line[..77])
+            } else {
+                first_line.to_string()
+            }
+        }
+    };
+
+    let args_part = if args_hint.is_empty() {
+        String::new()
+    } else {
+        let hint = if args_hint.len() > 60 {
+            format!("{}...", &args_hint[..57])
+        } else {
+            args_hint.to_string()
+        };
+        format!(" {}", hint)
+    };
+
+    if duration_ms > 0 {
+        format!("[{}{} -> {} {} ({}ms)]", tool_name, args_part, status, detail, duration_ms)
+    } else {
+        format!("[{}{} -> {} {}]", tool_name, args_part, status, detail)
+    }
+}
+
 /// Threshold above which tool output gets smart-truncated before context injection.
-/// ~2K tokens worth of chars — preserves head (context) and tail (errors often at end).
-const TOOL_OUTPUT_TRUNCATION_THRESHOLD: usize = 8000;
+/// Defined in token units — chars threshold derived as tokens * 4.
+const TOOL_OUTPUT_TOKEN_THRESHOLD: usize = 2000;
+const TOOL_OUTPUT_TRUNCATION_THRESHOLD: usize = TOOL_OUTPUT_TOKEN_THRESHOLD * 4; // ~8000 chars
 
 /// Smart-truncate large tool output, preserving start and end.
 /// Tools like write_file/edit_file produce small output and should NOT be truncated.
 /// Returns the original output if it's small enough.
 pub fn maybe_truncate_tool_output(output: &str, tool_name: &str, conversation_id: &str) -> String {
+    // Quick char-based check (tokens <= chars, so if chars fit, tokens definitely fit)
     if output.len() <= TOOL_OUTPUT_TRUNCATION_THRESHOLD {
         return output.to_string();
     }
@@ -439,10 +509,12 @@ pub fn maybe_truncate_tool_output(output: &str, tool_name: &str, conversation_id
         tool_name, output.len(), TOOL_OUTPUT_TRUNCATION_THRESHOLD
     );
 
+    let one_liner = tool_use_one_liner(tool_name, "", output, 0);
     let head = TOOL_OUTPUT_TRUNCATION_THRESHOLD * 3 / 4; // 6000 chars from start
     let tail = TOOL_OUTPUT_TRUNCATION_THRESHOLD / 4;     // 2000 chars from end (errors often at end)
     format!(
-        "{}\n\n[...{} chars truncated — {} total. Key info may be at the end.]\n\n{}",
+        "{}\n{}\n\n[...{} chars truncated — {} total. Key info may be at the end.]\n\n{}",
+        one_liner,
         &output[..head.min(output.len())],
         output.len() - head - tail,
         output.len(),
@@ -1137,7 +1209,8 @@ pub fn check_and_execute_command_with_tags(
                             }
                         });
                         let elapsed_ms = exec_start.elapsed().as_millis();
-                        crate::web::event_log::log_event(conversation_id, "tool_done", &format!("execute_command done in {}ms ({} chars)", elapsed_ms, result.len()));
+                        let one_liner = tool_use_one_liner("execute_command", &cmd[..cmd.len().min(60)], &result, elapsed_ms as u64);
+                        crate::web::event_log::log_event(conversation_id, "tool_done", &one_liner);
                         result
                     }
                     } // end security injection check else block
@@ -1151,7 +1224,9 @@ pub fn check_and_execute_command_with_tags(
                     mcp_manager.clone(),
                     db.clone(),
                 ) {
-                    log_info!(conversation_id, "📦 Dispatched to native tool handler (images={})", native_result.images.len());
+                    let one_liner = tool_use_one_liner(&tool_name_for_log, "", &native_result.text, 0);
+                    log_info!(conversation_id, "📦 Native tool result: {}", one_liner);
+                    crate::web::event_log::log_event(conversation_id, "tool_done", &one_liner);
                     // Non-execute tools complete quickly, stream their output at once
                     if let Some(ref sender) = token_sender {
                         let _ = sender.send(TokenData {

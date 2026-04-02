@@ -53,8 +53,11 @@ pub fn maybe_compact_conversation(
     overhead_tokens: Option<i32>,
     status_sender: Option<&tokio::sync::mpsc::UnboundedSender<crate::web::models::TokenData>>,
 ) -> String {
-    // Estimate token count (~4 chars per token)
-    let estimated_tokens = conversation_content.len() / 4;
+    // Count tokens using the model's tokenizer (exact), fallback to chars/4 heuristic
+    let estimated_tokens = model
+        .str_to_token(conversation_content, llama_cpp_2::model::AddBos::Never)
+        .map(|t| t.len())
+        .unwrap_or(conversation_content.len() / 4);
     // Use real overhead from conversation_context if available, else fallback
     let overhead = overhead_tokens
         .filter(|&o| o > 0)
@@ -176,7 +179,10 @@ pub fn maybe_compact_conversation(
     // Reload conversation text from DB (now reflects compaction)
     match db.get_conversation_as_text(conversation_id) {
         Ok(text) => {
-            let new_estimated = text.len() / 4;
+            let new_estimated = model
+                .str_to_token(&text, llama_cpp_2::model::AddBos::Never)
+                .map(|t| t.len())
+                .unwrap_or(text.len() / 4);
             log_info!(
                 conversation_id,
                 "📦 Compaction result: ~{} → ~{} estimated tokens (saved ~{})",
