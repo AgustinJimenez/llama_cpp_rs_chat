@@ -5,7 +5,7 @@ A multi-provider AI chat application built with Rust and React. Run local GGUF m
 ## Features
 
 - **Multi-provider** — Local (llama.cpp), Claude Code, Codex CLI, and 13 OpenAI-compatible cloud providers with agentic tool loop
-- **117 native tools** — organized via tool catalog (22 core tools in prompt, 94 desktop tools discoverable on demand)
+- **120+ native tools** — organized via tool catalog (24 core tools in prompt, 90+ desktop tools discoverable on demand via `list_tools`/`get_tool_details`)
 - **Local inference** powered by llama-cpp-2 with CUDA and Metal GPU acceleration
 - **Web and desktop** modes (Tauri) from the same codebase
 - **Desktop automation (computer use)** — click, type, press keys, scroll, OCR, UI tree inspection via `enigo` crate
