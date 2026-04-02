@@ -65,18 +65,26 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   const startDownload = useCallback((modelId: string, file: HubFileRef, destPath: string) => {
     const key = `${modelId}/${file.name}`;
 
-    // Clear pending state — we're actively downloading now
-    setPendingDownloads(prev => {
-      const next = new Map(prev);
-      next.delete(key);
-      return next;
-    });
+    // DON'T delete from pendingDownloads yet — wait for first progress event
+    // so the item stays visible in the UI during the connection gap
 
     const controller = startHubDownload(
       modelId,
       file.name,
       destPath,
       (event) => {
+        // On first progress event, clear from pending (now tracked in downloads)
+        if (event.type === 'progress') {
+          setPendingDownloads(prev => {
+            if (prev.has(key)) {
+              const next = new Map(prev);
+              next.delete(key);
+              return next;
+            }
+            return prev;
+          });
+        }
+
         setDownloads(prev => {
           const next = new Map(prev);
           if (event.type === 'done' || event.type === 'error') {
