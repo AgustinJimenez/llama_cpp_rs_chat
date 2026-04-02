@@ -100,6 +100,55 @@ fn needs_shell(cmd: &str) -> bool {
     false
 }
 
+/// After executing a compound command, check if it started with `cd` and
+/// persist the directory change to the process CWD. This way subsequent
+/// tool calls use the new directory even though the `cd` ran in a subshell.
+fn track_cwd_change(cmd: &str) {
+    let trimmed = cmd.trim();
+
+    // Check if the command starts with a cd
+    let cd_target = if trimmed.starts_with("cd ") || trimmed.starts_with("cd\t") {
+        let rest = &trimmed[3..];
+        // Find where cd arguments end (&&, ||, ;, |, or end of string)
+        let end = rest
+            .find("&&")
+            .or_else(|| rest.find("||"))
+            .or_else(|| rest.find(';'))
+            .or_else(|| rest.find('|'))
+            .unwrap_or(rest.len());
+        Some(rest[..end].trim())
+    } else {
+        None
+    };
+
+    if let Some(target) = cd_target {
+        if target.is_empty() {
+            return;
+        }
+        let target = target.trim_matches('"').trim_matches('\'');
+        match std::env::set_current_dir(target) {
+            Ok(()) => {
+                if let Ok(new_dir) = std::env::current_dir() {
+                    eprintln!("[CWD] Persisted directory change to: {}", new_dir.display());
+                }
+            }
+            Err(e) => {
+                eprintln!("[CWD] Failed to persist cd to '{}': {}", target, e);
+            }
+        }
+    }
+}
+
+/// Get CWD annotation string if CWD differs from a previously captured directory.
+fn cwd_annotation(original_cwd: &std::path::Path) -> Option<String> {
+    if let Ok(current) = std::env::current_dir() {
+        if current != original_cwd {
+            return Some(format!("\n[CWD: {}]", current.display()));
+        }
+    }
+    None
+}
+
 /// Enrich PATH with common Windows tool directories.
 pub fn enriched_windows_path() -> String {
     let current_path = env::var("PATH").unwrap_or_default();
@@ -184,6 +233,7 @@ pub fn execute_command(cmd: &str) -> String {
                 return result;
             }
         }
+        let original_cwd = std::env::current_dir().unwrap_or_default();
         #[cfg(target_os = "windows")]
         let output = silent_command("cmd")
             .raw_arg(format!("/C {trimmed}"))
@@ -192,27 +242,30 @@ pub fn execute_command(cmd: &str) -> String {
             .output();
         #[cfg(not(target_os = "windows"))]
         let output = silent_command("sh").arg("-c").arg(trimmed).stdin(Stdio::null()).output();
+        // Persist CWD if compound command started with cd
+        track_cwd_change(trimmed);
         return match output {
             Ok(o) => {
                 let stdout = String::from_utf8_lossy(&o.stdout);
                 let stderr = String::from_utf8_lossy(&o.stderr);
                 let exit_code = o.status.code().unwrap_or(-1);
+                let annotation = cwd_annotation(&original_cwd).unwrap_or_default();
                 if !stderr.is_empty() && !o.status.success() {
-                    format!("{stdout}\nError (exit code {exit_code}): {stderr}")
+                    format!("{stdout}\nError (exit code {exit_code}): {stderr}{annotation}")
                 } else if stdout.is_empty() && stderr.is_empty() && o.status.success() {
-                    "Command executed successfully (no output)".to_string()
+                    format!("Command executed successfully (no output){annotation}")
                 } else if stdout.is_empty() && stderr.is_empty() && !o.status.success() {
-                    format!("Command failed with exit code {exit_code} and produced no output. The command may have found no matches or encountered a silent error.")
+                    format!("Command failed with exit code {exit_code} and produced no output. The command may have found no matches or encountered a silent error.{annotation}")
                 } else {
                     let combined = format!("{stdout}{stderr}");
                     if combined.trim().is_empty() {
                         if o.status.success() {
-                            "Command executed successfully (no output)".to_string()
+                            format!("Command executed successfully (no output){annotation}")
                         } else {
-                            format!("Command failed with exit code {exit_code} (no output)")
+                            format!("Command failed with exit code {exit_code} (no output){annotation}")
                         }
                     } else {
-                        combined
+                        format!("{combined}{annotation}")
                     }
                 }
             }
@@ -329,6 +382,9 @@ pub fn execute_command_streaming_with_timeout(
     if command_name == "cd" {
         return execute_command(cmd);
     }
+
+    // Capture CWD before execution so we can detect changes
+    let original_cwd = std::env::current_dir().unwrap_or_default();
 
     // Determine how to spawn the command
     let has_shell_ops = trimmed.contains("&&")
@@ -574,14 +630,18 @@ pub fn execute_command_streaming_with_timeout(
                 ));
             }
 
+            // Persist CWD if compound command started with cd
+            track_cwd_change(trimmed);
+            let annotation = cwd_annotation(&original_cwd).unwrap_or_default();
+
             if output.trim().is_empty() {
                 if success {
-                    "Command executed successfully (no output)".to_string()
+                    format!("Command executed successfully (no output){annotation}")
                 } else {
-                    format!("Command failed with exit code {exit_code} and produced no output.")
+                    format!("Command failed with exit code {exit_code} and produced no output.{annotation}")
                 }
             } else {
-                output
+                format!("{output}{annotation}")
             }
         }
         Err(e) => {
@@ -1014,5 +1074,83 @@ mod tests {
         let result = execute_command_streaming(&cmd, None, |line| lines.push(line.to_string()));
         assert!(result.contains("PHP"), "Expected PHP version output, got: {result}");
         assert!(!lines.is_empty(), "Expected streaming lines, got none");
+    }
+
+    #[test]
+    fn test_track_cwd_change_with_and_and() {
+        let original = env::current_dir().unwrap();
+        let temp = env::temp_dir();
+        let cmd = format!("cd {} && echo hello", temp.display());
+        track_cwd_change(&cmd);
+        let now = env::current_dir().unwrap();
+        // Restore original CWD before asserting (so test cleanup works)
+        let _ = env::set_current_dir(&original);
+        // On Windows, temp_dir() may return a short path; canonicalize both
+        assert_eq!(
+            now.canonicalize().unwrap_or(now.clone()),
+            temp.canonicalize().unwrap_or(temp.clone()),
+            "CWD should have changed to temp dir"
+        );
+    }
+
+    #[test]
+    fn test_track_cwd_change_with_semicolon() {
+        let original = env::current_dir().unwrap();
+        let temp = env::temp_dir();
+        let cmd = format!("cd {}; echo hello", temp.display());
+        track_cwd_change(&cmd);
+        let now = env::current_dir().unwrap();
+        let _ = env::set_current_dir(&original);
+        assert_eq!(
+            now.canonicalize().unwrap_or(now.clone()),
+            temp.canonicalize().unwrap_or(temp.clone()),
+        );
+    }
+
+    #[test]
+    fn test_track_cwd_change_quoted_path() {
+        let original = env::current_dir().unwrap();
+        let temp = env::temp_dir();
+        let cmd = format!("cd \"{}\" && echo hello", temp.display());
+        track_cwd_change(&cmd);
+        let now = env::current_dir().unwrap();
+        let _ = env::set_current_dir(&original);
+        assert_eq!(
+            now.canonicalize().unwrap_or(now.clone()),
+            temp.canonicalize().unwrap_or(temp.clone()),
+        );
+    }
+
+    #[test]
+    fn test_track_cwd_change_no_cd() {
+        let original = env::current_dir().unwrap();
+        track_cwd_change("echo hello && echo world");
+        let now = env::current_dir().unwrap();
+        assert_eq!(now, original, "CWD should not change for non-cd commands");
+    }
+
+    #[test]
+    fn test_track_cwd_change_invalid_dir() {
+        let original = env::current_dir().unwrap();
+        track_cwd_change("cd /nonexistent_dir_12345 && echo hello");
+        let now = env::current_dir().unwrap();
+        assert_eq!(now, original, "CWD should not change for invalid directory");
+    }
+
+    #[test]
+    fn test_cwd_annotation_same_dir() {
+        let cwd = env::current_dir().unwrap();
+        assert!(cwd_annotation(&cwd).is_none(), "No annotation when CWD unchanged");
+    }
+
+    #[test]
+    fn test_cwd_annotation_different_dir() {
+        let original = env::current_dir().unwrap();
+        let temp = env::temp_dir();
+        let _ = env::set_current_dir(&temp);
+        let annotation = cwd_annotation(&original);
+        let _ = env::set_current_dir(&original);
+        assert!(annotation.is_some(), "Should produce annotation when CWD differs");
+        assert!(annotation.unwrap().contains("[CWD:"));
     }
 }
