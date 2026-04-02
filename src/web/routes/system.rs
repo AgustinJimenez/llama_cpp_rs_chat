@@ -95,8 +95,18 @@ pub async fn handle_api_docs() -> Result<Response<Body>, Infallible> {
             {"method": "POST", "path": "/api/upload", "description": "Upload a model file"},
 
             {"method": "GET", "path": "/api/hub/search", "description": "Search HuggingFace Hub"},
+            {"method": "GET", "path": "/api/hub/tree", "description": "List files in a HuggingFace repo"},
             {"method": "POST", "path": "/api/hub/download", "description": "Download model from Hub"},
             {"method": "GET", "path": "/api/hub/downloads", "description": "List active downloads"},
+            {"method": "DELETE", "path": "/api/hub/downloads", "description": "Cancel a download"},
+            {"method": "POST", "path": "/api/hub/downloads/verify", "description": "Verify downloaded file integrity"},
+
+            {"method": "PATCH", "path": "/api/conversations/{id}/title", "description": "Rename a conversation"},
+            {"method": "GET", "path": "/api/conversations/{id}/token-analysis", "description": "Token usage breakdown (system/user/assistant/tools)"},
+            {"method": "GET", "path": "/api/conversations/{id}/export", "description": "Export conversation as markdown or JSON"},
+
+            {"method": "GET", "path": "/api/config/active-provider", "description": "Get active provider and model"},
+            {"method": "POST", "path": "/api/config/active-provider", "description": "Set active provider and model"},
         ]
     });
     Ok(json_raw(
