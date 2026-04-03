@@ -46,6 +46,13 @@ const TOOL_TAG_FAMILIES = {
     outputOpen: '<tool_response>',
     outputClose: '</tool_response>',
   } as ToolTags,
+  // Gemma 4 models use <|tool_call>call:name{args}<tool_call|> format
+  gemma4: {
+    execOpen: '<|tool_call>',
+    execClose: '<tool_call|>',
+    outputOpen: '<|tool_response>',
+    outputClose: '<tool_response|>',
+  } as ToolTags,
   // Default for models without native tool format
   default: DEFAULT_TOOL_TAGS,
 };
@@ -71,8 +78,10 @@ export const MODEL_TOOL_TAGS: Record<string, ToolTags> = {
   // GLM models - same tags as Qwen
   "Zai org_GLM 4.6V Flash": TOOL_TAG_FAMILIES.glm,
   "Zai org_GLM 4.7 Flash": TOOL_TAG_FAMILIES.glm,
+  // Gemma 4 models - native tool calling format
+  "Gemma-4-26B-A4B-It": TOOL_TAG_FAMILIES.gemma4,
   // Other models - use default SYSTEM.EXEC (no strong native tool format)
-  // MiniCPM, Gemma, Granite, Nemotron, GPT-OSS, RNJ all use default
+  // MiniCPM, Granite, Nemotron, GPT-OSS, RNJ all use default
 };
 
 // Look up tool tags for a model by general.name
@@ -218,6 +227,22 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
   },
 
   // Google
+  // Gemma 4 26B-A4B MoE (26B total, 4B active per token)
+  // Source: HuggingFace model card + GGUF general.sampling metadata
+  // 30 layers total, flash_attention recommended, hybrid local+global attention
+  "Gemma-4-26B-A4B-It": {
+    sampler_type: "Temperature",
+    temperature: 1.0,
+    top_p: 0.95,
+    top_k: 64,
+    repeat_penalty: 1.0,
+    min_p: 0.0,
+    context_size: 32768,
+    flash_attention: true,
+    cache_type_k: "f16",
+    cache_type_v: "f16",
+    gpu_layers: 30,
+  },
   "Gemma 3 12b It": {
     sampler_type: "Greedy",
     temperature: 0.0,

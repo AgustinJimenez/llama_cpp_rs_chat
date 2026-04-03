@@ -147,6 +147,18 @@ fn lfm2_tags() -> ToolTags {
     )
 }
 
+/// Gemma 4 native tool tags.
+/// Uses `<|tool_call>call:name{args}<tool_call|>` format.
+/// Tool responses: `<|tool_response>...<tool_response|>`.
+fn gemma4_tags() -> ToolTags {
+    ToolTags::new(
+        "<|tool_call>",
+        "<tool_call|>",
+        "<|tool_response>",
+        "<tool_response|>",
+    )
+}
+
 /// GLM-family native tool tags.
 /// GLM uses the same `<tool_call>`/`</tool_call>` format as Qwen (tokens 151352/151353).
 /// Tool responses use `<tool_response>`/`</tool_response>` (tokens 151354/151355).
@@ -190,6 +202,8 @@ const MODEL_TAG_MAP: &[(&str, TagFactory)] = &[
     ("mistralai_Ministral 3 14B Reasoning 2512", mistral_tags),
     // Harmony models - native Harmony format tool calling
     ("Openai_Gpt Oss 20b", harmony_tags),
+    // Gemma 4 models - native <|tool_call>call:name{args}<tool_call|> format
+    ("Gemma-4-26B-A4B-It", gemma4_tags),
     // GLM models - native <tool_call> tags (same special tokens as Qwen)
     ("Zai org_GLM 4.6V Flash", glm_tags),
     ("Zai org_GLM 4.7 Flash", glm_tags),
@@ -246,6 +260,19 @@ pub fn get_tool_tags_for_model(general_name: Option<&str>) -> ToolTags {
 }
 
 // ── Tag pair preset factories ─────────────────────────────────────────────────
+
+/// All known tag pairs for Gemma 4 family models.
+fn gemma4_tag_pairs() -> Vec<TagPair> {
+    vec![
+        TagPair::pair("tool", "exec", "<|tool_call>", "<tool_call|>"),
+        TagPair::pair("tool", "response", "<|tool_response>", "<tool_response|>"),
+        TagPair::pair("thinking", "think", "<|channel>thought", "<channel|>"),
+        TagPair::single("role", "system", "<|turn>system"),
+        TagPair::single("role", "user", "<|turn>user"),
+        TagPair::single("role", "model", "<|turn>model"),
+        TagPair::single("control", "turn_end", "<turn|>"),
+    ]
+}
 
 /// All known tag pairs for GLM-4 family models.
 fn glm_tag_pairs() -> Vec<TagPair> {
@@ -353,6 +380,8 @@ const MODEL_TAG_PAIR_MAP: &[(&str, TagPairFactory)] = &[
     ("mistralai_Ministral 3 14B Reasoning 2512", mistral_tag_pairs),
     // Harmony models
     ("Openai_Gpt Oss 20b", harmony_tag_pairs),
+    // Gemma 4 models
+    ("Gemma-4-26B-A4B-It", gemma4_tag_pairs),
     // GLM models
     ("Zai org_GLM 4.6V Flash", glm_tag_pairs),
     ("Zai org_GLM 4.7 Flash", glm_tag_pairs),

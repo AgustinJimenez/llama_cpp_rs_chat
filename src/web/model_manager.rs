@@ -207,9 +207,8 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, request
     if let Some(ref progress_arc) = progress {
         let raw_ptr = Arc::as_ptr(progress_arc) as *mut std::os::raw::c_void;
         // SAFETY: progress_arc lives until load_from_file returns (held by caller's Arc)
-        llama_model_params = unsafe {
-            llama_model_params.with_progress_callback(Some(loading_progress_cb), raw_ptr)
-        };
+        llama_model_params.params.progress_callback = Some(loading_progress_cb);
+        llama_model_params.params.progress_callback_user_data = raw_ptr;
     }
 
     log_info!("system", "Loading model from: {}", model_path);

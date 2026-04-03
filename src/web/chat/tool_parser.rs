@@ -23,6 +23,12 @@ lazy_static::lazy_static! {
         r"(?s)to=\s*(?:functions\.)?(\w+)[\s\S]*?<\|message\|>(.*?)<\|call\|>"
     ).unwrap();
 
+    // Gemma 4 format: call:function_name{key:<|"|>value<|"|>,key2:value2}
+    // Extracted from inside <|tool_call>...<tool_call|> tags.
+    static ref GEMMA4_CALL_PATTERN: Regex = Regex::new(
+        r"(?s)call:(\w+)\{(.*)\}"
+    ).unwrap();
+
     // Mistral v2 bracket format (Devstral-Small-2-2512):
     // [TOOL_CALLS]tool_name[ARGS]{"arg":"val"}
     // Only matches the prefix — JSON body is extracted via balanced-brace scanner
@@ -115,6 +121,7 @@ pub(crate) type FormatDetector = fn(&str, &ToolTags) -> Option<String>;
 /// Detector priority order. First match wins.
 pub(crate) const FORMAT_PRIORITY: &[(&str, FormatDetector)] = &[
     ("model_specific", detect_model_specific),
+    ("gemma4", detect_gemma4),
     ("exec", detect_exec),
     ("llama3", detect_llama3),
     ("harmony", detect_harmony),
@@ -143,6 +150,107 @@ fn detect_harmony(text: &str, _tags: &ToolTags) -> Option<String> {
         tool_name.as_str(),
         args_json.as_str().trim()
     ))
+}
+
+/// Detect Gemma 4 tool call format: call:function_name{key:<|"|>value<|"|>,key:value}
+/// This format appears inside <|tool_call>...<tool_call|> tags OR as raw text.
+/// Converts to standard JSON: {"name":"function_name","arguments":{...}}
+fn detect_gemma4(text: &str, _tags: &ToolTags) -> Option<String> {
+    let caps = GEMMA4_CALL_PATTERN.captures(text)?;
+    let tool_name = caps.get(1)?.as_str();
+    let args_raw = caps.get(2)?.as_str();
+
+    // Parse Gemma 4 key-value format into JSON
+    // Values can be: <|"|>string<|"|>, true, false, numbers, or nested structures
+    let json_args = gemma4_args_to_json(args_raw);
+    Some(format!(
+        r#"{{"name":"{}","arguments":{}}}"#,
+        tool_name, json_args
+    ))
+}
+
+/// Convert Gemma 4 argument format to JSON string.
+/// Input: `background:false,command:<|"|>mkdir foo<|"|>`
+/// Output: `{"background":false,"command":"mkdir foo"}`
+fn gemma4_args_to_json(raw: &str) -> String {
+    let mut result = String::from("{");
+    let mut first = true;
+    let mut pos = 0;
+    let bytes = raw.as_bytes();
+
+    while pos < bytes.len() {
+        // Skip whitespace
+        while pos < bytes.len() && bytes[pos].is_ascii_whitespace() { pos += 1; }
+        if pos >= bytes.len() { break; }
+
+        // Parse key (until ':')
+        let key_start = pos;
+        while pos < bytes.len() && bytes[pos] != b':' { pos += 1; }
+        if pos >= bytes.len() { break; }
+        let key = raw[key_start..pos].trim();
+        pos += 1; // skip ':'
+
+        // Parse value
+        while pos < bytes.len() && bytes[pos].is_ascii_whitespace() { pos += 1; }
+        if pos >= bytes.len() { break; }
+
+        let (value, new_pos) = if raw[pos..].starts_with("<|\"|>") {
+            // String value delimited by <|"|>...<|"|>
+            let content_start = pos + 5; // len("<|\"|>")
+            if let Some(end) = raw[content_start..].find("<|\"|>") {
+                let val = &raw[content_start..content_start + end];
+                // Escape for JSON
+                let escaped = val.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
+                (format!("\"{}\"", escaped), content_start + end + 5)
+            } else {
+                // No closing quote, take rest as string
+                let val = &raw[content_start..];
+                let escaped = val.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
+                (format!("\"{}\"", escaped), raw.len())
+            }
+        } else if raw[pos..].starts_with("true") {
+            ("true".to_string(), pos + 4)
+        } else if raw[pos..].starts_with("false") {
+            ("false".to_string(), pos + 5)
+        } else if bytes[pos] == b'{' {
+            // Nested object — find balanced braces
+            if let Some((end, nested)) = extract_balanced_json(raw, pos) {
+                (nested, end)
+            } else {
+                break;
+            }
+        } else if bytes[pos] == b'[' {
+            // Array — find balanced brackets
+            let bracket_start = pos;
+            let mut depth = 0;
+            while pos < bytes.len() {
+                if bytes[pos] == b'[' { depth += 1; }
+                if bytes[pos] == b']' { depth -= 1; if depth == 0 { pos += 1; break; } }
+                pos += 1;
+            }
+            (raw[bracket_start..pos].to_string(), pos)
+        } else {
+            // Number or other literal
+            let val_start = pos;
+            while pos < bytes.len() && bytes[pos] != b',' && !bytes[pos].is_ascii_whitespace() {
+                pos += 1;
+            }
+            (raw[val_start..pos].to_string(), pos)
+        };
+
+        if !first { result.push(','); }
+        first = false;
+        result.push_str(&format!("\"{}\":{}", key, value));
+        pos = new_pos;
+
+        // Skip comma separator
+        while pos < bytes.len() && (bytes[pos] == b',' || bytes[pos].is_ascii_whitespace()) {
+            pos += 1;
+        }
+    }
+
+    result.push('}');
+    result
 }
 
 fn detect_mistral_bracket(text: &str, _tags: &ToolTags) -> Option<String> {
