@@ -37,6 +37,36 @@ const EOS_TOKEN_CLEANUP = /<\|(?:im_end|endoftext|end_of_text|eot_id|end)\|>/g;
 const INTERNAL_SIGNALS_CLEANUP = /\[INFINITE_LOOP_DETECTED\]/g;
 
 /**
+ * Build dynamic cleanup regex from active toolTags.
+ * Strips exec_open...exec_close and output_open...output_close blocks,
+ * so any model's tags are handled without hardcoded patterns.
+ * Returns null if tags are the default SYSTEM.EXEC (already handled by EXEC_CLEANUP).
+ */
+function buildDynamicTagCleanup(tags?: ToolTags): RegExp | null {
+  if (!tags) return null;
+  // Skip if default SYSTEM.EXEC tags (already covered by hardcoded regexes)
+  if (tags.exec_open.includes('SYSTEM.EXEC')) return null;
+  // Skip if Qwen/GLM <tool_call> (already covered by toolParser strip)
+  if (tags.exec_open === '<tool_call>') return null;
+
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const parts: string[] = [];
+  // Strip tool call blocks: exec_open...exec_close
+  parts.push(`${esc(tags.exec_open)}[\\s\\S]*?${esc(tags.exec_close)}`);
+  // Strip tool response blocks: output_open...output_close
+  parts.push(`${esc(tags.output_open)}[\\s\\S]*?${esc(tags.output_close)}`);
+  return new RegExp(parts.join('|'), 'g');
+}
+
+/**
+ * Strip model-specific channel/role/control tags that leak into the display.
+ * These are tags like <|channel>thought<channel|>, <turn|>, etc.
+ * Handles any model that uses <|tag>...<tag|> or <tag|> patterns.
+ */
+const CHANNEL_TAG_CLEANUP = /<\|channel>[\s\S]*?<channel\|>/g;
+const TURN_TAG_CLEANUP = /<(?:\|turn>(?:model|user|system|tool)|turn\|>)/g;
+
+/**
  * Parse a message and extract various components:
  * - Tool calls
  * - Thinking content (for reasoning models)
@@ -46,6 +76,7 @@ const INTERNAL_SIGNALS_CLEANUP = /\[INFINITE_LOOP_DETECTED\]/g;
  */
 export function useMessageParsing(message: Message, toolTags?: ToolTags): ParsedMessage {
   const harmony = useMemo(() => parseHarmonyContent(message.content), [message.content]);
+  const dynamicCleanup = useMemo(() => buildDynamicTagCleanup(toolTags), [toolTags]);
   const effectiveContent = (harmony ? harmony.finalContent : message.content).replace(EOS_TOKEN_CLEANUP, '').replace(INTERNAL_SIGNALS_CLEANUP, '');
 
   const toolCalls = useMemo(() => {
@@ -62,8 +93,14 @@ export function useMessageParsing(message: Message, toolTags?: ToolTags): Parsed
         .replace(/<tool_response>[\s\S]*?<\/tool_response>/g, '')
         .replace(LFM2_RESULT_CLEANUP, '');
     }
-    return content.replace(EOS_TOKEN_CLEANUP, '');
-  }, [effectiveContent, toolCalls.length, toolTags]);
+    content = content.replace(EOS_TOKEN_CLEANUP, '');
+    // Dynamic: strip tool call/response blocks + channel/turn tags from active model
+    content = content.replace(CHANNEL_TAG_CLEANUP, '').replace(TURN_TAG_CLEANUP, '');
+    if (dynamicCleanup) {
+      content = content.replace(dynamicCleanup, '');
+    }
+    return content;
+  }, [effectiveContent, toolCalls.length, toolTags, dynamicCleanup]);
 
   const thinkingContent = useMemo(() => {
     if (harmony) return null;
@@ -86,7 +123,7 @@ export function useMessageParsing(message: Message, toolTags?: ToolTags): Parsed
   }, [effectiveContent, harmony, toolTags]);
 
   const contentWithoutThinking = useMemo(() => {
-    return cleanContent
+    let result = cleanContent
       .replace(THINKING_REGEX, '')
       .replace(THINKING_UNCLOSED_REGEX, '')
       .replace(THINKING_ORPHAN_CLOSE_REGEX, '')
@@ -98,8 +135,14 @@ export function useMessageParsing(message: Message, toolTags?: ToolTags): Parsed
       .replace(MISTRAL_RESULT_CLEANUP, '')
       .replace(GLM_VISION_CLEANUP, '')
       .replace(EOS_TOKEN_CLEANUP, '')
-      .trim();
-  }, [cleanContent]);
+      // Dynamic: strip tool call/response blocks using active model tags
+      .replace(CHANNEL_TAG_CLEANUP, '')
+      .replace(TURN_TAG_CLEANUP, '');
+    if (dynamicCleanup) {
+      result = result.replace(dynamicCleanup, '');
+    }
+    return result.trim();
+  }, [cleanContent, dynamicCleanup]);
 
   const isError = message.role === 'system' && (
     message.content.includes('\u274C') ||

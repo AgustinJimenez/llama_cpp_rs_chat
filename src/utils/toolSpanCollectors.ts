@@ -571,6 +571,94 @@ export function moveToolsOutOfThinking(content: string): string {
   });
 }
 
+// --- Gemma 4 / Dynamic: <|tool_call>call:name{args}<tool_call|> ---
+// Parses Gemma 4 native format and pairs with <|tool_response>...<tool_response|>
+
+// Gemma 4 tool call: close tag may be <tool_call|> or may be stripped by backend,
+// in which case the block ends at <|tool_response> or end of text.
+const GEMMA4_CALL_REGEX = /<\|tool_call>call:(\w+)\{([\s\S]*?)\}(?:<tool_call\|>)?/g;
+const GEMMA4_RESPONSE_REGEX = /<\|tool_response>([\s\S]*?)(?:<tool_response\|>|$)/g;
+// Channel tags (thinking): <|channel>thought<channel|> or <|channel>thought\n...<channel|>
+const CHANNEL_TAG_REGEX = /<\|channel>[\s\S]*?<channel\|>/g;
+// Turn tags: <|turn>model, <turn|>, etc.
+const TURN_TAG_REGEX = /<(?:\|turn>(?:model|user|system|tool)|turn\|>)/g;
+
+/** Parse Gemma 4 key:value args into a simple object */
+function parseGemma4Args(raw: string): Record<string, unknown> {
+  const args: Record<string, unknown> = {};
+  const quoteDelim = '<|"|>';
+  let pos = 0;
+  while (pos < raw.length) {
+    while (pos < raw.length && /\s/.test(raw[pos])) pos++;
+    if (pos >= raw.length) break;
+    const colonIdx = raw.indexOf(':', pos);
+    if (colonIdx < 0) break;
+    const key = raw.slice(pos, colonIdx).trim();
+    pos = colonIdx + 1;
+    while (pos < raw.length && /\s/.test(raw[pos])) pos++;
+    if (pos >= raw.length) break;
+    if (raw.startsWith(quoteDelim, pos)) {
+      const contentStart = pos + quoteDelim.length;
+      const endIdx = raw.indexOf(quoteDelim, contentStart);
+      if (endIdx >= 0) {
+        args[key] = raw.slice(contentStart, endIdx);
+        pos = endIdx + quoteDelim.length;
+      } else {
+        args[key] = raw.slice(contentStart);
+        pos = raw.length;
+      }
+    } else if (raw.startsWith('true', pos)) {
+      args[key] = true; pos += 4;
+    } else if (raw.startsWith('false', pos)) {
+      args[key] = false; pos += 5;
+    } else {
+      const valStart = pos;
+      while (pos < raw.length && raw[pos] !== ',') pos++;
+      args[key] = raw.slice(valStart, pos).trim();
+    }
+    if (pos < raw.length && raw[pos] === ',') pos++;
+  }
+  return args;
+}
+
+function collectGemma4Spans(content: string): Span[] {
+  const spans: Span[] = [];
+  const calls: { start: number; end: number; name: string; args: Record<string, unknown> }[] = [];
+  const responses: { start: number; end: number; content: string }[] = [];
+
+  let m;
+  const callRe = new RegExp(GEMMA4_CALL_REGEX.source, 'g');
+  while ((m = callRe.exec(content)) !== null) {
+    calls.push({ start: m.index, end: m.index + m[0].length, name: m[1], args: parseGemma4Args(m[2]) });
+  }
+  const respRe = new RegExp(GEMMA4_RESPONSE_REGEX.source, 'g');
+  while ((m = respRe.exec(content)) !== null) {
+    responses.push({ start: m.index, end: m.index + m[0].length, content: m[1].trim() });
+  }
+
+  for (let i = 0; i < calls.length; i++) {
+    const call = calls[i];
+    const resp = i < responses.length ? responses[i] : null;
+    const spanEnd = resp ? resp.end : call.end;
+    spans.push({
+      start: call.start, end: spanEnd,
+      segment: { type: 'tool_call', toolCall: {
+        id: stableToolId(call.name, call.start),
+        name: call.name,
+        arguments: call.args,
+        output: resp?.content,
+        isPending: !resp,
+      } },
+    });
+  }
+  return spans;
+}
+
+/** Strip channel/turn tags from text content (for text segments only) */
+function stripChannelTags(text: string): string {
+  return text.replace(CHANNEL_TAG_REGEX, '').replace(TURN_TAG_REGEX, '');
+}
+
 export function buildSegments(content: string, toolTags?: ToolTags): MessageSegment[] {
   // Preprocess: move tool calls out of thinking blocks so they become widgets
   const preprocessed = moveToolsOutOfThinking(content);
@@ -579,26 +667,37 @@ export function buildSegments(content: string, toolTags?: ToolTags): MessageSegm
     .replace(THINKING_UNCLOSED_REGEX, '')
     .replace(THINKING_ORPHAN_CLOSE_REGEX, '');
   const pruned = stripUnclosedToolCallTail(cleaned, toolTags);
-  const lfm2Spans = toolTags?.exec_open === '<|tool_call_start|>'
+
+  // Try Gemma 4 format first (detected by exec_open tag)
+  const gemma4Spans = toolTags?.exec_open === '<|tool_call>'
+    ? collectGemma4Spans(pruned)
+    : [];
+  const lfm2Spans = gemma4Spans.length > 0 ? []
+    : toolTags?.exec_open === '<|tool_call_start|>'
     ? collectLfm2Spans(pruned, toolTags)
     : [];
-  const qwenSpans = lfm2Spans.length > 0 ? [] : collectQwenSpans(pruned, toolTags);
-  const mistralSpans = lfm2Spans.length > 0 || qwenSpans.length > 0
+  const qwenSpans = gemma4Spans.length > 0 || lfm2Spans.length > 0 ? [] : collectQwenSpans(pruned, toolTags);
+  const mistralSpans = gemma4Spans.length > 0 || lfm2Spans.length > 0 || qwenSpans.length > 0
     ? []
     : collectMistralSpans(pruned, toolTags);
-  const toolSpans = lfm2Spans.length > 0 ? lfm2Spans
+  const toolSpans = gemma4Spans.length > 0 ? gemma4Spans
+    : lfm2Spans.length > 0 ? lfm2Spans
     : qwenSpans.length > 0 ? qwenSpans
     : mistralSpans.length > 0 ? mistralSpans
     : collectLlama3Spans(pruned, toolTags);
   const spans = [...collectExecSpans(pruned), ...toolSpans]
     .sort((a, b) => a.start - b.start);
 
+  // Determine if we need to strip channel/turn tags from text segments
+  const needsChannelStrip = toolTags?.exec_open === '<|tool_call>';
+
   const result: MessageSegment[] = [];
   let cursor = 0;
 
   for (const span of spans) {
     if (span.start > cursor) {
-      const text = pruned.slice(cursor, span.start).trim();
+      let text = pruned.slice(cursor, span.start).trim();
+      if (needsChannelStrip) text = stripChannelTags(text).trim();
       if (text) result.push({ type: 'text', content: text });
     }
     result.push(span.segment);
@@ -606,7 +705,8 @@ export function buildSegments(content: string, toolTags?: ToolTags): MessageSegm
   }
 
   if (cursor < pruned.length) {
-    const text = pruned.slice(cursor).trim();
+    let text = pruned.slice(cursor).trim();
+    if (needsChannelStrip) text = stripChannelTags(text).trim();
     if (text) result.push({ type: 'text', content: text });
   }
 
