@@ -25,6 +25,53 @@ interface MarkdownContentProps {
   testId?: string;
 }
 
+/** Expandable visual block: click to fullscreen, 3-dot menu with actions. */
+const ExpandableBlock: React.FC<{
+  children: React.ReactNode;
+  actions: { label: string; onClick: () => void }[];
+  className?: string;
+}> = ({ children, actions, className }) => {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <>
+      <div
+        className={`my-2 relative group cursor-pointer ${className || ''}`}
+        onClick={() => setExpanded(true)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === 'Enter') setExpanded(true); }}
+      >
+        {children}
+        <ThreeDotMenu actions={actions} />
+      </div>
+      {expanded && createPortal(
+        <div
+          className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center cursor-pointer"
+          onClick={() => setExpanded(false)}
+        >
+          <div
+            className="w-[90vw] h-[90vh] flex items-center justify-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {children}
+          </div>
+          <button
+            onClick={() => setExpanded(false)}
+            className="absolute top-4 right-4 p-2 bg-white/20 text-white rounded-full hover:bg-white/30 transition-colors backdrop-blur"
+            title="Close"
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M5 5l10 10M15 5L5 15" />
+            </svg>
+          </button>
+        </div>,
+        document.body
+      )}
+    </>
+  );
+};
+
 /** Reusable 3-dot menu for visual blocks (charts, diagrams, images). */
 const ThreeDotMenu: React.FC<{ actions: { label: string; onClick: () => void }[] }> = ({ actions }) => {
   const [open, setOpen] = useState(false);
@@ -124,16 +171,13 @@ const MermaidBlock: React.FC<{ code: string }> = ({ code }) => {
   }
 
   return (
-    <div className="my-2 relative group">
+    <ExpandableBlock actions={[{ label: 'Export PNG', onClick: handleExport }]}>
       <div
         ref={containerRef}
-        className="bg-[#1a1a2e] rounded-lg p-4 overflow-x-auto"
+        className="bg-[#1a1a2e] rounded-lg p-4 overflow-x-auto w-full"
         dangerouslySetInnerHTML={{ __html: svg }}
       />
-      <ThreeDotMenu actions={[
-        { label: 'Export PNG', onClick: handleExport },
-      ]} />
-    </div>
+    </ExpandableBlock>
   );
 };
 
@@ -228,15 +272,14 @@ const ChartBlock: React.FC<{ code: string }> = ({ code }) => {
   }
 
   return (
-    <div className="my-2 relative group">
-      <div className="bg-[#1a1a2e] rounded-lg p-4">
+    <ExpandableBlock actions={[
+      { label: 'Export PNG', onClick: () => handleExport('png') },
+      { label: 'Export CSV', onClick: () => handleExport('csv') },
+    ]}>
+      <div className="bg-[#1a1a2e] rounded-lg p-4 w-full">
         <canvas ref={canvasRef} />
       </div>
-      <ThreeDotMenu actions={[
-        { label: 'Export PNG', onClick: () => handleExport('png') },
-        { label: 'Export CSV', onClick: () => handleExport('csv') },
-      ]} />
-    </div>
+    </ExpandableBlock>
   );
 };
 
