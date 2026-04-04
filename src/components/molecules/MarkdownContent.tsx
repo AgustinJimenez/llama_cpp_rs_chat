@@ -25,25 +25,20 @@ interface MarkdownContentProps {
   testId?: string;
 }
 
-/** Expandable visual block: click to fullscreen, 3-dot menu with actions. */
+/** Expandable visual block: 3-dot menu with expand + actions. */
 const ExpandableBlock: React.FC<{
   children: React.ReactNode;
   actions: { label: string; onClick: () => void }[];
   className?: string;
 }> = ({ children, actions, className }) => {
   const [expanded, setExpanded] = useState(false);
+  const allActions = [{ label: 'Expand', onClick: () => setExpanded(true) }, ...actions];
 
   return (
     <>
-      <div
-        className={`my-2 relative group cursor-pointer ${className || ''}`}
-        onClick={() => setExpanded(true)}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => { if (e.key === 'Enter') setExpanded(true); }}
-      >
+      <div className={`my-2 relative group ${className || ''}`}>
         {children}
-        <ThreeDotMenu actions={actions} />
+        <ThreeDotMenu actions={allActions} />
       </div>
       {expanded && createPortal(
         <div
