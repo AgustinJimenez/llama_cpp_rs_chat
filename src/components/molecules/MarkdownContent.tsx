@@ -282,13 +282,7 @@ const ImageWithControls: React.FC<React.ImgHTMLAttributes<HTMLImageElement>> = (
             </svg>
           </button>
           {menuOpen && (
-            <div className="absolute right-0 mt-1 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[140px] z-50">
-              <button
-                onClick={() => { setIsOpen(true); setMenuOpen(false); }}
-                className="w-full px-3 py-1.5 text-left text-sm text-foreground hover:bg-muted transition-colors"
-              >
-                Expand
-              </button>
+            <div className="absolute right-0 mt-1 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[120px] z-50">
               <a
                 href={src}
                 download={alt.replace(/[^a-zA-Z0-9]/g, '_') + '.jpg'}
