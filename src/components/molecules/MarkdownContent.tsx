@@ -46,7 +46,7 @@ const ExpandableBlock: React.FC<{
           onClick={() => setExpanded(false)}
         >
           <div
-            className="w-[90vw] h-[90vh] flex items-center justify-center"
+            className="w-[90vw] h-[90vh] flex items-center justify-center [&>*]:mx-auto [&>*]:max-w-full [&>*]:max-h-full"
             onClick={(e) => e.stopPropagation()}
           >
             {children}
