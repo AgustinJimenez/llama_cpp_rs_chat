@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { SamplerConfig, ToolTags } from '../types';
 import {
   getModelStatus,
@@ -204,11 +204,18 @@ export const useModel = () => {
 
   // Poll status periodically to detect active generation (for sidebar indicator).
   // Slower interval (5s) to avoid hammering the API.
+  // Only update state when something actually changed to avoid unnecessary re-renders
+  // that close menus, reset scroll, etc.
+  const lastStatusJson = useRef('');
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
         const data = await getModelStatus() as ModelStatus;
-        setStatus(data);
+        const json = JSON.stringify(data);
+        if (json !== lastStatusJson.current) {
+          lastStatusJson.current = json;
+          setStatus(data);
+        }
       } catch {
         // ignore
       }

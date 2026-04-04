@@ -167,7 +167,14 @@ export function useConversationWatcher({
         if (!parsedMessages) return;
 
         const nextMessages = reconcileMessages(parsedMessages, currentMessagesRef.current, isStreamingRef.current);
-        setMessages(nextMessages);
+        // Only update state if messages actually changed to avoid unnecessary re-renders
+        // that close menus, reset scroll position, etc.
+        const current = currentMessagesRef.current;
+        const changed = nextMessages.length !== current.length ||
+          nextMessages.some((m, i) => m.content !== current[i]?.content || m.role !== current[i]?.role);
+        if (changed) {
+          setMessages(nextMessages);
+        }
 
         if (isStreamingRef.current) {
           const lastMessage = nextMessages[nextMessages.length - 1];
