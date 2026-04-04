@@ -233,42 +233,72 @@ const CodeBlock = ({ inline, className, children }: CodeBlockProps) => {
   );
 };
 
-/** Image with lightbox modal and download button. */
+/** Image with lightbox modal and 3-dot menu. */
 const ImageWithControls: React.FC<React.ImgHTMLAttributes<HTMLImageElement>> = (props) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   const src = props.src || '';
   const alt = props.alt || 'image';
 
+  // Close menu on outside click
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [menuOpen]);
+
   return (
     <>
-      <div
-        className="my-2 inline-block relative group cursor-pointer"
-        onClick={() => setIsOpen(true)}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => { if (e.key === 'Enter') setIsOpen(true); }}
-      >
-        <img
-          src={src}
-          alt={alt}
-          className="rounded-lg max-w-full max-h-[400px] border border-border/50 hover:border-primary/50 transition-colors"
-          loading="lazy"
-        />
-        <div className="absolute bottom-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <a
-            href={src}
-            download={alt.replace(/[^a-zA-Z0-9]/g, '_') + '.jpg'}
-            className="px-2 py-1 bg-black/70 text-white text-xs rounded hover:bg-black/90 transition-colors"
-            onClick={(e) => e.stopPropagation()}
-          >
-            Download
-          </a>
+      <div className="my-2 inline-block relative group">
+        <div
+          className="cursor-pointer"
+          onClick={() => setIsOpen(true)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter') setIsOpen(true); }}
+        >
+          <img
+            src={src}
+            alt={alt}
+            className="rounded-lg max-w-full max-h-[400px] border border-border/50 hover:border-primary/50 transition-colors"
+            loading="lazy"
+          />
+        </div>
+        {/* 3-dot menu button */}
+        <div ref={menuRef} className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
-            onClick={(e) => { e.stopPropagation(); setIsOpen(true); }}
-            className="px-2 py-1 bg-black/70 text-white text-xs rounded hover:bg-black/90 transition-colors"
+            onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
+            className="p-1.5 bg-black/60 text-white rounded-full hover:bg-black/80 transition-colors backdrop-blur"
+            title="Image options"
           >
-            Expand
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <circle cx="8" cy="3" r="1.5" />
+              <circle cx="8" cy="8" r="1.5" />
+              <circle cx="8" cy="13" r="1.5" />
+            </svg>
           </button>
+          {menuOpen && (
+            <div className="absolute right-0 mt-1 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[140px] z-50">
+              <button
+                onClick={() => { setIsOpen(true); setMenuOpen(false); }}
+                className="w-full px-3 py-1.5 text-left text-sm text-foreground hover:bg-muted transition-colors"
+              >
+                Expand
+              </button>
+              <a
+                href={src}
+                download={alt.replace(/[^a-zA-Z0-9]/g, '_') + '.jpg'}
+                className="block px-3 py-1.5 text-sm text-foreground hover:bg-muted transition-colors"
+                onClick={() => setMenuOpen(false)}
+              >
+                Download
+              </a>
+            </div>
+          )}
         </div>
       </div>
       {isOpen && createPortal(
@@ -282,22 +312,15 @@ const ImageWithControls: React.FC<React.ImgHTMLAttributes<HTMLImageElement>> = (
             className="w-full h-full object-contain p-2"
             onClick={(e) => e.stopPropagation()}
           />
-          <div className="absolute top-4 right-4 flex gap-2">
-            <a
-              href={src}
-              download={alt.replace(/[^a-zA-Z0-9]/g, '_') + '.jpg'}
-              className="px-3 py-1.5 bg-white/20 text-white text-sm rounded hover:bg-white/30 transition-colors backdrop-blur"
-              onClick={(e) => e.stopPropagation()}
-            >
-              Download
-            </a>
-            <button
-              onClick={() => setIsOpen(false)}
-              className="px-3 py-1.5 bg-white/20 text-white text-sm rounded hover:bg-white/30 transition-colors backdrop-blur"
-            >
-              Close
-            </button>
-          </div>
+          <button
+            onClick={() => setIsOpen(false)}
+            className="absolute top-4 right-4 p-2 bg-white/20 text-white rounded-full hover:bg-white/30 transition-colors backdrop-blur"
+            title="Close"
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M5 5l10 10M15 5L5 15" />
+            </svg>
+          </button>
         </div>,
         document.body
       )}
