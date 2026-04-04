@@ -95,7 +95,15 @@ fn tool_web_search_brave(
         .cloned()
         .unwrap_or_default();
 
-    if results.is_empty() {
+    // Extract image results (returned in the same response)
+    let image_results = payload
+        .get("images")
+        .and_then(|v| v.get("results"))
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    if results.is_empty() && image_results.is_empty() {
         return Ok(format!("Search results for '{query}' (via Brave):\n\n(no results)"));
     }
 
@@ -119,6 +127,28 @@ fn tool_web_search_brave(
         }
         if !desc.is_empty() {
             output.push_str(&format!("   {desc}\n"));
+        }
+        output.push('\n');
+    }
+
+    // Append image results as markdown (rendered by frontend MD view)
+    if !image_results.is_empty() {
+        let max_images = 5.min(image_results.len());
+        output.push_str(&format!("\nImages ({max_images} results):\n"));
+        for item in image_results.iter().take(max_images) {
+            let title = item.get("title").and_then(|v| v.as_str()).unwrap_or("Image");
+            let thumb = item
+                .get("thumbnail")
+                .and_then(|v| v.get("src"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let source_url = item.get("url").and_then(|v| v.as_str()).unwrap_or("");
+            if !thumb.is_empty() {
+                output.push_str(&format!("![{title}]({thumb})\n"));
+                if !source_url.is_empty() {
+                    output.push_str(&format!("  Source: {source_url}\n"));
+                }
+            }
         }
         output.push('\n');
     }
@@ -277,6 +307,7 @@ pub(super) fn tool_web_search_ddg_api(query: &str, max_results: usize) -> Option
     let abstract_url = data["AbstractURL"].as_str().unwrap_or("");
     let abstract_source = data["AbstractSource"].as_str().unwrap_or("");
     let heading = data["Heading"].as_str().unwrap_or("");
+    let abstract_image = data["Image"].as_str().unwrap_or("");
 
     if !abstract_text.is_empty() {
         count += 1;
@@ -285,7 +316,17 @@ pub(super) fn tool_web_search_ddg_api(query: &str, max_results: usize) -> Option
         if !abstract_url.is_empty() {
             output.push_str(&format!("   URL: {abstract_url}\n"));
         }
-        output.push_str(&format!("   {abstract_text}\n\n"));
+        output.push_str(&format!("   {abstract_text}\n"));
+        // Include main image if available
+        if !abstract_image.is_empty() {
+            let img_url = if abstract_image.starts_with('/') {
+                format!("https://duckduckgo.com{abstract_image}")
+            } else {
+                abstract_image.to_string()
+            };
+            output.push_str(&format!("   ![{heading}]({img_url})\n"));
+        }
+        output.push('\n');
     }
 
     // Direct answer (e.g., calculator, conversions)
@@ -307,7 +348,20 @@ pub(super) fn tool_web_search_ddg_api(query: &str, max_results: usize) -> Option
             {
                 count += 1;
                 output.push_str(&format!("{count}. {text}\n"));
-                output.push_str(&format!("   URL: {url}\n\n"));
+                output.push_str(&format!("   URL: {url}\n"));
+                // Include topic icon if available
+                if let Some(icon_url) = topic["Icon"]["URL"].as_str().filter(|u| !u.is_empty()) {
+                    let full_url = if icon_url.starts_with('/') {
+                        format!("https://duckduckgo.com{icon_url}")
+                    } else {
+                        icon_url.to_string()
+                    };
+                    // Skip tiny .ico files
+                    if !full_url.ends_with(".ico") {
+                        output.push_str(&format!("   ![icon]({full_url})\n"));
+                    }
+                }
+                output.push('\n');
             }
             // Grouped topics (subcategories)
             if let Some(sub_topics) = topic["Topics"].as_array() {
