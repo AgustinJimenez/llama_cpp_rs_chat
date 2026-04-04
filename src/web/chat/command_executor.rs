@@ -1513,6 +1513,34 @@ pub fn check_and_execute_command_with_tags(
                 );
             }
 
+            // Persist screenshot images to disk and append markdown links for frontend display.
+            // Images are saved to assets/images/{conversation_id}/ and served via /api/images/ route.
+            let mut output_block = output_block;
+            if !all_response_images.is_empty() {
+                let images_dir = std::path::PathBuf::from("assets/images").join(conversation_id);
+                if let Err(e) = std::fs::create_dir_all(&images_dir) {
+                    eprintln!("[IMAGES] Failed to create images dir: {e}");
+                } else {
+                    for (i, img_bytes) in all_response_images.iter().enumerate() {
+                        let uuid = uuid::Uuid::new_v4();
+                        let filename = format!("{uuid}.jpg");
+                        let filepath = images_dir.join(&filename);
+                        match std::fs::write(&filepath, img_bytes) {
+                            Ok(()) => {
+                                let img_url = format!("/api/images/{}/{}", conversation_id, filename);
+                                let size_kb = img_bytes.len() / 1024;
+                                eprintln!("[IMAGES] Saved screenshot {}/{}: {} ({}KB)", i + 1, all_response_images.len(), filepath.display(), size_kb);
+                                // Append markdown image after the output close tag
+                                output_block.push_str(&format!("\n![screenshot]({img_url})"));
+                            }
+                            Err(e) => {
+                                eprintln!("[IMAGES] Failed to save screenshot: {e}");
+                            }
+                        }
+                    }
+                }
+            }
+
             Ok(Some(CommandExecutionResult {
                 output_block,
                 model_tokens: model_tokens.iter().map(|t| t.0).collect(),

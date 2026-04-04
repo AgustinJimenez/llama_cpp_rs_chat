@@ -299,6 +299,31 @@ async fn handle_request_impl(
             web::routes::tools::handle_post_extract_text(req).await?
         }
 
+        // Serve persisted screenshot images
+        (&Method::GET, path) if path.starts_with("/api/images/") => {
+            let rel_path = &path["/api/images/".len()..];
+            let file_path = std::path::PathBuf::from("assets/images").join(rel_path);
+            if file_path.exists() && file_path.extension().map_or(false, |e| e == "jpg" || e == "jpeg" || e == "png") {
+                let bytes = std::fs::read(&file_path).unwrap_or_default();
+                let content_type = if file_path.extension().map_or(false, |e| e == "png") {
+                    "image/png"
+                } else {
+                    "image/jpeg"
+                };
+                Response::builder()
+                    .status(StatusCode::OK)
+                    .header("Content-Type", content_type)
+                    .header("Cache-Control", "public, max-age=86400")
+                    .body(Body::from(bytes))
+                    .unwrap()
+            } else {
+                Response::builder()
+                    .status(StatusCode::NOT_FOUND)
+                    .body(Body::from("Not Found"))
+                    .unwrap()
+            }
+        }
+
         // CORS preflight
         (&Method::OPTIONS, _) => web::routes::static_files::handle_options(bridge.clone()).await?,
 

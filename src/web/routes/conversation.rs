@@ -329,6 +329,15 @@ pub async fn handle_delete_conversation(
     match db.delete_conversation(conversation_id) {
         Ok(_) => {
             sys_info!("Deleted conversation: {}", conversation_id);
+            // Clean up persisted screenshot images for this conversation
+            let images_dir = std::path::PathBuf::from("assets/images").join(conversation_id);
+            if images_dir.exists() {
+                if let Err(e) = std::fs::remove_dir_all(&images_dir) {
+                    sys_error!("Failed to clean up images for {}: {}", conversation_id, e);
+                } else {
+                    sys_info!("Cleaned up images for {}", conversation_id);
+                }
+            }
             Ok(json_raw(StatusCode::OK, r#"{"success":true}"#.to_string()))
         }
         Err(e) => {
