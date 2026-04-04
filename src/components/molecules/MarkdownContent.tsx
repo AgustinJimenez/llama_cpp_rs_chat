@@ -82,7 +82,7 @@ const ThreeDotMenu: React.FC<{ actions: { label: string; onClick: () => void }[]
   }, [open]);
 
   return (
-    <div ref={ref} className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+    <div ref={ref} className="absolute top-2 right-2 opacity-40 group-hover:opacity-100 transition-opacity">
       <button
         onClick={() => setOpen(!open)}
         className="p-1.5 bg-black/60 text-white rounded-full hover:bg-black/80 transition-colors backdrop-blur"
