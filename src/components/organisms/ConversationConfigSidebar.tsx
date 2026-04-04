@@ -5,9 +5,9 @@ import { ContextSizeSection } from './model-config/ContextSizeSection';
 import { GpuLayersSection } from './model-config/GpuLayersSection';
 import { AdvancedContextSection } from './model-config/AdvancedContextSection';
 import { SamplingParametersSection } from './model-config/SamplingParametersSection';
-import { getConversationConfig, saveConversationConfig } from '../../utils/tauriCommands';
+import { getConversationConfig, saveConversationConfig, getConfig } from '../../utils/tauriCommands';
 import { useModelContext } from '../../contexts/ModelContext';
-import type { SamplerConfig } from '../../types';
+import type { SamplerConfig, ModelMetadata } from '../../types';
 
 const CONTEXT_RELOAD_FIELDS: (keyof SamplerConfig)[] = [
   'context_size', 'flash_attention', 'cache_type_k', 'cache_type_v', 'n_batch',
@@ -41,14 +41,27 @@ export function ConversationConfigSidebar({
       originalConfigRef.current = null;
       return;
     }
-    getConversationConfig(conversationId)
-      .then((config) => {
-        setLocalConfig(config);
-        setContextSize(config.context_size ?? 32768);
-        originalConfigRef.current = config;
-      })
-      .catch(() => toast.error('Failed to load conversation config'));
-  }, [isOpen, conversationId]);
+    // Load both the conversation-specific config and the current runtime config,
+    // then merge so the sidebar reflects what's actually running (not stale DB values).
+    Promise.all([
+      getConversationConfig(conversationId).catch(() => null),
+      getConfig().catch(() => null),
+    ]).then(([convConfig, runtimeConfig]) => {
+      // Merge: start with runtime config, overlay conversation-specific sampling prefs.
+      const merged = { ...runtimeConfig, ...convConfig } as SamplerConfig;
+      // Override hardware fields from model status (source of truth for loaded model).
+      // The status reflects what's actually running, not stale DB values.
+      if (status.gpu_layers != null) {
+        merged.gpu_layers = status.gpu_layers;
+      }
+      if (status.block_count && merged.gpu_layers && merged.gpu_layers > status.block_count) {
+        merged.gpu_layers = status.block_count;
+      }
+      setLocalConfig(merged);
+      setContextSize(merged.context_size ?? runtimeConfig?.context_size ?? 32768);
+      originalConfigRef.current = merged;
+    }).catch(() => toast.error('Failed to load conversation config'));
+  }, [isOpen, conversationId, status.block_count]);
 
   const handleConfigChange = useCallback(
     (field: keyof SamplerConfig, value: string | number | boolean) => {
@@ -114,7 +127,7 @@ export function ConversationConfigSidebar({
           {conversationId && !localConfig ? <p className="text-sm text-muted-foreground">Loading...</p> : null}
 
           {showContent ? <>
-              <ContextSizeSection contextSize={contextSize} setContextSize={setContextSize} modelInfo={null} />
+              <ContextSizeSection contextSize={contextSize} setContextSize={setContextSize} modelInfo={{ context_length: '131072' } as ModelMetadata} />
               <GpuLayersSection
                 gpuLayers={localConfig.gpu_layers ?? status.gpu_layers ?? 0}
                 onGpuLayersChange={(n) => handleConfigChange('gpu_layers', n)}
