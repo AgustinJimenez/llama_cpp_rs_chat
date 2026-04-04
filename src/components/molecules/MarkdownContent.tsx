@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import mermaid from 'mermaid';
@@ -240,11 +241,17 @@ const ImageWithControls: React.FC<React.ImgHTMLAttributes<HTMLImageElement>> = (
 
   return (
     <>
-      <div className="my-2 inline-block relative group">
+      <div
+        className="my-2 inline-block relative group cursor-pointer"
+        onClick={() => setIsOpen(true)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === 'Enter') setIsOpen(true); }}
+      >
         <img
-          {...props}
-          className="rounded-lg max-w-full max-h-[400px] cursor-pointer border border-border/50 hover:border-primary/50 transition-colors"
-          onClick={() => setIsOpen(true)}
+          src={src}
+          alt={alt}
+          className="rounded-lg max-w-full max-h-[400px] border border-border/50 hover:border-primary/50 transition-colors"
           loading="lazy"
         />
         <div className="absolute bottom-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -264,30 +271,35 @@ const ImageWithControls: React.FC<React.ImgHTMLAttributes<HTMLImageElement>> = (
           </button>
         </div>
       </div>
-      {isOpen && (
+      {isOpen && createPortal(
         <div
-          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center cursor-pointer"
+          className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center cursor-pointer"
           onClick={() => setIsOpen(false)}
         >
-          <div className="relative max-w-[90vw] max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
-            <img src={src} alt={alt} className="max-w-full max-h-[90vh] rounded-lg" />
-            <div className="absolute top-2 right-2 flex gap-2">
-              <a
-                href={src}
-                download={alt.replace(/[^a-zA-Z0-9]/g, '_') + '.jpg'}
-                className="px-3 py-1.5 bg-black/70 text-white text-sm rounded hover:bg-black/90 transition-colors"
-              >
-                Download
-              </a>
-              <button
-                onClick={() => setIsOpen(false)}
-                className="px-3 py-1.5 bg-black/70 text-white text-sm rounded hover:bg-black/90 transition-colors"
-              >
-                Close
-              </button>
-            </div>
+          <img
+            src={src}
+            alt={alt}
+            className="w-full h-full object-contain p-2"
+            onClick={(e) => e.stopPropagation()}
+          />
+          <div className="absolute top-4 right-4 flex gap-2">
+            <a
+              href={src}
+              download={alt.replace(/[^a-zA-Z0-9]/g, '_') + '.jpg'}
+              className="px-3 py-1.5 bg-white/20 text-white text-sm rounded hover:bg-white/30 transition-colors backdrop-blur"
+              onClick={(e) => e.stopPropagation()}
+            >
+              Download
+            </a>
+            <button
+              onClick={() => setIsOpen(false)}
+              className="px-3 py-1.5 bg-white/20 text-white text-sm rounded hover:bg-white/30 transition-colors backdrop-blur"
+            >
+              Close
+            </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );
