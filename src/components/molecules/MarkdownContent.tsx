@@ -25,6 +25,50 @@ interface MarkdownContentProps {
   testId?: string;
 }
 
+/** Reusable 3-dot menu for visual blocks (charts, diagrams, images). */
+const ThreeDotMenu: React.FC<{ actions: { label: string; onClick: () => void }[] }> = ({ actions }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+      <button
+        onClick={() => setOpen(!open)}
+        className="p-1.5 bg-black/60 text-white rounded-full hover:bg-black/80 transition-colors backdrop-blur"
+        title="Options"
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <circle cx="8" cy="3" r="1.5" />
+          <circle cx="8" cy="8" r="1.5" />
+          <circle cx="8" cy="13" r="1.5" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute right-0 mt-1 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[120px] z-50">
+          {actions.map((a) => (
+            <button
+              key={a.label}
+              onClick={() => { a.onClick(); setOpen(false); }}
+              className="w-full px-3 py-1.5 text-left text-sm text-foreground hover:bg-muted transition-colors"
+            >
+              {a.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 /** Renders a mermaid diagram from source code. */
 const MermaidBlock: React.FC<{ code: string }> = ({ code }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -80,18 +124,15 @@ const MermaidBlock: React.FC<{ code: string }> = ({ code }) => {
   }
 
   return (
-    <div className="my-2">
+    <div className="my-2 relative group">
       <div
         ref={containerRef}
         className="bg-[#1a1a2e] rounded-lg p-4 overflow-x-auto"
         dangerouslySetInnerHTML={{ __html: svg }}
       />
-      <button
-        onClick={handleExport}
-        className="mt-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-      >
-        Export PNG
-      </button>
+      <ThreeDotMenu actions={[
+        { label: 'Export PNG', onClick: handleExport },
+      ]} />
     </div>
   );
 };
@@ -187,14 +228,14 @@ const ChartBlock: React.FC<{ code: string }> = ({ code }) => {
   }
 
   return (
-    <div className="my-2">
+    <div className="my-2 relative group">
       <div className="bg-[#1a1a2e] rounded-lg p-4">
         <canvas ref={canvasRef} />
       </div>
-      <div className="mt-1 flex gap-3">
-        <button onClick={() => handleExport('png')} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Export PNG</button>
-        <button onClick={() => handleExport('csv')} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Export CSV</button>
-      </div>
+      <ThreeDotMenu actions={[
+        { label: 'Export PNG', onClick: () => handleExport('png') },
+        { label: 'Export CSV', onClick: () => handleExport('csv') },
+      ]} />
     </div>
   );
 };
@@ -236,20 +277,15 @@ const CodeBlock = ({ inline, className, children }: CodeBlockProps) => {
 /** Image with lightbox modal and 3-dot menu. */
 const ImageWithControls: React.FC<React.ImgHTMLAttributes<HTMLImageElement>> = (props) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
   const src = props.src || '';
   const alt = props.alt || 'image';
 
-  // Close menu on outside click
-  useEffect(() => {
-    if (!menuOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [menuOpen]);
+  const handleDownload = useCallback(() => {
+    const a = document.createElement('a');
+    a.href = src;
+    a.download = alt.replace(/[^a-zA-Z0-9]/g, '_') + '.jpg';
+    a.click();
+  }, [src, alt]);
 
   return (
     <>
@@ -268,32 +304,9 @@ const ImageWithControls: React.FC<React.ImgHTMLAttributes<HTMLImageElement>> = (
             loading="lazy"
           />
         </div>
-        {/* 3-dot menu button */}
-        <div ref={menuRef} className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
-            onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
-            className="p-1.5 bg-black/60 text-white rounded-full hover:bg-black/80 transition-colors backdrop-blur"
-            title="Image options"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <circle cx="8" cy="3" r="1.5" />
-              <circle cx="8" cy="8" r="1.5" />
-              <circle cx="8" cy="13" r="1.5" />
-            </svg>
-          </button>
-          {menuOpen && (
-            <div className="absolute right-0 mt-1 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[120px] z-50">
-              <a
-                href={src}
-                download={alt.replace(/[^a-zA-Z0-9]/g, '_') + '.jpg'}
-                className="block px-3 py-1.5 text-sm text-foreground hover:bg-muted transition-colors"
-                onClick={() => setMenuOpen(false)}
-              >
-                Download
-              </a>
-            </div>
-          )}
-        </div>
+        <ThreeDotMenu actions={[
+          { label: 'Download', onClick: handleDownload },
+        ]} />
       </div>
       {isOpen && createPortal(
         <div
