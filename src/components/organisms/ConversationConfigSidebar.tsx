@@ -41,16 +41,35 @@ export function ConversationConfigSidebar({
       originalConfigRef.current = null;
       return;
     }
-    // Load both the conversation-specific config and the current runtime config,
-    // then merge so the sidebar reflects what's actually running (not stale DB values).
+    // Load both the per-conversation config and the global config.
+    // Global config reflects what the Load Model modal saved (hardware + sampling).
+    // Per-conversation config has user-customized sampling overrides.
+    // Hardware fields (gpu_layers, context_size, cache types) always come from global
+    // since they must reflect the currently loaded model, not a stale snapshot.
     Promise.all([
       getConversationConfig(conversationId).catch(() => null),
       getConfig().catch(() => null),
-    ]).then(([convConfig, runtimeConfig]) => {
-      // Merge: start with runtime config, overlay conversation-specific sampling prefs.
-      const merged = { ...runtimeConfig, ...convConfig } as SamplerConfig;
-      // Override hardware fields from model status (source of truth for loaded model).
-      // The status reflects what's actually running, not stale DB values.
+    ]).then(([convConfig, globalConfig]) => {
+      // Extract only sampling fields from per-conversation config
+      const samplingOverrides = convConfig ? {
+        sampler_type: convConfig.sampler_type,
+        temperature: convConfig.temperature,
+        top_p: convConfig.top_p,
+        top_k: convConfig.top_k,
+        min_p: convConfig.min_p,
+        repeat_penalty: convConfig.repeat_penalty,
+        presence_penalty: convConfig.presence_penalty,
+        frequency_penalty: convConfig.frequency_penalty,
+        dry_multiplier: convConfig.dry_multiplier,
+        dry_base: convConfig.dry_base,
+        dry_allowed_length: convConfig.dry_allowed_length,
+        dry_penalty_last_n: convConfig.dry_penalty_last_n,
+        top_n_sigma: convConfig.top_n_sigma,
+        seed: convConfig.seed,
+      } : {};
+      // Global config provides hardware values, conversation overrides sampling
+      const merged = { ...globalConfig, ...samplingOverrides } as SamplerConfig;
+      // Override gpu_layers from model status (absolute source of truth)
       if (status.gpu_layers != null) {
         merged.gpu_layers = status.gpu_layers;
       }
@@ -58,7 +77,7 @@ export function ConversationConfigSidebar({
         merged.gpu_layers = status.block_count;
       }
       setLocalConfig(merged);
-      setContextSize(merged.context_size ?? runtimeConfig?.context_size ?? 32768);
+      setContextSize(merged.context_size ?? globalConfig?.context_size ?? 32768);
       originalConfigRef.current = merged;
     }).catch(() => toast.error('Failed to load conversation config'));
   }, [isOpen, conversationId, status.block_count]);

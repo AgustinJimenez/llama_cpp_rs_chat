@@ -568,6 +568,34 @@ pub async fn handle_post_model_load(
             Err(error_response) => return Ok(error_response),
         };
 
+        // Persist context/cache params to global config if provided in the load request.
+        // This ensures the Conversation Config sidebar shows the correct values.
+        {
+            let mut db_config = db.load_config();
+            let mut updated = false;
+            if let Some(ctx) = load_request.context_size {
+                db_config.context_size = Some(ctx);
+                updated = true;
+            }
+            if let Some(fa) = load_request.flash_attention {
+                db_config.flash_attention = fa;
+                updated = true;
+            }
+            if let Some(ref k) = load_request.cache_type_k {
+                db_config.cache_type_k = k.clone();
+                updated = true;
+            }
+            if let Some(ref v) = load_request.cache_type_v {
+                db_config.cache_type_v = v.clone();
+                updated = true;
+            }
+            if updated {
+                if let Err(e) = db.update_config(&db_config) {
+                    eprintln!("[WARN] Failed to persist load params to config: {}", e);
+                }
+            }
+        }
+
         // Attempt to load the model via worker process
         match bridge.load_model(&load_request.model_path, load_request.gpu_layers, load_request.mmproj_path).await {
             Ok(meta) => {

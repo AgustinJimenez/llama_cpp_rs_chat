@@ -601,6 +601,10 @@ pub struct ModelLoadRequest {
     pub model_path: String,
     pub gpu_layers: Option<u32>,
     pub mmproj_path: Option<String>,
+    pub context_size: Option<u32>,
+    pub flash_attention: Option<bool>,
+    pub cache_type_k: Option<String>,
+    pub cache_type_v: Option<String>,
 }
 
 #[derive(Serialize)]
