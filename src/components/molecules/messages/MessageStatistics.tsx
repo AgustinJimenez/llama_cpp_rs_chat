@@ -46,7 +46,7 @@ export function MessageStatistics({ timings, tokensUsed, maxTokens }: MessageSta
   const totalMs = (promptEvalMs || 0) + (genEvalMs || 0);
 
   return (
-    <div className="flex items-center gap-3 text-xs text-white font-mono">
+    <div className="flex items-center gap-3 text-xs text-foreground font-mono">
       {genTokens ? (
         <span className="inline-flex items-center gap-1" title="Tokens generated">
           <Hash className="h-3 w-3" />

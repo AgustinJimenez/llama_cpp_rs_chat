@@ -44,7 +44,7 @@ export function TokenBreakdownPopover({ breakdown, tokensUsed, maxTokens, format
       </button>
       {open && (
         <div className="absolute bottom-full mb-2 right-0 w-72 bg-card border border-border rounded-lg shadow-xl p-3 z-50">
-          <div className="text-xs font-semibold text-white mb-2">Context Usage</div>
+          <div className="text-xs font-semibold text-foreground mb-2">Context Usage</div>
           {/* Stacked bar */}
           <div className="h-3 bg-muted rounded-full overflow-hidden flex mb-3">
             {CATEGORIES.map(({ key, color }) => {
