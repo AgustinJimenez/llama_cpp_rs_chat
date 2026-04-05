@@ -13,25 +13,24 @@ mermaid.initialize({
   securityLevel: 'loose',
   fontFamily: 'inherit',
   themeVariables: {
-    // Dark background
+    // Dark background with high-contrast nodes
     background: '#1a1a2e',
-    primaryColor: '#2d3748',
-    primaryTextColor: '#e2e8f0',
-    primaryBorderColor: '#4a5568',
-    // Secondary/tertiary nodes
-    secondaryColor: '#2a4365',
-    secondaryTextColor: '#e2e8f0',
-    secondaryBorderColor: '#4a5568',
-    tertiaryColor: '#2d3748',
-    tertiaryTextColor: '#e2e8f0',
-    tertiaryBorderColor: '#4a5568',
+    primaryColor: '#3182ce',
+    primaryTextColor: '#ffffff',
+    primaryBorderColor: '#2b6cb0',
+    secondaryColor: '#2f855a',
+    secondaryTextColor: '#ffffff',
+    secondaryBorderColor: '#276749',
+    tertiaryColor: '#805ad5',
+    tertiaryTextColor: '#ffffff',
+    tertiaryBorderColor: '#6b46c1',
     // Lines and labels
     lineColor: '#a0aec0',
     textColor: '#e2e8f0',
     // Flowchart
     nodeBorder: '#4a5568',
-    mainBkg: '#2d3748',
-    nodeTextColor: '#e2e8f0',
+    mainBkg: '#3182ce',
+    nodeTextColor: '#ffffff',
     // Pie chart
     pie1: '#4dc9f6',
     pie2: '#f67019',
@@ -206,7 +205,8 @@ const MermaidBlock: React.FC<{ code: string }> = ({ code }) => {
     <ExpandableBlock actions={[{ label: 'Export PNG', onClick: handleExport }]}>
       <div
         ref={containerRef}
-        className="bg-[#1a1a2e] rounded-lg p-4 overflow-x-auto w-full"
+        className="bg-[#1a1a2e] rounded-lg p-4 overflow-x-auto w-full [&_.nodeLabel]:!text-gray-900 [&_.edgeLabel]:!text-gray-200 [&_.label]:!text-gray-900 [&_text]:!fill-gray-200 [&_.node_rect]:!fill-slate-600 [&_.flowchart-link]:!stroke-gray-400"
+        style={{ ['--mermaid-node-text' as string]: '#1a202c' }}
         dangerouslySetInnerHTML={{ __html: svg }}
       />
     </ExpandableBlock>
