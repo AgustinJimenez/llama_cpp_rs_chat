@@ -46,10 +46,12 @@ const ExpandableBlock: React.FC<{
           onClick={() => setExpanded(false)}
         >
           <div
-            className="w-[90vw] h-[90vh] flex items-center justify-center [&>*]:mx-auto [&>*]:max-w-full [&>*]:max-h-full"
+            className="w-[90vw] h-[90vh] flex items-center justify-center overflow-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            {children}
+            <div className="flex items-center justify-center w-full h-full [&>*]:mx-auto [&_svg]:mx-auto [&_canvas]:mx-auto">
+              {children}
+            </div>
           </div>
           <button
             onClick={() => setExpanded(false)}
