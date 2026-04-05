@@ -89,10 +89,9 @@ const ConversationItem = React.memo(({ conversation, isActive, isGenerating, fla
     tabIndex={0}
     className={`group flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors text-sm ${
       isActive
-        ? 'bg-white font-semibold'
+        ? 'bg-card text-foreground font-semibold'
         : 'text-foreground hover:bg-muted/30'
     }`}
-    style={isActive ? { color: '#000' } : undefined}
     onClick={() => onLoad(conversation.name)}
     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onLoad(conversation.name); }}
     data-testid={`conversation-${flatIndex}`}
@@ -104,11 +103,11 @@ const ConversationItem = React.memo(({ conversation, isActive, isGenerating, fla
       </span>
     </div>
     <div className="flex items-center gap-1 flex-shrink-0 ml-2">
-      <span className={`text-xs ${isActive ? 'text-black/50' : 'text-foreground/50'}`}>
+      <span className="text-xs text-foreground/50">
         {relativeTime(conversation.timestamp)}
       </span>
       <button
-        className={`opacity-0 group-hover:opacity-100 p-0.5 rounded transition-all ${isActive ? 'text-black/40 hover:text-destructive' : 'text-muted-foreground hover:text-destructive'}`}
+        className={`opacity-0 group-hover:opacity-100 p-0.5 rounded transition-all ${isActive ? 'text-foreground/40 hover:text-destructive' : 'text-muted-foreground hover:text-destructive'}`}
         onClick={(e) => onDelete(e, conversation)}
         aria-label="Delete conversation"
         data-testid={`delete-conversation-${flatIndex}`}

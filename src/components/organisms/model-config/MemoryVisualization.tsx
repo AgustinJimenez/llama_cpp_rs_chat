@@ -107,7 +107,7 @@ const VramBar: React.FC<{ vram: MemoryBreakdown['vram'] }> = ({ vram }) => {
         <BarSegment color="bg-purple-600" widthPct={Math.min(overheadPct, 100 - modelPct - cachePct)} label={`${vram.overhead.toFixed(1)}G`} title={`Overhead: ${vram.overhead.toFixed(2)} GB`} minPctForLabel={6} />
         {!vram.overcommitted && <BarSegment color="bg-zinc-700/50" widthPct={availablePct} label={`${vram.available.toFixed(1)}G`} title={`Available: ${vram.available.toFixed(2)} GB`} textColor="text-zinc-400" minPctForLabel={10} />}
         {vram.overcommitted ? <div className="absolute inset-0 bg-red-600/20 border-2 border-red-600 flex items-center justify-center">
-            <span className="text-xs text-black font-bold">OVERCOMMITTED</span>
+            <span className="text-xs text-foreground font-bold">OVERCOMMITTED</span>
           </div> : null}
       </div>
     </div>
@@ -135,7 +135,7 @@ const RamBar: React.FC<{ ram: MemoryBreakdown['ram'] }> = ({ ram }) => {
         <BarSegment color="bg-cyan-600" widthPct={Math.min(modelPct, 100)} label={`${ram.modelCpu.toFixed(1)}G`} title={`Model (CPU): ${ram.modelCpu.toFixed(2)} GB`} />
         {!ram.overcommitted && <BarSegment color="bg-zinc-700/50" widthPct={availablePct} label={`${ram.available.toFixed(1)}G`} title={`Available: ${ram.available.toFixed(2)} GB`} textColor="text-zinc-400" minPctForLabel={10} />}
         {ram.overcommitted ? <div className="absolute inset-0 bg-red-600/20 border-2 border-red-600 flex items-center justify-center">
-            <span className="text-xs text-black font-bold">OVERCOMMITTED</span>
+            <span className="text-xs text-foreground font-bold">OVERCOMMITTED</span>
           </div> : null}
       </div>
     </div>
