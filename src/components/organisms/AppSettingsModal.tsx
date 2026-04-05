@@ -303,6 +303,36 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
         <div className="py-2 max-h-[60vh] overflow-y-auto">
           {activeTab === 'General' && (
             <div className="space-y-4">
+              {/* Theme Toggle */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Theme</label>
+                <div className="flex gap-2">
+                  {(['dark', 'light'] as const).map(t => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => {
+                        const html = document.documentElement;
+                        if (t === 'dark') {
+                          html.classList.add('dark');
+                        } else {
+                          html.classList.remove('dark');
+                        }
+                        localStorage.setItem('theme', t);
+                      }}
+                      className={`px-4 py-2 text-sm rounded-lg border transition-colors ${
+                        (typeof window !== 'undefined' && document.documentElement.classList.contains('dark'))
+                          === (t === 'dark')
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : 'bg-muted border-border text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      {t === 'dark' ? 'Dark' : 'Light'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* Web Search Provider */}
               <div className="space-y-2">
                 <label htmlFor="web-search-provider" className="text-sm font-medium text-foreground">
