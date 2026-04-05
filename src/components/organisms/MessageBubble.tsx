@@ -116,7 +116,7 @@ const SystemPromptMessage: React.FC<{ message: Message; cleanContent: string }> 
       <summary className="text-sm font-semibold cursor-pointer select-none">
         System prompt
       </summary>
-      <pre className="text-sm whitespace-pre-wrap leading-relaxed text-white mt-2">
+      <pre className="text-sm whitespace-pre-wrap leading-relaxed text-foreground mt-2">
         {cleanContent}
       </pre>
     </details>
