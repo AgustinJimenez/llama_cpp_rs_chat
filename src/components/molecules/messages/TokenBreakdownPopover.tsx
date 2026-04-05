@@ -43,10 +43,10 @@ export function TokenBreakdownPopover({ breakdown, tokensUsed, maxTokens, format
         {formatNumber(tokensUsed)}/{formatNumber(maxTokens)}
       </button>
       {open && (
-        <div className="absolute bottom-full mb-2 right-0 w-72 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl p-3 z-50">
+        <div className="absolute bottom-full mb-2 right-0 w-72 bg-card border border-border rounded-lg shadow-xl p-3 z-50">
           <div className="text-xs font-semibold text-white mb-2">Context Usage</div>
           {/* Stacked bar */}
-          <div className="h-3 bg-zinc-800 rounded-full overflow-hidden flex mb-3">
+          <div className="h-3 bg-muted rounded-full overflow-hidden flex mb-3">
             {CATEGORIES.map(({ key, color }) => {
               const value = breakdown[key];
               const pct = maxTokens > 0 ? (value / maxTokens) * 100 : 0;
@@ -67,18 +67,18 @@ export function TokenBreakdownPopover({ breakdown, tokensUsed, maxTokens, format
             return (
               <div key={key} className="flex items-center gap-2 mb-1 text-[11px]">
                 <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-                <span className="text-zinc-400 flex-1">{label}</span>
-                <span className="text-zinc-300 tabular-nums">{formatNumber(value)}</span>
-                <span className="text-zinc-500 w-12 text-right tabular-nums">{pct.toFixed(1)}%</span>
+                <span className="text-muted-foreground flex-1">{label}</span>
+                <span className="text-foreground/80 tabular-nums">{formatNumber(value)}</span>
+                <span className="text-muted-foreground w-12 text-right tabular-nums">{pct.toFixed(1)}%</span>
               </div>
             );
           })}
           {/* Free */}
-          <div className="flex items-center gap-2 mt-1 pt-1 border-t border-zinc-800 text-[11px]">
-            <div className="w-2 h-2 rounded-full flex-shrink-0 bg-zinc-600" />
-            <span className="text-zinc-400 flex-1">Free</span>
-            <span className="text-zinc-300 tabular-nums">{formatNumber(free)}</span>
-            <span className="text-zinc-500 w-12 text-right tabular-nums">{maxTokens > 0 ? ((free / maxTokens) * 100).toFixed(1) : '0.0'}%</span>
+          <div className="flex items-center gap-2 mt-1 pt-1 border-t border-border text-[11px]">
+            <div className="w-2 h-2 rounded-full flex-shrink-0 bg-muted-foreground" />
+            <span className="text-muted-foreground flex-1">Free</span>
+            <span className="text-foreground/80 tabular-nums">{formatNumber(free)}</span>
+            <span className="text-muted-foreground w-12 text-right tabular-nums">{maxTokens > 0 ? ((free / maxTokens) * 100).toFixed(1) : '0.0'}%</span>
           </div>
         </div>
       )}

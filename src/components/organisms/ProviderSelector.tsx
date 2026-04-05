@@ -50,10 +50,10 @@ export function ProviderSelector({ isOpen, onClose, onSelectLocal, onSelectRemot
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
-      <div className="bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl w-[560px] max-w-[90vw] max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-700">
-          <h3 className="text-base font-medium text-zinc-100">Choose Provider</h3>
-          <button onClick={onClose} className="p-1 rounded hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 transition-colors">
+      <div className="bg-card border border-border rounded-lg shadow-2xl w-[560px] max-w-[90vw] max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <h3 className="text-base font-medium text-foreground">Choose Provider</h3>
+          <button onClick={onClose} className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -61,7 +61,7 @@ export function ProviderSelector({ isOpen, onClose, onSelectLocal, onSelectRemot
         <div className="p-5 space-y-3 overflow-y-auto">
           {loading ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-zinc-500" />
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : (
             <>
@@ -71,14 +71,14 @@ export function ProviderSelector({ isOpen, onClose, onSelectLocal, onSelectRemot
                 className={`w-full text-left p-4 rounded-lg border transition-colors ${
                   currentProvider === 'local'
                     ? 'border-primary bg-primary/10'
-                    : 'border-zinc-700 hover:border-zinc-500 hover:bg-zinc-800/50'
+                    : 'border-border hover:border-primary hover:bg-muted/50'
                 }`}
               >
                 <div className="flex items-start gap-3">
                   <Cpu className="h-5 w-5 text-emerald-400 mt-0.5 flex-shrink-0" />
                   <div>
-                    <div className="font-medium text-zinc-100">{localProvider?.name || 'Local Model (llama.cpp)'}</div>
-                    <div className="text-xs text-zinc-500 mt-1">{localProvider?.description || 'Run models locally on your GPU'}</div>
+                    <div className="font-medium text-foreground">{localProvider?.name || 'Local Model (llama.cpp)'}</div>
+                    <div className="text-xs text-muted-foreground mt-1">{localProvider?.description || 'Run models locally on your GPU'}</div>
                   </div>
                 </div>
               </button>
@@ -90,7 +90,7 @@ export function ProviderSelector({ isOpen, onClose, onSelectLocal, onSelectRemot
                   className={`rounded-lg border ${
                     currentProvider === provider.id
                       ? 'border-primary bg-primary/10'
-                      : 'border-zinc-700'
+                      : 'border-border'
                   }`}
                 >
                   <div className="p-4">
@@ -98,14 +98,14 @@ export function ProviderSelector({ isOpen, onClose, onSelectLocal, onSelectRemot
                       <Cloud className="h-5 w-5 text-cyan-400 mt-0.5 flex-shrink-0" />
                       <div className="flex-1">
                         <div className="flex items-center gap-2">
-                          <span className="font-medium text-zinc-100">{provider.name}</span>
+                          <span className="font-medium text-foreground">{provider.name}</span>
                           {provider.available ? (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">connected</span>
                           ) : (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400">not installed</span>
                           )}
                         </div>
-                        <div className="text-xs text-zinc-500 mt-1">
+                        <div className="text-xs text-muted-foreground mt-1">
                           {provider.description}
                           {provider.version ? ` (v${provider.version.split(' ')[0]})` : ''}
                         </div>
@@ -114,20 +114,20 @@ export function ProviderSelector({ isOpen, onClose, onSelectLocal, onSelectRemot
                   </div>
 
                   {provider.available ? (
-                    <div className="border-t border-zinc-700/50 px-4 py-3 flex gap-2">
+                    <div className="border-t border-border/50 px-4 py-3 flex gap-2">
                       {(provider.models || ['default']).map(model => (
                         <button
                           key={`${provider.id}:${model}`}
                           onClick={() => onSelectRemote(provider.id, model)}
-                          className="flex-1 py-2 px-3 rounded-md text-xs font-medium transition-colors bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-zinc-100 border border-zinc-700 hover:border-zinc-500"
+                          className="flex-1 py-2 px-3 rounded-md text-xs font-medium transition-colors bg-muted hover:bg-accent text-foreground/80 hover:text-foreground border border-border hover:border-primary"
                         >
                           {model.charAt(0).toUpperCase() + model.slice(1)}
                         </button>
                       ))}
                     </div>
                   ) : (
-                    <div className="border-t border-zinc-700/50 px-4 py-3">
-                      <p className="text-xs text-zinc-600">Install CLI: <code className="text-zinc-500">{cliInstallHints[provider.id] || ''}</code></p>
+                    <div className="border-t border-border/50 px-4 py-3">
+                      <p className="text-xs text-muted-foreground">Install CLI: <code className="text-muted-foreground">{cliInstallHints[provider.id] || ''}</code></p>
                     </div>
                   )}
                 </div>
@@ -138,7 +138,7 @@ export function ProviderSelector({ isOpen, onClose, onSelectLocal, onSelectRemot
                 <>
                   <div className="flex items-center gap-2 pt-2">
                     <Zap className="h-3.5 w-3.5 text-amber-400" />
-                    <span className="text-xs font-medium text-zinc-500 uppercase tracking-wider">OpenAI-Compatible Providers</span>
+                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">OpenAI-Compatible Providers</span>
                   </div>
 
                   {openaiProviders.map(provider => (
@@ -147,7 +147,7 @@ export function ProviderSelector({ isOpen, onClose, onSelectLocal, onSelectRemot
                       className={`rounded-lg border ${
                         currentProvider === provider.id
                           ? 'border-primary bg-primary/10'
-                          : 'border-zinc-700'
+                          : 'border-border'
                       }`}
                     >
                       <div className="p-4">
@@ -155,33 +155,33 @@ export function ProviderSelector({ isOpen, onClose, onSelectLocal, onSelectRemot
                           <Zap className="h-5 w-5 text-amber-400 mt-0.5 flex-shrink-0" />
                           <div className="flex-1">
                             <div className="flex items-center gap-2">
-                              <span className="font-medium text-zinc-100">{provider.name}</span>
+                              <span className="font-medium text-foreground">{provider.name}</span>
                               {provider.available ? (
                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">API key set</span>
                               ) : (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-700 text-zinc-500">no API key</span>
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">no API key</span>
                               )}
                             </div>
-                            <div className="text-xs text-zinc-500 mt-1">{provider.description}</div>
+                            <div className="text-xs text-muted-foreground mt-1">{provider.description}</div>
                           </div>
                         </div>
                       </div>
 
                       {provider.available && (provider.models || []).length > 0 ? (
-                        <div className="border-t border-zinc-700/50 px-4 py-3 flex flex-wrap gap-2">
+                        <div className="border-t border-border/50 px-4 py-3 flex flex-wrap gap-2">
                           {(provider.models || []).map(model => (
                             <button
                               key={`${provider.id}:${model}`}
                               onClick={() => onSelectRemote(provider.id, model)}
-                              className="py-2 px-3 rounded-md text-xs font-medium transition-colors bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-zinc-100 border border-zinc-700 hover:border-zinc-500"
+                              className="py-2 px-3 rounded-md text-xs font-medium transition-colors bg-muted hover:bg-accent text-foreground/80 hover:text-foreground border border-border hover:border-primary"
                             >
                               {model}
                             </button>
                           ))}
                         </div>
                       ) : !provider.available ? (
-                        <div className="border-t border-zinc-700/50 px-4 py-3">
-                          <p className="text-xs text-zinc-600">Set API key in Settings (provider_api_keys)</p>
+                        <div className="border-t border-border/50 px-4 py-3">
+                          <p className="text-xs text-muted-foreground">Set API key in Settings (provider_api_keys)</p>
                         </div>
                       ) : null}
                     </div>

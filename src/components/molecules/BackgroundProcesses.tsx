@@ -123,30 +123,30 @@ export function BackgroundProcesses() {
               <Terminal className="h-5 w-5 text-green-400" />
               Background Processes
             </DialogTitle>
-            <DialogDescription className="text-zinc-300">
+            <DialogDescription className="text-foreground/80">
               Processes started by the model that are running in the background.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-2 max-h-[60vh] overflow-y-auto">
             {processes.length === 0 ? (
-              <p className="text-sm text-zinc-500 text-center py-4">No background processes</p>
+              <p className="text-sm text-muted-foreground text-center py-4">No background processes</p>
             ) : (
               processes.map((proc) => (
                 <div
                   key={proc.pid}
-                  className={`p-3 rounded-lg border ${proc.alive ? 'bg-zinc-900 border-zinc-700' : 'bg-zinc-900/50 border-zinc-800 opacity-60'}`}
+                  className={`p-3 rounded-lg border ${proc.alive ? 'bg-card border-border' : 'bg-card/50 border-border opacity-60'}`}
                 >
                   {/* Command */}
                   <div className="flex items-start gap-2 mb-2">
-                    <span className={`w-2 h-2 rounded-full shrink-0 mt-1.5 ${proc.alive ? 'bg-green-500 animate-pulse' : 'bg-zinc-600'}`} />
-                    <code className="text-xs text-zinc-200 font-mono break-all flex-1">
+                    <span className={`w-2 h-2 rounded-full shrink-0 mt-1.5 ${proc.alive ? 'bg-green-500 animate-pulse' : 'bg-muted-foreground'}`} />
+                    <code className="text-xs text-foreground font-mono break-all flex-1">
                       {proc.command}
                     </code>
                   </div>
 
                   {/* Details row */}
-                  <div className="flex items-center gap-4 text-[11px] text-zinc-300 ml-4">
+                  <div className="flex items-center gap-4 text-[11px] text-foreground/80 ml-4">
                     <span className="flex items-center gap-1" title="Process ID">
                       <Hash className="h-3 w-3" />
                       PID {proc.pid}
@@ -159,7 +159,7 @@ export function BackgroundProcesses() {
                       <Activity className="h-3 w-3" />
                       {elapsed(proc.startedAt)}
                     </span>
-                    <span className={`ml-auto font-medium ${proc.alive ? 'text-green-400' : 'text-zinc-600'}`}>
+                    <span className={`ml-auto font-medium ${proc.alive ? 'text-green-400' : 'text-muted-foreground'}`}>
                       {proc.alive ? 'Running' : 'Exited'}
                     </span>
                   </div>
@@ -184,7 +184,7 @@ export function BackgroundProcesses() {
 
           {/* Footer actions */}
           {aliveCount > 1 && (
-            <div className="flex justify-end pt-2 border-t border-zinc-800">
+            <div className="flex justify-end pt-2 border-t border-border">
               <button
                 onClick={handleKillAll}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-400 hover:text-red-300 hover:bg-red-400/10 rounded transition-colors"
@@ -195,9 +195,9 @@ export function BackgroundProcesses() {
             </div>
           )}
 
-          <div className="flex justify-between items-center pt-1 text-[10px] text-zinc-300">
+          <div className="flex justify-between items-center pt-1 text-[10px] text-foreground/80">
             <span>Auto-refreshes every 3s while open</span>
-            <button onClick={refresh} className="flex items-center gap-1 hover:text-white transition-colors">
+            <button onClick={refresh} className="flex items-center gap-1 hover:text-foreground transition-colors">
               <RefreshCw className="h-3 w-3" />
               Refresh
             </button>

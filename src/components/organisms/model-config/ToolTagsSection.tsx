@@ -23,7 +23,7 @@ export const ToolTagsSection: React.FC<ToolTagsSectionProps> = ({
   const detected = modelInfo?.detected_tool_tags;
 
   return (
-    <div className="rounded-md border border-zinc-700 px-3 py-2 space-y-2">
+    <div className="rounded-md border border-border px-3 py-2 space-y-2">
       <span className="text-xs font-medium">Tool Tags</span>
       <div className="grid grid-cols-2 gap-x-4 gap-y-2">
         {TAG_FIELDS.map((field) => {

@@ -16,11 +16,11 @@ const TagPairRow: React.FC<{
   <div className="flex items-center gap-1.5 group">
     <input
       type="checkbox"
-      className="h-3 w-3 rounded border-zinc-600 accent-blue-500"
+      className="h-3 w-3 rounded border-border accent-blue-500"
       checked={pair.enabled}
       onChange={e => onUpdate('enabled', e.target.checked)}
     />
-    <span className={`text-[10px] w-24 truncate shrink-0 ${pair.enabled ? 'text-foreground' : 'text-zinc-500'}`}>
+    <span className={`text-[10px] w-24 truncate shrink-0 ${pair.enabled ? 'text-foreground' : 'text-muted-foreground'}`}>
       {pair.name}
     </span>
     <input
@@ -38,7 +38,7 @@ const TagPairRow: React.FC<{
     />
     <button
       type="button"
-      className="text-zinc-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 shrink-0"
+      className="text-muted-foreground hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 shrink-0"
       title="Delete tag pair"
       onClick={onDelete}
     >
@@ -68,7 +68,7 @@ const AddPairForm: React.FC<{
 
   return (
     <div className="space-y-1">
-      <div className="flex items-center gap-1.5 bg-zinc-800/50 rounded p-1.5">
+      <div className="flex items-center gap-1.5 bg-muted/50 rounded p-1.5">
         <input type="text" className={`w-20 h-6 rounded border bg-background px-1.5 text-[10px] focus:outline-none focus:ring-1 focus:ring-ring ${isDuplicate ? 'border-red-500' : 'border-input'}`}
           placeholder="Name *" value={pair.name} onChange={e => setPair(p => ({ ...p, name: e.target.value }))} />
         <input type="text" className="flex-1 h-6 rounded border border-input bg-background px-1.5 text-[10px] font-mono focus:outline-none focus:ring-1 focus:ring-ring"
@@ -89,7 +89,7 @@ export const TagPairsSection: React.FC<TagPairsSectionProps> = ({
   const [showAdd, setShowAdd] = useState(false);
 
   return (
-    <div className="rounded-md border border-zinc-700 px-3 py-2 space-y-2">
+    <div className="rounded-md border border-border px-3 py-2 space-y-2">
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium">Tag Pairs ({tagPairs.length})</span>
         {detectedTagPairs?.length ? (
@@ -109,7 +109,7 @@ export const TagPairsSection: React.FC<TagPairsSectionProps> = ({
       </div>
 
       {tagPairs.length === 0 && (
-        <p className="text-[10px] text-zinc-500 italic">No tag pairs configured. Select a model to auto-detect, or add manually.</p>
+        <p className="text-[10px] text-muted-foreground italic">No tag pairs configured. Select a model to auto-detect, or add manually.</p>
       )}
 
       {showAdd ? (

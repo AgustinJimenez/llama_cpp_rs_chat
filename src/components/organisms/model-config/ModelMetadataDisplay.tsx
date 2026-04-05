@@ -89,7 +89,7 @@ export const ModelMetadataDisplay: React.FC<ModelMetadataDisplayProps> = ({ mode
               .sort(([a], [b]) => a.localeCompare(b))
               .map(([key, value]) => (
                 <p key={key} className="text-xs">
-                  <strong className="font-mono text-zinc-600 dark:text-zinc-400">{key}:</strong>{' '}
+                  <strong className="font-mono text-muted-foreground">{key}:</strong>{' '}
                   <span className="text-muted-foreground font-mono">
                     {typeof value === 'string'
                       ? value

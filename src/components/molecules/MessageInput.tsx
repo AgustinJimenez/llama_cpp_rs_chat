@@ -56,7 +56,7 @@ function LiveStreamingStats({ tokensUsed, maxTokens, streamStatus }: { tokensUse
 
   if (!hasContext && !displayStatus) return null;
   return (
-    <div className="flex items-center gap-3 text-xs text-zinc-400 font-mono">
+    <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono">
       {displayStatus ? (
         <span className="inline-flex items-center gap-1 text-cyan-400">
           <Loader2 className="h-3 w-3 animate-spin" />

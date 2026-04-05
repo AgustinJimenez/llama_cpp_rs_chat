@@ -96,16 +96,16 @@ const VramBar: React.FC<{ vram: MemoryBreakdown['vram'] }> = ({ vram }) => {
   return (
     <div className="space-y-2">
       <div className="flex justify-between items-baseline">
-        <span className="text-sm font-medium text-zinc-300">GPU Memory (VRAM)</span>
+        <span className="text-sm font-medium text-foreground/80">GPU Memory (VRAM)</span>
         <span className={`text-sm font-mono ${statusColor}`}>
           {used.toFixed(2)} / {vram.total.toFixed(2)} GB ({utilization.toFixed(1)}%)
         </span>
       </div>
-      <div className="h-8 bg-zinc-800 rounded-md overflow-hidden flex relative">
+      <div className="h-8 bg-muted rounded-md overflow-hidden flex relative">
         <BarSegment color="bg-green-600" widthPct={Math.min(modelPct, 100)} label={`${vram.modelGpu.toFixed(1)}G`} title={`Model (GPU): ${vram.modelGpu.toFixed(2)} GB`} />
         <BarSegment color="bg-orange-500" widthPct={Math.min(cachePct, 100 - modelPct)} label={`${vram.kvCache.toFixed(1)}G`} title={`KV Cache: ${vram.kvCache.toFixed(2)} GB`} />
         <BarSegment color="bg-purple-600" widthPct={Math.min(overheadPct, 100 - modelPct - cachePct)} label={`${vram.overhead.toFixed(1)}G`} title={`Overhead: ${vram.overhead.toFixed(2)} GB`} minPctForLabel={6} />
-        {!vram.overcommitted && <BarSegment color="bg-zinc-700/50" widthPct={availablePct} label={`${vram.available.toFixed(1)}G`} title={`Available: ${vram.available.toFixed(2)} GB`} textColor="text-zinc-400" minPctForLabel={10} />}
+        {!vram.overcommitted && <BarSegment color="bg-accent/50" widthPct={availablePct} label={`${vram.available.toFixed(1)}G`} title={`Available: ${vram.available.toFixed(2)} GB`} textColor="text-muted-foreground" minPctForLabel={10} />}
         {vram.overcommitted ? <div className="absolute inset-0 bg-red-600/20 border-2 border-red-600 flex items-center justify-center">
             <span className="text-xs text-foreground font-bold">OVERCOMMITTED</span>
           </div> : null}
@@ -126,14 +126,14 @@ const RamBar: React.FC<{ ram: MemoryBreakdown['ram'] }> = ({ ram }) => {
   return (
     <div className="space-y-2">
       <div className="flex justify-between items-baseline">
-        <span className="text-sm font-medium text-zinc-300">System Memory (RAM)</span>
+        <span className="text-sm font-medium text-foreground/80">System Memory (RAM)</span>
         <span className={`text-sm font-mono ${statusColor}`}>
           {used.toFixed(2)} / {ram.total.toFixed(2)} GB ({utilization.toFixed(1)}%)
         </span>
       </div>
-      <div className="h-8 bg-zinc-800 rounded-md overflow-hidden flex relative">
+      <div className="h-8 bg-muted rounded-md overflow-hidden flex relative">
         <BarSegment color="bg-cyan-600" widthPct={Math.min(modelPct, 100)} label={`${ram.modelCpu.toFixed(1)}G`} title={`Model (CPU): ${ram.modelCpu.toFixed(2)} GB`} />
-        {!ram.overcommitted && <BarSegment color="bg-zinc-700/50" widthPct={availablePct} label={`${ram.available.toFixed(1)}G`} title={`Available: ${ram.available.toFixed(2)} GB`} textColor="text-zinc-400" minPctForLabel={10} />}
+        {!ram.overcommitted && <BarSegment color="bg-accent/50" widthPct={availablePct} label={`${ram.available.toFixed(1)}G`} title={`Available: ${ram.available.toFixed(2)} GB`} textColor="text-muted-foreground" minPctForLabel={10} />}
         {ram.overcommitted ? <div className="absolute inset-0 bg-red-600/20 border-2 border-red-600 flex items-center justify-center">
             <span className="text-xs text-foreground font-bold">OVERCOMMITTED</span>
           </div> : null}
@@ -145,7 +145,7 @@ const RamBar: React.FC<{ ram: MemoryBreakdown['ram'] }> = ({ ram }) => {
 // --- Legend ---
 
 const MemoryLegend: React.FC<{ vram: MemoryBreakdown['vram']; ram: MemoryBreakdown['ram'] }> = ({ vram, ram }) => (
-  <div className="grid grid-cols-3 gap-x-4 gap-y-1 text-xs text-zinc-400">
+  <div className="grid grid-cols-3 gap-x-4 gap-y-1 text-xs text-muted-foreground">
     <div className="flex items-center gap-2">
       <div className="w-3 h-3 bg-green-600 rounded-sm" />
       <span>Model (GPU): {vram.modelGpu.toFixed(2)} GB</span>
@@ -177,7 +177,7 @@ interface SliderRowProps {
 const SliderRow: React.FC<SliderRowProps> = ({ color, hexColor, label, min, max, value, onChange, display }) => {
   const pct = max > min ? ((value - min) / (max - min)) * 100 : 0;
   return (
-    <div className="flex items-center gap-3 text-xs text-zinc-400">
+    <div className="flex items-center gap-3 text-xs text-muted-foreground">
       <div className="flex items-center gap-2 shrink-0">
         <div className={`w-3 h-3 ${color} rounded-sm`} />
         <span>{label}</span>
@@ -267,16 +267,16 @@ const MemorySliders: React.FC<MemorySlidersProps> = ({ gpuLayers, onGpuLayersCha
       return (
         <div className="pl-1 -mt-0.5 mb-1">
           <div className="flex items-center gap-1.5">
-            <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden flex">
+            <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden flex">
               <div className="h-full bg-indigo-500 rounded-l-full" style={{ width: `${Math.min(100, ((systemPromptTokens || 0) / Math.max(contextSize, 1)) * 100)}%` }} title={`System prompt: ${(systemPromptTokens || 0).toLocaleString()} tokens`} />
               <div className="h-full bg-purple-500" style={{ width: `${Math.min(100, ((toolDefinitionsTokens || 0) / Math.max(contextSize, 1)) * 100)}%` }} title={`Tool definitions: ${(toolDefinitionsTokens || 0).toLocaleString()} tokens`} />
             </div>
-            <span className="text-[9px] text-zinc-500 tabular-nums shrink-0">{pct.toFixed(0)}% overhead</span>
+            <span className="text-[9px] text-muted-foreground tabular-nums shrink-0">{pct.toFixed(0)}% overhead</span>
           </div>
-          <div className="flex gap-3 mt-0.5 text-[9px] text-zinc-600">
+          <div className="flex gap-3 mt-0.5 text-[9px] text-muted-foreground">
             <span><span className="inline-block w-1.5 h-1.5 bg-indigo-500 rounded-full mr-0.5" />System: {(systemPromptTokens || 0).toLocaleString()}</span>
             <span><span className="inline-block w-1.5 h-1.5 bg-purple-500 rounded-full mr-0.5" />Tools: {(toolDefinitionsTokens || 0).toLocaleString()}</span>
-            <span className="text-zinc-500">Available: {available.toLocaleString()}</span>
+            <span className="text-muted-foreground">Available: {available.toLocaleString()}</span>
           </div>
         </div>
       );
@@ -326,7 +326,7 @@ const MemoryWarnings: React.FC<{ memory: MemoryBreakdown }> = ({ memory }) => {
 
 // eslint-disable-next-line max-lines-per-function
 export const MemoryVisualization: React.FC<MemoryVisualizationProps> = ({ memory, overheadGb, onOverheadChange, gpuLayers, onGpuLayersChange, maxLayers, contextSize, onContextSizeChange, maxContextSize, systemPromptTokens, toolDefinitionsTokens }) => (
-  <Card className="border-zinc-800 bg-zinc-900">
+  <Card className="border-border bg-card">
     <CardHeader className="pb-3">
       <CardTitle className="text-base font-medium flex items-center gap-2">
         <Info className="h-4 w-4" />

@@ -69,10 +69,10 @@ export function ConversationLog() {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={toggleEventLog}>
-      <div className="bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl w-[700px] max-w-[90vw] max-h-[70vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-700">
-          <h3 className="text-sm font-medium text-zinc-200">Event Log</h3>
-          <button onClick={toggleEventLog} className="p-1 rounded hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 transition-colors">
+      <div className="bg-card border border-border rounded-lg shadow-2xl w-[700px] max-w-[90vw] max-h-[70vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+          <h3 className="text-sm font-medium text-foreground">Event Log</h3>
+          <button onClick={toggleEventLog} className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -81,15 +81,15 @@ export function ConversationLog() {
           className="flex-1 overflow-y-auto px-4 py-3 font-mono text-xs space-y-1 min-h-[200px]"
         >
           {events.length === 0 ? (
-            <p className="text-zinc-600 italic">No events yet — events appear during generation (stalls, compaction, context limits, Y/N checks)</p>
+            <p className="text-muted-foreground italic">No events yet — events appear during generation (stalls, compaction, context limits, Y/N checks)</p>
           ) : (
             events.map((ev, i) => (
               <div key={i} className="flex items-start gap-2">
-                <span className="text-zinc-500 flex-shrink-0">{formatTime(ev.timestamp)}</span>
-                <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium flex-shrink-0 ${TYPE_COLORS[ev.event_type] || 'text-zinc-400'} ${TYPE_BG[ev.event_type] || 'bg-zinc-800'}`}>
+                <span className="text-muted-foreground flex-shrink-0">{formatTime(ev.timestamp)}</span>
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium flex-shrink-0 ${TYPE_COLORS[ev.event_type] || 'text-muted-foreground'} ${TYPE_BG[ev.event_type] || 'bg-muted'}`}>
                   {ev.event_type}
                 </span>
-                <span className="text-zinc-300">{ev.message}</span>
+                <span className="text-foreground/80">{ev.message}</span>
               </div>
             ))
           )}

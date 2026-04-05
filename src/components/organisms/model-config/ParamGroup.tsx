@@ -22,7 +22,7 @@ export const ParamGroup: React.FC<ParamGroupProps> = ({
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   return (
-    <div className={`rounded-md border border-zinc-700 px-3 py-2 ${disabled ? 'opacity-40 pointer-events-none' : ''} ${className}`}>
+    <div className={`rounded-md border border-border px-3 py-2 ${disabled ? 'opacity-40 pointer-events-none' : ''} ${className}`}>
       {collapsible ? (
         <button
           type="button"
