@@ -190,7 +190,7 @@ const SliderRow: React.FC<SliderRowProps> = ({ color, hexColor, label, min, max,
         onChange={(e) => onChange(parseInt(e.target.value))}
         className="flex-1 cursor-pointer h-2 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer"
         style={{
-          background: `linear-gradient(to right, ${hexColor} ${pct}%, #3f3f46 ${pct}%)`,
+          background: `linear-gradient(to right, ${hexColor} ${pct}%, ${document.documentElement.classList.contains('dark') ? '#3f3f46' : '#d1d5db'} ${pct}%)`,
           // @ts-expect-error CSS custom property for thumb color
           '--thumb-color': hexColor,
         }}
