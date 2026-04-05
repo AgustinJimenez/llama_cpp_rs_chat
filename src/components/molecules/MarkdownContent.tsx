@@ -66,11 +66,17 @@ const ExpandableBlock: React.FC<{
   className?: string;
 }> = ({ children, actions, className }) => {
   const [expanded, setExpanded] = useState(false);
-  const allActions = [{ label: 'Expand', onClick: () => setExpanded(true) }, ...actions];
+  const allActions = actions;
 
   return (
     <>
-      <div className={`my-2 relative group ${className || ''}`}>
+      <div
+        className={`my-2 relative group cursor-pointer ${className || ''}`}
+        onClick={() => setExpanded(true)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === 'Enter') setExpanded(true); }}
+      >
         {children}
         <ThreeDotMenu actions={allActions} />
       </div>
