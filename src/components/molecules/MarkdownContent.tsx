@@ -6,14 +6,15 @@ import mermaid from 'mermaid';
 import { SyntaxHighlighter, dracula } from '../../utils/syntaxHighlighterSetup';
 import type { Components } from 'react-markdown';
 
-// Initialize mermaid with dark theme and readable labels
+// Initialize mermaid — theme is re-applied per render based on current mode
+const isDark = () => document.documentElement.classList.contains('dark');
 mermaid.initialize({
   startOnLoad: false,
   theme: 'base',
   securityLevel: 'loose',
   fontFamily: 'inherit',
   themeVariables: {
-    // Dark background with high-contrast nodes
+    // Background adapts to theme (re-initialized on render)
     background: '#1a1a2e',
     primaryColor: '#3182ce',
     primaryTextColor: '#ffffff',
@@ -211,7 +212,7 @@ const MermaidBlock: React.FC<{ code: string }> = ({ code }) => {
     <ExpandableBlock actions={[{ label: 'Export PNG', onClick: handleExport }]}>
       <div
         ref={containerRef}
-        className="bg-[#1a1a2e] rounded-lg p-4 overflow-x-auto w-full [&_.nodeLabel]:!text-gray-900 [&_.edgeLabel]:!text-gray-200 [&_.label]:!text-gray-900 [&_text]:!fill-gray-200 [&_.node_rect]:!fill-slate-600 [&_.flowchart-link]:!stroke-gray-400"
+        className="bg-muted/50 dark:bg-[#1a1a2e] rounded-lg p-4 overflow-x-auto w-full [&_.nodeLabel]:!text-gray-900 [&_.edgeLabel]:!text-gray-700 dark:[&_.edgeLabel]:!text-gray-200 [&_.label]:!text-gray-900 [&_text]:!fill-gray-700 dark:[&_text]:!fill-gray-200 [&_.flowchart-link]:!stroke-gray-400"
         style={{ ['--mermaid-node-text' as string]: '#1a202c' }}
         dangerouslySetInnerHTML={{ __html: svg }}
       />
@@ -261,12 +262,12 @@ const ChartBlock: React.FC<{ code: string }> = ({ code }) => {
           responsive: true,
           maintainAspectRatio: true,
           plugins: {
-            title: spec.title ? { display: true, text: spec.title, color: '#e0e0e0', font: { size: 14 } } : undefined,
-            legend: { labels: { color: '#c0c0c0' } },
+            title: spec.title ? { display: true, text: spec.title, color: isDark() ? '#e0e0e0' : '#1a202c', font: { size: 14 } } : undefined,
+            legend: { labels: { color: isDark() ? '#c0c0c0' : '#374151' } },
           },
           scales: chartType !== 'pie' && chartType !== 'doughnut' && chartType !== 'radar' && chartType !== 'polarArea' ? {
-            x: { ticks: { color: '#a0a0a0' }, grid: { color: '#333' } },
-            y: { ticks: { color: '#a0a0a0' }, grid: { color: '#333' } },
+            x: { ticks: { color: isDark() ? '#a0a0a0' : '#4b5563' }, grid: { color: isDark() ? '#333' : '#e5e7eb' } },
+            y: { ticks: { color: isDark() ? '#a0a0a0' : '#4b5563' }, grid: { color: isDark() ? '#333' : '#e5e7eb' } },
           } : undefined,
         },
       });
@@ -314,7 +315,7 @@ const ChartBlock: React.FC<{ code: string }> = ({ code }) => {
       { label: 'Export PNG', onClick: () => handleExport('png') },
       { label: 'Export CSV', onClick: () => handleExport('csv') },
     ]}>
-      <div className="bg-[#1a1a2e] rounded-lg p-4 w-full">
+      <div className="bg-muted/50 dark:bg-[#1a1a2e] rounded-lg p-4 w-full">
         <canvas ref={canvasRef} />
       </div>
     </ExpandableBlock>
@@ -442,7 +443,7 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, testI
   };
 
   return (
-    <div className="text-sm prose prose-sm max-w-none prose-invert" data-testid={testId}>
+    <div className="text-sm prose prose-sm max-w-none dark:prose-invert" data-testid={testId}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={components}
