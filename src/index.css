@@ -124,7 +124,7 @@
 
   .flat-message-user {
     @apply rounded-2xl;
-    background: hsl(220 13% 15%);
+    background: hsl(var(--muted));
     color: hsl(var(--foreground));
   }
 
