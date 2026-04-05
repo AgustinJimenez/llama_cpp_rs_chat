@@ -6,12 +6,47 @@ import mermaid from 'mermaid';
 import { SyntaxHighlighter, dracula } from '../../utils/syntaxHighlighterSetup';
 import type { Components } from 'react-markdown';
 
-// Initialize mermaid with dark theme
+// Initialize mermaid with dark theme and readable labels
 mermaid.initialize({
   startOnLoad: false,
-  theme: 'dark',
+  theme: 'base',
   securityLevel: 'loose',
   fontFamily: 'inherit',
+  themeVariables: {
+    // Dark background
+    background: '#1a1a2e',
+    primaryColor: '#2d3748',
+    primaryTextColor: '#e2e8f0',
+    primaryBorderColor: '#4a5568',
+    // Secondary/tertiary nodes
+    secondaryColor: '#2a4365',
+    secondaryTextColor: '#e2e8f0',
+    secondaryBorderColor: '#4a5568',
+    tertiaryColor: '#2d3748',
+    tertiaryTextColor: '#e2e8f0',
+    tertiaryBorderColor: '#4a5568',
+    // Lines and labels
+    lineColor: '#a0aec0',
+    textColor: '#e2e8f0',
+    // Flowchart
+    nodeBorder: '#4a5568',
+    mainBkg: '#2d3748',
+    nodeTextColor: '#e2e8f0',
+    // Pie chart
+    pie1: '#4dc9f6',
+    pie2: '#f67019',
+    pie3: '#f53794',
+    pie4: '#537bc4',
+    pie5: '#acc236',
+    pie6: '#166a8f',
+    pieTextColor: '#e2e8f0',
+    pieSectionTextColor: '#e2e8f0',
+    pieTitleTextColor: '#e2e8f0',
+    // Notes
+    noteBkgColor: '#2d3748',
+    noteTextColor: '#e2e8f0',
+    noteBorderColor: '#4a5568',
+  },
 });
 
 type CodeBlockProps = {
