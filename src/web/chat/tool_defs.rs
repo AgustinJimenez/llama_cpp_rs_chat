@@ -504,8 +504,9 @@ static ALL_TOOLS: &[ToolDef] = &[
     // ─── 35. ocr_screen ───
     ToolDef {
         name: "ocr_screen",
-        description: "Extract text from the screen using OCR. Prefer pid when you already know the target window identity; otherwise use window/title or a manual region instead of scanning the full monitor.",
+        description: "Extract text from the screen using OCR. Returns recognized text with line structure. Use 'engine' to select OCR backend: 'auto' (default, tries best available), 'ocrs' (Rust-native, fast), 'tesseract' (most accurate, requires install), 'native' (Windows WinRT / macOS Vision). Prefer window/pid to auto-crop instead of scanning full monitor.",
         params: Params::Simple(&[
+            p("engine", "string", "OCR engine: 'auto' (default), 'ocrs' (Rust-native), 'tesseract' (CLI), 'native'/'winrt' (platform built-in)"),
             p("window", "string", "Window title to auto-crop OCR to (case-insensitive)"),
             p("title", "string", "Alias for window title/process filter to auto-crop OCR to"),
             p("pid", "integer", "Specific process ID to auto-crop OCR to. Prefer this once you know the window identity."),
@@ -514,7 +515,7 @@ static ALL_TOOLS: &[ToolDef] = &[
             p("width", "integer", "Width of region"),
             p("height", "integer", "Height of region"),
             p("monitor", "integer", "Monitor index (default 0)"),
-            p("language", "string", "OCR language code. macOS Vision only."),
+            p("language", "string", "OCR language code (tesseract/macOS Vision only)"),
         ]),
         required: &[],
     },

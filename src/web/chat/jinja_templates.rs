@@ -258,6 +258,7 @@ const CORE_TOOL_NAMES: &[&str] = &[
     "check_background_process", "list_background_processes",
     "send_telegram", "spawn_agent",
     "list_skills", "use_skill", "set_response_style",
+    "ocr_screen",
 ];
 
 /// Admin tool names (MCP server management).
