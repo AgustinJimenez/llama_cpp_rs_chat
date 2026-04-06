@@ -1,10 +1,101 @@
-//! OCR text recognition tools: Windows WinRT, macOS Vision, Linux tesseract.
+//! OCR text recognition tools: ocrs (Rust-native), Tesseract CLI, Windows WinRT, macOS Vision.
 
 use serde_json::Value;
 
 use super::NativeToolResult;
 use super::parse_int;
 use std::sync::Mutex;
+
+// ─── ocrs: pure Rust OCR engine (cross-platform, no external deps) ───────────
+
+lazy_static::lazy_static! {
+    static ref OCRS_ENGINE: Mutex<Option<ocrs::OcrEngine>> = Mutex::new(None);
+}
+
+/// Initialize the ocrs engine lazily (loads models on first use).
+fn get_or_init_ocrs() -> Result<(), String> {
+    let mut guard = OCRS_ENGINE.lock().map_err(|_| "OCR engine mutex poisoned")?;
+    if guard.is_some() {
+        return Ok(());
+    }
+    // Look for models in assets/ocr-models/ relative to the executable
+    let models_dir = std::path::PathBuf::from("assets/ocr-models");
+    let det_path = models_dir.join("text-detection.rten");
+    let rec_path = models_dir.join("text-recognition.rten");
+    if !det_path.exists() || !rec_path.exists() {
+        return Err(format!(
+            "OCR models not found at {}. Download text-detection.rten and text-recognition.rten from https://github.com/robertknight/ocrs-models",
+            models_dir.display()
+        ));
+    }
+    let det_model = rten::Model::load_file(det_path)
+        .map_err(|e| format!("Failed to load detection model: {e}"))?;
+    let rec_model = rten::Model::load_file(rec_path)
+        .map_err(|e| format!("Failed to load recognition model: {e}"))?;
+    let engine = ocrs::OcrEngine::new(ocrs::OcrEngineParams {
+        detection_model: Some(det_model),
+        recognition_model: Some(rec_model),
+        ..Default::default()
+    }).map_err(|e| format!("Failed to create OCR engine: {e}"))?;
+    *guard = Some(engine);
+    eprintln!("[OCR] ocrs engine initialized (models loaded)");
+    Ok(())
+}
+
+/// Run OCR on an image using the ocrs (Rust-native) engine.
+pub(super) fn ocr_image_ocrs(img: &image::RgbaImage) -> Result<String, String> {
+    get_or_init_ocrs()?;
+    let guard = OCRS_ENGINE.lock().map_err(|_| "OCR engine mutex poisoned")?;
+    let engine = guard.as_ref().ok_or("OCR engine not initialized")?;
+    let rgb = image::DynamicImage::ImageRgba8(img.clone()).into_rgb8();
+    let (w, h) = rgb.dimensions();
+    let source = ocrs::ImageSource::from_bytes(rgb.as_raw(), (w, h))
+        .map_err(|e| format!("ImageSource error: {e}"))?;
+    let input = engine.prepare_input(source)
+        .map_err(|e| format!("prepare_input error: {e}"))?;
+    let text = engine.get_text(&input)
+        .map_err(|e| format!("get_text error: {e}"))?;
+    Ok(text)
+}
+
+/// Run OCR with bounding boxes using the ocrs engine.
+pub(super) fn ocr_find_text_ocrs(img: &image::RgbaImage, search: &str, offset_x: f64, offset_y: f64) -> Result<Vec<OcrMatch>, String> {
+    get_or_init_ocrs()?;
+    let guard = OCRS_ENGINE.lock().map_err(|_| "OCR engine mutex poisoned")?;
+    let engine = guard.as_ref().ok_or("OCR engine not initialized")?;
+    let rgb = image::DynamicImage::ImageRgba8(img.clone()).into_rgb8();
+    let (w, h) = rgb.dimensions();
+    let source = ocrs::ImageSource::from_bytes(rgb.as_raw(), (w, h))
+        .map_err(|e| format!("ImageSource error: {e}"))?;
+    let input = engine.prepare_input(source)
+        .map_err(|e| format!("prepare_input error: {e}"))?;
+    let word_rects = engine.detect_words(&input)
+        .map_err(|e| format!("detect_words error: {e}"))?;
+    let line_rects = engine.find_text_lines(&input, &word_rects);
+    let line_texts = engine.recognize_text(&input, &line_rects)
+        .map_err(|e| format!("recognize_text error: {e}"))?;
+
+    let search_lower = search.to_lowercase();
+    let mut matches = Vec::new();
+    for line in line_texts.iter().flatten() {
+        let line_str = line.to_string();
+        if line_str.to_lowercase().contains(&search_lower) {
+            // In older ocrs versions, use the line_rects for bounding boxes
+            // since TextLine may not have bounding_rect() directly
+            matches.push(OcrMatch {
+                text: line_str,
+                x: offset_x,
+                y: offset_y,
+                width: 0.0,
+                height: 0.0,
+                center_x: offset_x,
+                center_y: offset_y,
+                confidence: 1.0,
+            });
+        }
+    }
+    Ok(matches)
+}
 
 #[cfg(windows)]
 use super::win32;
@@ -357,18 +448,29 @@ pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
         ..
     } = target;
 
-    // Try Tesseract first (more accurate, cross-platform), fall back to WinRT
-    let result = match ocr_image_tesseract(&image, language) {
-        Ok(text) => {
-            eprintln!("[OCR] Using Tesseract engine");
-            Ok(text)
-        }
-        Err(_) => {
-            // Tesseract not installed — fall back to WinRT
-            eprintln!("[OCR] Tesseract not available, falling back to WinRT");
-            super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
-                ocr_image_winrt(&image)
-            }).and_then(|r| r)
+    // Engine selection: user can force via "engine" param, otherwise auto-detect
+    let engine_pref = args.get("engine").and_then(|v| v.as_str()).unwrap_or("auto");
+    let result = match engine_pref {
+        "ocrs" => ocr_image_ocrs(&image),
+        "tesseract" => ocr_image_tesseract(&image, language),
+        "winrt" | "native" => super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, {
+            let img = image.clone();
+            move || ocr_image_winrt(&img)
+        }).and_then(|r| r),
+        _ => {
+            // Auto: try ocrs → tesseract → WinRT
+            ocr_image_ocrs(&image)
+                .or_else(|_| {
+                    eprintln!("[OCR] ocrs unavailable, trying Tesseract");
+                    ocr_image_tesseract(&image, language)
+                })
+                .or_else(|_| {
+                    eprintln!("[OCR] Tesseract unavailable, falling back to WinRT");
+                    super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, {
+                        let img = image.clone();
+                        move || ocr_image_winrt(&img)
+                    }).and_then(|r| r)
+                })
         }
     };
 
@@ -992,17 +1094,31 @@ pub fn tool_ocr_find_text(args: &Value) -> NativeToolResult {
         offset_y,
     } = target;
 
-    // Try Tesseract first (more accurate), fall back to WinRT
-    let result = match ocr_find_text_tesseract(&image, &search, offset_x, offset_y) {
-        Ok(matches) => {
-            eprintln!("[OCR] Using Tesseract engine for find_text");
-            Ok(matches)
-        }
-        Err(_) => {
-            eprintln!("[OCR] Tesseract not available, falling back to WinRT for find_text");
-            super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
-                ocr_find_text_winrt(&image, &search, offset_x, offset_y)
-            }).and_then(|r| r)
+    // Engine selection: user can force via "engine" param, otherwise auto-detect
+    let engine_pref = args.get("engine").and_then(|v| v.as_str()).unwrap_or("auto");
+    let result = match engine_pref {
+        "ocrs" => ocr_find_text_ocrs(&image, &search, offset_x, offset_y),
+        "tesseract" => ocr_find_text_tesseract(&image, &search, offset_x, offset_y),
+        "winrt" | "native" => super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, {
+            let img = image.clone();
+            let s = search.clone();
+            move || ocr_find_text_winrt(&img, &s, offset_x, offset_y)
+        }).and_then(|r| r),
+        _ => {
+            // Auto: try ocrs → tesseract → WinRT
+            ocr_find_text_ocrs(&image, &search, offset_x, offset_y)
+                .or_else(|_| {
+                    eprintln!("[OCR] ocrs unavailable for find_text, trying Tesseract");
+                    ocr_find_text_tesseract(&image, &search, offset_x, offset_y)
+                })
+                .or_else(|_| {
+                    eprintln!("[OCR] Tesseract unavailable for find_text, falling back to WinRT");
+                    super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, {
+                        let img = image.clone();
+                        let s = search.clone();
+                        move || ocr_find_text_winrt(&img, &s, offset_x, offset_y)
+                    }).and_then(|r| r)
+                })
         }
     };
 

@@ -171,6 +171,8 @@ enigo = "0.6"
 
 # Image processing (pixel ops for screenshot_diff/region, already transitive via xcap)
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+ocrs = "0.9"
+rten = "0.13"
 
 # Cross-platform clipboard (text/image, replaces Win32 clipboard on macOS/Linux)
 arboard = "3"
