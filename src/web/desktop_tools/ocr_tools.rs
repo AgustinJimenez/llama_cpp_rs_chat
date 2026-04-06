@@ -719,6 +719,20 @@ fn find_tesseract_install() -> TesseractInstall {
             };
         }
     }
+    // Check target/tesseract-cache/ (auto-downloaded by ensure-tesseract)
+    {
+        let cache_bin = format!("target/tesseract-cache/{}", if cfg!(windows) { "tesseract.exe" } else { "tesseract" });
+        if std::path::Path::new(&cache_bin).exists() {
+            let tessdata_dir = std::path::Path::new("target/tesseract-cache/tessdata")
+                .exists()
+                .then(|| "target/tesseract-cache/tessdata".to_string());
+            return TesseractInstall {
+                binary: cache_bin,
+                tessdata_dir,
+            };
+        }
+    }
+
     // Common Windows install locations
     #[cfg(windows)]
     {
