@@ -1132,10 +1132,10 @@ pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
         "tesseract" => ocr_image_tesseract(&target.image, language),
         "native" | "vision" => ocr_image_vision(&target.image, language),
         _ => {
-            // Auto: tesseract → ocrs → Vision
-            ocr_image_tesseract(&target.image, language)
+            // Auto: Vision (built-in, excellent) → tesseract → ocrs
+            ocr_image_vision(&target.image, language)
+                .or_else(|_| ocr_image_tesseract(&target.image, language))
                 .or_else(|_| ocr_image_ocrs(&target.image))
-                .or_else(|_| ocr_image_vision(&target.image, language))
         }
     };
     match result {
