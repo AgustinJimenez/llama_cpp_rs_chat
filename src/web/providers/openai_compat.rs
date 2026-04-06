@@ -302,6 +302,22 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
         env_key: "CLOUDFLARE_API_TOKEN",
     },
     ProviderPreset {
+        id: "glm",
+        name: "GLM (Zhipu AI)",
+        base_url: "https://api.z.ai/api/paas/v4",
+        description: "GLM models by Zhipu AI ($3-15/mo coding plan)",
+        models: &["glm-5", "glm-4.7", "glm-4.6", "glm-4.5-air"],
+        env_key: "GLM_API_KEY",
+    },
+    ProviderPreset {
+        id: "kimi",
+        name: "Kimi (Moonshot)",
+        base_url: "https://api.moonshot.cn/v1",
+        description: "Kimi K2.5 by Moonshot AI (auto context caching)",
+        models: &["kimi-k2.5", "moonshot-v1-auto"],
+        env_key: "KIMI_API_KEY",
+    },
+    ProviderPreset {
         id: "custom_openai",
         name: "Custom OpenAI-Compatible",
         base_url: "",
