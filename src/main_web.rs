@@ -389,8 +389,8 @@ fn vlm_ocr_main(args: &[String]) -> std::io::Result<()> {
     let get_arg = |flag: &str| -> Option<&str> {
         args.windows(2).find(|w| w[0] == flag).map(|w| w[1].as_str())
     };
-    let model_path = get_arg("--model").unwrap_or("assets/ocr-vlm/PaddleOCR-VL-1.5-Q8_0.gguf");
-    let mmproj_path = get_arg("--mmproj").unwrap_or("assets/ocr-vlm/mmproj-F16.gguf");
+    let model_path = get_arg("--model").unwrap_or("assets/ocr-vlm/PaddleOCR-VL-1.5.gguf");
+    let mmproj_path = get_arg("--mmproj").unwrap_or("assets/ocr-vlm/PaddleOCR-VL-1.5-mmproj.gguf");
     let image_path = match get_arg("--image") {
         Some(p) => p,
         None => { eprintln!("Error: --image required"); std::process::exit(1); }
@@ -417,7 +417,7 @@ fn vlm_ocr_main(args: &[String]) -> std::io::Result<()> {
         .map_err(|e| io_err(format!("Mmproj: {e}")))?;
 
     // Create context
-    let n_ctx = std::num::NonZeroU32::new(4096);
+    let n_ctx = std::num::NonZeroU32::new(8192);
     let mut ctx_params = LlamaContextParams::default()
         .with_n_ctx(n_ctx)
         .with_n_batch(512);
@@ -447,9 +447,10 @@ fn vlm_ocr_main(args: &[String]) -> std::io::Result<()> {
         .map_err(|e| io_err(format!("Eval: {e}")))?;
 
     // Generate text output
+    // PaddleOCR-VL recommends --temp 0 (greedy decoding) for best OCR results
     let mut sampler = LlamaSampler::chain_simple(vec![
-        LlamaSampler::temp(0.1),
-        LlamaSampler::dist(0),
+        LlamaSampler::temp(0.0),
+        LlamaSampler::greedy(),
     ]);
 
     let mut batch = LlamaBatch::new(1, 1);
