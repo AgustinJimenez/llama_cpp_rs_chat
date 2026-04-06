@@ -35,6 +35,7 @@ fn get_or_init_ocrs() -> Result<(), String> {
     let engine = ocrs::OcrEngine::new(ocrs::OcrEngineParams {
         detection_model: Some(det_model),
         recognition_model: Some(rec_model),
+        decode_method: ocrs::DecodeMethod::BeamSearch { width: 5 },
         ..Default::default()
     }).map_err(|e| format!("Failed to create OCR engine: {e}"))?;
     *guard = Some(engine);
@@ -42,12 +43,23 @@ fn get_or_init_ocrs() -> Result<(), String> {
     Ok(())
 }
 
+/// Upscale an image 2x for better OCR accuracy on small text.
+fn upscale_for_ocr(img: &image::RgbaImage) -> image::RgbaImage {
+    let (w, h) = img.dimensions();
+    // Only upscale if the image is small enough that text might be hard to read
+    if w >= 3000 || h >= 2000 {
+        return img.clone(); // Already large enough
+    }
+    image::imageops::resize(img, w * 2, h * 2, image::imageops::FilterType::Lanczos3)
+}
+
 /// Run OCR on an image using the ocrs (Rust-native) engine.
 pub(super) fn ocr_image_ocrs(img: &image::RgbaImage) -> Result<String, String> {
     get_or_init_ocrs()?;
     let guard = OCRS_ENGINE.lock().map_err(|_| "OCR engine mutex poisoned")?;
     let engine = guard.as_ref().ok_or("OCR engine not initialized")?;
-    let rgb = image::DynamicImage::ImageRgba8(img.clone()).into_rgb8();
+    let upscaled = upscale_for_ocr(img);
+    let rgb = image::DynamicImage::ImageRgba8(upscaled).into_rgb8();
     let (w, h) = rgb.dimensions();
     let source = ocrs::ImageSource::from_bytes(rgb.as_raw(), (w, h))
         .map_err(|e| format!("ImageSource error: {e}"))?;
@@ -713,12 +725,14 @@ fn find_tesseract_binary() -> String {
 pub(super) fn ocr_image_tesseract(img: &image::RgbaImage, language: Option<&str>) -> Result<String, String> {
     let tmp_dir = std::env::temp_dir();
     let tmp_path = tmp_dir.join("llama_chat_ocr_tmp.png");
-    let dyn_img = image::DynamicImage::ImageRgba8(img.clone());
+    let upscaled = upscale_for_ocr(img);
+    let dyn_img = image::DynamicImage::ImageRgba8(upscaled);
     dyn_img.save(&tmp_path).map_err(|e| format!("Failed to save temp image: {e}"))?;
     let tesseract_bin = find_tesseract_binary();
     let mut cmd = std::process::Command::new(&tesseract_bin);
     cmd.arg(tmp_path.to_str().unwrap_or(""))
-        .arg("stdout");
+        .arg("stdout")
+        .arg("--dpi").arg("300");
     if let Some(lang) = language {
         cmd.arg("-l").arg(lang);
     }
