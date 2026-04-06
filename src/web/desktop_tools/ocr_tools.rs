@@ -987,12 +987,11 @@ pub(super) fn ocr_find_text_vision(
     Ok(matches)
 }
 
-// ─── macOS tool_ocr_screen (Vision first, tesseract fallback) ────────────────
+// ─── macOS tool_ocr_screen (engine selection: ocrs → Vision → tesseract) ─────
 
 #[cfg(target_os = "macos")]
 pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
     let language = args.get("language").and_then(|v| v.as_str());
-    // confidence_min accepted for API consistency; reserved for future use in text-only OCR.
     let _confidence_min: f64 = args.get("confidence_min").and_then(super::parse_float).unwrap_or(0.0);
     let target = match capture_ocr_target(args, "ocr_screen") {
         Ok(target) => target,
@@ -1005,30 +1004,32 @@ pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
     {
         return NativeToolResult::text_only(format!("OCR{} (cached):\n{text}", target.region_desc));
     }
-    // Try Vision framework first, fall back to tesseract
-    match ocr_image_vision(&target.image, language) {
+    let engine_pref = args.get("engine").and_then(|v| v.as_str()).unwrap_or("auto");
+    let result = match engine_pref {
+        "ocrs" => ocr_image_ocrs(&target.image),
+        "tesseract" => ocr_image_tesseract(&target.image, language),
+        "native" | "vision" => ocr_image_vision(&target.image, language),
+        _ => {
+            // Auto: ocrs → Vision → tesseract
+            ocr_image_ocrs(&target.image)
+                .or_else(|_| ocr_image_vision(&target.image, language))
+                .or_else(|_| ocr_image_tesseract(&target.image, language))
+        }
+    };
+    match result {
         Ok(text) => {
             update_cached_ocr_payload(cache_key, target.raw, OcrCachePayload::Text(text.clone()));
             NativeToolResult::text_only(format!("OCR{}:\n{text}", target.region_desc))
         }
-        Err(_vision_err) => {
-            match ocr_image_tesseract(&target.image, language) {
-                Ok(text) => {
-                    update_cached_ocr_payload(cache_key, target.raw, OcrCachePayload::Text(text.clone()));
-                    NativeToolResult::text_only(format!("OCR{}:\n{text}", target.region_desc))
-                }
-                Err(e) => super::tool_error("ocr_screen", e),
-            }
-        }
+        Err(e) => super::tool_error("ocr_screen", e),
     }
 }
 
-// ─── Linux tool_ocr_screen (tesseract only) ─────────────────────────────────
+// ─── Linux tool_ocr_screen (engine selection: ocrs → tesseract) ──────────────
 
 #[cfg(target_os = "linux")]
 pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
     let language = args.get("language").and_then(|v| v.as_str());
-    // confidence_min accepted for API consistency; reserved for future use in text-only OCR.
     let _confidence_min: f64 = args.get("confidence_min").and_then(super::parse_float).unwrap_or(0.0);
     let target = match capture_ocr_target(args, "ocr_screen") {
         Ok(target) => target,
@@ -1041,7 +1042,17 @@ pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
     {
         return NativeToolResult::text_only(format!("OCR{} (cached):\n{text}", target.region_desc));
     }
-    match ocr_image_tesseract(&target.image, language) {
+    let engine_pref = args.get("engine").and_then(|v| v.as_str()).unwrap_or("auto");
+    let result = match engine_pref {
+        "ocrs" => ocr_image_ocrs(&target.image),
+        "tesseract" => ocr_image_tesseract(&target.image, language),
+        _ => {
+            // Auto: ocrs → tesseract
+            ocr_image_ocrs(&target.image)
+                .or_else(|_| ocr_image_tesseract(&target.image, language))
+        }
+    };
+    match result {
         Ok(text) => {
             update_cached_ocr_payload(cache_key, target.raw, OcrCachePayload::Text(text.clone()));
             NativeToolResult::text_only(format!("OCR{}:\n{text}", target.region_desc))
