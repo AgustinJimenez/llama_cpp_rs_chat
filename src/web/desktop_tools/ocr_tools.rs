@@ -357,10 +357,20 @@ pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
         ..
     } = target;
 
-    // Run OCR on a temporary STA thread (WinRT requires STA)
-    let result = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
-        ocr_image_winrt(&image)
-    }).and_then(|r| r);
+    // Try Tesseract first (more accurate, cross-platform), fall back to WinRT
+    let result = match ocr_image_tesseract(&image, language) {
+        Ok(text) => {
+            eprintln!("[OCR] Using Tesseract engine");
+            Ok(text)
+        }
+        Err(_) => {
+            // Tesseract not installed — fall back to WinRT
+            eprintln!("[OCR] Tesseract not available, falling back to WinRT");
+            super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
+                ocr_image_winrt(&image)
+            }).and_then(|r| r)
+        }
+    };
 
     match result {
         Ok(text) => {
@@ -568,8 +578,8 @@ fn wait_for_winrt_async(
     }
 }
 
-/// OCR via tesseract CLI (macOS/Linux).
-#[cfg(not(windows))]
+/// OCR via tesseract CLI (cross-platform: Windows, macOS, Linux).
+/// On Windows, falls back to WinRT if tesseract is not installed.
 pub(super) fn ocr_image_tesseract(img: &image::RgbaImage, language: Option<&str>) -> Result<String, String> {
     let tmp_dir = std::env::temp_dir();
     let tmp_path = tmp_dir.join("llama_chat_ocr_tmp.png");
@@ -591,8 +601,7 @@ pub(super) fn ocr_image_tesseract(img: &image::RgbaImage, language: Option<&str>
     }
 }
 
-/// OCR with bounding boxes via tesseract TSV output (Linux, or macOS/Linux fallback).
-#[cfg(not(windows))]
+/// OCR with bounding boxes via tesseract TSV output (cross-platform).
 pub(super) fn ocr_find_text_tesseract(img: &image::RgbaImage, search: &str, offset_x: f64, offset_y: f64) -> Result<Vec<OcrMatch>, String> {
     let tmp_dir = std::env::temp_dir();
     let tmp_path = tmp_dir.join("llama_chat_ocr_find_tmp.png");
@@ -983,10 +992,19 @@ pub fn tool_ocr_find_text(args: &Value) -> NativeToolResult {
         offset_y,
     } = target;
 
-    // Run OCR with bounding boxes on STA thread
-    let result = super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
-        ocr_find_text_winrt(&image, &search, offset_x, offset_y)
-    }).and_then(|r| r);
+    // Try Tesseract first (more accurate), fall back to WinRT
+    let result = match ocr_find_text_tesseract(&image, &search, offset_x, offset_y) {
+        Ok(matches) => {
+            eprintln!("[OCR] Using Tesseract engine for find_text");
+            Ok(matches)
+        }
+        Err(_) => {
+            eprintln!("[OCR] Tesseract not available, falling back to WinRT for find_text");
+            super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, move || {
+                ocr_find_text_winrt(&image, &search, offset_x, offset_y)
+            }).and_then(|r| r)
+        }
+    };
 
     match result {
         Ok(matches) => {
