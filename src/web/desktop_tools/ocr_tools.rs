@@ -1,4 +1,4 @@
-//! OCR text recognition tools: ocrs (Rust-native), Tesseract CLI, Windows WinRT, macOS Vision.
+//! OCR text recognition tools: Tesseract CLI (primary), ocrs (Rust-native fallback), Windows WinRT, macOS Vision.
 
 use serde_json::Value;
 
@@ -18,15 +18,11 @@ fn get_or_init_ocrs() -> Result<(), String> {
     if guard.is_some() {
         return Ok(());
     }
-    // Look for models in assets/ocr-models/ relative to the executable
     let models_dir = std::path::PathBuf::from("assets/ocr-models");
     let det_path = models_dir.join("text-detection.rten");
     let rec_path = models_dir.join("text-recognition.rten");
     if !det_path.exists() || !rec_path.exists() {
-        return Err(format!(
-            "OCR models not found at {}. Download text-detection.rten and text-recognition.rten from https://github.com/robertknight/ocrs-models",
-            models_dir.display()
-        ));
+        return Err(format!("OCR models not found at {}", models_dir.display()));
     }
     let det_model = rten::Model::load_file(det_path)
         .map_err(|e| format!("Failed to load detection model: {e}"))?;
@@ -39,18 +35,8 @@ fn get_or_init_ocrs() -> Result<(), String> {
         ..Default::default()
     }).map_err(|e| format!("Failed to create OCR engine: {e}"))?;
     *guard = Some(engine);
-    eprintln!("[OCR] ocrs engine initialized (models loaded)");
+    eprintln!("[OCR] ocrs engine initialized");
     Ok(())
-}
-
-/// Upscale an image 2x for better OCR accuracy on small text.
-fn upscale_for_ocr(img: &image::RgbaImage) -> image::RgbaImage {
-    let (w, h) = img.dimensions();
-    // Only upscale if the image is small enough that text might be hard to read
-    if w >= 3000 || h >= 2000 {
-        return img.clone(); // Already large enough
-    }
-    image::imageops::resize(img, w * 2, h * 2, image::imageops::FilterType::Lanczos3)
 }
 
 /// Run OCR on an image using the ocrs (Rust-native) engine.
@@ -65,9 +51,7 @@ pub(super) fn ocr_image_ocrs(img: &image::RgbaImage) -> Result<String, String> {
         .map_err(|e| format!("ImageSource error: {e}"))?;
     let input = engine.prepare_input(source)
         .map_err(|e| format!("prepare_input error: {e}"))?;
-    let text = engine.get_text(&input)
-        .map_err(|e| format!("get_text error: {e}"))?;
-    Ok(text)
+    engine.get_text(&input).map_err(|e| format!("get_text error: {e}"))
 }
 
 /// Run OCR with bounding boxes using the ocrs engine.
@@ -92,21 +76,36 @@ pub(super) fn ocr_find_text_ocrs(img: &image::RgbaImage, search: &str, offset_x:
     for line in line_texts.iter().flatten() {
         let line_str = line.to_string();
         if line_str.to_lowercase().contains(&search_lower) {
-            // In older ocrs versions, use the line_rects for bounding boxes
-            // since TextLine may not have bounding_rect() directly
             matches.push(OcrMatch {
                 text: line_str,
-                x: offset_x,
-                y: offset_y,
-                width: 0.0,
-                height: 0.0,
-                center_x: offset_x,
-                center_y: offset_y,
+                x: offset_x, y: offset_y,
+                width: 0.0, height: 0.0,
+                center_x: offset_x, center_y: offset_y,
                 confidence: 1.0,
             });
         }
     }
     Ok(matches)
+}
+
+fn tesseract_install_hint() -> &'static str {
+    if cfg!(windows) {
+        "Install Tesseract for better OCR accuracy and retry with engine='tesseract'."
+    } else if cfg!(target_os = "macos") {
+        "Install Tesseract with 'brew install tesseract' for better OCR accuracy and retry with engine='tesseract'."
+    } else {
+        "Install Tesseract with your package manager (for example 'sudo apt install tesseract-ocr') and retry with engine='tesseract'."
+    }
+}
+
+/// Upscale an image 2x for better OCR accuracy on small text.
+fn upscale_for_ocr(img: &image::RgbaImage) -> image::RgbaImage {
+    let (w, h) = img.dimensions();
+    // Only upscale if the image is small enough that text might be hard to read
+    if w >= 3000 || h >= 2000 {
+        return img.clone(); // Already large enough
+    }
+    image::imageops::resize(img, w * 2, h * 2, image::imageops::FilterType::Lanczos3)
 }
 
 #[cfg(windows)]
@@ -470,14 +469,14 @@ pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
             move || ocr_image_winrt(&img)
         }).and_then(|r| r),
         _ => {
-            // Auto: try ocrs → tesseract → WinRT
-            ocr_image_ocrs(&image)
+            // Auto: tesseract → ocrs → WinRT
+            ocr_image_tesseract(&image, language)
                 .or_else(|_| {
-                    eprintln!("[OCR] ocrs unavailable, trying Tesseract");
-                    ocr_image_tesseract(&image, language)
+                    eprintln!("[OCR] Tesseract unavailable, trying ocrs");
+                    ocr_image_ocrs(&image)
                 })
                 .or_else(|_| {
-                    eprintln!("[OCR] Tesseract unavailable, falling back to WinRT");
+                    eprintln!("[OCR] ocrs unavailable, falling back to WinRT");
                     super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, {
                         let img = image.clone();
                         move || ocr_image_winrt(&img)
@@ -692,32 +691,91 @@ fn wait_for_winrt_async(
     }
 }
 
-/// Find the tesseract binary — checks PATH first, then common install locations.
-fn find_tesseract_binary() -> String {
+struct TesseractInstall {
+    binary: String,
+    tessdata_dir: Option<String>,
+}
+
+/// Find the tesseract binary — checks explicit env vars, PATH, then bundled/system locations.
+fn find_tesseract_install() -> TesseractInstall {
+    if let Ok(path) = std::env::var("LLAMA_CHAT_TESSERACT_PATH") {
+        if !path.is_empty() && std::path::Path::new(&path).exists() {
+            let tessdata_dir = std::env::var("LLAMA_CHAT_TESSDATA_DIR")
+                .ok()
+                .filter(|p| !p.is_empty() && std::path::Path::new(p).exists());
+            return TesseractInstall {
+                binary: path,
+                tessdata_dir,
+            };
+        }
+    }
+
     // Check if on PATH
     if let Ok(output) = std::process::Command::new("tesseract").arg("--version").output() {
         if output.status.success() {
-            return "tesseract".to_string();
+            return TesseractInstall {
+                binary: "tesseract".to_string(),
+                tessdata_dir: None,
+            };
         }
     }
     // Common Windows install locations
     #[cfg(windows)]
     {
-        let candidates = [
-            r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-            r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+        let mut candidates = vec![
+            r"C:\Program Files\Tesseract-OCR\tesseract.exe".to_string(),
+            r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe".to_string(),
         ];
+
+        if let Ok(resource_dir) = std::env::var("LLAMA_CHAT_RESOURCE_DIR") {
+            candidates.extend([
+                std::path::Path::new(&resource_dir)
+                    .join("tesseract")
+                    .join("tesseract.exe")
+                    .to_string_lossy()
+                    .into_owned(),
+                std::path::Path::new(&resource_dir)
+                    .join("tesseract")
+                    .join("bin")
+                    .join("tesseract.exe")
+                    .to_string_lossy()
+                    .into_owned(),
+                std::path::Path::new(&resource_dir)
+                    .join("assets")
+                    .join("tesseract")
+                    .join("tesseract.exe")
+                    .to_string_lossy()
+                    .into_owned(),
+            ]);
+        }
+
         for path in &candidates {
             if std::path::Path::new(path).exists() {
-                return path.to_string();
+                let tessdata_dir = std::path::Path::new(path)
+                    .parent()
+                    .map(|dir| dir.join("tessdata"))
+                    .filter(|dir| dir.exists())
+                    .map(|dir| dir.to_string_lossy().into_owned());
+                return TesseractInstall {
+                    binary: path.to_string(),
+                    tessdata_dir,
+                };
             }
         }
         // Also check assets/tesseract/ (bundled)
         if std::path::Path::new("assets/tesseract/tesseract.exe").exists() {
-            return "assets/tesseract/tesseract.exe".to_string();
+            let tessdata_dir = std::path::Path::new("assets/tesseract")
+                .join("tessdata");
+            return TesseractInstall {
+                binary: "assets/tesseract/tesseract.exe".to_string(),
+                tessdata_dir: tessdata_dir.exists().then(|| tessdata_dir.to_string_lossy().into_owned()),
+            };
         }
     }
-    "tesseract".to_string() // fallback to PATH
+    TesseractInstall {
+        binary: "tesseract".to_string(),
+        tessdata_dir: None,
+    }
 }
 
 /// OCR via tesseract CLI (cross-platform: Windows, macOS, Linux).
@@ -728,16 +786,19 @@ pub(super) fn ocr_image_tesseract(img: &image::RgbaImage, language: Option<&str>
     let upscaled = upscale_for_ocr(img);
     let dyn_img = image::DynamicImage::ImageRgba8(upscaled);
     dyn_img.save(&tmp_path).map_err(|e| format!("Failed to save temp image: {e}"))?;
-    let tesseract_bin = find_tesseract_binary();
-    let mut cmd = std::process::Command::new(&tesseract_bin);
+    let install = find_tesseract_install();
+    let mut cmd = std::process::Command::new(&install.binary);
     cmd.arg(tmp_path.to_str().unwrap_or(""))
         .arg("stdout")
         .arg("--dpi").arg("300");
+    if let Some(tessdata_dir) = &install.tessdata_dir {
+        cmd.env("TESSDATA_PREFIX", tessdata_dir);
+    }
     if let Some(lang) = language {
         cmd.arg("-l").arg(lang);
     }
     let output = cmd.output()
-        .map_err(|e| format!("tesseract not found or failed: {e}. Install: brew install tesseract (macOS) or sudo apt install tesseract-ocr (Linux)"))?;
+        .map_err(|e| format!("tesseract not found or failed: {e}. {}", tesseract_install_hint()))?;
     let _ = std::fs::remove_file(&tmp_path);
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
@@ -752,14 +813,17 @@ pub(super) fn ocr_find_text_tesseract(img: &image::RgbaImage, search: &str, offs
     let tmp_path = tmp_dir.join("llama_chat_ocr_find_tmp.png");
     let dyn_img = image::DynamicImage::ImageRgba8(img.clone());
     dyn_img.save(&tmp_path).map_err(|e| format!("Failed to save temp image: {e}"))?;
-    let tesseract_bin = find_tesseract_binary();
-    let mut cmd = std::process::Command::new(&tesseract_bin);
+    let install = find_tesseract_install();
+    let mut cmd = std::process::Command::new(&install.binary);
     cmd.arg(tmp_path.to_str().unwrap_or(""))
         .arg("stdout")
         .arg("--psm").arg("3")
         .arg("tsv");
+    if let Some(tessdata_dir) = &install.tessdata_dir {
+        cmd.env("TESSDATA_PREFIX", tessdata_dir);
+    }
     let output = cmd.output()
-        .map_err(|e| format!("tesseract failed: {e}"))?;
+        .map_err(|e| format!("tesseract failed: {e}. {}", tesseract_install_hint()))?;
     let _ = std::fs::remove_file(&tmp_path);
     if !output.status.success() {
         return Err(format!("tesseract error: {}", String::from_utf8_lossy(&output.stderr).trim()));
@@ -1054,10 +1118,10 @@ pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
         "tesseract" => ocr_image_tesseract(&target.image, language),
         "native" | "vision" => ocr_image_vision(&target.image, language),
         _ => {
-            // Auto: ocrs → Vision → tesseract
-            ocr_image_ocrs(&target.image)
+            // Auto: tesseract → ocrs → Vision
+            ocr_image_tesseract(&target.image, language)
+                .or_else(|_| ocr_image_ocrs(&target.image))
                 .or_else(|_| ocr_image_vision(&target.image, language))
-                .or_else(|_| ocr_image_tesseract(&target.image, language))
         }
     };
     match result {
@@ -1091,9 +1155,9 @@ pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
         "ocrs" => ocr_image_ocrs(&target.image),
         "tesseract" => ocr_image_tesseract(&target.image, language),
         _ => {
-            // Auto: ocrs → tesseract
-            ocr_image_ocrs(&target.image)
-                .or_else(|_| ocr_image_tesseract(&target.image, language))
+            // Auto: tesseract → ocrs
+            ocr_image_tesseract(&target.image, language)
+                .or_else(|_| ocr_image_ocrs(&target.image))
         }
     };
     match result {
@@ -1160,14 +1224,14 @@ pub fn tool_ocr_find_text(args: &Value) -> NativeToolResult {
             move || ocr_find_text_winrt(&img, &s, offset_x, offset_y)
         }).and_then(|r| r),
         _ => {
-            // Auto: try ocrs → tesseract → WinRT
-            ocr_find_text_ocrs(&image, &search, offset_x, offset_y)
+            // Auto: tesseract → ocrs → WinRT
+            ocr_find_text_tesseract(&image, &search, offset_x, offset_y)
                 .or_else(|_| {
-                    eprintln!("[OCR] ocrs unavailable for find_text, trying Tesseract");
-                    ocr_find_text_tesseract(&image, &search, offset_x, offset_y)
+                    eprintln!("[OCR] Tesseract unavailable for find_text, trying ocrs");
+                    ocr_find_text_ocrs(&image, &search, offset_x, offset_y)
                 })
                 .or_else(|_| {
-                    eprintln!("[OCR] Tesseract unavailable for find_text, falling back to WinRT");
+                    eprintln!("[OCR] ocrs unavailable for find_text, falling back to WinRT");
                     super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, {
                         let img = image.clone();
                         let s = search.clone();
@@ -1494,4 +1558,3 @@ mod tests {
         assert!(get_cached_ocr_payload("ocr_find_text:other", &[2; 64], 5000, 0.0).is_none());
     }
 }
-
