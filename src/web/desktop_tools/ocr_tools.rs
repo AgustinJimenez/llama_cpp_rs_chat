@@ -680,6 +680,34 @@ fn wait_for_winrt_async(
     }
 }
 
+/// Find the tesseract binary — checks PATH first, then common install locations.
+fn find_tesseract_binary() -> String {
+    // Check if on PATH
+    if let Ok(output) = std::process::Command::new("tesseract").arg("--version").output() {
+        if output.status.success() {
+            return "tesseract".to_string();
+        }
+    }
+    // Common Windows install locations
+    #[cfg(windows)]
+    {
+        let candidates = [
+            r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+            r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+        ];
+        for path in &candidates {
+            if std::path::Path::new(path).exists() {
+                return path.to_string();
+            }
+        }
+        // Also check assets/tesseract/ (bundled)
+        if std::path::Path::new("assets/tesseract/tesseract.exe").exists() {
+            return "assets/tesseract/tesseract.exe".to_string();
+        }
+    }
+    "tesseract".to_string() // fallback to PATH
+}
+
 /// OCR via tesseract CLI (cross-platform: Windows, macOS, Linux).
 /// On Windows, falls back to WinRT if tesseract is not installed.
 pub(super) fn ocr_image_tesseract(img: &image::RgbaImage, language: Option<&str>) -> Result<String, String> {
@@ -687,7 +715,8 @@ pub(super) fn ocr_image_tesseract(img: &image::RgbaImage, language: Option<&str>
     let tmp_path = tmp_dir.join("llama_chat_ocr_tmp.png");
     let dyn_img = image::DynamicImage::ImageRgba8(img.clone());
     dyn_img.save(&tmp_path).map_err(|e| format!("Failed to save temp image: {e}"))?;
-    let mut cmd = std::process::Command::new("tesseract");
+    let tesseract_bin = find_tesseract_binary();
+    let mut cmd = std::process::Command::new(&tesseract_bin);
     cmd.arg(tmp_path.to_str().unwrap_or(""))
         .arg("stdout");
     if let Some(lang) = language {
@@ -709,7 +738,8 @@ pub(super) fn ocr_find_text_tesseract(img: &image::RgbaImage, search: &str, offs
     let tmp_path = tmp_dir.join("llama_chat_ocr_find_tmp.png");
     let dyn_img = image::DynamicImage::ImageRgba8(img.clone());
     dyn_img.save(&tmp_path).map_err(|e| format!("Failed to save temp image: {e}"))?;
-    let mut cmd = std::process::Command::new("tesseract");
+    let tesseract_bin = find_tesseract_binary();
+    let mut cmd = std::process::Command::new(&tesseract_bin);
     cmd.arg(tmp_path.to_str().unwrap_or(""))
         .arg("stdout")
         .arg("--psm").arg("3")
