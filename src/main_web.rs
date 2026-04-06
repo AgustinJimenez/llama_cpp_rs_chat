@@ -420,7 +420,8 @@ fn vlm_ocr_main(args: &[String]) -> std::io::Result<()> {
     let n_ctx = std::num::NonZeroU32::new(8192);
     let mut ctx_params = LlamaContextParams::default()
         .with_n_ctx(n_ctx)
-        .with_n_batch(512);
+        .with_n_batch(512)
+        .with_flash_attention_policy(0); // GLM-OCR requires flash-attn OFF
     if vision.decode_use_non_causal() {
         ctx_params = ctx_params.with_flash_attention_policy(0);
     }
@@ -432,8 +433,8 @@ fn vlm_ocr_main(args: &[String]) -> std::io::Result<()> {
     let bitmap = MtmdBitmap::from_buffer(&vision, &img_bytes)
         .map_err(|e| io_err(format!("Image: {e}")))?;
 
-    // Build prompt — PaddleOCR-VL uses simple task prompts: "OCR:", "Table Recognition:", etc.
-    let prompt = "<__media__>OCR:";
+    // Build prompt with image marker — use simple OCR prompt
+    let prompt = "<__media__>OCR the text in this image:";
     let text_input = MtmdInputText {
         text: prompt.to_string(),
         add_special: true,
@@ -447,8 +448,9 @@ fn vlm_ocr_main(args: &[String]) -> std::io::Result<()> {
         .map_err(|e| io_err(format!("Eval: {e}")))?;
 
     // Generate text output
-    // PaddleOCR-VL recommends --temp 0 (greedy decoding) for best OCR results
+    // Greedy decoding with repetition penalty to avoid loops
     let mut sampler = LlamaSampler::chain_simple(vec![
+        LlamaSampler::penalties(2048, 1.3, 0.0, 0.0), // repeat_penalty=1.3
         LlamaSampler::temp(0.0),
         LlamaSampler::greedy(),
     ]);
@@ -463,9 +465,14 @@ fn vlm_ocr_main(args: &[String]) -> std::io::Result<()> {
         if token == eos { break; }
 
         #[allow(deprecated)]
-        if let Ok(s) = model.token_to_str(token, llama_cpp_2::model::Special::Tokenize) {
-            output.push_str(&s);
+        let s = model.token_to_str(token, llama_cpp_2::model::Special::Tokenize)
+            .unwrap_or_default();
+
+        // Stop on special tokens like <|user|>, <|endoftext|>
+        if s.contains("<|user|>") || s.contains("<|endoftext|>") || s.contains("<|assistant|>") {
+            break;
         }
+        output.push_str(&s);
 
         batch.clear();
         if batch.add(token, token_pos, &[0], true).is_err() { break; }
