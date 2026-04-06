@@ -87,6 +87,66 @@ pub(super) fn ocr_find_text_ocrs(img: &image::RgbaImage, search: &str, offset_x:
     Ok(matches)
 }
 
+// ─── PaddleOCR-VL: Vision Language Model OCR (0.9B, runs on CPU) ─────────────
+
+
+/// Find PaddleOCR-VL model files in assets/ocr-vlm/ or target cache.
+fn find_vlm_ocr_model() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+    let candidates = [
+        "assets/ocr-vlm",
+        "target/ocr-vlm-cache",
+    ];
+    for dir in &candidates {
+        let model_path = std::path::Path::new(dir).join("PaddleOCR-VL-1.5-Q8_0.gguf");
+        let mmproj_path = std::path::Path::new(dir).join("mmproj-F16.gguf");
+        if model_path.exists() && mmproj_path.exists() {
+            return Some((model_path, mmproj_path));
+        }
+    }
+    None
+}
+
+/// Run OCR on an image using PaddleOCR-VL (vision language model).
+/// Loads the model on first use (~1.4s), then runs inference on CPU.
+pub(super) fn ocr_image_vlm(img: &image::RgbaImage) -> Result<String, String> {
+    let (model_path, mmproj_path) = find_vlm_ocr_model()
+        .ok_or("PaddleOCR-VL model not found in assets/ocr-vlm/")?;
+
+    // Save image as PNG for the vision pipeline
+    let tmp_dir = std::env::temp_dir();
+    let tmp_path = tmp_dir.join("llama_chat_vlm_ocr_tmp.png");
+    let dyn_img = image::DynamicImage::ImageRgba8(img.clone());
+    dyn_img.save(&tmp_path).map_err(|e| format!("Failed to save temp image: {e}"))?;
+
+    // Use llama-cli style subprocess approach since we can't load two models
+    // in our single-worker architecture. Run a quick inference in a child process.
+    let our_exe = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
+    let output = std::process::Command::new(&our_exe)
+        .arg("--vlm-ocr")
+        .arg("--model").arg(&model_path)
+        .arg("--mmproj").arg(&mmproj_path)
+        .arg("--image").arg(&tmp_path)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .map_err(|e| format!("Failed to run VLM OCR subprocess: {e}"))?;
+
+    let _ = std::fs::remove_file(&tmp_path);
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("VLM OCR failed: {}", stderr.trim()));
+    }
+
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if text.is_empty() {
+        Err("VLM OCR returned empty result".into())
+    } else {
+        Ok(text)
+    }
+}
+
 fn tesseract_install_hint() -> &'static str {
     if cfg!(windows) {
         "Install Tesseract for better OCR accuracy and retry with engine='tesseract'."
@@ -464,6 +524,7 @@ pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
     // Engine selection: user can force via "engine" param, otherwise auto-detect
     let engine_pref = args.get("engine").and_then(|v| v.as_str()).unwrap_or("auto");
     let result = match engine_pref {
+        "vlm" | "paddleocr" => ocr_image_vlm(&raw_image), // VLM uses raw image (has its own processing)
         "ocrs" => ocr_image_ocrs(&image),
         "tesseract" => ocr_image_tesseract(&image, language),
         "winrt" | "native" => super::spawn_with_timeout(super::DEFAULT_THREAD_TIMEOUT, {
