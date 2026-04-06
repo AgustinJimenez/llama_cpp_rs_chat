@@ -44,8 +44,7 @@ pub(super) fn ocr_image_ocrs(img: &image::RgbaImage) -> Result<String, String> {
     get_or_init_ocrs()?;
     let guard = OCRS_ENGINE.lock().map_err(|_| "OCR engine mutex poisoned")?;
     let engine = guard.as_ref().ok_or("OCR engine not initialized")?;
-    let upscaled = upscale_for_ocr(img);
-    let rgb = image::DynamicImage::ImageRgba8(upscaled).into_rgb8();
+    let rgb = image::DynamicImage::ImageRgba8(img.clone()).into_rgb8();
     let (w, h) = rgb.dimensions();
     let source = ocrs::ImageSource::from_bytes(rgb.as_raw(), (w, h))
         .map_err(|e| format!("ImageSource error: {e}"))?;
@@ -453,11 +452,14 @@ pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
         ));
     }
     let OcrCaptureTarget {
-        image,
+        image: raw_image,
         raw,
         region_desc,
         ..
     } = target;
+
+    // Upscale image 2x for all engines (improves accuracy across the board)
+    let image = upscale_for_ocr(&raw_image);
 
     // Engine selection: user can force via "engine" param, otherwise auto-detect
     let engine_pref = args.get("engine").and_then(|v| v.as_str()).unwrap_or("auto");
@@ -797,8 +799,7 @@ fn find_tesseract_install() -> TesseractInstall {
 pub(super) fn ocr_image_tesseract(img: &image::RgbaImage, language: Option<&str>) -> Result<String, String> {
     let tmp_dir = std::env::temp_dir();
     let tmp_path = tmp_dir.join("llama_chat_ocr_tmp.png");
-    let upscaled = upscale_for_ocr(img);
-    let dyn_img = image::DynamicImage::ImageRgba8(upscaled);
+    let dyn_img = image::DynamicImage::ImageRgba8(img.clone());
     dyn_img.save(&tmp_path).map_err(|e| format!("Failed to save temp image: {e}"))?;
     let install = find_tesseract_install();
     let mut cmd = std::process::Command::new(&install.binary);
@@ -1126,16 +1127,18 @@ pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
     {
         return NativeToolResult::text_only(format!("OCR{} (cached):\n{text}", target.region_desc));
     }
+    // Upscale image 2x for all engines
+    let image = upscale_for_ocr(&target.image);
     let engine_pref = args.get("engine").and_then(|v| v.as_str()).unwrap_or("auto");
     let result = match engine_pref {
-        "ocrs" => ocr_image_ocrs(&target.image),
-        "tesseract" => ocr_image_tesseract(&target.image, language),
-        "native" | "vision" => ocr_image_vision(&target.image, language),
+        "ocrs" => ocr_image_ocrs(&image),
+        "tesseract" => ocr_image_tesseract(&image, language),
+        "native" | "vision" => ocr_image_vision(&image, language),
         _ => {
             // Auto: Vision (built-in, excellent) → tesseract → ocrs
-            ocr_image_vision(&target.image, language)
-                .or_else(|_| ocr_image_tesseract(&target.image, language))
-                .or_else(|_| ocr_image_ocrs(&target.image))
+            ocr_image_vision(&image, language)
+                .or_else(|_| ocr_image_tesseract(&image, language))
+                .or_else(|_| ocr_image_ocrs(&image))
         }
     };
     match result {
@@ -1164,14 +1167,16 @@ pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
     {
         return NativeToolResult::text_only(format!("OCR{} (cached):\n{text}", target.region_desc));
     }
+    // Upscale image 2x for all engines
+    let image = upscale_for_ocr(&target.image);
     let engine_pref = args.get("engine").and_then(|v| v.as_str()).unwrap_or("auto");
     let result = match engine_pref {
-        "ocrs" => ocr_image_ocrs(&target.image),
-        "tesseract" => ocr_image_tesseract(&target.image, language),
+        "ocrs" => ocr_image_ocrs(&image),
+        "tesseract" => ocr_image_tesseract(&image, language),
         _ => {
             // Auto: tesseract → ocrs
-            ocr_image_tesseract(&target.image, language)
-                .or_else(|_| ocr_image_ocrs(&target.image))
+            ocr_image_tesseract(&image, language)
+                .or_else(|_| ocr_image_ocrs(&image))
         }
     };
     match result {
