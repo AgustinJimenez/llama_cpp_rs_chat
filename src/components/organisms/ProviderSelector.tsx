@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, Cpu, Cloud, Zap, Loader2 } from 'lucide-react';
+import { isTauriEnv } from '@/utils/tauri';
 
 interface Provider {
   id: string;
@@ -30,11 +31,20 @@ export function ProviderSelector({ isOpen, onClose, onSelectLocal, onSelectRemot
   useEffect(() => {
     if (!isOpen) return;
     setLoading(true);
-    fetch('/api/providers')
-      .then(r => r.json())
-      .then(data => setProviders(data.providers || []))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    (async () => {
+      try {
+        let data;
+        if (isTauriEnv()) {
+          const { invoke } = await import('@tauri-apps/api/core');
+          data = await invoke('list_providers');
+        } else {
+          const r = await fetch('/api/providers');
+          data = await r.json();
+        }
+        setProviders(data.providers || []);
+      } catch {}
+      setLoading(false);
+    })();
   }, [isOpen]);
 
   if (!isOpen) return null;

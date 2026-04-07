@@ -745,6 +745,22 @@ async fn get_system_usage() -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({"cpu": cpu, "gpu": gpu, "ram": ram}))
 }
 
+#[tauri::command]
+async fn list_providers(db: tauri::State<'_, SharedDatabase>) -> Result<serde_json::Value, String> {
+    let api_keys_json = {
+        let conn = db.connection();
+        conn.query_row(
+            "SELECT provider_api_keys FROM config WHERE id = 1",
+            [],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .ok()
+        .flatten()
+    };
+    let providers = web::providers::list_providers_with_keys(api_keys_json.as_deref()).await;
+    Ok(serde_json::json!({ "providers": providers }))
+}
+
 // ─── Helper: Parse conversation text to messages ──────────────────────
 
 fn parse_conversation_to_messages(content: &str) -> Vec<web::models::ChatMessage> {
@@ -1071,6 +1087,8 @@ fn main() {
             web_fetch,
             // System
             get_system_usage,
+            // Providers
+            list_providers,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
