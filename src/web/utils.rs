@@ -6,6 +6,7 @@ use std::process::Command;
 /// the Tauri desktop app to prevent terminal windows flashing on screen.
 #[allow(dead_code)]
 pub fn silent_command(program: &str) -> Command {
+    #[allow(unused_mut)]
     let mut cmd = Command::new(program);
     #[cfg(windows)]
     {

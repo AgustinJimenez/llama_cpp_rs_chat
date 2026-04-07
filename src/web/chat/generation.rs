@@ -1145,7 +1145,7 @@ pub async fn generate_llama_response(
     if conversation_content != raw_conversation_content {
         eprintln!("[COMPACTION] Conversation changed after compaction, clearing KV cache for re-decode");
         if let Some(ref mut cache) = state.inference_cache {
-            cache.context.clear_memory();
+            cache.context.clear_kv_cache();
             cache.evaluated_tokens.clear(); // force full re-decode
         }
     }

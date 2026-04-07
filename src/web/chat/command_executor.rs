@@ -302,7 +302,7 @@ pub fn run_summary_reusing_ctx_with_system(
     }
 
     // Clear memory to reuse context for a fresh prompt
-    ctx.clear_memory();
+    ctx.clear_kv_cache();
 
     let batch_cap = 512usize;
     let mut batch = LlamaBatch::new(batch_cap, 1);

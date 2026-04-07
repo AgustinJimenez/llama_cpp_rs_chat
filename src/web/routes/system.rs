@@ -154,7 +154,6 @@ pub async fn handle_system_usage() -> Result<Response<Body>, Infallible> {
     };
     #[cfg(target_os = "macos")]
     let (total_ram_gb, total_vram_gb, cpu_cores, _cpu_base_mhz) = {
-        use std::process::Command;
         let ram = silent_command("sysctl").args(["-n", "hw.memsize"]).output()
             .ok().and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<u64>().ok())
             .map(|b| b as f32 / 1_073_741_824.0).unwrap_or(0.0);

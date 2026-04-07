@@ -54,6 +54,7 @@ pub(super) fn ocr_image_ocrs(img: &image::RgbaImage) -> Result<String, String> {
 }
 
 /// Run OCR with bounding boxes using the ocrs engine.
+#[allow(dead_code)]
 pub(super) fn ocr_find_text_ocrs(img: &image::RgbaImage, search: &str, offset_x: f64, offset_y: f64) -> Result<Vec<OcrMatch>, String> {
     get_or_init_ocrs()?;
     let guard = OCRS_ENGINE.lock().map_err(|_| "OCR engine mutex poisoned")?;
@@ -91,6 +92,7 @@ pub(super) fn ocr_find_text_ocrs(img: &image::RgbaImage, search: &str, offset_x:
 
 
 /// Find PaddleOCR-VL model files in assets/ocr-vlm/ or target cache.
+#[allow(dead_code)]
 fn find_vlm_ocr_model() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
     let candidates = [
         "assets/ocr-vlm",
@@ -108,6 +110,7 @@ fn find_vlm_ocr_model() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
 
 /// Run OCR on an image using PaddleOCR-VL (vision language model).
 /// Loads the model on first use (~1.4s), then runs inference on CPU.
+#[allow(dead_code)]
 pub(super) fn ocr_image_vlm(img: &image::RgbaImage) -> Result<String, String> {
     let (model_path, mmproj_path) = find_vlm_ocr_model()
         .ok_or("PaddleOCR-VL model not found in assets/ocr-vlm/")?;

@@ -197,19 +197,15 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, request
     // Load new model with configured GPU acceleration and model params
     let defaults = ModelParams::default();
     let mp = model_params.unwrap_or(&defaults);
-    let mut llama_model_params = LlamaModelParams::default()
+    let llama_model_params = LlamaModelParams::default()
         .with_n_gpu_layers(optimal_gpu_layers)
         .with_use_mlock(mp.use_mlock)
         .with_main_gpu(mp.main_gpu)
         .with_split_mode(parse_split_mode(&mp.split_mode));
 
-    // Wire up progress callback if caller provided an AtomicU8
-    if let Some(ref progress_arc) = progress {
-        let raw_ptr = Arc::as_ptr(progress_arc) as *mut std::os::raw::c_void;
-        // SAFETY: progress_arc lives until load_from_file returns (held by caller's Arc)
-        llama_model_params.params.progress_callback = Some(loading_progress_cb);
-        llama_model_params.params.progress_callback_user_data = raw_ptr;
-    }
+    // Progress callback removed: upstream llama-cpp-rs made `params` private.
+    // TODO: re-add when a public API for progress callbacks is available.
+    let _ = &progress; // suppress unused warning
 
     log_info!("system", "Loading model from: {}", model_path);
     log_info!(

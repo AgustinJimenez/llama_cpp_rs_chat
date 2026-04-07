@@ -129,6 +129,8 @@ async fn get_model_status(
                 loading: if is_loading { Some(true) } else { None },
                 loading_progress: progress,
                 generating: if is_generating { Some(true) } else { None },
+                active_conversation_id: None,
+                status_message: None,
                 model_path: Some(meta.model_path),
                 last_used: None,
                 memory_usage_mb: if meta.loaded { Some(512) } else { None },
@@ -145,6 +147,8 @@ async fn get_model_status(
             loading: if is_loading { Some(true) } else { None },
             loading_progress: progress,
             generating: if is_generating { Some(true) } else { None },
+            active_conversation_id: None,
+            status_message: None,
             model_path: None,
             last_used: None,
             memory_usage_mb: None,
@@ -175,6 +179,8 @@ async fn load_model(
                     loading: None,
                     loading_progress: None,
                     generating: None,
+                    active_conversation_id: None,
+                    status_message: None,
                     model_path: Some(meta.model_path.clone()),
                     last_used: None,
                     memory_usage_mb: Some(512),
@@ -182,8 +188,8 @@ async fn load_model(
                     tool_tags: Some(get_tool_tags_for_model(meta.general_name.as_deref())),
                     gpu_layers: meta.gpu_layers,
                     block_count: meta.block_count,
-                system_prompt_tokens: None,
-                tool_definitions_tokens: None,
+                    system_prompt_tokens: None,
+                    tool_definitions_tokens: None,
                 }),
             })
         }
@@ -208,6 +214,8 @@ async fn unload_model(
                 loading: None,
                 loading_progress: None,
                 generating: None,
+                active_conversation_id: None,
+                status_message: None,
                 model_path: None,
                 last_used: None,
                 memory_usage_mb: None,
@@ -215,8 +223,8 @@ async fn unload_model(
                 tool_tags: None,
                 gpu_layers: None,
                 block_count: None,
-            system_prompt_tokens: None,
-            tool_definitions_tokens: None,
+                system_prompt_tokens: None,
+                tool_definitions_tokens: None,
             }),
         }),
         Err(e) => Ok(ModelResponse {
@@ -274,6 +282,7 @@ async fn get_conversations(
                 display_name: format!("Chat {timestamp_part}"),
                 timestamp: timestamp_part,
                 title: None,
+                provider_id: None,
             }
         })
         .collect();
@@ -288,7 +297,7 @@ async fn get_conversation(
     let conversation_id = filename.trim_end_matches(".txt");
     let content = db.get_conversation_as_text(conversation_id)?;
     let messages = parse_conversation_to_messages(&content);
-    Ok(ConversationContentResponse { content, messages })
+    Ok(ConversationContentResponse { content, messages, provider_id: None, provider_session_id: None })
 }
 
 #[tauri::command]
