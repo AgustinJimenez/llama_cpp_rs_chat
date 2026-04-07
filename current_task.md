@@ -1,6 +1,24 @@
 # Current Tasks — App Improvements
 
-## Status: Ready to implement
+## Status: 4 of 6 tasks completed
+
+### ~~1. Conversation Search~~ ✅ DONE
+Implemented: search input in sidebar, instant client-side title filtering.
+
+### ~~3. Faster Streaming Cancel~~ ✅ DONE  
+Fixed: cancel check every token instead of every 4 (4x faster).
+
+### ~~4. Mobile Responsive UI~~ ✅ ALREADY DONE
+Already implemented: sidebar overlay, hamburger menu, responsive layout.
+
+### ~~7. File Drag-and-Drop~~ ✅ ALREADY DONE
+Already implemented: images, text/code, PDFs/DOCX, drag overlay UI.
+
+---
+
+## Remaining Tasks
+
+### 2. Message Editing & Conversation Forking (Priority: HIGH, Effort: Large)
 
 ### 1. Conversation Search (Priority: HIGH, Effort: Small)
 **Goal:** Add a search input to the sidebar that filters conversations by title and content.
