@@ -396,7 +396,7 @@ fn run_generation_loop(
         );
 
         for i in 0..tokens_to_generate {
-            if i % 4 == 0 && cancel.load(Ordering::Relaxed) {
+            if cancel.load(Ordering::Relaxed) {
                 log_info!(cfg.conversation_id, "Generation cancelled by user");
                 gen.finish_reason = "cancelled".to_string();
                 hit_stop_condition = true;
