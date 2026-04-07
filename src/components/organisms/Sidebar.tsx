@@ -132,6 +132,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [conversationToDelete, setConversationToDelete] = useState<ConversationFile | null>(null);
   const [isExplorerOpen, setIsExplorerOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const fetchConversations = async () => {
     setLoading(true);
@@ -167,10 +168,19 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
     return () => window.removeEventListener('conversation-title-updated', handler);
   }, []);
 
-  // Group conversations by date
+  // Filter conversations by search term, then group by date
+  const filteredConversations = useMemo(() => {
+    if (!searchTerm.trim()) return conversations;
+    const term = searchTerm.toLowerCase();
+    return conversations.filter(c => {
+      const title = (c.title || c.display_name || c.name).toLowerCase();
+      return title.includes(term);
+    });
+  }, [conversations, searchTerm]);
+
   const groupedEntries = useMemo(() => {
     const groups: Record<string, ConversationFile[]> = {};
-    for (const conv of conversations) {
+    for (const conv of filteredConversations) {
       const group = getDateGroup(conv.timestamp);
       if (!groups[group]) groups[group] = [];
       groups[group].push(conv);
@@ -182,7 +192,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
       result.push({ group, items: groups[group].map(c => ({ conversation: c, flatIndex: idx++ })) });
     }
     return result;
-  }, [conversations]);
+  }, [filteredConversations]);
 
   const handleDeleteClick = useCallback((e: React.MouseEvent, conversation: ConversationFile) => {
     e.stopPropagation();
@@ -279,12 +289,28 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
           </button>
         </div>
 
+        {/* Search */}
+        <div className="px-3 pb-2">
+          <div className="relative">
+            <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Search conversations..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-7 pr-2 py-1.5 text-xs bg-muted border border-border rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+          </div>
+        </div>
+
         {/* Conversation list — grows to fill space between header and footer */}
         <div className="flex-1 overflow-y-auto px-2 pb-2 min-h-0" data-testid="conversations-list">
           {loading ? (
             <div className="text-center text-foreground/50 text-xs py-6">Loading...</div>
-          ) : conversations.length === 0 ? (
-            <div className="text-center text-foreground/50 text-xs py-6">No conversations yet</div>
+          ) : filteredConversations.length === 0 ? (
+            <div className="text-center text-foreground/50 text-xs py-6">
+              {searchTerm ? `No results for "${searchTerm}"` : 'No conversations yet'}
+            </div>
           ) : (
             groupedEntries.map(({ group, items }) => (
               <div key={group}>
