@@ -1,71 +1,158 @@
-# Current Task
+# Current Tasks — App Improvements
 
-## Goal
+## Status: Ready to implement
 
-Improve the desktop tools stack further with structured result reporting, persistent action tracing, and better regression support.
+### 1. Conversation Search (Priority: HIGH, Effort: Small)
+**Goal:** Add a search input to the sidebar that filters conversations by title and content.
 
-## Why
+**Implementation:**
+- Add a search input at the top of the sidebar (below "Conversations" header)
+- Filter conversations client-side by title match (instant)
+- For content search: add a `/api/conversations/search?q=term` endpoint that searches message content in SQLite (`SELECT DISTINCT conversation_id FROM messages WHERE content LIKE '%term%'`)
+- Show matching conversations highlighted, with snippet of matching text
+- Debounce input (300ms) to avoid excessive API calls
 
-The app is intended to let agents operate a PC. After fixing the major timeout/cancellation issues, the next gaps are:
+**Files to modify:**
+- `src/components/organisms/Sidebar.tsx` — add search input, filter logic
+- `src/web/routes/conversation.rs` — add search endpoint
+- `src/web/database/conversation.rs` — add search query
 
-- tool outcomes are mostly free-form text rather than structured signals
-- desktop failures are hard to inspect after the fact
-- regression coverage exists, but desktop reliability still depends too much on ad hoc smoke checks
+---
 
-Current state:
+### 2. Message Editing & Conversation Forking (Priority: HIGH, Effort: Large)
+**Goal:** Edit a previous message and regenerate the conversation from that point forward.
 
-- MCP desktop execution is serialized.
-- The main Windows UI Automation and OCR hotspots are bounded or cancel-aware.
-- Desktop results still lack a unified machine-readable status/tracing layer.
+**Current state:** Basic edit exists (`onEditMessage` in MessageBubble) but doesn't truncate/regenerate.
 
-## Plan
+**Implementation:**
+- When user edits a message, truncate all messages after the edited one
+- Delete truncated messages from DB
+- Re-send the edited message as the new prompt
+- The model regenerates from the edited point
+- Optional: keep a "branch history" so users can switch between branches
 
-1. Add a dispatcher-level structured desktop result summary:
-   - status (`completed`, `cancelled`, `timed_out`, `error`)
-   - duration
-   - image count
-   - tool name
-2. Append a compact machine-readable footer to desktop tool outputs so agents can parse outcomes consistently.
-3. Write persistent desktop action traces as JSONL for post-failure inspection.
-4. Add targeted tests for status classification and trace serialization.
-5. Run targeted verification:
-   - desktop tool dispatch test
-   - desktop result/tracing unit tests
-   - MCP desktop tool compile path
+**Files to modify:**
+- `src/hooks/useChat.ts` — add `editAndRegenerate(messageIndex, newContent)` function
+- `src/web/routes/conversation.rs` — add `/api/conversations/:id/truncate-after` endpoint
+- `src/web/database/conversation.rs` — add `delete_messages_after(conversation_id, sequence_order)`
+- `src/components/organisms/MessageBubble.tsx` — update edit handler to call regenerate
 
-## Expected Outcome
+**Edge cases:**
+- What if the edited message is a tool call response? Skip it.
+- What about compacted conversations? Can't edit before compaction point.
+- System prompt changes between original and edit? Use current config.
 
-- Desktop tools produce more consistent machine-readable outcomes.
-- Failures and timeouts leave a trace that can be inspected after the fact.
-- Future desktop regressions are easier to detect and diagnose.
+---
 
-## Status
+### 3. Faster Streaming Cancel (Priority: HIGH, Effort: Investigation)
+**Goal:** Cancel generation should stop output within <200ms, not seconds.
 
-Implemented.
+**Current state:** Cancel sets a flag, but the model keeps generating until the next token check. The worker process might buffer tokens.
 
-Completed in the previous pass:
+**Investigation needed:**
+- Check `src/web/chat/generation.rs` — where is the cancel flag checked in the decode loop?
+- Check `src/web/worker/worker_bridge.rs` — how does cancel propagate from HTTP to worker process?
+- Check if `llama_decode()` blocks for long periods (large batch size = slow cancel)
+- Possible fix: reduce batch size during generation, check cancel flag every N tokens
+- Possible fix: use `llama_abort()` C API if available (interrupts decode mid-batch)
 
-- per-call desktop cancellation context in the MCP desktop server path
-- propagation of cancellation context into desktop tool worker threads
-- polling/wait-style cancellation checks
-- clearer timeout reporting in the MCP path
-- Windows UI Automation client timeouts via IUIAutomation2
-- WinRT OCR async-operation cancellation/status handling for Windows OCR paths
+**Files to investigate:**
+- `src/web/chat/generation.rs` — main generation loop, cancel flag check
+- `src/web/worker/worker_bridge.rs` — cancel IPC
+- `src/web/worker/worker_main.rs` — worker-side cancel handling
+- `src/web/routes/chat.rs` — `/api/chat/cancel` endpoint
 
-Completed in this pass:
+---
 
-- dispatcher-level desktop result status classification
-- compact machine-readable `[desktop_result]` footer on desktop tool outputs
-- persistent desktop action trace logging as JSONL
-- unit tests for desktop result classification and trace-safe argument summarization
-- re-ran targeted desktop MCP tests successfully
+### 4. Mobile Responsive UI (Priority: MEDIUM, Effort: Medium)
+**Goal:** App should be usable on phones/tablets. Sidebar should collapse, input should be full-width.
 
-Remaining limitation from the previous pass:
+**Implementation:**
+- Sidebar: hide by default on mobile (< 768px), show as overlay when toggled
+- Header: hamburger menu to toggle sidebar on mobile
+- Message bubbles: full-width on mobile (no max-width constraint)
+- Input: full-width, larger touch targets
+- Model config modal: stack vertically on mobile instead of grid
+- Tool call widgets: collapse by default on mobile (save space)
 
-- A desktop call that is blocked inside a non-cancellable synchronous OS/API call still cannot be forcibly preempted mid-call.
+**Files to modify:**
+- `src/App.tsx` — responsive sidebar toggle state
+- `src/components/organisms/Sidebar.tsx` — mobile overlay mode
+- `src/components/organisms/ChatHeader.tsx` — hamburger menu
+- `src/components/organisms/MessageBubble.tsx` — responsive widths
+- `src/components/molecules/MessageInput.tsx` — mobile sizing
+- `src/index.css` — media queries, mobile-specific styles
 
-Still not implemented in this pass:
+**Breakpoints:**
+- `< 640px` (sm): phone — sidebar hidden, full-width everything
+- `640-1024px` (md): tablet — sidebar overlay, adjusted spacing
+- `> 1024px` (lg): desktop — current layout
 
-- broader real-app regression harness beyond targeted smoke tests
-- OCR regioning/cache improvements
-- stronger PID/HWND-forwarding across more multi-step workflows
+---
+
+### 7. File Drag-and-Drop for Context (Priority: MEDIUM, Effort: Medium)
+**Goal:** Drop any file into the chat and the agent reads it automatically.
+
+**Current state:** Image paste/drop works (base64 → vision pipeline). Need to extend for text files, code, PDFs, etc.
+
+**Implementation:**
+- Extend the drop zone in MessageInput to accept all file types
+- For text files (.txt, .md, .rs, .py, .js, etc.): read content, inject as user message
+- For code files: syntax-detect language, wrap in code block
+- For PDFs: use existing `/api/file/extract-text` endpoint
+- For images: existing flow (base64 → vision pipeline)
+- Show file preview chip in the input area before sending
+
+**Files to modify:**
+- `src/components/molecules/MessageInput.tsx` — extend drop handler, file type detection
+- `src/hooks/useChat.ts` — handle file content in message
+- Already have: `/api/file/extract-text` for PDF/DOCX/XLSX
+
+**Supported formats:**
+- Text: .txt, .md, .csv, .json, .xml, .yaml, .toml, .log
+- Code: .rs, .py, .js, .ts, .tsx, .html, .css, .java, .c, .cpp, .go, .rb, .php, .sql, .sh
+- Documents: .pdf, .docx, .pptx, .xlsx (via extract-text API)
+- Images: .png, .jpg, .gif, .webp (existing vision pipeline)
+
+---
+
+### 9. Auto-Update (Priority: LOW, Effort: Large)
+**Goal:** App checks for updates and offers to install them. Tauri updater plugin is already configured.
+
+**Prerequisites:**
+- GitHub Releases with proper tauri update manifest
+- Code signing (optional but recommended for Windows)
+- Update server URL in tauri.conf.json
+
+**Implementation:**
+- Set up GitHub Actions CI/CD for building + releasing
+- Configure `tauri.conf.json` updater section with GitHub endpoint
+- Add "Check for Updates" button in Settings
+- Show notification when update is available
+
+**Files to modify:**
+- `tauri.conf.json` — updater endpoint configuration
+- `.github/workflows/release.yml` (new) — CI/CD build pipeline
+- `src/components/organisms/AppSettingsModal.tsx` — update check button
+
+---
+
+## Completed This Session
+
+- ✅ Gemma 4 model support (tool calling, presets, llama.cpp update)
+- ✅ Screenshots displayed in chat (persisted as files, served via API)
+- ✅ Mermaid diagrams + Chart.js charts in chat (with 3-dot menu, expand, export)
+- ✅ Image lightbox with download
+- ✅ Light/dark theme toggle with semantic tokens (all hardcoded colors fixed)
+- ✅ Config sidebar fix (shows actual loaded model values)
+- ✅ Polling re-render fix (no more menu/scroll reset every 5s)
+- ✅ Web search image results (Brave thumbnails + DDG icons)
+- ✅ OCR engine stack: Tesseract (~95%) → ocrs (~70%) → native (WinRT/Vision)
+- ✅ ensure-tesseract auto-download tool (npm postinstall)
+- ✅ ocrs Rust-native OCR bundled (BeamSearch + 2x upscale)
+- ✅ PaddleOCR-VL + GLM-OCR VLM OCR testing (not suitable for UI screenshots)
+- ✅ VLM OCR subprocess mode (--vlm-ocr flag)
+- ✅ GLM (Zhipu AI) + Kimi (Moonshot) cloud providers added
+- ✅ Windows installer built (Tauri NSIS 550MB + MSI 570MB)
+- ✅ AGENTS.md: documented 3 tool systems, OCR engines, macOS specifics
+- ✅ ocr_screen added to core tools (always in system prompt)
