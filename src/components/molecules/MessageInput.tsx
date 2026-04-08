@@ -470,7 +470,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
         onChange={handleFileInputChange}
         accept=".pdf,.docx,.pptx,.xlsx,.xls,.xlsm,.epub,.odt,.rtf,.zip,.csv,.eml,.txt,.json,.xml,.md,.rs,.py,.js,.ts,.tsx,.jsx,.html,.css,.toml,.yaml,.yml,.sh,.bat,.c,.cpp,.h,.hpp,.cs,.go,.java,.rb,.php,.sql,.log,.cfg,.ini,.nim,.ex,.exs,.kt,.swift,.r,.lua,.pl,.scala,.zig,.v,.dart,.png,.jpg,.jpeg,.gif,.webp"
       />
-      <div className={`flat-input-container flex items-end gap-2 px-5 py-2.5 ${isMultiline ? '!rounded-2xl' : ''}`}>
+      <div className={`flat-input-container flat-card flex items-end gap-2 px-5 py-2.5 ${isMultiline ? '!rounded-2xl' : ''}`}>
         <button
           type="button"
           onClick={handleFileButtonClick}

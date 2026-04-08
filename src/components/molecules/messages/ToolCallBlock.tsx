@@ -247,7 +247,7 @@ const ScrollableOutput: React.FC<{
     userScrolledRef.current = distFromBottom > 30;
   }, [isStreaming]);
 
-  const containStyle = { borderTop: '1px solid hsl(220 8% 28%)', overscrollBehavior: 'contain' as const };
+  const containClass = 'border-t border-border overscroll-contain';
 
   // Lock height during streaming to prevent layout shifts
   const heightClass = isStreaming ? 'h-64 overflow-y-auto' : 'max-h-64 overflow-y-auto';
@@ -255,7 +255,7 @@ const ScrollableOutput: React.FC<{
   if (language && output.length < 50000) {
     return (
       <div ref={scrollRef as React.RefObject<HTMLDivElement>} onScroll={handleScroll}
-        style={containStyle} className={heightClass}>
+        className={`${containClass} ${heightClass}`}>
         <SyntaxHighlighter
           style={dracula} language={language}
           customStyle={{ margin: 0, padding: '0.5rem 0.75rem', fontSize: '0.75rem', background: 'transparent' }}
@@ -265,8 +265,8 @@ const ScrollableOutput: React.FC<{
   }
   return (
     <pre ref={scrollRef as React.RefObject<HTMLPreElement>} onScroll={handleScroll}
-      className={`text-xs text-foreground font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap ${heightClass}`}
-      style={containStyle}>{output}</pre>
+      className={`text-xs text-foreground font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap ${containClass} ${heightClass}`}
+    >{output}</pre>
   );
 };
 
@@ -276,8 +276,7 @@ const CompletedOutput: React.FC<{
   <>
     <button
       onClick={onToggle}
-      className="w-full bg-muted px-3 py-1.5 flex items-center gap-2 text-left hover:bg-accent transition-colors"
-      style={{ borderTop: '1px solid hsl(220 8% 28%)' }}
+      className="w-full bg-muted px-3 py-1.5 flex items-center gap-2 text-left hover:bg-accent transition-colors border-t border-border"
     >
       <span className="text-xs font-medium text-foreground">Output</span>
       <span className="text-xs text-foreground truncate flex-1">
@@ -300,8 +299,7 @@ const EditFileDiff: React.FC<{ args: Record<string, unknown> }> = ({ args }) => 
   const newLines = newStr.split('\n');
 
   return (
-    <pre className="text-xs font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto"
-      style={{ borderTop: '1px solid hsl(220 8% 28%)', overscrollBehavior: 'contain' }}>
+    <pre className="text-xs font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto border-t border-border overscroll-contain">
       <div className="text-muted-foreground mb-1">{String(args.path || '')}</div>
       {oldLines.map((line, i) => (
         <div key={`old-${i}`} style={{ backgroundColor: 'rgba(248, 81, 73, 0.15)', color: '#f85149' }}>
@@ -338,8 +336,8 @@ const SingleToolCall: React.FC<{ toolCall: ToolCall; isGenerating?: boolean }> =
 
   return (
     <div
-      className="rounded-xl overflow-hidden"
-      style={{ border: '1px solid hsl(220 8% 28%)', contain: 'content' }}
+      className="flat-card overflow-hidden"
+      style={{ contain: 'content' }}
     >
       {isExecuting
         ? <ExecutingHeader name={toolCall.name} summary={summary} hasOutput={!!toolCall.output} elapsed={elapsed} isExpanded={isExpanded} onToggle={() => setIsExpanded(!isExpanded)} />
@@ -348,8 +346,7 @@ const SingleToolCall: React.FC<{ toolCall: ToolCall; isGenerating?: boolean }> =
       {isExpanded ? (
         toolCall.name === 'edit_file' && typeof toolCall.arguments === 'object'
           ? <EditFileDiff args={toolCall.arguments as Record<string, unknown>} />
-          : <pre className="text-xs text-foreground font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto"
-              style={{ overscrollBehavior: 'contain' }}>
+          : <pre className="text-xs text-foreground font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto overscroll-contain">
               {formatToolArguments(toolCall.arguments)}
             </pre>
       ) : null}

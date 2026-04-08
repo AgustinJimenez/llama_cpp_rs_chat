@@ -80,6 +80,7 @@ export const MODEL_TOOL_TAGS: Record<string, ToolTags> = {
   "Zai org_GLM 4.7 Flash": TOOL_TAG_FAMILIES.glm,
   // Gemma 4 models - native tool calling format
   "Gemma-4-26B-A4B-It": TOOL_TAG_FAMILIES.gemma4,
+  "Gemma-4-31B-It": TOOL_TAG_FAMILIES.gemma4,
   // Other models - use default SYSTEM.EXEC (no strong native tool format)
   // MiniCPM, Granite, Nemotron, GPT-OSS, RNJ all use default
 };
@@ -242,6 +243,22 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     cache_type_k: "f16",
     cache_type_v: "f16",
     gpu_layers: 30,
+  },
+  // Gemma 4 31B Dense (31B params, all active)
+  // 60 layers, 262K max ctx but VRAM-limited on 24GB GPUs
+  // q4_0 KV cache critical: 4x less VRAM than f16, fits 32K ctx on RTX 4090
+  "Gemma-4-31B-It": {
+    sampler_type: "Temperature",
+    temperature: 1.0,
+    top_p: 0.95,
+    top_k: 64,
+    repeat_penalty: 1.0,
+    min_p: 0.0,
+    context_size: 16384,
+    flash_attention: true,
+    cache_type_k: "q4_0",
+    cache_type_v: "q4_0",
+    gpu_layers: 60,
   },
   "Gemma 3 12b It": {
     sampler_type: "Greedy",

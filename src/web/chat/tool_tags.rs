@@ -204,6 +204,7 @@ const MODEL_TAG_MAP: &[(&str, TagFactory)] = &[
     ("Openai_Gpt Oss 20b", harmony_tags),
     // Gemma 4 models - native <|tool_call>call:name{args}<tool_call|> format
     ("Gemma-4-26B-A4B-It", gemma4_tags),
+    ("Gemma-4-31B-It", gemma4_tags),
     // GLM models - native <tool_call> tags (same special tokens as Qwen)
     ("Zai org_GLM 4.6V Flash", glm_tags),
     ("Zai org_GLM 4.7 Flash", glm_tags),
@@ -382,6 +383,7 @@ const MODEL_TAG_PAIR_MAP: &[(&str, TagPairFactory)] = &[
     ("Openai_Gpt Oss 20b", harmony_tag_pairs),
     // Gemma 4 models
     ("Gemma-4-26B-A4B-It", gemma4_tag_pairs),
+    ("Gemma-4-31B-It", gemma4_tag_pairs),
     // GLM models
     ("Zai org_GLM 4.6V Flash", glm_tag_pairs),
     ("Zai org_GLM 4.7 Flash", glm_tag_pairs),

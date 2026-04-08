@@ -135,8 +135,13 @@
 
   .flat-input-container {
     background: hsl(var(--muted));
-    border: 1px solid hsl(var(--border));
     @apply rounded-full;
+  }
+
+  .flat-card {
+    border: 1px solid hsl(var(--border));
+    box-shadow: 0 1px 3px 0 rgba(0,0,0,0.08), 0 1px 2px -1px rgba(0,0,0,0.08);
+    @apply rounded-xl;
   }
 
   .flat-header {

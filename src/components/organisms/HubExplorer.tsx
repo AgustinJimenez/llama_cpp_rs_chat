@@ -4,7 +4,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '../atoms/dialog';
 import { Button } from '../atoms/button';
-import { fetchHubTree, loadModel, getConfig, saveConfig } from '@/utils/tauriCommands';
+import { fetchHubTree, loadModel, getConfig, saveConfig, pickDirectory } from '@/utils/tauriCommands';
 import { useHubSearch } from '@/hooks/useHubSearch';
 import type { HubModel, HubSortField } from '@/hooks/useHubSearch';
 import type { HubFile, DownloadProgress, HubDownloadRecord } from '@/utils/tauriCommands';
@@ -38,6 +38,11 @@ function formatNumber(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return String(n);
+}
+
+function formatFileCount(count: number): string {
+  if (count === 0) return 'No GGUF files — needs conversion';
+  return `${count} file${count !== 1 ? 's' : ''}`;
 }
 
 function formatRelativeTime(timestampMs: number): string {
@@ -77,14 +82,13 @@ function fileType(name: string): 'mmproj' | 'imatrix' | 'model' {
 }
 
 // eslint-disable-next-line complexity
-function FileRow({ file, modelId, onDownload, progress, persistedDone, pendingRecord, downloadsDisabled }: {
+function FileRow({ file, modelId, onDownload, progress, persistedDone, pendingRecord }: {
   file: HubFile;
   modelId: string;
   onDownload: (modelId: string, file: HubFile, resumeDest?: string) => void;
   progress?: DownloadProgress | null;
   persistedDone?: boolean;
   pendingRecord?: HubDownloadRecord | null;
-  downloadsDisabled?: boolean;
 }) {
   const quant = extractQuant(file.name);
   const type = fileType(file.name);
@@ -147,9 +151,9 @@ function FileRow({ file, modelId, onDownload, progress, persistedDone, pendingRe
           e.stopPropagation();
           onDownload(modelId, file, pendingRecord?.dest_path);
         }}
-        disabled={isDownloading || downloadsDisabled}
-        className="text-muted-foreground hover:text-foreground shrink-0 relative z-10 disabled:opacity-50"
-        title={downloadsDisabled ? 'Set a download directory first' : isPaused ? 'Resume download' : isDownloading ? 'Downloading...' : 'Download to local disk'}
+        disabled={isDownloading}
+        className="text-muted-foreground hover:text-foreground shrink-0 relative z-10 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+        title={isPaused ? 'Resume download' : isDownloading ? 'Downloading...' : 'Download to local disk'}
         aria-label={isPaused ? 'Resume download' : isDownloading ? 'Downloading' : 'Download file'}
       >
         {isDownloading
@@ -161,13 +165,12 @@ function FileRow({ file, modelId, onDownload, progress, persistedDone, pendingRe
   );
 }
 
-function ModelCard({ model, onDownload, downloads, downloadedSet, pendingDownloads, downloadsDisabled }: {
+function ModelCard({ model, onDownload, downloads, downloadedSet, pendingDownloads }: {
   model: HubModel;
   onDownload: (modelId: string, file: HubFile, resumeDest?: string) => void;
   downloads: Map<string, DownloadProgress>;
   downloadedSet: Set<string>;
   pendingDownloads: Map<string, HubDownloadRecord>;
-  downloadsDisabled?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [detailedFiles, setDetailedFiles] = useState<HubFile[] | null>(null);
@@ -209,7 +212,7 @@ function ModelCard({ model, onDownload, downloads, downloadedSet, pendingDownloa
             <span className="flex items-center gap-1">
               <Heart className="h-3 w-3" /> {formatNumber(model.likes)}
             </span>
-            <span>{ggufCount} file{ggufCount !== 1 ? 's' : ''}</span>
+            <span>{formatFileCount(ggufCount)}</span>
           </div>
         </div>
         <div className="flex items-center gap-2 ml-2 shrink-0">
@@ -245,7 +248,6 @@ function ModelCard({ model, onDownload, downloads, downloadedSet, pendingDownloa
                 progress={downloads.get(key)}
                 persistedDone={downloadedSet.has(key)}
                 pendingRecord={pendingDownloads.get(key)}
-                downloadsDisabled={downloadsDisabled}
               />
             );
           })}
@@ -443,7 +445,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
   const [activeTab, setActiveTab] = useState<TabId>('explore');
   const [query, setQuery] = useState('');
   const [modelsDirectory, setModelsDirectory] = useState<string | null>(null);
-  const [dirInput, setDirInput] = useState('');
+  const [isPicking, setIsPicking] = useState(false);
   const { models, isLoading, error, sort, searchModels, debouncedSearch, changeSort } = useHubSearch();
   const { downloads, downloadedSet, completedDownloads, pendingDownloads, startDownload, pauseDownload, cancelDownload, refreshRecords } = useDownloadContext();
 
@@ -454,7 +456,6 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
       getConfig().then((cfg) => {
         const dir = cfg.models_directory ?? null;
         setModelsDirectory(dir);
-        setDirInput(dir ?? '');
       }).catch(() => {});
     }
   }, [isOpen, searchModels, refreshRecords]);
@@ -481,17 +482,22 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
     startDownload(modelId, file, dirPath);
   }, [startDownload, modelsDirectory]);
 
-  const handleSetDirectory = useCallback(async () => {
-    const trimmed = dirInput.trim();
-    if (!trimmed) return;
+  const handlePickDirectory = useCallback(async () => {
+    if (isPicking) return;
+    setIsPicking(true);
     try {
-      const cfg = await getConfig();
-      await saveConfig({ ...cfg, models_directory: trimmed });
-      setModelsDirectory(trimmed);
+      const dir = await pickDirectory();
+      if (dir) {
+        const cfg = await getConfig();
+        await saveConfig({ ...cfg, models_directory: dir });
+        setModelsDirectory(dir);
+      }
     } catch (err) {
-      console.error('Failed to save models directory:', err);
+      console.error('Failed to pick directory:', err);
+    } finally {
+      setIsPicking(false);
     }
-  }, [dirInput]);
+  }, [isPicking]);
 
   const handleResume = useCallback((record: HubDownloadRecord) => {
     startDownload(record.model_id, { name: record.filename, size: record.file_size }, record.dest_path);
@@ -560,86 +566,90 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
         {/* Explore tab */}
         {activeTab === 'explore' ? (
           <>
-            {/* Models directory config */}
-            <div className="flex items-center gap-2 px-1 py-1.5 border rounded-md bg-muted/30">
-              <FolderOpen className="h-4 w-4 text-muted-foreground shrink-0 ml-1" />
-              <input
-                value={dirInput}
-                onChange={(e) => setDirInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleSetDirectory(); }}
-                placeholder="Set models download directory..."
-                className="flex-1 min-w-0 bg-transparent text-sm focus:outline-none"
-              />
-              <button
-                type="button"
-                onClick={handleSetDirectory}
-                disabled={!dirInput.trim() || dirInput.trim() === modelsDirectory}
-                className="text-xs font-medium px-2 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 shrink-0"
-              >
-                Set
-              </button>
-            </div>
-            {!modelsDirectory ? (
-              <p className="text-xs text-muted-foreground px-1">
-                Set a download directory to enable downloads.
-              </p>
-            ) : null}
-
-            <div className="flex items-center gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <input
-                  value={query}
-                  onChange={handleChange}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Search models or paste repo ID (e.g. unsloth/gemma-4-26B-A4B-it-GGUF)..."
-                  className="w-full pl-9 pr-3 py-2 border rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  // eslint-disable-next-line jsx-a11y/no-autofocus
-                  autoFocus
-                />
-              </div>
-              <div className="relative shrink-0">
-                <ArrowUpDown className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-                <select
-                  value={sort}
-                  onChange={(e) => changeSort(e.target.value as HubSortField, query)}
-                  className="pl-8 pr-2 py-2 border rounded-md bg-background text-sm appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring"
-                >
-                  {SORT_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="relative flex-1 min-h-0 overflow-y-auto space-y-2" style={{ maxHeight: '400px' }}>
-              {isLoading ? <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60 rounded-md">
-                  <Loader2 className="h-5 w-5 animate-spin mr-2 text-muted-foreground" />
-                  <span className="text-muted-foreground text-sm">Searching...</span>
-                </div> : null}
-
-              {error ? <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-md text-sm text-destructive">
-                  {error}
-                </div> : null}
-
-              {!error && models.length === 0 && !isLoading && (
-                <div className="text-center py-8 text-muted-foreground text-sm">
-                  {query ? <>No GGUF models found for &ldquo;{query}&rdquo;</> : 'No models found'}
-                </div>
+            {/* Models directory picker */}
+            <button
+              type="button"
+              onClick={handlePickDirectory}
+              disabled={isPicking}
+              className={`w-full px-3 py-2 text-sm border rounded-md bg-background text-left flex items-center gap-2 border-input ${
+                isPicking ? 'opacity-60' : 'cursor-pointer hover:bg-accent/50 transition-colors'
+              }`}
+            >
+              {isPicking ? (
+                <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+              ) : (
+                <FolderOpen className="h-4 w-4 text-foreground shrink-0" />
               )}
+              {modelsDirectory ? (
+                <span className="font-mono text-xs truncate">{modelsDirectory}</span>
+              ) : (
+                <span className="text-foreground/60">Click to set models download directory...</span>
+              )}
+            </button>
 
-              {models.map((m) => (
-                <ModelCard
-                  key={m.id}
-                  model={m}
-                  onDownload={handleDownloadClick}
-                  downloads={downloads}
-                  downloadedSet={downloadedSet}
-                  pendingDownloads={pendingDownloads}
-                  downloadsDisabled={!modelsDirectory}
-                />
-              ))}
-            </div>
+            {!modelsDirectory ? (
+              <div className="text-center py-12 text-muted-foreground text-sm">
+                <FolderOpen className="h-8 w-8 mx-auto mb-3 opacity-40" />
+                <p>Set a download directory to browse and download models.</p>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <input
+                      value={query}
+                      onChange={handleChange}
+                      onKeyDown={handleKeyDown}
+                      placeholder="Search models or paste repo ID (e.g. unsloth/gemma-4-26B-A4B-it-GGUF)..."
+                      className="w-full pl-9 pr-3 py-2 border rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                      // eslint-disable-next-line jsx-a11y/no-autofocus
+                      autoFocus
+                    />
+                  </div>
+                  <div className="relative shrink-0">
+                    <ArrowUpDown className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                    <select
+                      value={sort}
+                      onChange={(e) => changeSort(e.target.value as HubSortField, query)}
+                      className="pl-8 pr-2 py-2 border rounded-md bg-background text-sm appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      {SORT_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="relative flex-1 min-h-0 overflow-y-auto space-y-2" style={{ maxHeight: '400px' }}>
+                  {isLoading ? <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60 rounded-md">
+                      <Loader2 className="h-5 w-5 animate-spin mr-2 text-muted-foreground" />
+                      <span className="text-muted-foreground text-sm">Searching...</span>
+                    </div> : null}
+
+                  {error ? <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-md text-sm text-destructive">
+                      {error}
+                    </div> : null}
+
+                  {!error && models.length === 0 && !isLoading && (
+                    <div className="text-center py-8 text-muted-foreground text-sm">
+                      {query ? <>No GGUF models found for &ldquo;{query}&rdquo;</> : 'No models found'}
+                    </div>
+                  )}
+
+                  {models.map((m) => (
+                    <ModelCard
+                      key={m.id}
+                      model={m}
+                      onDownload={handleDownloadClick}
+                      downloads={downloads}
+                      downloadedSet={downloadedSet}
+                      pendingDownloads={pendingDownloads}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
           </>
         ) : null}
 

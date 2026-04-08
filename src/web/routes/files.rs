@@ -112,25 +112,38 @@ pub async fn handle_get_browse(
     Ok(json_response(StatusCode::OK, &response))
 }
 
-/// POST /api/browse/pick-directory — return the configured models_directory from the database.
-/// If not configured, returns null so the frontend can prompt the user to set one.
+/// POST /api/browse/pick-directory — open native OS directory picker, return selected path.
 pub async fn handle_post_pick_directory(
     #[cfg(not(feature = "mock"))] _bridge: crate::web::worker::worker_bridge::SharedWorkerBridge,
     #[cfg(feature = "mock")] _bridge: (),
-    db: crate::web::database::SharedDatabase,
+    _db: crate::web::database::SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
-    let config = db.load_config();
-    match config.models_directory {
-        Some(ref dir) => {
-            std::fs::create_dir_all(dir).ok();
-            let json = serde_json::json!({ "path": dir });
-            Ok(json_raw(StatusCode::OK, json.to_string()))
+    let path = tokio::task::spawn_blocking(|| {
+        #[cfg(target_os = "macos")]
+        {
+            let output = crate::web::utils::silent_command("osascript")
+                .args(["-e", r#"POSIX path of (choose folder with prompt "Select models download directory")"#])
+                .output();
+            match output {
+                Ok(o) if o.status.success() => {
+                    let p = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                    if p.is_empty() { None } else { Some(p) }
+                }
+                _ => None,
+            }
         }
-        None => {
-            let json = serde_json::json!({ "path": null });
-            Ok(json_raw(StatusCode::OK, json.to_string()))
+        #[cfg(not(target_os = "macos"))]
+        {
+            rfd::FileDialog::new()
+                .pick_folder()
+                .map(|p| p.to_string_lossy().into_owned())
         }
-    }
+    })
+    .await
+    .unwrap_or(None);
+
+    let json = serde_json::json!({ "path": path });
+    Ok(json_raw(StatusCode::OK, json.to_string()))
 }
 
 /// POST /api/browse/pick-file — open native OS file picker filtered to .gguf, return selected path
