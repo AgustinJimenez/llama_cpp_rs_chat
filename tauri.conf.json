@@ -46,8 +46,8 @@
   },
   "plugins": {
     "updater": {
-      "endpoints": ["https://github.com/AgusMJimenez/llama_cpp_rs_chat/releases/latest/download/latest.json"],
-      "pubkey": ""
+      "endpoints": ["https://github.com/AgustinJimenez/llama_cpp_rs_chat/releases/latest/download/latest.json"],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUzOTA5Qjc3RjA1RDY0RkUKUldUK1pGM3dkNXVRNDdxcU9nNk9TekRHZ0wyYmdHMXA5b0NFYVdvaFVSZHdxU3pSbHY0UjdIbVgK"
     },
     "deep-link": {
       "desktop": {

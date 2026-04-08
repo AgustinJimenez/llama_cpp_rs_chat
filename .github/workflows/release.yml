@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            args: --features cuda,vision
+            label: windows-cuda
+          - platform: macos-latest
+            args: --features metal,vision
+            label: macos-metal
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # Windows: install CUDA toolkit
+      - name: Install CUDA (Windows)
+        if: matrix.platform == 'windows-latest'
+        uses: Jimver/cuda-toolkit@v0.2.19
+        with:
+          cuda: '12.8.0'
+
+      # macOS: install sccache for faster builds
+      - name: Install sccache (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: brew install sccache
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2.0"
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v__VERSION__
+          releaseName: 'LLaMA Chat v__VERSION__'
+          releaseBody: |
+            See the [CHANGELOG](https://github.com/AgustinJimenez/llama_cpp_rs_chat/blob/master/CHANGELOG.md) for details.
+
+            ## Downloads
+            - **Windows (CUDA)**: `.msi` or `-setup.exe`
+            - **macOS (Metal)**: `.dmg`
+
+            ## Auto-Update
+            Existing installations will be notified of this update automatically.
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
