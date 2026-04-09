@@ -52,6 +52,15 @@ export function getCacheBytesPerElement(cacheType: string): number {
       return 1.0625; // 8.5 bits (8-bit + 0.5-bit scale)
     case 'f32':
       return 4.0;
+    case 'turbo4':
+    case 'turbo4_0':
+      return 0.53; // ~3.8x compression vs f16
+    case 'turbo3':
+    case 'turbo3_0':
+      return 0.41; // ~4.9x compression vs f16
+    case 'turbo2':
+    case 'turbo2_0':
+      return 0.3125; // ~6.4x compression vs f16
     case 'f16':
     default:
       return 2.0;

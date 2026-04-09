@@ -6,6 +6,9 @@ const KV_CACHE_OPTIONS = [
   { value: 'f16', label: 'F16' },
   { value: 'q8_0', label: 'Q8_0' },
   { value: 'q4_0', label: 'Q4_0' },
+  { value: 'turbo4', label: 'Turbo4 (3.8x)' },
+  { value: 'turbo3', label: 'Turbo3 (4.9x)' },
+  { value: 'turbo2', label: 'Turbo2 (6.4x)' },
 ];
 
 const BATCH_PRESETS = [512, 1024, 2048, 4096];

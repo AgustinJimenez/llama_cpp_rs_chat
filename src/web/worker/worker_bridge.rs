@@ -230,6 +230,8 @@ impl WorkerBridge {
 
         // Clear cached state
         *self.model_meta.lock().await = None;
+        self.loading.store(false, Ordering::SeqCst);
+        self.loading_progress.store(0, Ordering::Relaxed);
 
         // Fail any pending requests
         {

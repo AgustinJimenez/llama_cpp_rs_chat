@@ -27,6 +27,10 @@ pub(super) fn parse_kv_cache_type(s: &str) -> KvCacheType {
         "q4_1" => KvCacheType::Q4_1,
         "q5_0" => KvCacheType::Q5_0,
         "q5_1" => KvCacheType::Q5_1,
+        // TurboQuant KV cache types (requires turboquant llama.cpp fork)
+        "turbo2" | "turbo2_0" => KvCacheType::Unknown(43), // GGML_TYPE_TURBO2_0
+        "turbo3" | "turbo3_0" => KvCacheType::Unknown(41), // GGML_TYPE_TURBO3_0
+        "turbo4" | "turbo4_0" => KvCacheType::Unknown(42), // GGML_TYPE_TURBO4_0
         _ => KvCacheType::F16, // default
     }
 }
