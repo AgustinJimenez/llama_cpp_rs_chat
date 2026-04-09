@@ -764,3 +764,31 @@ pub async fn handle_post_model_hard_unload(
         ))
     }
 }
+
+/// GET /api/backends — list available compute backends (CUDA, Vulkan, CPU, etc.)
+pub async fn handle_get_backends(
+    #[cfg(not(feature = "mock"))] bridge: SharedWorkerBridge,
+    #[cfg(feature = "mock")] _bridge: (),
+) -> Result<Response<Body>, Infallible> {
+    #[cfg(not(feature = "mock"))]
+    {
+        match bridge.get_available_backends().await {
+            Ok(backends) => {
+                let body = serde_json::json!({ "backends": backends });
+                Ok(json_raw(StatusCode::OK, serde_json::to_string(&body).unwrap()))
+            }
+            Err(e) => Ok(json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("Failed to get backends: {e}"),
+            )),
+        }
+    }
+
+    #[cfg(feature = "mock")]
+    {
+        Ok(json_raw(
+            StatusCode::OK,
+            r#"{"backends":[{"name":"CPU","available":true,"devices":[{"name":"CPU","description":"CPU"}]}]}"#.to_string(),
+        ))
+    }
+}

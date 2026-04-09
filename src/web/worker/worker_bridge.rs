@@ -432,6 +432,15 @@ impl WorkerBridge {
     pub async fn get_mcp_status(&self) -> Result<WorkerPayload, String> {
         self.send_and_wait(WorkerCommand::GetMcpStatus).await
     }
+
+    /// Get available compute backends from the worker.
+    pub async fn get_available_backends(&self) -> Result<Vec<super::ipc_types::BackendInfo>, String> {
+        match self.send_and_wait(WorkerCommand::GetAvailableBackends).await? {
+            WorkerPayload::AvailableBackends { backends } => Ok(backends),
+            WorkerPayload::Error { message } => Err(message),
+            _ => Err("Unexpected response to GetAvailableBackends".to_string()),
+        }
+    }
 }
 
 /// Result of a completed generation.

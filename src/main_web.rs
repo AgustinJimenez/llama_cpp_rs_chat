@@ -242,6 +242,10 @@ async fn handle_request_impl(
             web::routes::model::handle_post_model_hard_unload(bridge.clone()).await?
         }
 
+        (&Method::GET, "/api/backends") => {
+            web::routes::model::handle_get_backends(bridge.clone()).await?
+        }
+
         // HuggingFace Hub search & download
         (&Method::GET, "/api/hub/search") => web::routes::hub::handle_search(req).await?,
         (&Method::GET, "/api/hub/tree") => web::routes::hub::handle_tree(req).await?,

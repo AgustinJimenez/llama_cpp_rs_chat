@@ -448,6 +448,31 @@ export function startHubDownload(
   return controller;
 }
 
+// ─── Backends ────────────────────────────────────────────────────────
+
+export interface BackendDeviceInfo {
+  name: string;
+  description: string;
+  vram_mb?: number;
+}
+
+export interface BackendInfo {
+  name: string;
+  available: boolean;
+  devices: BackendDeviceInfo[];
+}
+
+export interface BackendsResponse {
+  backends: BackendInfo[];
+}
+
+export async function getAvailableBackends(): Promise<BackendsResponse> {
+  if (isTauriEnv()) {
+    return invokeCmd<BackendsResponse>('get_available_backends');
+  }
+  return fetchJson<BackendsResponse>('/api/backends');
+}
+
 // ─── System ───────────────────────────────────────────────────────────
 
 export async function getSystemUsage(): Promise<SystemUsageData> {

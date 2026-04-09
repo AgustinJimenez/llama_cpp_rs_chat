@@ -269,6 +269,34 @@ pub fn run_worker(db_path: &str) {
                 write_response(&mut ipc_writer, &WorkerResponse::ok(req_id, WorkerPayload::GlobalStatus { status }));
             }
 
+            WorkerCommand::GetAvailableBackends => {
+                let devices = llama_cpp_2::list_llama_ggml_backend_devices();
+                let mut backend_map: std::collections::HashMap<String, Vec<super::ipc_types::BackendDeviceInfo>> = std::collections::HashMap::new();
+                for dev in &devices {
+                    let vram_mb = if dev.memory_total > 0 {
+                        Some((dev.memory_total / (1024 * 1024)) as u64)
+                    } else {
+                        None
+                    };
+                    backend_map.entry(dev.backend.clone()).or_default().push(
+                        super::ipc_types::BackendDeviceInfo {
+                            name: dev.name.clone(),
+                            description: dev.description.clone(),
+                            vram_mb,
+                        },
+                    );
+                }
+                let backends: Vec<super::ipc_types::BackendInfo> = backend_map
+                    .into_iter()
+                    .map(|(name, devices)| super::ipc_types::BackendInfo {
+                        available: true,
+                        name,
+                        devices,
+                    })
+                    .collect();
+                write_response(&mut ipc_writer, &WorkerResponse::ok(req_id, WorkerPayload::AvailableBackends { backends }));
+            }
+
             WorkerCommand::Ping => {
                 write_response(&mut ipc_writer, &WorkerResponse::ok(req_id, WorkerPayload::Pong));
             }

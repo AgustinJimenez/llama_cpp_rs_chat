@@ -50,6 +50,8 @@ pub enum WorkerCommand {
     GetConversationEvents { conversation_id: String },
     /// Get global status message (compaction progress visible during generation).
     GetGlobalStatus,
+    /// List available compute backends (CUDA, Vulkan, CPU, etc.).
+    GetAvailableBackends,
     /// Health check.
     Ping,
     /// Graceful shutdown.
@@ -152,8 +154,29 @@ pub enum WorkerPayload {
     LoadingProgress { progress: u8 },
     /// Health check response.
     Pong,
+    /// Available compute backends.
+    AvailableBackends {
+        backends: Vec<BackendInfo>,
+    },
     /// An error occurred.
     Error { message: String },
+}
+
+/// A compute backend (e.g. CUDA, Vulkan, CPU).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct BackendInfo {
+    pub name: String,
+    pub available: bool,
+    pub devices: Vec<BackendDeviceInfo>,
+}
+
+/// A device within a compute backend.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct BackendDeviceInfo {
+    pub name: String,
+    pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vram_mb: Option<u64>,
 }
 
 /// Status of an individual MCP server.
