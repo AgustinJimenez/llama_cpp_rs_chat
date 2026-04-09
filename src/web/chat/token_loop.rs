@@ -245,6 +245,13 @@ pub(super) fn run_generation_loop(
                     hit_stop_condition = true;
                     break;
                 }
+                // Abort callback triggered during decode (cancel while stuck in llama_decode)
+                if err_str.contains("Unknown(2)") || cancel.load(Ordering::Relaxed) {
+                    log_info!(cfg.conversation_id, "Decode aborted by cancel callback at token {}", gen.total_tokens_generated);
+                    gen.finish_reason = "cancelled".to_string();
+                    hit_stop_condition = true;
+                    break;
+                }
                 return Err(format!("Decode failed at token {}: {e}", gen.total_tokens_generated));
             }
 

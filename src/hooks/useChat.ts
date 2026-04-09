@@ -610,6 +610,11 @@ export function useChat() {
                 streamSeq: streamSeqRef.current + 1,
               }).catch(() => setIsLoading(false));
             }, 1000);
+          } else {
+            // Generation finished (cancelled, completed, or errored) — clear loading
+            // in case the WebSocket died before delivering the done/abort message
+            setIsLoading(false);
+            setStreamStatus(undefined);
           }
           return;
         }

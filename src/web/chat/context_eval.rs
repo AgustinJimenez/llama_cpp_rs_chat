@@ -88,6 +88,7 @@ pub(super) fn evaluate_text_prompt(
     cache_type_v: &str,
     config: &SamplerConfig,
     batch_cap: usize,
+    cancel: Option<&std::sync::Arc<std::sync::atomic::AtomicBool>>,
 ) -> Result<(LlamaContext<'static>, usize), String> {
     let n_ctx = NonZeroU32::new(context_size).expect("Context size must be non-zero");
 
@@ -128,6 +129,16 @@ pub(super) fn evaluate_text_prompt(
     // Reset perf counters so timings cover only this turn (not accumulated from cache)
     ctx.reset_timings();
 
+    // Set abort callback so llama_decode can be interrupted by cancel flag during prompt eval
+    extern "C" fn abort_cb(data: *mut std::ffi::c_void) -> bool {
+        let flag = unsafe { &*(data as *const std::sync::atomic::AtomicBool) };
+        flag.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    if let Some(cancel_flag) = cancel {
+        let cancel_ptr = std::sync::Arc::as_ptr(cancel_flag) as *mut std::ffi::c_void;
+        unsafe { ctx.set_abort_callback(Some(abort_cb), cancel_ptr); }
+    }
+
     // Evaluate only new tokens (skip those already in KV cache)
     let new_tokens = &tokens[skip_tokens..];
     if !new_tokens.is_empty() {
@@ -137,6 +148,13 @@ pub(super) fn evaluate_text_prompt(
 
         let mut batch = LlamaBatch::new(batch_cap, 1);
         for chunk_idx in 0..n_chunks {
+            if let Some(cf) = cancel {
+                if cf.load(std::sync::atomic::Ordering::Relaxed) {
+                    unsafe { ctx.set_abort_callback(None, std::ptr::null_mut()); }
+                    return Err("Cancelled".to_string());
+                }
+            }
+
             let start = chunk_idx * batch_cap;
             let end = std::cmp::min(start + batch_cap, new_tokens.len());
 
@@ -151,14 +169,24 @@ pub(super) fn evaluate_text_prompt(
             if let Err(e) = ctx.decode(&mut batch) {
                 let err_str = format!("{e}");
                 if err_str.contains("NoKvCacheSlot") {
-                    return Err(format!("Context too small for conversation — try increasing context size or starting a new conversation"));
+                    unsafe { ctx.set_abort_callback(None, std::ptr::null_mut()); }
+                    return Err("Context too small for conversation — try increasing context size or starting a new conversation".to_string());
                 }
+                // Abort callback triggered — treat as cancellation
+                if err_str.contains("Unknown(2)") || cancel.map_or(false, |c| c.load(std::sync::atomic::Ordering::Relaxed)) {
+                    unsafe { ctx.set_abort_callback(None, std::ptr::null_mut()); }
+                    return Err("Cancelled".to_string());
+                }
+                unsafe { ctx.set_abort_callback(None, std::ptr::null_mut()); }
                 return Err(format!("Prompt decode failed (chunk {}/{}): {e}", chunk_idx + 1, n_chunks));
             }
         }
     } else {
         log_info!(conversation_id, "All {} prompt tokens already in KV cache, skipping decode", tokens.len());
     }
+
+    // Clear abort callback — generation loop will set its own
+    unsafe { ctx.set_abort_callback(None, std::ptr::null_mut()); }
 
     Ok((ctx, skip_tokens))
 }

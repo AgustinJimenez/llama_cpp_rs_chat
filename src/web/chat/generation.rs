@@ -517,7 +517,7 @@ pub async fn generate_llama_response(
             &mut state.inference_cache, model, &state.backend,
             &tokens, &conversation_id, context_size,
             offload_kqv, flash_attention, &cache_type_k, &cache_type_v,
-            &config, batch_cap,
+            &config, batch_cap, Some(&cancel),
         ) {
             Ok(result) => result,
             Err(e) if e.contains("Context too small") => {
@@ -528,7 +528,7 @@ pub async fn generate_llama_response(
                     &mut state.inference_cache, model, &state.backend,
                     &tokens, &conversation_id, context_size,
                     offload_kqv, flash_attention, &cache_type_k, &cache_type_v,
-                    &config, batch_cap,
+                    &config, batch_cap, Some(&cancel),
                 )?
             },
             Err(e) => return Err(e),
@@ -608,11 +608,25 @@ pub async fn generate_llama_response(
     #[cfg(not(feature = "vision"))]
     let vision_ctx_ref: VisionCtxRef<'_> = ();
 
-    run_generation_loop(
+    // Set abort callback so llama_decode checks the cancel flag mid-computation.
+    // This makes cancel responsive even during long decode calls (32K+ context).
+    extern "C" fn abort_cb(data: *mut std::ffi::c_void) -> bool {
+        let flag = unsafe { &*(data as *const AtomicBool) };
+        flag.load(Ordering::Relaxed)
+    }
+    let cancel_ptr = Arc::as_ptr(&cancel) as *mut std::ffi::c_void;
+    unsafe { context.set_abort_callback(Some(abort_cb), cancel_ptr); }
+
+    let loop_result = run_generation_loop(
         &mut gen, &cfg, &mut context, model, &mut sampler,
         &mut batch, &token_sender, &conversation_logger, &cancel,
         vision_ctx_ref,
-    )?;
+    );
+
+    // Clear abort callback before reusing or storing the context
+    unsafe { context.set_abort_callback(None, std::ptr::null_mut()); }
+
+    loop_result?;
 
     let token_pos = gen.token_pos;
 
