@@ -558,6 +558,7 @@ async fn stdout_reader_task(
                         tokens_used,
                         max_tokens,
                         status: None,
+                        ..Default::default()
                     });
                     continue;
                 }

@@ -31,6 +31,8 @@ async fn flush_pending_tokens(
     pending_tokens: &mut String,
     pending_tokens_used: &mut Option<i32>,
     pending_max_tokens: &mut Option<i32>,
+    pending_gen_tok_per_sec: &mut Option<f64>,
+    pending_gen_tokens: &mut Option<i32>,
     next_flush: &mut Instant,
     debug: &mut WsStreamDebug,
 ) -> Result<(), ()> {
@@ -42,6 +44,8 @@ async fn flush_pending_tokens(
     let token_chunk = std::mem::take(pending_tokens);
     let tokens_used = pending_tokens_used.take();
     let max_tokens = pending_max_tokens.take();
+    let gen_tok_per_sec = pending_gen_tok_per_sec.take();
+    let gen_tokens = pending_gen_tokens.take();
 
     debug.chunks_sent = debug.chunks_sent.saturating_add(1);
     debug.chars_sent = debug.chars_sent.saturating_add(token_chunk.len());
@@ -56,12 +60,18 @@ async fn flush_pending_tokens(
         debug.chars_sent = 0;
     }
 
-    let json = serde_json::json!({
+    let mut json = serde_json::json!({
         "type": "token",
         "token": token_chunk,
         "tokens_used": tokens_used,
         "max_tokens": max_tokens
     });
+    if let Some(tps) = gen_tok_per_sec {
+        json["gen_tok_per_sec"] = serde_json::json!(tps);
+    }
+    if let Some(gt) = gen_tokens {
+        json["gen_tokens"] = serde_json::json!(gt);
+    }
 
     *next_flush = Instant::now() + WS_TOKEN_FLUSH_INTERVAL;
 
@@ -148,6 +158,8 @@ pub async fn handle_websocket(
                 let mut pending_tokens = String::new();
                 let mut pending_tokens_used: Option<i32> = None;
                 let mut pending_max_tokens: Option<i32> = None;
+                let mut pending_gen_tok_per_sec: Option<f64> = None;
+                let mut pending_gen_tokens: Option<i32> = None;
                 let mut next_flush = Instant::now() + WS_TOKEN_FLUSH_INTERVAL;
                 let mut debug = WsStreamDebug {
                     enabled: std::env::var("LLAMA_CHAT_WS_STREAM_DEBUG").ok().as_deref()
@@ -181,6 +193,12 @@ pub async fn handle_websocket(
                                     pending_tokens.push_str(&token_data.token);
                                     pending_tokens_used = Some(token_data.tokens_used);
                                     pending_max_tokens = Some(token_data.max_tokens);
+                                    if token_data.gen_tok_per_sec.is_some() {
+                                        pending_gen_tok_per_sec = token_data.gen_tok_per_sec;
+                                    }
+                                    if token_data.gen_tokens.is_some() {
+                                        pending_gen_tokens = token_data.gen_tokens;
+                                    }
                                     heartbeat_deadline = Instant::now() + Duration::from_secs(15);
 
                                     if pending_tokens.len() >= WS_TOKEN_FLUSH_MAX_CHARS
@@ -189,6 +207,8 @@ pub async fn handle_websocket(
                                             &mut pending_tokens,
                                             &mut pending_tokens_used,
                                             &mut pending_max_tokens,
+                                            &mut pending_gen_tok_per_sec,
+                                            &mut pending_gen_tokens,
                                             &mut next_flush,
                                             &mut debug,
                                         ).await.is_err() {
@@ -204,6 +224,8 @@ pub async fn handle_websocket(
                                         &mut pending_tokens,
                                         &mut pending_tokens_used,
                                         &mut pending_max_tokens,
+                                        &mut pending_gen_tok_per_sec,
+                                        &mut pending_gen_tokens,
                                         &mut next_flush,
                                         &mut debug,
                                     ).await;
@@ -306,6 +328,8 @@ pub async fn handle_websocket(
                                 &mut pending_tokens,
                                 &mut pending_tokens_used,
                                 &mut pending_max_tokens,
+                                &mut pending_gen_tok_per_sec,
+                                &mut pending_gen_tokens,
                                 &mut next_flush,
                                 &mut debug,
                             ).await.is_err() {
@@ -329,6 +353,8 @@ pub async fn handle_websocket(
                                         &mut pending_tokens,
                                         &mut pending_tokens_used,
                                         &mut pending_max_tokens,
+                                        &mut pending_gen_tok_per_sec,
+                                        &mut pending_gen_tokens,
                                         &mut next_flush,
                                         &mut debug,
                                     ).await;

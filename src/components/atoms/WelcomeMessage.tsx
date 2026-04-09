@@ -66,7 +66,7 @@ export const WelcomeMessage: React.FC<WelcomeMessageProps> = ({ children }) => {
       <button
         type="button"
         onClick={openProviderSelector}
-        className="flex flex-col items-center gap-3 px-10 py-8 rounded-xl bg-muted/50 hover:bg-muted transition-colors cursor-pointer"
+        className="flat-card flex flex-col items-center gap-3 px-10 py-8 bg-muted/50 hover:bg-muted transition-colors cursor-pointer"
       >
         <Zap className="h-8 w-8 text-foreground" />
         <span className="text-sm font-medium text-foreground">Choose a provider to start chatting</span>

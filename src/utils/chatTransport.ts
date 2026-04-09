@@ -22,7 +22,7 @@ export interface TimingInfo {
 }
 
 export interface StreamingCallbacks {
-  onToken: (token: string, tokensUsed?: number, maxTokens?: number) => void;
+  onToken: (token: string, tokensUsed?: number, maxTokens?: number, genTokPerSec?: number, genTokens?: number) => void;
   onComplete: (messageId: string, conversationId: string, tokensUsed?: number, maxTokens?: number, timings?: TimingInfo) => void;
   onError: (error: string) => void;
   onStatus?: (message: string) => void;
@@ -76,7 +76,7 @@ function handleStreamMessage(
     if (message.type === 'token') {
       if (message.tokens_used !== undefined) state.lastTokensUsed = message.tokens_used;
       if (message.max_tokens !== undefined) state.lastMaxTokens = message.max_tokens;
-      callbacks.onToken(message.token, message.tokens_used, message.max_tokens);
+      callbacks.onToken(message.token, message.tokens_used, message.max_tokens, message.gen_tok_per_sec, message.gen_tokens);
       return;
     }
 

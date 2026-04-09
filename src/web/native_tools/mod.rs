@@ -30,6 +30,35 @@ use std::collections::HashMap;
 use std::sync::Mutex as StdMutex;
 use crate::web::utils::silent_command;
 
+/// Extract tool name from a raw command string (JSON tool call).
+pub fn extract_tool_name(cmd: &str) -> Option<String> {
+    serde_json::from_str::<Value>(cmd).ok()
+        .and_then(|v| v.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
+}
+
+/// Extract a brief summary of tool arguments for logging.
+pub fn extract_tool_args_summary(cmd: &str) -> String {
+    let v: Value = match serde_json::from_str(cmd) {
+        Ok(v) => v,
+        Err(_) => return cmd.chars().take(80).collect(),
+    };
+    let args = match v.get("arguments") {
+        Some(a) => a,
+        None => return "(no args)".to_string(),
+    };
+    // Pick the first string arg as summary
+    if let Some(obj) = args.as_object() {
+        for (key, val) in obj.iter().take(2) {
+            if let Some(s) = val.as_str() {
+                let truncated: String = s.chars().take(80).collect();
+                return format!("{}={}", key, truncated);
+            }
+        }
+    }
+    let s = args.to_string();
+    if s.len() > 80 { format!("{}...", &s[..77]) } else { s }
+}
+
 // ─── In-memory todo store (per conversation) ─────────────────────────────────
 #[allow(dead_code)]
 static TODO_STORE: OnceLock<StdMutex<HashMap<String, String>>> = OnceLock::new();

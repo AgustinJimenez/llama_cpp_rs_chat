@@ -217,7 +217,7 @@ export function useChat() {
     await transportRef.current.streamMessage(
       request,
       {
-        onToken: (token, tokenCount, maxTokenCount) => {
+        onToken: (token, tokenCount, maxTokenCount, genTokPerSec, genTokens) => {
           if (streamSeqRef.current !== streamSeq) return;
           if (!hasLoggedFirstTokenRef.current) {
             hasLoggedFirstTokenRef.current = true;
@@ -235,6 +235,14 @@ export function useChat() {
           });
           if (tokenCount !== undefined) setTokensUsed(tokenCount);
           if (maxTokenCount !== undefined) setMaxTokens(maxTokenCount);
+          // Update live timing stats during generation
+          if (genTokPerSec !== undefined || genTokens !== undefined) {
+            setLastTimings(prev => ({
+              ...prev,
+              genTokPerSec: genTokPerSec ?? prev?.genTokPerSec,
+              genTokens: genTokens ?? prev?.genTokens,
+            }));
+          }
         },
         onStatus: (message) => {
           if (streamSeqRef.current !== streamSeq) return;

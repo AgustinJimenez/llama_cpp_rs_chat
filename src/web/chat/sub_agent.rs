@@ -71,6 +71,7 @@ pub fn run_sub_agent(
             token: "\n[Sub-agent started]\n".to_string(),
             tokens_used: 0,
             max_tokens: AGENT_CTX_SIZE as i32, status: None,
+            ..Default::default()
         });
     }
 
@@ -193,6 +194,7 @@ pub fn run_sub_agent(
                 token: token_str.clone(),
                 tokens_used: token_pos,
                 max_tokens: AGENT_CTX_SIZE as i32, status: None,
+                ..Default::default()
             });
         }
 
@@ -251,6 +253,7 @@ pub fn run_sub_agent(
             token: "\n[Sub-agent finished]\n".to_string(),
             tokens_used: 0,
             max_tokens: AGENT_CTX_SIZE as i32, status: None,
+            ..Default::default()
         });
     }
 

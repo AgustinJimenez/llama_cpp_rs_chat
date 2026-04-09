@@ -8,13 +8,18 @@
 
 mod command_executor;
 mod compaction;
+mod context_eval;
+mod tool_dispatch;
+mod tool_output;
 mod generation;
 pub mod jinja_templates;
 pub mod loop_detection;
+mod prompt_builder;
 mod sampler;
 pub mod tool_defs;
 mod stop_conditions;
 pub mod sub_agent;
+mod token_loop;
 mod tool_grammar;
 pub mod tool_parser;
 mod templates;

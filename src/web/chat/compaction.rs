@@ -19,6 +19,7 @@ fn send_status(sender: Option<&tokio::sync::mpsc::UnboundedSender<TokenData>>, m
             tokens_used: 0,
             max_tokens: 0,
             status: Some(message.to_string()),
+            ..Default::default()
         });
     }
 }

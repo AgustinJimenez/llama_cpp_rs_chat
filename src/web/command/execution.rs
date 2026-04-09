@@ -1,99 +1,16 @@
-use std::collections::HashMap;
 use std::env;
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex as StdMutex, OnceLock};
-
-use super::utils::silent_command;
+use std::sync::Arc;
 use std::time::Instant;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
-// ── Persistent shell environment ─────────────────────────────────────────────
-// Each command runs in a fresh subshell, so `export`/`set` assignments are lost.
-// We parse explicit assignments from commands and inject them into subsequent
-// child processes, giving the illusion of persistent shell state.
-
-static SHELL_ENV: OnceLock<StdMutex<HashMap<String, String>>> = OnceLock::new();
-
-fn shell_env() -> &'static StdMutex<HashMap<String, String>> {
-    SHELL_ENV.get_or_init(|| StdMutex::new(HashMap::new()))
-}
-
-/// Get the persisted shell environment as a HashMap.
-pub fn get_shell_env() -> HashMap<String, String> {
-    shell_env()
-        .lock()
-        .ok()
-        .map(|env| env.clone())
-        .unwrap_or_default()
-}
-
-/// Parse and persist explicit environment variable assignments from a command.
-/// Recognises `set VAR=value` (Windows) and `export VAR=value` / `VAR=value` (Unix).
-fn capture_env_from_command(cmd: &str) {
-    let trimmed = cmd.trim();
-
-    // Split on && and ; to handle chained commands
-    for part in trimmed.split("&&").flat_map(|s| s.split(';')) {
-        let part = part.trim();
-
-        #[cfg(target_os = "windows")]
-        {
-            if let Some(rest) = part
-                .strip_prefix("set ")
-                .or_else(|| part.strip_prefix("SET "))
-            {
-                if let Some((key, value)) = rest.split_once('=') {
-                    let key = key.trim().to_string();
-                    let value = value.trim().trim_matches('"').to_string();
-                    if !key.is_empty() {
-                        eprintln!(
-                            "[SHELL_ENV] Captured: {}={}",
-                            key,
-                            &value[..value.len().min(50)]
-                        );
-                        if let Ok(mut env) = shell_env().lock() {
-                            env.insert(key, value);
-                        }
-                    }
-                }
-            }
-        }
-
-        #[cfg(not(target_os = "windows"))]
-        {
-            let assignment = part.strip_prefix("export ").unwrap_or(part);
-            if let Some((key, value)) = assignment.split_once('=') {
-                let key = key.trim().to_string();
-                // Only capture if it looks like a variable name
-                if key
-                    .chars()
-                    .next()
-                    .map(|c| c.is_ascii_alphabetic() || c == '_')
-                    .unwrap_or(false)
-                    && !key.contains(' ')
-                {
-                    let value = value
-                        .trim()
-                        .trim_matches('"')
-                        .trim_matches('\'')
-                        .to_string();
-                    eprintln!(
-                        "[SHELL_ENV] Captured: {}={}",
-                        key,
-                        &value[..value.len().min(50)]
-                    );
-                    if let Ok(mut env) = shell_env().lock() {
-                        env.insert(key, value);
-                    }
-                }
-            }
-        }
-    }
-}
+use crate::web::utils::silent_command;
+use super::shell_env::{get_shell_env, capture_env_from_command};
+use super::parsing::{parse_command_with_quotes, find_last_redirect, split_on_chain_ops, extract_echo_content};
 
 // ── Process tree kill (Windows) ─────────────────────────────────────────────
 // On Windows, `child.kill()` only terminates the top-level process (cmd.exe).
@@ -130,59 +47,6 @@ pub fn kill_process_tree(pid: u32) {
         // Send SIGTERM to process group
         unsafe { libc::kill(-(pid as i32), libc::SIGTERM); }
     }
-}
-
-// Helper function to parse command with proper quote handling
-pub fn parse_command_with_quotes(cmd: &str) -> Vec<String> {
-    let mut parts = Vec::new();
-    let mut current_part = String::new();
-    let mut in_quotes = false;
-    let chars = cmd.chars().peekable();
-
-    for ch in chars {
-        match ch {
-            '"' => {
-                in_quotes = !in_quotes;
-                // Don't include the quote character in the output
-            }
-            ' ' if !in_quotes => {
-                if !current_part.is_empty() {
-                    parts.push(current_part.clone());
-                    current_part.clear();
-                }
-            }
-            _ => {
-                current_part.push(ch);
-            }
-        }
-    }
-
-    if !current_part.is_empty() {
-        parts.push(current_part);
-    }
-
-    parts
-}
-
-/// Check if a command uses shell operators that require a shell to interpret.
-fn needs_shell(cmd: &str) -> bool {
-    let mut in_quotes = false;
-    let mut prev = '\0';
-    for ch in cmd.chars() {
-        if ch == '"' {
-            in_quotes = !in_quotes;
-        }
-        if !in_quotes {
-            match ch {
-                '|' | '<' | ';' => return true,
-                '>' if prev != '2' => return true, // allow 2> but catch > and >>
-                '&' if prev == '&' => return true,  // &&
-                _ => {}
-            }
-        }
-        prev = ch;
-    }
-    false
 }
 
 /// After executing a compound command, check if it started with `cd` and
@@ -261,7 +125,7 @@ fn execute_windows(cmd: &str, parts: &[String]) -> std::io::Result<std::process:
     let persisted_env = get_shell_env();
 
     // Commands with shell operators (|, >, &&, etc.) must go through PowerShell
-    if needs_shell(cmd) {
+    if super::parsing::needs_shell(cmd) {
         let escaped = cmd.replace('$', "`$");
         let mut c = silent_command("powershell");
         c.args(["-NoProfile", "-NonInteractive", "-Command", &escaped])
@@ -295,6 +159,65 @@ fn execute_windows(cmd: &str, parts: &[String]) -> std::io::Result<std::process:
             c.stdin(Stdio::null()).output()
         }
         Err(_) => result,
+    }
+}
+
+/// Intercept `echo "..." > file` patterns and write directly with std::fs::write.
+/// This avoids shell variable expansion ($table becomes empty) and quoting issues.
+/// Returns Some(result) if handled, None to fall through to sh -c.
+fn try_native_echo_redirect(cmd: &str) -> Option<String> {
+    let parts = split_on_chain_ops(cmd);
+    let last_part = parts.last()?.trim();
+
+    // The last segment must have a redirect
+    let redirect_pos = find_last_redirect(last_part)?;
+
+    // Split into echo part and file path
+    let echo_part = last_part[..redirect_pos].trim();
+    let file_path = last_part[redirect_pos + 1..].trim();
+
+    // Must start with echo
+    if !echo_part.starts_with("echo ") {
+        return None;
+    }
+
+    // File path must not be empty
+    if file_path.is_empty() {
+        return None;
+    }
+
+    // Execute any preceding chained commands (mkdir -p, etc.) via shell
+    if parts.len() > 1 {
+        let prefix_cmds = &parts[..parts.len() - 1];
+        for prefix in prefix_cmds {
+            let output = silent_command("sh").arg("-c").arg(prefix).output();
+            match output {
+                Ok(o) if !o.status.success() => {
+                    let stderr = String::from_utf8_lossy(&o.stderr);
+                    return Some(format!("Error: {stderr}"));
+                }
+                Err(e) => return Some(format!("Error: {e}")),
+                _ => {}
+            }
+        }
+    }
+
+    // Extract echo content and write directly
+    let content = extract_echo_content(echo_part)?;
+
+    // Process \n escape sequences to real newlines
+    let content = content.replace("\\n", "\n").replace("\\t", "\t");
+
+    // Ensure parent directory exists
+    if let Some(parent) = Path::new(file_path).parent() {
+        if !parent.as_os_str().is_empty() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+    }
+
+    match std::fs::write(file_path, &content) {
+        Ok(_) => Some(format!("Written {} bytes to {file_path}", content.len())),
+        Err(e) => Some(format!("Error writing to {file_path}: {e}")),
     }
 }
 
@@ -778,295 +701,10 @@ pub fn execute_command_streaming_with_timeout(
     }
 }
 
-// ── Command output sanitization ──────────────────────────────────────────────
-
-/// Maximum lines of command output to keep for model context.
-const MAX_COMMAND_OUTPUT_LINES: usize = 80;
-/// Maximum characters of command output to keep for model context.
-const MAX_COMMAND_OUTPUT_CHARS: usize = 8000;
-/// Lines to keep from the beginning of truncated output.
-const HEAD_LINES: usize = 15;
-/// Lines to keep from the end of truncated output.
-const TAIL_LINES: usize = 25;
-
-/// Remove ANSI escape codes (colors, cursor movement, OSC sequences) from text.
-/// Uses a simple state-machine parser instead of regex to avoid potential segfaults
-/// from lazy_static regex compilation in the worker process.
-pub fn strip_ansi_codes(text: &str) -> String {
-    let mut result = String::with_capacity(text.len());
-    let bytes = text.as_bytes();
-    let len = bytes.len();
-    let mut i = 0;
-
-    while i < len {
-        if bytes[i] == 0x1b {
-            // ESC character — start of escape sequence
-            i += 1;
-            if i >= len { break; }
-
-            if bytes[i] == b'[' {
-                // CSI sequence: ESC [ ... final_byte (letter)
-                i += 1;
-                while i < len && (bytes[i] == b';' || bytes[i].is_ascii_digit()) {
-                    i += 1;
-                }
-                // Skip the final byte (letter)
-                if i < len && bytes[i].is_ascii_alphabetic() {
-                    i += 1;
-                }
-            } else if bytes[i] == b']' {
-                // OSC sequence: ESC ] ... (BEL or ESC \)
-                i += 1;
-                while i < len {
-                    if bytes[i] == 0x07 {
-                        i += 1;
-                        break;
-                    }
-                    if bytes[i] == 0x1b && i + 1 < len && bytes[i + 1] == b'\\' {
-                        i += 2;
-                        break;
-                    }
-                    i += 1;
-                }
-            } else {
-                // Other escape: skip ESC + next char
-                i += 1;
-            }
-        } else {
-            result.push(bytes[i] as char);
-            i += 1;
-        }
-    }
-
-    result
-}
-
-/// Truncate long output: keep first HEAD_LINES + last TAIL_LINES, omit middle.
-/// Also enforces a hard character limit.
-pub fn truncate_command_output(text: &str) -> String {
-    let lines: Vec<&str> = text.lines().collect();
-
-    let mut result = if lines.len() > MAX_COMMAND_OUTPUT_LINES {
-        let omitted = lines.len() - HEAD_LINES - TAIL_LINES;
-        let head = lines[..HEAD_LINES].join("\n");
-        let tail = lines[lines.len() - TAIL_LINES..].join("\n");
-        format!("{}\n\n... ({} lines omitted) ...\n\n{}", head, omitted, tail)
-    } else {
-        text.to_string()
-    };
-
-    // Hard character limit
-    if result.len() > MAX_COMMAND_OUTPUT_CHARS {
-        result.truncate(MAX_COMMAND_OUTPUT_CHARS);
-        result.push_str("\n... (output truncated)");
-    }
-
-    result
-}
-
-/// Strip ANSI codes and truncate long command output for model context injection.
-/// The raw output is still streamed to the frontend; this only affects what the model sees.
-pub fn sanitize_command_output(text: &str) -> String {
-    let clean = strip_ansi_codes(text);
-    truncate_command_output(&clean)
-}
-
-/// Find the position of the last `>` redirect operator that is NOT inside quotes.
-fn find_last_redirect(cmd: &str) -> Option<usize> {
-    let mut last_pos = None;
-    let mut in_single = false;
-    let mut in_double = false;
-    for (i, ch) in cmd.chars().enumerate() {
-        match ch {
-            '\'' if !in_double => in_single = !in_single,
-            '"' if !in_single => in_double = !in_double,
-            '>' if !in_single && !in_double => last_pos = Some(i),
-            _ => {}
-        }
-    }
-    last_pos
-}
-
-/// Split a command string on `&&` and `||` operators (outside of quotes).
-fn split_on_chain_ops(cmd: &str) -> Vec<&str> {
-    let mut parts = Vec::new();
-    let mut start = 0;
-    let mut in_single = false;
-    let mut in_double = false;
-    let bytes = cmd.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        let ch = bytes[i] as char;
-        match ch {
-            '\'' if !in_double => in_single = !in_single,
-            '"' if !in_single => in_double = !in_double,
-            '&' if !in_single && !in_double && i + 1 < bytes.len() && bytes[i + 1] == b'&' => {
-                parts.push(cmd[start..i].trim());
-                i += 2;
-                start = i;
-                continue;
-            }
-            '|' if !in_single && !in_double && i + 1 < bytes.len() && bytes[i + 1] == b'|' => {
-                parts.push(cmd[start..i].trim());
-                i += 2;
-                start = i;
-                continue;
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    parts.push(cmd[start..].trim());
-    parts
-}
-
-/// Extract the content from an echo command (handling double quotes, single quotes, or bare text).
-fn extract_echo_content(echo_part: &str) -> Option<String> {
-    let trimmed = echo_part.trim();
-    let after_echo = if let Some(stripped) = trimmed.strip_prefix("echo ") {
-        stripped.trim()
-    } else {
-        return None;
-    };
-
-    if (after_echo.starts_with('"') && after_echo.ends_with('"')
-        || after_echo.starts_with('\'') && after_echo.ends_with('\''))
-        && after_echo.len() >= 2
-    {
-        Some(after_echo[1..after_echo.len() - 1].to_string())
-    } else {
-        Some(after_echo.to_string())
-    }
-}
-
-/// Intercept `echo "..." > file` patterns and write directly with std::fs::write.
-/// This avoids shell variable expansion ($table becomes empty) and quoting issues.
-/// Returns Some(result) if handled, None to fall through to sh -c.
-fn try_native_echo_redirect(cmd: &str) -> Option<String> {
-    let parts = split_on_chain_ops(cmd);
-    let last_part = parts.last()?.trim();
-
-    // The last segment must have a redirect
-    let redirect_pos = find_last_redirect(last_part)?;
-
-    // Split into echo part and file path
-    let echo_part = last_part[..redirect_pos].trim();
-    let file_path = last_part[redirect_pos + 1..].trim();
-
-    // Must start with echo
-    if !echo_part.starts_with("echo ") {
-        return None;
-    }
-
-    // File path must not be empty
-    if file_path.is_empty() {
-        return None;
-    }
-
-    // Execute any preceding chained commands (mkdir -p, etc.) via shell
-    if parts.len() > 1 {
-        let prefix_cmds = &parts[..parts.len() - 1];
-        for prefix in prefix_cmds {
-            let output = silent_command("sh").arg("-c").arg(prefix).output();
-            match output {
-                Ok(o) if !o.status.success() => {
-                    let stderr = String::from_utf8_lossy(&o.stderr);
-                    return Some(format!("Error: {stderr}"));
-                }
-                Err(e) => return Some(format!("Error: {e}")),
-                _ => {}
-            }
-        }
-    }
-
-    // Extract echo content and write directly
-    let content = extract_echo_content(echo_part)?;
-
-    // Process \n escape sequences to real newlines
-    let content = content.replace("\\n", "\n").replace("\\t", "\t");
-
-    // Ensure parent directory exists
-    if let Some(parent) = Path::new(file_path).parent() {
-        if !parent.as_os_str().is_empty() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-    }
-
-    match std::fs::write(file_path, &content) {
-        Ok(_) => Some(format!("Written {} bytes to {file_path}", content.len())),
-        Err(e) => Some(format!("Error writing to {file_path}: {e}")),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_parse_simple_command() {
-        let result = parse_command_with_quotes("ls -la");
-        assert_eq!(result, vec!["ls", "-la"]);
-    }
-
-    #[test]
-    fn test_parse_command_with_quoted_arg() {
-        let result = parse_command_with_quotes(r#"cat "file with spaces.txt""#);
-        assert_eq!(result, vec!["cat", "file with spaces.txt"]);
-    }
-
-    #[test]
-    fn test_parse_command_with_multiple_quoted_args() {
-        let result = parse_command_with_quotes(r#"cp "source file.txt" "dest file.txt""#);
-        assert_eq!(result, vec!["cp", "source file.txt", "dest file.txt"]);
-    }
-
-    #[test]
-    fn test_parse_command_with_mixed_quotes_and_regular_args() {
-        let result = parse_command_with_quotes(r#"git commit -m "Initial commit" --no-verify"#);
-        assert_eq!(
-            result,
-            vec!["git", "commit", "-m", "Initial commit", "--no-verify"]
-        );
-    }
-
-    #[test]
-    fn test_parse_command_with_empty_string() {
-        let result = parse_command_with_quotes("");
-        assert_eq!(result, Vec::<String>::new());
-    }
-
-    #[test]
-    fn test_parse_command_with_only_spaces() {
-        let result = parse_command_with_quotes("   ");
-        assert_eq!(result, Vec::<String>::new());
-    }
-
-    #[test]
-    fn test_parse_command_with_trailing_spaces() {
-        let result = parse_command_with_quotes("ls -la   ");
-        assert_eq!(result, vec!["ls", "-la"]);
-    }
-
-    #[test]
-    fn test_parse_command_with_leading_spaces() {
-        let result = parse_command_with_quotes("   ls -la");
-        assert_eq!(result, vec!["ls", "-la"]);
-    }
-
-    #[test]
-    fn test_parse_command_with_path_containing_spaces() {
-        let result = parse_command_with_quotes(r#"cd "C:\Program Files\MyApp""#);
-        assert_eq!(result, vec!["cd", r"C:\Program Files\MyApp"]);
-    }
-
-    #[test]
-    fn test_parse_command_with_nested_quotes() {
-        // Quotes within quotes - outer quotes are removed
-        let result = parse_command_with_quotes(r#"echo "Hello "World"""#);
-        // This will parse as: echo "Hello " World ""
-        // Which gives: ["echo", "Hello ", "World", ""]
-        assert!(result.contains(&"echo".to_string()));
-    }
+    use super::super::parsing::*;
 
     #[test]
     fn test_execute_empty_command() {
@@ -1084,30 +722,6 @@ mod tests {
     fn test_cd_without_argument() {
         let result = execute_command("cd");
         assert!(result.contains("requires a directory argument"));
-    }
-
-    #[test]
-    fn test_command_with_special_characters() {
-        let result = parse_command_with_quotes(r#"grep "pattern*" file.txt"#);
-        assert_eq!(result, vec!["grep", "pattern*", "file.txt"]);
-    }
-
-    #[test]
-    fn test_git_commit_with_quoted_message() {
-        let result = parse_command_with_quotes(r#"git commit -m "Fix bug #123""#);
-        assert_eq!(result, vec!["git", "commit", "-m", "Fix bug #123"]);
-    }
-
-    #[test]
-    fn test_windows_path_parsing() {
-        let result = parse_command_with_quotes(r#"type "C:\Users\test\file.txt""#);
-        assert_eq!(result, vec!["type", r"C:\Users\test\file.txt"]);
-    }
-
-    #[test]
-    fn test_unix_path_parsing() {
-        let result = parse_command_with_quotes(r#"cat "/home/user/my file.txt""#);
-        assert_eq!(result, vec!["cat", "/home/user/my file.txt"]);
     }
 
     #[test]
@@ -1139,26 +753,6 @@ mod tests {
     }
 
     #[test]
-    fn test_find_last_redirect() {
-        assert_eq!(find_last_redirect(r#"echo "hi" > file.txt"#), Some(10));
-        assert_eq!(find_last_redirect(r#"echo "a > b" > out.txt"#), Some(13));
-        assert_eq!(find_last_redirect("echo hello"), None);
-    }
-
-    #[test]
-    fn test_split_on_chain_ops() {
-        let parts = split_on_chain_ops("mkdir -p dir && echo hi > f.txt");
-        assert_eq!(parts, vec!["mkdir -p dir", "echo hi > f.txt"]);
-    }
-
-    #[test]
-    fn test_extract_echo_content() {
-        assert_eq!(extract_echo_content(r#"echo "hello world""#), Some("hello world".to_string()));
-        assert_eq!(extract_echo_content(r#"echo 'single quotes'"#), Some("single quotes".to_string()));
-        assert_eq!(extract_echo_content("echo bare text"), Some("bare text".to_string()));
-    }
-
-    #[test]
     fn test_native_echo_redirect_with_newline_escapes() {
         let cmd = r#"echo "line1\nline2\nline3" > /tmp/test_echo_newlines.txt"#;
         let result = try_native_echo_redirect(cmd);
@@ -1171,13 +765,11 @@ mod tests {
     #[cfg(target_os = "windows")]
     #[test]
     fn test_cmd_quoted_paths_raw_arg() {
-        // Simulates the exact command an AI agent generates: quoted PHP path + quoted composer path
         let php = env::current_dir().unwrap().join("php-8.2.30").join("php.exe");
         if !php.exists() {
             eprintln!("Skipping: php.exe not found at {:?}", php);
             return;
         }
-        // Command with quoted paths — the exact pattern that broke before raw_arg fix
         let cmd = format!("\"{}\" -v", php.display());
         let result = execute_command(&cmd);
         assert!(result.contains("PHP"), "Expected PHP version output, got: {result}");
@@ -1205,9 +797,7 @@ mod tests {
         let cmd = format!("cd {} && echo hello", temp.display());
         track_cwd_change(&cmd);
         let now = env::current_dir().unwrap();
-        // Restore original CWD before asserting (so test cleanup works)
         let _ = env::set_current_dir(&original);
-        // On Windows, temp_dir() may return a short path; canonicalize both
         assert_eq!(
             now.canonicalize().unwrap_or(now.clone()),
             temp.canonicalize().unwrap_or(temp.clone()),

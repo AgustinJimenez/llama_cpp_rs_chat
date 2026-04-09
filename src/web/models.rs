@@ -468,13 +468,20 @@ pub fn translate_tool_for_model(
 }
 
 // Token data with metadata for streaming
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Default)]
 pub struct TokenData {
     pub token: String,
     pub tokens_used: i32,
     pub max_tokens: i32,
     /// Optional status message (e.g. "Compacting 5/19...") shown in the UI during generation.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
+    /// Live generation speed (tokens/sec), updated during streaming.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gen_tok_per_sec: Option<f64>,
+    /// Tokens generated so far in this generation pass.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gen_tokens: Option<i32>,
 }
 
 // Request/Response structures
