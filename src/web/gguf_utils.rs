@@ -53,7 +53,10 @@ pub fn value_to_json(value: &Value) -> serde_json::Value {
         Value::Float32(f) => serde_json::json!(f),
         Value::Float64(f) => serde_json::json!(f),
         Value::Bool(b) => serde_json::json!(b),
-        Value::Array(_, items) => serde_json::json!(format!("[Array with {} items]", items.len())),
+        Value::Array(_, items) => {
+            let arr: Vec<serde_json::Value> = items.iter().map(value_to_json).collect();
+            serde_json::Value::Array(arr)
+        },
     }
 }
 
