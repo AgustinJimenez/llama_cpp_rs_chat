@@ -5,8 +5,11 @@ import { ContextSizeSection } from './model-config/ContextSizeSection';
 import { GpuLayersSection } from './model-config/GpuLayersSection';
 import { AdvancedContextSection } from './model-config/AdvancedContextSection';
 import { SamplingParametersSection } from './model-config/SamplingParametersSection';
-import { getConversationConfig, saveConversationConfig, getConfig } from '../../utils/tauriCommands';
+import { VramBar } from './model-config/MemoryVisualization';
+import { getConversationConfig, saveConversationConfig, getConfig, getModelInfo } from '../../utils/tauriCommands';
 import { useModelContext } from '../../contexts/ModelContext';
+import { useSystemResources } from '../../contexts/SystemResourcesContext';
+import { useMemoryCalculation } from '../../hooks/useMemoryCalculation';
 import type { SamplerConfig, ModelMetadata } from '../../types';
 
 const CONTEXT_RELOAD_FIELDS: (keyof SamplerConfig)[] = [
@@ -34,6 +37,26 @@ export function ConversationConfigSidebar({
   const [contextSize, setContextSize] = useState(32768);
   const [isSaving, setIsSaving] = useState(false);
   const originalConfigRef = useRef<SamplerConfig | null>(null);
+  const [modelMetadata, setModelMetadata] = useState<ModelMetadata | null>(null);
+  const { totalVramGb, totalRamGb } = useSystemResources();
+
+  // Fetch model metadata for VRAM estimation
+  useEffect(() => {
+    if (!isOpen || !currentModelPath) { setModelMetadata(null); return; }
+    getModelInfo(currentModelPath).then(info => {
+      setModelMetadata(info as unknown as ModelMetadata);
+    }).catch(() => setModelMetadata(null));
+  }, [isOpen, currentModelPath]);
+
+  const memory = useMemoryCalculation({
+    modelMetadata,
+    gpuLayers: localConfig?.gpu_layers ?? status.gpu_layers ?? 0,
+    contextSize,
+    availableVramGb: totalVramGb || 24,
+    availableRamGb: totalRamGb || 64,
+    cacheTypeK: localConfig?.cache_type_k ?? 'f16',
+    cacheTypeV: localConfig?.cache_type_v ?? 'f16',
+  });
 
   useEffect(() => {
     if (!isOpen || !conversationId) {
@@ -153,6 +176,7 @@ export function ConversationConfigSidebar({
                 maxLayers={status.block_count ?? 100}
               />
               <AdvancedContextSection config={localConfig} onConfigChange={handleConfigChange} />
+              {modelMetadata && <VramBar vram={memory.vram} />}
               <div className="border-t border-border" />
               <SamplingParametersSection config={localConfig} onConfigChange={handleConfigChange} />
             </> : null}

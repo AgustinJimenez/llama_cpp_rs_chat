@@ -84,7 +84,7 @@ const BarSegment: React.FC<BarSegmentProps> = ({ color, widthPct, label, title, 
 
 // --- VRAM bar ---
 
-const VramBar: React.FC<{ vram: MemoryBreakdown['vram'] }> = ({ vram }) => {
+export const VramBar: React.FC<{ vram: MemoryBreakdown['vram'] }> = ({ vram }) => {
   const used = vram.modelGpu + vram.kvCache + vram.overhead;
   const utilization = (used / vram.total) * 100;
   const modelPct = (vram.modelGpu / vram.total) * 100;
