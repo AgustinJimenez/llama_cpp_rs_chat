@@ -574,6 +574,7 @@ async fn stdout_reader_task(
             token,
             tokens_used,
             max_tokens,
+            status,
         } = payload
         {
             let gen = active_generation.lock().await;
@@ -583,7 +584,7 @@ async fn stdout_reader_task(
                         token,
                         tokens_used,
                         max_tokens,
-                        status: None,
+                        status,
                         ..Default::default()
                     });
                     continue;

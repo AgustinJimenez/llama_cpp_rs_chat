@@ -106,6 +106,8 @@ pub enum WorkerPayload {
         token: String,
         tokens_used: i32,
         max_tokens: i32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        status: Option<String>,
     },
     /// Generation completed successfully.
     GenerationComplete {
