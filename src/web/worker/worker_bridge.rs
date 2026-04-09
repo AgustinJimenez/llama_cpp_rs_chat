@@ -496,9 +496,18 @@ fn oneshot_adapter(
                         token_breakdown,
                     }
                 },
-                WorkerPayload::GenerationCancelled => GenerationResult::Cancelled,
-                WorkerPayload::Error { message } => GenerationResult::Error(message),
-                _ => GenerationResult::Error("Unexpected response".to_string()),
+                WorkerPayload::GenerationCancelled => {
+                    *finish_reason_store.lock().await = Some("cancelled".to_string());
+                    GenerationResult::Cancelled
+                },
+                WorkerPayload::Error { message } => {
+                    *finish_reason_store.lock().await = Some("error".to_string());
+                    GenerationResult::Error(message)
+                },
+                _ => {
+                    *finish_reason_store.lock().await = Some("error".to_string());
+                    GenerationResult::Error("Unexpected response".to_string())
+                },
             };
             let _ = done_tx.send(result);
         }
