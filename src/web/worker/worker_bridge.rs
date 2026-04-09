@@ -390,7 +390,7 @@ impl WorkerBridge {
             pending.insert(
                 id,
                 PendingRequest {
-                    tx: oneshot_adapter(done_tx, active_gen),
+                    tx: oneshot_adapter(done_tx, active_gen, self.last_finish_reason.clone()),
                 },
             );
         }
@@ -457,6 +457,7 @@ pub enum GenerationResult {
 fn oneshot_adapter(
     done_tx: oneshot::Sender<GenerationResult>,
     active_gen: Arc<TokioMutex<Option<ActiveGeneration>>>,
+    finish_reason_store: Arc<TokioMutex<Option<String>>>,
 ) -> oneshot::Sender<WorkerPayload> {
     let (payload_tx, payload_rx) = oneshot::channel::<WorkerPayload>();
 
@@ -478,18 +479,22 @@ fn oneshot_adapter(
                     prompt_tokens,
                     finish_reason,
                     token_breakdown,
-                } => GenerationResult::Complete {
-                    conversation_id,
-                    tokens_used,
-                    max_tokens,
-                    prompt_tok_per_sec,
-                    gen_tok_per_sec,
-                    gen_eval_ms,
-                    gen_tokens,
-                    prompt_eval_ms,
-                    prompt_tokens,
-                    finish_reason,
-                    token_breakdown,
+                } => {
+                    // Store finish_reason for polling-based auto-continue
+                    *finish_reason_store.lock().await = finish_reason.clone();
+                    GenerationResult::Complete {
+                        conversation_id,
+                        tokens_used,
+                        max_tokens,
+                        prompt_tok_per_sec,
+                        gen_tok_per_sec,
+                        gen_eval_ms,
+                        gen_tokens,
+                        prompt_eval_ms,
+                        prompt_tokens,
+                        finish_reason,
+                        token_breakdown,
+                    }
                 },
                 WorkerPayload::GenerationCancelled => GenerationResult::Cancelled,
                 WorkerPayload::Error { message } => GenerationResult::Error(message),
