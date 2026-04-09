@@ -173,7 +173,16 @@ pub fn maybe_compact_conversation(
         }
     };
 
-    let summary_with_task = summary;
+    // Hard cap: summary must be much shorter than the original to actually free context.
+    // Target: summary should be at most 30% of available context (in chars, ~4 chars/token).
+    let max_summary_chars = (available_context as usize * 4) * 30 / 100;
+    let summary_with_task = if summary.len() > max_summary_chars {
+        eprintln!("[COMPACTION] Summary too long ({} chars), truncating to {} chars", summary.len(), max_summary_chars);
+        let truncated: String = summary.chars().take(max_summary_chars).collect();
+        format!("{}\n\n[...summary truncated for context space...]", truncated)
+    } else {
+        summary
+    };
 
     // Persist to DB: mark old messages as compacted, insert summary
     let summary_sequence = up_to_sequence + 1; // Place summary right after compacted messages

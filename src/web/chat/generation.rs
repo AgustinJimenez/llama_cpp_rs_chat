@@ -501,6 +501,18 @@ pub async fn generate_llama_response(
             .map_err(|e| format!("Tokenization failed: {e}"))?;
         log_debug!(&conversation_id, "Tokenized to {} tokens", tokens.len());
 
+        // Guard: if prompt exceeds 95% of context, it won't fit regardless of retries
+        if tokens.len() as u32 > context_size.saturating_sub(context_size / 20) {
+            log_event(&conversation_id, "context_overflow", &format!(
+                "Prompt {} tokens > 95% of context {} — conversation too large even after compaction",
+                tokens.len(), context_size
+            ));
+            return Err(format!(
+                "Context too small for conversation ({} tokens in {} context) — try increasing context size or starting a new conversation",
+                tokens.len(), context_size
+            ));
+        }
+
         let (ctx, _skip_tokens) = match evaluate_text_prompt(
             &mut state.inference_cache, model, &state.backend,
             &tokens, &conversation_id, context_size,
@@ -509,9 +521,8 @@ pub async fn generate_llama_response(
         ) {
             Ok(result) => result,
             Err(e) if e.contains("Context too small") => {
-                // After compaction, VRAM may need time to reclaim. Retry once after a brief pause.
-                eprintln!("[GENERATION] Prompt decode failed after compaction, retrying in 2s...");
-                state.inference_cache = None; // ensure old context is fully dropped
+                eprintln!("[GENERATION] Prompt decode failed, retrying in 2s...");
+                state.inference_cache = None;
                 std::thread::sleep(std::time::Duration::from_secs(2));
                 evaluate_text_prompt(
                     &mut state.inference_cache, model, &state.backend,

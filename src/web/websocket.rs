@@ -212,6 +212,7 @@ pub async fn handle_websocket(
                                             &mut next_flush,
                                             &mut debug,
                                         ).await.is_err() {
+                                            eprintln!("[WS_CHAT] BREAK: flush_pending_tokens failed (token path)");
                                             break;
                                         }
                                 }
@@ -342,6 +343,7 @@ pub async fn handle_websocket(
                         _ = tokio::time::sleep_until(heartbeat_deadline) => {
                             let hb = serde_json::json!({ "type": "heartbeat" });
                             if ws_sender.send(WsMessage::Text(hb.to_string())).await.is_err() {
+                                eprintln!("[WS_CHAT] BREAK: heartbeat send failed");
                                 break;
                             }
                             heartbeat_deadline = Instant::now() + Duration::from_secs(15);
@@ -350,6 +352,7 @@ pub async fn handle_websocket(
                         ws_msg = ws_receiver.next() => {
                             match ws_msg {
                                 Some(Ok(WsMessage::Close(_))) | None => {
+                                    eprintln!("[WS_CHAT] BREAK: client close/disconnect");
                                     let _ = flush_pending_tokens(
                                         &mut ws_sender,
                                         &mut pending_tokens,
@@ -366,6 +369,7 @@ pub async fn handle_websocket(
                                     let _ = ws_sender.send(WsMessage::Pong(data)).await;
                                 }
                                 Some(Err(_e)) => {
+                                    eprintln!("[WS_CHAT] BREAK: client error: {}", _e);
                                     break;
                                 }
                                 _ => {}
