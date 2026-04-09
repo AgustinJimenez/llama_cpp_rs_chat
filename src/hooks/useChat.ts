@@ -594,7 +594,25 @@ export function useChat() {
         const convIdClean = currentConversationId.replace(/\.txt$/, '');
         const activeClean = status.active_conversation_id?.replace(/\.txt$/, '');
 
-        if (!status.generating || activeClean !== convIdClean) return;
+        if (!status.generating || activeClean !== convIdClean) {
+          // Generation not active — but check if it just finished with length (needs auto-continue)
+          const finishReason = (status as Record<string, unknown>).last_finish_reason as string | undefined;
+          if (finishReason === 'length' && autoContinueCountRef.current < MAX_AUTO_CONTINUES) {
+            autoContinueCountRef.current += 1;
+            console.log(`[useChat] Auto-continue ${autoContinueCountRef.current}/${MAX_AUTO_CONTINUES} (context full, detected on load)`);
+            setIsLoading(true);
+            setTimeout(() => {
+              const convId = currentConversationId;
+              if (!convId) return;
+              runStream({
+                request: { message: 'Continue', conversation_id: convId, auto_continue: true },
+                assistantMessageId: undefined,
+                streamSeq: streamSeqRef.current + 1,
+              }).catch(() => setIsLoading(false));
+            }, 1000);
+          }
+          return;
+        }
 
         // This conversation is actively generating — start polling
         console.log('[useChat] Reconnecting to active generation via polling');

@@ -336,14 +336,19 @@ impl WorkerBridge {
         self.status_message.lock().await.clone()
     }
 
-    /// Get and clear the last finish reason (consumed once by polling).
-    pub async fn take_last_finish_reason(&self) -> Option<String> {
-        self.last_finish_reason.lock().await.take()
+    /// Get the last finish reason (non-consuming — cleared on next generation start).
+    pub async fn last_finish_reason(&self) -> Option<String> {
+        self.last_finish_reason.lock().await.clone()
     }
 
     /// Store the finish reason when generation completes.
     pub async fn set_last_finish_reason(&self, reason: Option<String>) {
         *self.last_finish_reason.lock().await = reason;
+    }
+
+    /// Clear the finish reason (called at generation start).
+    pub async fn clear_last_finish_reason(&self) {
+        *self.last_finish_reason.lock().await = None;
     }
 
     /// Start a generation request. Returns a receiver for streaming tokens.
@@ -357,6 +362,9 @@ impl WorkerBridge {
     ) -> Result<(mpsc::UnboundedReceiver<TokenData>, oneshot::Receiver<GenerationResult>), String>
     {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+
+        // Clear previous finish reason
+        self.clear_last_finish_reason().await;
 
         // Create token channel
         let (token_tx, token_rx) = mpsc::unbounded_channel::<TokenData>();

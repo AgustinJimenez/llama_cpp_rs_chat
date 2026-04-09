@@ -443,9 +443,9 @@ pub async fn handle_get_model_status(
         let is_loading = bridge.is_loading();
         let is_generating = bridge.is_generating().await;
         let active_conv_id = bridge.active_conversation_id().await;
-        // Take finish_reason once (consumed by first poll after generation ends)
+        // Expose finish_reason after generation ends (cleared on next generation start)
         let last_finish_reason = if !is_generating {
-            bridge.take_last_finish_reason().await
+            bridge.last_finish_reason().await
         } else { None };
         // Try bridge status first (from WebSocket), fall back to worker global status (from IPC)
         let status_msg = match bridge.status_message().await {
