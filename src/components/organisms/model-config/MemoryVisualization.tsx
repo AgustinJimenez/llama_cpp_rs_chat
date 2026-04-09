@@ -144,7 +144,7 @@ const RamBar: React.FC<{ ram: MemoryBreakdown['ram'] }> = ({ ram }) => {
 
 // --- Legend ---
 
-const MemoryLegend: React.FC<{ vram: MemoryBreakdown['vram']; ram: MemoryBreakdown['ram'] }> = ({ vram, ram }) => (
+export const MemoryLegend: React.FC<{ vram: MemoryBreakdown['vram']; ram: MemoryBreakdown['ram'] }> = ({ vram, ram }) => (
   <div className="grid grid-cols-3 gap-x-4 gap-y-1 text-xs text-muted-foreground">
     <div className="flex items-center gap-2">
       <div className="w-3 h-3 bg-green-600 rounded-sm" />

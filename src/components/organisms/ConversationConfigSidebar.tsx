@@ -5,7 +5,8 @@ import { ContextSizeSection } from './model-config/ContextSizeSection';
 import { GpuLayersSection } from './model-config/GpuLayersSection';
 import { AdvancedContextSection } from './model-config/AdvancedContextSection';
 import { SamplingParametersSection } from './model-config/SamplingParametersSection';
-import { VramBar } from './model-config/MemoryVisualization';
+import { VramBar, MemoryLegend } from './model-config/MemoryVisualization';
+import { AlertTriangle } from 'lucide-react';
 import { getConversationConfig, saveConversationConfig, getConfig, getModelInfo } from '../../utils/tauriCommands';
 import { useModelContext } from '../../contexts/ModelContext';
 import { useSystemResources } from '../../contexts/SystemResourcesContext';
@@ -176,7 +177,18 @@ export function ConversationConfigSidebar({
                 maxLayers={status.block_count ?? 100}
               />
               <AdvancedContextSection config={localConfig} onConfigChange={handleConfigChange} />
-              {modelMetadata && <VramBar vram={memory.vram} />}
+              {modelMetadata && (
+                <div className="space-y-2">
+                  <MemoryLegend vram={memory.vram} ram={memory.ram} />
+                  <VramBar vram={memory.vram} />
+                  {memory.vram.overcommitted && (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-destructive/10 border border-destructive/20 text-sm text-destructive">
+                      <AlertTriangle className="h-4 w-4 shrink-0" />
+                      <span>VRAM overcommitted. Reduce context or GPU layers.</span>
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="border-t border-border" />
               <SamplingParametersSection config={localConfig} onConfigChange={handleConfigChange} />
             </> : null}
