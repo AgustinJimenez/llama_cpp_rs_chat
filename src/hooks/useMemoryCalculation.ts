@@ -38,6 +38,18 @@ function parseField(value: string | undefined): number | null {
   return isNaN(n) ? null : n;
 }
 
+/** Parse "17.4 GB" or "512 MB" string to GB number */
+function parseFileSizeString(value: string | undefined): number | null {
+  if (!value) return null;
+  const match = value.match(/([\d.]+)\s*(GB|MB|TB)/i);
+  if (!match) return null;
+  const num = parseFloat(match[1]);
+  const unit = match[2].toUpperCase();
+  if (unit === 'TB') return num * 1024;
+  if (unit === 'MB') return num / 1024;
+  return num;
+}
+
 /** Extract architecture parameters from model metadata with fallbacks */
 export function extractArchitectureParams(meta: ModelMetadata): ArchitectureParams {
   const totalLayers =
@@ -99,7 +111,7 @@ export function extractArchitectureParams(meta: ModelMetadata): ArchitecturePara
   return {
     totalLayers,
     kvAttentionLayers,
-    modelSizeGb: meta.file_size_gb || 0,
+    modelSizeGb: meta.file_size_gb || parseFileSizeString(meta.file_size) || 0,
     qHeads,
     kvHeads,
     embeddingLength,
