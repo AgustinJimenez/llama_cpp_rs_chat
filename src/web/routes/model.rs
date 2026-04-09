@@ -443,6 +443,10 @@ pub async fn handle_get_model_status(
         let is_loading = bridge.is_loading();
         let is_generating = bridge.is_generating().await;
         let active_conv_id = bridge.active_conversation_id().await;
+        // Take finish_reason once (consumed by first poll after generation ends)
+        let last_finish_reason = if !is_generating {
+            bridge.take_last_finish_reason().await
+        } else { None };
         // Try bridge status first (from WebSocket), fall back to worker global status (from IPC)
         let status_msg = match bridge.status_message().await {
             Some(s) => Some(s),
@@ -481,6 +485,7 @@ pub async fn handle_get_model_status(
                     block_count: meta.block_count,
                     system_prompt_tokens: if sys_tokens > 0 { Some(sys_tokens) } else { None },
                     tool_definitions_tokens: if tool_tokens > 0 { Some(tool_tokens) } else { None },
+                    last_finish_reason: last_finish_reason.clone(),
                 }
             }
             None => {
@@ -501,6 +506,7 @@ pub async fn handle_get_model_status(
                     block_count: None,
                     system_prompt_tokens: if sys_tokens > 0 { Some(sys_tokens) } else { None },
                     tool_definitions_tokens: if tool_tokens > 0 { Some(tool_tokens) } else { None },
+                    last_finish_reason: last_finish_reason.clone(),
                 }
             },
         };
@@ -618,6 +624,7 @@ pub async fn handle_post_model_load(
                     block_count: meta.block_count,
                     system_prompt_tokens: None,
                     tool_definitions_tokens: None,
+                    last_finish_reason: None,
                 };
                 let response = ModelResponse {
                     success: true,
@@ -687,6 +694,7 @@ pub async fn handle_post_model_unload(
                     block_count: None,
                     system_prompt_tokens: None,
                     tool_definitions_tokens: None,
+                    last_finish_reason: None,
                 };
                 let response = ModelResponse {
                     success: true,

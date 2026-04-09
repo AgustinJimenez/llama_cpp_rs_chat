@@ -246,6 +246,8 @@ pub async fn handle_websocket(
                                                 "token_breakdown": token_breakdown
                                             });
                                             let _ = ws_sender.send(WsMessage::Text(done_msg.to_string())).await;
+                                            // Store finish_reason for polling-based auto-continue
+                                            bridge.set_last_finish_reason(finish_reason.clone()).await;
                                             sys_debug!("[WS_CHAT] Done message sent");
 
                                             // Background: auto-generate/update title after each response

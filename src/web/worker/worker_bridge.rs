@@ -49,6 +49,8 @@ pub struct WorkerBridge {
     loading_model_path: Arc<TokioMutex<Option<String>>>,
     /// Status message (e.g. "Compacting conversation (5/43)") visible via API.
     status_message: Arc<TokioMutex<Option<String>>>,
+    /// Last generation finish reason (for polling-based auto-continue).
+    last_finish_reason: Arc<TokioMutex<Option<String>>>,
     /// Next request ID counter.
     next_id: AtomicU64,
     /// Process manager for kill/restart.
@@ -105,6 +107,7 @@ impl WorkerBridge {
             loading_progress,
             loading_model_path: Arc::new(TokioMutex::new(None)),
             status_message: Arc::new(TokioMutex::new(None)),
+            last_finish_reason: Arc::new(TokioMutex::new(None)),
             next_id: AtomicU64::new(1),
             process_manager,
         }
@@ -331,6 +334,16 @@ impl WorkerBridge {
     /// Get the current status message.
     pub async fn status_message(&self) -> Option<String> {
         self.status_message.lock().await.clone()
+    }
+
+    /// Get and clear the last finish reason (consumed once by polling).
+    pub async fn take_last_finish_reason(&self) -> Option<String> {
+        self.last_finish_reason.lock().await.take()
+    }
+
+    /// Store the finish reason when generation completes.
+    pub async fn set_last_finish_reason(&self, reason: Option<String>) {
+        *self.last_finish_reason.lock().await = reason;
     }
 
     /// Start a generation request. Returns a receiver for streaming tokens.

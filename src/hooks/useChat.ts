@@ -641,6 +641,23 @@ export function useChat() {
             }
 
             if (!stillActive) {
+              // Check if generation stopped due to context exhaustion — trigger auto-continue
+              const finishReason = (s as Record<string, unknown>).last_finish_reason as string | undefined;
+              if (finishReason === 'length' && autoContinueCountRef.current < MAX_AUTO_CONTINUES) {
+                autoContinueCountRef.current += 1;
+                console.log(`[useChat] Auto-continue ${autoContinueCountRef.current}/${MAX_AUTO_CONTINUES} (context full, detected via polling)`);
+                if (intervalId) clearInterval(intervalId);
+                setTimeout(() => {
+                  const convId = currentConversationId;
+                  if (!convId) return;
+                  runStream({
+                    request: { message: 'Continue', conversation_id: convId, auto_continue: true },
+                    assistantMessageId: undefined,
+                    streamSeq: streamSeqRef.current + 1,
+                  }).catch(() => setIsLoading(false));
+                }, 1000);
+                return;
+              }
               console.log('[useChat] Generation completed (detected via polling)');
               setIsLoading(false);
               setStreamStatus(undefined);

@@ -601,6 +601,9 @@ pub struct ModelStatus {
     pub system_prompt_tokens: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_definitions_tokens: Option<i32>,
+    /// Last generation finish reason (consumed once by polling for auto-continue).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_finish_reason: Option<String>,
 }
 
 #[derive(Deserialize)]
