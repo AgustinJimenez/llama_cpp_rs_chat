@@ -27,6 +27,8 @@ interface ArchitectureParams {
   embeddingLength: number;
   headDimK?: number;  // Explicit key head dim from GGUF (overrides embeddingLength/qHeads)
   headDimV?: number;  // Explicit value head dim from GGUF
+  slidingWindow?: number;
+  perLayerKvHeads?: number[];
 }
 
 /** Parse a metadata string field into a number, or return null */
@@ -78,6 +80,22 @@ export function extractArchitectureParams(meta: ModelMetadata): ArchitecturePara
     }
   }
 
+  // SWA: extract sliding_window and per-layer KV head counts
+  let slidingWindow: number | undefined;
+  let perLayerKvHeads: number[] | undefined;
+  for (const key of Object.keys(gguf)) {
+    if (key.endsWith('.attention.sliding_window') || key === 'attention.sliding_window') {
+      const v = Number(gguf[key]);
+      if (v > 0 && isFinite(v)) slidingWindow = v;
+    }
+    if (key.endsWith('.attention.head_count_kv') || key === 'attention.head_count_kv') {
+      const val = gguf[key];
+      if (Array.isArray(val)) {
+        perLayerKvHeads = val.map(Number).filter(n => isFinite(n));
+      }
+    }
+  }
+
   return {
     totalLayers,
     kvAttentionLayers,
@@ -87,6 +105,8 @@ export function extractArchitectureParams(meta: ModelMetadata): ArchitecturePara
     embeddingLength,
     headDimK,
     headDimV,
+    slidingWindow,
+    perLayerKvHeads,
   };
 }
 
@@ -126,7 +146,7 @@ export function useMemoryCalculation({
       return EMPTY_BREAKDOWN(availableVramGb, availableRamGb);
     }
 
-    const { totalLayers, kvAttentionLayers, modelSizeGb, qHeads, kvHeads, embeddingLength, headDimK, headDimV } =
+    const { totalLayers, kvAttentionLayers, modelSizeGb, qHeads, kvHeads, embeddingLength, headDimK, headDimV, slidingWindow, perLayerKvHeads } =
       extractArchitectureParams(modelMetadata);
 
     // Calculate how much of model goes to GPU vs CPU
@@ -139,6 +159,7 @@ export function useMemoryCalculation({
     const kvCacheSizeGb = calculateKvCacheGb(
       contextSize, kvAttentionLayers, kvHeads, qHeads, embeddingLength,
       cacheTypeK, cacheTypeV, headDimK, headDimV,
+      slidingWindow, perLayerKvHeads,
     );
 
     const vramUsed = modelGpuSizeGb + kvCacheSizeGb + overheadGb;

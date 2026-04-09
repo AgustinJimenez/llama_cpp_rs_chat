@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 
 interface ParamGroupProps {
-  title: string;
+  title: React.ReactNode;
   children: React.ReactNode;
   /** Additional CSS classes on the outer wrapper */
   className?: string;

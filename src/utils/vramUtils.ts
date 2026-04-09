@@ -85,16 +85,34 @@ export function calculateKvCacheGb(
   cacheTypeV: string = 'f16',
   explicitKeyDim?: number,
   explicitValueDim?: number,
+  slidingWindow?: number,
+  perLayerKvHeads?: number[],
 ): number {
   if (kvAttentionLayers <= 0 || kvHeads <= 0 || qHeads <= 0) return 0;
-  // Use explicit GGUF key/value dimensions when available (e.g. Qwen3.5-35B-A3B
-  // has key_length=256 but embeddingLength/qHeads=128, so derived headDim is wrong)
   const defaultHeadDim = embeddingLength / qHeads;
   const headDimK = explicitKeyDim ?? defaultHeadDim;
   const headDimV = explicitValueDim ?? defaultHeadDim;
-  const bytesK = contextSize * kvAttentionLayers * kvHeads * headDimK
-    * getCacheBytesPerElement(cacheTypeK);
-  const bytesV = contextSize * kvAttentionLayers * kvHeads * headDimV
-    * getCacheBytesPerElement(cacheTypeV);
+  const bpeK = getCacheBytesPerElement(cacheTypeK);
+  const bpeV = getCacheBytesPerElement(cacheTypeV);
+
+  // If per-layer KV head counts are available (e.g. Gemma 4 with SWA layers),
+  // calculate each layer's contribution separately. SWA layers use min(context, slidingWindow).
+  if (perLayerKvHeads && perLayerKvHeads.length > 0 && slidingWindow && slidingWindow > 0) {
+    let totalBytesK = 0;
+    let totalBytesV = 0;
+    const minKvHeads = Math.min(...perLayerKvHeads);
+    for (const layerKvHeads of perLayerKvHeads) {
+      // SWA layers have fewer KV heads than global layers
+      const isSwa = layerKvHeads <= minKvHeads && minKvHeads < kvHeads;
+      const layerCtx = isSwa ? Math.min(contextSize, slidingWindow) : contextSize;
+      totalBytesK += layerCtx * layerKvHeads * headDimK * bpeK;
+      totalBytesV += layerCtx * layerKvHeads * headDimV * bpeV;
+    }
+    return (totalBytesK + totalBytesV) / (1024 * 1024 * 1024);
+  }
+
+  // Standard: all layers use full context with same KV heads
+  const bytesK = contextSize * kvAttentionLayers * kvHeads * headDimK * bpeK;
+  const bytesV = contextSize * kvAttentionLayers * kvHeads * headDimV * bpeV;
   return (bytesK + bytesV) / (1024 * 1024 * 1024);
 }

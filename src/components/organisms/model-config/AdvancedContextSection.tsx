@@ -6,9 +6,9 @@ const KV_CACHE_OPTIONS = [
   { value: 'f16', label: 'F16' },
   { value: 'q8_0', label: 'Q8_0' },
   { value: 'q4_0', label: 'Q4_0' },
-  { value: 'turbo4', label: 'Turbo4 (3.8x)' },
-  { value: 'turbo3', label: 'Turbo3 (4.9x)' },
-  { value: 'turbo2', label: 'Turbo2 (6.4x)' },
+  { value: 'turbo4', label: 'TQ4 — TurboQuant 4-bit (3.8x)' },
+  { value: 'turbo3', label: 'TQ3 — TurboQuant 3-bit (4.9x)' },
+  { value: 'turbo2', label: 'TQ2 — TurboQuant 2-bit (6.4x)' },
 ];
 
 const BATCH_PRESETS = [512, 1024, 2048, 4096];
@@ -83,7 +83,7 @@ export const AdvancedContextSection: React.FC<AdvancedContextSectionProps> = ({
   return (
     <div className="flex flex-wrap gap-3">
       {/* KV Cache */}
-      <ParamGroup title="KV Cache">
+      <ParamGroup title={<span className="flex items-center gap-1.5">KV Cache <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-primary/20 text-primary">TurboQuant Added</span></span>}>
         <div className="flex items-center gap-1.5">
           <label className="text-xs text-muted-foreground whitespace-nowrap">K Type</label>
           <select
