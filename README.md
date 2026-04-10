@@ -74,6 +74,46 @@ docker run --gpus all -p 8000:8000 \
 
 Mount your models directory to `/app/models` and browse them in the UI.
 
+## System Requirements
+
+### Windows (Installer)
+
+| Requirement | Required? | Notes |
+|---|---|---|
+| Windows 10+ (64-bit) | **Required** | |
+| [Visual C++ Runtime 2022](https://aka.ms/vs/17/release/vc_redist.x64.exe) | **Required** | Most apps install this; you may already have it |
+| NVIDIA GPU drivers | Optional | Enables CUDA acceleration. Install via [nvidia.com/drivers](https://www.nvidia.com/drivers) |
+| Vulkan GPU drivers | Optional | Enables Vulkan acceleration (AMD/Intel/NVIDIA). Usually included with GPU drivers |
+
+The app auto-detects available GPU backends at startup. Without GPU drivers, it runs on CPU.
+
+### macOS
+
+| Requirement | Required? | Notes |
+|---|---|---|
+| macOS 12+ (Monterey) | **Required** | |
+| Xcode Command Line Tools | For building from source | `xcode-select --install` |
+
+Metal GPU acceleration is built into macOS — no additional drivers needed.
+
+### Linux
+
+| Requirement | Required? | Notes |
+|---|---|---|
+| glibc 2.31+ | **Required** | Ubuntu 20.04+, Fedora 32+ |
+| NVIDIA GPU drivers + CUDA 12.x | Optional | For CUDA acceleration |
+| Vulkan drivers (mesa-vulkan) | Optional | For Vulkan acceleration (AMD/Intel) |
+
+### Building from Source (all platforms)
+
+| Requirement | Notes |
+|---|---|
+| Rust 1.80+ | `rustup` recommended |
+| Node.js 18+ | For the frontend |
+| CMake 3.14+ | Auto-downloaded by the build system if not installed |
+| CUDA Toolkit 12.x | Only if building with `--features cuda` |
+| Vulkan SDK | Only if building with `--features vulkan` |
+
 ## Configuration
 
 Models are configured through the web UI (Settings). The app auto-configures sampling parameters from GGUF embedded metadata when available, with fallback presets for known models.

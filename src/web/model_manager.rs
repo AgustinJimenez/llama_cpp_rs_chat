@@ -137,6 +137,12 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, request
     // Initialize backend if needed
     if state_guard.is_none() {
         let backend = LlamaBackend::init().map_err(|e| format!("Failed to init backend: {e}"))?;
+        #[cfg(feature = "dynamic-backends")]
+        {
+            log_info!("system", "Loading dynamic GPU backends...");
+            backend.load_all_backends();
+            log_info!("system", "GPU offload supported: {}", backend.supports_gpu_offload());
+        }
         *state_guard = Some(LlamaState {
             backend,
             model: None,

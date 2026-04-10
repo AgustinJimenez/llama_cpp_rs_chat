@@ -100,6 +100,8 @@ impl ChatEngine {
     pub fn new(config: ChatConfig) -> Result<Self, String> {
         // Initialize backend
         let backend = LlamaBackend::init().map_err(|e| format!("Failed to init backend: {e}"))?;
+        #[cfg(feature = "dynamic-backends")]
+        backend.load_all_backends();
 
         // Load model
         let model_path = get_model_path();

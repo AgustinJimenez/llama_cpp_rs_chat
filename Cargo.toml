@@ -201,6 +201,7 @@ mock = []  # Mock implementation for E2E tests
 cuda = ["llama-cpp-2/cuda"]  # CUDA support feature
 metal = ["llama-cpp-2/metal"]  # Metal support feature for macOS
 vision = ["llama-cpp-2/mtmd"]  # Vision/multimodal support (disabled by default, re-enable later)
+dynamic-backends = ["llama-cpp-2/dynamic-backends"]  # Runtime GPU backend loading (CUDA/Vulkan as DLLs)
 
 [build-dependencies]
 tauri-build = { version = "2.0", features = [] }

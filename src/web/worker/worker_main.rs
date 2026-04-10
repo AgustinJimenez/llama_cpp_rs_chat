@@ -270,6 +270,12 @@ pub fn run_worker(db_path: &str) {
             }
 
             WorkerCommand::GetAvailableBackends => {
+                // Ensure backends are loaded (needed for dynamic-backends mode)
+                #[cfg(feature = "dynamic-backends")]
+                {
+                    let _backend = llama_cpp_2::llama_backend::LlamaBackend::init();
+                    if let Ok(ref b) = _backend { b.load_all_backends(); }
+                }
                 let devices = llama_cpp_2::list_llama_ggml_backend_devices();
                 let mut backend_map: std::collections::HashMap<String, Vec<super::ipc_types::BackendDeviceInfo>> = std::collections::HashMap::new();
                 for dev in &devices {
