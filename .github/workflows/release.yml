@@ -14,8 +14,8 @@ jobs:
       matrix:
         include:
           - platform: windows-latest
-            args: --features cuda,vision
-            label: windows-cuda
+            args: --features dynamic-backends,cuda,vision
+            label: windows
           - platform: macos-latest
             args: --features metal,vision
             label: macos-metal
@@ -70,8 +70,13 @@ jobs:
             See the [CHANGELOG](https://github.com/AgustinJimenez/llama_cpp_rs_chat/blob/master/CHANGELOG.md) for details.
 
             ## Downloads
-            - **Windows (CUDA)**: `.msi` or `-setup.exe`
+            - **Windows**: `.msi` or `-setup.exe` (auto-detects CUDA/CPU)
             - **macOS (Metal)**: `.dmg`
+
+            ## Requirements
+            - **Windows**: Visual C++ Runtime 2022 ([download](https://aka.ms/vs/17/release/vc_redist.x64.exe))
+            - **macOS**: macOS 12+ (Monterey)
+            - GPU drivers optional (CUDA for NVIDIA, Vulkan for AMD/Intel)
 
             ## Auto-Update
             Existing installations will be notified of this update automatically.
