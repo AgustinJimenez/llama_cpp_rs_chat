@@ -45,7 +45,8 @@ export function useHubSearch() {
         setModels(results);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Search failed');
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg || 'Search failed — check network connection');
       setModels([]);
     } finally {
       setIsLoading(false);
