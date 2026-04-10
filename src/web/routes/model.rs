@@ -765,16 +765,39 @@ pub async fn handle_post_model_hard_unload(
     }
 }
 
+fn detect_nvidia_gpu_hardware() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        std::path::Path::new("C:\\Windows\\System32\\nvcuda.dll").exists()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::process::Command::new("nvidia-smi")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+}
+
 /// GET /api/backends — list available compute backends (CUDA, Vulkan, CPU, etc.)
 pub async fn handle_get_backends(
     #[cfg(not(feature = "mock"))] bridge: SharedWorkerBridge,
     #[cfg(feature = "mock")] _bridge: (),
 ) -> Result<Response<Body>, Infallible> {
+    let nvidia_detected = detect_nvidia_gpu_hardware();
+
     #[cfg(not(feature = "mock"))]
     {
         match bridge.get_available_backends().await {
             Ok(backends) => {
-                let body = serde_json::json!({ "backends": backends });
+                let has_cuda = backends.iter().any(|b| b.name == "CUDA" && b.available);
+                let body = serde_json::json!({
+                    "backends": backends,
+                    "nvidia_gpu_detected": nvidia_detected,
+                    "cuda_backend_loaded": has_cuda,
+                });
                 Ok(json_raw(StatusCode::OK, serde_json::to_string(&body).unwrap()))
             }
             Err(e) => Ok(json_error(
@@ -786,9 +809,11 @@ pub async fn handle_get_backends(
 
     #[cfg(feature = "mock")]
     {
-        Ok(json_raw(
-            StatusCode::OK,
-            r#"{"backends":[{"name":"CPU","available":true,"devices":[{"name":"CPU","description":"CPU"}]}]}"#.to_string(),
-        ))
+        let body = serde_json::json!({
+            "backends": [{"name":"CPU","available":true,"devices":[{"name":"CPU","description":"CPU"}]}],
+            "nvidia_gpu_detected": nvidia_detected,
+            "cuda_backend_loaded": false,
+        });
+        Ok(json_raw(StatusCode::OK, serde_json::to_string(&body).unwrap()))
     }
 }

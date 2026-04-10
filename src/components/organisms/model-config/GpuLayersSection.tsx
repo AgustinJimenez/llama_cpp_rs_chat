@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { getAvailableBackends, type BackendInfo } from '../../../utils/tauriCommands';
 
+const CUDA_DOWNLOAD_URL = 'https://github.com/AgustinJimenez/llama_cpp_rs_chat/releases/download/backends/ggml-cuda.dll';
+
 export interface GpuLayersSectionProps {
   gpuLayers: number;
   onGpuLayersChange: (layers: number) => void;
@@ -14,13 +16,17 @@ export const GpuLayersSection: React.FC<GpuLayersSectionProps> = ({
 }) => {
   const [backends, setBackends] = useState<BackendInfo[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [nvidiaDetected, setNvidiaDetected] = useState(false);
+  const [cudaLoaded, setCudaLoaded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     getAvailableBackends()
-      .then(({ backends: b }) => {
+      .then((resp) => {
         if (!cancelled) {
-          setBackends(b);
+          setBackends(resp.backends);
+          setNvidiaDetected(resp.nvidia_gpu_detected ?? false);
+          setCudaLoaded(resp.cuda_backend_loaded ?? false);
           setLoaded(true);
         }
       })
@@ -35,6 +41,7 @@ export const GpuLayersSection: React.FC<GpuLayersSectionProps> = ({
   );
   const gpuLabel = gpuBackend ? `GPU Layers (${gpuBackend.name})` : 'GPU Layers';
   const hasGpu = !loaded || !!gpuBackend;
+  const showCudaBanner = loaded && nvidiaDetected && !cudaLoaded;
 
   return (
     <div className="space-y-1">
@@ -83,6 +90,25 @@ export const GpuLayersSection: React.FC<GpuLayersSectionProps> = ({
         <p className="text-xs text-amber-400">
           No GPU backend detected. All layers will run on CPU.
         </p>
+      )}
+
+      {showCudaBanner && (
+        <div className="mt-2 p-3 rounded-lg bg-blue-500/10 border border-blue-500/30">
+          <p className="text-xs text-blue-300 mb-2">
+            NVIDIA GPU detected but CUDA acceleration is not installed.
+          </p>
+          <a
+            href={CUDA_DOWNLOAD_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white transition-colors"
+          >
+            Download GPU Acceleration (~170MB)
+          </a>
+          <p className="text-[10px] text-muted-foreground mt-1.5">
+            Place ggml-cuda.dll next to the app executable and restart.
+          </p>
+        </div>
       )}
     </div>
   );

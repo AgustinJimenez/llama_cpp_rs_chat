@@ -464,6 +464,8 @@ export interface BackendInfo {
 
 export interface BackendsResponse {
   backends: BackendInfo[];
+  nvidia_gpu_detected?: boolean;
+  cuda_backend_loaded?: boolean;
 }
 
 export async function getAvailableBackends(): Promise<BackendsResponse> {
