@@ -606,7 +606,7 @@ export function useChat() {
               if (!convId) return;
               runStream({
                 request: { message: 'Continue', conversation_id: convId, auto_continue: true },
-                assistantMessageId: undefined,
+                assistantMessageId: crypto.randomUUID(),
                 streamSeq: streamSeqRef.current + 1,
               }).catch(() => setIsLoading(false));
             }, 1000);
@@ -675,7 +675,7 @@ export function useChat() {
                   if (!convId) return;
                   runStream({
                     request: { message: 'Continue', conversation_id: convId, auto_continue: true },
-                    assistantMessageId: undefined,
+                    assistantMessageId: crypto.randomUUID(),
                     streamSeq: streamSeqRef.current + 1,
                   }).catch(() => setIsLoading(false));
                 }, 1000);

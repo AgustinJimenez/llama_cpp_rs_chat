@@ -57,7 +57,7 @@ function handleStreamMessage(
   request: ChatRequest,
   state: StreamState,
   callbacks: {
-    onToken: (token: string, tokensUsed?: number, maxTokens?: number) => void;
+    onToken: (token: string, tokensUsed?: number, maxTokens?: number, genTokPerSec?: number, genTokens?: number) => void;
     onComplete: (messageId: string, conversationId: string, tokensUsed?: number, maxTokens?: number, timings?: TimingInfo) => void;
     onError: (error: string) => void;
     onStatus?: (message: string) => void;
