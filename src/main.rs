@@ -139,7 +139,7 @@ async fn get_model_status(
                 gpu_layers: meta.gpu_layers,
                 block_count: meta.block_count,
                 system_prompt_tokens: None,
-                tool_definitions_tokens: None,
+                tool_definitions_tokens: None, last_finish_reason: None,
             }
         }
         None => ModelStatus {
@@ -157,7 +157,7 @@ async fn get_model_status(
             gpu_layers: None,
             block_count: None,
             system_prompt_tokens: None,
-            tool_definitions_tokens: None,
+            tool_definitions_tokens: None, last_finish_reason: None,
         },
     })
 }
@@ -189,7 +189,7 @@ async fn load_model(
                     gpu_layers: meta.gpu_layers,
                     block_count: meta.block_count,
                     system_prompt_tokens: None,
-                    tool_definitions_tokens: None,
+                    tool_definitions_tokens: None, last_finish_reason: None,
                 }),
             })
         }
@@ -224,7 +224,7 @@ async fn unload_model(
                 gpu_layers: None,
                 block_count: None,
                 system_prompt_tokens: None,
-                tool_definitions_tokens: None,
+                tool_definitions_tokens: None, last_finish_reason: None,
             }),
         }),
         Err(e) => Ok(ModelResponse {
