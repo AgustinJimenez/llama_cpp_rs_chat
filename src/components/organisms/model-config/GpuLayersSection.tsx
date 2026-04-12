@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { getAvailableBackends, type BackendInfo } from '../../../utils/tauriCommands';
 
-const CUDA_DOWNLOAD_URL = 'https://github.com/AgustinJimenez/llama_cpp_rs_chat/releases/download/backends/ggml-cuda.dll';
+const GPU_SETUP_URL = 'https://github.com/AgustinJimenez/llama_cpp_rs_chat/releases/tag/backends';
 
 export interface GpuLayersSectionProps {
   gpuLayers: number;
@@ -98,15 +98,15 @@ export const GpuLayersSection: React.FC<GpuLayersSectionProps> = ({
             NVIDIA GPU detected but CUDA acceleration is not installed.
           </p>
           <a
-            href={CUDA_DOWNLOAD_URL}
+            href={GPU_SETUP_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white transition-colors"
           >
-            Download GPU Acceleration (~170MB)
+            GPU Setup Guide &amp; Downloads
           </a>
           <p className="text-[10px] text-muted-foreground mt-1.5">
-            Place ggml-cuda.dll next to the app executable and restart.
+            Download the GPU files, place them next to the app, and restart.
           </p>
         </div>
       )}
