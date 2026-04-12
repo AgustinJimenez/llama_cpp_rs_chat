@@ -45,7 +45,7 @@ jobs:
         if: matrix.platform == 'windows-latest'
         uses: Jimver/cuda-toolkit@v0.2.19
         with:
-          cuda: '12.6.3'
+          cuda: '12.6.2'
 
       # macOS: install sccache for faster builds
       - name: Install sccache (macOS)
