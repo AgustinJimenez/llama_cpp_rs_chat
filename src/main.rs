@@ -741,8 +741,27 @@ async fn get_system_usage() -> Result<serde_json::Value, String> {
     #[cfg(not(target_os = "windows"))]
     let (cpu, ram, gpu, cpu_perf_pct) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
 
-    let _ = cpu_perf_pct; // Used by web routes, not needed in Tauri command
-    Ok(serde_json::json!({"cpu": cpu, "gpu": gpu, "ram": ram}))
+    // Hardware totals — populated by get_windows_system_usage on its first call.
+    // Without these the frontend can't tell GPU-equipped machines from CPU-only ones,
+    // which is critical so the VRAM optimizer doesn't try to load layers on a non-existent GPU.
+    #[cfg(target_os = "windows")]
+    let (total_ram_gb, total_vram_gb, cpu_cores, cpu_base_mhz) =
+        web::routes::system::get_hardware_totals();
+    #[cfg(not(target_os = "windows"))]
+    let (total_ram_gb, total_vram_gb, cpu_cores, cpu_base_mhz) =
+        (0.0_f32, 0.0_f32, 0_u32, 0_u32);
+
+    let cpu_ghz = (cpu_base_mhz as f32) * cpu_perf_pct / 100.0 / 1000.0;
+
+    Ok(serde_json::json!({
+        "cpu": cpu,
+        "gpu": gpu,
+        "ram": ram,
+        "total_ram_gb": total_ram_gb,
+        "total_vram_gb": total_vram_gb,
+        "cpu_cores": cpu_cores,
+        "cpu_ghz": cpu_ghz,
+    }))
 }
 
 #[tauri::command]
@@ -759,6 +778,138 @@ async fn list_providers(db: tauri::State<'_, SharedDatabase>) -> Result<serde_js
     };
     let providers = web::providers::list_providers_with_keys(api_keys_json.as_deref()).await;
     Ok(serde_json::json!({ "providers": providers }))
+}
+
+// ─── HuggingFace Hub ──────────────────────────────────────────────────
+
+#[tauri::command]
+async fn search_hub_models(
+    query: String,
+    limit: Option<usize>,
+    sort: Option<String>,
+) -> Result<Vec<web::routes::hub::HubModel>, String> {
+    let limit = limit.unwrap_or(20).min(50);
+    let sort = sort.unwrap_or_else(|| "downloads".to_string());
+    tokio::task::spawn_blocking(move || web::routes::hub::search_hf(&query, limit, &sort))
+        .await
+        .map_err(|e| format!("Task failed: {e}"))?
+}
+
+#[tauri::command]
+async fn fetch_hub_tree(model_id: String) -> Result<Vec<web::routes::hub::HubFile>, String> {
+    tokio::task::spawn_blocking(move || web::routes::hub::tree_hf(&model_id))
+        .await
+        .map_err(|e| format!("Task failed: {e}"))?
+}
+
+#[tauri::command]
+async fn verify_hub_downloads(
+    db: tauri::State<'_, SharedDatabase>,
+) -> Result<Vec<web::database::hub_downloads::HubDownloadRecord>, String> {
+    let db_clone = db.inner().clone();
+    tokio::task::spawn_blocking(move || web::routes::download::verify_hub_downloads(&db_clone))
+        .await
+        .map_err(|e| format!("Task failed: {e}"))
+}
+
+#[tauri::command]
+async fn delete_hub_download(
+    id: i64,
+    db: tauri::State<'_, SharedDatabase>,
+) -> Result<(), String> {
+    let db_clone = db.inner().clone();
+    tokio::task::spawn_blocking(move || web::routes::download::delete_hub_download_by_id(&db_clone, id))
+        .await
+        .map_err(|e| format!("Task failed: {e}"))?
+}
+
+#[tauri::command]
+async fn download_hub_model(
+    app: AppHandle,
+    model_id: String,
+    filename: String,
+    destination: String,
+    db: tauri::State<'_, SharedDatabase>,
+) -> Result<(), String> {
+    use std::path::{Path, PathBuf};
+
+    // Sanitize filename — strip any path components
+    let sanitized = Path::new(&filename)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("download.gguf")
+        .to_string();
+
+    let dest_dir = PathBuf::from(&destination);
+    if !dest_dir.is_dir() {
+        return Err("Destination directory does not exist".to_string());
+    }
+
+    let dest_file = dest_dir.join(&sanitized);
+    let part_file = dest_dir.join(format!("{sanitized}.part"));
+    let key = format!("{model_id}/{filename}");
+
+    // If the final file already exists, emit done immediately
+    if dest_file.exists() {
+        let size = std::fs::metadata(&dest_file).map(|m| m.len()).unwrap_or(0);
+        let _ = app.emit(
+            "hub-download-progress",
+            serde_json::json!({
+                "key": key,
+                "type": "done",
+                "path": dest_file.to_string_lossy(),
+                "bytes": size,
+            }),
+        );
+        return Ok(());
+    }
+
+    // Build HF download URL
+    let url = format!(
+        "https://huggingface.co/{}/resolve/main/{}",
+        model_id,
+        urlencoding::encode(&filename),
+    );
+
+    let (progress_tx, mut progress_rx) = tokio::sync::mpsc::channel::<String>(64);
+    let db_clone: SharedDatabase = db.inner().clone();
+
+    // Clone values for the blocking thread
+    let model_id_b = model_id.clone();
+    let filename_b = filename.clone();
+    let dest_path_str = destination.clone();
+
+    // Blocking download thread
+    tokio::task::spawn_blocking(move || {
+        web::routes::download::download_file_blocking(
+            &url,
+            &dest_file,
+            &part_file,
+            db_clone,
+            &model_id_b,
+            &filename_b,
+            &dest_path_str,
+            progress_tx,
+        );
+    });
+
+    // Forward progress events as Tauri events — key is embedded so the
+    // frontend can demux multiple concurrent downloads.
+    let key_clone = key.clone();
+    tokio::spawn(async move {
+        while let Some(raw) = progress_rx.recv().await {
+            let mut payload: serde_json::Value = match serde_json::from_str(&raw) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            if let serde_json::Value::Object(ref mut map) = payload {
+                map.insert("key".to_string(), serde_json::Value::String(key_clone.clone()));
+            }
+            let _ = app.emit("hub-download-progress", payload);
+        }
+    });
+
+    Ok(())
 }
 
 // ─── Helper: Parse conversation text to messages ──────────────────────
@@ -1089,6 +1240,12 @@ fn main() {
             get_system_usage,
             // Providers
             list_providers,
+            // HuggingFace Hub
+            search_hub_models,
+            fetch_hub_tree,
+            verify_hub_downloads,
+            delete_hub_download,
+            download_hub_model,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

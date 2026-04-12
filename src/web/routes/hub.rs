@@ -40,21 +40,21 @@ struct HfModel {
     siblings: Vec<HfSibling>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct HubFile {
-    name: String,
-    size: u64,
+    pub name: String,
+    pub size: u64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct HubModel {
-    id: String,
-    author: String,
-    downloads: u64,
-    likes: u64,
-    last_modified: String,
-    pipeline_tag: String,
-    files: Vec<HubFile>,
+    pub id: String,
+    pub author: String,
+    pub downloads: u64,
+    pub likes: u64,
+    pub last_modified: String,
+    pub pipeline_tag: String,
+    pub files: Vec<HubFile>,
 }
 
 fn extract_query_param(uri: &hyper::Uri, key: &str) -> Option<String> {
@@ -68,7 +68,7 @@ fn extract_query_param(uri: &hyper::Uri, key: &str) -> Option<String> {
 
 const VALID_SORTS: &[&str] = &["downloads", "likes", "lastModified", "createdAt"];
 
-fn search_hf(query: &str, limit: usize, sort: &str) -> Result<Vec<HubModel>, String> {
+pub fn search_hf(query: &str, limit: usize, sort: &str) -> Result<Vec<HubModel>, String> {
     let sort_field = if VALID_SORTS.contains(&sort) { sort } else { "downloads" };
     let url = format!(
         "{}?search={}&filter=gguf&sort={}&direction=-1&limit={}&expand[]=siblings",
@@ -123,7 +123,7 @@ struct HfTreeEntry {
     size: u64,
 }
 
-fn tree_hf(model_id: &str) -> Result<Vec<HubFile>, String> {
+pub fn tree_hf(model_id: &str) -> Result<Vec<HubFile>, String> {
     // model_id is like "user/repo" — keep the slash, only encode each segment
     let url = format!(
         "https://huggingface.co/api/models/{}/tree/main",

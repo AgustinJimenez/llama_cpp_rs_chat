@@ -35,7 +35,7 @@ fn send_event(tx: &mpsc::Sender<String>, json: serde_json::Value) {
 /// Interval between DB progress checkpoints (bytes)
 const CHECKPOINT_INTERVAL: u64 = 5 * 1024 * 1024; // 5 MB
 
-fn download_file_blocking(
+pub fn download_file_blocking(
     url: &str,
     dest_file: &Path,
     part_file: &Path,
@@ -386,6 +386,30 @@ pub async fn handle_post_download(
 }
 
 /// DELETE /api/hub/downloads?id=123 — cancel/delete a download record and its files
+/// Delete a hub download record and its associated files (.part and final).
+/// Shared between HTTP route and Tauri command.
+pub fn delete_hub_download_by_id(db: &SharedDatabase, id: i64) -> Result<(), String> {
+    let records = db.get_hub_downloads().map_err(|e| format!("DB error: {e}"))?;
+    let rec = records.into_iter().find(|r| r.id == id);
+
+    if let Some(rec) = rec {
+        let sanitized_name = Path::new(&rec.filename)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(&rec.filename);
+
+        let part_path = PathBuf::from(&rec.dest_path).join(format!("{sanitized_name}.part"));
+        let _ = std::fs::remove_file(&part_path);
+
+        let final_path = PathBuf::from(&rec.dest_path).join(sanitized_name);
+        let _ = std::fs::remove_file(&final_path);
+    }
+
+    db.delete_hub_downloads_by_ids(&[id])
+        .map_err(|e| format!("DB delete error: {e}"))?;
+    Ok(())
+}
+
 pub async fn handle_delete_download(
     req: Request<Body>,
     db: SharedDatabase,
@@ -407,31 +431,8 @@ pub async fn handle_delete_download(
     };
 
     let db2 = db.clone();
-    let result = tokio::task::spawn_blocking(move || -> Result<(), String> {
-        // Find the record first to know what files to delete
-        let records = db2.get_hub_downloads().map_err(|e| format!("DB error: {e}"))?;
-        let rec = records.into_iter().find(|r| r.id == id);
-
-        if let Some(rec) = rec {
-            let sanitized_name = Path::new(&rec.filename)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or(&rec.filename);
-
-            // Delete .part file
-            let part_path = PathBuf::from(&rec.dest_path).join(format!("{sanitized_name}.part"));
-            let _ = std::fs::remove_file(&part_path);
-
-            // Delete final file if it exists
-            let final_path = PathBuf::from(&rec.dest_path).join(sanitized_name);
-            let _ = std::fs::remove_file(&final_path);
-        }
-
-        // Delete DB record
-        db2.delete_hub_downloads_by_ids(&[id]).map_err(|e| format!("DB delete error: {e}"))?;
-        Ok(())
-    })
-    .await;
+    let result =
+        tokio::task::spawn_blocking(move || delete_hub_download_by_id(&db2, id)).await;
 
     match result {
         Ok(Ok(())) => Ok(json_response(StatusCode::OK, &serde_json::json!({"ok": true}))),
@@ -449,52 +450,56 @@ pub async fn handle_get_downloads(
     Ok(json_raw(StatusCode::OK, json))
 }
 
+/// Verify hub download records against disk and prune missing ones.
+/// Shared between HTTP route and Tauri command.
+/// For completed records: check final file. For pending records: check .part file.
+pub fn verify_hub_downloads(
+    db: &SharedDatabase,
+) -> Vec<crate::web::database::hub_downloads::HubDownloadRecord> {
+    let records = db.get_hub_downloads().unwrap_or_default();
+    let mut missing_ids = Vec::new();
+    let mut valid = Vec::new();
+
+    for rec in records {
+        let sanitized_name = Path::new(&rec.filename)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(&rec.filename);
+
+        if rec.status == "completed" {
+            let final_path = PathBuf::from(&rec.dest_path).join(sanitized_name);
+            if final_path.exists() {
+                valid.push(rec);
+            } else {
+                missing_ids.push(rec.id);
+            }
+        } else {
+            let part_path =
+                PathBuf::from(&rec.dest_path).join(format!("{sanitized_name}.part"));
+            if part_path.exists() {
+                valid.push(rec);
+            } else {
+                missing_ids.push(rec.id);
+            }
+        }
+    }
+
+    if !missing_ids.is_empty() {
+        let _ = db.delete_hub_downloads_by_ids(&missing_ids);
+    }
+
+    valid
+}
+
 /// POST /api/hub/downloads/verify — check which downloaded files still exist on disk,
 /// delete missing records from DB, return the clean list.
-/// For completed records: check final file. For pending records: check .part file.
 pub async fn handle_post_verify(
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     let db2 = db.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        let records = db2.get_hub_downloads().unwrap_or_default();
-        let mut missing_ids = Vec::new();
-        let mut valid = Vec::new();
-
-        for rec in records {
-            let sanitized_name = Path::new(&rec.filename)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or(&rec.filename);
-
-            if rec.status == "completed" {
-                // Check if final file exists
-                let final_path = PathBuf::from(&rec.dest_path).join(sanitized_name);
-                if final_path.exists() {
-                    valid.push(rec);
-                } else {
-                    missing_ids.push(rec.id);
-                }
-            } else {
-                // Pending: check if .part file exists
-                let part_path =
-                    PathBuf::from(&rec.dest_path).join(format!("{sanitized_name}.part"));
-                if part_path.exists() {
-                    valid.push(rec);
-                } else {
-                    missing_ids.push(rec.id);
-                }
-            }
-        }
-
-        if !missing_ids.is_empty() {
-            let _ = db2.delete_hub_downloads_by_ids(&missing_ids);
-        }
-
-        valid
-    })
-    .await
-    .unwrap_or_default();
+    let result = tokio::task::spawn_blocking(move || verify_hub_downloads(&db2))
+        .await
+        .unwrap_or_default();
 
     let json = serde_json::to_string(&result).unwrap_or_else(|_| "[]".to_string());
     Ok(json_raw(StatusCode::OK, json))

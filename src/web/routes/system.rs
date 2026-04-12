@@ -148,10 +148,7 @@ pub async fn handle_system_usage() -> Result<Response<Body>, Infallible> {
 
     // Get hardware totals (cached alongside usage)
     #[cfg(target_os = "windows")]
-    let (total_ram_gb, total_vram_gb, cpu_cores, cpu_base_mhz) = {
-        let last = HARDWARE_TOTALS.lock().unwrap();
-        (last.0, last.1, last.2, last.3)
-    };
+    let (total_ram_gb, total_vram_gb, cpu_cores, cpu_base_mhz) = get_hardware_totals();
     #[cfg(target_os = "macos")]
     let (total_ram_gb, total_vram_gb, cpu_cores, _cpu_base_mhz) = {
         let ram = silent_command("sysctl").args(["-n", "hw.memsize"]).output()
@@ -347,6 +344,15 @@ pub fn get_windows_system_usage() -> (f32, f32, f32, f32) {
 pub fn get_windows_system_usage() -> (f32, f32, f32, f32) {
     // Return placeholder values on non-Windows platforms
     (0.0, 0.0, 0.0, 100.0)
+}
+
+/// Returns cached hardware totals: (total_ram_gb, total_vram_gb, cpu_cores, cpu_base_mhz).
+/// On Windows these are populated lazily by `get_windows_system_usage`. On other
+/// platforms they're zeros — the Tauri command falls back to its own detection.
+#[cfg(target_os = "windows")]
+pub fn get_hardware_totals() -> (f32, f32, u32, u32) {
+    let hw = HARDWARE_TOTALS.lock().unwrap();
+    (hw.0, hw.1, hw.2, hw.3)
 }
 
 // ── Background process endpoints ────────────────────────────────────────────

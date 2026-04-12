@@ -38,15 +38,10 @@
     "macOS": {
       "minimumSystemVersion": "11.0"
     },
-    "resources": [
-      "target/release/ggml.dll",
-      "target/release/ggml-base.dll",
-      "target/release/ggml-cpu.dll",
-      "target/release/llama.dll"
-    ],
     "windows": {
       "nsis": {
-        "installMode": "both"
+        "installMode": "both",
+        "installerHooks": "bundle-scripts/installer-hooks.nsh"
       }
     }
   },

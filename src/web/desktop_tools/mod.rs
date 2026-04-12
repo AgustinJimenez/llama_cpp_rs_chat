@@ -1188,6 +1188,13 @@ pub fn tool_click_screen(args: &Value) -> NativeToolResult {
         .get("delay_ms")
         .and_then(parse_int)
         .unwrap_or(500) as u64;
+    // Auto-screenshot is on by default to match historical behavior, but can
+    // be disabled to avoid bloating the caller's context with full-screen
+    // captures during long UI automation sessions.
+    let do_screenshot = args
+        .get("screenshot")
+        .map(|v| parse_bool(v, true))
+        .unwrap_or(true);
     let verification_region =
         normalize_verification_region(x - 160, y - 160, 320, 320);
     let verification = match prepare_screen_verification(args, verification_region) {
@@ -1230,7 +1237,7 @@ pub fn tool_click_screen(args: &Value) -> NativeToolResult {
     finalize_action_result(
         format!("{modal_warning}Clicked {button_str} at ({x}, {y})"),
         delay_ms,
-        true,
+        do_screenshot,
         verification,
     )
 }
@@ -1793,6 +1800,10 @@ pub fn tool_mouse_drag(args: &Value) -> NativeToolResult {
         .get("delay_ms")
         .and_then(parse_int)
         .unwrap_or(500) as u64;
+    let do_screenshot = args
+        .get("screenshot")
+        .map(|v| parse_bool(v, true))
+        .unwrap_or(true);
     let steps = args
         .get("steps")
         .and_then(parse_int)
@@ -1856,7 +1867,7 @@ pub fn tool_mouse_drag(args: &Value) -> NativeToolResult {
     finalize_action_result(
         format!("Dragged from ({x1},{y1}) to ({x2},{y2}){steps_note}"),
         delay_ms,
-        true,
+        do_screenshot,
         verification,
     )
 }

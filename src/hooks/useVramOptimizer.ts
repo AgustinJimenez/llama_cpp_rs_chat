@@ -118,8 +118,14 @@ export function useVramOptimizer({
   maxContextSize,
 }: VramOptimizerParams): VramOptimizerResult {
   return useMemo(() => {
-    if (!modelMetadata || availableVramGb <= 0 || maxLayers <= 0) {
-      return { optimalGpuLayers: maxLayers || 0, optimalContextSize: 32768, kvAttentionLayers: 0, ready: false };
+    if (!modelMetadata || maxLayers <= 0) {
+      return { optimalGpuLayers: 0, optimalContextSize: 32768, kvAttentionLayers: 0, ready: false };
+    }
+    // No GPU detected — force CPU-only mode. `ready: true` so the auto-applier
+    // picks this up and writes gpu_layers=0 into the config; otherwise the
+    // model load would send gpu_layers=N to llama.cpp and fail with NULL.
+    if (availableVramGb <= 0) {
+      return { optimalGpuLayers: 0, optimalContextSize: Math.min(32768, maxContextSize), kvAttentionLayers: 0, ready: true };
     }
 
     const { totalLayers, kvAttentionLayers, modelSizeGb, qHeads, kvHeads, embeddingLength, headDimK, headDimV } =

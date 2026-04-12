@@ -369,11 +369,18 @@ export interface HubDownloadRecord {
 
 /** Verify which downloaded files still exist on disk — prunes missing records from DB */
 export async function verifyHubDownloads(): Promise<HubDownloadRecord[]> {
+  if (isTauriEnv()) {
+    return invokeCmd<HubDownloadRecord[]>('verify_hub_downloads');
+  }
   return fetchJson<HubDownloadRecord[]>('/api/hub/downloads/verify', { method: 'POST' });
 }
 
 /** Delete a download record and its files (.part and final) from disk */
 export async function deleteHubDownload(id: number): Promise<void> {
+  if (isTauriEnv()) {
+    await invokeCmd<void>('delete_hub_download', { id });
+    return;
+  }
   await fetchJson(`/api/hub/downloads?id=${id}`, { method: 'DELETE' });
 }
 
@@ -395,6 +402,54 @@ export function startHubDownload(
   onProgress: (event: DownloadProgress) => void,
 ): AbortController {
   const controller = new AbortController();
+
+  if (isTauriEnv()) {
+    const key = `${modelId}/${filename}`;
+    let unlisten: (() => void) | null = null;
+
+    (async () => {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const { listen } = await import('@tauri-apps/api/event');
+
+      // Listen for progress events filtered by key
+      unlisten = await listen<DownloadProgress & { key?: string }>(
+        'hub-download-progress',
+        (event) => {
+          if (controller.signal.aborted) return;
+          if (event.payload?.key !== key) return;
+          onProgress(event.payload);
+          if (event.payload.type === 'done' || event.payload.type === 'error') {
+            unlisten?.();
+            unlisten = null;
+          }
+        },
+      );
+
+      if (controller.signal.aborted) {
+        unlisten?.();
+        return;
+      }
+
+      try {
+        await invoke('download_hub_model', {
+          modelId,
+          filename,
+          destination,
+        });
+      } catch (err) {
+        if (!controller.signal.aborted) {
+          onProgress({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+          unlisten?.();
+        }
+      }
+    })();
+
+    controller.signal.addEventListener('abort', () => {
+      unlisten?.();
+    }, { once: true });
+
+    return controller;
+  }
 
   fetch('/api/hub/download', {
     method: 'POST',

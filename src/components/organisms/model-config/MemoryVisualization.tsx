@@ -6,7 +6,7 @@ export interface MemoryBreakdown {
   vram: {
     total: number;
     modelGpu: number;
-    kvCache: number;
+    kvCache: number;       // KV cache portion on GPU
     overhead: number;
     available: number;
     overcommitted: boolean;
@@ -14,6 +14,7 @@ export interface MemoryBreakdown {
   ram: {
     total: number;
     modelCpu: number;
+    kvCacheCpu: number;    // KV cache portion on CPU (when gpu_layers < totalLayers)
     available: number;
     overcommitted: boolean;
   };
@@ -85,6 +86,24 @@ const BarSegment: React.FC<BarSegmentProps> = ({ color, widthPct, label, title, 
 // --- VRAM bar ---
 
 export const VramBar: React.FC<{ vram: MemoryBreakdown['vram'] }> = ({ vram }) => {
+  // Hide the VRAM bar entirely when there's no GPU detected (total === 0).
+  // The previous behavior rendered an "OVERCOMMITTED" red box with
+  // "Infinity%" because used > 0 && total === 0 — misleading on CPU-only
+  // systems where a 0/0 GPU is the correct state, not an error.
+  if (vram.total <= 0) {
+    return (
+      <div className="space-y-2">
+        <div className="flex justify-between items-baseline">
+          <span className="text-sm font-medium text-foreground/80">GPU Memory (VRAM)</span>
+          <span className="text-sm font-mono text-muted-foreground">No GPU detected</span>
+        </div>
+        <div className="h-8 bg-muted/40 rounded-md flex items-center justify-center">
+          <span className="text-xs text-muted-foreground">Model will run on CPU only</span>
+        </div>
+      </div>
+    );
+  }
+
   const used = vram.modelGpu + vram.kvCache + vram.overhead;
   const utilization = (used / vram.total) * 100;
   const modelPct = (vram.modelGpu / vram.total) * 100;
@@ -117,10 +136,13 @@ export const VramBar: React.FC<{ vram: MemoryBreakdown['vram'] }> = ({ vram }) =
 // --- RAM bar ---
 
 const RamBar: React.FC<{ ram: MemoryBreakdown['ram'] }> = ({ ram }) => {
-  const used = ram.modelCpu;
-  const utilization = (used / ram.total) * 100;
-  const modelPct = (ram.modelCpu / ram.total) * 100;
-  const availablePct = (ram.available / ram.total) * 100;
+  const used = ram.modelCpu + ram.kvCacheCpu;
+  // Guard against ram.total === 0 (system info not yet detected) — show
+  // 0% instead of NaN/Infinity rather than rendering "Infinity%".
+  const utilization = ram.total > 0 ? (used / ram.total) * 100 : 0;
+  const modelPct = ram.total > 0 ? (ram.modelCpu / ram.total) * 100 : 0;
+  const cachePct = ram.total > 0 ? (ram.kvCacheCpu / ram.total) * 100 : 0;
+  const availablePct = ram.total > 0 ? (ram.available / ram.total) * 100 : 0;
   const statusColor = getStatusColor(utilization, ram.overcommitted);
 
   return (
@@ -133,6 +155,7 @@ const RamBar: React.FC<{ ram: MemoryBreakdown['ram'] }> = ({ ram }) => {
       </div>
       <div className="h-8 bg-muted rounded-md overflow-hidden flex relative">
         <BarSegment color="bg-cyan-600" widthPct={Math.min(modelPct, 100)} label={`${ram.modelCpu.toFixed(1)}G`} title={`Model (CPU): ${ram.modelCpu.toFixed(2)} GB`} />
+        {ram.kvCacheCpu > 0 && <BarSegment color="bg-orange-500" widthPct={Math.min(cachePct, 100 - modelPct)} label={`${ram.kvCacheCpu.toFixed(1)}G`} title={`KV Cache (CPU): ${ram.kvCacheCpu.toFixed(2)} GB`} />}
         {!ram.overcommitted && <BarSegment color="bg-accent/50" widthPct={availablePct} label={`${ram.available.toFixed(1)}G`} title={`Available: ${ram.available.toFixed(2)} GB`} textColor="text-muted-foreground" minPctForLabel={10} />}
         {ram.overcommitted ? <div className="absolute inset-0 bg-red-600/20 border-2 border-red-600 flex items-center justify-center">
             <span className="text-xs text-foreground font-bold">OVERCOMMITTED</span>
@@ -144,22 +167,27 @@ const RamBar: React.FC<{ ram: MemoryBreakdown['ram'] }> = ({ ram }) => {
 
 // --- Legend ---
 
-export const MemoryLegend: React.FC<{ vram: MemoryBreakdown['vram']; ram: MemoryBreakdown['ram'] }> = ({ vram, ram }) => (
-  <div className="grid grid-cols-3 gap-x-4 gap-y-1 text-xs text-muted-foreground">
-    <div className="flex items-center gap-2">
-      <div className="w-3 h-3 bg-green-600 rounded-sm" />
-      <span>Model (GPU): {vram.modelGpu.toFixed(2)} GB</span>
+export const MemoryLegend: React.FC<{ vram: MemoryBreakdown['vram']; ram: MemoryBreakdown['ram'] }> = ({ vram, ram }) => {
+  // KV cache may live on either side depending on gpu_layers. Show whichever
+  // is non-zero so the legend mirrors the actual memory split.
+  const totalKv = vram.kvCache + ram.kvCacheCpu;
+  return (
+    <div className="grid grid-cols-3 gap-x-4 gap-y-1 text-xs text-muted-foreground">
+      <div className="flex items-center gap-2">
+        <div className="w-3 h-3 bg-green-600 rounded-sm" />
+        <span>Model (GPU): {vram.modelGpu.toFixed(2)} GB</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <div className="w-3 h-3 bg-orange-500 rounded-sm" />
+        <span>KV Cache: {totalKv.toFixed(2)} GB</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <div className="w-3 h-3 bg-cyan-600 rounded-sm" />
+        <span>Model (CPU): {ram.modelCpu.toFixed(2)} GB</span>
+      </div>
     </div>
-    <div className="flex items-center gap-2">
-      <div className="w-3 h-3 bg-orange-500 rounded-sm" />
-      <span>KV Cache: {vram.kvCache.toFixed(2)} GB</span>
-    </div>
-    <div className="flex items-center gap-2">
-      <div className="w-3 h-3 bg-cyan-600 rounded-sm" />
-      <span>Model (CPU): {ram.modelCpu.toFixed(2)} GB</span>
-    </div>
-  </div>
-);
+  );
+};
 
 // --- Inline slider row ---
 
@@ -298,7 +326,10 @@ const MemorySliders: React.FC<MemorySlidersProps> = ({ gpuLayers, onGpuLayersCha
 
 const MemoryWarnings: React.FC<{ memory: MemoryBreakdown }> = ({ memory }) => {
   const vramUsed = memory.vram.modelGpu + memory.vram.kvCache + memory.vram.overhead;
-  const vramUtilization = (vramUsed / memory.vram.total) * 100;
+  // Avoid Infinity% on machines with no GPU (vram.total === 0). The VramBar
+  // already renders a "No GPU detected" placeholder in that case, so we just
+  // suppress the high-utilization warning here.
+  const vramUtilization = memory.vram.total > 0 ? (vramUsed / memory.vram.total) * 100 : 0;
 
   return (
     <>

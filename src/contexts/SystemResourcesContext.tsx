@@ -28,8 +28,8 @@ const FAST_INTERVAL = 3_000;  // 3s when monitor is open
 const defaultUsage: UsageData = { cpu: 0, gpu: 0, ram: 0 };
 
 const SystemResourcesContext = createContext<SystemResourcesValue>({
-  totalVramGb: 24.0,
-  totalRamGb: 64.0,
+  totalVramGb: 0,
+  totalRamGb: 0,
   ready: false,
   usage: defaultUsage,
   history: [],
@@ -39,8 +39,11 @@ const SystemResourcesContext = createContext<SystemResourcesValue>({
 
 // eslint-disable-next-line max-lines-per-function
 export function SystemResourcesProvider({ children }: { children: ReactNode }) {
-  const [totalVramGb, setTotalVramGb] = useState(24.0);
-  const [totalRamGb, setTotalRamGb] = useState(64.0);
+  // Defaults are 0, not arbitrary "common" sizes — the VRAM optimizer relies on
+  // a real 0 to detect "no GPU" and fall back to CPU-only mode. A 24 GB default
+  // would silently make the optimizer try to load all layers on a non-existent GPU.
+  const [totalVramGb, setTotalVramGb] = useState(0);
+  const [totalRamGb, setTotalRamGb] = useState(0);
   const [ready, setReady] = useState(false);
   const [usage, setUsage] = useState<UsageData>(defaultUsage);
   const [history, setHistory] = useState<UsageData[]>([]);
@@ -63,10 +66,20 @@ export function SystemResourcesProvider({ children }: { children: ReactNode }) {
       setHasData(true);
       setHistory(prev => [...prev, data].slice(-20));
 
-      // Update hardware totals from first successful response
+      // Update hardware totals on EVERY successful poll, not just the first.
+      // The backend lazy-populates a hardware-totals cache via WMI/nvidia-smi
+      // calls that can time out on the first invocation, returning 0 for RAM
+      // and VRAM. If we only wrote totals once we'd be stuck with those zeros
+      // forever, breaking the memory visualization. We use the backend's value
+      // verbatim (including 0) so the VRAM optimizer can distinguish "no GPU"
+      // from "still detecting" — but we keep updating until non-zero arrives.
+      if (typeof data.total_vram_gb === 'number') {
+        setTotalVramGb(data.total_vram_gb);
+      }
+      if (typeof data.total_ram_gb === 'number' && data.total_ram_gb > 0) {
+        setTotalRamGb(data.total_ram_gb);
+      }
       if (!ready) {
-        setTotalVramGb(data.total_vram_gb && data.total_vram_gb > 0 ? data.total_vram_gb : 24.0);
-        setTotalRamGb(data.total_ram_gb && data.total_ram_gb > 0 ? data.total_ram_gb : 64.0);
         setReady(true);
       }
     } catch (error) {

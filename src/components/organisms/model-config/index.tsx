@@ -23,6 +23,7 @@ import { AdvancedContextSection } from './AdvancedContextSection';
 import { TagPairsSection } from './TagPairsSection';
 
 import { MemoryVisualization } from './MemoryVisualization';
+import { GpuLayersSection } from './GpuLayersSection';
 
 // Import hooks
 import { useMemoryCalculation } from '@/hooks/useMemoryCalculation';
@@ -510,6 +511,17 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                 </button>
               </CardHeader>
               {isConfigExpanded ? <CardContent className="space-y-4 pt-6">
+                  {/* Backend detection — shows GPU badges and warns when
+                      NVIDIA hardware is detected but the CUDA backend isn't
+                      loaded (with a download link). On a CPU-only machine
+                      it shows "No GPU backend detected" so the user knows
+                      why all layers will run on CPU. */}
+                  {modelInfo ? <GpuLayersSection
+                      gpuLayers={config.gpu_layers || 0}
+                      onGpuLayersChange={(layers) => handleInputChange('gpu_layers', layers)}
+                      maxLayers={maxLayers}
+                    /> : null}
+
                   {/* Memory Visualization - Real-time VRAM/RAM usage */}
                   {modelInfo ? <MemoryVisualization
                       memory={memoryBreakdown}

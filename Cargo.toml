@@ -202,6 +202,10 @@ cuda = ["llama-cpp-2/cuda"]  # CUDA support feature
 metal = ["llama-cpp-2/metal"]  # Metal support feature for macOS
 vision = ["llama-cpp-2/mtmd"]  # Vision/multimodal support (disabled by default, re-enable later)
 dynamic-backends = ["llama-cpp-2/dynamic-backends"]  # Runtime GPU backend loading (CUDA/Vulkan as DLLs)
+# Enables Tauri's embedded asset protocol so release builds use `frontendDist`
+# instead of `devUrl`. `cargo tauri build` sets this automatically; plain
+# `cargo build --release` needs it passed explicitly (or via the wrapper script).
+custom-protocol = ["tauri/custom-protocol"]
 
 [build-dependencies]
 tauri-build = { version = "2.0", features = [] }

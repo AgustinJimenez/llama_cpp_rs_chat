@@ -538,6 +538,7 @@ pub fn tool_click_window_relative(args: &Value) -> NativeToolResult {
             });
             if let Some(obj) = click_args.as_object_mut() {
                 for key in [
+                    "screenshot",
                     "verify_screen_change",
                     "verify_threshold_pct",
                     "verify_timeout_ms",

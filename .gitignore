@@ -52,3 +52,6 @@ skills/*
 vendor/
 composer.lock
 libs/
+
+# Auto-generated NSIS installer hooks (written by build.rs)
+bundle-scripts/

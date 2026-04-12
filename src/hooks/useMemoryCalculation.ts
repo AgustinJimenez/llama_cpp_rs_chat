@@ -127,13 +127,14 @@ const EMPTY_BREAKDOWN = (vramGb: number, ramGb: number): MemoryBreakdown => ({
     total: vramGb,
     modelGpu: 0,
     kvCache: 0,
-    overhead: DEFAULT_OVERHEAD_GB,
-    available: vramGb - DEFAULT_OVERHEAD_GB,
+    overhead: vramGb > 0 ? DEFAULT_OVERHEAD_GB : 0,
+    available: Math.max(0, vramGb - (vramGb > 0 ? DEFAULT_OVERHEAD_GB : 0)),
     overcommitted: false,
   },
   ram: {
     total: ramGb,
     modelCpu: 0,
+    kvCacheCpu: 0,
     available: ramGb,
     overcommitted: false,
   },
@@ -163,34 +164,49 @@ export function useMemoryCalculation({
 
     // Calculate how much of model goes to GPU vs CPU
     const gpuLayersClamped = Math.min(Math.max(gpuLayers, 0), totalLayers);
-    const gpuFraction = gpuLayersClamped / totalLayers;
+    const gpuFraction = totalLayers > 0 ? gpuLayersClamped / totalLayers : 0;
 
     const modelGpuSizeGb = modelSizeGb * gpuFraction;
     const modelCpuSizeGb = modelSizeGb * (1 - gpuFraction);
 
-    const kvCacheSizeGb = calculateKvCacheGb(
+    const kvCacheTotalGb = calculateKvCacheGb(
       contextSize, kvAttentionLayers, kvHeads, qHeads, embeddingLength,
       cacheTypeK, cacheTypeV, headDimK, headDimV,
       slidingWindow, perLayerKvHeads,
     );
+    // Split KV cache the same way as the model: layers on GPU keep their
+    // KV state on GPU, layers on CPU keep theirs on CPU. Without this split,
+    // a CPU-only configuration would still report KV cache as VRAM usage,
+    // which falsely flagged the load as "OVERCOMMITTED" on machines with no
+    // GPU at all.
+    const kvCacheGpuGb = kvCacheTotalGb * gpuFraction;
+    const kvCacheCpuGb = kvCacheTotalGb * (1 - gpuFraction);
 
-    const vramUsed = modelGpuSizeGb + kvCacheSizeGb + overheadGb;
-    const ramUsed = modelCpuSizeGb;
+    // Overhead (CUDA scratch / activation buffers) only applies when at
+    // least one layer is offloaded to GPU. Pure-CPU mode has no CUDA context
+    // at all, so charging the user 2 GB of VRAM here is misleading.
+    const effectiveOverheadGb = gpuFraction > 0 ? overheadGb : 0;
+
+    const vramUsed = modelGpuSizeGb + kvCacheGpuGb + effectiveOverheadGb;
+    const ramUsed = modelCpuSizeGb + kvCacheCpuGb;
 
     return {
       vram: {
         total: availableVramGb,
         modelGpu: modelGpuSizeGb,
-        kvCache: kvCacheSizeGb,
-        overhead: overheadGb,
+        kvCache: kvCacheGpuGb,
+        overhead: effectiveOverheadGb,
         available: Math.max(0, availableVramGb - vramUsed),
-        overcommitted: vramUsed > availableVramGb,
+        // Don't flag overcommitment when there's no GPU at all (total=0):
+        // CPU-only is a valid configuration, not an error.
+        overcommitted: availableVramGb > 0 && vramUsed > availableVramGb,
       },
       ram: {
         total: availableRamGb,
         modelCpu: modelCpuSizeGb,
+        kvCacheCpu: kvCacheCpuGb,
         available: Math.max(0, availableRamGb - ramUsed),
-        overcommitted: ramUsed > availableRamGb,
+        overcommitted: availableRamGb > 0 && ramUsed > availableRamGb,
       },
     };
   }, [modelMetadata, gpuLayers, contextSize, availableVramGb, availableRamGb, overheadGb, cacheTypeK, cacheTypeV]);
