@@ -47,16 +47,15 @@ jobs:
         with:
           cuda: '12.6.2'
 
-      # macOS: install sccache for faster builds
-      - name: Install sccache (macOS)
-        if: matrix.platform == 'macos-latest'
-        run: brew install sccache
-
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2.0"
 
       - name: Build frontend
         run: npm run build
+
+      # Regenerate Cargo.lock to match platform features
+      - name: Update Cargo.lock
+        run: cargo update
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
@@ -75,9 +74,8 @@ jobs:
             - **macOS (Metal)**: `.dmg`
 
             ## Requirements
-            - **Windows**: Visual C++ Runtime 2022 ([download](https://aka.ms/vs/17/release/vc_redist.x64.exe))
-            - **macOS**: macOS 12+ (Monterey)
-            - GPU drivers optional (CUDA for NVIDIA, Vulkan for AMD/Intel)
+            - **Windows GPU**: Download CUDA acceleration files from the [backends release](https://github.com/AgustinJimenez/llama_cpp_rs_chat/releases/tag/backends)
+            - **macOS**: macOS 11+ (Big Sur), Metal GPU acceleration built-in
 
             ## Auto-Update
             Existing installations will be notified of this update automatically.
