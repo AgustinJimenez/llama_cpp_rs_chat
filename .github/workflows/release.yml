@@ -53,9 +53,9 @@ jobs:
       - name: Build frontend
         run: npm run build
 
-      # Regenerate Cargo.lock to match platform features
-      - name: Update Cargo.lock
-        run: cargo update
+      # Remove stale Cargo.lock so path deps resolve correctly
+      - name: Refresh Cargo.lock
+        run: rm -f Cargo.lock
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
