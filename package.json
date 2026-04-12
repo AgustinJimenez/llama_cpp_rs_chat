@@ -5,7 +5,7 @@
   "scripts": {
     "ensure-cmake": "cargo build --manifest-path tools/ensure-cmake/Cargo.toml --release",
     "ensure-tesseract": "cargo run --manifest-path tools/ensure-tesseract/Cargo.toml --release --quiet",
-    "postinstall": "npm run ensure-tesseract",
+    "postinstall": "npm run ensure-tesseract || true",
     "cargo": "cargo run --manifest-path tools/ensure-cmake/Cargo.toml --release --quiet -- cargo",
     "dev:frontend": "vite --host --port 14000",
     "start": "cargo run --manifest-path tools/start-dev/Cargo.toml --release --quiet",
