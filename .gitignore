@@ -55,3 +55,12 @@ libs/
 
 # Auto-generated NSIS installer hooks (written by build.rs)
 bundle-scripts/
+
+# Runtime databases
+.crush/
+
+# Chat images
+assets/images/
+
+# Auto-generated schemas
+gen/schemas/
