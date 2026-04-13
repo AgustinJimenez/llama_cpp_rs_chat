@@ -1,7 +1,8 @@
-import React from 'react';
 import { Zap, Loader2, X } from 'lucide-react';
+import React from 'react';
+
 import { useModelContext } from '../../contexts/ModelContext';
-import { useUIContext } from '../../contexts/UIContext';
+import { useUIContext } from '../../hooks/useUIContext';
 import { getProviderLabel } from '../../utils/providerLabels';
 
 interface WelcomeMessageProps {
@@ -9,7 +10,15 @@ interface WelcomeMessageProps {
 }
 
 export const WelcomeMessage: React.FC<WelcomeMessageProps> = ({ children }) => {
-  const { status, isLoading, loadingAction, modelName, forceUnload, activeProvider, activeProviderModel } = useModelContext();
+  const {
+    status,
+    isLoading,
+    loadingAction,
+    modelName,
+    forceUnload,
+    activeProvider,
+    activeProviderModel,
+  } = useModelContext();
   const { openProviderSelector } = useUIContext();
   const remoteProviderLabel = getProviderLabel(activeProvider);
   const remoteHeading = `${remoteProviderLabel} (${activeProviderModel})`;
@@ -19,11 +28,16 @@ export const WelcomeMessage: React.FC<WelcomeMessageProps> = ({ children }) => {
   if (isLoading && !status.loaded) {
     const progress = status.loading_progress;
     const isWarmup = loadingAction === 'loading' && progress != null && progress > 100;
-    const hasProgress = loadingAction === 'loading' && progress != null && progress > 0 && !isWarmup;
-    const text = loadingAction === 'unloading'
-      ? 'Unloading model...'
-      : isWarmup ? 'Preparing system prompt...'
-      : hasProgress ? `Loading model... ${progress}%` : 'Loading model...';
+    const hasProgress =
+      loadingAction === 'loading' && progress != null && progress > 0 && !isWarmup;
+    let text = 'Loading model...';
+    if (loadingAction === 'unloading') {
+      text = 'Unloading model...';
+    } else if (isWarmup) {
+      text = 'Preparing system prompt...';
+    } else if (hasProgress) {
+      text = `Loading model... ${progress}%`;
+    }
     return (
       <div className="flex-1 flex flex-col items-center justify-center">
         {hasProgress || isWarmup ? (
@@ -55,7 +69,9 @@ export const WelcomeMessage: React.FC<WelcomeMessageProps> = ({ children }) => {
   if ((status.loaded && modelName) || activeProvider !== 'local') {
     return (
       <div className="flex-1 flex flex-col items-center justify-center">
-        <h2 className="text-xl font-semibold mb-6">{activeProvider !== 'local' ? remoteHeading : modelName}</h2>
+        <h2 className="text-xl font-semibold mb-6">
+          {activeProvider !== 'local' ? remoteHeading : modelName}
+        </h2>
         {children}
       </div>
     );
@@ -69,7 +85,9 @@ export const WelcomeMessage: React.FC<WelcomeMessageProps> = ({ children }) => {
         className="flat-card flex flex-col items-center gap-3 px-10 py-8 bg-muted/50 hover:bg-muted transition-colors cursor-pointer"
       >
         <Zap className="h-8 w-8 text-foreground" />
-        <span className="text-sm font-medium text-foreground">Choose a provider to start chatting</span>
+        <span className="text-sm font-medium text-foreground">
+          Choose a provider to start chatting
+        </span>
       </button>
     </div>
   );

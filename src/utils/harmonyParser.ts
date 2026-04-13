@@ -4,6 +4,9 @@
  * Unlike other format collectors (which return Span[]), Harmony replaces
  * the entire parsing pipeline — it produces complete segments + finalContent.
  */
+const END_TAG_LENGTH = 7; // '<|end|>'.length
+const MESSAGE_TAG_LENGTH = 11; // '<|message|>'.length
+
 import type { MessageSegment } from './toolSpanCollectors';
 import { parseExecCommand } from './toolSpanCollectors';
 
@@ -28,7 +31,7 @@ function pushText(segments: MessageSegment[], text: string) {
   if (!trimmed) return;
   const last = segments[segments.length - 1];
   if (last && last.type === 'text') {
-    last.content += '\n\n' + trimmed;
+    last.content += `\n\n${trimmed}`;
   } else {
     segments.push({ type: 'text', content: trimmed });
   }
@@ -38,7 +41,10 @@ function pushText(segments: MessageSegment[], text: string) {
 function extractTrailing(segments: MessageSegment[], segBody: string) {
   const idx = segBody.indexOf('<|end|>');
   if (idx < 0) return;
-  const trailing = segBody.slice(idx + 7).replace(/<\|end\|>/g, '').trim();
+  const trailing = segBody
+    .slice(idx + END_TAG_LENGTH)
+    .replace(/<\|end\|>/g, '')
+    .trim();
   if (trailing) pushText(segments, trailing);
 }
 
@@ -63,9 +69,15 @@ function processToolOutput(acc: HarmonyAccumulator, body: string) {
 
   if (acc.pendingCommand) {
     const [{ name, args }] = parseExecCommand(acc.pendingCommand);
-    acc.segments.push({ type: 'tool_call', toolCall: {
-      id: `tc-${name}-${acc.segments.length}`, name, arguments: args, output: outputText,
-    } });
+    acc.segments.push({
+      type: 'tool_call',
+      toolCall: {
+        id: `tc-${name}-${acc.segments.length}`,
+        name,
+        arguments: args,
+        output: outputText,
+      },
+    });
     acc.pendingCommand = null;
   }
 
@@ -81,7 +93,10 @@ function processAssistant(acc: HarmonyAccumulator, body: string) {
   if (channel === 'final') {
     const msgIdx = channelBody.indexOf('<|message|>');
     if (msgIdx >= 0) {
-      const text = channelBody.slice(msgIdx + 11).replace(/<\|end\|>[\s\S]*$/, '').trim();
+      const text = channelBody
+        .slice(msgIdx + MESSAGE_TAG_LENGTH)
+        .replace(/<\|end\|>[\s\S]*$/, '')
+        .trim();
       if (text) acc.finalParts.push(text);
     }
   } else {
@@ -137,16 +152,24 @@ export function parseHarmonyContent(raw: string): HarmonyParsed | null {
 
   if (acc.pendingCommand) {
     const [{ name: pName, args: pArgs }] = parseExecCommand(acc.pendingCommand);
-    acc.segments.push({ type: 'tool_call', toolCall: {
-      id: `tc-${pName}-${acc.segments.length}`, name: pName, arguments: pArgs, isPending: true,
-    } });
+    acc.segments.push({
+      type: 'tool_call',
+      toolCall: {
+        id: `tc-${pName}-${acc.segments.length}`,
+        name: pName,
+        arguments: pArgs,
+        isPending: true,
+      },
+    });
   }
 
   if (acc.finalParts.length === 0) {
     const lastEnd = raw.lastIndexOf('<|end|>');
     if (lastEnd >= 0) {
-      const trailer = raw.slice(lastEnd + 7).trim();
-      const trailingFinal = trailer.match(/<\|start\|>assistant<\|channel\|>final<\|message\|>([\s\S]*)/);
+      const trailer = raw.slice(lastEnd + END_TAG_LENGTH).trim();
+      const trailingFinal = trailer.match(
+        /<\|start\|>assistant<\|channel\|>final<\|message\|>([\s\S]*)/,
+      );
       if (trailingFinal) acc.finalParts.push(trailingFinal[1].trim());
     }
   }

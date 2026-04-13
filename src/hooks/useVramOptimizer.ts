@@ -1,7 +1,12 @@
 import { useMemo } from 'react';
+
+const CONTEXT_ROUND_STEP = 256;
+const DEFAULT_TARGET_CONTEXT = 32768;
+const CONTEXT_GROWTH_THRESHOLD = 1.25;
+
+import { extractArchitectureParams } from '@/hooks/useMemoryCalculation';
 import type { ModelMetadata } from '@/types';
 import { calculateKvCacheGb } from '@/utils/vramUtils';
-import { extractArchitectureParams } from '@/hooks/useMemoryCalculation';
 
 interface VramOptimizerParams {
   modelMetadata: ModelMetadata | null;
@@ -50,8 +55,15 @@ function estimateVramGb(
   const gpuFraction = totalLayers > 0 ? gpuLayers / totalLayers : 0;
   const modelGpuGb = modelSizeGb * gpuFraction;
   const kvCacheGb = calculateKvCacheGb(
-    contextSize, kvAttentionLayers, kvHeads, qHeads, embeddingLength,
-    cacheTypeK, cacheTypeV, headDimK, headDimV,
+    contextSize,
+    kvAttentionLayers,
+    kvHeads,
+    qHeads,
+    embeddingLength,
+    cacheTypeK,
+    cacheTypeV,
+    headDimK,
+    headDimV,
   );
   return modelGpuGb + kvCacheGb + VRAM_HEADROOM_GB + VRAM_PERF_HEADROOM_GB;
 }
@@ -81,11 +93,20 @@ function findMaxContext(
 
   while (lo <= hi) {
     const mid = Math.floor((lo + hi) / 2);
-    const rounded = Math.floor(mid / 256) * 256;
+    const rounded = Math.floor(mid / CONTEXT_ROUND_STEP) * CONTEXT_ROUND_STEP;
     const vram = estimateVramGb(
-      modelSizeGb, gpuLayers, totalLayers, rounded,
-      kvAttentionLayers, kvHeads, qHeads, embeddingLength,
-      cacheTypeK, cacheTypeV, headDimK, headDimV,
+      modelSizeGb,
+      gpuLayers,
+      totalLayers,
+      rounded,
+      kvAttentionLayers,
+      kvHeads,
+      qHeads,
+      embeddingLength,
+      cacheTypeK,
+      cacheTypeV,
+      headDimK,
+      headDimV,
     );
     if (vram <= availableVramGb) {
       best = rounded;
@@ -98,15 +119,167 @@ function findMaxContext(
   return Math.max(best, MIN_CONTEXT);
 }
 
+interface ArchParams {
+  totalLayers: number;
+  kvAttentionLayers: number;
+  modelSizeGb: number;
+  qHeads: number;
+  kvHeads: number;
+  embeddingLength: number;
+  headDimK?: number;
+  headDimV?: number;
+}
+
+/** Helper that wraps estimateVramGb with fixed architecture params */
+function makeVramEstimator(arch: ArchParams, cacheTypeK: string, cacheTypeV: string) {
+  return (gpuLayers: number, contextSize: number) =>
+    estimateVramGb(
+      arch.modelSizeGb,
+      gpuLayers,
+      arch.totalLayers,
+      contextSize,
+      arch.kvAttentionLayers,
+      arch.kvHeads,
+      arch.qHeads,
+      arch.embeddingLength,
+      cacheTypeK,
+      cacheTypeV,
+      arch.headDimK,
+      arch.headDimV,
+    );
+}
+
+/** Helper that wraps findMaxContext with fixed architecture params */
+function makeContextFinder(arch: ArchParams, cacheTypeK: string, cacheTypeV: string) {
+  return (gpuLayers: number, vramGb: number, maxCtx: number) =>
+    findMaxContext(
+      arch.modelSizeGb,
+      gpuLayers,
+      arch.totalLayers,
+      arch.kvAttentionLayers,
+      arch.kvHeads,
+      arch.qHeads,
+      arch.embeddingLength,
+      cacheTypeK,
+      cacheTypeV,
+      vramGb,
+      maxCtx,
+      arch.headDimK,
+      arch.headDimV,
+    );
+}
+
+/** Try fitting all layers with target context, optionally expanding context if room */
+function tryFullGpu(
+  arch: ArchParams,
+  targetContext: number,
+  maxContextSize: number,
+  availableVramGb: number,
+  estimate: ReturnType<typeof makeVramEstimator>,
+  findCtx: ReturnType<typeof makeContextFinder>,
+): VramOptimizerResult | null {
+  const vram = estimate(arch.totalLayers, targetContext);
+  if (vram > availableVramGb) return null;
+
+  let contextSize = targetContext;
+  if (contextSize < maxContextSize) {
+    const maxCtx = findCtx(arch.totalLayers, availableVramGb, maxContextSize);
+    if (maxCtx > contextSize * CONTEXT_GROWTH_THRESHOLD) {
+      contextSize = maxCtx;
+    }
+  }
+  return {
+    optimalGpuLayers: arch.totalLayers,
+    optimalContextSize: contextSize,
+    kvAttentionLayers: arch.kvAttentionLayers,
+    ready: true,
+  };
+}
+
+/** Reduce gpu_layers until the given context fits */
+function reduceLayersToFit(
+  arch: ArchParams,
+  contextSize: number,
+  availableVramGb: number,
+  estimate: ReturnType<typeof makeVramEstimator>,
+): number | null {
+  for (let layers = arch.totalLayers - 1; layers >= 0; layers--) {
+    if (estimate(layers, contextSize) <= availableVramGb) return layers;
+  }
+  return null;
+}
+
+/** Core VRAM optimization: pure function, no React. */
+function calculateOptimalConfig(
+  modelMetadata: ModelMetadata,
+  availableVramGb: number,
+  cacheTypeK: string,
+  cacheTypeV: string,
+  presetContextSize: number | undefined,
+  maxContextSize: number,
+): VramOptimizerResult {
+  const arch = extractArchitectureParams(modelMetadata);
+  const estimate = makeVramEstimator(arch, cacheTypeK, cacheTypeV);
+  const findCtx = makeContextFinder(arch, cacheTypeK, cacheTypeV);
+  const targetContext = presetContextSize || Math.min(maxContextSize, DEFAULT_TARGET_CONTEXT);
+
+  // Step 1: Try all layers on GPU at target context
+  const fullGpu = tryFullGpu(
+    arch,
+    targetContext,
+    maxContextSize,
+    availableVramGb,
+    estimate,
+    findCtx,
+  );
+  if (fullGpu) return fullGpu;
+
+  // Step 2: Reduce gpu_layers to fit target context
+  const reducedLayers = reduceLayersToFit(arch, targetContext, availableVramGb, estimate);
+  if (reducedLayers !== null) {
+    return {
+      optimalGpuLayers: reducedLayers,
+      optimalContextSize: targetContext,
+      kvAttentionLayers: arch.kvAttentionLayers,
+      ready: true,
+    };
+  }
+
+  // Step 3: Model alone fits — all layers, reduced context
+  const modelOnlyVram = arch.modelSizeGb + VRAM_HEADROOM_GB;
+  if (modelOnlyVram <= availableVramGb) {
+    const contextSize = findCtx(arch.totalLayers, availableVramGb, targetContext);
+    return {
+      optimalGpuLayers: arch.totalLayers,
+      optimalContextSize: contextSize,
+      kvAttentionLayers: arch.kvAttentionLayers,
+      ready: true,
+    };
+  }
+
+  // Step 4: Model too large — split layers with minimum context, then maximize context
+  const splitLayers = reduceLayersToFit(arch, MIN_CONTEXT, availableVramGb, estimate);
+  if (splitLayers !== null) {
+    const contextSize = findCtx(splitLayers, availableVramGb, targetContext);
+    return {
+      optimalGpuLayers: splitLayers,
+      optimalContextSize: contextSize,
+      kvAttentionLayers: arch.kvAttentionLayers,
+      ready: true,
+    };
+  }
+
+  // Nothing fits — CPU only
+  return {
+    optimalGpuLayers: 0,
+    optimalContextSize: MIN_CONTEXT,
+    kvAttentionLayers: arch.kvAttentionLayers,
+    ready: true,
+  };
+}
+
 /**
  * Auto-calculate optimal gpu_layers and context_size for the available VRAM.
- *
- * Strategy:
- * 1. Start with all layers on GPU at the target context size.
- * 2. If it fits, done.
- * 3. If not, reduce gpu_layers until it fits.
- * 4. If gpu_layers reaches 0 but the model alone fits, put all layers back
- *    and reduce context size instead (binary search).
  */
 export function useVramOptimizer({
   modelMetadata,
@@ -121,94 +294,29 @@ export function useVramOptimizer({
     if (!modelMetadata || maxLayers <= 0) {
       return { optimalGpuLayers: 0, optimalContextSize: 32768, kvAttentionLayers: 0, ready: false };
     }
-    // No GPU detected — force CPU-only mode. `ready: true` so the auto-applier
-    // picks this up and writes gpu_layers=0 into the config; otherwise the
-    // model load would send gpu_layers=N to llama.cpp and fail with NULL.
     if (availableVramGb <= 0) {
-      return { optimalGpuLayers: 0, optimalContextSize: Math.min(32768, maxContextSize), kvAttentionLayers: 0, ready: true };
+      return {
+        optimalGpuLayers: 0,
+        optimalContextSize: Math.min(DEFAULT_TARGET_CONTEXT, maxContextSize),
+        kvAttentionLayers: 0,
+        ready: true,
+      };
     }
-
-    const { totalLayers, kvAttentionLayers, modelSizeGb, qHeads, kvHeads, embeddingLength, headDimK, headDimV } =
-      extractArchitectureParams(modelMetadata);
-
-    const targetContext = presetContextSize || Math.min(maxContextSize, 32768);
-
-    // Try all layers on GPU at target context
-    let gpuLayers = totalLayers;
-    let contextSize = targetContext;
-
-    let vram = estimateVramGb(
-      modelSizeGb, gpuLayers, totalLayers, contextSize,
-      kvAttentionLayers, kvHeads, qHeads, embeddingLength,
-      cacheTypeK, cacheTypeV, headDimK, headDimV,
+    return calculateOptimalConfig(
+      modelMetadata,
+      availableVramGb,
+      cacheTypeK,
+      cacheTypeV,
+      presetContextSize,
+      maxContextSize,
     );
-
-    if (vram <= availableVramGb) {
-      // Fits! Try to increase context beyond preset if there's room
-      if (contextSize < maxContextSize) {
-        const maxCtx = findMaxContext(
-          modelSizeGb, gpuLayers, totalLayers,
-          kvAttentionLayers, kvHeads, qHeads, embeddingLength,
-          cacheTypeK, cacheTypeV, availableVramGb, maxContextSize,
-          headDimK, headDimV,
-        );
-        // Only use larger context if it's meaningfully bigger (>25% more)
-        // Otherwise stick with the preset value which is tested/recommended
-        if (maxCtx > contextSize * 1.25) {
-          contextSize = maxCtx;
-        }
-      }
-      return { optimalGpuLayers: gpuLayers, optimalContextSize: contextSize, kvAttentionLayers, ready: true };
-    }
-
-    // Doesn't fit — reduce gpu_layers
-    while (gpuLayers > 0) {
-      gpuLayers--;
-      vram = estimateVramGb(
-        modelSizeGb, gpuLayers, totalLayers, contextSize,
-        kvAttentionLayers, kvHeads, qHeads, embeddingLength,
-        cacheTypeK, cacheTypeV, headDimK, headDimV,
-      );
-      if (vram <= availableVramGb) {
-        return { optimalGpuLayers: gpuLayers, optimalContextSize: contextSize, kvAttentionLayers, ready: true };
-      }
-    }
-
-    // gpu_layers hit 0 — check if model itself fits on GPU with reduced context
-    const modelOnlyVram = modelSizeGb + VRAM_HEADROOM_GB;
-    if (modelOnlyVram <= availableVramGb) {
-      gpuLayers = totalLayers;
-      contextSize = findMaxContext(
-        modelSizeGb, gpuLayers, totalLayers,
-        kvAttentionLayers, kvHeads, qHeads, embeddingLength,
-        cacheTypeK, cacheTypeV, availableVramGb, targetContext,
-        headDimK, headDimV,
-      );
-      return { optimalGpuLayers: gpuLayers, optimalContextSize: contextSize, kvAttentionLayers, ready: true };
-    }
-
-    // Model too large for GPU even alone — split layers and use minimum context
-    gpuLayers = totalLayers;
-    while (gpuLayers > 0) {
-      gpuLayers--;
-      vram = estimateVramGb(
-        modelSizeGb, gpuLayers, totalLayers, MIN_CONTEXT,
-        kvAttentionLayers, kvHeads, qHeads, embeddingLength,
-        cacheTypeK, cacheTypeV, headDimK, headDimV,
-      );
-      if (vram <= availableVramGb) {
-        // Found gpu_layers that fits at min context, now find max context for this layer count
-        contextSize = findMaxContext(
-          modelSizeGb, gpuLayers, totalLayers,
-          kvAttentionLayers, kvHeads, qHeads, embeddingLength,
-          cacheTypeK, cacheTypeV, availableVramGb, targetContext,
-          headDimK, headDimV,
-        );
-        return { optimalGpuLayers: gpuLayers, optimalContextSize: contextSize, kvAttentionLayers, ready: true };
-      }
-    }
-
-    // Nothing fits — CPU only with minimum context
-    return { optimalGpuLayers: 0, optimalContextSize: MIN_CONTEXT, kvAttentionLayers, ready: true };
-  }, [modelMetadata, availableVramGb, maxLayers, cacheTypeK, cacheTypeV, presetContextSize, maxContextSize]);
+  }, [
+    modelMetadata,
+    availableVramGb,
+    maxLayers,
+    cacheTypeK,
+    cacheTypeV,
+    presetContextSize,
+    maxContextSize,
+  ]);
 }

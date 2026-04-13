@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+
 import { getAvailableBackends, type BackendInfo } from '../../../utils/tauriCommands';
 
 const GPU_SETUP_URL = 'https://github.com/AgustinJimenez/llama_cpp_rs_chat/releases/tag/backends';
@@ -12,7 +13,7 @@ export interface GpuLayersSectionProps {
 export const GpuLayersSection: React.FC<GpuLayersSectionProps> = ({
   gpuLayers,
   onGpuLayersChange,
-  maxLayers
+  maxLayers,
 }) => {
   const [backends, setBackends] = useState<BackendInfo[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -33,12 +34,12 @@ export const GpuLayersSection: React.FC<GpuLayersSectionProps> = ({
       .catch(() => {
         if (!cancelled) setLoaded(true);
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const gpuBackend = backends.find(
-    (b) => b.available && b.name !== 'CPU' && b.name !== 'BLAS'
-  );
+  const gpuBackend = backends.find((b) => b.available && b.name !== 'CPU' && b.name !== 'BLAS');
   const gpuLabel = gpuBackend ? `GPU Layers (${gpuBackend.name})` : 'GPU Layers';
   const hasGpu = !loaded || !!gpuBackend;
   const showCudaBanner = loaded && nvidiaDetected && !cudaLoaded;
@@ -48,7 +49,7 @@ export const GpuLayersSection: React.FC<GpuLayersSectionProps> = ({
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">{gpuLabel}</span>
-          {loaded && (
+          {loaded ? (
             <div className="flex gap-1">
               {backends.map((b) => (
                 <span
@@ -63,7 +64,7 @@ export const GpuLayersSection: React.FC<GpuLayersSectionProps> = ({
                 </span>
               ))}
             </div>
-          )}
+          ) : null}
         </div>
         <span className="text-sm font-mono text-foreground" data-testid="gpu-layers-display">
           {gpuLayers || 0} / {maxLayers}
@@ -83,7 +84,8 @@ export const GpuLayersSection: React.FC<GpuLayersSectionProps> = ({
             className="w-full accent-[hsl(var(--primary))] cursor-pointer"
           />
           <p className="text-xs text-muted-foreground">
-            Number of model layers to offload to GPU. Higher values = faster inference but more VRAM usage. 0 = CPU only. Model has ~{maxLayers} layers total.
+            Number of model layers to offload to GPU. Higher values = faster inference but more VRAM
+            usage. 0 = CPU only. Model has ~{maxLayers} layers total.
           </p>
         </>
       ) : (
@@ -92,7 +94,7 @@ export const GpuLayersSection: React.FC<GpuLayersSectionProps> = ({
         </p>
       )}
 
-      {showCudaBanner && (
+      {showCudaBanner ? (
         <div className="mt-2 p-3 rounded-lg bg-blue-500/10 border border-blue-500/30">
           <p className="text-xs text-blue-300 mb-2">
             NVIDIA GPU detected but CUDA acceleration is not installed.
@@ -109,7 +111,7 @@ export const GpuLayersSection: React.FC<GpuLayersSectionProps> = ({
             Download the GPU files, place them next to the app, and restart.
           </p>
         </div>
-      )}
+      ) : null}
     </div>
   );
 };

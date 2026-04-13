@@ -60,7 +60,7 @@ export function useConversationUrl({
 
     const conversationFromUrl = getConversationFromUrl();
     if (conversationFromUrl) {
-      console.log('[useConversationUrl] Loading conversation from URL:', conversationFromUrl);
+      console.warn('[useConversationUrl] Loading conversation from URL:', conversationFromUrl);
       const normalizedId = normalizeConversationId(conversationFromUrl);
       loadConversation(normalizedId);
     }

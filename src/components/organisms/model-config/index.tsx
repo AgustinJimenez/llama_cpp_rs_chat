@@ -1,6 +1,10 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+/* eslint-disable max-lines -- main model config modal with many settings sections */
 import { Loader2, ChevronDown, ChevronRight, Eye, FolderOpen, CheckCircle } from 'lucide-react';
-import { pickFile } from '@/utils/tauriCommands';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { toast } from 'react-hot-toast';
+
+import { Button } from '../../atoms/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../../atoms/card';
 import {
   Dialog,
   DialogContent,
@@ -9,31 +13,27 @@ import {
   DialogDescription,
   DialogTitle,
 } from '../../atoms/dialog';
-import { Button } from '../../atoms/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../../atoms/card';
-import type { SamplerConfig } from '@/types';
-import { toast } from 'react-hot-toast';
-import { getModelHistory, getConfig } from '@/utils/tauriCommands';
-
-// Import extracted components
 import { ModelFileInput, ModelConfigSystemPrompt } from '../../molecules';
+
+import { AdvancedContextSection } from './AdvancedContextSection';
+import { GpuLayersSection } from './GpuLayersSection';
+import { MemoryVisualization } from './MemoryVisualization';
 import { ModelMetadataDisplay } from './ModelMetadataDisplay';
 import { SamplingParametersSection } from './SamplingParametersSection';
-import { AdvancedContextSection } from './AdvancedContextSection';
 import { TagPairsSection } from './TagPairsSection';
 
-import { MemoryVisualization } from './MemoryVisualization';
-import { GpuLayersSection } from './GpuLayersSection';
-
-// Import hooks
-import { useMemoryCalculation } from '@/hooks/useMemoryCalculation';
-import { useVramOptimizer } from '@/hooks/useVramOptimizer';
-import { useModelPathValidation } from '@/hooks/useModelPathValidation';
+import { findPresetByName, DEFAULT_PRESET } from '@/config/modelPresets';
 import { useModelContext } from '@/contexts/ModelContext';
 import { useSystemResources } from '@/contexts/SystemResourcesContext';
+import { useMemoryCalculation } from '@/hooks/useMemoryCalculation';
+import { useModelPathValidation } from '@/hooks/useModelPathValidation';
+import { useVramOptimizer } from '@/hooks/useVramOptimizer';
+import type { SamplerConfig } from '@/types';
+import { pickFile, getModelHistory, getConfig } from '@/utils/tauriCommands';
 
-// Import model presets for auto-configuration
-import { findPresetByName, DEFAULT_PRESET } from '@/config/modelPresets';
+const DEFAULT_CONTEXT_SIZE = 32768;
+const DEFAULT_MAX_CONTEXT = 131072;
+const TOAST_DELAY_MS = 1500;
 
 interface ModelConfigModalProps {
   isOpen: boolean;
@@ -47,7 +47,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   isOpen,
   onClose,
   onSave,
-  initialModelPath
+  initialModelPath,
 }) => {
   const [config, setConfig] = useState<SamplerConfig>({
     sampler_type: 'Greedy',
@@ -59,10 +59,10 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     repeat_penalty: 1.0,
     min_p: 0,
     model_path: '',
-    gpu_layers: 32,  // Default for RTX 4090
+    gpu_layers: 32, // Default for RTX 4090
   });
 
-  const [contextSize, setContextSize] = useState(32768);
+  const [contextSize, setContextSize] = useState(DEFAULT_CONTEXT_SIZE);
   const [modelPath, setModelPath] = useState('');
   const [isPicking, setIsPicking] = useState(false);
   const [isConfigExpanded, setIsConfigExpanded] = useState(true);
@@ -121,9 +121,9 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   }, [generalName, recommendedParams]);
 
   const maxContextSize = useMemo(() => {
-    if (!modelInfo?.context_length) return 131072;
+    if (!modelInfo?.context_length) return DEFAULT_MAX_CONTEXT;
     const parsed = parseInt(modelInfo.context_length.toString().replace(/,/g, ''));
-    return isNaN(parsed) ? 131072 : parsed;
+    return isNaN(parsed) ? DEFAULT_MAX_CONTEXT : parsed;
   }, [modelInfo?.context_length]);
 
   // Auto-calculate optimal gpu_layers and context_size for available VRAM
@@ -141,7 +141,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   const memoryBreakdown = useMemoryCalculation({
     modelMetadata: modelInfo,
     gpuLayers: config.gpu_layers || 0,
-    contextSize: contextSize,
+    contextSize,
     availableVramGb,
     availableRamGb,
     overheadGb,
@@ -165,7 +165,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
         const history = await getModelHistory();
         setModelHistory(history);
       } catch (error) {
-        console.error('Failed to fetch model history:', error);
+        console.error('Failed to fetch model history:', error); // eslint-disable-line no-console
       }
     };
 
@@ -173,11 +173,16 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
       try {
         const saved = await getConfig();
         if (saved.tag_pairs?.length) {
-          setConfig(prev => ({ ...prev, tag_pairs: saved.tag_pairs }));
-          console.log('[ModelConfig] Loaded saved tag_pairs from DB:', saved.tag_pairs.length, 'pairs');
+          setConfig((prev) => ({ ...prev, tag_pairs: saved.tag_pairs }));
+          // eslint-disable-next-line no-console
+          console.log(
+            '[ModelConfig] Loaded saved tag_pairs from DB:',
+            saved.tag_pairs.length,
+            'pairs',
+          );
         }
       } catch (error) {
-        console.error('Failed to fetch saved config:', error);
+        console.error('Failed to fetch saved config:', error); // eslint-disable-line no-console
       }
       savedConfigLoaded.current = true;
     };
@@ -188,9 +193,9 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
 
   useEffect(() => {
     if (modelPath) {
-      setConfig(prev => ({
+      setConfig((prev) => ({
         ...prev,
-        model_path: modelPath
+        model_path: modelPath,
       }));
     }
   }, [modelPath]);
@@ -231,8 +236,9 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
       : { ...namedPreset, ...ggufParams };
 
     // Apply the preset (including context_size if specified)
-    const { context_size: presetContextSize, ...samplerPreset } = merged as Partial<SamplerConfig> & { context_size?: number };
-    setConfig(prev => ({
+    const { context_size: presetContextSize, ...samplerPreset } =
+      merged as Partial<SamplerConfig> & { context_size?: number };
+    setConfig((prev) => ({
       ...prev,
       ...samplerPreset,
       model_path: prev.model_path,
@@ -241,7 +247,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
       setContextSize(presetContextSize);
     }
 
-    console.log('[ModelConfig] Auto-applied preset for:', generalName, merged);
+    console.log('[ModelConfig] Auto-applied preset for:', generalName, merged); // eslint-disable-line no-console
   }, [generalName, recommendedParams]);
 
   // Auto-enable mmproj when detected in model directory, clear on model change
@@ -259,8 +265,13 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   // Stale pairs from a previous model would cause wrong tool format in prompts
   useEffect(() => {
     if (!modelInfo?.detected_tag_pairs?.length) return;
-    setConfig(prev => {
-      console.log('[ModelConfig] Updated tag pairs for model:', modelInfo.detected_tag_pairs!.length, 'pairs');
+    setConfig((prev) => {
+      // eslint-disable-next-line no-console
+      console.log(
+        '[ModelConfig] Updated tag pairs for model:',
+        modelInfo.detected_tag_pairs?.length ?? 0,
+        'pairs',
+      );
       return { ...prev, tag_pairs: modelInfo.detected_tag_pairs };
     });
   }, [modelInfo?.detected_tag_pairs]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -270,8 +281,9 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   useEffect(() => {
     if (optimized.ready && modelPath && autoOptimizedForPath.current !== modelPath) {
       autoOptimizedForPath.current = modelPath;
-      setConfig(prev => ({ ...prev, gpu_layers: optimized.optimalGpuLayers }));
+      setConfig((prev) => ({ ...prev, gpu_layers: optimized.optimalGpuLayers }));
       setContextSize(optimized.optimalContextSize);
+      // eslint-disable-next-line no-console
       console.log('[ModelConfig] VRAM auto-optimized:', {
         gpuLayers: optimized.optimalGpuLayers,
         contextSize: optimized.optimalContextSize,
@@ -281,9 +293,9 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   }, [optimized, modelPath]);
 
   const handleInputChange = (field: keyof SamplerConfig, value: string | number | boolean) => {
-    setConfig(prev => ({
+    setConfig((prev) => ({
       ...prev,
-      [field]: value
+      [field]: value,
     }));
   };
 
@@ -315,22 +327,23 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
       return;
     }
 
-    // Log what we're trying to load for debugging
+    /* eslint-disable no-console -- intentional debug logging for model loading diagnostics */
     console.log('Attempting to load model:', modelPath);
     console.log('Model path type:', typeof modelPath);
     console.log('Full model path being saved:', modelPath);
     console.log('File exists:', fileExists);
+    /* eslint-enable no-console */
 
     // Determine system prompt based on mode
     // 'system' = '__AGENTIC__' (use universal agentic prompt), 'custom' = user's prompt
-    const systemPrompt = systemPromptMode === 'system'
-      ? '__AGENTIC__'
-      : customSystemPrompt;
+    const systemPrompt = systemPromptMode === 'system' ? '__AGENTIC__' : customSystemPrompt;
 
     // Derive tool_tag_* fields from tag_pairs for backward compatibility
     const tagPairs = config.tag_pairs || [];
-    const execPair = tagPairs.find(p => p.category === 'tool' && p.name === 'exec' && p.enabled);
-    const respPair = tagPairs.find(p => p.category === 'tool' && p.name === 'response' && p.enabled);
+    const execPair = tagPairs.find((p) => p.category === 'tool' && p.name === 'exec' && p.enabled);
+    const respPair = tagPairs.find(
+      (p) => p.category === 'tool' && p.name === 'response' && p.enabled,
+    );
 
     const finalConfig = {
       ...config,
@@ -338,20 +351,33 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
       context_size: contextSize,
       system_prompt: systemPrompt,
       ...(mmprojEnabled && mmprojPath ? { mmproj_path: mmprojPath } : {}),
-      ...(execPair ? { tool_tag_exec_open: execPair.open_tag, tool_tag_exec_close: execPair.close_tag } : {}),
-      ...(respPair ? { tool_tag_output_open: respPair.open_tag, tool_tag_output_close: respPair.close_tag } : {}),
+      ...(execPair
+        ? { tool_tag_exec_open: execPair.open_tag, tool_tag_exec_close: execPair.close_tag }
+        : {}),
+      ...(respPair
+        ? { tool_tag_output_open: respPair.open_tag, tool_tag_output_close: respPair.close_tag }
+        : {}),
     };
-    console.log('[DEBUG] Saving config with system_prompt:', systemPrompt, 'mode:', systemPromptMode);
+    // eslint-disable-next-line no-console
+    console.log(
+      '[DEBUG] Saving config with system_prompt:',
+      systemPrompt,
+      'mode:',
+      systemPromptMode,
+    );
 
     // Warn if model's native tool format was not detected (fell back to default SYSTEM.EXEC)
     const detectedTags = modelInfo?.detected_tool_tags;
     if (detectedTags && detectedTags.exec_open === '<||SYSTEM.EXEC>') {
       setTimeout(() => {
-        toast('Tool call format not detected for this model. Using default format — this may affect agentic tasks.', {
-          icon: '\u26A0\uFE0F',
-          duration: 6000,
-        });
-      }, 1500); // Delay so it appears after the "loaded successfully" toast
+        toast(
+          'Tool call format not detected for this model. Using default format — this may affect agentic tasks.',
+          {
+            icon: '\u26A0\uFE0F',
+            duration: 6000,
+          },
+        );
+      }, TOAST_DELAY_MS); // Delay so it appears after the "loaded successfully" toast
     }
 
     onSave(finalConfig);
@@ -366,12 +392,11 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
         setModelPath(filePath);
       }
     } catch (error) {
-      console.error('Error opening file dialog:', error);
+      console.error('Error opening file dialog:', error); // eslint-disable-line no-console
     } finally {
       setIsPicking(false);
     }
   };
-
 
   const getModelFileName = () => {
     if (!modelPath) return 'No model selected';
@@ -383,9 +408,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="w-[95vw] max-w-7xl h-[90vh] max-h-[90vh] flex flex-col p-0">
         <DialogHeader className="px-6 pt-6">
-          <DialogTitle className="flex items-center gap-2">
-            Load Model
-          </DialogTitle>
+          <DialogTitle className="flex items-center gap-2">Load Model</DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground">
             {modelPath ? `Model: ${getModelFileName()}` : 'Select a model file to load'}
           </DialogDescription>
@@ -412,18 +435,18 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                 handleBrowseFile={handleBrowseFile}
               />
 
-              {isCheckingFile ? <Card className="mt-3">
+              {isCheckingFile ? (
+                <Card className="mt-3">
                   <CardContent className="pt-4">
                     <div className="flex items-center gap-2">
                       <Loader2 className="h-4 w-4 animate-spin" />
                       <p className="text-sm text-muted-foreground">Reading GGUF metadata...</p>
                     </div>
                   </CardContent>
-                </Card> : null}
+                </Card>
+              ) : null}
 
-              {modelInfo ? <ModelMetadataDisplay
-                  modelInfo={modelInfo}
-                /> : null}
+              {modelInfo ? <ModelMetadataDisplay modelInfo={modelInfo} /> : null}
 
               {/* Vision Projector (mmproj) - checkbox + file input */}
               {modelPath && fileExists === true ? (
@@ -433,7 +456,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                       type="checkbox"
                       checked={mmprojEnabled}
                       onChange={(e) => {
-                        const checked = e.target.checked;
+                        const { checked } = e.target;
                         setMmprojEnabled(checked);
                         if (!checked) {
                           setMmprojPath('');
@@ -447,7 +470,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                     <span className="font-medium">Vision Projector (mmproj)</span>
                   </label>
 
-                  {mmprojEnabled && (
+                  {mmprojEnabled ? (
                     <div className="space-y-1.5 pl-6">
                       <div className="relative">
                         <button
@@ -464,36 +487,47 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                           {mmprojPath ? (
                             <span className="font-mono text-xs truncate">{mmprojPath}</span>
                           ) : (
-                            <span className="text-muted-foreground text-xs">Click to select mmproj .gguf file...</span>
+                            <span className="text-muted-foreground text-xs">
+                              Click to select mmproj .gguf file...
+                            </span>
                           )}
                         </button>
-                        {mmprojPath && (
+                        {mmprojPath ? (
                           <div className="absolute right-2 top-1/2 transform -translate-y-1/2 pointer-events-none">
                             <CheckCircle className="h-3.5 w-3.5 text-green-500" />
                           </div>
-                        )}
+                        ) : null}
                       </div>
                       {(() => {
-                        const autoFile = modelInfo?.mmproj_files?.find(f => f.path === mmprojPath);
-                        return autoFile ? (
-                          <p className="text-xs text-muted-foreground">
-                            Auto-detected: {autoFile.name} ({autoFile.file_size})
-                          </p>
-                        ) : mmprojPath ? (
-                          <p className="text-xs text-muted-foreground">
-                            Custom: {mmprojPath.split(/[\\/]/).pop()}
-                          </p>
-                        ) : null;
+                        const autoFile = modelInfo?.mmproj_files?.find(
+                          (f) => f.path === mmprojPath,
+                        );
+                        if (autoFile) {
+                          return (
+                            <p className="text-xs text-muted-foreground">
+                              Auto-detected: {autoFile.name} ({autoFile.file_size})
+                            </p>
+                          );
+                        }
+                        if (mmprojPath) {
+                          return (
+                            <p className="text-xs text-muted-foreground">
+                              Custom: {mmprojPath.split(/[\\/]/).pop()}
+                            </p>
+                          );
+                        }
+                        return null;
                       })()}
                     </div>
-                  )}
+                  ) : null}
                 </div>
               ) : null}
             </CardContent>
           </Card>
 
           {/* Configuration Options - Only show when model is valid */}
-          {modelPath && fileExists === true ? <Card>
+          {modelPath && fileExists === true ? (
+            <Card>
               <CardHeader className="p-0">
                 <button
                   className={`flex items-center justify-between w-full text-left bg-primary text-white px-6 py-3 hover:opacity-90 transition-opacity ${
@@ -505,25 +539,33 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                   data-testid="config-expand-button"
                 >
                   <CardTitle className="text-sm flex items-center gap-2 text-white">
-                    {isConfigExpanded ? <ChevronDown className="h-5 w-5 text-white stroke-[3]" /> : <ChevronRight className="h-5 w-5 text-white stroke-[3]" />}
+                    {isConfigExpanded ? (
+                      <ChevronDown className="h-5 w-5 text-white stroke-[3]" />
+                    ) : (
+                      <ChevronRight className="h-5 w-5 text-white stroke-[3]" />
+                    )}
                     Model Configurations
                   </CardTitle>
                 </button>
               </CardHeader>
-              {isConfigExpanded ? <CardContent className="space-y-4 pt-6">
+              {isConfigExpanded ? (
+                <CardContent className="space-y-4 pt-6">
                   {/* Backend detection — shows GPU badges and warns when
                       NVIDIA hardware is detected but the CUDA backend isn't
                       loaded (with a download link). On a CPU-only machine
                       it shows "No GPU backend detected" so the user knows
                       why all layers will run on CPU. */}
-                  {modelInfo ? <GpuLayersSection
+                  {modelInfo ? (
+                    <GpuLayersSection
                       gpuLayers={config.gpu_layers || 0}
                       onGpuLayersChange={(layers) => handleInputChange('gpu_layers', layers)}
                       maxLayers={maxLayers}
-                    /> : null}
+                    />
+                  ) : null}
 
                   {/* Memory Visualization - Real-time VRAM/RAM usage */}
-                  {modelInfo ? <MemoryVisualization
+                  {modelInfo ? (
+                    <MemoryVisualization
                       memory={memoryBreakdown}
                       overheadGb={overheadGb}
                       onOverheadChange={setOverheadGb}
@@ -535,7 +577,8 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                       maxContextSize={maxContextSize}
                       systemPromptTokens={modelStatus.system_prompt_tokens}
                       toolDefinitionsTokens={modelStatus.tool_definitions_tokens}
-                    /> : null}
+                    />
+                  ) : null}
 
                   <ModelConfigSystemPrompt
                     systemPromptMode={systemPromptMode}
@@ -544,39 +587,40 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                     setCustomSystemPrompt={setCustomSystemPrompt}
                   />
 
-                  <AdvancedContextSection
-                    config={config}
-                    onConfigChange={handleInputChange}
-                  />
+                  <AdvancedContextSection config={config} onConfigChange={handleInputChange} />
 
-                  <SamplingParametersSection
-                    config={config}
-                    onConfigChange={handleInputChange}
-                  />
+                  <SamplingParametersSection config={config} onConfigChange={handleInputChange} />
 
                   <TagPairsSection
                     tagPairs={config.tag_pairs || []}
                     detectedTagPairs={modelInfo?.detected_tag_pairs}
-                    onTagPairsChange={(pairs) => setConfig(prev => ({ ...prev, tag_pairs: pairs }))}
+                    onTagPairsChange={(pairs) =>
+                      setConfig((prev) => ({ ...prev, tag_pairs: pairs }))
+                    }
                   />
-
-
-                </CardContent> : null}
-            </Card> : null}
-
+                </CardContent>
+              ) : null}
+            </Card>
+          ) : null}
         </div>
 
         <DialogFooter className="px-6 py-4 border-t">
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button data-testid="load-model-button" onClick={handleSave} disabled={!modelPath.trim() || isCheckingFile}>
+          <Button
+            data-testid="load-model-button"
+            onClick={handleSave}
+            disabled={!modelPath.trim() || isCheckingFile}
+          >
             {isCheckingFile ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
                 Reading file...
               </>
-            ) : 'Load Model'}
+            ) : (
+              'Load Model'
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

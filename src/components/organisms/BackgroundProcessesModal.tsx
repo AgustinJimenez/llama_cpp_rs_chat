@@ -1,5 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react';
 import { Terminal, X, Trash2 } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+
+const SECONDS_PER_HOUR = 3600;
+const MODAL_POLL_INTERVAL_MS = 3000;
+
+import { getBackgroundProcesses, killBackgroundProcess } from '../../utils/tauriCommands';
+import type { BackgroundProcessInfo } from '../../utils/tauriCommands';
 import {
   Dialog,
   DialogContent,
@@ -7,8 +13,6 @@ import {
   DialogDescription,
   DialogTitle,
 } from '../atoms/dialog';
-import { getBackgroundProcesses, killBackgroundProcess } from '../../utils/tauriCommands';
-import type { BackgroundProcessInfo } from '../../utils/tauriCommands';
 
 interface BackgroundProcessesModalProps {
   isOpen: boolean;
@@ -18,9 +22,9 @@ interface BackgroundProcessesModalProps {
 function formatElapsed(startedAt: number): string {
   const now = Date.now();
   const secs = Math.max(0, Math.floor((now - startedAt) / 1000));
-  if (secs >= 3600) {
-    const h = Math.floor(secs / 3600);
-    const m = Math.floor((secs % 3600) / 60);
+  if (secs >= SECONDS_PER_HOUR) {
+    const h = Math.floor(secs / SECONDS_PER_HOUR);
+    const m = Math.floor((secs % SECONDS_PER_HOUR) / 60);
     return `${h}h ${m}m`;
   }
   if (secs >= 60) {
@@ -32,10 +36,13 @@ function formatElapsed(startedAt: number): string {
 }
 
 function truncateCommand(cmd: string, maxLen = 60): string {
-  return cmd.length > maxLen ? cmd.slice(0, maxLen) + '…' : cmd;
+  return cmd.length > maxLen ? `${cmd.slice(0, maxLen)}…` : cmd;
 }
 
-export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> = ({ isOpen, onClose }) => {
+export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> = ({
+  isOpen,
+  onClose,
+}) => {
   const [processes, setProcesses] = useState<BackgroundProcessInfo[]>([]);
   const [killing, setKilling] = useState<Set<number>>(new Set());
 
@@ -51,19 +58,19 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
   useEffect(() => {
     if (!isOpen) return;
     refresh();
-    const id = setInterval(refresh, 3000);
+    const id = setInterval(refresh, MODAL_POLL_INTERVAL_MS);
     return () => clearInterval(id);
   }, [isOpen, refresh]);
 
   const handleKill = async (pid: number) => {
-    setKilling(prev => new Set(prev).add(pid));
+    setKilling((prev) => new Set(prev).add(pid));
     try {
       await killBackgroundProcess(pid);
       await refresh();
     } catch {
       // silent
     } finally {
-      setKilling(prev => {
+      setKilling((prev) => {
         const next = new Set(prev);
         next.delete(pid);
         return next;
@@ -72,17 +79,17 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
   };
 
   const handleKillAll = async () => {
-    const pids = processes.filter(p => p.alive).map(p => p.pid);
+    const pids = processes.filter((p) => p.alive).map((p) => p.pid);
     setKilling(new Set(pids));
     try {
-      await Promise.all(pids.map(pid => killBackgroundProcess(pid)));
+      await Promise.all(pids.map((pid) => killBackgroundProcess(pid)));
       await refresh();
     } finally {
       setKilling(new Set());
     }
   };
 
-  const aliveCount = processes.filter(p => p.alive).length;
+  const aliveCount = processes.filter((p) => p.alive).length;
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -108,7 +115,7 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
               No background processes running
             </p>
           ) : (
-            processes.map(proc => (
+            processes.map((proc) => (
               <div
                 key={proc.pid}
                 className="flex items-center gap-3 px-3 py-2 rounded-lg bg-muted/50 text-sm"

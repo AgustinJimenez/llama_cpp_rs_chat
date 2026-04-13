@@ -7,9 +7,9 @@ import type { SamplerConfig } from '@/types';
 // Tool tag configuration per model
 // Each model may use different tags for command execution
 export interface ToolTags {
-  execOpen: string;    // Opening tag before command
-  execClose: string;   // Closing tag after command
-  outputOpen: string;  // Opening tag before command output
+  execOpen: string; // Opening tag before command
+  execClose: string; // Closing tag after command
+  outputOpen: string; // Opening tag before command output
   outputClose: string; // Closing tag after command output
 }
 
@@ -62,25 +62,25 @@ const TOOL_TAG_FAMILIES = {
 // SYNC: Must match MODEL_TAG_MAP in src/web/chat/tool_tags.rs
 export const MODEL_TOOL_TAGS: Record<string, ToolTags> = {
   // Qwen models - strong tool calling with native tags
-  "Qwen_Qwen3 Coder Next": TOOL_TAG_FAMILIES.qwen,
-  "Qwen3 8B": TOOL_TAG_FAMILIES.qwen,
-  "Qwen_Qwen3 30B A3B Instruct 2507": TOOL_TAG_FAMILIES.qwen,
-  "Qwen3-Coder-30B-A3B-Instruct-1M": TOOL_TAG_FAMILIES.qwen,
-  "Qwen3.5-9B": TOOL_TAG_FAMILIES.qwen,
-  "Qwen3.5-35B-A3B": TOOL_TAG_FAMILIES.qwen,
-  "Qwen_Qwen3.5 35B A3B": TOOL_TAG_FAMILIES.qwen,
+  'Qwen_Qwen3 Coder Next': TOOL_TAG_FAMILIES.qwen,
+  'Qwen3 8B': TOOL_TAG_FAMILIES.qwen,
+  'Qwen_Qwen3 30B A3B Instruct 2507': TOOL_TAG_FAMILIES.qwen,
+  'Qwen3-Coder-30B-A3B-Instruct-1M': TOOL_TAG_FAMILIES.qwen,
+  'Qwen3.5-9B': TOOL_TAG_FAMILIES.qwen,
+  'Qwen3.5-35B-A3B': TOOL_TAG_FAMILIES.qwen,
+  'Qwen_Qwen3.5 35B A3B': TOOL_TAG_FAMILIES.qwen,
   // Mistral models - strong tool calling with native tags
-  "mistralai_Devstral Small 2507": TOOL_TAG_FAMILIES.mistral,
-  "mistralai_Devstral Small 2 24B Instruct 2512": TOOL_TAG_FAMILIES.mistral,
-  "Magistral-Small-2509": TOOL_TAG_FAMILIES.mistral,
-  "mistralai_Ministral 3 3B Instruct 2512 BF16": TOOL_TAG_FAMILIES.mistral,
-  "mistralai_Ministral 3 14B Reasoning 2512": TOOL_TAG_FAMILIES.mistral,
+  'mistralai_Devstral Small 2507': TOOL_TAG_FAMILIES.mistral,
+  'mistralai_Devstral Small 2 24B Instruct 2512': TOOL_TAG_FAMILIES.mistral,
+  'Magistral-Small-2509': TOOL_TAG_FAMILIES.mistral,
+  'mistralai_Ministral 3 3B Instruct 2512 BF16': TOOL_TAG_FAMILIES.mistral,
+  'mistralai_Ministral 3 14B Reasoning 2512': TOOL_TAG_FAMILIES.mistral,
   // GLM models - same tags as Qwen
-  "Zai org_GLM 4.6V Flash": TOOL_TAG_FAMILIES.glm,
-  "Zai org_GLM 4.7 Flash": TOOL_TAG_FAMILIES.glm,
+  'Zai org_GLM 4.6V Flash': TOOL_TAG_FAMILIES.glm,
+  'Zai org_GLM 4.7 Flash': TOOL_TAG_FAMILIES.glm,
   // Gemma 4 models - native tool calling format
-  "Gemma-4-26B-A4B-It": TOOL_TAG_FAMILIES.gemma4,
-  "Gemma-4-31B-It": TOOL_TAG_FAMILIES.gemma4,
+  'Gemma-4-26B-A4B-It': TOOL_TAG_FAMILIES.gemma4,
+  'Gemma-4-31B-It': TOOL_TAG_FAMILIES.gemma4,
   // Other models - use default SYSTEM.EXEC (no strong native tool format)
   // MiniCPM, Granite, Nemotron, GPT-OSS, RNJ all use default
 };
@@ -106,29 +106,29 @@ export type ModelPreset = Partial<SamplerConfig>;
 // Sources: HuggingFace model cards, vendor documentation
 export const MODEL_PRESETS: Record<string, ModelPreset> = {
   // Qwen models
-  "Qwen_Qwen3 Coder Next": {
-    sampler_type: "Temperature",
+  'Qwen_Qwen3 Coder Next': {
+    sampler_type: 'Temperature',
     temperature: 1.0,
     top_p: 0.95,
     top_k: 40,
     repeat_penalty: 1.05,
   },
-  "Qwen3 8B": {
-    sampler_type: "Temperature",
+  'Qwen3 8B': {
+    sampler_type: 'Temperature',
     temperature: 0.7,
     top_p: 0.8,
     top_k: 20,
     repeat_penalty: 1.0,
   },
-  "Qwen_Qwen3 30B A3B Instruct 2507": {
-    sampler_type: "Temperature",
+  'Qwen_Qwen3 30B A3B Instruct 2507': {
+    sampler_type: 'Temperature',
     temperature: 0.7,
     top_p: 0.8,
     top_k: 20,
     repeat_penalty: 1.0,
   },
-  "Qwen3-Coder-30B-A3B-Instruct-1M": {
-    sampler_type: "Temperature",
+  'Qwen3-Coder-30B-A3B-Instruct-1M': {
+    sampler_type: 'Temperature',
     temperature: 0.7,
     top_p: 0.8,
     top_k: 20,
@@ -136,8 +136,8 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
   },
   // 262K ctx fits 24GB VRAM with q8_0 KV, but heavy tool-calling sessions
   // may stall if VRAM is tight. Reduce to 32768 if you see "Generation stalled".
-  "Qwen3.5-35B-A3B": {
-    sampler_type: "Temperature",
+  'Qwen3.5-35B-A3B': {
+    sampler_type: 'Temperature',
     temperature: 0.7,
     top_p: 0.8,
     top_k: 20,
@@ -146,13 +146,13 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     repeat_penalty: 1.0,
     context_size: 262144,
     flash_attention: true,
-    cache_type_k: "q8_0",
-    cache_type_v: "q8_0",
+    cache_type_k: 'q8_0',
+    cache_type_v: 'q8_0',
     gpu_layers: 40,
   },
   // Qwen3.5-9B (dense, 9.5GB Q8)
-  "Qwen3.5-9B": {
-    sampler_type: "Temperature",
+  'Qwen3.5-9B': {
+    sampler_type: 'Temperature',
     temperature: 0.7,
     top_p: 0.8,
     top_k: 20,
@@ -161,12 +161,12 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     repeat_penalty: 1.0,
     context_size: 32768,
     flash_attention: true,
-    cache_type_k: "q8_0",
-    cache_type_v: "q8_0",
+    cache_type_k: 'q8_0',
+    cache_type_v: 'q8_0',
   },
   // Alias: GGUF general.name uses this format
-  "Qwen_Qwen3.5 35B A3B": {
-    sampler_type: "Temperature",
+  'Qwen_Qwen3.5 35B A3B': {
+    sampler_type: 'Temperature',
     temperature: 0.7,
     top_p: 0.8,
     top_k: 20,
@@ -175,42 +175,42 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     repeat_penalty: 1.0,
     context_size: 262144,
     flash_attention: true,
-    cache_type_k: "q8_0",
-    cache_type_v: "q8_0",
+    cache_type_k: 'q8_0',
+    cache_type_v: 'q8_0',
     gpu_layers: 40,
   },
 
   // Mistral models
-  "mistralai_Devstral Small 2507": {
-    sampler_type: "Temperature",
+  'mistralai_Devstral Small 2507': {
+    sampler_type: 'Temperature',
     temperature: 0.15,
     top_p: 0.95,
     top_k: 64,
     repeat_penalty: 1.0,
   },
-  "mistralai_Devstral Small 2 24B Instruct 2512": {
-    sampler_type: "Temperature",
+  'mistralai_Devstral Small 2 24B Instruct 2512': {
+    sampler_type: 'Temperature',
     temperature: 0.15,
     top_p: 0.95,
     top_k: 64,
     repeat_penalty: 1.0,
   },
-  "Magistral-Small-2509": {
-    sampler_type: "Temperature",
+  'Magistral-Small-2509': {
+    sampler_type: 'Temperature',
     temperature: 0.7,
     top_p: 0.95,
     top_k: 40,
     repeat_penalty: 1.0,
   },
-  "mistralai_Ministral 3 3B Instruct 2512 BF16": {
-    sampler_type: "Temperature",
+  'mistralai_Ministral 3 3B Instruct 2512 BF16': {
+    sampler_type: 'Temperature',
     temperature: 0.1,
     top_p: 0.95,
     top_k: 40,
     repeat_penalty: 1.0,
   },
-  "mistralai_Ministral 3 14B Reasoning 2512": {
-    sampler_type: "Temperature",
+  'mistralai_Ministral 3 14B Reasoning 2512': {
+    sampler_type: 'Temperature',
     temperature: 0.7,
     top_p: 0.95,
     top_k: 40,
@@ -219,8 +219,8 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
   },
 
   // NVIDIA
-  "Nemotron Nano 3 30B A3B": {
-    sampler_type: "Temperature",
+  'Nemotron Nano 3 30B A3B': {
+    sampler_type: 'Temperature',
     temperature: 0.6,
     top_p: 0.95,
     top_k: 40,
@@ -231,8 +231,8 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
   // Gemma 4 26B-A4B MoE (26B total, 4B active per token)
   // Source: HuggingFace model card + GGUF general.sampling metadata
   // 30 layers total, flash_attention recommended, hybrid local+global attention
-  "Gemma-4-26B-A4B-It": {
-    sampler_type: "Temperature",
+  'Gemma-4-26B-A4B-It': {
+    sampler_type: 'Temperature',
     temperature: 1.0,
     top_p: 0.95,
     top_k: 64,
@@ -240,15 +240,15 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     min_p: 0.0,
     context_size: 32768,
     flash_attention: true,
-    cache_type_k: "f16",
-    cache_type_v: "f16",
+    cache_type_k: 'f16',
+    cache_type_v: 'f16',
     gpu_layers: 30,
   },
   // Gemma 4 31B Dense (31B params, all active)
   // 60 layers, 262K max ctx but VRAM-limited on 24GB GPUs
   // q4_0 KV cache critical: 4x less VRAM than f16, fits 32K ctx on RTX 4090
-  "Gemma-4-31B-It": {
-    sampler_type: "Temperature",
+  'Gemma-4-31B-It': {
+    sampler_type: 'Temperature',
     temperature: 1.0,
     top_p: 0.95,
     top_k: 64,
@@ -256,12 +256,12 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     min_p: 0.0,
     context_size: 16384,
     flash_attention: true,
-    cache_type_k: "q4_0",
-    cache_type_v: "q4_0",
+    cache_type_k: 'q4_0',
+    cache_type_v: 'q4_0',
     gpu_layers: 60,
   },
-  "Gemma 3 12b It": {
-    sampler_type: "Greedy",
+  'Gemma 3 12b It': {
+    sampler_type: 'Greedy',
     temperature: 0.0,
     top_p: 1.0,
     top_k: 1,
@@ -269,8 +269,8 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
   },
 
   // IBM
-  "Ibm Granite_Granite 4.0 H Tiny": {
-    sampler_type: "Greedy",
+  'Ibm Granite_Granite 4.0 H Tiny': {
+    sampler_type: 'Greedy',
     temperature: 0.0,
     top_p: 1.0,
     top_k: 0,
@@ -278,8 +278,8 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
   },
 
   // OpenAI
-  "Openai_Gpt Oss 20b": {
-    sampler_type: "Temperature",
+  'Openai_Gpt Oss 20b': {
+    sampler_type: 'Temperature',
     temperature: 0.7,
     top_p: 0.95,
     top_k: 40,
@@ -287,8 +287,8 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
   },
 
   // OpenBMB
-  "MiniCPM4.1-8B": {
-    sampler_type: "Temperature",
+  'MiniCPM4.1-8B': {
+    sampler_type: 'Temperature',
     temperature: 0.7,
     top_p: 0.7,
     top_k: 40,
@@ -296,8 +296,8 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
   },
 
   // EssentialAI
-  "EssentialAI_rnj 1 Instruct": {
-    sampler_type: "Temperature",
+  'EssentialAI_rnj 1 Instruct': {
+    sampler_type: 'Temperature',
     temperature: 0.2,
     top_p: 0.95,
     top_k: 40,
@@ -306,8 +306,8 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
 
   // LiquidAI LFM2
   // Source: https://huggingface.co/LiquidAI/LFM2-24B-A2B
-  "Ef218A605E23739A1302869B9B3618C8B3F7Eb0D": {
-    sampler_type: "Temperature",
+  Ef218A605E23739A1302869B9B3618C8B3F7Eb0D: {
+    sampler_type: 'Temperature',
     temperature: 0.1,
     top_k: 50,
     repeat_penalty: 1.05,
@@ -315,8 +315,8 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
   },
 
   // Microsoft Phi
-  "Phi 4 Mini Reasoning": {
-    sampler_type: "Temperature",
+  'Phi 4 Mini Reasoning': {
+    sampler_type: 'Temperature',
     temperature: 0.8,
     top_p: 0.95,
     top_k: 50,
@@ -326,8 +326,8 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
   },
 
   // Zhipu AI GLM models
-  "Zai org_GLM 4.7 Flash": {
-    sampler_type: "Temperature",
+  'Zai org_GLM 4.7 Flash': {
+    sampler_type: 'Temperature',
     temperature: 0.7,
     top_p: 1.0,
     top_k: 0,
@@ -335,8 +335,8 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     repeat_penalty: 1.0,
     context_size: 32768,
   },
-  "Zai org_GLM 4.6V Flash": {
-    sampler_type: "Temperature",
+  'Zai org_GLM 4.6V Flash': {
+    sampler_type: 'Temperature',
     temperature: 0.7,
     top_p: 1.0,
     top_k: 0,
@@ -369,7 +369,7 @@ export function findPresetByName(generalName: string): ModelPreset | null {
 
 // Default fallback params when no preset is found
 export const DEFAULT_PRESET: ModelPreset = {
-  sampler_type: "Temperature",
+  sampler_type: 'Temperature',
   temperature: 0.7,
   top_p: 0.95,
   top_k: 40,

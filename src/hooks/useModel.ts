@@ -1,4 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+
+const DEFAULT_MEMORY_USAGE_MB = 512;
+const LOADING_POLL_INTERVAL_MS = 200;
+const STATUS_POLL_INTERVAL_MS = 5000;
+
 import type { SamplerConfig, ToolTags } from '../types';
 import {
   getModelStatus,
@@ -61,7 +66,7 @@ export const useModel = () => {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const data = await getModelStatus() as ModelStatus;
+      const data = (await getModelStatus()) as ModelStatus;
       setStatus(data);
       setError(null);
       setHasStatusError(false);
@@ -77,76 +82,82 @@ export const useModel = () => {
     }
   }, []);
 
-  const loadModel = useCallback(async (modelPath: string, config?: SamplerConfig) => {
-    setIsLoading(true);
-    setLoadingAction('loading');
-    setError(null);
+  const loadModel = useCallback(
+    async (modelPath: string, config?: SamplerConfig) => {
+      setIsLoading(true);
+      setLoadingAction('loading');
+      setError(null);
 
-    const refreshStatusSafe = async () => {
+      const refreshStatusSafe = async () => {
+        try {
+          await fetchStatus();
+        } catch {
+          // ignore secondary failures to keep UX responsive
+        }
+      };
+
       try {
-        await fetchStatus();
-      } catch {
-        // ignore secondary failures to keep UX responsive
-      }
-    };
+        // First update the configuration if provided
+        if (config) {
+          await saveConfig({
+            ...config,
+            model_path: modelPath,
+          });
+        }
 
-    try {
-      // First update the configuration if provided
-      if (config) {
-        await saveConfig({
-          ...config,
-          model_path: modelPath,
-        });
-      }
+        // Then load the model (pass gpu_layers and mmproj_path from config if available)
+        const data: ModelResponse = await loadModelCmd(
+          modelPath,
+          config?.gpu_layers,
+          config?.mmproj_path,
+        );
 
-      // Then load the model (pass gpu_layers and mmproj_path from config if available)
-      const data: ModelResponse = await loadModelCmd(modelPath, config?.gpu_layers, config?.mmproj_path);
-
-      if (data.success) {
-        // If backend returns no status or an incorrect unloaded status, synthesize a "loaded" status
-        const nowSeconds = Math.floor(Date.now() / 1000).toString();
-        const coercedStatus = data.status ?? {
-          loaded: true,
-          model_path: modelPath,
-          last_used: nowSeconds,
-          memory_usage_mb: 512,
-        };
-
-        if (!coercedStatus.loaded) {
-          setStatus({
-            ...coercedStatus,
+        if (data.success) {
+          // If backend returns no status or an incorrect unloaded status, synthesize a "loaded" status
+          const nowSeconds = Math.floor(Date.now() / 1000).toString();
+          const coercedStatus = data.status ?? {
             loaded: true,
             model_path: modelPath,
             last_used: nowSeconds,
-            memory_usage_mb: coercedStatus.memory_usage_mb ?? 512,
-          });
-        } else {
-          setStatus(coercedStatus);
+            memory_usage_mb: 512,
+          };
+
+          if (!coercedStatus.loaded) {
+            setStatus({
+              ...coercedStatus,
+              loaded: true,
+              model_path: modelPath,
+              last_used: nowSeconds,
+              memory_usage_mb: coercedStatus.memory_usage_mb ?? DEFAULT_MEMORY_USAGE_MB,
+            });
+          } else {
+            setStatus(coercedStatus);
+          }
+          setError(null);
+          setHasStatusError(false);
+          // Detect if mmproj was requested but vision init failed
+          const visionFailed = !!(config?.mmproj_path && data.status?.has_vision === false);
+          return { success: true, message: data.message, visionFailed };
         }
-        setError(null);
-        setHasStatusError(false);
-        // Detect if mmproj was requested but vision init failed
-        const visionFailed = !!(config?.mmproj_path && data.status?.has_vision === false);
-        return { success: true, message: data.message, visionFailed };
-      } else {
         setError(data.message);
         setHasStatusError(true);
         // Refresh status even when loading fails to ensure UI is accurate
         await refreshStatusSafe();
         return { success: false, message: data.message };
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
+        setError(errorMessage);
+        setHasStatusError(true);
+        // Refresh status on error to ensure UI is accurate
+        await refreshStatusSafe();
+        return { success: false, message: errorMessage };
+      } finally {
+        setIsLoading(false);
+        setLoadingAction(null);
       }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
-      setError(errorMessage);
-      setHasStatusError(true);
-      // Refresh status on error to ensure UI is accurate
-      await refreshStatusSafe();
-      return { success: false, message: errorMessage };
-    } finally {
-      setIsLoading(false);
-      setLoadingAction(null);
-    }
-  }, [fetchStatus]);
+    },
+    [fetchStatus],
+  );
 
   const unloadModel = useCallback(async () => {
     setIsLoading(true);
@@ -161,11 +172,10 @@ export const useModel = () => {
         setError(null);
         setHasStatusError(false);
         return { success: true, message: data.message };
-      } else {
-        setError(data.message);
-        setHasStatusError(true);
-        return { success: false, message: data.message };
       }
+      setError(data.message);
+      setHasStatusError(true);
+      return { success: false, message: data.message };
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
       setError(errorMessage);
@@ -189,7 +199,7 @@ export const useModel = () => {
     if (!isLoading || loadingAction !== 'loading') return;
     const interval = setInterval(async () => {
       try {
-        const data = await getModelStatus() as ModelStatus;
+        const data = (await getModelStatus()) as ModelStatus;
         setStatus(data);
         if (data.loaded || (!data.loading && !isLoading)) {
           setIsLoading(false);
@@ -198,7 +208,7 @@ export const useModel = () => {
       } catch {
         // Keep polling on error
       }
-    }, 200);
+    }, LOADING_POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [isLoading, loadingAction]);
 
@@ -210,7 +220,7 @@ export const useModel = () => {
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const data = await getModelStatus() as ModelStatus;
+        const data = (await getModelStatus()) as ModelStatus;
         const json = JSON.stringify(data);
         if (json !== lastStatusJson.current) {
           lastStatusJson.current = json;
@@ -219,7 +229,7 @@ export const useModel = () => {
       } catch {
         // ignore
       }
-    }, 5000);
+    }, STATUS_POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, []);
 

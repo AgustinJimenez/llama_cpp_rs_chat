@@ -1,33 +1,27 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+
 import { isTauriEnv } from '../utils/tauri';
 
-interface ConnectionState {
-  connected: boolean;
-  reconnecting: boolean;
-  attempt: number;
-  disconnectedAt: number | null;
-}
-
-const ConnectionContext = createContext<ConnectionState>({
-  connected: true,
-  reconnecting: false,
-  attempt: 0,
-  disconnectedAt: null,
-});
-
-export const useConnection = () => useContext(ConnectionContext);
+import { ConnectionContext } from './connectionState';
+import type { ConnectionState } from './connectionState';
 
 const WS_RECONNECT_BASE_MS = 500;
 const WS_RECONNECT_MAX_MS = 5000;
 
 function getReconnectDelay(attempt: number): number {
   const base = Math.min(WS_RECONNECT_BASE_MS * Math.pow(2, attempt), WS_RECONNECT_MAX_MS);
-  return base * (0.5 + Math.random()); // jitter to prevent thundering herd
+  const JITTER_MIN = 0.5;
+  return base * (JITTER_MIN + Math.random()); // jitter to prevent thundering herd
 }
 
 export const ConnectionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Optimistic: assume connected until proven otherwise
-  const [state, setState] = useState<ConnectionState>({ connected: true, reconnecting: false, attempt: 0, disconnectedAt: null });
+  const [state, setState] = useState<ConnectionState>({
+    connected: true,
+    reconnecting: false,
+    attempt: 0,
+    disconnectedAt: null,
+  });
   const attemptRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -55,7 +49,7 @@ export const ConnectionProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       ws.onclose = () => {
         if (!mountedRef.current) return;
         wsRef.current = null;
-        setState(prev => ({
+        setState((prev) => ({
           connected: false,
           reconnecting: true,
           attempt: attemptRef.current,
@@ -91,9 +85,5 @@ export const ConnectionProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const value = useMemo(() => state, [state]);
 
-  return (
-    <ConnectionContext.Provider value={value}>
-      {children}
-    </ConnectionContext.Provider>
-  );
+  return <ConnectionContext.Provider value={value}>{children}</ConnectionContext.Provider>;
 };

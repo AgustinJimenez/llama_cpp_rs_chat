@@ -1,6 +1,18 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+
+import { useConnection } from '../hooks/useConnection';
 import { getSystemUsage } from '../utils/tauriCommands';
-import { useConnection } from './ConnectionContext';
+
+const HISTORY_MAX_ENTRIES = -20;
 
 export interface UsageData {
   cpu: number;
@@ -23,7 +35,7 @@ interface SystemResourcesValue {
 }
 
 const SLOW_INTERVAL = 10_000; // 10s background polling
-const FAST_INTERVAL = 3_000;  // 3s when monitor is open
+const FAST_INTERVAL = 3_000; // 3s when monitor is open
 
 const defaultUsage: UsageData = { cpu: 0, gpu: 0, ram: 0 };
 
@@ -38,7 +50,7 @@ const SystemResourcesContext = createContext<SystemResourcesValue>({
 });
 
 // eslint-disable-next-line max-lines-per-function
-export function SystemResourcesProvider({ children }: { children: ReactNode }) {
+export const SystemResourcesProvider = ({ children }: { children: ReactNode }) => {
   // Defaults are 0, not arbitrary "common" sizes — the VRAM optimizer relies on
   // a real 0 to detect "no GPU" and fall back to CPU-only mode. A 24 GB default
   // would silently make the optimizer try to load all layers on a non-existent GPU.
@@ -64,7 +76,7 @@ export function SystemResourcesProvider({ children }: { children: ReactNode }) {
       const data = await getSystemUsage();
       setUsage(data);
       setHasData(true);
-      setHistory(prev => [...prev, data].slice(-20));
+      setHistory((prev) => [...prev, data].slice(HISTORY_MAX_ENTRIES));
 
       // Update hardware totals on EVERY successful poll, not just the first.
       // The backend lazy-populates a hardware-totals cache via WMI/nvidia-smi
@@ -104,30 +116,38 @@ export function SystemResourcesProvider({ children }: { children: ReactNode }) {
     };
   }, [fetchUsage]);
 
-  const setMonitorActive = useCallback((active: boolean) => {
-    activeRef.current = active;
-    // Restart interval at the appropriate rate
-    if (intervalRef.current) clearInterval(intervalRef.current);
-    if (active) {
-      fetchUsage(); // Immediate fetch on open
-      intervalRef.current = setInterval(fetchUsage, FAST_INTERVAL);
-    } else {
-      intervalRef.current = setInterval(fetchUsage, SLOW_INTERVAL);
-    }
-  }, [fetchUsage]);
+  const setMonitorActive = useCallback(
+    (active: boolean) => {
+      activeRef.current = active;
+      // Restart interval at the appropriate rate
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (active) {
+        fetchUsage(); // Immediate fetch on open
+        intervalRef.current = setInterval(fetchUsage, FAST_INTERVAL);
+      } else {
+        intervalRef.current = setInterval(fetchUsage, SLOW_INTERVAL);
+      }
+    },
+    [fetchUsage],
+  );
 
-  const value = useMemo<SystemResourcesValue>(() => ({
-    totalVramGb, totalRamGb, ready,
-    usage, history, hasData,
-    setMonitorActive,
-  }), [totalVramGb, totalRamGb, ready, usage, history, hasData, setMonitorActive]);
+  const value = useMemo<SystemResourcesValue>(
+    () => ({
+      totalVramGb,
+      totalRamGb,
+      ready,
+      usage,
+      history,
+      hasData,
+      setMonitorActive,
+    }),
+    [totalVramGb, totalRamGb, ready, usage, history, hasData, setMonitorActive],
+  );
 
   return (
-    <SystemResourcesContext.Provider value={value}>
-      {children}
-    </SystemResourcesContext.Provider>
+    <SystemResourcesContext.Provider value={value}>{children}</SystemResourcesContext.Provider>
   );
-}
+};
 
 // eslint-disable-next-line react-refresh/only-export-components
 export function useSystemResources() {

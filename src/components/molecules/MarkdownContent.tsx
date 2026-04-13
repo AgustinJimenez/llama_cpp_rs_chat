@@ -1,10 +1,14 @@
+import type { Chart as ChartInstance } from 'chart.js';
+import mermaid from 'mermaid';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import mermaid from 'mermaid';
-import { SyntaxHighlighter, dracula } from '../../utils/syntaxHighlighterSetup';
 import type { Components } from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+
+import { SyntaxHighlighter, dracula } from '../../utils/syntaxHighlighterSetup';
+
+import { ExpandableBlock, ThreeDotMenu } from './ExpandableBlock';
 
 // Initialize mermaid — theme is re-applied per render based on current mode
 const isDark = () => document.documentElement.classList.contains('dark');
@@ -60,100 +64,6 @@ interface MarkdownContentProps {
   testId?: string;
 }
 
-/** Expandable visual block: 3-dot menu with expand + actions. */
-const ExpandableBlock: React.FC<{
-  children: React.ReactNode;
-  actions: { label: string; onClick: () => void }[];
-  className?: string;
-}> = ({ children, actions, className }) => {
-  const [expanded, setExpanded] = useState(false);
-  const allActions = actions;
-
-  return (
-    <>
-      <div
-        className={`my-2 relative group cursor-pointer ${className || ''}`}
-        onClick={() => setExpanded(true)}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => { if (e.key === 'Enter') setExpanded(true); }}
-      >
-        {children}
-        <ThreeDotMenu actions={allActions} />
-      </div>
-      {expanded && createPortal(
-        <div
-          className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center cursor-pointer"
-          onClick={() => setExpanded(false)}
-        >
-          <div
-            className="max-w-[90vw] max-h-[90vh] flex items-center justify-center overflow-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="[&>*]:mx-auto [&_svg]:mx-auto [&_canvas]:mx-auto">
-              {children}
-            </div>
-          </div>
-          <button
-            onClick={() => setExpanded(false)}
-            className="absolute top-4 right-4 p-2 bg-white/20 text-white rounded-full hover:bg-white/30 transition-colors backdrop-blur"
-            title="Close"
-          >
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M5 5l10 10M15 5L5 15" />
-            </svg>
-          </button>
-        </div>,
-        document.body
-      )}
-    </>
-  );
-};
-
-/** Reusable 3-dot menu for visual blocks (charts, diagrams, images). */
-const ThreeDotMenu: React.FC<{ actions: { label: string; onClick: () => void }[] }> = ({ actions }) => {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
-
-  return (
-    <div ref={ref} className="absolute top-2 right-2 opacity-40 group-hover:opacity-100 transition-opacity">
-      <button
-        onClick={() => setOpen(!open)}
-        className="p-1.5 bg-black/60 text-white rounded-full hover:bg-black/80 transition-colors backdrop-blur"
-        title="Options"
-      >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-          <circle cx="8" cy="3" r="1.5" />
-          <circle cx="8" cy="8" r="1.5" />
-          <circle cx="8" cy="13" r="1.5" />
-        </svg>
-      </button>
-      {open && (
-        <div className="absolute right-0 mt-1 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[120px] z-50">
-          {actions.map((a) => (
-            <button
-              key={a.label}
-              onClick={() => { a.onClick(); setOpen(false); }}
-              className="w-full px-3 py-1.5 text-left text-sm text-foreground hover:bg-muted transition-colors"
-            >
-              {a.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
 /** Renders a mermaid diagram from source code. */
 const MermaidBlock: React.FC<{ code: string }> = ({ code }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -162,13 +72,20 @@ const MermaidBlock: React.FC<{ code: string }> = ({ code }) => {
 
   useEffect(() => {
     let cancelled = false;
-    const id = `mermaid-${Math.random().toString(36).slice(2, 9)}`;
-    mermaid.render(id, code.trim()).then(({ svg: renderedSvg }) => {
-      if (!cancelled) setSvg(renderedSvg);
-    }).catch((err) => {
-      if (!cancelled) setError(String(err));
-    });
-    return () => { cancelled = true; };
+    const RADIX_36 = 36;
+    const ID_SLICE_END = 9;
+    const id = `mermaid-${Math.random().toString(RADIX_36).slice(2, ID_SLICE_END)}`;
+    mermaid
+      .render(id, code.trim())
+      .then(({ svg: renderedSvg }) => {
+        if (!cancelled) setSvg(renderedSvg);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(String(err));
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [code]);
 
   const handleExport = useCallback(() => {
@@ -191,7 +108,7 @@ const MermaidBlock: React.FC<{ code: string }> = ({ code }) => {
       a.href = canvas.toDataURL('image/png');
       a.click();
     };
-    img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
+    img.src = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgData)))}`;
   }, []);
 
   if (error) {
@@ -205,7 +122,11 @@ const MermaidBlock: React.FC<{ code: string }> = ({ code }) => {
   }
 
   if (!svg) {
-    return <div className="my-2 p-4 bg-muted rounded animate-pulse text-sm text-muted-foreground">Rendering diagram...</div>;
+    return (
+      <div className="my-2 p-4 bg-muted rounded animate-pulse text-sm text-muted-foreground">
+        Rendering diagram...
+      </div>
+    );
   }
 
   return (
@@ -220,15 +141,48 @@ const MermaidBlock: React.FC<{ code: string }> = ({ code }) => {
   );
 };
 
+/** Export chart data as CSV file. */
+function exportChartCsv(code: string) {
+  try {
+    const spec = JSON.parse(code);
+    const labels = spec.labels || [];
+    const datasets = spec.datasets || [];
+    const header = ['Label', ...datasets.map((d: { label?: string }) => d.label || 'Value')].join(
+      ',',
+    );
+    const rows = labels.map((l: string, i: number) =>
+      [l, ...datasets.map((d: { data: number[] }) => d.data[i] ?? '')].join(','),
+    );
+    const csv = [header, ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.download = 'chart.csv';
+    a.href = URL.createObjectURL(blob);
+    a.click();
+  } catch {
+    /* ignore */
+  }
+}
+
 /** Chart.js-powered data chart from JSON spec. */
 const ChartBlock: React.FC<{ code: string }> = ({ code }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const chartRef = useRef<import('chart.js').Chart | null>(null);
+  const chartRef = useRef<ChartInstance | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!canvasRef.current) return;
-    let spec: { type?: string; title?: string; labels?: string[]; datasets?: Array<{ label?: string; data: number[]; backgroundColor?: string | string[]; borderColor?: string }> };
+    let spec: {
+      type?: string;
+      title?: string;
+      labels?: string[];
+      datasets?: Array<{
+        label?: string;
+        data: number[];
+        backgroundColor?: string | string[];
+        borderColor?: string;
+      }>;
+    };
     try {
       spec = JSON.parse(code);
     } catch {
@@ -236,8 +190,25 @@ const ChartBlock: React.FC<{ code: string }> = ({ code }) => {
       return;
     }
 
-    const chartType = (spec.type || 'bar') as 'bar' | 'line' | 'pie' | 'doughnut' | 'radar' | 'scatter' | 'polarArea';
-    const palette = ['#4dc9f6','#f67019','#f53794','#537bc4','#acc236','#166a8f','#00a950','#58595b','#8549ba'];
+    const chartType = (spec.type || 'bar') as
+      | 'bar'
+      | 'line'
+      | 'pie'
+      | 'doughnut'
+      | 'radar'
+      | 'scatter'
+      | 'polarArea';
+    const palette = [
+      '#4dc9f6',
+      '#f67019',
+      '#f53794',
+      '#537bc4',
+      '#acc236',
+      '#166a8f',
+      '#00a950',
+      '#58595b',
+      '#8549ba',
+    ];
 
     // Lazy import Chart.js to avoid bundling if unused
     import('chart.js').then(({ Chart, registerables }) => {
@@ -247,59 +218,73 @@ const ChartBlock: React.FC<{ code: string }> = ({ code }) => {
       const datasets = (spec.datasets || []).map((ds, i) => ({
         label: ds.label || `Dataset ${i + 1}`,
         data: ds.data,
-        backgroundColor: ds.backgroundColor || (chartType === 'pie' || chartType === 'doughnut' || chartType === 'polarArea'
-          ? palette.slice(0, ds.data.length)
-          : palette[i % palette.length] + '99'),
+        backgroundColor:
+          ds.backgroundColor ||
+          (chartType === 'pie' || chartType === 'doughnut' || chartType === 'polarArea'
+            ? palette.slice(0, ds.data.length)
+            : `${palette[i % palette.length]}99`),
         borderColor: ds.borderColor || palette[i % palette.length],
         borderWidth: chartType === 'line' ? 2 : 1,
         tension: 0.3,
       }));
 
-      chartRef.current = new Chart(canvasRef.current!, {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      chartRef.current = new Chart(canvas, {
         type: chartType,
         data: { labels: spec.labels || [], datasets },
         options: {
           responsive: true,
           maintainAspectRatio: true,
           plugins: {
-            title: spec.title ? { display: true, text: spec.title, color: isDark() ? '#e0e0e0' : '#1a202c', font: { size: 14 } } : undefined,
+            title: spec.title
+              ? {
+                  display: true,
+                  text: spec.title,
+                  color: isDark() ? '#e0e0e0' : '#1a202c',
+                  font: { size: 14 },
+                }
+              : undefined,
             legend: { labels: { color: isDark() ? '#c0c0c0' : '#374151' } },
           },
-          scales: chartType !== 'pie' && chartType !== 'doughnut' && chartType !== 'radar' && chartType !== 'polarArea' ? {
-            x: { ticks: { color: isDark() ? '#a0a0a0' : '#4b5563' }, grid: { color: isDark() ? '#333' : '#e5e7eb' } },
-            y: { ticks: { color: isDark() ? '#a0a0a0' : '#4b5563' }, grid: { color: isDark() ? '#333' : '#e5e7eb' } },
-          } : undefined,
+          scales:
+            chartType !== 'pie' &&
+            chartType !== 'doughnut' &&
+            chartType !== 'radar' &&
+            chartType !== 'polarArea'
+              ? {
+                  x: {
+                    ticks: { color: isDark() ? '#a0a0a0' : '#4b5563' },
+                    grid: { color: isDark() ? '#333' : '#e5e7eb' },
+                  },
+                  y: {
+                    ticks: { color: isDark() ? '#a0a0a0' : '#4b5563' },
+                    grid: { color: isDark() ? '#333' : '#e5e7eb' },
+                  },
+                }
+              : undefined,
         },
       });
     });
 
-    return () => { chartRef.current?.destroy(); };
+    return () => {
+      chartRef.current?.destroy();
+    };
   }, [code]);
 
-  const handleExport = useCallback((format: 'png' | 'csv') => {
-    if (format === 'png' && canvasRef.current) {
-      const a = document.createElement('a');
-      a.download = 'chart.png';
-      a.href = canvasRef.current.toDataURL('image/png');
-      a.click();
-    } else if (format === 'csv') {
-      try {
-        const spec = JSON.parse(code);
-        const labels = spec.labels || [];
-        const datasets = spec.datasets || [];
-        const header = ['Label', ...datasets.map((d: { label?: string }) => d.label || 'Value')].join(',');
-        const rows = labels.map((l: string, i: number) =>
-          [l, ...datasets.map((d: { data: number[] }) => d.data[i] ?? '')].join(',')
-        );
-        const csv = [header, ...rows].join('\n');
-        const blob = new Blob([csv], { type: 'text/csv' });
+  const handleExport = useCallback(
+    (format: 'png' | 'csv') => {
+      if (format === 'png' && canvasRef.current) {
         const a = document.createElement('a');
-        a.download = 'chart.csv';
-        a.href = URL.createObjectURL(blob);
+        a.download = 'chart.png';
+        a.href = canvasRef.current.toDataURL('image/png');
         a.click();
-      } catch { /* ignore */ }
-    }
-  }, [code]);
+      } else if (format === 'csv') {
+        exportChartCsv(code);
+      }
+    },
+    [code],
+  );
 
   if (error) {
     return (
@@ -311,10 +296,12 @@ const ChartBlock: React.FC<{ code: string }> = ({ code }) => {
   }
 
   return (
-    <ExpandableBlock actions={[
-      { label: 'Export PNG', onClick: () => handleExport('png') },
-      { label: 'Export CSV', onClick: () => handleExport('csv') },
-    ]}>
+    <ExpandableBlock
+      actions={[
+        { label: 'Export PNG', onClick: () => handleExport('png') },
+        { label: 'Export CSV', onClick: () => handleExport('csv') },
+      ]}
+    >
       <div className="bg-muted/50 dark:bg-[#1a1a2e] rounded-lg p-4 w-full">
         <canvas ref={canvasRef} />
       </div>
@@ -342,11 +329,7 @@ const CodeBlock = ({ inline, className, children }: CodeBlockProps) => {
   }
 
   return !inline && language ? (
-    <SyntaxHighlighter
-      style={dracula}
-      language={language}
-      PreTag="div"
-    >
+    <SyntaxHighlighter style={dracula} language={language} PreTag="div">
       {content}
     </SyntaxHighlighter>
   ) : (
@@ -365,7 +348,7 @@ const ImageWithControls: React.FC<React.ImgHTMLAttributes<HTMLImageElement>> = (
   const handleDownload = useCallback(() => {
     const a = document.createElement('a');
     a.href = src;
-    a.download = alt.replace(/[^a-zA-Z0-9]/g, '_') + '.jpg';
+    a.download = `${alt.replace(/[^a-zA-Z0-9]/g, '_')}.jpg`;
     a.click();
   }, [src, alt]);
 
@@ -377,7 +360,9 @@ const ImageWithControls: React.FC<React.ImgHTMLAttributes<HTMLImageElement>> = (
           onClick={() => setIsOpen(true)}
           role="button"
           tabIndex={0}
-          onKeyDown={(e) => { if (e.key === 'Enter') setIsOpen(true); }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') setIsOpen(true);
+          }}
         >
           <img
             src={src}
@@ -386,68 +371,103 @@ const ImageWithControls: React.FC<React.ImgHTMLAttributes<HTMLImageElement>> = (
             loading="lazy"
           />
         </div>
-        <ThreeDotMenu actions={[
-          { label: 'Download', onClick: handleDownload },
-        ]} />
+        <ThreeDotMenu actions={[{ label: 'Download', onClick: handleDownload }]} />
       </div>
-      {isOpen && createPortal(
-        <div
-          className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center cursor-pointer"
-          onClick={() => setIsOpen(false)}
-        >
-          <img
-            src={src}
-            alt={alt}
-            className="w-full h-full object-contain p-2"
-            onClick={(e) => e.stopPropagation()}
-          />
-          <button
-            onClick={() => setIsOpen(false)}
-            className="absolute top-4 right-4 p-2 bg-white/20 text-white rounded-full hover:bg-white/30 transition-colors backdrop-blur"
-            title="Close"
-          >
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M5 5l10 10M15 5L5 15" />
-            </svg>
-          </button>
-        </div>,
-        document.body
-      )}
+      {isOpen
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center cursor-pointer"
+              role="button"
+              tabIndex={0}
+              onClick={() => setIsOpen(false)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === 'Escape') setIsOpen(false);
+              }}
+            >
+              <img
+                src={src}
+                alt={alt}
+                className="w-full h-full object-contain p-2"
+                role="presentation"
+                onClick={(e) => e.stopPropagation()}
+              />
+              <button
+                onClick={() => setIsOpen(false)}
+                className="absolute top-4 right-4 p-2 bg-white/20 text-white rounded-full hover:bg-white/30 transition-colors backdrop-blur"
+                title="Close"
+              >
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path d="M5 5l10 10M15 5L5 15" />
+                </svg>
+              </button>
+            </div>,
+            document.body,
+          )
+        : null}
     </>
   );
 };
 
-export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, testId }) => {
-  const components: Components = {
-    code: CodeBlock,
-    img: ImageWithControls,
-    pre: ({ children }) => <div className="my-2">{children}</div>,
-    p: ({ children }) => <p className="my-2">{children}</p>,
-    h1: ({ children }) => (
-      <h1 className="font-bold text-2xl my-3 border-b border-border pb-2">{children}</h1>
-    ),
-    h2: ({ children }) => (
-      <h2 className="font-bold text-xl my-3 border-b border-border pb-2">{children}</h2>
-    ),
-    h3: ({ children }) => (
-      <h3 className="font-semibold text-lg my-2">{children}</h3>
-    ),
-    ul: ({ children }) => <ul className="list-disc ml-4 my-2">{children}</ul>,
-    ol: ({ children }) => <ol className="list-decimal ml-4 my-2">{children}</ol>,
-    li: ({ children }) => <li>{children}</li>,
-    strong: ({ children }) => <strong className="font-bold">{children}</strong>,
-    em: ({ children }) => <em className="italic">{children}</em>,
-    blockquote: ({ children }) => (
-      <blockquote className="border-l-4 border-border pl-4 my-2 italic">{children}</blockquote>
-    ),
-  };
+/* Module-level component definitions for ReactMarkdown (avoids unstable nested components). */
+const MarkdownPre = ({ children }: { children?: React.ReactNode }) => (
+  <div className="my-2">{children}</div>
+);
+const MarkdownP = ({ children }: { children?: React.ReactNode }) => (
+  <p className="my-2">{children}</p>
+);
+const MarkdownH1 = ({ children }: { children?: React.ReactNode }) => (
+  <h1 className="font-bold text-2xl my-3 border-b border-border pb-2">{children}</h1>
+);
+const MarkdownH2 = ({ children }: { children?: React.ReactNode }) => (
+  <h2 className="font-bold text-xl my-3 border-b border-border pb-2">{children}</h2>
+);
+const MarkdownH3 = ({ children }: { children?: React.ReactNode }) => (
+  <h3 className="font-semibold text-lg my-2">{children}</h3>
+);
+const MarkdownUl = ({ children }: { children?: React.ReactNode }) => (
+  <ul className="list-disc ml-4 my-2">{children}</ul>
+);
+const MarkdownOl = ({ children }: { children?: React.ReactNode }) => (
+  <ol className="list-decimal ml-4 my-2">{children}</ol>
+);
+const MarkdownLi = ({ children }: { children?: React.ReactNode }) => <li>{children}</li>;
+const MarkdownStrong = ({ children }: { children?: React.ReactNode }) => (
+  <strong className="font-bold">{children}</strong>
+);
+const MarkdownEm = ({ children }: { children?: React.ReactNode }) => (
+  <em className="italic">{children}</em>
+);
+const MarkdownBlockquote = ({ children }: { children?: React.ReactNode }) => (
+  <blockquote className="border-l-4 border-border pl-4 my-2 italic">{children}</blockquote>
+);
 
+const markdownComponents: Components = {
+  code: CodeBlock,
+  img: ImageWithControls,
+  pre: MarkdownPre,
+  p: MarkdownP,
+  h1: MarkdownH1,
+  h2: MarkdownH2,
+  h3: MarkdownH3,
+  ul: MarkdownUl,
+  ol: MarkdownOl,
+  li: MarkdownLi,
+  strong: MarkdownStrong,
+  em: MarkdownEm,
+  blockquote: MarkdownBlockquote,
+};
+
+export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, testId }) => {
   return (
     <div className="text-sm prose prose-sm max-w-none dark:prose-invert" data-testid={testId}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={components}
-      >
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
         {content}
       </ReactMarkdown>
     </div>

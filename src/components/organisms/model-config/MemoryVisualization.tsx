@@ -1,12 +1,14 @@
-import React from 'react';
+/* eslint-disable max-lines -- multi-component memory visualization with bars, legends, sliders, warnings */
 import { AlertTriangle, Info } from 'lucide-react';
+import React from 'react';
+
 import { Card, CardContent, CardHeader, CardTitle } from '../../atoms/card';
 
 export interface MemoryBreakdown {
   vram: {
     total: number;
     modelGpu: number;
-    kvCache: number;       // KV cache portion on GPU
+    kvCache: number; // KV cache portion on GPU
     overhead: number;
     available: number;
     overcommitted: boolean;
@@ -14,7 +16,7 @@ export interface MemoryBreakdown {
   ram: {
     total: number;
     modelCpu: number;
-    kvCacheCpu: number;    // KV cache portion on CPU (when gpu_layers < totalLayers)
+    kvCacheCpu: number; // KV cache portion on CPU (when gpu_layers < totalLayers)
     available: number;
     overcommitted: boolean;
   };
@@ -37,9 +39,15 @@ interface MemoryVisualizationProps {
 const MIN_CONTEXT = 512;
 const SLIDER_STEPS = 1000;
 
+const CONTEXT_ROUND_STEP = 256;
+const TOKENS_PER_MEGA = 1048576;
+const UTILIZATION_CRITICAL_PCT = 90;
+const UTILIZATION_WARNING_PCT = 75;
+const UTILIZATION_HIGH_PCT = 85;
+
 function sliderToContext(t: number, min: number, max: number): number {
   const value = min + t * (max - min);
-  return Math.round(value / 256) * 256;
+  return Math.round(value / CONTEXT_ROUND_STEP) * CONTEXT_ROUND_STEP;
 }
 
 function contextToSlider(value: number, min: number, max: number): number {
@@ -47,15 +55,17 @@ function contextToSlider(value: number, min: number, max: number): number {
 }
 
 function formatSize(n: number): string {
-  if (n >= 1048576) return `${(n / 1048576).toFixed(n % 1048576 === 0 ? 0 : 1)}M`;
+  if (n >= TOKENS_PER_MEGA) {
+    return `${(n / TOKENS_PER_MEGA).toFixed(n % TOKENS_PER_MEGA === 0 ? 0 : 1)}M`;
+  }
   if (n >= 1024) return `${(n / 1024).toFixed(n % 1024 === 0 ? 0 : 1)}K`;
   return String(n);
 }
 
 function getStatusColor(utilization: number, overcommitted: boolean) {
   if (overcommitted) return 'text-red-600 dark:text-red-400';
-  if (utilization > 90) return 'text-orange-600 dark:text-orange-400';
-  if (utilization > 75) return 'text-yellow-600 dark:text-yellow-400';
+  if (utilization > UTILIZATION_CRITICAL_PCT) return 'text-orange-600 dark:text-orange-400';
+  if (utilization > UTILIZATION_WARNING_PCT) return 'text-yellow-600 dark:text-yellow-400';
   return 'text-green-600 dark:text-green-400';
 }
 
@@ -70,7 +80,14 @@ interface BarSegmentProps {
   textColor?: string;
 }
 
-const BarSegment: React.FC<BarSegmentProps> = ({ color, widthPct, label, title, minPctForLabel = 8, textColor = 'text-white' }) => {
+const BarSegment: React.FC<BarSegmentProps> = ({
+  color,
+  widthPct,
+  label,
+  title,
+  minPctForLabel = 8,
+  textColor = 'text-white',
+}) => {
   if (widthPct <= 0) return null;
   return (
     <div
@@ -121,13 +138,40 @@ export const VramBar: React.FC<{ vram: MemoryBreakdown['vram'] }> = ({ vram }) =
         </span>
       </div>
       <div className="h-8 bg-muted rounded-md overflow-hidden flex relative">
-        <BarSegment color="bg-green-600" widthPct={Math.min(modelPct, 100)} label={`${vram.modelGpu.toFixed(1)}G`} title={`Model (GPU): ${vram.modelGpu.toFixed(2)} GB`} />
-        <BarSegment color="bg-orange-500" widthPct={Math.min(cachePct, 100 - modelPct)} label={`${vram.kvCache.toFixed(1)}G`} title={`KV Cache: ${vram.kvCache.toFixed(2)} GB`} />
-        <BarSegment color="bg-purple-600" widthPct={Math.min(overheadPct, 100 - modelPct - cachePct)} label={`${vram.overhead.toFixed(1)}G`} title={`Overhead: ${vram.overhead.toFixed(2)} GB`} minPctForLabel={6} />
-        {!vram.overcommitted && <BarSegment color="bg-accent/50" widthPct={availablePct} label={`${vram.available.toFixed(1)}G`} title={`Available: ${vram.available.toFixed(2)} GB`} textColor="text-muted-foreground" minPctForLabel={10} />}
-        {vram.overcommitted ? <div className="absolute inset-0 bg-red-600/20 border-2 border-red-600 flex items-center justify-center">
+        <BarSegment
+          color="bg-green-600"
+          widthPct={Math.min(modelPct, 100)}
+          label={`${vram.modelGpu.toFixed(1)}G`}
+          title={`Model (GPU): ${vram.modelGpu.toFixed(2)} GB`}
+        />
+        <BarSegment
+          color="bg-orange-500"
+          widthPct={Math.min(cachePct, 100 - modelPct)}
+          label={`${vram.kvCache.toFixed(1)}G`}
+          title={`KV Cache: ${vram.kvCache.toFixed(2)} GB`}
+        />
+        <BarSegment
+          color="bg-purple-600"
+          widthPct={Math.min(overheadPct, 100 - modelPct - cachePct)}
+          label={`${vram.overhead.toFixed(1)}G`}
+          title={`Overhead: ${vram.overhead.toFixed(2)} GB`}
+          minPctForLabel={6}
+        />
+        {!vram.overcommitted && (
+          <BarSegment
+            color="bg-accent/50"
+            widthPct={availablePct}
+            label={`${vram.available.toFixed(1)}G`}
+            title={`Available: ${vram.available.toFixed(2)} GB`}
+            textColor="text-muted-foreground"
+            minPctForLabel={10}
+          />
+        )}
+        {vram.overcommitted ? (
+          <div className="absolute inset-0 bg-red-600/20 border-2 border-red-600 flex items-center justify-center">
             <span className="text-xs text-foreground font-bold">OVERCOMMITTED</span>
-          </div> : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -154,12 +198,35 @@ const RamBar: React.FC<{ ram: MemoryBreakdown['ram'] }> = ({ ram }) => {
         </span>
       </div>
       <div className="h-8 bg-muted rounded-md overflow-hidden flex relative">
-        <BarSegment color="bg-cyan-600" widthPct={Math.min(modelPct, 100)} label={`${ram.modelCpu.toFixed(1)}G`} title={`Model (CPU): ${ram.modelCpu.toFixed(2)} GB`} />
-        {ram.kvCacheCpu > 0 && <BarSegment color="bg-orange-500" widthPct={Math.min(cachePct, 100 - modelPct)} label={`${ram.kvCacheCpu.toFixed(1)}G`} title={`KV Cache (CPU): ${ram.kvCacheCpu.toFixed(2)} GB`} />}
-        {!ram.overcommitted && <BarSegment color="bg-accent/50" widthPct={availablePct} label={`${ram.available.toFixed(1)}G`} title={`Available: ${ram.available.toFixed(2)} GB`} textColor="text-muted-foreground" minPctForLabel={10} />}
-        {ram.overcommitted ? <div className="absolute inset-0 bg-red-600/20 border-2 border-red-600 flex items-center justify-center">
+        <BarSegment
+          color="bg-cyan-600"
+          widthPct={Math.min(modelPct, 100)}
+          label={`${ram.modelCpu.toFixed(1)}G`}
+          title={`Model (CPU): ${ram.modelCpu.toFixed(2)} GB`}
+        />
+        {ram.kvCacheCpu > 0 && (
+          <BarSegment
+            color="bg-orange-500"
+            widthPct={Math.min(cachePct, 100 - modelPct)}
+            label={`${ram.kvCacheCpu.toFixed(1)}G`}
+            title={`KV Cache (CPU): ${ram.kvCacheCpu.toFixed(2)} GB`}
+          />
+        )}
+        {!ram.overcommitted && (
+          <BarSegment
+            color="bg-accent/50"
+            widthPct={availablePct}
+            label={`${ram.available.toFixed(1)}G`}
+            title={`Available: ${ram.available.toFixed(2)} GB`}
+            textColor="text-muted-foreground"
+            minPctForLabel={10}
+          />
+        )}
+        {ram.overcommitted ? (
+          <div className="absolute inset-0 bg-red-600/20 border-2 border-red-600 flex items-center justify-center">
             <span className="text-xs text-foreground font-bold">OVERCOMMITTED</span>
-          </div> : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -167,7 +234,10 @@ const RamBar: React.FC<{ ram: MemoryBreakdown['ram'] }> = ({ ram }) => {
 
 // --- Legend ---
 
-export const MemoryLegend: React.FC<{ vram: MemoryBreakdown['vram']; ram: MemoryBreakdown['ram'] }> = ({ vram, ram }) => {
+export const MemoryLegend: React.FC<{
+  vram: MemoryBreakdown['vram'];
+  ram: MemoryBreakdown['ram'];
+}> = ({ vram, ram }) => {
   // KV cache may live on either side depending on gpu_layers. Show whichever
   // is non-zero so the legend mirrors the actual memory split.
   const totalKv = vram.kvCache + ram.kvCacheCpu;
@@ -202,7 +272,16 @@ interface SliderRowProps {
   display: string;
 }
 
-const SliderRow: React.FC<SliderRowProps> = ({ color, hexColor, label, min, max, value, onChange, display }) => {
+const SliderRow: React.FC<SliderRowProps> = ({
+  color,
+  hexColor,
+  label,
+  min,
+  max,
+  value,
+  onChange,
+  display,
+}) => {
   const pct = max > min ? ((value - min) / (max - min)) * 100 : 0;
   return (
     <div className="flex items-center gap-3 text-xs text-muted-foreground">
@@ -258,7 +337,18 @@ interface MemorySlidersProps {
   toolDefinitionsTokens?: number;
 }
 
-const MemorySliders: React.FC<MemorySlidersProps> = ({ gpuLayers, onGpuLayersChange, maxLayers, contextSize, onContextSizeChange, maxContextSize, overheadGb, onOverheadChange, systemPromptTokens, toolDefinitionsTokens }) => (
+const MemorySliders: React.FC<MemorySlidersProps> = ({
+  gpuLayers,
+  onGpuLayersChange,
+  maxLayers,
+  contextSize,
+  onContextSizeChange,
+  maxContextSize,
+  overheadGb,
+  onOverheadChange,
+  systemPromptTokens,
+  toolDefinitionsTokens,
+}) => (
   <div className="space-y-2">
     <SliderRow
       color="bg-green-600"
@@ -276,39 +366,67 @@ const MemorySliders: React.FC<MemorySlidersProps> = ({ gpuLayers, onGpuLayersCha
       label="Context:"
       min={0}
       max={SLIDER_STEPS}
-      value={Math.round(contextToSlider(
-        Math.max(MIN_CONTEXT, Math.min(contextSize, maxContextSize)),
-        MIN_CONTEXT,
-        maxContextSize
-      ) * SLIDER_STEPS)}
+      value={Math.round(
+        contextToSlider(
+          Math.max(MIN_CONTEXT, Math.min(contextSize, maxContextSize)),
+          MIN_CONTEXT,
+          maxContextSize,
+        ) * SLIDER_STEPS,
+      )}
       onChange={(v) => {
         const t = v / SLIDER_STEPS;
-        onContextSizeChange(Math.min(sliderToContext(t, MIN_CONTEXT, maxContextSize), maxContextSize));
+        onContextSizeChange(
+          Math.min(sliderToContext(t, MIN_CONTEXT, maxContextSize), maxContextSize),
+        );
       }}
       display={formatSize(contextSize)}
     />
     {/* Token overhead bar — shows how much context is consumed by system prompt + tools */}
-    {(systemPromptTokens || toolDefinitionsTokens) ? (() => {
-      const total = (systemPromptTokens || 0) + (toolDefinitionsTokens || 0);
-      const pct = Math.min(100, (total / Math.max(contextSize, 1)) * 100);
-      const available = Math.max(0, contextSize - total);
-      return (
-        <div className="pl-1 -mt-0.5 mb-1">
-          <div className="flex items-center gap-1.5">
-            <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden flex">
-              <div className="h-full bg-indigo-500 rounded-l-full" style={{ width: `${Math.min(100, ((systemPromptTokens || 0) / Math.max(contextSize, 1)) * 100)}%` }} title={`System prompt: ${(systemPromptTokens || 0).toLocaleString()} tokens`} />
-              <div className="h-full bg-purple-500" style={{ width: `${Math.min(100, ((toolDefinitionsTokens || 0) / Math.max(contextSize, 1)) * 100)}%` }} title={`Tool definitions: ${(toolDefinitionsTokens || 0).toLocaleString()} tokens`} />
+    {systemPromptTokens || toolDefinitionsTokens
+      ? (() => {
+          const total = (systemPromptTokens || 0) + (toolDefinitionsTokens || 0);
+          const pct = Math.min(100, (total / Math.max(contextSize, 1)) * 100);
+          const available = Math.max(0, contextSize - total);
+          return (
+            <div className="pl-1 -mt-0.5 mb-1">
+              <div className="flex items-center gap-1.5">
+                <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden flex">
+                  <div
+                    className="h-full bg-indigo-500 rounded-l-full"
+                    style={{
+                      width: `${Math.min(100, ((systemPromptTokens || 0) / Math.max(contextSize, 1)) * 100)}%`,
+                    }}
+                    title={`System prompt: ${(systemPromptTokens || 0).toLocaleString()} tokens`}
+                  />
+                  <div
+                    className="h-full bg-purple-500"
+                    style={{
+                      width: `${Math.min(100, ((toolDefinitionsTokens || 0) / Math.max(contextSize, 1)) * 100)}%`,
+                    }}
+                    title={`Tool definitions: ${(toolDefinitionsTokens || 0).toLocaleString()} tokens`}
+                  />
+                </div>
+                <span className="text-[9px] text-muted-foreground tabular-nums shrink-0">
+                  {pct.toFixed(0)}% overhead
+                </span>
+              </div>
+              <div className="flex gap-3 mt-0.5 text-[9px] text-muted-foreground">
+                <span>
+                  <span className="inline-block w-1.5 h-1.5 bg-indigo-500 rounded-full mr-0.5" />
+                  System: {(systemPromptTokens || 0).toLocaleString()}
+                </span>
+                <span>
+                  <span className="inline-block w-1.5 h-1.5 bg-purple-500 rounded-full mr-0.5" />
+                  Tools: {(toolDefinitionsTokens || 0).toLocaleString()}
+                </span>
+                <span className="text-muted-foreground">
+                  Available: {available.toLocaleString()}
+                </span>
+              </div>
             </div>
-            <span className="text-[9px] text-muted-foreground tabular-nums shrink-0">{pct.toFixed(0)}% overhead</span>
-          </div>
-          <div className="flex gap-3 mt-0.5 text-[9px] text-muted-foreground">
-            <span><span className="inline-block w-1.5 h-1.5 bg-indigo-500 rounded-full mr-0.5" />System: {(systemPromptTokens || 0).toLocaleString()}</span>
-            <span><span className="inline-block w-1.5 h-1.5 bg-purple-500 rounded-full mr-0.5" />Tools: {(toolDefinitionsTokens || 0).toLocaleString()}</span>
-            <span className="text-muted-foreground">Available: {available.toLocaleString()}</span>
-          </div>
-        </div>
-      );
-    })() : null}
+          );
+        })()
+      : null}
     <SliderRow
       color="bg-purple-600"
       hexColor="#9333ea"
@@ -333,22 +451,35 @@ const MemoryWarnings: React.FC<{ memory: MemoryBreakdown }> = ({ memory }) => {
 
   return (
     <>
-      {(memory.vram.overcommitted || memory.ram.overcommitted) ? <div className="bg-red-900/20 border border-red-600 rounded-md p-3 flex items-start gap-2">
+      {memory.vram.overcommitted || memory.ram.overcommitted ? (
+        <div className="bg-red-900/20 border border-red-600 rounded-md p-3 flex items-start gap-2">
           <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
           <div className="text-sm text-red-600 dark:text-red-400">
             <p className="font-semibold mb-1">Memory Overcommitted!</p>
-            {memory.vram.overcommitted ? <p className="text-xs">VRAM usage exceeds available GPU memory. Reduce GPU layers or context size.</p> : null}
-            {memory.ram.overcommitted ? <p className="text-xs">RAM usage exceeds available system memory. Increase GPU layers or reduce model size.</p> : null}
+            {memory.vram.overcommitted ? (
+              <p className="text-xs">
+                VRAM usage exceeds available GPU memory. Reduce GPU layers or context size.
+              </p>
+            ) : null}
+            {memory.ram.overcommitted ? (
+              <p className="text-xs">
+                RAM usage exceeds available system memory. Increase GPU layers or reduce model size.
+              </p>
+            ) : null}
           </div>
-        </div> : null}
-      {!memory.vram.overcommitted && !memory.ram.overcommitted && vramUtilization > 85 && (
-        <div className="bg-yellow-900/20 border border-yellow-600 rounded-md p-3 flex items-start gap-2">
-          <Info className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
-          <p className="text-xs text-yellow-600 dark:text-yellow-400">
-            VRAM usage is high ({vramUtilization.toFixed(1)}%). Consider reducing context size if you experience crashes.
-          </p>
         </div>
-      )}
+      ) : null}
+      {!memory.vram.overcommitted &&
+        !memory.ram.overcommitted &&
+        vramUtilization > UTILIZATION_HIGH_PCT && (
+          <div className="bg-yellow-900/20 border border-yellow-600 rounded-md p-3 flex items-start gap-2">
+            <Info className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-yellow-600 dark:text-yellow-400">
+              VRAM usage is high ({vramUtilization.toFixed(1)}%). Consider reducing context size if
+              you experience crashes.
+            </p>
+          </div>
+        )}
     </>
   );
 };
@@ -356,7 +487,19 @@ const MemoryWarnings: React.FC<{ memory: MemoryBreakdown }> = ({ memory }) => {
 // --- Main component ---
 
 // eslint-disable-next-line max-lines-per-function
-export const MemoryVisualization: React.FC<MemoryVisualizationProps> = ({ memory, overheadGb, onOverheadChange, gpuLayers, onGpuLayersChange, maxLayers, contextSize, onContextSizeChange, maxContextSize, systemPromptTokens, toolDefinitionsTokens }) => (
+export const MemoryVisualization: React.FC<MemoryVisualizationProps> = ({
+  memory,
+  overheadGb,
+  onOverheadChange,
+  gpuLayers,
+  onGpuLayersChange,
+  maxLayers,
+  contextSize,
+  onContextSizeChange,
+  maxContextSize,
+  systemPromptTokens,
+  toolDefinitionsTokens,
+}) => (
   <Card className="border-border bg-card">
     <CardHeader className="pb-3">
       <CardTitle className="text-base font-medium flex items-center gap-2">

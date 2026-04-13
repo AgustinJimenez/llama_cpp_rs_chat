@@ -1,15 +1,18 @@
-import React, { useState, useRef, useEffect } from 'react';
 import { Pencil, RefreshCw, ChevronDown, ChevronRight, Archive } from 'lucide-react';
-import type { Message } from '../../types';
+import React, { useState, useRef, useEffect } from 'react';
+
+import { useModelContext } from '../../contexts/ModelContext';
 import type { MessageSegment } from '../../hooks/useMessageParsing';
 import { useMessageParsing } from '../../hooks/useMessageParsing';
-import { useModelContext } from '../../contexts/ModelContext';
+import type { Message } from '../../types';
 import { MarkdownContent } from '../molecules/MarkdownContent';
 import { ThinkingBlock, ToolCallBlock } from '../molecules/messages';
 
+const MIN_VALID_TIMESTAMP_MS = 1_000_000_000_000;
+
 /** Format a message timestamp for display. Returns null for fake counter values. */
 function formatTimestamp(ts: number): string | null {
-  if (ts < 1_000_000_000_000) return null; // fake counter or missing
+  if (ts < MIN_VALID_TIMESTAMP_MS) return null; // fake counter or missing
   const date = new Date(ts);
   const now = new Date();
   const isToday = date.toDateString() === now.toDateString();
@@ -56,7 +59,11 @@ const CompactionSummary: React.FC<{ message: Message; cleanContent: string }> = 
         >
           <Archive className="h-3 w-3 shrink-0" />
           <span className="truncate">{header}</span>
-          {expanded ? <ChevronDown className="h-3 w-3 shrink-0 ml-auto" /> : <ChevronRight className="h-3 w-3 shrink-0 ml-auto" />}
+          {expanded ? (
+            <ChevronDown className="h-3 w-3 shrink-0 ml-auto" />
+          ) : (
+            <ChevronRight className="h-3 w-3 shrink-0 ml-auto" />
+          )}
         </button>
         {expanded && summaryBody ? (
           <div className="px-3 py-2 text-xs text-white/50 bg-white/5 border-b border-white/10 whitespace-pre-wrap">
@@ -83,9 +90,7 @@ const SystemMessage: React.FC<{ message: Message; cleanContent: string; isError:
   >
     <div
       className={`max-w-[90%] w-full px-4 py-2 rounded-lg ${
-        isError
-          ? 'bg-red-950 border-2 border-red-500'
-          : 'bg-yellow-950 border-2 border-yellow-500'
+        isError ? 'bg-red-950 border-2 border-red-500' : 'bg-yellow-950 border-2 border-yellow-500'
       }`}
     >
       <div className="flex items-center gap-2">
@@ -113,9 +118,7 @@ const SystemPromptMessage: React.FC<{ message: Message; cleanContent: string }> 
     data-message-id={message.id}
   >
     <details className="max-w-[90%] w-full bg-muted border border-border rounded-lg p-3">
-      <summary className="text-sm font-semibold cursor-pointer select-none">
-        System prompt
-      </summary>
+      <summary className="text-sm font-semibold cursor-pointer select-none">System prompt</summary>
       <pre className="text-sm whitespace-pre-wrap leading-relaxed text-foreground mt-2">
         {cleanContent}
       </pre>
@@ -143,6 +146,7 @@ const UserMessage: React.FC<{
       textareaRef.current.focus();
       textareaRef.current.setSelectionRange(editContent.length, editContent.length);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when editing state changes, not on every keystroke
   }, [isEditing]);
 
   const handleStartEdit = () => {
@@ -231,6 +235,7 @@ const UserMessage: React.FC<{
           {/* Attached images */}
           {message.image_data && message.image_data.length > 0 ? (
             <div className="mb-2 flex flex-wrap gap-2">
+              {/* eslint-disable react/no-array-index-key -- base64 images have no stable ID */}
               {message.image_data.map((img, i) => (
                 <img
                   key={i}
@@ -239,28 +244,42 @@ const UserMessage: React.FC<{
                   className="max-h-64 max-w-full rounded-lg object-contain"
                 />
               ))}
+              {/* eslint-enable react/no-array-index-key */}
             </div>
           ) : null}
-          {viewMode === 'raw' ? (
-            <pre className="text-xs whitespace-pre-wrap leading-relaxed font-mono" data-testid="message-content">
-              {message.content}
-            </pre>
-          ) : viewMode === 'markdown' ? (
-            <MarkdownContent content={cleanContent} testId="message-content" />
-          ) : (
-            <p className="text-sm whitespace-pre-wrap leading-relaxed" data-testid="message-content">
-              {cleanContent}
-            </p>
-          )}
+          {(() => {
+            if (viewMode === 'raw') {
+              return (
+                <pre
+                  className="text-xs whitespace-pre-wrap leading-relaxed font-mono"
+                  data-testid="message-content"
+                >
+                  {message.content}
+                </pre>
+              );
+            }
+            if (viewMode === 'markdown') {
+              return <MarkdownContent content={cleanContent} testId="message-content" />;
+            }
+            return (
+              <p
+                className="text-sm whitespace-pre-wrap leading-relaxed"
+                data-testid="message-content"
+              >
+                {cleanContent}
+              </p>
+            );
+          })()}
         </div>
         {formatTimestamp(message.timestamp) ? (
-          <div className="text-[10px] text-white/50 mt-0.5 text-right pr-1">{formatTimestamp(message.timestamp)}</div>
+          <div className="text-[10px] text-white/50 mt-0.5 text-right pr-1">
+            {formatTimestamp(message.timestamp)}
+          </div>
         ) : null}
       </div>
     </div>
   );
 };
-
 
 /**
  * Assistant message component with thinking and tool calls
@@ -296,15 +315,24 @@ const AssistantMessage: React.FC<{
     <div className="w-full space-y-3 overflow-hidden">
       {viewMode === 'raw' ? (
         /* Raw mode: show unprocessed content with no parsing */
-        <pre className="text-xs whitespace-pre-wrap leading-relaxed font-mono" data-testid="message-content">
+        <pre
+          className="text-xs whitespace-pre-wrap leading-relaxed font-mono"
+          data-testid="message-content"
+        >
           {message.content}
         </pre>
       ) : (
         <>
           {/* Thinking process (for reasoning models) */}
-          {thinkingContent ? <ThinkingBlock content={thinkingContent} isStreaming={isThinkingStreaming && isStreaming} /> : null}
+          {thinkingContent ? (
+            <ThinkingBlock
+              content={thinkingContent}
+              isStreaming={isThinkingStreaming ? isStreaming : null}
+            />
+          ) : null}
 
           {/* Interleaved text, command blocks, tool calls, and thinking in chronological order */}
+          {/* eslint-disable react/no-array-index-key -- segments are positional with no stable ID */}
           {segments.map((segment, index) => {
             if (segment.type === 'thinking') {
               return <ThinkingBlock key={`seg-think-${index}`} content={segment.content} />;
@@ -326,15 +354,17 @@ const AssistantMessage: React.FC<{
                 {viewMode === 'markdown' ? (
                   <MarkdownContent content={text} testId="message-content" />
                 ) : (
-                  <p className="text-sm whitespace-pre-wrap leading-relaxed" data-testid="message-content">
+                  <p
+                    className="text-sm whitespace-pre-wrap leading-relaxed"
+                    data-testid="message-content"
+                  >
                     {text}
                   </p>
                 )}
               </div>
             );
           })}
-
-
+          {/* eslint-enable react/no-array-index-key */}
         </>
       )}
       {!isStreaming && formatTimestamp(message.timestamp) ? (
@@ -358,47 +388,64 @@ const AssistantMessage: React.FC<{
 /**
  * Message bubble component - renders user, assistant, or system messages.
  */
-export const MessageBubble: React.FC<MessageBubbleProps> = React.memo(({ message, viewMode = 'text', isStreaming, messageIndex, onEditMessage, onRegenerate, isGenerating, isLastMessage }) => {
-  const { status } = useModelContext();
-  const {
-    cleanContent,
-    thinkingContent,
-    isThinkingStreaming,
-    segments,
-    isError,
-  } = useMessageParsing(message, status.tool_tags);
+export const MessageBubble: React.FC<MessageBubbleProps> = React.memo(
+  ({
+    message,
+    viewMode = 'text',
+    isStreaming,
+    messageIndex,
+    onEditMessage,
+    onRegenerate,
+    isGenerating,
+    isLastMessage,
+  }) => {
+    const { status } = useModelContext();
+    const { cleanContent, thinkingContent, isThinkingStreaming, segments, isError } =
+      useMessageParsing(message, status.tool_tags);
 
-  // System messages
-  const displayContent = viewMode === 'raw' ? message.content : cleanContent;
-  if (message.role === 'system') {
-    if (message.isSystemPrompt) {
-      return <SystemPromptMessage message={message} cleanContent={displayContent} />;
+    // System messages
+    const displayContent = viewMode === 'raw' ? message.content : cleanContent;
+    if (message.role === 'system') {
+      if (message.isSystemPrompt) {
+        return <SystemPromptMessage message={message} cleanContent={displayContent} />;
+      }
+      // Compaction summary messages
+      if (message.content.startsWith('[Conversation summary')) {
+        return <CompactionSummary message={message} cleanContent={displayContent} />;
+      }
+      return <SystemMessage message={message} cleanContent={displayContent} isError={isError} />;
     }
-    // Compaction summary messages
-    if (message.content.startsWith('[Conversation summary')) {
-      return <CompactionSummary message={message} cleanContent={displayContent} />;
+
+    // User messages
+    if (message.role === 'user') {
+      return (
+        <UserMessage
+          message={message}
+          cleanContent={cleanContent}
+          viewMode={viewMode}
+          messageIndex={messageIndex}
+          onEditMessage={onEditMessage}
+          isGenerating={isGenerating}
+        />
+      );
     }
-    return <SystemMessage message={message} cleanContent={displayContent} isError={isError} />;
-  }
 
-  // User messages
-  if (message.role === 'user') {
-    return <UserMessage message={message} cleanContent={cleanContent} viewMode={viewMode} messageIndex={messageIndex} onEditMessage={onEditMessage} isGenerating={isGenerating} />;
-  }
-
-  // Assistant messages
-  return (
-    <AssistantMessage
-      message={message}
-      viewMode={viewMode}
-      thinkingContent={thinkingContent}
-      isThinkingStreaming={isThinkingStreaming}
-      segments={segments}
-      isStreaming={isStreaming}
-      isGenerating={isGenerating}
-      isLastAssistant={isLastMessage}
-      onRegenerate={onRegenerate && messageIndex != null ? () => onRegenerate(messageIndex) : undefined}
-    />
-  );
-});
+    // Assistant messages
+    return (
+      <AssistantMessage
+        message={message}
+        viewMode={viewMode}
+        thinkingContent={thinkingContent}
+        isThinkingStreaming={isThinkingStreaming}
+        segments={segments}
+        isStreaming={isStreaming}
+        isGenerating={isGenerating}
+        isLastAssistant={isLastMessage}
+        onRegenerate={
+          onRegenerate && messageIndex != null ? () => onRegenerate(messageIndex) : undefined
+        }
+      />
+    );
+  },
+);
 MessageBubble.displayName = 'MessageBubble';

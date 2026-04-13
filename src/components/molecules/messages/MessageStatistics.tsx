@@ -1,10 +1,14 @@
-import { useState, useEffect, useCallback } from 'react';
 import { Gauge, Hash, Clock, Database, Terminal } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+
+const PROCESS_POLL_INTERVAL_MS = 5000;
+
 import type { TimingInfo } from '../../../utils/chatTransport';
-import { TokenBreakdownPopover } from './TokenBreakdownPopover';
 import { getBackgroundProcesses } from '../../../utils/tauriCommands';
 import type { BackgroundProcessInfo } from '../../../utils/tauriCommands';
 import { BackgroundProcessesModal } from '../../organisms/BackgroundProcessesModal';
+
+import { TokenBreakdownPopover } from './TokenBreakdownPopover';
 
 interface MessageStatisticsProps {
   timings: TimingInfo;
@@ -21,7 +25,47 @@ function formatNumber(n: number): string {
   return n.toLocaleString('en-US').replace(/,/g, '.');
 }
 
-export function MessageStatistics({ timings, tokensUsed, maxTokens }: MessageStatisticsProps) {
+const FINISH_REASON_BADGES: Record<string, { color: string; title: string; label: string }> = {
+  length: {
+    color: 'text-yellow-400',
+    title: 'Generation was cut off by context limit',
+    label: 'truncated',
+  },
+  yn_continue: {
+    color: 'text-cyan-400',
+    title: 'Y/N check detected incomplete task — auto-continuing',
+    label: 'task incomplete',
+  },
+  error: {
+    color: 'text-red-400',
+    title: 'Generation stopped due to an error (repetition loop, stall, or decode failure)',
+    label: 'stopped',
+  },
+  max_continues: {
+    color: 'text-orange-400',
+    title:
+      'Maximum auto-continue attempts reached — the model could not complete the task within the context limit',
+    label: 'max retries reached',
+  },
+  infinite_loop: {
+    color: 'text-red-400',
+    title: 'Model got stuck repeating the same tool call — generation force-stopped',
+    label: 'infinite loop',
+  },
+};
+
+const FinishReasonBadge: React.FC<{ finishReason?: string }> = ({ finishReason }) => {
+  if (!finishReason) return null;
+  const badge = FINISH_REASON_BADGES[finishReason];
+  if (!badge) return null;
+  return (
+    <span className={`inline-flex items-center gap-1 ${badge.color}`} title={badge.title}>
+      {badge.label}
+    </span>
+  );
+};
+
+export const MessageStatistics = ({ timings, tokensUsed, maxTokens }: MessageStatisticsProps) => {
   const { genTokPerSec, genTokens, genEvalMs, promptEvalMs } = timings;
   const [bgProcesses, setBgProcesses] = useState<BackgroundProcessInfo[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
@@ -29,7 +73,7 @@ export function MessageStatistics({ timings, tokensUsed, maxTokens }: MessageSta
   const refreshProcesses = useCallback(async () => {
     try {
       const procs = await getBackgroundProcesses();
-      setBgProcesses(procs.filter(p => p.alive));
+      setBgProcesses(procs.filter((p) => p.alive));
     } catch {
       // silent
     }
@@ -37,7 +81,7 @@ export function MessageStatistics({ timings, tokensUsed, maxTokens }: MessageSta
 
   useEffect(() => {
     refreshProcesses();
-    const id = setInterval(refreshProcesses, 5000);
+    const id = setInterval(refreshProcesses, PROCESS_POLL_INTERVAL_MS);
     return () => clearInterval(id);
   }, [refreshProcesses]);
 
@@ -54,7 +98,10 @@ export function MessageStatistics({ timings, tokensUsed, maxTokens }: MessageSta
         </span>
       ) : null}
       {totalMs ? (
-        <span className="inline-flex items-center gap-1" title={`Total: ${formatDuration(totalMs)} (prompt: ${formatDuration(promptEvalMs || 0)}, gen: ${formatDuration(genEvalMs || 0)})`}>
+        <span
+          className="inline-flex items-center gap-1"
+          title={`Total: ${formatDuration(totalMs)} (prompt: ${formatDuration(promptEvalMs || 0)}, gen: ${formatDuration(genEvalMs || 0)})`}
+        >
           <Clock className="h-3 w-3" />
           {formatDuration(totalMs)}
         </span>
@@ -64,50 +111,28 @@ export function MessageStatistics({ timings, tokensUsed, maxTokens }: MessageSta
         {genTokPerSec.toFixed(1)} tok/s
       </span>
       {timings.costUsd ? (
-        <span className="inline-flex items-center gap-1 text-emerald-400" title="Cost (from subscription)">
+        <span
+          className="inline-flex items-center gap-1 text-emerald-400"
+          title="Cost (from subscription)"
+        >
           ${timings.costUsd.toFixed(3)}
         </span>
       ) : null}
-      {tokensUsed !== undefined && maxTokens !== undefined ? (
-        timings.tokenBreakdown ? (
-          <TokenBreakdownPopover
-            breakdown={timings.tokenBreakdown}
-            tokensUsed={tokensUsed}
-            maxTokens={maxTokens}
-            formatNumber={formatNumber}
-          />
-        ) : (
-          <span className="inline-flex items-center gap-1" title="Context usage">
-            <Database className="h-3 w-3" />
-            {formatNumber(tokensUsed)}/{formatNumber(maxTokens)}
-          </span>
-        )
+      {tokensUsed !== undefined && maxTokens !== undefined && timings.tokenBreakdown ? (
+        <TokenBreakdownPopover
+          breakdown={timings.tokenBreakdown}
+          tokensUsed={tokensUsed}
+          maxTokens={maxTokens}
+          formatNumber={formatNumber}
+        />
       ) : null}
-      {timings.finishReason === 'length' ? (
-        <span className="inline-flex items-center gap-1 text-yellow-400" title="Generation was cut off by context limit">
-          truncated
+      {tokensUsed !== undefined && maxTokens !== undefined && !timings.tokenBreakdown ? (
+        <span className="inline-flex items-center gap-1" title="Context usage">
+          <Database className="h-3 w-3" />
+          {formatNumber(tokensUsed)}/{formatNumber(maxTokens)}
         </span>
       ) : null}
-      {timings.finishReason === 'yn_continue' ? (
-        <span className="inline-flex items-center gap-1 text-cyan-400" title="Y/N check detected incomplete task — auto-continuing">
-          task incomplete
-        </span>
-      ) : null}
-      {timings.finishReason === 'error' ? (
-        <span className="inline-flex items-center gap-1 text-red-400" title="Generation stopped due to an error (repetition loop, stall, or decode failure)">
-          stopped
-        </span>
-      ) : null}
-      {timings.finishReason === 'max_continues' ? (
-        <span className="inline-flex items-center gap-1 text-orange-400" title="Maximum auto-continue attempts reached — the model could not complete the task within the context limit">
-          max retries reached
-        </span>
-      ) : null}
-      {timings.finishReason === 'infinite_loop' ? (
-        <span className="inline-flex items-center gap-1 text-red-400" title="Model got stuck repeating the same tool call — generation force-stopped">
-          infinite loop
-        </span>
-      ) : null}
+      <FinishReasonBadge finishReason={timings.finishReason} />
       {bgProcesses.length > 0 ? (
         <>
           <button
@@ -123,4 +148,4 @@ export function MessageStatistics({ timings, tokensUsed, maxTokens }: MessageSta
       ) : null}
     </div>
   );
-}
+};

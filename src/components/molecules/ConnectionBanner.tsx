@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
 import { RefreshCw, WifiOff } from 'lucide-react';
-import { useConnection } from '../../contexts/ConnectionContext';
+import React, { useEffect, useState } from 'react';
+
+import { useConnection } from '../../hooks/useConnection';
 
 function formatElapsed(ms: number): string {
   const secs = Math.floor(ms / 1000);
@@ -15,7 +16,10 @@ export const ConnectionBanner: React.FC = () => {
   const [elapsed, setElapsed] = useState('');
 
   useEffect(() => {
-    if (!disconnectedAt) { setElapsed(''); return; }
+    if (!disconnectedAt) {
+      setElapsed('');
+      return;
+    }
     const update = () => setElapsed(formatElapsed(Date.now() - disconnectedAt));
     update();
     const id = setInterval(update, 1000);

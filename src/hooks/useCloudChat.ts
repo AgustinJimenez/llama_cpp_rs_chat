@@ -1,6 +1,9 @@
 import { toast } from 'react-hot-toast';
-import type { TimingInfo } from '../utils/chatTransport';
+
+const SSE_DATA_PREFIX_LENGTH = 6;
+
 import type { Message } from '../types';
+import type { TimingInfo } from '../utils/chatTransport';
 
 export interface StreamCloudProviderParams {
   provider: string;
@@ -39,7 +42,7 @@ export async function streamCloudProvider(params: StreamCloudProviderParams): Pr
     isStreamingRef,
   } = params;
 
-  console.log('[useChat] Using CLI provider (SSE):', provider, model);
+  console.log('[useChat] Using CLI provider (SSE):', provider, model); // eslint-disable-line no-console
   setLastTimings(undefined);
   isStreamingRef.current = true;
   try {
@@ -61,7 +64,7 @@ export async function streamCloudProvider(params: StreamCloudProviderParams): Pr
     let accumulated = '';
 
     if (reader) {
-      while (true) {
+      for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
 
@@ -70,16 +73,16 @@ export async function streamCloudProvider(params: StreamCloudProviderParams): Pr
 
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
-          const jsonStr = line.slice(6);
+          const jsonStr = line.slice(SSE_DATA_PREFIX_LENGTH);
           try {
             const event = JSON.parse(jsonStr);
             if (event.type === 'token') {
               accumulated += event.token;
-              setMessages(prev => prev.map(msg =>
-                msg.id === assistantMessageId
-                  ? { ...msg, content: accumulated }
-                  : msg
-              ));
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === assistantMessageId ? { ...msg, content: accumulated } : msg,
+                ),
+              );
             } else if (event.type === 'done') {
               if (event.session_id) sessionRef.current = event.session_id;
               if (event.conversation_id && !conversationId) {
@@ -88,20 +91,22 @@ export async function streamCloudProvider(params: StreamCloudProviderParams): Pr
               const outTokens = event.output_tokens || Math.round(accumulated.length / 4);
               const durationMs = event.duration_ms || 0;
               const timings: TimingInfo = {
-                genTokPerSec: durationMs > 0 ? (outTokens / (durationMs / 1000)) : undefined,
+                genTokPerSec: durationMs > 0 ? outTokens / (durationMs / 1000) : undefined,
                 genEvalMs: durationMs,
                 genTokens: outTokens,
                 finishReason: event.stop_reason === 'end_turn' ? 'stop' : event.stop_reason,
                 costUsd: event.cost_usd,
               };
-              setMessages(prev => prev.map(msg =>
-                msg.id === assistantMessageId
-                  ? { ...msg, timestamp: Date.now(), timings }
-                  : msg
-              ));
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === assistantMessageId ? { ...msg, timestamp: Date.now(), timings } : msg,
+                ),
+              );
               setLastTimings(timings);
             }
-          } catch { /* skip unparseable lines */ }
+          } catch {
+            /* skip unparseable lines */
+          }
         }
       }
     }

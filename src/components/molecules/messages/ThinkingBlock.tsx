@@ -1,5 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+
+const MIN_ELAPSED_DISPLAY_SECONDS = 0.5;
 
 interface ThinkingBlockProps {
   content: string;
@@ -26,7 +28,7 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ content, isStreami
     if (isStreaming) {
       if (startTimeRef.current === null) startTimeRef.current = Date.now();
       const interval = setInterval(() => {
-        setElapsed((Date.now() - startTimeRef.current!) / 1000);
+        setElapsed((Date.now() - (startTimeRef.current ?? Date.now())) / 1000);
       }, 100);
       return () => clearInterval(interval);
     }
@@ -36,13 +38,10 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ content, isStreami
     }
   }, [isStreaming]);
 
-  const timeLabel = elapsed >= 0.5 ? ` (${elapsed.toFixed(1)}s)` : '';
+  const timeLabel = elapsed >= MIN_ELAPSED_DISPLAY_SECONDS ? ` (${elapsed.toFixed(1)}s)` : '';
 
   return (
-    <div
-      className="rounded-xl overflow-hidden"
-      style={{ border: '1px solid hsl(220 8% 28%)' }}
-    >
+    <div className="rounded-xl overflow-hidden" style={{ border: '1px solid hsl(220 8% 28%)' }}>
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
@@ -54,10 +53,11 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ content, isStreami
         <span className="text-xs font-medium text-foreground flex-1">
           {isStreaming ? `Thinking...${timeLabel}` : `Thinking${timeLabel}`}
         </span>
-        {isOpen
-          ? <ChevronDown className="h-3.5 w-3.5 text-foreground flex-shrink-0" />
-          : <ChevronRight className="h-3.5 w-3.5 text-foreground flex-shrink-0" />
-        }
+        {isOpen ? (
+          <ChevronDown className="h-3.5 w-3.5 text-foreground flex-shrink-0" />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5 text-foreground flex-shrink-0" />
+        )}
       </button>
       {isOpen ? (
         <pre
@@ -65,7 +65,9 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ content, isStreami
           style={{ borderTop: '1px solid hsl(220 8% 28%)' }}
         >
           {content}
-          {isStreaming ? <span className="inline-block w-1.5 h-3.5 bg-foreground/50 ml-0.5 animate-pulse align-middle" /> : null}
+          {isStreaming ? (
+            <span className="inline-block w-1.5 h-3.5 bg-foreground/50 ml-0.5 animate-pulse align-middle" />
+          ) : null}
         </pre>
       ) : null}
     </div>

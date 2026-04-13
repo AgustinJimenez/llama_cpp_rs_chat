@@ -1,5 +1,10 @@
-import React, { useState, useEffect } from 'react';
+/* eslint-disable max-lines -- single modal with provider config, splitting would fragment cohesive UI */
 import { Settings } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { toast } from 'react-hot-toast';
+
+import { useSettings } from '../../hooks/useSettings';
+import type { SamplerConfig } from '../../types';
 import {
   Dialog,
   DialogContent,
@@ -8,38 +13,108 @@ import {
   DialogDescription,
   DialogTitle,
 } from '../atoms/dialog';
-import { useSettings } from '../../hooks/useSettings';
+
 import { McpSettingsSection } from './McpSettingsSection';
-import { toast } from 'react-hot-toast';
-import type { SamplerConfig } from '../../types';
 
 const CLOUD_PROVIDERS = [
   { id: 'groq', name: 'Groq', envHint: 'GROQ_API_KEY', consoleUrl: 'https://console.groq.com' },
-  { id: 'gemini', name: 'Gemini', envHint: 'GEMINI_API_KEY', consoleUrl: 'https://aistudio.google.com' },
-  { id: 'sambanova', name: 'SambaNova', envHint: 'SAMBANOVA_API_KEY', consoleUrl: 'https://cloud.sambanova.ai' },
-  { id: 'cerebras', name: 'Cerebras', envHint: 'CEREBRAS_API_KEY', consoleUrl: 'https://cloud.cerebras.ai' },
-  { id: 'openrouter', name: 'OpenRouter', envHint: 'OPENROUTER_API_KEY', consoleUrl: 'https://openrouter.ai/settings/keys' },
-  { id: 'together', name: 'Together AI', envHint: 'TOGETHER_API_KEY', consoleUrl: 'https://api.together.ai/settings/api-keys' },
-  { id: 'deepseek', name: 'DeepSeek', envHint: 'DEEPSEEK_API_KEY', consoleUrl: 'https://platform.deepseek.com' },
-  { id: 'mistral', name: 'Mistral AI', envHint: 'MISTRAL_API_KEY', consoleUrl: 'https://console.mistral.ai' },
-  { id: 'fireworks', name: 'Fireworks AI', envHint: 'FIREWORKS_API_KEY', consoleUrl: 'https://fireworks.ai' },
+  {
+    id: 'gemini',
+    name: 'Gemini',
+    envHint: 'GEMINI_API_KEY',
+    consoleUrl: 'https://aistudio.google.com',
+  },
+  {
+    id: 'sambanova',
+    name: 'SambaNova',
+    envHint: 'SAMBANOVA_API_KEY',
+    consoleUrl: 'https://cloud.sambanova.ai',
+  },
+  {
+    id: 'cerebras',
+    name: 'Cerebras',
+    envHint: 'CEREBRAS_API_KEY',
+    consoleUrl: 'https://cloud.cerebras.ai',
+  },
+  {
+    id: 'openrouter',
+    name: 'OpenRouter',
+    envHint: 'OPENROUTER_API_KEY',
+    consoleUrl: 'https://openrouter.ai/settings/keys',
+  },
+  {
+    id: 'together',
+    name: 'Together AI',
+    envHint: 'TOGETHER_API_KEY',
+    consoleUrl: 'https://api.together.ai/settings/api-keys',
+  },
+  {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    envHint: 'DEEPSEEK_API_KEY',
+    consoleUrl: 'https://platform.deepseek.com',
+  },
+  {
+    id: 'mistral',
+    name: 'Mistral AI',
+    envHint: 'MISTRAL_API_KEY',
+    consoleUrl: 'https://console.mistral.ai',
+  },
+  {
+    id: 'fireworks',
+    name: 'Fireworks AI',
+    envHint: 'FIREWORKS_API_KEY',
+    consoleUrl: 'https://fireworks.ai',
+  },
   { id: 'xai', name: 'xAI (Grok)', envHint: 'XAI_API_KEY', consoleUrl: 'https://console.x.ai' },
-  { id: 'nvidia', name: 'NVIDIA NIM', envHint: 'NVIDIA_API_KEY', consoleUrl: 'https://build.nvidia.com' },
-  { id: 'huggingface', name: 'Hugging Face', envHint: 'HF_TOKEN', consoleUrl: 'https://huggingface.co/settings/tokens' },
-  { id: 'cloudflare', name: 'Cloudflare Workers AI', envHint: 'CLOUDFLARE_API_TOKEN', hasBaseUrl: true, consoleUrl: 'https://dash.cloudflare.com' },
+  {
+    id: 'nvidia',
+    name: 'NVIDIA NIM',
+    envHint: 'NVIDIA_API_KEY',
+    consoleUrl: 'https://build.nvidia.com',
+  },
+  {
+    id: 'huggingface',
+    name: 'Hugging Face',
+    envHint: 'HF_TOKEN',
+    consoleUrl: 'https://huggingface.co/settings/tokens',
+  },
+  {
+    id: 'cloudflare',
+    name: 'Cloudflare Workers AI',
+    envHint: 'CLOUDFLARE_API_TOKEN',
+    hasBaseUrl: true,
+    consoleUrl: 'https://dash.cloudflare.com',
+  },
 ];
 
-function ProviderApiKeysSection({ providerApiKeys, onChange }: { providerApiKeys: string; onChange: (json: string) => void }) {
+// eslint-disable-next-line max-lines-per-function, complexity -- single cohesive form section, splitting would hurt readability
+const ProviderApiKeysSection = ({
+  providerApiKeys,
+  onChange,
+}: {
+  providerApiKeys: string;
+  onChange: (json: string) => void;
+}) => {
   const [selectedProvider, setSelectedProvider] = useState('');
 
-  let keys: Record<string, { api_key?: string; base_url?: string; name?: string; models?: string; custom?: boolean }> = {};
+  let keys: Record<
+    string,
+    { api_key?: string; base_url?: string; name?: string; models?: string; custom?: boolean }
+  > = {};
   try {
     const parsed = JSON.parse(providerApiKeys || '{}');
     for (const [k, v] of Object.entries(parsed)) {
       if (typeof v === 'string') {
         keys[k] = { api_key: v };
       } else if (typeof v === 'object' && v !== null) {
-        keys[k] = v as { api_key?: string; base_url?: string; name?: string; models?: string; custom?: boolean };
+        keys[k] = v as {
+          api_key?: string;
+          base_url?: string;
+          name?: string;
+          models?: string;
+          custom?: boolean;
+        };
       }
     }
   } catch {
@@ -50,7 +125,11 @@ function ProviderApiKeysSection({ providerApiKeys, onChange }: { providerApiKeys
     const updated = { ...keys };
     if (!updated[providerId]) updated[providerId] = {};
     updated[providerId][field] = value;
-    if (!updated[providerId].api_key && !updated[providerId].base_url && !updated[providerId].custom) {
+    if (
+      !updated[providerId].api_key &&
+      !updated[providerId].base_url &&
+      !updated[providerId].custom
+    ) {
       delete updated[providerId];
     }
     onChange(JSON.stringify(updated));
@@ -61,7 +140,10 @@ function ProviderApiKeysSection({ providerApiKeys, onChange }: { providerApiKeys
 
   const addCustomProvider = () => {
     const id = `custom_${Date.now()}`;
-    const updated = { ...keys, [id]: { custom: true, name: '', base_url: '', api_key: '', models: '' } };
+    const updated = {
+      ...keys,
+      [id]: { custom: true, name: '', base_url: '', api_key: '', models: '' },
+    };
     onChange(JSON.stringify(updated));
     setSelectedProvider(id);
   };
@@ -80,14 +162,14 @@ function ProviderApiKeysSection({ providerApiKeys, onChange }: { providerApiKeys
     setSelectedProvider('');
   };
 
-  const selected = CLOUD_PROVIDERS.find(p => p.id === selectedProvider);
+  const selected = CLOUD_PROVIDERS.find((p) => p.id === selectedProvider);
   const selectedCustom = customProviders.find(([id]) => id === selectedProvider);
-  const configuredCount = CLOUD_PROVIDERS.filter(p => keys[p.id]?.api_key).length;
+  const configuredCount = CLOUD_PROVIDERS.filter((p) => keys[p.id]?.api_key).length;
 
   return (
     <div className="space-y-3">
       <div className="space-y-2">
-        <label className="text-sm font-medium text-foreground">
+        <label htmlFor="cloud-provider-select" className="text-sm font-medium text-foreground">
           Cloud Provider API Keys
         </label>
         <p className="text-xs text-muted-foreground">
@@ -97,6 +179,7 @@ function ProviderApiKeysSection({ providerApiKeys, onChange }: { providerApiKeys
         {/* Provider selector dropdown */}
         <div className="flex gap-2">
           <select
+            id="cloud-provider-select"
             value={selectedProvider}
             onChange={(e) => setSelectedProvider(e.target.value)}
             className="flex-1 px-3 py-1.5 rounded-lg bg-muted border border-border text-sm text-foreground"
@@ -112,7 +195,9 @@ function ProviderApiKeysSection({ providerApiKeys, onChange }: { providerApiKeys
             {customProviders.length > 0 && (
               <optgroup label="Custom Providers">
                 {customProviders.map(([id, data]) => (
-                  <option key={id} value={id}>{data.name || 'Unnamed'} {data.api_key ? ' ✓' : ''}</option>
+                  <option key={id} value={id}>
+                    {data.name || 'Unnamed'} {data.api_key ? ' ✓' : ''}
+                  </option>
                 ))}
               </optgroup>
             )}
@@ -129,7 +214,7 @@ function ProviderApiKeysSection({ providerApiKeys, onChange }: { providerApiKeys
         {/* Configured providers badges */}
         {configuredCount > 0 && !selectedProvider && (
           <div className="flex flex-wrap gap-1.5">
-            {CLOUD_PROVIDERS.filter(p => keys[p.id]?.api_key).map(({ id, name }) => (
+            {CLOUD_PROVIDERS.filter((p) => keys[p.id]?.api_key).map(({ id, name }) => (
               <button
                 key={id}
                 type="button"
@@ -139,26 +224,28 @@ function ProviderApiKeysSection({ providerApiKeys, onChange }: { providerApiKeys
                 {name}
               </button>
             ))}
-            {customProviders.filter(([, d]) => d.api_key || d.base_url).map(([id, data]) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setSelectedProvider(id)}
-                className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 transition-colors"
-              >
-                {data.name || 'Custom'}
-              </button>
-            ))}
+            {customProviders
+              .filter(([, d]) => d.api_key || d.base_url)
+              .map(([id, data]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setSelectedProvider(id)}
+                  className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 transition-colors"
+                >
+                  {data.name || 'Custom'}
+                </button>
+              ))}
           </div>
         )}
       </div>
 
       {/* Selected built-in provider config */}
-      {selected && (
+      {selected ? (
         <div className="space-y-2 p-3 rounded-lg bg-muted/30 border border-border">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-foreground">{selected.name}</span>
-            {selected.consoleUrl && (
+            {selected.consoleUrl ? (
               <a
                 href={selected.consoleUrl}
                 target="_blank"
@@ -167,7 +254,7 @@ function ProviderApiKeysSection({ providerApiKeys, onChange }: { providerApiKeys
               >
                 Get API key &rarr;
               </a>
-            )}
+            ) : null}
           </div>
           <input
             type="password"
@@ -177,7 +264,7 @@ function ProviderApiKeysSection({ providerApiKeys, onChange }: { providerApiKeys
             value={keys[selected.id]?.api_key || ''}
             onChange={(e) => updateKey(selected.id, 'api_key', e.target.value)}
           />
-          {selected.hasBaseUrl && (
+          {selected.hasBaseUrl ? (
             <input
               type="text"
               autoComplete="off"
@@ -186,12 +273,12 @@ function ProviderApiKeysSection({ providerApiKeys, onChange }: { providerApiKeys
               value={keys[selected.id]?.base_url || ''}
               onChange={(e) => updateKey(selected.id, 'base_url', e.target.value)}
             />
-          )}
+          ) : null}
         </div>
-      )}
+      ) : null}
 
       {/* Selected custom provider config */}
-      {selectedCustom && (
+      {selectedCustom ? (
         <div className="space-y-2 p-3 rounded-lg bg-muted/30 border border-border">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-foreground">Custom Provider</span>
@@ -236,10 +323,10 @@ function ProviderApiKeysSection({ providerApiKeys, onChange }: { providerApiKeys
             onChange={(e) => updateCustom(selectedCustom[0], 'models', e.target.value)}
           />
         </div>
-      )}
+      ) : null}
     </div>
   );
-}
+};
 
 interface AppSettingsModalProps {
   isOpen: boolean;
@@ -247,8 +334,9 @@ interface AppSettingsModalProps {
 }
 
 const TABS = ['General', 'Providers', 'Notifications', 'MCP'] as const;
-type Tab = typeof TABS[number];
+type Tab = (typeof TABS)[number];
 
+// eslint-disable-next-line max-lines-per-function -- single modal component, splitting tabs would fragment readability
 export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onClose }) => {
   const { config, updateConfig } = useSettings();
   const [localConfig, setLocalConfig] = useState<SamplerConfig | null>(null);
@@ -278,13 +366,11 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
             <Settings className="h-5 w-5" />
             App Settings
           </DialogTitle>
-          <DialogDescription className="sr-only">
-            Application settings
-          </DialogDescription>
+          <DialogDescription className="sr-only">Application settings</DialogDescription>
         </DialogHeader>
 
         <div className="flex border-b border-border mb-4">
-          {TABS.map(tab => (
+          {TABS.map((tab) => (
             <button
               key={tab}
               type="button"
@@ -305,9 +391,9 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
             <div className="space-y-4">
               {/* Theme Toggle */}
               <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Theme</label>
+                <span className="text-sm font-medium text-foreground">Theme</span>
                 <div className="flex gap-2">
-                  {(['dark', 'light'] as const).map(t => (
+                  {(['dark', 'light'] as const).map((t) => (
                     <button
                       key={t}
                       type="button"
@@ -321,8 +407,9 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
                         localStorage.setItem('theme', t);
                       }}
                       className={`px-4 py-2 text-sm rounded-lg border transition-colors ${
-                        (typeof window !== 'undefined' && document.documentElement.classList.contains('dark'))
-                          === (t === 'dark')
+                        (typeof window !== 'undefined' &&
+                          document.documentElement.classList.contains('dark')) ===
+                        (t === 'dark')
                           ? 'bg-primary text-primary-foreground border-primary'
                           : 'bg-muted border-border text-muted-foreground hover:text-foreground'
                       }`}
@@ -335,7 +422,10 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
 
               {/* Web Search Provider */}
               <div className="space-y-2">
-                <label htmlFor="web-search-provider" className="text-sm font-medium text-foreground">
+                <label
+                  htmlFor="web-search-provider"
+                  className="text-sm font-medium text-foreground"
+                >
                   Web Search Provider
                 </label>
                 <p className="text-xs text-muted-foreground">
@@ -346,8 +436,8 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
                   className="w-full px-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground"
                   value={provider}
                   onChange={(e) =>
-                    setLocalConfig(prev =>
-                      prev ? { ...prev, web_search_provider: e.target.value } : prev
+                    setLocalConfig((prev) =>
+                      prev ? { ...prev, web_search_provider: e.target.value } : prev,
                     )
                   }
                 >
@@ -373,8 +463,8 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
                     value={apiKey}
                     placeholder="BRAVE_SEARCH_API_KEY"
                     onChange={(e) =>
-                      setLocalConfig(prev =>
-                        prev ? { ...prev, web_search_api_key: e.target.value } : prev
+                      setLocalConfig((prev) =>
+                        prev ? { ...prev, web_search_api_key: e.target.value } : prev,
                       )
                     }
                   />
@@ -383,19 +473,23 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
 
               {/* Browser Backend */}
               <div className="space-y-2">
-                <label htmlFor="web-browser-backend" className="text-sm font-medium text-foreground">
+                <label
+                  htmlFor="web-browser-backend"
+                  className="text-sm font-medium text-foreground"
+                >
                   Browser Backend
                 </label>
                 <p className="text-xs text-muted-foreground">
-                  Browser engine used for web_fetch and Chrome-based web_search. Lighter backends use less RAM.
+                  Browser engine used for web_fetch and Chrome-based web_search. Lighter backends
+                  use less RAM.
                 </p>
                 <select
                   id="web-browser-backend"
                   className="w-full px-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground"
                   value={browserBackend}
                   onChange={(e) =>
-                    setLocalConfig(prev =>
-                      prev ? { ...prev, web_browser_backend: e.target.value } : prev
+                    setLocalConfig((prev) =>
+                      prev ? { ...prev, web_browser_backend: e.target.value } : prev,
                     )
                   }
                 >
@@ -413,9 +507,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
               <ProviderApiKeysSection
                 providerApiKeys={localConfig?.provider_api_keys || '{}'}
                 onChange={(json) =>
-                  setLocalConfig(prev =>
-                    prev ? { ...prev, provider_api_keys: json } : prev
-                  )
+                  setLocalConfig((prev) => (prev ? { ...prev, provider_api_keys: json } : prev))
                 }
               />
             </div>
@@ -425,20 +517,22 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
             <div className="space-y-4">
               {/* Telegram Notifications */}
               <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">
+                <label htmlFor="telegram-bot-token" className="text-sm font-medium text-foreground">
                   Telegram Notifications
                 </label>
                 <p className="text-xs text-muted-foreground">
-                  Let the model send you Telegram messages (task completion, errors). Create a bot via @BotFather.
+                  Let the model send you Telegram messages (task completion, errors). Create a bot
+                  via @BotFather.
                 </p>
                 <input
+                  id="telegram-bot-token"
                   type="text"
                   placeholder="Bot Token (from @BotFather)"
                   className="w-full px-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground placeholder:text-muted-foreground"
                   value={localConfig?.telegram_bot_token || ''}
                   onChange={(e) =>
-                    setLocalConfig(prev =>
-                      prev ? { ...prev, telegram_bot_token: e.target.value } : prev
+                    setLocalConfig((prev) =>
+                      prev ? { ...prev, telegram_bot_token: e.target.value } : prev,
                     )
                   }
                 />
@@ -448,8 +542,8 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
                   className="w-full px-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground placeholder:text-muted-foreground"
                   value={localConfig?.telegram_chat_id || ''}
                   onChange={(e) =>
-                    setLocalConfig(prev =>
-                      prev ? { ...prev, telegram_chat_id: e.target.value } : prev
+                    setLocalConfig((prev) =>
+                      prev ? { ...prev, telegram_chat_id: e.target.value } : prev,
                     )
                   }
                 />
@@ -468,10 +562,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
           <button className="flat-button bg-muted px-6 py-2" onClick={onClose}>
             Cancel
           </button>
-          <button
-            className="flat-button bg-primary text-white px-6 py-2"
-            onClick={handleSave}
-          >
+          <button className="flat-button bg-primary text-white px-6 py-2" onClick={handleSave}>
             Save
           </button>
         </DialogFooter>

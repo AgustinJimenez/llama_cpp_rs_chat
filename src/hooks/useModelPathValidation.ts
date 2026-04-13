@@ -1,6 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
+
+const DEFAULT_MAX_LAYERS = 99;
+
 import { isTauriEnv } from '../utils/tauri';
 import { getModelInfo, addModelHistory } from '../utils/tauriCommands';
+
 import type { ModelMetadata } from '@/types';
 
 interface UseModelPathValidationOptions {
@@ -50,7 +54,7 @@ export const useModelPathValidation = ({
   const [directorySuggestions, setDirectorySuggestions] = useState<string[]>([]);
   const [directoryError, setDirectoryError] = useState<string | null>(null);
   const [modelInfo, setModelInfo] = useState<ModelMetadata | null>(null);
-  const [maxLayers, setMaxLayers] = useState(99);
+  const [maxLayers, setMaxLayers] = useState(DEFAULT_MAX_LAYERS);
 
   // Helper function to save model path to history
   const saveToHistory = useCallback(async (path: string) => {
@@ -81,7 +85,10 @@ export const useModelPathValidation = ({
           const data = await getModelInfo(trimmedPath);
 
           // Check if response indicates an error (directory, not found, etc.)
-          if ((data as Record<string, unknown>).is_directory && (data as Record<string, unknown>).suggestions) {
+          if (
+            (data as Record<string, unknown>).is_directory &&
+            (data as Record<string, unknown>).suggestions
+          ) {
             const errorData = data as Record<string, unknown>;
             setDirectoryError(errorData.error as string);
             setDirectorySuggestions(errorData.suggestions as string[]);
@@ -89,9 +96,10 @@ export const useModelPathValidation = ({
 
             // Auto-complete if there's only one .gguf file
             if ((errorData.suggestions as string[]).length === 1 && onPathChange) {
-              const autoPath = trimmedPath.endsWith('\\') || trimmedPath.endsWith('/')
-                ? `${trimmedPath}${(errorData.suggestions as string[])[0]}`
-                : `${trimmedPath}\\${(errorData.suggestions as string[])[0]}`;
+              const autoPath =
+                trimmedPath.endsWith('\\') || trimmedPath.endsWith('/')
+                  ? `${trimmedPath}${(errorData.suggestions as string[])[0]}`
+                  : `${trimmedPath}\\${(errorData.suggestions as string[])[0]}`;
               onPathChange(autoPath);
             }
             return;
@@ -115,7 +123,9 @@ export const useModelPathValidation = ({
           }
 
           const d = data as Record<string, unknown>;
-          const meta = d.gguf_metadata as Record<string, string | number | boolean | null | undefined> | undefined;
+          const meta = d.gguf_metadata as
+            | Record<string, string | number | boolean | null | undefined>
+            | undefined;
           setModelInfo({
             name: (d.name as string) || trimmedPath.split(/[\\/]/).pop() || 'Unknown',
             architecture: (d.architecture as string) || 'Unknown',
@@ -130,10 +140,27 @@ export const useModelPathValidation = ({
             general_name: d.general_name as string | undefined,
             recommended_params: d.recommended_params as ModelMetadata['recommended_params'],
             // Extract architecture details from top-level (parsed by backend) or raw GGUF metadata
-            block_count: String(d.block_count ?? meta?.['gemma3.block_count'] ?? meta?.['llama.block_count'] ?? ''),
-            attention_head_count: String(d.attention_head_count ?? meta?.['gemma3.attention.head_count'] ?? meta?.['llama.attention.head_count'] ?? ''),
-            attention_head_count_kv: String(d.attention_head_count_kv ?? meta?.['gemma3.attention.head_count_kv'] ?? meta?.['llama.attention.head_count_kv'] ?? ''),
-            embedding_length: String(d.embedding_length ?? meta?.['gemma3.embedding_length'] ?? meta?.['llama.embedding_length'] ?? ''),
+            block_count: String(
+              d.block_count ?? meta?.['gemma3.block_count'] ?? meta?.['llama.block_count'] ?? '',
+            ),
+            attention_head_count: String(
+              d.attention_head_count ??
+                meta?.['gemma3.attention.head_count'] ??
+                meta?.['llama.attention.head_count'] ??
+                '',
+            ),
+            attention_head_count_kv: String(
+              d.attention_head_count_kv ??
+                meta?.['gemma3.attention.head_count_kv'] ??
+                meta?.['llama.attention.head_count_kv'] ??
+                '',
+            ),
+            embedding_length: String(
+              d.embedding_length ??
+                meta?.['gemma3.embedding_length'] ??
+                meta?.['llama.embedding_length'] ??
+                '',
+            ),
             detected_tool_tags: d.detected_tool_tags as ModelMetadata['detected_tool_tags'],
             detected_tag_pairs: d.detected_tag_pairs as ModelMetadata['detected_tag_pairs'],
             has_vision: d.has_vision as boolean | undefined,

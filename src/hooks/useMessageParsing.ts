@@ -1,13 +1,17 @@
 import { useMemo } from 'react';
-import { autoParseToolCalls, stripToolCalls } from '../utils/toolParser';
+
+import type { Message, ToolCall, ToolTags } from '../types';
+import { parseHarmonyContent } from '../utils/harmonyParser';
 import { stripUnclosedToolCallTail } from '../utils/toolFormatUtils';
+import { autoParseToolCalls, stripToolCalls } from '../utils/toolParser';
 import {
+  type MessageSegment,
   buildSegments,
   moveToolsOutOfThinking,
-  THINKING_REGEX, THINKING_UNCLOSED_REGEX, THINKING_ORPHAN_CLOSE_REGEX,
+  THINKING_REGEX,
+  THINKING_UNCLOSED_REGEX,
+  THINKING_ORPHAN_CLOSE_REGEX,
 } from '../utils/toolSpanCollectors';
-import { parseHarmonyContent } from '../utils/harmonyParser';
-import type { Message, ToolCall, ToolTags } from '../types';
 
 export type { MessageSegment } from '../utils/toolSpanCollectors';
 
@@ -21,16 +25,16 @@ export interface ParsedMessage {
   isError: boolean;
 }
 
-import type { MessageSegment } from '../utils/toolSpanCollectors';
-
 // Cleanup regexes — used only by contentWithoutThinking to strip all format tags
 const EXEC_CLEANUP = /(?:<\|\|)?SYSTEM\.EXEC>[\s\S]*?<(?:\|\|)?SYSTEM\.EXEC\|\|>/g;
 const SYS_OUTPUT_CLEANUP = /(?:<\|\|)?SYSTEM\.OUTPUT>[\s\S]*?<(?:\|\|)?SYSTEM\.OUTPUT\|\|>/g;
-const MISTRAL_CALL_CLEANUP = /(?:\[TOOL_CALLS\][\s\S]*?\[\/TOOL_CALLS\]|\[TOOL_CALLS\]\w+\[ARGS\]\{[\s\S]*?\}|\[TOOL_CALLS\]\s*\{[^}]*"name"[^}]*"arguments"[\s\S]*?\}\s*\})/g;
+const MISTRAL_CALL_CLEANUP =
+  /(?:\[TOOL_CALLS\][\s\S]*?\[\/TOOL_CALLS\]|\[TOOL_CALLS\]\w+\[ARGS\]\{[\s\S]*?\}|\[TOOL_CALLS\]\s*\{[^}]*"name"[^}]*"arguments"[\s\S]*?\}\s*\})/g;
 const MISTRAL_RESULT_CLEANUP = /\[TOOL_RESULTS\][\s\S]*?\[\/TOOL_RESULTS\]/g;
 const LFM2_RESULT_CLEANUP = /<\|tool_response_start\|>[\s\S]*?<\|tool_response_end\|>/g;
 // GLM vision/media tags — strip hallucinated image/video/box markers from display
-const GLM_VISION_CLEANUP = /<\|(?:begin_of_image|image|end_of_image|begin_of_video|video|end_of_video|begin_of_box|end_of_box)\|>/g;
+const GLM_VISION_CLEANUP =
+  /<\|(?:begin_of_image|image|end_of_image|begin_of_video|video|end_of_video|begin_of_box|end_of_box)\|>/g;
 // EOS / stop tokens — strip from display (visible only in RAW view)
 const EOS_TOKEN_CLEANUP = /<\|(?:im_end|endoftext|end_of_text|eot_id|end)\|>/g;
 // Internal system signals — strip from display
@@ -77,7 +81,9 @@ const TURN_TAG_CLEANUP = /<(?:\|turn>(?:model|user|system|tool)|turn\|>)/g;
 export function useMessageParsing(message: Message, toolTags?: ToolTags): ParsedMessage {
   const harmony = useMemo(() => parseHarmonyContent(message.content), [message.content]);
   const dynamicCleanup = useMemo(() => buildDynamicTagCleanup(toolTags), [toolTags]);
-  const effectiveContent = (harmony ? harmony.finalContent : message.content).replace(EOS_TOKEN_CLEANUP, '').replace(INTERNAL_SIGNALS_CLEANUP, '');
+  const effectiveContent = (harmony ? harmony.finalContent : message.content)
+    .replace(EOS_TOKEN_CLEANUP, '')
+    .replace(INTERNAL_SIGNALS_CLEANUP, '');
 
   const toolCalls = useMemo(() => {
     if (message.role === 'assistant') return autoParseToolCalls(effectiveContent);
@@ -144,11 +150,19 @@ export function useMessageParsing(message: Message, toolTags?: ToolTags): Parsed
     return result.trim();
   }, [cleanContent, dynamicCleanup]);
 
-  const isError = message.role === 'system' && (
-    message.content.includes('\u274C') ||
-    message.content.includes('Generation Crashed') ||
-    message.content.includes('Error')
-  );
+  const isError =
+    message.role === 'system' &&
+    (message.content.includes('\u274C') ||
+      message.content.includes('Generation Crashed') ||
+      message.content.includes('Error'));
 
-  return { toolCalls, cleanContent, thinkingContent, isThinkingStreaming, contentWithoutThinking, segments, isError };
+  return {
+    toolCalls,
+    cleanContent,
+    thinkingContent,
+    isThinkingStreaming,
+    contentWithoutThinking,
+    segments,
+    isError,
+  };
 }

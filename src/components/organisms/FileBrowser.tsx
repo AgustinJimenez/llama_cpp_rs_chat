@@ -1,6 +1,9 @@
-import React, { useState, useEffect } from 'react';
 import { Folder, File, ArrowLeft, HardDrive } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+
+import type { FileItem } from '../../types';
 import { browseFiles } from '../../utils/tauriCommands';
+import { Button } from '../atoms/button';
 import {
   Dialog,
   DialogContent,
@@ -9,9 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../atoms/dialog';
-import { Button } from '../atoms/button';
 // Using regular div with overflow instead of ScrollArea
-import type { FileItem } from '../../types';
 
 interface FileBrowserProps {
   isOpen: boolean;
@@ -43,7 +44,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
   const fetchFiles = async (path: string) => {
     setLoading(true);
     setError(null);
-    
+
     try {
       const data = await browseFiles(path);
       setFiles(data.files);
@@ -115,7 +116,8 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
 
           {/* Navigation */}
           <div className="flex gap-2">
-            {parentPath ? <Button
+            {parentPath ? (
+              <Button
                 variant="outline"
                 size="sm"
                 onClick={goToParent}
@@ -123,72 +125,85 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
               >
                 <ArrowLeft className="h-4 w-4" />
                 Back
-              </Button> : null}
+              </Button>
+            ) : null}
           </div>
 
           {/* File List */}
           <div className="h-[400px] border rounded-md overflow-y-auto">
-            {loading ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="text-sm text-muted-foreground">Loading files...</div>
-              </div>
-            ) : error ? (
-              <div className="p-4 text-sm text-destructive">
-                Error: {error}
-              </div>
-            ) : files.length === 0 ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="text-sm text-muted-foreground">No files found</div>
-              </div>
-            ) : (
-              <div className="p-2">
-                {files.map((file, index) => {
-                  const isSelectable = !file.is_directory && file.name.toLowerCase().endsWith(filter.toLowerCase());
-                  const isSelected = selectedFile === file.path;
-                  
-                  return (
-                    <div
-                      key={index}
-                      role="button"
-                      tabIndex={0}
-                      className={`flex items-center gap-3 p-2 rounded-md cursor-pointer hover:bg-muted/50 transition-colors ${
-                        isSelected ? 'bg-primary/10 border border-primary/20' : ''
-                      } ${
-                        !file.is_directory && !isSelectable ? 'opacity-50 cursor-not-allowed' : ''
-                      }`}
-                      onClick={() => handleFileClick(file)}
-                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleFileClick(file); }}
-                    >
-                      {file.is_directory ? (
-                        <Folder className="h-4 w-4 text-blue-500" />
-                      ) : (
-                        <File className={`h-4 w-4 ${isSelectable ? 'text-green-500' : 'text-gray-400'}`} />
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium truncate">
-                          {file.name}
+            {(() => {
+              if (loading) {
+                return (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="text-sm text-muted-foreground">Loading files...</div>
+                  </div>
+                );
+              }
+              if (error) {
+                return <div className="p-4 text-sm text-destructive">Error: {error}</div>;
+              }
+              if (files.length === 0) {
+                return (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="text-sm text-muted-foreground">No files found</div>
+                  </div>
+                );
+              }
+              return (
+                <div className="p-2">
+                  {files.map((file) => {
+                    const isSelectable =
+                      !file.is_directory && file.name.toLowerCase().endsWith(filter.toLowerCase());
+                    const isSelected = selectedFile === file.path;
+
+                    return (
+                      <div
+                        key={file.path}
+                        role="button"
+                        tabIndex={0}
+                        className={`flex items-center gap-3 p-2 rounded-md cursor-pointer hover:bg-muted/50 transition-colors ${
+                          isSelected ? 'bg-primary/10 border border-primary/20' : ''
+                        } ${
+                          !file.is_directory && !isSelectable ? 'opacity-50 cursor-not-allowed' : ''
+                        }`}
+                        onClick={() => handleFileClick(file)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') handleFileClick(file);
+                        }}
+                      >
+                        {file.is_directory ? (
+                          <Folder className="h-4 w-4 text-blue-500" />
+                        ) : (
+                          <File
+                            className={`h-4 w-4 ${isSelectable ? 'text-green-500' : 'text-gray-400'}`}
+                          />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium truncate">{file.name}</div>
+                          {!file.is_directory && file.size ? (
+                            <div className="text-xs text-muted-foreground">
+                              {formatFileSize(file.size)}
+                            </div>
+                          ) : null}
                         </div>
-                        {!file.is_directory && file.size ? <div className="text-xs text-muted-foreground">
-                            {formatFileSize(file.size)}
-                          </div> : null}
+                        {isSelected ? (
+                          <div className="text-xs text-primary font-medium">Selected</div>
+                        ) : null}
                       </div>
-                      {isSelected ? <div className="text-xs text-primary font-medium">
-                          Selected
-                        </div> : null}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
 
           {/* Selected File Display */}
-          {selectedFile ? <div className="p-3 bg-primary/5 border border-primary/20 rounded-md">
+          {selectedFile ? (
+            <div className="p-3 bg-primary/5 border border-primary/20 rounded-md">
               <div className="text-sm font-medium">Selected file:</div>
-              <div className="text-sm font-mono text-muted-foreground mt-1">
-                {selectedFile}
-              </div>
-            </div> : null}
+              <div className="text-sm font-mono text-muted-foreground mt-1">{selectedFile}</div>
+            </div>
+          ) : null}
         </div>
 
         <DialogFooter>
@@ -196,14 +211,16 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
             Cancel
           </Button>
           {mode === 'directory' ? (
-            <Button onClick={() => { onSelectFile(currentPath); onClose(); }}>
+            <Button
+              onClick={() => {
+                onSelectFile(currentPath);
+                onClose();
+              }}
+            >
               Select This Folder
             </Button>
           ) : (
-            <Button
-              onClick={handleSelectFile}
-              disabled={!selectedFile}
-            >
+            <Button onClick={handleSelectFile} disabled={!selectedFile}>
               Select File
             </Button>
           )}

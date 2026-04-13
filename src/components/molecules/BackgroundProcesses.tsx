@@ -1,6 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
 import { Terminal, X, RefreshCw, Clock, Hash, Activity } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'react-hot-toast';
+
+const SECONDS_PER_HOUR = 3600;
+const BACKGROUND_POLL_INTERVAL_MS = 10000;
+const MODAL_POLL_INTERVAL_MS = 3000;
+
 import {
   Dialog,
   DialogContent,
@@ -44,17 +49,22 @@ async function killProcess(pid: number): Promise<{ success: boolean; message?: s
 function elapsed(startedAt: number): string {
   const secs = Math.floor(Date.now() / 1000 - startedAt);
   if (secs < 60) return `${secs}s`;
-  if (secs < 3600) return `${Math.floor(secs / 60)}m ${secs % 60}s`;
-  const h = Math.floor(secs / 3600);
-  const m = Math.floor((secs % 3600) / 60);
+  if (secs < SECONDS_PER_HOUR) return `${Math.floor(secs / 60)}m ${secs % 60}s`;
+  const h = Math.floor(secs / SECONDS_PER_HOUR);
+  const m = Math.floor((secs % SECONDS_PER_HOUR) / 60);
   return `${h}h ${m}m`;
 }
 
 function formatTime(ts: number): string {
-  return new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  return new Date(ts * 1000).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
 }
 
-export function BackgroundProcesses() {
+export const BackgroundProcesses = () => {
   const [processes, setProcesses] = useState<BackgroundProcess[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [killing, setKilling] = useState<number | null>(null);
@@ -67,7 +77,7 @@ export function BackgroundProcesses() {
   // Poll every 10 seconds
   useEffect(() => {
     refresh();
-    const interval = setInterval(refresh, 10000);
+    const interval = setInterval(refresh, BACKGROUND_POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [refresh]);
 
@@ -75,7 +85,7 @@ export function BackgroundProcesses() {
   useEffect(() => {
     if (!modalOpen) return;
     refresh();
-    const interval = setInterval(refresh, 3000);
+    const interval = setInterval(refresh, MODAL_POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [modalOpen, refresh]);
 
@@ -92,13 +102,13 @@ export function BackgroundProcesses() {
   };
 
   const handleKillAll = async () => {
-    for (const proc of processes.filter(p => p.alive)) {
+    for (const proc of processes.filter((p) => p.alive)) {
       await killProcess(proc.pid);
     }
     await refresh();
   };
 
-  const aliveCount = processes.filter(p => p.alive).length;
+  const aliveCount = processes.filter((p) => p.alive).length;
 
   if (processes.length === 0) return null;
 
@@ -111,7 +121,9 @@ export function BackgroundProcesses() {
           className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-green-400 hover:bg-green-400/10 rounded transition-colors"
         >
           <Terminal className="h-3 w-3 animate-pulse" />
-          <span>{aliveCount} background process{aliveCount !== 1 ? 'es' : ''}</span>
+          <span>
+            {aliveCount} background process{aliveCount !== 1 ? 'es' : ''}
+          </span>
         </button>
       </div>
 
@@ -130,7 +142,9 @@ export function BackgroundProcesses() {
 
           <div className="space-y-2 max-h-[60vh] overflow-y-auto">
             {processes.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">No background processes</p>
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No background processes
+              </p>
             ) : (
               processes.map((proc) => (
                 <div
@@ -139,7 +153,9 @@ export function BackgroundProcesses() {
                 >
                   {/* Command */}
                   <div className="flex items-start gap-2 mb-2">
-                    <span className={`w-2 h-2 rounded-full shrink-0 mt-1.5 ${proc.alive ? 'bg-green-500 animate-pulse' : 'bg-muted-foreground'}`} />
+                    <span
+                      className={`w-2 h-2 rounded-full shrink-0 mt-1.5 ${proc.alive ? 'bg-green-500 animate-pulse' : 'bg-muted-foreground'}`}
+                    />
                     <code className="text-xs text-foreground font-mono break-all flex-1">
                       {proc.command}
                     </code>
@@ -159,13 +175,15 @@ export function BackgroundProcesses() {
                       <Activity className="h-3 w-3" />
                       {elapsed(proc.startedAt)}
                     </span>
-                    <span className={`ml-auto font-medium ${proc.alive ? 'text-green-400' : 'text-muted-foreground'}`}>
+                    <span
+                      className={`ml-auto font-medium ${proc.alive ? 'text-green-400' : 'text-muted-foreground'}`}
+                    >
                       {proc.alive ? 'Running' : 'Exited'}
                     </span>
                   </div>
 
                   {/* Kill button */}
-                  {proc.alive && (
+                  {proc.alive ? (
                     <div className="mt-2 ml-4">
                       <button
                         onClick={() => handleKill(proc.pid)}
@@ -176,7 +194,7 @@ export function BackgroundProcesses() {
                         {killing === proc.pid ? 'Killing...' : 'Kill Process'}
                       </button>
                     </div>
-                  )}
+                  ) : null}
                 </div>
               ))
             )}
@@ -197,7 +215,10 @@ export function BackgroundProcesses() {
 
           <div className="flex justify-between items-center pt-1 text-[10px] text-foreground/80">
             <span>Auto-refreshes every 3s while open</span>
-            <button onClick={refresh} className="flex items-center gap-1 hover:text-foreground transition-colors">
+            <button
+              onClick={refresh}
+              className="flex items-center gap-1 hover:text-foreground transition-colors"
+            >
               <RefreshCw className="h-3 w-3" />
               Refresh
             </button>
@@ -206,4 +227,4 @@ export function BackgroundProcesses() {
       </Dialog>
     </>
   );
-}
+};

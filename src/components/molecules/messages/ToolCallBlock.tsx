@@ -1,23 +1,58 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { ChevronDown, ChevronRight, Square } from 'lucide-react';
-import { SyntaxHighlighter, dracula } from '../../../utils/syntaxHighlighterSetup';
-import { detectLanguageFromPath } from '../../../utils/languageDetect';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+
+const TOOL_SUMMARY_MAX_LENGTH = 80;
+const DEACTIVATE_DEBOUNCE_MS = 2000;
+const SCROLL_BOTTOM_THRESHOLD_PX = 30;
+const SYNTAX_HIGHLIGHT_MAX_LENGTH = 50000;
+
 import type { ToolCall } from '../../../types';
+import { detectLanguageFromPath } from '../../../utils/languageDetect';
+import { SyntaxHighlighter, dracula } from '../../../utils/syntaxHighlighterSetup';
 
 /** Desktop automation tool names that can be aborted via /api/desktop/abort. */
 const DESKTOP_TOOLS = new Set([
-  'click_screen', 'type_text', 'press_key', 'move_mouse', 'scroll_screen',
-  'mouse_drag', 'mouse_button', 'paste', 'clear_field', 'hover_element',
-  'screenshot_region', 'screenshot_diff', 'window_screenshot',
-  'wait_for_screen_change', 'ocr_screen', 'ocr_find_text', 'ocr_region',
-  'get_ui_tree', 'click_ui_element', 'invoke_ui_action',
-  'read_ui_element_value', 'wait_for_ui_element', 'find_ui_elements',
-  'focus_window', 'click_window_relative', 'snap_window',
-  'set_window_topmost', 'open_application', 'send_keys_to_window',
-  'find_and_click_text', 'type_into_element', 'file_dialog_navigate',
-  'drag_and_drop_element', 'wait_for_text_on_screen', 'scroll_element',
-  'click_and_verify', 'fill_form', 'run_action_sequence',
-  'mouse_drag', 'handle_dialog', 'wait_for_element_state',
+  'click_screen',
+  'type_text',
+  'press_key',
+  'move_mouse',
+  'scroll_screen',
+  'mouse_drag',
+  'mouse_button',
+  'paste',
+  'clear_field',
+  'hover_element',
+  'screenshot_region',
+  'screenshot_diff',
+  'window_screenshot',
+  'wait_for_screen_change',
+  'ocr_screen',
+  'ocr_find_text',
+  'ocr_region',
+  'get_ui_tree',
+  'click_ui_element',
+  'invoke_ui_action',
+  'read_ui_element_value',
+  'wait_for_ui_element',
+  'find_ui_elements',
+  'focus_window',
+  'click_window_relative',
+  'snap_window',
+  'set_window_topmost',
+  'open_application',
+  'send_keys_to_window',
+  'find_and_click_text',
+  'type_into_element',
+  'file_dialog_navigate',
+  'drag_and_drop_element',
+  'wait_for_text_on_screen',
+  'scroll_element',
+  'click_and_verify',
+  'fill_form',
+  'run_action_sequence',
+  'mouse_drag',
+  'handle_dialog',
+  'wait_for_element_state',
 ]);
 
 interface ToolCallBlockProps {
@@ -79,12 +114,12 @@ function defaultToolSummary(args: Record<string, unknown>): string {
 function formatToolName(name: string): string {
   return name
     .split('_')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
 }
 
 function getToolSummary(name: string, args: Record<string, unknown> | string): string {
-  if (typeof args === 'string') return args.slice(0, 80);
+  if (typeof args === 'string') return args.slice(0, TOOL_SUMMARY_MAX_LENGTH);
   const summarizer = TOOL_SUMMARIZERS[name];
   return summarizer ? summarizer(args) : defaultToolSummary(args);
 }
@@ -117,7 +152,7 @@ function useElapsedTime(isActive: boolean): number {
         startRef.current = null;
         setElapsed(0);
         deactivateTimer.current = null;
-      }, 2000);
+      }, DEACTIVATE_DEBOUNCE_MS);
       return () => {
         if (deactivateTimer.current !== null) {
           clearTimeout(deactivateTimer.current);
@@ -159,7 +194,12 @@ function formatToolArguments(args: Record<string, unknown> | string): string {
 
       if (unescaped.includes('\n')) {
         lines.push(`  "${key}":`);
-        lines.push(unescaped.split('\n').map(line => `    ${line}`).join('\n'));
+        lines.push(
+          unescaped
+            .split('\n')
+            .map((line) => `    ${line}`)
+            .join('\n'),
+        );
       } else {
         lines.push(`  "${key}": "${unescaped}"${isLast ? '' : ','}`);
       }
@@ -173,24 +213,31 @@ function formatToolArguments(args: Record<string, unknown> | string): string {
 }
 
 const ExecutingHeader: React.FC<{
-  name: string; summary: string; hasOutput: boolean; elapsed: number; isExpanded: boolean; onToggle: () => void;
+  name: string;
+  summary: string;
+  hasOutput: boolean;
+  elapsed: number;
+  isExpanded: boolean;
+  onToggle: () => void;
 }> = ({ name, summary, elapsed, isExpanded, onToggle }) => {
   const elapsedStr = formatElapsed(elapsed);
   const isDesktop = DESKTOP_TOOLS.has(name);
   return (
     <div className="w-full bg-muted px-3 py-2 flex items-center gap-2 hover:bg-accent transition-colors">
-      <button
-        onClick={onToggle}
-        className="flex items-center gap-2 text-left flex-1 min-w-0"
-      >
+      <button onClick={onToggle} className="flex items-center gap-2 text-left flex-1 min-w-0">
         <span className="inline-block w-3 h-3 border-2 border-foreground/50 border-t-transparent rounded-full animate-spin flex-shrink-0" />
         <span className="text-xs font-medium text-foreground whitespace-nowrap">
-          {formatToolName(name)}{elapsedStr ? ` (${elapsedStr})` : null}
+          {formatToolName(name)}
+          {elapsedStr ? ` (${elapsedStr})` : null}
         </span>
         <span className="text-xs text-foreground truncate flex-1">{summary}</span>
-        {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-foreground flex-shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 text-foreground flex-shrink-0" />}
+        {isExpanded ? (
+          <ChevronDown className="h-3.5 w-3.5 text-foreground flex-shrink-0" />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5 text-foreground flex-shrink-0" />
+        )}
       </button>
-      {isDesktop && (
+      {isDesktop ? (
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -202,14 +249,16 @@ const ExecutingHeader: React.FC<{
           <Square className="h-2.5 w-2.5 fill-current" />
           Abort
         </button>
-      )}
+      ) : null}
     </div>
   );
 };
 
-
 const CompletedHeader: React.FC<{
-  name: string; summary: string; isExpanded: boolean; onToggle: () => void;
+  name: string;
+  summary: string;
+  isExpanded: boolean;
+  onToggle: () => void;
 }> = ({ name, summary, isExpanded, onToggle }) => (
   <button
     onClick={onToggle}
@@ -217,13 +266,19 @@ const CompletedHeader: React.FC<{
   >
     <span className="text-xs font-medium text-foreground">{formatToolName(name)}</span>
     <span className="text-xs text-foreground truncate flex-1">{summary}</span>
-    {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-foreground flex-shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 text-foreground flex-shrink-0" />}
+    {isExpanded ? (
+      <ChevronDown className="h-3.5 w-3.5 text-foreground flex-shrink-0" />
+    ) : (
+      <ChevronRight className="h-3.5 w-3.5 text-foreground flex-shrink-0" />
+    )}
   </button>
 );
 
 /** Scrollable output container with overscroll containment and streaming auto-scroll. */
 const ScrollableOutput: React.FC<{
-  output: string; isStreaming?: boolean; language?: string | null;
+  output: string;
+  isStreaming?: boolean;
+  language?: string | null;
 }> = ({ output, isStreaming, language }) => {
   const scrollRef = useRef<HTMLElement>(null);
   const userScrolledRef = useRef(false);
@@ -244,7 +299,7 @@ const ScrollableOutput: React.FC<{
     const el = scrollRef.current;
     if (!el || !isStreaming) return;
     const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    userScrolledRef.current = distFromBottom > 30;
+    userScrolledRef.current = distFromBottom > SCROLL_BOTTOM_THRESHOLD_PX;
   }, [isStreaming]);
 
   const containClass = 'border-t border-border overscroll-contain';
@@ -252,26 +307,45 @@ const ScrollableOutput: React.FC<{
   // Lock height during streaming to prevent layout shifts
   const heightClass = isStreaming ? 'h-64 overflow-y-auto' : 'max-h-64 overflow-y-auto';
 
-  if (language && output.length < 50000) {
+  if (language && output.length < SYNTAX_HIGHLIGHT_MAX_LENGTH) {
     return (
-      <div ref={scrollRef as React.RefObject<HTMLDivElement>} onScroll={handleScroll}
-        className={`${containClass} ${heightClass}`}>
+      <div
+        ref={scrollRef as React.RefObject<HTMLDivElement>}
+        onScroll={handleScroll}
+        className={`${containClass} ${heightClass}`}
+      >
         <SyntaxHighlighter
-          style={dracula} language={language}
-          customStyle={{ margin: 0, padding: '0.5rem 0.75rem', fontSize: '0.75rem', background: 'transparent' }}
-        >{output}</SyntaxHighlighter>
+          style={dracula}
+          language={language}
+          customStyle={{
+            margin: 0,
+            padding: '0.5rem 0.75rem',
+            fontSize: '0.75rem',
+            background: 'transparent',
+          }}
+        >
+          {output}
+        </SyntaxHighlighter>
       </div>
     );
   }
   return (
-    <pre ref={scrollRef as React.RefObject<HTMLPreElement>} onScroll={handleScroll}
+    <pre
+      ref={scrollRef as React.RefObject<HTMLPreElement>}
+      onScroll={handleScroll}
       className={`text-xs text-foreground font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap ${containClass} ${heightClass}`}
-    >{output}</pre>
+    >
+      {output}
+    </pre>
   );
 };
 
 const CompletedOutput: React.FC<{
-  output: string; isExpanded: boolean; onToggle: () => void; language?: string | null; isStreaming?: boolean;
+  output: string;
+  isExpanded: boolean;
+  onToggle: () => void;
+  language?: string | null;
+  isStreaming?: boolean;
 }> = ({ output, isExpanded, onToggle, language, isStreaming }) => (
   <>
     <button
@@ -280,11 +354,23 @@ const CompletedOutput: React.FC<{
     >
       <span className="text-xs font-medium text-foreground">Output</span>
       <span className="text-xs text-foreground truncate flex-1">
-        {isStreaming ? 'Streaming...' : (output.length > 80 ? `${output.slice(0, 80)}...` : output)}
+        {(() => {
+          if (isStreaming) return 'Streaming...';
+          if (output.length > TOOL_SUMMARY_MAX_LENGTH) {
+            return `${output.slice(0, TOOL_SUMMARY_MAX_LENGTH)}...`;
+          }
+          return output;
+        })()}
       </span>
-      {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-foreground flex-shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 text-foreground flex-shrink-0" />}
+      {isExpanded ? (
+        <ChevronDown className="h-3.5 w-3.5 text-foreground flex-shrink-0" />
+      ) : (
+        <ChevronRight className="h-3.5 w-3.5 text-foreground flex-shrink-0" />
+      )}
     </button>
-    {isExpanded ? <ScrollableOutput output={output} isStreaming={isStreaming} language={language} /> : null}
+    {isExpanded ? (
+      <ScrollableOutput output={output} isStreaming={isStreaming} language={language} />
+    ) : null}
   </>
 );
 
@@ -301,16 +387,30 @@ const EditFileDiff: React.FC<{ args: Record<string, unknown> }> = ({ args }) => 
   return (
     <pre className="text-xs font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto border-t border-border overscroll-contain">
       <div className="text-muted-foreground mb-1">{String(args.path || '')}</div>
-      {oldLines.map((line, i) => (
-        <div key={`old-${i}`} style={{ backgroundColor: 'rgba(248, 81, 73, 0.15)', color: '#f85149' }}>
-          {'- '}{line}
-        </div>
-      ))}
-      {newLines.map((line, i) => (
-        <div key={`new-${i}`} style={{ backgroundColor: 'rgba(63, 185, 80, 0.15)', color: '#3fb950' }}>
-          {'+ '}{line}
-        </div>
-      ))}
+      {oldLines.map((line) => {
+        const lineKey = `old-${line.length}-${line}`;
+        return (
+          <div
+            key={lineKey}
+            style={{ backgroundColor: 'rgba(248, 81, 73, 0.15)', color: '#f85149' }}
+          >
+            {'- '}
+            {line}
+          </div>
+        );
+      })}
+      {newLines.map((line) => {
+        const lineKey = `new-${line.length}-${line}`;
+        return (
+          <div
+            key={lineKey}
+            style={{ backgroundColor: 'rgba(63, 185, 80, 0.15)', color: '#3fb950' }}
+          >
+            {'+ '}
+            {line}
+          </div>
+        );
+      })}
     </pre>
   );
 };
@@ -323,36 +423,59 @@ function getOutputLanguage(name: string, args: Record<string, unknown> | string)
   return null;
 }
 
-const SingleToolCall: React.FC<{ toolCall: ToolCall; isGenerating?: boolean }> = ({ toolCall, isGenerating }) => {
+const SingleToolCall: React.FC<{ toolCall: ToolCall; isGenerating?: boolean }> = ({
+  toolCall,
+  isGenerating,
+}) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isOutputExpanded, setIsOutputExpanded] = useState(false);
   const summary = getToolSummary(toolCall.name, toolCall.arguments);
   // If generation is stopped, tool calls can't be executing anymore
-  const isExecuting = isGenerating !== false && (toolCall.isStreaming === true || (toolCall.isPending === true && !toolCall.output));
+  const isExecuting =
+    isGenerating !== false &&
+    (toolCall.isStreaming === true || (toolCall.isPending === true && !toolCall.output));
   const elapsed = useElapsedTime(isExecuting);
   const outputLanguage = getOutputLanguage(toolCall.name, toolCall.arguments);
 
   const hasOutput = !!toolCall.output && toolCall.output.length > 0;
+  const isEditFile = toolCall.name === 'edit_file' && typeof toolCall.arguments === 'object';
+  const expandedContent = isEditFile ? (
+    <EditFileDiff args={toolCall.arguments as Record<string, unknown>} />
+  ) : (
+    <pre className="text-xs text-foreground font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto overscroll-contain">
+      {formatToolArguments(toolCall.arguments)}
+    </pre>
+  );
 
   return (
-    <div
-      className="flat-card overflow-hidden"
-      style={{ contain: 'content' }}
-    >
-      {isExecuting
-        ? <ExecutingHeader name={toolCall.name} summary={summary} hasOutput={!!toolCall.output} elapsed={elapsed} isExpanded={isExpanded} onToggle={() => setIsExpanded(!isExpanded)} />
-        : <CompletedHeader name={toolCall.name} summary={summary} isExpanded={isExpanded} onToggle={() => setIsExpanded(!isExpanded)} />
-      }
-      {isExpanded ? (
-        toolCall.name === 'edit_file' && typeof toolCall.arguments === 'object'
-          ? <EditFileDiff args={toolCall.arguments as Record<string, unknown>} />
-          : <pre className="text-xs text-foreground font-mono bg-card px-3 py-2 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto overscroll-contain">
-              {formatToolArguments(toolCall.arguments)}
-            </pre>
+    <div className="flat-card overflow-hidden" style={{ contain: 'content' }}>
+      {isExecuting ? (
+        <ExecutingHeader
+          name={toolCall.name}
+          summary={summary}
+          hasOutput={!!toolCall.output}
+          elapsed={elapsed}
+          isExpanded={isExpanded}
+          onToggle={() => setIsExpanded(!isExpanded)}
+        />
+      ) : (
+        <CompletedHeader
+          name={toolCall.name}
+          summary={summary}
+          isExpanded={isExpanded}
+          onToggle={() => setIsExpanded(!isExpanded)}
+        />
+      )}
+      {isExpanded ? expandedContent : null}
+      {hasOutput && (toolCall.output ?? '').trim().length > 0 ? (
+        <CompletedOutput
+          output={toolCall.output ?? ''}
+          isExpanded={isOutputExpanded}
+          onToggle={() => setIsOutputExpanded(!isOutputExpanded)}
+          language={outputLanguage}
+          isStreaming={isExecuting}
+        />
       ) : null}
-      {hasOutput && toolCall.output!.trim().length > 0
-        ? <CompletedOutput output={toolCall.output!} isExpanded={isOutputExpanded} onToggle={() => setIsOutputExpanded(!isOutputExpanded)} language={outputLanguage} isStreaming={isExecuting} />
-        : null}
     </div>
   );
 };
@@ -361,7 +484,7 @@ const SingleToolCall: React.FC<{ toolCall: ToolCall; isGenerating?: boolean }> =
  * Compact tool call display with expandable details.
  * Shows executing/streaming state for in-progress tool calls.
  */
-export const ToolCallBlock = React.memo(function ToolCallBlock({ toolCalls, isGenerating }: ToolCallBlockProps) {
+export const ToolCallBlock = React.memo(({ toolCalls, isGenerating }: ToolCallBlockProps) => {
   if (toolCalls.length === 0) return null;
 
   return (
@@ -372,3 +495,4 @@ export const ToolCallBlock = React.memo(function ToolCallBlock({ toolCalls, isGe
     </div>
   );
 });
+ToolCallBlock.displayName = 'ToolCallBlock';

@@ -1,4 +1,7 @@
+/* eslint-disable no-console -- logging utility that wraps console methods */
 import { invoke } from '@tauri-apps/api/core';
+
+const LOG_FLUSH_INTERVAL_MS = 500;
 
 type LogLevel = 'info' | 'warn' | 'error';
 
@@ -31,22 +34,24 @@ function sendLogs() {
 }
 
 function queueLog(level: LogLevel, args: unknown[]) {
-    const message = args.map(arg => {
-        try {
-            if (arg instanceof Error) {
-                return JSON.stringify({ message: arg.message, stack: arg.stack });
-            }
-            return JSON.stringify(arg);
-        } catch (e) {
-            return 'Unserializable object';
+  const message = args
+    .map((arg) => {
+      try {
+        if (arg instanceof Error) {
+          return JSON.stringify({ message: arg.message, stack: arg.stack });
         }
-    }).join(' ');
+        return JSON.stringify(arg);
+      } catch (e) {
+        return 'Unserializable object';
+      }
+    })
+    .join(' ');
 
-    logQueue.push({ level, message, timestamp: new Date().toISOString() });
+  logQueue.push({ level, message, timestamp: new Date().toISOString() });
 
-    if (!debounceTimer) {
-        debounceTimer = window.setTimeout(sendLogs, 500); // Send logs every 500ms
-    }
+  if (!debounceTimer) {
+    debounceTimer = window.setTimeout(sendLogs, LOG_FLUSH_INTERVAL_MS); // Send logs every 500ms
+  }
 }
 
 export function setupFrontendLogging() {
@@ -75,9 +80,10 @@ export function setupFrontendLogging() {
   });
 
   window.addEventListener('unhandledrejection', (event) => {
-    const reason = event.reason instanceof Error
-      ? `${event.reason.message}\n${event.reason.stack || ''}`
-      : JSON.stringify(event.reason);
+    const reason =
+      event.reason instanceof Error
+        ? `${event.reason.message}\n${event.reason.stack || ''}`
+        : JSON.stringify(event.reason);
     queueLog('error', [`Unhandled rejection: ${reason}`]);
   });
 }

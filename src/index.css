@@ -1,7 +1,7 @@
-@import "tailwindcss/base";
-@import "tailwindcss/components";
-@import "tailwindcss/utilities";
-@import "tw-animate-css";
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+@import 'tw-animate-css';
 
 @layer components {
   .btn-icon {
@@ -24,26 +24,26 @@
 @layer base {
   :root {
     /* Flat Design - Clean & Minimal */
-    --background: 210 20% 98%;  /* Very light blue-gray */
-    --foreground: 222 47% 11%;  /* Dark blue-gray text */
-    --card: 0 0% 100%;          /* Pure white cards */
+    --background: 210 20% 98%; /* Very light blue-gray */
+    --foreground: 222 47% 11%; /* Dark blue-gray text */
+    --card: 0 0% 100%; /* Pure white cards */
     --card-foreground: 222 47% 11%;
     --popover: 0 0% 100%;
     --popover-foreground: 222 47% 11%;
-    --primary: 27 98% 54%;      /* Orange accent */
+    --primary: 27 98% 54%; /* Orange accent */
     --primary-foreground: 0 0% 100%;
-    --secondary: 210 40% 96%;   /* Light gray */
+    --secondary: 210 40% 96%; /* Light gray */
     --secondary-foreground: 222 47% 11%;
     --muted: 210 40% 96%;
     --muted-foreground: 215 16% 47%;
     --accent: 210 40% 96%;
     --accent-foreground: 222 47% 11%;
-    --destructive: 0 84% 60%;   /* Red */
+    --destructive: 0 84% 60%; /* Red */
     --destructive-foreground: 0 0% 100%;
-    --border: 214 32% 91%;      /* Light border */
+    --border: 214 32% 91%; /* Light border */
     --input: 214 32% 91%;
-    --ring: 27 98% 54%;         /* Orange ring to match primary */
-    --radius: 0.5rem;           /* Subtle rounded corners */
+    --ring: 27 98% 54%; /* Orange ring to match primary */
+    --radius: 0.5rem; /* Subtle rounded corners */
 
     /* Flat design specific colors */
     --flat-blue: 221 83% 53%;
@@ -86,7 +86,8 @@
     @apply text-foreground;
     background: hsl(var(--background));
     min-height: 100vh;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", "Ubuntu", sans-serif;
+    font-family:
+      -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', sans-serif;
     font-weight: 400; /* Normal text for flat design */
   }
 }
@@ -140,7 +141,9 @@
 
   .flat-card {
     border: 1px solid hsl(var(--border));
-    box-shadow: 0 1px 3px 0 rgba(0,0,0,0.08), 0 1px 2px -1px rgba(0,0,0,0.08);
+    box-shadow:
+      0 1px 3px 0 rgba(0, 0, 0, 0.08),
+      0 1px 2px -1px rgba(0, 0, 0, 0.08);
     @apply rounded-xl;
   }
 
@@ -157,7 +160,8 @@
 
 /* Flat design smooth pulse animation for loading indicator */
 @keyframes flat-pulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 1;
   }
   50% {

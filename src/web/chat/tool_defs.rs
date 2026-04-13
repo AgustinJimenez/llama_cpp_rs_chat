@@ -504,7 +504,7 @@ static ALL_TOOLS: &[ToolDef] = &[
     // ─── 35. ocr_screen ───
     ToolDef {
         name: "ocr_screen",
-        description: "Extract text from the screen using OCR. Returns recognized text with line structure. Use 'engine' to select OCR backend: 'auto' (default, tries best available), 'ocrs' (Rust-native, fast), 'tesseract' (most accurate, requires install), 'native' (Windows WinRT / macOS Vision). Prefer window/pid to auto-crop instead of scanning full monitor.",
+        description: "Extract text from the screen using OCR. Returns recognized text with line structure. Works on any app including GPU-rendered ones where get_ui_tree returns empty. Use 'engine' to select OCR backend: 'auto' (default, tries best available), 'ocrs' (Rust-native, fast), 'tesseract' (most accurate, requires install), 'native' (Windows WinRT / macOS Vision). Prefer window/pid to auto-crop instead of scanning full monitor.",
         params: Params::Simple(&[
             p("engine", "string", "OCR engine: 'auto' (default), 'ocrs' (Rust-native), 'tesseract' (CLI), 'native'/'winrt' (platform built-in)"),
             p("window", "string", "Window title to auto-crop OCR to (case-insensitive)"),
@@ -1408,7 +1408,7 @@ fn complex_tool_definitions() -> Vec<Value> {
         // ─── get_ui_tree — has array param (exclude_types) ───
         json!({
             "name": "get_ui_tree",
-            "description": "Get the UI element tree of a window using UI Automation. Shows control types and names. Useful for finding clickable elements without a screenshot.",
+            "description": "Get the UI element tree of a window using UI Automation. Shows control types and names. Works best with native Windows apps (Win32, WPF, WinForms). Returns empty for GPU-rendered apps (Blender, Unity, games, Electron) — use ocr_screen or take_screenshot instead for those.",
             "parameters": {
                 "type": "object",
                 "properties": {

@@ -2,8 +2,11 @@
  * Unified typed wrappers for all backend commands.
  * Each function branches between Tauri invoke() and HTTP fetch().
  */
-import { isTauriEnv } from './tauri';
+const SSE_DATA_PREFIX_LENGTH = 6;
+
 import type { SamplerConfig, ToolCall, ToolTags } from '../types';
+
+import { isTauriEnv } from './tauri';
 
 // ─── Types ────────────────────────────────────────────────────────────
 
@@ -128,10 +131,15 @@ export async function saveConfig(config: SamplerConfig): Promise<void> {
 // ─── Per-Conversation Config ──────────────────────────────────────────
 
 export async function getConversationConfig(conversationId: string): Promise<SamplerConfig> {
-  return fetchJson<SamplerConfig>(`/api/conversations/${encodeURIComponent(conversationId)}/config`);
+  return fetchJson<SamplerConfig>(
+    `/api/conversations/${encodeURIComponent(conversationId)}/config`,
+  );
 }
 
-export async function saveConversationConfig(conversationId: string, config: SamplerConfig): Promise<void> {
+export async function saveConversationConfig(
+  conversationId: string,
+  config: SamplerConfig,
+): Promise<void> {
   const response = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/config`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -149,7 +157,11 @@ export async function getModelStatus(): Promise<ModelStatus> {
   return fetchJson<ModelStatus>('/api/model/status');
 }
 
-export async function loadModel(modelPath: string, gpuLayers?: number, mmprojPath?: string): Promise<ModelResponse> {
+export async function loadModel(
+  modelPath: string,
+  gpuLayers?: number,
+  mmprojPath?: string,
+): Promise<ModelResponse> {
   const payload: Record<string, unknown> = { model_path: modelPath, gpu_layers: gpuLayers ?? null };
   if (mmprojPath) payload.mmproj_path = mmprojPath;
   if (isTauriEnv()) {
@@ -229,10 +241,16 @@ export async function deleteConversation(filename: string): Promise<void> {
   if (!response.ok) throw new Error('Failed to delete conversation');
 }
 
-export async function truncateConversation(conversationId: string, fromSequence: number): Promise<{ success: boolean; deleted: number }> {
+export async function truncateConversation(
+  conversationId: string,
+  fromSequence: number,
+): Promise<{ success: boolean; deleted: number }> {
   const id = conversationId.replace('.txt', '');
   if (isTauriEnv()) {
-    return invokeCmd<{ success: boolean; deleted: number }>('truncate_conversation', { conversationId: id, fromSequence });
+    return invokeCmd<{ success: boolean; deleted: number }>('truncate_conversation', {
+      conversationId: id,
+      fromSequence,
+    });
   }
   const response = await fetch(`/api/conversations/${id}/truncate`, {
     method: 'POST',
@@ -245,11 +263,13 @@ export async function truncateConversation(conversationId: string, fromSequence:
 
 export interface ConversationMetric {
   level: string;
-  message: string;  // JSON string with prompt_tok_per_sec, gen_tok_per_sec, tokens_used, max_tokens
+  message: string; // JSON string with prompt_tok_per_sec, gen_tok_per_sec, tokens_used, max_tokens
   timestamp: number;
 }
 
-export async function getConversationMetrics(conversationId: string): Promise<ConversationMetric[]> {
+export async function getConversationMetrics(
+  conversationId: string,
+): Promise<ConversationMetric[]> {
   const id = conversationId.replace('.txt', '');
   if (isTauriEnv()) {
     return invokeCmd<ConversationMetric[]>('get_conversation_metrics', { conversationId: id });
@@ -315,7 +335,9 @@ export async function pickDirectory(): Promise<string | null> {
     const selected = await open({ directory: true, multiple: false });
     return typeof selected === 'string' ? selected : null;
   }
-  const result = await fetchJson<{ path: string | null }>('/api/browse/pick-directory', { method: 'POST' });
+  const result = await fetchJson<{ path: string | null }>('/api/browse/pick-directory', {
+    method: 'POST',
+  });
   return result.path;
 }
 
@@ -330,7 +352,9 @@ export async function pickFile(): Promise<string | null> {
     });
     return selected ?? null;
   }
-  const result = await fetchJson<{ path: string | null }>('/api/browse/pick-file', { method: 'POST' });
+  const result = await fetchJson<{ path: string | null }>('/api/browse/pick-file', {
+    method: 'POST',
+  });
   return result.path;
 }
 
@@ -338,7 +362,11 @@ export async function pickFile(): Promise<string | null> {
 
 export type HubSortField = 'downloads' | 'likes' | 'lastModified' | 'createdAt';
 
-export async function searchHubModels(query: string, limit = 20, sort: HubSortField = 'downloads'): Promise<HubModel[]> {
+export async function searchHubModels(
+  query: string,
+  limit = 20,
+  sort: HubSortField = 'downloads',
+): Promise<HubModel[]> {
   const params = `q=${encodeURIComponent(query)}&limit=${limit}&sort=${sort}`;
   if (isTauriEnv()) {
     return invokeCmd<HubModel[]>('search_hub_models', { query, limit, sort });
@@ -444,9 +472,13 @@ export function startHubDownload(
       }
     })();
 
-    controller.signal.addEventListener('abort', () => {
-      unlisten?.();
-    }, { once: true });
+    controller.signal.addEventListener(
+      'abort',
+      () => {
+        unlisten?.();
+      },
+      { once: true },
+    );
 
     return controller;
   }
@@ -461,7 +493,11 @@ export function startHubDownload(
       if (!response.ok) {
         const text = await response.text().catch(() => response.statusText);
         let msg = text;
-        try { msg = JSON.parse(text).error || text; } catch { /* keep raw */ }
+        try {
+          msg = JSON.parse(text).error || text;
+        } catch {
+          /* keep raw */
+        }
         onProgress({ type: 'error', message: msg });
         return;
       }
@@ -487,9 +523,11 @@ export function startHubDownload(
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             try {
-              const event = JSON.parse(line.slice(6)) as DownloadProgress;
+              const event = JSON.parse(line.slice(SSE_DATA_PREFIX_LENGTH)) as DownloadProgress;
               onProgress(event);
-            } catch { /* skip malformed */ }
+            } catch {
+              /* skip malformed */
+            }
           }
         }
       }

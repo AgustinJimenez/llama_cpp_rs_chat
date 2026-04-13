@@ -1,4 +1,14 @@
-import { createContext, useContext, useState, useRef, useCallback, useEffect, useMemo, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useState,
+  useRef,
+  useCallback,
+  useEffect,
+  useMemo,
+  type ReactNode,
+} from 'react';
+
 import { startHubDownload, verifyHubDownloads, deleteHubDownload } from '@/utils/tauriCommands';
 import type { DownloadProgress, HubDownloadRecord } from '@/utils/tauriCommands';
 
@@ -27,11 +37,16 @@ interface DownloadContextValue {
 
 const DownloadContext = createContext<DownloadContextValue | null>(null);
 
-export function DownloadProvider({ children }: { children: ReactNode }) {
+// eslint-disable-next-line max-lines-per-function -- download state management provider
+export const DownloadProvider = ({ children }: { children: ReactNode }) => {
   const [downloads, setDownloads] = useState<Map<string, DownloadProgress>>(new Map());
   const [downloadedSet, setDownloadedSet] = useState<Set<string>>(new Set());
-  const [completedDownloads, setCompletedDownloads] = useState<Map<string, HubDownloadRecord>>(new Map());
-  const [pendingDownloads, setPendingDownloads] = useState<Map<string, HubDownloadRecord>>(new Map());
+  const [completedDownloads, setCompletedDownloads] = useState<Map<string, HubDownloadRecord>>(
+    new Map(),
+  );
+  const [pendingDownloads, setPendingDownloads] = useState<Map<string, HubDownloadRecord>>(
+    new Map(),
+  );
   const abortControllers = useRef<Map<string, AbortController>>(new Map());
 
   const refreshRecords = useCallback(async () => {
@@ -62,20 +77,17 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     refreshRecords();
   }, [refreshRecords]);
 
-  const startDownload = useCallback((modelId: string, file: HubFileRef, destPath: string) => {
-    const key = `${modelId}/${file.name}`;
+  const startDownload = useCallback(
+    (modelId: string, file: HubFileRef, destPath: string) => {
+      const key = `${modelId}/${file.name}`;
 
-    // DON'T delete from pendingDownloads yet — wait for first progress event
-    // so the item stays visible in the UI during the connection gap
+      // DON'T delete from pendingDownloads yet — wait for first progress event
+      // so the item stays visible in the UI during the connection gap
 
-    const controller = startHubDownload(
-      modelId,
-      file.name,
-      destPath,
-      (event) => {
+      const controller = startHubDownload(modelId, file.name, destPath, (event) => {
         // On first progress event, clear from pending (now tracked in downloads)
         if (event.type === 'progress') {
-          setPendingDownloads(prev => {
+          setPendingDownloads((prev) => {
             if (prev.has(key)) {
               const next = new Map(prev);
               next.delete(key);
@@ -85,7 +97,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           });
         }
 
-        setDownloads(prev => {
+        setDownloads((prev) => {
           const next = new Map(prev);
           if (event.type === 'done' || event.type === 'error') {
             next.delete(key);
@@ -96,7 +108,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         });
 
         if (event.type === 'done') {
-          setDownloadedSet(prev => new Set(prev).add(key));
+          setDownloadedSet((prev) => new Set(prev).add(key));
           abortControllers.current.delete(key);
           refreshRecords();
         }
@@ -105,88 +117,111 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           abortControllers.current.delete(key);
           refreshRecords();
         }
-      },
-    );
+      });
 
-    abortControllers.current.set(key, controller);
-  }, [refreshRecords]);
+      abortControllers.current.set(key, controller);
+    },
+    [refreshRecords],
+  );
 
-  const pauseDownload = useCallback((key: string) => {
-    // Abort the SSE stream but keep the DB record (preserves bytes_downloaded)
-    const ctrl = abortControllers.current.get(key);
-    if (ctrl) {
-      ctrl.abort();
-      abortControllers.current.delete(key);
-    }
-    // Remove from active downloads UI so it shows as "Paused"
-    setDownloads(prev => {
-      const next = new Map(prev);
-      next.delete(key);
-      return next;
-    });
-    // Refresh records to show updated state
-    refreshRecords();
-  }, [refreshRecords]);
-
-  const cancelDownload = useCallback(async (key: string) => {
-    // Abort active SSE stream if running
-    const ctrl = abortControllers.current.get(key);
-    if (ctrl) {
-      ctrl.abort();
-      abortControllers.current.delete(key);
-    }
-
-    // Remove from active downloads UI immediately
-    setDownloads(prev => {
-      const next = new Map(prev);
-      next.delete(key);
-      return next;
-    });
-
-    // Find the DB record ID so we can delete files + record
-    const record = pendingDownloads.get(key) ?? completedDownloads.get(key);
-    if (record) {
-      try {
-        await deleteHubDownload(record.id);
-      } catch {
-        /* ignore — may already be deleted */
+  const pauseDownload = useCallback(
+    (key: string) => {
+      // Abort the SSE stream but keep the DB record (preserves bytes_downloaded)
+      const ctrl = abortControllers.current.get(key);
+      if (ctrl) {
+        ctrl.abort();
+        abortControllers.current.delete(key);
       }
-    }
+      // Remove from active downloads UI so it shows as "Paused"
+      setDownloads((prev) => {
+        const next = new Map(prev);
+        next.delete(key);
+        return next;
+      });
+      // Refresh records to show updated state
+      refreshRecords();
+    },
+    [refreshRecords],
+  );
 
-    // Remove from local state
-    setPendingDownloads(prev => {
-      const next = new Map(prev);
-      next.delete(key);
-      return next;
-    });
-    setCompletedDownloads(prev => {
-      const next = new Map(prev);
-      next.delete(key);
-      return next;
-    });
-    setDownloadedSet(prev => {
-      const next = new Set(prev);
-      next.delete(key);
-      return next;
-    });
-  }, [pendingDownloads, completedDownloads]);
+  const cancelDownload = useCallback(
+    async (key: string) => {
+      // Abort active SSE stream if running
+      const ctrl = abortControllers.current.get(key);
+      if (ctrl) {
+        ctrl.abort();
+        abortControllers.current.delete(key);
+      }
+
+      // Remove from active downloads UI immediately
+      setDownloads((prev) => {
+        const next = new Map(prev);
+        next.delete(key);
+        return next;
+      });
+
+      // Find the DB record ID so we can delete files + record
+      const record = pendingDownloads.get(key) ?? completedDownloads.get(key);
+      if (record) {
+        try {
+          await deleteHubDownload(record.id);
+        } catch {
+          /* ignore — may already be deleted */
+        }
+      }
+
+      // Remove from local state
+      setPendingDownloads((prev) => {
+        const next = new Map(prev);
+        next.delete(key);
+        return next;
+      });
+      setCompletedDownloads((prev) => {
+        const next = new Map(prev);
+        next.delete(key);
+        return next;
+      });
+      setDownloadedSet((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    },
+    [pendingDownloads, completedDownloads],
+  );
 
   const activeCount = downloads.size;
   const pendingCount = pendingDownloads.size;
 
-  const value = useMemo<DownloadContextValue>(() => ({
-    downloads, downloadedSet, completedDownloads, pendingDownloads,
-    startDownload, pauseDownload, cancelDownload, refreshRecords,
-    activeCount, pendingCount,
-  }), [downloads, downloadedSet, completedDownloads, pendingDownloads,
-    startDownload, pauseDownload, cancelDownload, refreshRecords, activeCount, pendingCount]);
-
-  return (
-    <DownloadContext.Provider value={value}>
-      {children}
-    </DownloadContext.Provider>
+  const value = useMemo<DownloadContextValue>(
+    () => ({
+      downloads,
+      downloadedSet,
+      completedDownloads,
+      pendingDownloads,
+      startDownload,
+      pauseDownload,
+      cancelDownload,
+      refreshRecords,
+      activeCount,
+      pendingCount,
+    }),
+    [
+      downloads,
+      downloadedSet,
+      completedDownloads,
+      pendingDownloads,
+      startDownload,
+      pauseDownload,
+      cancelDownload,
+      refreshRecords,
+      activeCount,
+      pendingCount,
+    ],
   );
-}
+
+  return <DownloadContext.Provider value={value}>{children}</DownloadContext.Provider>;
+};
 
 // eslint-disable-next-line react-refresh/only-export-components
 export function useDownloadContext() {

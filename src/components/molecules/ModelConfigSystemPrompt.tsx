@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
+import React, { useState } from 'react';
 
 export type SystemPromptMode = 'system' | 'custom';
 
@@ -81,24 +81,27 @@ export const SystemPromptSection: React.FC<SystemPromptSectionProps> = ({
           onClick={() => setIsExpanded(!isExpanded)}
           className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
         >
-          {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          {isExpanded ? (
+            <ChevronDown className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5" />
+          )}
         </button>
       </div>
 
-      {isExpanded && (
-        systemPromptMode === 'custom' ? (
-          <textarea
-            value={customSystemPrompt}
-            onChange={(e) => setCustomSystemPrompt(e.target.value)}
-            placeholder="Enter your custom system prompt..."
-            className="w-full px-2 py-1.5 text-xs border rounded-md min-h-[80px] resize-y bg-background"
-          />
-        ) : (
-          <pre className="w-full px-2 py-1.5 text-xs border rounded-md max-h-[150px] overflow-y-auto whitespace-pre-wrap bg-muted text-foreground">
-            {AGENTIC_SYSTEM_PROMPT}
-          </pre>
-        )
-      )}
+      {isExpanded && systemPromptMode === 'custom' ? (
+        <textarea
+          value={customSystemPrompt}
+          onChange={(e) => setCustomSystemPrompt(e.target.value)}
+          placeholder="Enter your custom system prompt..."
+          className="w-full px-2 py-1.5 text-xs border rounded-md min-h-[80px] resize-y bg-background"
+        />
+      ) : null}
+      {isExpanded && systemPromptMode !== 'custom' ? (
+        <pre className="w-full px-2 py-1.5 text-xs border rounded-md max-h-[150px] overflow-y-auto whitespace-pre-wrap bg-muted text-foreground">
+          {AGENTIC_SYSTEM_PROMPT}
+        </pre>
+      ) : null}
     </div>
   );
 };

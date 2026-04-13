@@ -24,11 +24,16 @@ impl NativeToolResult {
 }
 
 use serde_json::Value;
-use std::path::Path;
 use std::sync::OnceLock;
 use std::collections::HashMap;
 use std::sync::Mutex as StdMutex;
-use crate::web::utils::silent_command;
+
+mod file_tools;
+mod search_tools;
+mod command_tools;
+
+// Re-export public items from submodules
+pub use file_tools::{truncate_text_content, read_with_encoding_detection};
 
 /// Extract tool name from a raw command string (JSON tool call).
 pub fn extract_tool_name(cmd: &str) -> Option<String> {
@@ -68,111 +73,6 @@ fn todo_store() -> &'static StdMutex<HashMap<String, String>> {
     TODO_STORE.get_or_init(|| StdMutex::new(HashMap::new()))
 }
 
-// ─── ctags cache for lsp_query ─────────────────────────────────────────────────
-static CTAGS_CACHE: OnceLock<StdMutex<HashMap<String, (std::time::Instant, String)>>> = OnceLock::new();
-
-fn ctags_cache() -> &'static StdMutex<HashMap<String, (std::time::Instant, String)>> {
-    CTAGS_CACHE.get_or_init(|| StdMutex::new(HashMap::new()))
-}
-
-/// Generate or retrieve cached ctags output for a project/file path.
-/// Returns None if ctags is not installed or fails.
-fn get_ctags(path: &str) -> Option<String> {
-    let cache_ttl = std::time::Duration::from_secs(300); // 5 min cache
-
-    // Check cache
-    if let Ok(cache) = ctags_cache().lock() {
-        if let Some((time, data)) = cache.get(path) {
-            if time.elapsed() < cache_ttl {
-                return Some(data.clone());
-            }
-        }
-    }
-
-    // Try to generate with ctags/universal-ctags (JSON output for easy parsing)
-    let output = std::process::Command::new("ctags")
-        .args(["--recurse", "--output-format=json", "--fields=+n", "-f", "-"])
-        .arg(path)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .output()
-        .ok()?;
-
-    if !output.status.success() {
-        return None;
-    }
-
-    let result = String::from_utf8_lossy(&output.stdout).to_string();
-    if result.trim().is_empty() {
-        return None;
-    }
-
-    // Cache it
-    if let Ok(mut cache) = ctags_cache().lock() {
-        cache.insert(path.to_string(), (std::time::Instant::now(), result.clone()));
-    }
-
-    Some(result)
-}
-
-/// ripgrep-based definition search (fallback when ctags unavailable)
-fn lsp_ripgrep_definition(symbol: &str, path: &str) -> String {
-    let escaped = regex::escape(symbol);
-    let patterns = [
-        format!(r"(fn|pub fn|pub\(crate\) fn|async fn|pub async fn)\s+{}\s*[\(<]", escaped),
-        format!(r"(struct|enum|trait|type|pub struct|pub enum|pub trait|pub type)\s+{}\s*[\{{<]", escaped),
-        format!(r"(class|interface|function|const|let|var|def|defn?)\s+{}\s*[\({{:<= ]", escaped),
-        format!(r"(impl|impl<[^>]*>)\s+{}\s", escaped),
-    ];
-    let combined = patterns.join("|");
-    let cmd = format!(
-        "rg -n -e \"{}\" \"{}\" --type-add \"code:*.{{rs,ts,tsx,js,jsx,py,go,java,c,cpp,h,hpp,nim,ex}}\" -t code --max-count 20",
-        combined.replace('"', "\\\""), path
-    );
-    super::command::execute_command(&cmd)
-}
-
-/// ripgrep-based symbol listing (fallback when ctags unavailable)
-fn lsp_ripgrep_symbols(target: &str) -> String {
-    let cmd = format!(
-        "rg -n \"(fn |struct |enum |trait |class |interface |function |def |const |type |impl )\" \"{}\" --max-count 50",
-        target
-    );
-    super::command::execute_command(&cmd)
-}
-
-// ─── File modification time cache (for edit_file concurrent modification detection) ──
-#[allow(dead_code)]
-static FILE_MTIME_CACHE: OnceLock<StdMutex<HashMap<String, u64>>> = OnceLock::new();
-
-#[allow(dead_code)]
-fn file_mtime_cache() -> &'static StdMutex<HashMap<String, u64>> {
-    FILE_MTIME_CACHE.get_or_init(|| StdMutex::new(HashMap::new()))
-}
-
-// ─── Duplicate read detection cache: path → (mtime, line_count) ───────────────
-static READ_FILE_CACHE: OnceLock<StdMutex<HashMap<String, (u64, usize)>>> = OnceLock::new();
-
-fn read_file_cache() -> &'static StdMutex<HashMap<String, (u64, usize)>> {
-    READ_FILE_CACHE.get_or_init(|| StdMutex::new(HashMap::new()))
-}
-
-/// Clear the read-file duplicate cache entry for a path (call after writes/edits).
-fn invalidate_read_cache(path: &str) {
-    if let Ok(mut cache) = read_file_cache().lock() {
-        cache.remove(path);
-    }
-}
-
-#[allow(dead_code)]
-fn get_file_mtime(path: &str) -> Option<u64> {
-    std::fs::metadata(path).ok()
-        .and_then(|m| m.modified().ok())
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs())
-}
-
 mod parsing;
 pub use parsing::*;
 use parsing::{value_as_bool_flexible, try_parse_with_fixups};
@@ -187,9 +87,6 @@ mod mcp_tools;
 mod telegram;
 
 pub use web_fetch::clear_web_fetch_cache;
-
-/// Maximum file size to return inline (100 KB).
-const MAX_READ_SIZE: usize = 100 * 1024;
 
 /// If the text is an `execute_command` tool call, extract the command string and background flag.
 /// Returns `(command, is_background)`.
@@ -627,15 +524,15 @@ pub fn dispatch_native_tool(
 
     // All other tools return text-only results
     Some(NativeToolResult::text_only(match name.as_str() {
-        "read_file" => tool_read_file(&args),
-        "write_file" => tool_write_file(&args),
-        "edit_file" => tool_edit_file(&args),
-        "undo_edit" => tool_undo_edit(&args),
-        "insert_text" => tool_insert_text(&args),
-        "search_files" => tool_search_files(&args),
-        "find_files" => tool_find_files(&args),
-        "execute_python" => tool_execute_python(&args),
-        "list_directory" => tool_list_directory(&args),
+        "read_file" => file_tools::tool_read_file(&args),
+        "write_file" => file_tools::tool_write_file(&args),
+        "edit_file" => file_tools::tool_edit_file(&args),
+        "undo_edit" => file_tools::tool_undo_edit(&args),
+        "insert_text" => file_tools::tool_insert_text(&args),
+        "search_files" => search_tools::tool_search_files(&args),
+        "find_files" => search_tools::tool_find_files(&args),
+        "execute_python" => command_tools::tool_execute_python(&args),
+        "list_directory" => command_tools::tool_list_directory(&args),
         "web_search" => tool_web_search(&args, web_search_provider, web_search_api_key, browser_backend),
         "web_fetch" => {
             let content = tool_web_fetch(&args, use_htmd, browser_backend);
@@ -700,7 +597,7 @@ pub fn dispatch_native_tool(
                 let result = match action {
                     "definition" => {
                         // Try ctags first for real symbol indexing
-                        if let Some(ctags) = get_ctags(path) {
+                        if let Some(ctags) = command_tools::get_ctags(path) {
                             let matches: Vec<&str> = ctags.lines()
                                 .filter(|line| {
                                     // ctags JSON: {"name":"symbol",...}
@@ -714,10 +611,10 @@ pub fn dispatch_native_tool(
                                 format!("Definitions found via ctags:\n{}", matches.join("\n"))
                             } else {
                                 // Fallback to ripgrep
-                                lsp_ripgrep_definition(symbol, path)
+                                command_tools::lsp_ripgrep_definition(symbol, path)
                             }
                         } else {
-                            lsp_ripgrep_definition(symbol, path)
+                            command_tools::lsp_ripgrep_definition(symbol, path)
                         }
                     }
                     "references" => {
@@ -731,7 +628,7 @@ pub fn dispatch_native_tool(
                     "symbols" => {
                         let target = file.unwrap_or(path);
                         // Try ctags for real symbol indexing
-                        if let Some(ctags) = get_ctags(target) {
+                        if let Some(ctags) = command_tools::get_ctags(target) {
                             let file_matches: Vec<&str> = ctags.lines()
                                 .filter(|line| {
                                     if let Some(f) = file {
@@ -745,10 +642,10 @@ pub fn dispatch_native_tool(
                             if !file_matches.is_empty() {
                                 format!("Symbols:\n{}", file_matches.join("\n"))
                             } else {
-                                lsp_ripgrep_symbols(target)
+                                command_tools::lsp_ripgrep_symbols(target)
                             }
                         } else {
-                            lsp_ripgrep_symbols(target)
+                            command_tools::lsp_ripgrep_symbols(target)
                         }
                     }
                     "diagnostics" => {
@@ -793,14 +690,14 @@ pub fn dispatch_native_tool(
                 }
             }
         }
-        "git_status" => tool_git_status(&args),
-        "git_diff" => tool_git_diff(&args),
-        "git_commit" => tool_git_commit(&args),
+        "git_status" => command_tools::tool_git_status(&args),
+        "git_diff" => command_tools::tool_git_diff(&args),
+        "git_commit" => command_tools::tool_git_commit(&args),
         // MCP server management tools
         "list_mcp_servers" => mcp_tools::tool_list_mcp_servers(mcp_manager, db),
         "add_mcp_server" => mcp_tools::tool_add_mcp_server(&args, mcp_manager, db),
         "remove_mcp_server" => mcp_tools::tool_remove_mcp_server(&args, mcp_manager, db),
-        "list_background_processes" => tool_list_background_processes(),
+        "list_background_processes" => command_tools::tool_list_background_processes(),
         "sleep" => {
             let seconds = args.get("seconds").and_then(|v| v.as_u64()).unwrap_or(5).min(30);
             std::thread::sleep(std::time::Duration::from_secs(seconds));
@@ -912,1074 +809,6 @@ pub fn dispatch_native_tool(
 
 // Telegram tool: see telegram.rs
 // MCP tools: see mcp_tools.rs
-
-
-fn tool_list_background_processes() -> String {
-    let procs = super::background::list_all_background_processes();
-    if procs.is_empty() {
-        return "No background processes are currently tracked.".to_string();
-    }
-    let mut lines = vec![format!("Background processes ({}):", procs.len())];
-    for (pid, cmd, _alive, status) in &procs {
-        lines.push(format!("  PID {}: {} [{}]", pid, cmd, status));
-    }
-    lines.join("\n")
-}
-
-/// Detect binary content by inspecting the first bytes.
-/// More reliable than extension-only checking — catches misnamed files.
-fn is_binary_content(bytes: &[u8]) -> bool {
-    let check_size = bytes.len().min(8192);
-    let mut non_printable = 0;
-
-    for &byte in &bytes[..check_size] {
-        // Null byte is a strong binary indicator
-        if byte == 0 {
-            return true;
-        }
-        // Count non-printable, non-whitespace bytes
-        // Printable ASCII: 32-126, plus tab(9), newline(10), carriage return(13)
-        if byte < 32 && byte != 9 && byte != 10 && byte != 13 {
-            non_printable += 1;
-        }
-    }
-
-    // If >10% non-printable, likely binary
-    check_size > 0 && (non_printable * 100 / check_size) > 10
-}
-
-// ─── LRU file content cache ──────────────────────────────────────────────────
-
-const FILE_CACHE_MAX_ENTRIES: usize = 50;
-const FILE_CACHE_MAX_BYTES: usize = 25 * 1024 * 1024; // 25MB total
-
-struct FileCacheEntry {
-    content: String,
-    mtime: u64,
-    access_order: u64,
-}
-
-static FILE_CONTENT_CACHE: OnceLock<StdMutex<(HashMap<String, FileCacheEntry>, u64, usize)>> = OnceLock::new();
-
-fn file_content_cache() -> &'static StdMutex<(HashMap<String, FileCacheEntry>, u64, usize)> {
-    FILE_CONTENT_CACHE.get_or_init(|| StdMutex::new((HashMap::new(), 0, 0)))
-}
-
-/// Get cached file content if mtime matches, otherwise read from disk and cache.
-fn read_file_cached(path: &str) -> Result<String, String> {
-    let current_mtime = get_file_mtime(path).unwrap_or(0);
-
-    // Check cache
-    if let Ok(mut cache) = file_content_cache().lock() {
-        let (ref mut map, ref mut counter, _) = *cache;
-        if let Some(entry) = map.get_mut(path) {
-            if entry.mtime == current_mtime {
-                *counter += 1;
-                entry.access_order = *counter;
-                return Ok(entry.content.clone());
-            }
-        }
-    }
-
-    // Cache miss — read from disk as bytes for binary detection
-    let bytes = std::fs::read(path).map_err(|e| format!("Error reading file: {e}"))?;
-
-    // Content-based binary check
-    if has_binary_extension(path) || is_binary_content(&bytes) {
-        let ext = std::path::Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("");
-        if !EXTRACTABLE_EXTENSIONS.contains(&ext.to_lowercase().as_str()) {
-            return Err(format!("Error: '{}' appears to be a binary file ({} bytes). Cannot read as text.", path, bytes.len()));
-        }
-    }
-
-    let content = String::from_utf8_lossy(&bytes).to_string();
-
-    // Store in cache (evict oldest if needed)
-    if let Ok(mut cache) = file_content_cache().lock() {
-        let (ref mut map, ref mut counter, ref mut total_bytes) = *cache;
-        *counter += 1;
-
-        let content_len = content.len();
-
-        // Evict if over limits
-        while (map.len() >= FILE_CACHE_MAX_ENTRIES || *total_bytes + content_len > FILE_CACHE_MAX_BYTES) && !map.is_empty() {
-            // Find oldest entry
-            if let Some(oldest_key) = map.iter()
-                .min_by_key(|(_, v)| v.access_order)
-                .map(|(k, _)| k.clone())
-            {
-                if let Some(removed) = map.remove(&oldest_key) {
-                    *total_bytes = total_bytes.saturating_sub(removed.content.len());
-                }
-            } else {
-                break;
-            }
-        }
-
-        *total_bytes += content_len;
-        map.insert(path.to_string(), FileCacheEntry {
-            content: content.clone(),
-            mtime: current_mtime,
-            access_order: *counter,
-        });
-    }
-
-    Ok(content)
-}
-
-/// Invalidate the LRU file content cache for a path (call after writes/edits).
-fn invalidate_file_cache(path: &str) {
-    if let Ok(mut cache) = file_content_cache().lock() {
-        let (ref mut map, _, ref mut total_bytes) = *cache;
-        if let Some(removed) = map.remove(path) {
-            *total_bytes = total_bytes.saturating_sub(removed.content.len());
-        }
-    }
-}
-
-/// Read a file and return its contents.
-/// Check if a file has a binary extension that cannot be meaningfully read as text.
-fn has_binary_extension(path: &str) -> bool {
-    let binary_extensions = [
-        "exe", "dll", "so", "dylib", "o", "obj", "a", "lib",
-        "zip", "tar", "gz", "bz2", "xz", "7z", "rar",
-        "png", "jpg", "jpeg", "gif", "bmp", "ico", "webp", "svg",
-        "mp3", "mp4", "wav", "avi", "mkv", "mov", "flac",
-        "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
-        "gguf", "bin", "dat", "db", "sqlite",
-        "pyc", "class", "wasm",
-    ];
-    if let Some(ext) = std::path::Path::new(path).extension().and_then(|e| e.to_str()) {
-        binary_extensions.contains(&ext.to_lowercase().as_str())
-    } else {
-        false
-    }
-}
-
-/// Extensions that are binary but have dedicated text-extraction support.
-const EXTRACTABLE_EXTENSIONS: &[&str] = &[
-    "pdf", "docx", "xlsx", "xls", "xlsm", "pptx", "epub", "odt", "rtf", "csv", "eml", "msg",
-    "zip", "7z",
-];
-
-fn tool_read_file(args: &Value) -> String {
-    let path = match args.get("path").and_then(|v| v.as_str()) {
-        Some(p) => p,
-        None => return "Error: 'path' argument is required".to_string(),
-    };
-
-    let path_lower = path.to_ascii_lowercase();
-
-    // Content-based binary detection: read bytes first for reliable detection
-    // (runs BEFORE duplicate read check — reject binary files immediately)
-    {
-        let bytes_check = match std::fs::read(path) {
-            Ok(b) => b,
-            Err(e) => return format!("Error reading '{path}': {e}"),
-        };
-        if has_binary_extension(path) || is_binary_content(&bytes_check) {
-            let ext = std::path::Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !EXTRACTABLE_EXTENSIONS.contains(&ext.to_lowercase().as_str()) {
-                return format!(
-                    "Error: '{}' appears to be a binary file ({} bytes). Cannot read as text.",
-                    path, bytes_check.len()
-                );
-            }
-        }
-    }
-
-    // PDF files: extract text instead of returning binary garbage
-    if path_lower.ends_with(".pdf") {
-        return match std::fs::read(path) {
-            Ok(bytes) => extract_pdf_text(&bytes, MAX_READ_SIZE),
-            Err(e) => format!("Error reading '{path}': {e}"),
-        };
-    }
-
-    // DOCX files: extract text from ZIP/XML structure
-    if path_lower.ends_with(".docx") {
-        return match std::fs::read(path) {
-            Ok(bytes) => extract_docx_text(&bytes, MAX_READ_SIZE),
-            Err(e) => format!("Error reading '{path}': {e}"),
-        };
-    }
-
-    // PPTX files: extract text from ZIP/XML structure
-    if path_lower.ends_with(".pptx") {
-        return match std::fs::read(path) {
-            Ok(bytes) => extract_pptx_text(&bytes, MAX_READ_SIZE),
-            Err(e) => format!("Error reading '{path}': {e}"),
-        };
-    }
-
-    // XLSX/XLS files: extract spreadsheet data as tab-separated text
-    if path_lower.ends_with(".xlsx") || path_lower.ends_with(".xls") || path_lower.ends_with(".xlsm") {
-        return match std::fs::read(path) {
-            Ok(bytes) => extract_xlsx_text(&bytes, MAX_READ_SIZE),
-            Err(e) => format!("Error reading '{path}': {e}"),
-        };
-    }
-
-    // EPUB ebooks: extract text from XHTML content files
-    if path_lower.ends_with(".epub") {
-        return match std::fs::read(path) {
-            Ok(bytes) => extract_epub_text(&bytes, MAX_READ_SIZE),
-            Err(e) => format!("Error reading '{path}': {e}"),
-        };
-    }
-
-    // ODT (LibreOffice Writer): extract text from content.xml
-    if path_lower.ends_with(".odt") {
-        return match std::fs::read(path) {
-            Ok(bytes) => extract_odt_text(&bytes, MAX_READ_SIZE),
-            Err(e) => format!("Error reading '{path}': {e}"),
-        };
-    }
-
-    // RTF: extract plain text
-    if path_lower.ends_with(".rtf") {
-        return match std::fs::read(path) {
-            Ok(bytes) => extract_rtf_text(&bytes, MAX_READ_SIZE),
-            Err(e) => format!("Error reading '{path}': {e}"),
-        };
-    }
-
-    // ZIP archives: list contents
-    if path_lower.ends_with(".zip") || path_lower.ends_with(".7z") || path_lower.ends_with(".tar.gz") || path_lower.ends_with(".tgz") {
-        return match std::fs::read(path) {
-            Ok(bytes) => extract_zip_listing(&bytes, MAX_READ_SIZE),
-            Err(e) => format!("Error reading '{path}': {e}"),
-        };
-    }
-
-    // CSV files: structured parsing with headers
-    if path_lower.ends_with(".csv") {
-        return match std::fs::read(path) {
-            Ok(bytes) => extract_csv_structured(&bytes, MAX_READ_SIZE),
-            Err(e) => format!("Error reading '{path}': {e}"),
-        };
-    }
-
-    // Email files: extract headers, body, attachment listing
-    if path_lower.ends_with(".eml") || path_lower.ends_with(".msg") {
-        return match std::fs::read(path) {
-            Ok(bytes) => extract_eml_text(&bytes, MAX_READ_SIZE),
-            Err(e) => format!("Error reading '{path}': {e}"),
-        };
-    }
-
-    // Parse offset/limit parameters
-    let offset = args.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-    let limit = args.get("limit").and_then(|v| v.as_u64()).map(|v| v as usize);
-
-    // Duplicate read detection: if full re-read (no offset/limit) and file unchanged, return stub
-    if offset == 0 && limit.is_none() {
-        let current_mtime = get_file_mtime(path);
-        if let Ok(cache) = read_file_cache().lock() {
-            if let Some(&(cached_mtime, cached_lines)) = cache.get(path) {
-                if current_mtime == Some(cached_mtime) {
-                    return format!(
-                        "File unchanged since last read ({} lines, ~{} tokens). \
-                         The content from the earlier read is still current — use offset/limit \
-                         to read specific sections, or search_files to find specific content.",
-                        cached_lines, cached_lines * 10 / 4
-                    );
-                }
-            }
-        }
-    }
-
-    // Use LRU cache for file content (handles binary detection internally)
-    let content = match read_file_cached(path) {
-        Ok(c) => c,
-        Err(e) => {
-            // If cache returned a binary error, propagate it
-            if e.starts_with("Error:") || e.starts_with("Binary file:") {
-                return e;
-            }
-            // If reading failed, try encoding detection fallback
-            match std::fs::read(path) {
-                Ok(bytes) => return read_with_encoding_detection(&bytes, MAX_READ_SIZE),
-                Err(e2) => return format!("Error reading '{path}': {e2}"),
-            }
-        }
-    };
-
-    // Cache file mtime for concurrent modification detection in edit_file
-    if let Some(mtime) = get_file_mtime(path) {
-        if let Ok(mut cache) = file_mtime_cache().lock() {
-            cache.insert(path.to_string(), mtime);
-        }
-    }
-
-    // Apply offset/limit and format with line numbers + token estimate
-    let lines: Vec<&str> = content.lines().collect();
-    let total_lines = lines.len();
-
-    // Default cap: 2000 lines when no limit specified and file exceeds it
-    const MAX_LINES_DEFAULT: usize = 2000;
-    let was_truncated_by_cap = limit.is_none() && total_lines > MAX_LINES_DEFAULT;
-
-    let start = if offset > 0 { (offset - 1).min(total_lines) } else { 0 };
-    let effective_limit = limit.unwrap_or_else(|| {
-        if total_lines > MAX_LINES_DEFAULT { MAX_LINES_DEFAULT } else { total_lines }
-    });
-    let end = (start + effective_limit).min(total_lines);
-
-    let selected_lines = &lines[start..end];
-    let selected_text: String = selected_lines.join("\n");
-
-    // Estimate tokens (~4 chars per token)
-    let estimated_tokens = (selected_text.len() + 3) / 4;
-
-    // Build header
-    let range_info = if offset > 0 || limit.is_some() {
-        format!(" (lines {}-{})", start + 1, end)
-    } else {
-        String::new()
-    };
-    let header = format!(
-        "[File: {} | {} lines{} | ~{} tokens]",
-        path, total_lines, range_info, estimated_tokens
-    );
-
-    // Format with line numbers (cat -n style)
-    let numbered: String = selected_lines
-        .iter()
-        .enumerate()
-        .map(|(i, line)| format!("{:>6}\t{}", start + i + 1, line))
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    let mut result = format!("{}\n{}", header, numbered);
-
-    // Append truncation notice if capped at MAX_LINES_DEFAULT
-    if was_truncated_by_cap {
-        result.push_str(&format!(
-            "\n[File truncated at {} lines. Total: {} lines (~{} tokens). \
-             Use offset and limit parameters to read specific portions, \
-             or search_files to find specific content.]",
-            MAX_LINES_DEFAULT, total_lines, total_lines * 10 / 4
-        ));
-    }
-
-    // Cache this read for duplicate detection (mtime + line count)
-    if let Some(mtime) = get_file_mtime(path) {
-        if let Ok(mut cache) = read_file_cache().lock() {
-            cache.insert(path.to_string(), (mtime, total_lines));
-        }
-    }
-
-    // Apply truncation if still too large
-    if result.len() > MAX_READ_SIZE {
-        truncate_text_content(&result, MAX_READ_SIZE)
-    } else {
-        result
-    }
-}
-
-/// Truncate text content to max_chars with a notice.
-pub fn truncate_text_content(content: &str, max_chars: usize) -> String {
-    let total_bytes = content.len();
-    if total_bytes > max_chars {
-        let mut end = max_chars;
-        while end > 0 && !content.is_char_boundary(end) { end -= 1; }
-        format!(
-            "{}\n\n[Truncated: showing first {} of {} bytes]",
-            &content[..end], end, total_bytes
-        )
-    } else {
-        content.to_string()
-    }
-}
-
-/// Read non-UTF8 bytes using encoding_rs auto-detection (Latin-1, Shift-JIS, etc.).
-pub fn read_with_encoding_detection(bytes: &[u8], max_chars: usize) -> String {
-    // Try common encodings: UTF-8 BOM, then let encoding_rs detect
-    let (decoded, encoding_used, had_errors) = encoding_rs::Encoding::for_bom(bytes)
-        .map(|(enc, _)| enc.decode(bytes))
-        .unwrap_or_else(|| {
-            // No BOM — try Windows-1252 (Latin-1 superset, most common non-UTF8 on Windows)
-            encoding_rs::WINDOWS_1252.decode(bytes)
-        });
-
-    let label = if had_errors { " (with some decoding errors)" } else { "" };
-    let header = format!("[Decoded from {} encoding{}]\n", encoding_used.name(), label);
-    let content = format!("{}{}", header, decoded);
-    truncate_text_content(&content, max_chars)
-}
-
-/// Write content to a file, creating parent directories as needed.
-fn tool_write_file(args: &Value) -> String {
-    let path = match args.get("path").and_then(|v| v.as_str()) {
-        Some(p) => p,
-        None => return "Error: 'path' argument is required".to_string(),
-    };
-    let content = match args.get("content").and_then(|v| v.as_str()) {
-        Some(c) => c,
-        None => return "Error: 'content' argument is required".to_string(),
-    };
-
-    // Create parent directories if they don't exist
-    if let Some(parent) = Path::new(path).parent() {
-        if !parent.exists() {
-            if let Err(e) = std::fs::create_dir_all(parent) {
-                return format!("Error creating directories for '{path}': {e}");
-            }
-        }
-    }
-
-    match std::fs::write(path, content) {
-        Ok(()) => {
-            // Update mtime cache after successful write
-            if let Some(mtime) = get_file_mtime(path) {
-                if let Ok(mut cache) = file_mtime_cache().lock() {
-                    cache.insert(path.to_string(), mtime);
-                }
-            }
-            // Invalidate read cache and LRU content cache so next read_file returns fresh content
-            invalidate_read_cache(path);
-            invalidate_file_cache(path);
-            format!("Written {} bytes to {}", content.len(), path)
-        }
-        Err(e) => format!("Error writing '{path}': {e}"),
-    }
-}
-
-/// Edit a file by replacing an exact string match.
-/// `old_string` must appear exactly once in the file (uniqueness check).
-/// Normalize curly/smart quotes to straight quotes.
-/// Models sometimes generate curly quotes which cause edit_file "not found" errors.
-fn normalize_quotes(s: &str) -> String {
-    s.replace('\u{2018}', "'")  // left single curly
-     .replace('\u{2019}', "'")  // right single curly
-     .replace('\u{201C}', "\"") // left double curly
-     .replace('\u{201D}', "\"") // right double curly
-}
-
-/// Generate a compact unified diff between old and new content.
-fn simple_diff(old: &str, new: &str, path: &str) -> String {
-    let old_lines: Vec<&str> = old.lines().collect();
-    let new_lines: Vec<&str> = new.lines().collect();
-
-    let mut diff = format!("--- a/{}\n+++ b/{}\n", path, path);
-    let mut has_changes = false;
-
-    // Find changed regions
-    let max_lines = old_lines.len().max(new_lines.len());
-    let mut i = 0;
-    while i < max_lines {
-        let old_line = old_lines.get(i).copied().unwrap_or("");
-        let new_line = new_lines.get(i).copied().unwrap_or("");
-
-        if old_line != new_line {
-            has_changes = true;
-            // Show context: 2 lines before
-            let ctx_start = i.saturating_sub(2);
-            if ctx_start < i {
-                for j in ctx_start..i {
-                    if let Some(l) = old_lines.get(j) {
-                        diff.push_str(&format!(" {}\n", l));
-                    }
-                }
-            }
-
-            // Find the extent of the change
-            let mut change_end = i;
-            while change_end < max_lines {
-                let ol = old_lines.get(change_end).copied().unwrap_or("");
-                let nl = new_lines.get(change_end).copied().unwrap_or("");
-                if ol == nl && change_end > i { break; }
-                change_end += 1;
-            }
-
-            // Output removed lines
-            for j in i..change_end.min(old_lines.len()) {
-                diff.push_str(&format!("-{}\n", old_lines[j]));
-            }
-            // Output added lines
-            for j in i..change_end.min(new_lines.len()) {
-                diff.push_str(&format!("+{}\n", new_lines[j]));
-            }
-
-            // Show 2 lines after
-            for j in change_end..change_end.saturating_add(2).min(new_lines.len()) {
-                diff.push_str(&format!(" {}\n", new_lines[j]));
-            }
-
-            i = change_end;
-        } else {
-            i += 1;
-        }
-    }
-
-    if !has_changes {
-        return "No visible changes in diff".to_string();
-    }
-
-    // Truncate if too long
-    if diff.len() > 2000 {
-        diff.truncate(1800);
-        diff.push_str("\n... (diff truncated)\n");
-    }
-
-    diff
-}
-
-fn tool_edit_file(args: &Value) -> String {
-    let path = match args.get("path").and_then(|v| v.as_str()) {
-        Some(p) => p,
-        None => return "Error: 'path' argument is required".to_string(),
-    };
-    let old_string = match args.get("old_string").and_then(|v| v.as_str()) {
-        Some(s) => s,
-        None => return "Error: 'old_string' argument is required".to_string(),
-    };
-    let new_string = args.get("new_string").and_then(|v| v.as_str()).unwrap_or("");
-
-    if old_string.is_empty() {
-        return "Error: 'old_string' cannot be empty".to_string();
-    }
-
-    // Check if file was modified since last read (concurrent modification detection)
-    if let Some(cached_mtime) = file_mtime_cache().lock().ok().and_then(|c| c.get(path).copied()) {
-        if let Some(current_mtime) = get_file_mtime(path) {
-            if current_mtime > cached_mtime {
-                eprintln!("[EDIT_FILE] File {} modified since last read (cached={}s, current={}s)", path, cached_mtime, current_mtime);
-            }
-        }
-    }
-
-    // Read the file
-    let content = match std::fs::read_to_string(path) {
-        Ok(c) => c,
-        Err(e) => return format!("Error reading '{path}': {e}"),
-    };
-
-    // Count occurrences
-    let match_count = content.matches(old_string).count();
-    if match_count == 0 {
-        // Fallback: try with curly quotes normalized to straight quotes
-        let norm_content = normalize_quotes(&content);
-        let norm_old = normalize_quotes(old_string);
-        let norm_count = norm_content.matches(&norm_old).count();
-        if norm_count == 1 {
-            let norm_new = normalize_quotes(new_string);
-            let new_content = norm_content.replacen(&norm_old, &norm_new, 1);
-            let match_pos = norm_content.find(&norm_old).unwrap();
-            let line_num = norm_content[..match_pos].lines().count().max(1);
-            // Save backup for undo_edit
-            let backup_path = format!("{path}.llama_bak");
-            let _ = std::fs::write(&backup_path, &content);
-            return match std::fs::write(path, &new_content) {
-                Ok(()) => {
-                    if let Some(mtime) = get_file_mtime(path) {
-                        if let Ok(mut cache) = file_mtime_cache().lock() {
-                            cache.insert(path.to_string(), mtime);
-                        }
-                    }
-                    invalidate_read_cache(path);
-                    invalidate_file_cache(path);
-                    let diff = simple_diff(&norm_content, &new_content, path);
-                    format!("Edited {path} (curly quotes normalized) at line {line_num}:\n{diff}")
-                }
-                Err(e) => format!("Error writing '{path}': {e}"),
-            };
-        }
-        if norm_count > 1 {
-            return format!("Error: old_string found {norm_count} times in {path} (after curly quote normalization). Include more surrounding context to make it unique.");
-        }
-        return format!("Error: old_string not found in {path}. Make sure the text matches exactly (including whitespace and newlines).");
-    }
-    if match_count > 1 {
-        return format!("Error: old_string found {match_count} times in {path}. Include more surrounding context to make it unique.");
-    }
-
-    // Find the line number of the match for the success message
-    let match_pos = content.find(old_string).unwrap();
-    let line_num = content[..match_pos].lines().count().max(1);
-
-    // Perform the replacement
-    let new_content = content.replacen(old_string, new_string, 1);
-
-    // Save backup for undo_edit
-    let backup_path = format!("{path}.llama_bak");
-    let _ = std::fs::write(&backup_path, &content);
-
-    match std::fs::write(path, &new_content) {
-        Ok(()) => {
-            // Update mtime cache after successful edit
-            if let Some(mtime) = get_file_mtime(path) {
-                if let Ok(mut cache) = file_mtime_cache().lock() {
-                    cache.insert(path.to_string(), mtime);
-                }
-            }
-            invalidate_read_cache(path);
-            invalidate_file_cache(path);
-            let diff = simple_diff(&content, &new_content, path);
-            format!("Edited {path} at line {line_num}:\n{diff}")
-        }
-        Err(e) => format!("Error writing '{path}': {e}"),
-    }
-}
-
-/// Undo the last edit_file operation by restoring the backup.
-fn tool_undo_edit(args: &Value) -> String {
-    let path = match args.get("path").and_then(|v| v.as_str()) {
-        Some(p) => p,
-        None => return "Error: 'path' argument is required".to_string(),
-    };
-
-    let backup_path = format!("{path}.llama_bak");
-    let backup_content = match std::fs::read_to_string(&backup_path) {
-        Ok(c) => c,
-        Err(_) => return format!("Error: no backup found for {path}. Only the most recent edit_file can be undone."),
-    };
-
-    match std::fs::write(path, &backup_content) {
-        Ok(()) => {
-            let _ = std::fs::remove_file(&backup_path);
-            format!("Restored {path} to its state before the last edit")
-        }
-        Err(e) => format!("Error restoring '{path}': {e}"),
-    }
-}
-
-/// Insert text at a specific line number in a file.
-fn tool_insert_text(args: &Value) -> String {
-    let path = match args.get("path").and_then(|v| v.as_str()) {
-        Some(p) => p,
-        None => return "Error: 'path' argument is required".to_string(),
-    };
-    let text = match args.get("text").and_then(|v| v.as_str()) {
-        Some(t) => t,
-        None => return "Error: 'text' argument is required".to_string(),
-    };
-    // Line number may be JSON number or string
-    let line = args.get("line").and_then(|v| {
-        v.as_u64().or_else(|| v.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
-    }).unwrap_or(0) as usize;
-    if line == 0 {
-        return "Error: 'line' argument is required and must be >= 1".to_string();
-    }
-
-    let content = match std::fs::read_to_string(path) {
-        Ok(c) => c,
-        Err(e) => return format!("Error reading '{path}': {e}"),
-    };
-
-    let mut lines: Vec<&str> = content.lines().collect();
-    let total_lines = lines.len();
-
-    // Clamp insertion point: line 1 = before first line, line N+1 = after last line
-    let insert_idx = (line - 1).min(total_lines);
-
-    // Split the inserted text into lines
-    let new_lines: Vec<&str> = text.lines().collect();
-    let inserted_count = new_lines.len();
-
-    for (i, new_line) in new_lines.into_iter().enumerate() {
-        lines.insert(insert_idx + i, new_line);
-    }
-
-    // Preserve trailing newline if original had one
-    let mut new_content = lines.join("\n");
-    if content.ends_with('\n') {
-        new_content.push('\n');
-    }
-
-    match std::fs::write(path, &new_content) {
-        Ok(()) => format!("Inserted {inserted_count} line(s) at line {line} in {path}"),
-        Err(e) => format!("Error writing '{path}': {e}"),
-    }
-}
-
-const MAX_SEARCH_MATCHES: usize = 50;
-const MAX_SEARCH_OUTPUT_CHARS: usize = 8000;
-const MAX_SEARCH_FILE_SIZE: u64 = 2 * 1024 * 1024; // 2MB — skip large files
-
-/// Check if a file is binary by looking at first 512 bytes for null bytes.
-fn is_binary_file(path: &std::path::Path) -> bool {
-    if let Ok(mut f) = std::fs::File::open(path) {
-        use std::io::Read;
-        let mut buf = [0u8; 512];
-        if let Ok(n) = f.read(&mut buf) {
-            return buf[..n].contains(&0);
-        }
-    }
-    false
-}
-
-/// Truncate a string to max chars.
-fn truncate_line(s: &str, max: usize) -> String {
-    if s.chars().count() <= max { s.to_string() } else { s.chars().take(max).collect() }
-}
-
-/// Build an ignore::WalkBuilder with .gitignore support and optional include/exclude globs.
-fn build_walker(
-    search_path: &str,
-    include: &str,
-    exclude: &str,
-) -> ignore::Walk {
-    let mut builder = ignore::WalkBuilder::new(search_path);
-    builder
-        .hidden(true)
-        .git_ignore(true)
-        .git_global(true)
-        .git_exclude(true);
-
-    // Build overrides: plain patterns = whitelist, !patterns = blacklist
-    let has_overrides = !include.is_empty() || !exclude.is_empty();
-    if has_overrides {
-        let mut overrides = ignore::overrides::OverrideBuilder::new(search_path);
-        for pat in include.split(',') {
-            let pat = pat.trim();
-            if !pat.is_empty() {
-                let _ = overrides.add(pat);
-            }
-        }
-        for pat in exclude.split(',') {
-            let pat = pat.trim();
-            if !pat.is_empty() {
-                let _ = overrides.add(&format!("!{pat}"));
-            }
-        }
-        if let Ok(ov) = overrides.build() {
-            builder.overrides(ov);
-        }
-    }
-
-    builder.build()
-}
-
-/// Search file contents by pattern (literal or regex) across a directory.
-/// Uses the `ignore` crate for .gitignore-aware traversal.
-fn tool_search_files(args: &Value) -> String {
-    let pattern = match args.get("pattern").and_then(|v| v.as_str()) {
-        Some(p) => p,
-        None => return "Error: 'pattern' argument is required".to_string(),
-    };
-    let search_path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
-    let include = args.get("include").and_then(|v| v.as_str()).unwrap_or("");
-    let exclude = args.get("exclude").and_then(|v| v.as_str()).unwrap_or("");
-    let context = args.get("context").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-
-    // Try as regex first, fall back to literal
-    let re = match regex::Regex::new(pattern) {
-        Ok(r) => r,
-        Err(_) => match regex::Regex::new(&regex::escape(pattern)) {
-            Ok(r) => r,
-            Err(e) => return format!("Error: invalid pattern: {e}"),
-        },
-    };
-
-    let walker = build_walker(search_path, include, exclude);
-
-    let mut results = Vec::new();
-    let mut total_matches = 0;
-    let mut files_matched = 0;
-
-    for entry in walker.filter_map(|e| e.ok()) {
-        if total_matches >= MAX_SEARCH_MATCHES { break; }
-        if !entry.file_type().map_or(false, |ft| ft.is_file()) { continue; }
-
-        let path = entry.path();
-
-        // Skip large files (>2MB) to avoid memory issues
-        if std::fs::metadata(path).map_or(false, |m| m.len() > MAX_SEARCH_FILE_SIZE) { continue; }
-        if is_binary_file(path) { continue; }
-
-        if let Ok(content) = std::fs::read_to_string(path) {
-            let lines: Vec<&str> = content.lines().collect();
-            let display_path = path.to_string_lossy();
-            let mut file_had_match = false;
-            // Track last emitted line to merge overlapping context
-            let mut last_emitted: usize = 0;
-
-            for (i, line) in lines.iter().enumerate() {
-                if total_matches >= MAX_SEARCH_MATCHES { break; }
-                if !re.is_match(line) { continue; }
-
-                if !file_had_match {
-                    file_had_match = true;
-                    files_matched += 1;
-                }
-                total_matches += 1;
-
-                if context > 0 {
-                    // Before context — skip lines already emitted
-                    let ctx_start = i.saturating_sub(context).max(last_emitted);
-                    if ctx_start > last_emitted && last_emitted > 0 {
-                        results.push("--".to_string()); // gap separator
-                    }
-                    for ci in ctx_start..i {
-                        results.push(format!(
-                            "{display_path}-{}: {}", ci + 1, truncate_line(lines[ci], 200)
-                        ));
-                    }
-                }
-
-                // Match line
-                results.push(format!(
-                    "{display_path}:{}: {}", i + 1, truncate_line(line, 200)
-                ));
-
-                if context > 0 {
-                    // After context
-                    let end = (i + context).min(lines.len().saturating_sub(1));
-                    for ci in (i + 1)..=end {
-                        results.push(format!(
-                            "{display_path}-{}: {}", ci + 1, truncate_line(lines[ci], 200)
-                        ));
-                    }
-                    last_emitted = end + 1;
-                } else {
-                    last_emitted = i + 1;
-                }
-            }
-        }
-    }
-
-    if results.is_empty() {
-        return format!("No matches found for '{pattern}' in {search_path}");
-    }
-
-    let mut output = format!(
-        "Found {total_matches} match(es) across {files_matched} file(s) for '{pattern}':\n\n"
-    );
-    let mut chars = output.len();
-    for line in &results {
-        if chars + line.len() > MAX_SEARCH_OUTPUT_CHARS {
-            output.push_str(&format!(
-                "\n... (output truncated, {total_matches} total matches across {files_matched} files)"
-            ));
-            break;
-        }
-        output.push_str(line);
-        output.push('\n');
-        chars += line.len() + 1;
-    }
-    output
-}
-
-const MAX_FIND_RESULTS: usize = 100;
-
-/// Find files by glob-like pattern recursively.
-/// Uses the `ignore` crate for .gitignore-aware traversal.
-fn tool_find_files(args: &Value) -> String {
-    let pattern = match args.get("pattern").and_then(|v| v.as_str()) {
-        Some(p) => p,
-        None => return "Error: 'pattern' argument is required".to_string(),
-    };
-    let search_path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
-    let exclude = args.get("exclude").and_then(|v| v.as_str()).unwrap_or("");
-
-    let walker = build_walker(search_path, pattern, exclude);
-
-    let mut results = Vec::new();
-    for entry in walker.filter_map(|e| e.ok()) {
-        if results.len() >= MAX_FIND_RESULTS { break; }
-        if !entry.file_type().map_or(false, |ft| ft.is_file()) { continue; }
-        results.push(entry.path().to_string_lossy().to_string());
-    }
-
-    if results.is_empty() {
-        return format!("No files matching '{pattern}' found in {search_path}");
-    }
-
-    let total = results.len();
-    let truncated = total >= MAX_FIND_RESULTS;
-    let mut output = format!("Found {total} file(s) matching '{pattern}':\n");
-    for path in &results {
-        output.push_str(path);
-        output.push('\n');
-    }
-    if truncated {
-        output.push_str(&format!("... (results capped at {MAX_FIND_RESULTS})\n"));
-    }
-    output
-}
-
-/// Execute Python code by writing to a temp file and running it.
-/// This completely bypasses shell quoting — the code goes directly to a .py file.
-fn tool_execute_python(args: &Value) -> String {
-    let code = match args.get("code").and_then(|v| v.as_str()) {
-        Some(c) => c,
-        None => return "Error: 'code' argument is required".to_string(),
-    };
-
-    // Write code to a temp file
-    let temp_dir = std::env::temp_dir();
-    let temp_file = temp_dir.join(format!(
-        "llama_tool_{}.py",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos()
-    ));
-
-    if let Err(e) = std::fs::write(&temp_file, code) {
-        return format!("Error writing temp file: {e}");
-    }
-
-    // Run python on the temp file — no shell involved
-    let result = silent_command("python")
-        .arg(&temp_file)
-        .output();
-
-    // Clean up temp file
-    let _ = std::fs::remove_file(&temp_file);
-
-    match result {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            if !stderr.is_empty() {
-                format!("{stdout}\nStderr: {stderr}")
-            } else if stdout.is_empty() {
-                "Python script executed successfully (no output)".to_string()
-            } else {
-                stdout.to_string()
-            }
-        }
-        Err(e) => format!("Error running Python: {e}"),
-    }
-}
-
-/// List directory contents with name, size, and type.
-fn tool_list_directory(args: &Value) -> String {
-    let path = args
-        .get("path")
-        .and_then(|v| v.as_str())
-        .unwrap_or(".");
-
-    let entries = match std::fs::read_dir(path) {
-        Ok(entries) => entries,
-        Err(e) => return format!("Error reading directory '{path}': {e}"),
-    };
-
-    let mut lines = Vec::new();
-    lines.push(format!("Directory listing: {path}"));
-    lines.push(format!("{:<40} {:>10} {}", "Name", "Size", "Type"));
-    lines.push("-".repeat(60));
-
-    let mut sorted: Vec<_> = entries.filter_map(|e| e.ok()).collect();
-    sorted.sort_by_key(|e| e.file_name());
-
-    for entry in sorted {
-        let name = entry.file_name().to_string_lossy().to_string();
-        let metadata = entry.metadata();
-        let (size, file_type) = match metadata {
-            Ok(m) => {
-                let ft = if m.is_dir() {
-                    "<DIR>"
-                } else if m.is_symlink() {
-                    "<LINK>"
-                } else {
-                    "<FILE>"
-                };
-                (m.len(), ft)
-            }
-            Err(_) => (0, "<?>"),
-        };
-        lines.push(format!("{name:<40} {size:>10} {file_type}"));
-    }
-
-    lines.join("\n")
-}
-
-/// Show git status of a repository.
-fn tool_git_status(args: &Value) -> String {
-    let path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
-    let mut cmd = silent_command("git");
-    cmd.arg("status").arg("--short");
-    cmd.current_dir(path);
-    cmd.stdin(std::process::Stdio::null());
-    match cmd.output() {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            if !output.status.success() {
-                return format!("Error (exit {}): {}", output.status.code().unwrap_or(-1), stderr.trim());
-            }
-            if stdout.trim().is_empty() {
-                "Working tree clean (no changes)".to_string()
-            } else {
-                format!("Git status:\n{}", stdout)
-            }
-        }
-        Err(e) => format!("Error running git: {e}"),
-    }
-}
-
-/// Show git diff for files.
-fn tool_git_diff(args: &Value) -> String {
-    let path = args.get("path").and_then(|v| v.as_str());
-    let staged = args.get("staged").and_then(|v| {
-        v.as_bool().or_else(|| v.as_str().map(|s| s.eq_ignore_ascii_case("true")))
-    }).unwrap_or(false);
-
-    let mut cmd = silent_command("git");
-    cmd.arg("diff");
-    if staged {
-        cmd.arg("--staged");
-    }
-    if let Some(p) = path {
-        // If path looks like a repo dir, use current_dir; otherwise it's a file arg
-        if std::path::Path::new(p).is_dir() {
-            cmd.current_dir(p);
-        } else {
-            cmd.arg("--").arg(p);
-        }
-    }
-    cmd.stdin(std::process::Stdio::null());
-    match cmd.output() {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            if !output.status.success() {
-                return format!("Error (exit {}): {}", output.status.code().unwrap_or(-1), stderr.trim());
-            }
-            if stdout.trim().is_empty() {
-                "No differences found".to_string()
-            } else {
-                stdout.to_string()
-            }
-        }
-        Err(e) => format!("Error running git: {e}"),
-    }
-}
-
-/// Commit staged changes with a message.
-fn tool_git_commit(args: &Value) -> String {
-    let message = match args.get("message").and_then(|v| v.as_str()) {
-        Some(m) if !m.is_empty() => m,
-        _ => return "Error: 'message' argument is required".to_string(),
-    };
-    let all = args.get("all").and_then(|v| {
-        v.as_bool().or_else(|| v.as_str().map(|s| s.eq_ignore_ascii_case("true")))
-    }).unwrap_or(false);
-
-    let mut cmd = silent_command("git");
-    cmd.arg("commit");
-    if all {
-        cmd.arg("-a");
-    }
-    cmd.arg("-m").arg(message);
-    cmd.stdin(std::process::Stdio::null());
-    match cmd.output() {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            if !output.status.success() {
-                format!("Error (exit {}): {}\n{}", output.status.code().unwrap_or(-1), stderr.trim(), stdout.trim())
-            } else {
-                stdout.to_string()
-            }
-        }
-        Err(e) => format!("Error running git: {e}"),
-    }
-}
 
 /// Capture a screenshot — returns NativeToolResult with image bytes for vision pipeline.
 pub(crate) fn tool_take_screenshot_with_image(args: &Value) -> NativeToolResult {
@@ -2093,7 +922,7 @@ mod tests {
             r#"{{"name": "read_file", "arguments": {{"path": "{}"}}}}"#,
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
+        let result = dispatch_native_tool(&json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
         assert!(result.is_some());
         assert!(result.unwrap().text.contains("hello world"));
 
@@ -2107,7 +936,7 @@ mod tests {
             r#"{{"name": "write_file", "arguments": {{"path": "{}", "content": "test content"}}}}"#,
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
+        let result = dispatch_native_tool(&json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
         assert!(result.is_some());
         assert!(result.unwrap().text.contains("Written"));
         assert_eq!(std::fs::read_to_string(&temp).unwrap(), "test content");
@@ -2123,7 +952,7 @@ mod tests {
             "{{\n  \"name\": \"write_file\",\n  \"arguments\": {{\n    \"path\": \"{}\",\n    \"content\": \"{{\n  \\\"name\\\": \\\"test\\\",\n  \\\"version\\\": \\\"1.0.0\\\"\n}}\"\n  }}\n}}",
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
+        let result = dispatch_native_tool(&json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
         assert!(result.is_some(), "Should parse multiline JSON content: {json}");
         assert!(result.unwrap().text.contains("Written"));
         let content = std::fs::read_to_string(&temp).unwrap();
@@ -2145,7 +974,7 @@ line3"}}"#;
     #[test]
     fn test_dispatch_list_directory() {
         let json = r#"{"name": "list_directory", "arguments": {"path": "."}}"#;
-        let result = dispatch_native_tool(json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
+        let result = dispatch_native_tool(json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
         assert!(result.is_some());
         assert!(result.unwrap().text.contains("Directory listing"));
     }
@@ -2153,13 +982,13 @@ line3"}}"#;
     #[test]
     fn test_dispatch_unknown_tool_returns_none() {
         let json = r#"{"name": "unknown_tool", "arguments": {}}"#;
-        let result = dispatch_native_tool(json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
+        let result = dispatch_native_tool(json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
         assert!(result.is_none());
     }
 
     #[test]
     fn test_dispatch_non_json_returns_none() {
-        let result = dispatch_native_tool("ls -la", None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
+        let result = dispatch_native_tool("ls -la", None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
         assert!(result.is_none());
     }
 
@@ -2172,7 +1001,7 @@ line3"}}"#;
             r#"[{{"name": "read_file", "arguments": {{"path": "{}"}}}}]"#,
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
+        let result = dispatch_native_tool(&json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
         assert!(result.is_some());
         assert!(result.unwrap().text.contains("mistral test"));
 
@@ -2189,7 +1018,7 @@ line3"}}"#;
             r#"read_file,{{"path": "{}"}}"#,
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&input, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
+        let result = dispatch_native_tool(&input, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
         assert!(result.is_some(), "Should parse Mistral comma format");
         assert!(result.unwrap().text.contains("comma format test"));
 
@@ -2200,7 +1029,7 @@ line3"}}"#;
     fn test_dispatch_mistral_comma_execute_command() {
         // Devstral: execute_command,{"command": "echo hello"}
         let input = r#"execute_command,{"command": "echo hello"}"#;
-        let result = dispatch_native_tool(input, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
+        let result = dispatch_native_tool(input, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
         assert!(result.is_some(), "Should parse comma format execute_command");
         assert!(result.unwrap().text.contains("hello"));
     }
@@ -2215,7 +1044,7 @@ line3"}}"#;
             "<function=read_file> <parameter=path> {} </parameter> </function>",
             temp.display()
         );
-        let result = dispatch_native_tool(&input, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
+        let result = dispatch_native_tool(&input, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
         assert!(result.is_some(), "Should parse Llama3 XML format");
         assert!(result.unwrap().text.contains("xml format test"));
 
@@ -2229,7 +1058,7 @@ line3"}}"#;
             "<function=write_file> <parameter=path> {} </parameter> <parameter=content> hello world </parameter> </function>",
             temp.display()
         );
-        let result = dispatch_native_tool(&input, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
+        let result = dispatch_native_tool(&input, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
         assert!(result.is_some(), "Should parse Llama3 XML write_file");
         assert!(result.unwrap().text.contains("Written"));
         assert_eq!(std::fs::read_to_string(&temp).unwrap(), "hello world");
@@ -2241,7 +1070,7 @@ line3"}}"#;
     fn test_dispatch_name_json_format() {
         // Granite outputs: list_directory{"path": "."}
         let input = r#"list_directory{"path": "."}"#;
-        let result = dispatch_native_tool(input, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
+        let result = dispatch_native_tool(input, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
         assert!(result.is_some(), "Should parse name+JSON format");
         assert!(result.unwrap().text.contains("Directory listing"));
     }
@@ -2249,7 +1078,7 @@ line3"}}"#;
     #[test]
     fn test_execute_python_simple() {
         let json = r#"{"name": "execute_python", "arguments": {"code": "print('hello from python')"}}"#;
-        let result = dispatch_native_tool(json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
+        let result = dispatch_native_tool(json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
         assert!(result.is_some());
         let output = result.unwrap().text;
         // If python is available, should contain the output; if not, should contain an error
@@ -2265,7 +1094,7 @@ match = re.search(r'\$[\d,]+\.\d+', text)
 print(f"Found: {match.group()}" if match else "No match")"#;
 
         let args = json!({"code": code});
-        let result = tool_execute_python(&args);
+        let result = command_tools::tool_execute_python(&args);
         // If python is available
         if !result.contains("Error running Python") {
             assert!(result.contains("Found: $1,234.56"));
@@ -2293,7 +1122,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
         // Exact pattern GLM produces: multiline content + missing outer closing }
         let json = "{\"name\": \"write_file\", \"arguments\": {\"path\": \"/tmp/test-autoclose.txt\", \"content\": \"{\n  \\\"name\\\": \\\"test\\\",\n  \\\"version\\\": \\\"1.0.0\\\"\n}\"}}";
         // This should work (has both braces)
-        let result = dispatch_native_tool(json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
+        let result = dispatch_native_tool(json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
         assert!(result.is_some(), "Valid JSON should work: {:?}", result);
         let _ = std::fs::remove_file("/tmp/test-autoclose.txt");
 
@@ -2301,7 +1130,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
         let broken = "{\"name\": \"write_file\", \"arguments\": {\"path\": \"/tmp/test-autoclose2.txt\", \"content\": \"{\n  \\\"name\\\": \\\"test\\\",\n  \\\"version\\\": \\\"1.0.0\\\"\n}\"}}";
         // Remove last }
         let broken = &broken[..broken.len() - 1];
-        let result = dispatch_native_tool(broken, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
+        let result = dispatch_native_tool(broken, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
         assert!(result.is_some(), "Should auto-close missing brace and dispatch write_file");
         let output = result.unwrap().text;
         assert!(output.contains("written") || output.contains("success") || output.contains("Written"),
@@ -2337,7 +1166,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
             r#"{{"name":"write_file","arguments":{{"path":"{}","content":"<?php\nnamespace App\Models;\nuse Illuminate\Database\Eloquent\Model;\n\nclass Person extends Model {{\n    protected $fillable = ['name'];\n}}"}}}}"#,
             temp.display()
         );
-        let result = dispatch_native_tool(&json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
+        let result = dispatch_native_tool(&json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
         assert!(result.is_some(), "Should parse PHP namespace JSON via fixup chain");
         let output = result.unwrap().text;
         assert!(output.contains("Written"), "Should write file: {}", output);
@@ -2381,7 +1210,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
     #[test]
     fn test_dispatch_web_search_missing_query() {
         let json = r#"{"name": "web_search", "arguments": {}}"#;
-        let result = dispatch_native_tool(json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
+        let result = dispatch_native_tool(json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
         assert!(result.is_some());
         assert!(result.unwrap().text.contains("Error"));
     }
@@ -2389,7 +1218,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
     #[test]
     fn test_dispatch_web_fetch_missing_url() {
         let json = r#"{"name": "web_fetch", "arguments": {}}"#;
-        let result = dispatch_native_tool(json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None);
+        let result = dispatch_native_tool(json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
         assert!(result.is_some());
         assert!(result.unwrap().text.contains("Error"));
     }
@@ -2406,4 +1235,3 @@ print(f"Found: {match.group()}" if match else "No match")"#;
         assert!(text.contains("Search results for"), "Should have header");
     }
 }
-

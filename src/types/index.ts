@@ -1,3 +1,5 @@
+import type { TimingInfo } from '../utils/chatTransport';
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -7,7 +9,7 @@ export interface Message {
   /** Base64 image data URIs attached to this message (user messages only). */
   image_data?: string[];
   /** Generation timing metrics (assistant messages only, set after completion). */
-  timings?: import('../utils/chatTransport').TimingInfo;
+  timings?: TimingInfo;
 }
 
 /** Dynamic tag pair for per-model tag configuration. */
@@ -65,13 +67,13 @@ export interface SamplerConfig {
   top_n_sigma?: number;
   // Advanced context params
   flash_attention?: boolean;
-  cache_type_k?: string;   // "f16" | "q8_0" | "q4_0"
-  cache_type_v?: string;   // "f16" | "q8_0" | "q4_0"
-  n_batch?: number;        // default 2048
+  cache_type_k?: string; // "f16" | "q8_0" | "q4_0"
+  cache_type_v?: string; // "f16" | "q8_0" | "q4_0"
+  n_batch?: number; // default 2048
   model_path?: string;
   system_prompt?: string;
   context_size?: number;
-  gpu_layers?: number;  // Number of layers to offload to GPU
+  gpu_layers?: number; // Number of layers to offload to GPU
   // Tool tag overrides (undefined = use auto-detected)
   tool_tag_exec_open?: string;
   tool_tag_exec_close?: string;
@@ -80,20 +82,20 @@ export interface SamplerConfig {
   // App settings
   web_search_provider?: string;
   web_search_api_key?: string;
-  web_browser_backend?: string;  // "chrome" | "chrome-headless-shell" | "agent-browser" | "none"
+  web_browser_backend?: string; // "chrome" | "chrome-headless-shell" | "agent-browser" | "none"
   models_directory?: string;
   // Hardware / context / sampler params
-  seed?: number;           // -1 = random
-  n_ubatch?: number;       // default 512
-  n_threads?: number;      // 0 = auto
+  seed?: number; // -1 = random
+  n_ubatch?: number; // default 512
+  n_threads?: number; // 0 = auto
   n_threads_batch?: number; // 0 = auto
   rope_freq_base?: number; // 0 = auto
   rope_freq_scale?: number; // 0 = auto
-  use_mlock?: boolean;     // false
-  use_mmap?: boolean;      // true
-  main_gpu?: number;       // 0
-  split_mode?: string;     // "layer" | "row" | "none"
-  use_rtk?: boolean;       // RTK output compression for tool commands
+  use_mlock?: boolean; // false
+  use_mmap?: boolean; // true
+  main_gpu?: number; // 0
+  split_mode?: string; // "layer" | "row" | "none"
+  use_rtk?: boolean; // RTK output compression for tool commands
   use_htmd?: boolean; // htmd web fetch (better markdown extraction)
   // Vision projector override (auto-detected if not specified)
   mmproj_path?: string;
@@ -106,9 +108,9 @@ export interface SamplerConfig {
   provider_api_keys?: string;
 }
 
-export type SamplerType = 
+export type SamplerType =
   | 'Greedy'
-  | 'Temperature' 
+  | 'Temperature'
   | 'Mirostat'
   | 'TopP'
   | 'TopK'
@@ -138,11 +140,11 @@ export interface ModelMetadata {
   parameters: string;
   quantization: string;
   file_size: string;
-  file_size_gb?: number;  // File size in GB for calculations
+  file_size_gb?: number; // File size in GB for calculations
   context_length: string;
   file_path: string;
-  estimated_layers?: number;  // Estimated total layers based on model size
-  tool_format?: ToolFormat;  // Detected tool calling format
+  estimated_layers?: number; // Estimated total layers based on model size
+  tool_format?: ToolFormat; // Detected tool calling format
 
   // Core model information
   general_name?: string;
@@ -167,11 +169,11 @@ export interface ModelMetadata {
 
   // Architecture details (structured for memory calculations)
   architecture_details?: {
-    block_count?: number;  // Total layer count
-    embedding_length?: number;  // Embedding dimension
+    block_count?: number; // Total layer count
+    embedding_length?: number; // Embedding dimension
     feed_forward_length?: number;
     attention_head_count?: number;
-    attention_head_count_kv?: number;  // KV heads for memory calculation
+    attention_head_count_kv?: number; // KV heads for memory calculation
     layer_norm_epsilon?: number;
     rope_dimension_count?: number;
     rope_freq_base?: number;
@@ -179,7 +181,7 @@ export interface ModelMetadata {
 
   // Legacy architecture details (string format)
   embedding_length?: string;
-  block_count?: string;  // Actual layer count
+  block_count?: string; // Actual layer count
   feed_forward_length?: string;
   attention_head_count?: string;
   attention_head_count_kv?: string;

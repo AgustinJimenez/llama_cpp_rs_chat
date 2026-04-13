@@ -1,4 +1,5 @@
 import { createContext, useContext, useMemo, type ReactNode, type MutableRefObject } from 'react';
+
 import { useChat } from '../hooks/useChat';
 import type { Message } from '../types';
 import type { TimingInfo } from '../utils/chatTransport';
@@ -23,25 +24,35 @@ interface ChatContextValue {
 
 const ChatContext = createContext<ChatContextValue | null>(null);
 
-export function ChatProvider({ children }: { children: ReactNode }) {
+export const ChatProvider = ({ children }: { children: ReactNode }) => {
   const chat = useChat();
 
   // Individual field deps are intentional — useChat() returns a new object every render,
   // so using `chat` directly would defeat memoization.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const value = useMemo(() => chat, [
-    chat.messages, chat.isLoading, chat.error,
-    chat.sendMessage, chat.editMessage, chat.regenerateFrom, chat.stopGeneration,
-    chat.clearMessages, chat.loadConversation,
-    chat.currentConversationId, chat.tokensUsed, chat.maxTokens, chat.lastTimings, chat.streamStatus, chat.providerRef,
-  ]);
-
-  return (
-    <ChatContext.Provider value={value}>
-      {children}
-    </ChatContext.Provider>
+  const value = useMemo(
+    () => chat,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- individual field deps intentional, see comment above
+    [
+      chat.messages,
+      chat.isLoading,
+      chat.error,
+      chat.sendMessage,
+      chat.editMessage,
+      chat.regenerateFrom,
+      chat.stopGeneration,
+      chat.clearMessages,
+      chat.loadConversation,
+      chat.currentConversationId,
+      chat.tokensUsed,
+      chat.maxTokens,
+      chat.lastTimings,
+      chat.streamStatus,
+      chat.providerRef,
+    ],
   );
-}
+
+  return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
+};
 
 // eslint-disable-next-line react-refresh/only-export-components
 export function useChatContext() {

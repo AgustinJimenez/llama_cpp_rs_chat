@@ -8,12 +8,22 @@ import type { ModelMetadata } from '@/types';
  * Hybrid models (e.g., Qwen3.5-35B-A3B) interleave attention layers with
  * SSM/DeltaNet layers — only the attention layers allocate KV cache.
  */
+const DEFAULT_TOTAL_LAYERS = 48;
+
+// KV cache bytes per element for each quantization type
+const CACHE_BYTES_Q4 = 0.5625; // 4.5 bits = 0.5625 bytes (4-bit + 0.5-bit scale overhead)
+const CACHE_BYTES_Q5 = 0.6875; // 5.5 bits
+const CACHE_BYTES_Q8 = 1.0625; // 8.5 bits (8-bit + 0.5-bit scale)
+const CACHE_BYTES_TURBO4 = 0.53; // ~3.8x compression vs f16
+const CACHE_BYTES_TURBO3 = 0.41; // ~4.9x compression vs f16
+const CACHE_BYTES_TURBO2 = 0.3125; // ~6.4x compression vs f16
+
 export function getKvCacheLayers(meta: ModelMetadata): number {
   const totalLayers =
     meta.architecture_details?.block_count ||
     parseInt(meta.block_count || '0') ||
     meta.estimated_layers ||
-    48;
+    DEFAULT_TOTAL_LAYERS;
 
   const arch = (meta.architecture || '').toLowerCase();
   const gguf = meta.gguf_metadata || {};
@@ -44,23 +54,23 @@ export function getCacheBytesPerElement(cacheType: string): number {
   switch (cacheType.toLowerCase()) {
     case 'q4_0':
     case 'q4_1':
-      return 0.5625; // 4.5 bits = 0.5625 bytes (4-bit + 0.5-bit scale overhead)
+      return CACHE_BYTES_Q4;
     case 'q5_0':
     case 'q5_1':
-      return 0.6875; // 5.5 bits
+      return CACHE_BYTES_Q5;
     case 'q8_0':
-      return 1.0625; // 8.5 bits (8-bit + 0.5-bit scale)
+      return CACHE_BYTES_Q8;
     case 'f32':
       return 4.0;
     case 'turbo4':
     case 'turbo4_0':
-      return 0.53; // ~3.8x compression vs f16
+      return CACHE_BYTES_TURBO4;
     case 'turbo3':
     case 'turbo3_0':
-      return 0.41; // ~4.9x compression vs f16
+      return CACHE_BYTES_TURBO3;
     case 'turbo2':
     case 'turbo2_0':
-      return 0.3125; // ~6.4x compression vs f16
+      return CACHE_BYTES_TURBO2;
     case 'f16':
     default:
       return 2.0;

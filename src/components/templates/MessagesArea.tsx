@@ -1,12 +1,16 @@
-import { useRef, useCallback, useEffect, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ArrowDown } from 'lucide-react';
+import { useRef, useCallback, useEffect, useState } from 'react';
+
+const ESTIMATED_ROW_HEIGHT_PX = 120;
+const SCROLL_BOTTOM_THRESHOLD_PX = 80;
+
+import { useChatContext } from '../../contexts/ChatContext';
+import { useUIContext } from '../../hooks/useUIContext';
 import { LoadingIndicator } from '../atoms';
 import { MessageBubble } from '../organisms';
-import { useChatContext } from '../../contexts/ChatContext';
-import { useUIContext } from '../../contexts/UIContext';
 
-export function MessagesArea() {
+export const MessagesArea = () => {
   const { messages, isLoading, editMessage, regenerateFrom } = useChatContext();
   const { viewMode } = useUIContext();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -21,7 +25,7 @@ export function MessagesArea() {
   const virtualizer = useVirtualizer({
     count: itemCount,
     getScrollElement: () => containerRef.current,
-    estimateSize: () => 120,
+    estimateSize: () => ESTIMATED_ROW_HEIGHT_PX,
     overscan: 5,
   });
 
@@ -63,7 +67,7 @@ export function MessagesArea() {
     }
 
     const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    if (distFromBottom < 80) {
+    if (distFromBottom < SCROLL_BOTTOM_THRESHOLD_PX) {
       autoScrollRef.current = true;
       setShowScrollDown(false);
     } else {
@@ -90,50 +94,50 @@ export function MessagesArea() {
         data-testid="messages-container"
         onScroll={handleScroll}
       >
-      <div className="max-w-3xl mx-auto px-6 py-6">
-        <div
-          style={{
-            height: virtualizer.getTotalSize(),
-            position: 'relative',
-            width: '100%',
-          }}
-        >
-          {virtualizer.getVirtualItems().map((virtualRow) => (
-            <div
-              key={virtualRow.key}
-              ref={virtualizer.measureElement}
-              data-index={virtualRow.index}
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                transform: `translateY(${virtualRow.start}px)`,
-              }}
-            >
-              <div className="pb-6">
-                {virtualRow.index < messages.length ? (
-                  <MessageBubble
-                    message={messages[virtualRow.index]}
-                    viewMode={viewMode}
-                    isStreaming={isLoading ? virtualRow.index === messages.length - 1 : undefined}
-                    messageIndex={virtualRow.index}
-                    onEditMessage={editMessage}
-                    onRegenerate={regenerateFrom}
-                    isGenerating={isLoading}
-                    isLastMessage={virtualRow.index === messages.length - 1}
-                  />
-                ) : (
-                  <LoadingIndicator />
-                )}
+        <div className="max-w-3xl mx-auto px-6 py-6">
+          <div
+            style={{
+              height: virtualizer.getTotalSize(),
+              position: 'relative',
+              width: '100%',
+            }}
+          >
+            {virtualizer.getVirtualItems().map((virtualRow) => (
+              <div
+                key={virtualRow.key}
+                ref={virtualizer.measureElement}
+                data-index={virtualRow.index}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  transform: `translateY(${virtualRow.start}px)`,
+                }}
+              >
+                <div className="pb-6">
+                  {virtualRow.index < messages.length ? (
+                    <MessageBubble
+                      message={messages[virtualRow.index]}
+                      viewMode={viewMode}
+                      isStreaming={isLoading ? virtualRow.index === messages.length - 1 : undefined}
+                      messageIndex={virtualRow.index}
+                      onEditMessage={editMessage}
+                      onRegenerate={regenerateFrom}
+                      isGenerating={isLoading}
+                      isLastMessage={virtualRow.index === messages.length - 1}
+                    />
+                  ) : (
+                    <LoadingIndicator />
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
-      </div>
 
-      {showScrollDown && (
+      {showScrollDown ? (
         <button
           onClick={scrollToBottom}
           className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10
@@ -145,7 +149,7 @@ export function MessagesArea() {
         >
           <ArrowDown size={18} />
         </button>
-      )}
+      ) : null}
     </div>
   );
-}
+};

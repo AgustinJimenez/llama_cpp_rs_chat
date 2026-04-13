@@ -1,26 +1,37 @@
+import { Menu } from 'lucide-react';
 import React, { useCallback, useEffect, Suspense } from 'react';
 import { Toaster } from 'react-hot-toast';
-import { ChatHeader, Sidebar } from './components/organisms';
-import { ProviderSelector } from './components/organisms/ProviderSelector';
-import { ConversationLog } from './components/organisms/ConversationLog';
-import { MessagesArea } from './components/templates';
+
 import { WelcomeMessage, ErrorBoundary } from './components/atoms';
 import { ConnectionBanner, MessageInput } from './components/molecules';
-import { useModelContext } from './contexts/ModelContext';
-import { useChatContext } from './contexts/ChatContext';
-import { useUIContext } from './contexts/UIContext';
-import { Menu } from 'lucide-react';
-import type { SamplerConfig } from './types';
+import { ChatHeader, Sidebar } from './components/organisms';
+import { ConversationLog } from './components/organisms/ConversationLog';
 import { DownloadFloat } from './components/organisms/DownloadFloat';
+import { ProviderSelector } from './components/organisms/ProviderSelector';
+import { MessagesArea } from './components/templates';
+import { useChatContext } from './contexts/ChatContext';
+import { useModelContext } from './contexts/ModelContext';
+import { useUIContext } from './hooks/useUIContext';
+import type { SamplerConfig } from './types';
 import { isTauriEnv } from './utils/tauri';
 
 // Lazy-load overlay components (only rendered when opened)
-const RightSidebar = React.lazy(() => import('./components/organisms/RightSidebar').then(m => ({ default: m.RightSidebar })));
-const ConversationConfigSidebar = React.lazy(() => import('./components/organisms/ConversationConfigSidebar').then(m => ({ default: m.ConversationConfigSidebar })));
-const AppSettingsModal = React.lazy(() => import('./components/organisms/AppSettingsModal').then(m => ({ default: m.AppSettingsModal })));
-const ModelConfigModal = React.lazy(() => import('./components/organisms/model-config').then(m => ({ default: m.ModelConfigModal })));
+const RightSidebar = React.lazy(() =>
+  import('./components/organisms/RightSidebar').then((m) => ({ default: m.RightSidebar })),
+);
+const ConversationConfigSidebar = React.lazy(() =>
+  import('./components/organisms/ConversationConfigSidebar').then((m) => ({
+    default: m.ConversationConfigSidebar,
+  })),
+);
+const AppSettingsModal = React.lazy(() =>
+  import('./components/organisms/AppSettingsModal').then((m) => ({ default: m.AppSettingsModal })),
+);
+const ModelConfigModal = React.lazy(() =>
+  import('./components/organisms/model-config').then((m) => ({ default: m.ModelConfigModal })),
+);
 
-function App() {
+const App = () => {
   const { status: modelStatus, loadModel, unloadModel, forceUnload } = useModelContext();
   const { clearMessages } = useChatContext();
   const { closeModelConfig, openAppSettings } = useUIContext();
@@ -28,20 +39,26 @@ function App() {
   // Listen for Tauri menu/tray events
   useEffect(() => {
     if (!isTauriEnv()) return;
-    let unlisten: Array<() => void> = [];
+    const unlisten: Array<() => void> = [];
     (async () => {
       const { listen } = await import('@tauri-apps/api/event');
-      unlisten.push(await listen('new-chat', () => {
-        clearMessages();
-        requestAnimationFrame(() => {
-          document.querySelector<HTMLTextAreaElement>('[data-testid="message-input"]')?.focus();
-        });
-      }));
-      unlisten.push(await listen('open-settings', () => {
-        openAppSettings();
-      }));
+      unlisten.push(
+        await listen('new-chat', () => {
+          clearMessages();
+          requestAnimationFrame(() => {
+            document.querySelector<HTMLTextAreaElement>('[data-testid="message-input"]')?.focus();
+          });
+        }),
+      );
+      unlisten.push(
+        await listen('open-settings', () => {
+          openAppSettings();
+        }),
+      );
     })();
-    return () => { unlisten.forEach(fn => fn()); };
+    return () => {
+      unlisten.forEach((fn) => fn());
+    };
   }, [clearMessages, openAppSettings]);
 
   const handleNewConversation = useCallback(() => {
@@ -52,12 +69,15 @@ function App() {
     });
   }, [clearMessages]);
 
-  const handleModelConfigSave = useCallback((config: SamplerConfig) => {
-    if (config.model_path) {
-      loadModel(config.model_path, config);
-    }
-    closeModelConfig();
-  }, [loadModel, closeModelConfig]);
+  const handleModelConfigSave = useCallback(
+    (config: SamplerConfig) => {
+      if (config.model_path) {
+        loadModel(config.model_path, config);
+      }
+      closeModelConfig();
+    },
+    [loadModel, closeModelConfig],
+  );
 
   const handleModelUnload = useCallback(async () => {
     await unloadModel();
@@ -69,19 +89,19 @@ function App() {
     clearMessages();
   }, [forceUnload, clearMessages]);
 
-  const handleReloadModel = useCallback((modelPath: string, config: SamplerConfig) => {
-    loadModel(modelPath, config);
-  }, [loadModel]);
+  const handleReloadModel = useCallback(
+    (modelPath: string, config: SamplerConfig) => {
+      loadModel(modelPath, config);
+    },
+    [loadModel],
+  );
 
   return (
     <div className="h-screen bg-background flex" data-testid="chat-app">
       <Sidebar onNewChat={handleNewConversation} />
 
       <ErrorBoundary>
-        <MainContent
-          handleModelUnload={handleModelUnload}
-          handleForceUnload={handleForceUnload}
-        />
+        <MainContent handleModelUnload={handleModelUnload} handleForceUnload={handleForceUnload} />
       </ErrorBoundary>
 
       <Overlays
@@ -134,19 +154,27 @@ function App() {
       />
     </div>
   );
-}
+};
 
 /** Main content area: header + messages/welcome + input */
-function MainContent({
+const MainContent = ({
   handleModelUnload,
   handleForceUnload,
 }: {
   handleModelUnload: () => void;
   handleForceUnload: () => void;
-}) {
-  const { status: modelStatus, activeProvider, activeProviderModel, setRemoteProvider, setLocalProvider } = useModelContext();
-  const { messages, lastTimings, tokensUsed, maxTokens, streamStatus, providerRef } = useChatContext();
-  const { isProviderSelectorOpen, closeProviderSelector, openModelConfig, toggleMobileSidebar } = useUIContext();
+}) => {
+  const {
+    status: modelStatus,
+    activeProvider,
+    activeProviderModel,
+    setRemoteProvider,
+    setLocalProvider,
+  } = useModelContext();
+  const { messages, lastTimings, tokensUsed, maxTokens, streamStatus, providerRef } =
+    useChatContext();
+  const { isProviderSelectorOpen, closeProviderSelector, openModelConfig, toggleMobileSidebar } =
+    useUIContext();
 
   // Sync provider ref with model context
   if (providerRef) {
@@ -173,11 +201,8 @@ function MainContent({
           currentProvider={activeProvider}
         />
         {/* Header hidden during loading with no conversation — WelcomeMessage shows the loading progress instead (only one loading indicator at a time) */}
-        {(messages.length > 0 || modelStatus.loaded || activeProvider !== 'local') ? (
-          <ChatHeader
-            onModelUnload={handleModelUnload}
-            onForceUnload={handleForceUnload}
-          />
+        {messages.length > 0 || modelStatus.loaded || activeProvider !== 'local' ? (
+          <ChatHeader onModelUnload={handleModelUnload} onForceUnload={handleForceUnload} />
         ) : (
           /* Mobile hamburger when header is hidden */
           <button
@@ -192,7 +217,7 @@ function MainContent({
 
         {messages.length === 0 ? (
           <WelcomeMessage>
-            {(modelStatus.loaded || activeProvider !== 'local') ? (
+            {modelStatus.loaded || activeProvider !== 'local' ? (
               <div className="w-full max-w-2xl px-3 md:px-6">
                 <MessageInput />
               </div>
@@ -202,10 +227,18 @@ function MainContent({
           <>
             <MessagesArea />
             <ConversationLog />
-            {(modelStatus.loaded || activeProvider !== 'local') ? (
-              <div className="px-3 md:px-6 pb-4 pt-2 animate-in slide-in-from-bottom-4 duration-300" data-testid="input-container">
+            {modelStatus.loaded || activeProvider !== 'local' ? (
+              <div
+                className="px-3 md:px-6 pb-4 pt-2 animate-in slide-in-from-bottom-4 duration-300"
+                data-testid="input-container"
+              >
                 <div className="max-w-3xl mx-auto">
-                  <MessageInput timings={lastTimings} tokensUsed={tokensUsed} maxTokens={maxTokens} streamStatus={streamStatus} />
+                  <MessageInput
+                    timings={lastTimings}
+                    tokensUsed={tokensUsed}
+                    maxTokens={maxTokens}
+                    streamStatus={streamStatus}
+                  />
                 </div>
               </div>
             ) : null}
@@ -214,10 +247,10 @@ function MainContent({
       </div>
     </div>
   );
-}
+};
 
 /** Sidebars and modals that overlay the main content */
-function Overlays({
+const Overlays = ({
   modelPath,
   onModelConfigSave,
   onReloadModel,
@@ -225,8 +258,17 @@ function Overlays({
   modelPath?: string;
   onModelConfigSave: (config: SamplerConfig) => void;
   onReloadModel: (modelPath: string, config: SamplerConfig) => void;
-}) {
-  const { isRightSidebarOpen, closeRightSidebar, isConfigSidebarOpen, closeConfigSidebar, isAppSettingsOpen, closeAppSettings, isModelConfigOpen, closeModelConfig } = useUIContext();
+}) => {
+  const {
+    isRightSidebarOpen,
+    closeRightSidebar,
+    isConfigSidebarOpen,
+    closeConfigSidebar,
+    isAppSettingsOpen,
+    closeAppSettings,
+    isModelConfigOpen,
+    closeModelConfig,
+  } = useUIContext();
   const { currentConversationId } = useChatContext();
 
   return (
@@ -273,6 +315,6 @@ function Overlays({
       <DownloadFloat />
     </>
   );
-}
+};
 
 export default App;

@@ -1,4 +1,9 @@
 import { useMemo } from 'react';
+
+const DEFAULT_TOTAL_LAYERS = 48;
+const DEFAULT_Q_HEADS = 32;
+const DEFAULT_EMBEDDING_LENGTH = 4096;
+
 import type { MemoryBreakdown } from '@/components/organisms/model-config/MemoryVisualization';
 import type { ModelMetadata } from '@/types';
 import { getKvCacheLayers, calculateKvCacheGb } from '@/utils/vramUtils';
@@ -25,8 +30,8 @@ interface ArchitectureParams {
   qHeads: number;
   kvHeads: number;
   embeddingLength: number;
-  headDimK?: number;  // Explicit key head dim from GGUF (overrides embeddingLength/qHeads)
-  headDimV?: number;  // Explicit value head dim from GGUF
+  headDimK?: number; // Explicit key head dim from GGUF (overrides embeddingLength/qHeads)
+  headDimV?: number; // Explicit value head dim from GGUF
   slidingWindow?: number;
   perLayerKvHeads?: number[];
 }
@@ -50,18 +55,18 @@ function parseFileSizeString(value: string | undefined): number | null {
   return num;
 }
 
-/** Extract architecture parameters from model metadata with fallbacks */
-export function extractArchitectureParams(meta: ModelMetadata): ArchitectureParams {
+/** Extract core layer/head/embedding params from metadata with fallbacks */
+function extractCoreParams(meta: ModelMetadata) {
   const totalLayers =
     meta.architecture_details?.block_count ||
     parseField(meta.block_count) ||
     meta.estimated_layers ||
-    48;
+    DEFAULT_TOTAL_LAYERS;
 
   const qHeads =
     meta.architecture_details?.attention_head_count ||
     parseField(meta.attention_head_count) ||
-    32;
+    DEFAULT_Q_HEADS;
 
   const kvHeads =
     meta.architecture_details?.attention_head_count_kv ||
@@ -71,14 +76,15 @@ export function extractArchitectureParams(meta: ModelMetadata): ArchitecturePara
   const embeddingLength =
     meta.architecture_details?.embedding_length ||
     parseField(meta.embedding_length) ||
-    4096;
+    DEFAULT_EMBEDDING_LENGTH;
 
-  const kvAttentionLayers = getKvCacheLayers(meta);
+  return { totalLayers, qHeads, kvHeads, embeddingLength };
+}
 
-  // Check for explicit key/value head dimensions in GGUF metadata.
-  // Some architectures (e.g. Qwen3.5-35B-A3B) have key_length=256 but
-  // embeddingLength/qHeads=128, making the derived headDim wrong by 2x.
-  const gguf = meta.gguf_metadata || {};
+/** Extract explicit key/value head dimensions from GGUF metadata.
+ *  Some architectures (e.g. Qwen3.5-35B-A3B) have key_length=256 but
+ *  embeddingLength/qHeads=128, making the derived headDim wrong by 2x. */
+function extractHeadDimensions(gguf: Record<string, unknown>) {
   let headDimK: number | undefined;
   let headDimV: number | undefined;
   for (const key of Object.keys(gguf)) {
@@ -91,8 +97,11 @@ export function extractArchitectureParams(meta: ModelMetadata): ArchitecturePara
       if (v > 0 && isFinite(v)) headDimV = v;
     }
   }
+  return { headDimK, headDimV };
+}
 
-  // SWA: extract sliding_window and per-layer KV head counts
+/** Extract SWA (sliding window attention) params and per-layer KV head counts */
+function extractSwaParams(gguf: Record<string, unknown>) {
   let slidingWindow: number | undefined;
   let perLayerKvHeads: number[] | undefined;
   for (const key of Object.keys(gguf)) {
@@ -103,10 +112,20 @@ export function extractArchitectureParams(meta: ModelMetadata): ArchitecturePara
     if (key.endsWith('.attention.head_count_kv') || key === 'attention.head_count_kv') {
       const val = gguf[key];
       if (Array.isArray(val)) {
-        perLayerKvHeads = val.map(Number).filter(n => isFinite(n));
+        perLayerKvHeads = val.map(Number).filter((n) => isFinite(n));
       }
     }
   }
+  return { slidingWindow, perLayerKvHeads };
+}
+
+/** Extract architecture parameters from model metadata with fallbacks */
+export function extractArchitectureParams(meta: ModelMetadata): ArchitectureParams {
+  const { totalLayers, qHeads, kvHeads, embeddingLength } = extractCoreParams(meta);
+  const kvAttentionLayers = getKvCacheLayers(meta);
+  const gguf = meta.gguf_metadata || {};
+  const { headDimK, headDimV } = extractHeadDimensions(gguf);
+  const { slidingWindow, perLayerKvHeads } = extractSwaParams(gguf);
 
   return {
     totalLayers,
@@ -159,8 +178,18 @@ export function useMemoryCalculation({
       return EMPTY_BREAKDOWN(availableVramGb, availableRamGb);
     }
 
-    const { totalLayers, kvAttentionLayers, modelSizeGb, qHeads, kvHeads, embeddingLength, headDimK, headDimV, slidingWindow, perLayerKvHeads } =
-      extractArchitectureParams(modelMetadata);
+    const {
+      totalLayers,
+      kvAttentionLayers,
+      modelSizeGb,
+      qHeads,
+      kvHeads,
+      embeddingLength,
+      headDimK,
+      headDimV,
+      slidingWindow,
+      perLayerKvHeads,
+    } = extractArchitectureParams(modelMetadata);
 
     // Calculate how much of model goes to GPU vs CPU
     const gpuLayersClamped = Math.min(Math.max(gpuLayers, 0), totalLayers);
@@ -170,9 +199,17 @@ export function useMemoryCalculation({
     const modelCpuSizeGb = modelSizeGb * (1 - gpuFraction);
 
     const kvCacheTotalGb = calculateKvCacheGb(
-      contextSize, kvAttentionLayers, kvHeads, qHeads, embeddingLength,
-      cacheTypeK, cacheTypeV, headDimK, headDimV,
-      slidingWindow, perLayerKvHeads,
+      contextSize,
+      kvAttentionLayers,
+      kvHeads,
+      qHeads,
+      embeddingLength,
+      cacheTypeK,
+      cacheTypeV,
+      headDimK,
+      headDimV,
+      slidingWindow,
+      perLayerKvHeads,
     );
     // Split KV cache the same way as the model: layers on GPU keep their
     // KV state on GPU, layers on CPU keep theirs on CPU. Without this split,
@@ -209,5 +246,14 @@ export function useMemoryCalculation({
         overcommitted: availableRamGb > 0 && ramUsed > availableRamGb,
       },
     };
-  }, [modelMetadata, gpuLayers, contextSize, availableVramGb, availableRamGb, overheadGb, cacheTypeK, cacheTypeV]);
+  }, [
+    modelMetadata,
+    gpuLayers,
+    contextSize,
+    availableVramGb,
+    availableRamGb,
+    overheadGb,
+    cacheTypeK,
+    cacheTypeV,
+  ]);
 }

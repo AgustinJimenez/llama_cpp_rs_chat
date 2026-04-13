@@ -1,4 +1,5 @@
 import type { ChatRequest } from '../types';
+
 import { isTauriEnv } from './tauri';
 
 export interface TokenBreakdown {
@@ -22,8 +23,20 @@ export interface TimingInfo {
 }
 
 export interface StreamingCallbacks {
-  onToken: (token: string, tokensUsed?: number, maxTokens?: number, genTokPerSec?: number, genTokens?: number) => void;
-  onComplete: (messageId: string, conversationId: string, tokensUsed?: number, maxTokens?: number, timings?: TimingInfo) => void;
+  onToken: (
+    token: string,
+    tokensUsed?: number,
+    maxTokens?: number,
+    genTokPerSec?: number,
+    genTokens?: number,
+  ) => void;
+  onComplete: (
+    messageId: string,
+    conversationId: string,
+    tokensUsed?: number,
+    maxTokens?: number,
+    timings?: TimingInfo,
+  ) => void;
   onError: (error: string) => void;
   onStatus?: (message: string) => void;
 }
@@ -33,7 +46,7 @@ export interface ChatTransport {
   streamMessage: (
     request: ChatRequest,
     callbacks: StreamingCallbacks,
-    abortSignal?: AbortSignal
+    abortSignal?: AbortSignal,
   ) => Promise<void>;
 }
 
@@ -57,13 +70,25 @@ function handleStreamMessage(
   request: ChatRequest,
   state: StreamState,
   callbacks: {
-    onToken: (token: string, tokensUsed?: number, maxTokens?: number, genTokPerSec?: number, genTokens?: number) => void;
-    onComplete: (messageId: string, conversationId: string, tokensUsed?: number, maxTokens?: number, timings?: TimingInfo) => void;
+    onToken: (
+      token: string,
+      tokensUsed?: number,
+      maxTokens?: number,
+      genTokPerSec?: number,
+      genTokens?: number,
+    ) => void;
+    onComplete: (
+      messageId: string,
+      conversationId: string,
+      tokensUsed?: number,
+      maxTokens?: number,
+      timings?: TimingInfo,
+    ) => void;
     onError: (error: string) => void;
     onStatus?: (message: string) => void;
   },
   settle: (error?: Error) => void,
-  markAborted: () => void
+  markAborted: () => void,
 ) {
   try {
     const message = JSON.parse(rawData);
@@ -76,13 +101,20 @@ function handleStreamMessage(
     if (message.type === 'token') {
       if (message.tokens_used !== undefined) state.lastTokensUsed = message.tokens_used;
       if (message.max_tokens !== undefined) state.lastMaxTokens = message.max_tokens;
-      callbacks.onToken(message.token, message.tokens_used, message.max_tokens, message.gen_tok_per_sec, message.gen_tokens);
+      callbacks.onToken(
+        message.token,
+        message.tokens_used,
+        message.max_tokens,
+        message.gen_tok_per_sec,
+        message.gen_tokens,
+      );
       return;
     }
 
     if (message.type === 'done') {
       state.isCompleted = true;
-      const conversationId = message.conversation_id || request.conversation_id || crypto.randomUUID();
+      const conversationId =
+        message.conversation_id || request.conversation_id || crypto.randomUUID();
       const timings: TimingInfo = {
         promptTokPerSec: message.prompt_tok_per_sec,
         genTokPerSec: message.gen_tok_per_sec,
@@ -93,7 +125,13 @@ function handleStreamMessage(
         finishReason: message.finish_reason,
         tokenBreakdown: message.token_breakdown,
       };
-      callbacks.onComplete(crypto.randomUUID(), conversationId, state.lastTokensUsed, state.lastMaxTokens, timings);
+      callbacks.onComplete(
+        crypto.randomUUID(),
+        conversationId,
+        state.lastTokensUsed,
+        state.lastMaxTokens,
+        timings,
+      );
       settle();
       return;
     }
@@ -122,7 +160,7 @@ function handleStreamMessage(
 function streamViaWebSocket(
   request: ChatRequest,
   { onToken, onComplete, onError }: StreamingCallbacks,
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
 ): Promise<void> {
   const safeOnToken = onToken ?? (() => {});
   const safeOnComplete = onComplete ?? (() => {});
@@ -196,7 +234,7 @@ function streamViaWebSocket(
         markAborted();
         return;
       }
-      console.log('[WS_STREAM] Connected, sending request');
+      console.log('[WS_STREAM] Connected, sending request'); // eslint-disable-line no-console
       ws.send(JSON.stringify(request));
       resetGenTimer();
     };
@@ -209,7 +247,7 @@ function streamViaWebSocket(
         state,
         { onToken: safeOnToken, onComplete: safeOnComplete, onError: safeOnError },
         settle,
-        markAborted
+        markAborted,
       );
     };
 
@@ -241,11 +279,11 @@ function streamViaWebSocket(
       }
       if (!state.isCompleted && event.code !== 1000) {
         const errorMessage = `Connection closed unexpectedly: ${event.reason || 'Unknown reason'}`;
-        console.error(`[WS_STREAM] Closed unexpectedly: code=${event.code} reason=${event.reason}`);
+        console.error(`[WS_STREAM] Closed unexpectedly: code=${event.code} reason=${event.reason}`); // eslint-disable-line no-console
         safeOnError(errorMessage);
         settle(new Error(errorMessage));
       } else if (!state.isCompleted) {
-        console.log('[WS_STREAM] Closed normally (no completion received)');
+        console.log('[WS_STREAM] Closed normally (no completion received)'); // eslint-disable-line no-console
         settle();
       }
     };
@@ -264,7 +302,7 @@ class BrowserChatTransport implements ChatTransport {
   async streamMessage(
     request: ChatRequest,
     { onToken, onComplete, onError }: StreamingCallbacks,
-    abortSignal?: AbortSignal
+    abortSignal?: AbortSignal,
   ): Promise<void> {
     return streamViaWebSocket(request, { onToken, onComplete, onError }, abortSignal);
   }
@@ -274,13 +312,16 @@ class TauriChatTransport implements ChatTransport {
   async sendMessage(request: ChatRequest): Promise<Response> {
     const { invoke } = await import('@tauri-apps/api/core');
     const payload = await invoke<unknown>('generate_stream', { request });
-    return new Response(JSON.stringify(payload), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   async streamMessage(
     request: ChatRequest,
     { onToken, onComplete, onError }: StreamingCallbacks,
-    abortSignal?: AbortSignal
+    abortSignal?: AbortSignal,
   ): Promise<void> {
     const { invoke } = await import('@tauri-apps/api/core');
     const { listen } = await import('@tauri-apps/api/event');
@@ -299,17 +340,36 @@ class TauriChatTransport implements ChatTransport {
     });
 
     // Set up listeners before creating the promise callbacks
-    const unlistenToken = await listen<{ token: string; tokens_used?: number; max_tokens?: number }>('chat-token', (event) => {
+    const unlistenToken = await listen<{
+      token: string;
+      tokens_used?: number;
+      max_tokens?: number;
+    }>('chat-token', (event) => {
       if (settled || wasAborted) return;
       safeOnToken(event.payload.token, event.payload.tokens_used, event.payload.max_tokens);
     });
 
-    const unlistenDone = await listen<{ type: string; conversation_id?: string; tokens_used?: number; max_tokens?: number; error?: string; prompt_tok_per_sec?: number; gen_tok_per_sec?: number; gen_eval_ms?: number; gen_tokens?: number; prompt_eval_ms?: number; prompt_tokens?: number; finish_reason?: string; token_breakdown?: import('./chatTransport').TokenBreakdown }>('chat-done', (event) => {
+    const unlistenDone = await listen<{
+      type: string;
+      conversation_id?: string;
+      tokens_used?: number;
+      max_tokens?: number;
+      error?: string;
+      prompt_tok_per_sec?: number;
+      gen_tok_per_sec?: number;
+      gen_eval_ms?: number;
+      gen_tokens?: number;
+      prompt_eval_ms?: number;
+      prompt_tokens?: number;
+      finish_reason?: string;
+      token_breakdown?: TokenBreakdown;
+    }>('chat-done', (event) => {
       if (settled || wasAborted) return;
-      const payload = event.payload;
+      const { payload } = event;
 
       if (payload.type === 'done') {
-        const conversationId = payload.conversation_id || request.conversation_id || crypto.randomUUID();
+        const conversationId =
+          payload.conversation_id || request.conversation_id || crypto.randomUUID();
         const timings: TimingInfo = {
           promptTokPerSec: payload.prompt_tok_per_sec,
           genTokPerSec: payload.gen_tok_per_sec,
@@ -320,7 +380,13 @@ class TauriChatTransport implements ChatTransport {
           finishReason: payload.finish_reason,
           tokenBreakdown: payload.token_breakdown,
         };
-        safeOnComplete(crypto.randomUUID(), conversationId, payload.tokens_used, payload.max_tokens, timings);
+        safeOnComplete(
+          crypto.randomUUID(),
+          conversationId,
+          payload.tokens_used,
+          payload.max_tokens,
+          timings,
+        );
         settle();
       } else if (payload.type === 'error') {
         const errorMessage = payload.error || 'Unknown error';
@@ -331,7 +397,10 @@ class TauriChatTransport implements ChatTransport {
       }
     });
 
-    const cleanup = () => { unlistenToken(); unlistenDone(); };
+    const cleanup = () => {
+      unlistenToken();
+      unlistenDone();
+    };
 
     const settle = (error?: Error) => {
       if (settled) return;
@@ -349,7 +418,10 @@ class TauriChatTransport implements ChatTransport {
 
     // Handle abort signal
     if (abortSignal) {
-      if (abortSignal.aborted) { markAborted(); return promise; }
+      if (abortSignal.aborted) {
+        markAborted();
+        return promise;
+      }
       abortSignal.addEventListener('abort', markAborted, { once: true });
     }
 

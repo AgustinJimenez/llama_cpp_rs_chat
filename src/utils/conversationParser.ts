@@ -22,7 +22,7 @@ function flushMessage(state: ParseState, messages: Message[]) {
     state.currentRole,
     state.currentContent.trim(),
     state.hasSystemPrompt,
-    state.systemPromptContent
+    state.systemPromptContent,
   );
   if (!message) return;
 
@@ -40,7 +40,12 @@ function flushMessage(state: ParseState, messages: Message[]) {
  */
 export function parseConversationFile(content: string): Message[] {
   const messages: Message[] = [];
-  const state: ParseState = { currentRole: '', currentContent: '', hasSystemPrompt: false, systemPromptContent: '' };
+  const state: ParseState = {
+    currentRole: '',
+    currentContent: '',
+    hasSystemPrompt: false,
+    systemPromptContent: '',
+  };
 
   for (const line of content.split('\n')) {
     const role = isRoleHeader(line);
@@ -49,7 +54,7 @@ export function parseConversationFile(content: string): Message[] {
       state.currentRole = role;
       state.currentContent = '';
     } else if (!line.startsWith('[COMMAND:') && line.trim()) {
-      state.currentContent += line + '\n';
+      state.currentContent += `${line}\n`;
     }
   }
 
@@ -64,9 +69,16 @@ function createMessageIfValid(
   currentRole: string,
   content: string,
   hasSystemPrompt: boolean,
-  systemPromptContent: string
+  systemPromptContent: string,
 ): Message | null {
-  const role = currentRole === 'USER' ? 'user' : currentRole === 'ASSISTANT' ? 'assistant' : 'system';
+  let role: 'user' | 'assistant' | 'system';
+  if (currentRole === 'USER') {
+    role = 'user';
+  } else if (currentRole === 'ASSISTANT') {
+    role = 'assistant';
+  } else {
+    role = 'system';
+  }
 
   // Always allow system messages; mark the first as the system prompt.
   if (role === 'system') {

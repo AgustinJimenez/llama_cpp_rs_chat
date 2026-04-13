@@ -1,5 +1,8 @@
-import { useState, useRef, useEffect } from 'react';
 import { Database } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+
+const MIN_BAR_SEGMENT_PCT = 0.3;
+
 import type { TokenBreakdown } from '../../../utils/chatTransport';
 
 interface Props {
@@ -17,7 +20,12 @@ const CATEGORIES = [
   { key: 'model_response' as const, label: 'Response', color: '#10b981' },
 ];
 
-export function TokenBreakdownPopover({ breakdown, tokensUsed, maxTokens, formatNumber }: Props) {
+export const TokenBreakdownPopover = ({
+  breakdown,
+  tokensUsed,
+  maxTokens,
+  formatNumber,
+}: Props) => {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -42,7 +50,7 @@ export function TokenBreakdownPopover({ breakdown, tokensUsed, maxTokens, format
         <Database className="h-3 w-3" />
         {formatNumber(tokensUsed)}/{formatNumber(maxTokens)}
       </button>
-      {open && (
+      {open ? (
         <div className="absolute bottom-full mb-2 right-0 w-72 bg-card border border-border rounded-lg shadow-xl p-3 z-50">
           <div className="text-xs font-semibold text-foreground mb-2">Context Usage</div>
           {/* Stacked bar */}
@@ -50,7 +58,7 @@ export function TokenBreakdownPopover({ breakdown, tokensUsed, maxTokens, format
             {CATEGORIES.map(({ key, color }) => {
               const value = breakdown[key];
               const pct = maxTokens > 0 ? (value / maxTokens) * 100 : 0;
-              if (pct < 0.3) return null;
+              if (pct < MIN_BAR_SEGMENT_PCT) return null;
               return (
                 <div
                   key={key}
@@ -66,10 +74,15 @@ export function TokenBreakdownPopover({ breakdown, tokensUsed, maxTokens, format
             const pct = maxTokens > 0 ? (value / maxTokens) * 100 : 0;
             return (
               <div key={key} className="flex items-center gap-2 mb-1 text-[11px]">
-                <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+                <div
+                  className="w-2 h-2 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: color }}
+                />
                 <span className="text-muted-foreground flex-1">{label}</span>
                 <span className="text-foreground/80 tabular-nums">{formatNumber(value)}</span>
-                <span className="text-muted-foreground w-12 text-right tabular-nums">{pct.toFixed(1)}%</span>
+                <span className="text-muted-foreground w-12 text-right tabular-nums">
+                  {pct.toFixed(1)}%
+                </span>
               </div>
             );
           })}
@@ -78,10 +91,12 @@ export function TokenBreakdownPopover({ breakdown, tokensUsed, maxTokens, format
             <div className="w-2 h-2 rounded-full flex-shrink-0 bg-muted-foreground" />
             <span className="text-muted-foreground flex-1">Free</span>
             <span className="text-foreground/80 tabular-nums">{formatNumber(free)}</span>
-            <span className="text-muted-foreground w-12 text-right tabular-nums">{maxTokens > 0 ? ((free / maxTokens) * 100).toFixed(1) : '0.0'}%</span>
+            <span className="text-muted-foreground w-12 text-right tabular-nums">
+              {maxTokens > 0 ? ((free / maxTokens) * 100).toFixed(1) : '0.0'}%
+            </span>
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
-}
+};

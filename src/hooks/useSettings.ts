@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
-import { getConfig, saveConfig } from '../utils/tauriCommands';
+
 import type { SamplerConfig } from '../types';
+import { getConfig, saveConfig } from '../utils/tauriCommands';
 
 export function useSettings() {
   const [config, setConfig] = useState<SamplerConfig | null>(null);

@@ -1,4 +1,5 @@
 import type { ToolCall, ToolFormat } from '../types';
+
 import { extractBalancedJson, parsePythonFunctionCall } from './toolFormatUtils';
 
 /**
@@ -26,8 +27,14 @@ function parseMistralBracket(text: string): ToolCall[] {
     const balanced = extractBalancedJson(text, match.index + match[0].length);
     if (!balanced) continue;
     try {
-      calls.push({ id: crypto.randomUUID(), name: match[1].trim(), arguments: JSON.parse(balanced.json) });
-    } catch { /* skip */ }
+      calls.push({
+        id: crypto.randomUUID(),
+        name: match[1].trim(),
+        arguments: JSON.parse(balanced.json),
+      });
+    } catch {
+      /* skip */
+    }
   }
   return calls;
 }
@@ -44,16 +51,25 @@ function parseMistralClosedTag(text: string): ToolCall[] {
       const name = body.slice(0, commaIdx).trim();
       try {
         const args = JSON.parse(body.slice(commaIdx + 1));
-        if (name && !name.includes(' ')) { calls.push({ id: crypto.randomUUID(), name, arguments: args }); continue; }
-      } catch { /* fall through */ }
+        if (name && !name.includes(' ')) {
+          calls.push({ id: crypto.randomUUID(), name, arguments: args });
+          continue;
+        }
+      } catch {
+        /* fall through */
+      }
     }
     try {
       const parsed = JSON.parse(body);
       const items = Array.isArray(parsed) ? parsed : [parsed];
       for (const item of items) {
-        if (item.name) calls.push({ id: crypto.randomUUID(), name: item.name, arguments: item.arguments || {} });
+        if (item.name) {
+          calls.push({ id: crypto.randomUUID(), name: item.name, arguments: item.arguments || {} });
+        }
       }
-    } catch { /* skip */ }
+    } catch {
+      /* skip */
+    }
   }
   return calls;
 }
@@ -68,8 +84,16 @@ function parseMistralBareJson(text: string): ToolCall[] {
     if (!balanced) continue;
     try {
       const parsed = JSON.parse(balanced.json);
-      if (parsed.name) calls.push({ id: crypto.randomUUID(), name: parsed.name, arguments: parsed.arguments || {} });
-    } catch { /* skip */ }
+      if (parsed.name) {
+        calls.push({
+          id: crypto.randomUUID(),
+          name: parsed.name,
+          arguments: parsed.arguments || {},
+        });
+      }
+    } catch {
+      /* skip */
+    }
   }
   return calls;
 }
@@ -138,6 +162,48 @@ const llama3Parser: ToolParser = {
   },
 };
 
+/** Try Llama3 format inside <tool_call>: <function=name>{json} */
+function parseQwenLlama3Fallback(callJson: string): ToolCall | null {
+  const funcMatch = callJson.match(/^<function=([^>]+)>([\s\S]*)$/);
+  if (!funcMatch) return null;
+  const name = funcMatch[1].trim();
+  const body = funcMatch[2].trim();
+  const jsonStart = body.indexOf('{');
+  if (jsonStart < 0) return null;
+  const balanced = extractBalancedJson(body, jsonStart);
+  if (!balanced) return null;
+  try {
+    const args = JSON.parse(balanced.json);
+    const finalArgs =
+      args.arguments && typeof args.arguments === 'object' && !args.name ? args.arguments : args;
+    return { id: crypto.randomUUID(), name, arguments: finalArgs };
+  } catch {
+    return null;
+  }
+}
+
+/** GLM native XML format: name\n<arg_key>k</arg_key>\n<arg_value>v</arg_value> */
+function parseQwenGlmFallback(callJson: string): ToolCall | null {
+  if (!callJson.includes('<arg_key>')) return null;
+  const firstArgPos = callJson.indexOf('<arg_key>');
+  const name = callJson.slice(0, firstArgPos).trim();
+  if (!name || name.includes(' ') || name.includes('{')) return null;
+  const args: Record<string, unknown> = {};
+  const argRe = /<arg_key>([\s\S]*?)<\/arg_key>\s*<arg_value>([\s\S]*?)<\/arg_value>/g;
+  let am;
+  while ((am = argRe.exec(callJson)) !== null) {
+    const k = am[1].trim();
+    const v = am[2].trim();
+    try {
+      args[k] = JSON.parse(v);
+    } catch {
+      args[k] = v;
+    }
+  }
+  if (Object.keys(args).length === 0) return null;
+  return { id: crypto.randomUUID(), name, arguments: args };
+}
+
 /**
  * Qwen/GLM tool parser
  * Format: <tool_call>{"name": "func", "arguments": {...}}</tool_call>
@@ -149,9 +215,6 @@ const qwenParser: ToolParser = {
 
   parse(text: string): ToolCall[] {
     const toolCalls: ToolCall[] = [];
-
-    // Regex to match <tool_call>{...}</tool_call> or <tool_call>{...}<|end_of_box|>
-    // GLM models sometimes close with <|end_of_box|> instead of </tool_call>
     const regex = /<tool_call>([\s\S]*?)(?:<\/tool_call>|<\|end_of_box\|>)/g;
     let match;
 
@@ -160,7 +223,6 @@ const qwenParser: ToolParser = {
 
       try {
         const parsed = JSON.parse(callJson);
-        // Handle JSON arrays: multiple tool calls in one block
         const items = Array.isArray(parsed) ? parsed : [parsed];
         for (const call of items) {
           if (call?.name) {
@@ -172,42 +234,14 @@ const qwenParser: ToolParser = {
           }
         }
       } catch {
-        // Fallback 1: Llama3 format inside <tool_call> tags — <function=name>{json} or <function=name>\n{json}
-        const funcMatch = callJson.match(/^<function=([^>]+)>([\s\S]*)$/);
-        if (funcMatch) {
-          const name = funcMatch[1].trim();
-          const body = funcMatch[2].trim();
-          // Try to extract JSON args from body (may be on same line or next line)
-          const jsonStart = body.indexOf('{');
-          if (jsonStart >= 0) {
-            const balanced = extractBalancedJson(body, jsonStart);
-            if (balanced) {
-              try {
-                const args = JSON.parse(balanced.json);
-                // Handle {"arguments": {...}} wrapper some models emit
-                const finalArgs = args.arguments && typeof args.arguments === 'object' && !args.name ? args.arguments : args;
-                toolCalls.push({ id: crypto.randomUUID(), name, arguments: finalArgs });
-              } catch { /* skip */ }
-            }
-          }
+        const llama3Call = parseQwenLlama3Fallback(callJson);
+        if (llama3Call) {
+          toolCalls.push(llama3Call);
+          continue;
         }
-        // Fallback 2: GLM native XML format — name\n<arg_key>k</arg_key>\n<arg_value>v</arg_value>
-        else if (callJson.includes('<arg_key>')) {
-          const firstArgPos = callJson.indexOf('<arg_key>');
-          const name = callJson.slice(0, firstArgPos).trim();
-          if (name && !name.includes(' ') && !name.includes('{')) {
-            const args: Record<string, unknown> = {};
-            const argRe = /<arg_key>([\s\S]*?)<\/arg_key>\s*<arg_value>([\s\S]*?)<\/arg_value>/g;
-            let am;
-            while ((am = argRe.exec(callJson)) !== null) {
-              const k = am[1].trim();
-              const v = am[2].trim();
-              try { args[k] = JSON.parse(v); } catch { args[k] = v; }
-            }
-            if (Object.keys(args).length > 0) {
-              toolCalls.push({ id: crypto.randomUUID(), name, arguments: args });
-            }
-          }
+        const glmCall = parseQwenGlmFallback(callJson);
+        if (glmCall) {
+          toolCalls.push(glmCall);
         }
       }
     }

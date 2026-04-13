@@ -1,13 +1,18 @@
-import React, { useState } from 'react';
 import { Plus, Trash2, RefreshCw, Server, ToggleLeft, ToggleRight } from 'lucide-react';
-import { useMcpServers } from '../../hooks/useMcpServers';
+import React, { useState } from 'react';
 import { toast } from 'react-hot-toast';
+
+import { useMcpServers } from '../../hooks/useMcpServers';
 import type { McpServerConfig, McpTransport } from '../../types';
 
+const RADIX_36 = 36;
+const ID_SLICE_END = 8;
+
 function generateId(): string {
-  return `mcp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  return `mcp_${Date.now()}_${Math.random().toString(RADIX_36).slice(2, ID_SLICE_END)}`;
 }
 
+// eslint-disable-next-line max-lines-per-function -- single cohesive form section
 export const McpSettingsSection: React.FC = () => {
   const {
     servers,
@@ -98,7 +103,7 @@ export const McpSettingsSection: React.FC = () => {
     }
   };
 
-  const getStatus = (id: string) => statuses.find(s => s.id === id);
+  const getStatus = (id: string) => statuses.find((s) => s.id === id);
 
   return (
     <div className="space-y-3">
@@ -127,29 +132,35 @@ export const McpSettingsSection: React.FC = () => {
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Connect external tool servers via the Model Context Protocol.
-        After adding servers, click Refresh to connect and discover tools.
+        Connect external tool servers via the Model Context Protocol. After adding servers, click
+        Refresh to connect and discover tools.
       </p>
 
       {/* Add Server Form */}
-      {showAddForm && (
+      {showAddForm ? (
         <div className="space-y-2 p-3 rounded-lg border border-border bg-muted/50">
           <div className="space-y-1">
-            <label className="text-xs font-medium text-foreground">Name</label>
+            <label htmlFor="mcp-server-name" className="text-xs font-medium text-foreground">
+              Name
+            </label>
             <input
+              id="mcp-server-name"
               className="w-full px-2 py-1.5 rounded bg-muted border border-border text-sm text-foreground"
               placeholder="e.g., filesystem"
               value={formName}
-              onChange={e => setFormName(e.target.value)}
+              onChange={(e) => setFormName(e.target.value)}
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-medium text-foreground">Transport</label>
+            <label htmlFor="mcp-transport" className="text-xs font-medium text-foreground">
+              Transport
+            </label>
             <select
+              id="mcp-transport"
               className="w-full px-2 py-1.5 rounded bg-muted border border-border text-sm text-foreground"
               value={formTransport}
-              onChange={e => setFormTransport(e.target.value as 'Stdio' | 'Http')}
+              onChange={(e) => setFormTransport(e.target.value as 'Stdio' | 'Http')}
             >
               <option value="Stdio">Stdio (child process)</option>
               <option value="Http">HTTP/SSE</option>
@@ -159,62 +170,81 @@ export const McpSettingsSection: React.FC = () => {
           {formTransport === 'Stdio' ? (
             <>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-foreground">Command</label>
+                <label htmlFor="mcp-command" className="text-xs font-medium text-foreground">
+                  Command
+                </label>
                 <input
+                  id="mcp-command"
                   className="w-full px-2 py-1.5 rounded bg-muted border border-border text-sm text-foreground"
                   placeholder="e.g., npx"
                   value={formCommand}
-                  onChange={e => setFormCommand(e.target.value)}
+                  onChange={(e) => setFormCommand(e.target.value)}
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-foreground">Arguments (space-separated)</label>
+                <label htmlFor="mcp-args" className="text-xs font-medium text-foreground">
+                  Arguments (space-separated)
+                </label>
                 <input
+                  id="mcp-args"
                   className="w-full px-2 py-1.5 rounded bg-muted border border-border text-sm text-foreground"
                   placeholder="e.g., -y @modelcontextprotocol/server-filesystem /tmp"
                   value={formArgs}
-                  onChange={e => setFormArgs(e.target.value)}
+                  onChange={(e) => setFormArgs(e.target.value)}
                 />
               </div>
             </>
           ) : (
             <div className="space-y-1">
-              <label className="text-xs font-medium text-foreground">URL</label>
+              <label htmlFor="mcp-url" className="text-xs font-medium text-foreground">
+                URL
+              </label>
               <input
+                id="mcp-url"
                 className="w-full px-2 py-1.5 rounded bg-muted border border-border text-sm text-foreground"
                 placeholder="http://localhost:3000/sse"
                 value={formUrl}
-                onChange={e => setFormUrl(e.target.value)}
+                onChange={(e) => setFormUrl(e.target.value)}
               />
             </div>
           )}
 
           <div className="flex gap-2 pt-1">
-            <button className="flat-button bg-primary text-white px-4 py-1.5 text-xs" onClick={handleAdd}>
+            <button
+              className="flat-button bg-primary text-white px-4 py-1.5 text-xs"
+              onClick={handleAdd}
+            >
               Add
             </button>
-            <button className="flat-button bg-muted px-4 py-1.5 text-xs" onClick={() => setShowAddForm(false)}>
+            <button
+              className="flat-button bg-muted px-4 py-1.5 text-xs"
+              onClick={() => setShowAddForm(false)}
+            >
               Cancel
             </button>
           </div>
         </div>
-      )}
+      ) : null}
 
       {/* Server List */}
       {servers.length === 0 && !showAddForm && (
         <p className="text-xs text-muted-foreground italic py-2">
-          No MCP servers configured. Click "Add Server" to get started.
+          No MCP servers configured. Click &quot;Add Server&quot; to get started.
         </p>
       )}
 
-      {servers.map(server => {
+      {servers.map((server) => {
         const status = getStatus(server.id);
-        const transportLabel = server.transport.type === 'Stdio'
-          ? `${server.transport.command} ${server.transport.args.join(' ')}`
-          : server.transport.url;
+        const transportLabel =
+          server.transport.type === 'Stdio'
+            ? `${server.transport.command} ${server.transport.args.join(' ')}`
+            : server.transport.url;
 
         return (
-          <div key={server.id} className="flex items-start gap-2 p-2 rounded border border-border bg-muted/30">
+          <div
+            key={server.id}
+            className="flex items-start gap-2 p-2 rounded border border-border bg-muted/30"
+          >
             <button
               className="mt-0.5 text-muted-foreground hover:text-foreground"
               onClick={() => handleToggle(server)}
@@ -230,20 +260,20 @@ export const McpSettingsSection: React.FC = () => {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-foreground">{server.name}</span>
-                {status && (
+                {status ? (
                   <span className="text-xs text-green-500">
                     {status.tool_count} tool{status.tool_count !== 1 ? 's' : ''}
                   </span>
-                )}
+                ) : null}
               </div>
               <div className="text-xs text-muted-foreground truncate" title={transportLabel}>
                 {server.transport.type}: {transportLabel}
               </div>
-              {status && status.tools.length > 0 && (
+              {status && status.tools.length > 0 ? (
                 <div className="text-xs text-muted-foreground mt-1">
-                  Tools: {status.tools.map(t => t.replace(/^mcp__[^_]+__/, '')).join(', ')}
+                  Tools: {status.tools.map((t) => t.replace(/^mcp__[^_]+__/, '')).join(', ')}
                 </div>
-              )}
+              ) : null}
             </div>
 
             <button

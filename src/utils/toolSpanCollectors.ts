@@ -2,14 +2,24 @@
  * Format-specific tool call span collectors for message parsing.
  * Each collector finds tool call/response pairs in model output and returns
  * positioned spans for widget rendering in the MD view.
+ *
+ * Format-specific collectors are split into separate files:
+ * - toolSpanCollectorsQwen.ts: Qwen/GLM format
+ * - toolSpanCollectorsGemma4.ts: Gemma 4 format
+ * - toolSpanCollectorsLfm2.ts: LFM2 format
  */
+const TOOL_CALL_CONTEXT_PREFIX_LENGTH = 30;
+
 import type { ToolCall, ToolTags } from '../types';
+
 import {
   extractBalancedJson,
   findStreamingResponse,
-  parsePythonFunctionCall,
   stripUnclosedToolCallTail,
 } from './toolFormatUtils';
+import { collectGemma4Spans, CHANNEL_TAG_REGEX, TURN_TAG_REGEX } from './toolSpanCollectorsGemma4';
+import { collectLfm2Spans } from './toolSpanCollectorsLfm2';
+import { collectQwenSpans } from './toolSpanCollectorsQwen';
 
 export type MessageSegment =
   | { type: 'text'; content: string }
@@ -37,8 +47,9 @@ function freshResponseMatches(content: string): { start: number; end: number; co
   const matches: { start: number; end: number; content: string }[] = [];
   const re = new RegExp(TOOL_RESPONSE_REGEX.source, 'g');
   let m;
-  while ((m = re.exec(content)) !== null)
+  while ((m = re.exec(content)) !== null) {
     matches.push({ start: m.index, end: m.index + m[0].length, content: (m[1] || '').trim() });
+  }
   return matches;
 }
 
@@ -46,26 +57,29 @@ function freshResponseMatches(content: string): { start: number; end: number; co
 
 function parseXmlParams(body: string): Record<string, unknown> {
   const args: Record<string, unknown> = {};
-  // Find all <parameter=key> opening tags and their positions
   const openRe = /<parameter=([^>]+)>/g;
   const opens: { key: string; contentStart: number }[] = [];
   let m;
   while ((m = openRe.exec(body)) !== null) {
     opens.push({ key: m[1].trim(), contentStart: m.index + m[0].length });
   }
-  // For each opening tag, find its closing </parameter>
-  // Use the next opening tag's position as boundary, or end of body for the last one
   for (let i = 0; i < opens.length; i++) {
     const start = opens[i].contentStart;
-    const boundary = i + 1 < opens.length
-      ? body.lastIndexOf('</parameter>', opens[i + 1].contentStart)
-      : body.lastIndexOf('</parameter>');
+    const boundary =
+      i + 1 < opens.length
+        ? body.lastIndexOf('</parameter>', opens[i + 1].contentStart)
+        : body.lastIndexOf('</parameter>');
     if (boundary > start) {
       args[opens[i].key] = body.slice(start, boundary).trim();
     } else {
-      // No closing tag — take everything to end (or next param)
-      const end = i + 1 < opens.length ? opens[i + 1].contentStart - `<parameter=${opens[i + 1].key}>`.length : body.length;
-      args[opens[i].key] = body.slice(start, end).replace(/<\/parameter>\s*$/, '').trim();
+      const end =
+        i + 1 < opens.length
+          ? opens[i + 1].contentStart - `<parameter=${opens[i + 1].key}>`.length
+          : body.length;
+      args[opens[i].key] = body
+        .slice(start, end)
+        .replace(/<\/parameter>\s*$/, '')
+        .trim();
     }
   }
   return args;
@@ -78,15 +92,24 @@ export function collectLlama3Spans(content: string, toolTags?: ToolTags): Span[]
   const funcs: F[] = [];
   while ((match = LLAMA3_FUNC_REGEX.exec(content)) !== null) {
     const args = parseXmlParams(match[2]);
-    if (Object.keys(args).length > 0)
-      funcs.push({ start: match.index, end: match.index + match[0].length, name: match[1].trim(), args });
+    if (Object.keys(args).length > 0) {
+      funcs.push({
+        start: match.index,
+        end: match.index + match[0].length,
+        name: match[1].trim(),
+        args,
+      });
+    }
   }
   if (funcs.length === 0) return spans;
   const trMatches = freshResponseMatches(content);
   for (const func of funcs) {
-    const tr = trMatches.find(r => r.start >= func.end);
+    const tr = trMatches.find((r) => r.start >= func.end);
     if (tr) trMatches.splice(trMatches.indexOf(tr), 1);
-    const prefix = content.slice(Math.max(0, func.start - 30), func.start);
+    const prefix = content.slice(
+      Math.max(0, func.start - TOOL_CALL_CONTEXT_PREFIX_LENGTH),
+      func.start,
+    );
     const tcTag = prefix.match(/<tool_call>\s*$/);
     const spanStart = tcTag ? func.start - tcTag[0].length : func.start;
     const isLast = func === funcs[funcs.length - 1];
@@ -95,12 +118,27 @@ export function collectLlama3Spans(content: string, toolTags?: ToolTags): Span[]
     let spanEnd = tr ? tr.end : func.end;
     if (!tr && isLast) {
       const streaming = findStreamingResponse(content, func.end, toolTags);
-      if (streaming) { output = streaming.output; isStreaming = true; spanEnd = streaming.end; }
+      if (streaming) {
+        output = streaming.output;
+        isStreaming = true;
+        spanEnd = streaming.end;
+      }
     }
-    spans.push({ start: spanStart, end: spanEnd, segment: { type: 'tool_call', toolCall: {
-      id: stableToolId(func.name, func.start), name: func.name, arguments: func.args,
-      output, isStreaming, isPending: !tr && isLast,
-    } } });
+    spans.push({
+      start: spanStart,
+      end: spanEnd,
+      segment: {
+        type: 'tool_call',
+        toolCall: {
+          id: stableToolId(func.name, func.start),
+          name: func.name,
+          arguments: func.args,
+          output,
+          isStreaming,
+          isPending: !tr && isLast,
+        },
+      },
+    });
   }
   return spans;
 }
@@ -118,7 +156,7 @@ function buildToolSpans(
 ): Span[] {
   const spans: Span[] = [];
   for (const call of calls) {
-    const res = results.find(r => r.start >= call.end);
+    const res = results.find((r) => r.start >= call.end);
     if (res) results.splice(results.indexOf(res), 1);
     const isLast = call === calls[calls.length - 1];
     let output: string | undefined = res ? res.content : undefined;
@@ -126,12 +164,27 @@ function buildToolSpans(
     let spanEnd = res ? res.end : call.end;
     if (!res && isLast) {
       const streaming = findStreamingResponse(content, call.end, toolTags);
-      if (streaming) { output = streaming.output; isStreaming = true; spanEnd = streaming.end; }
+      if (streaming) {
+        output = streaming.output;
+        isStreaming = true;
+        spanEnd = streaming.end;
+      }
     }
-    spans.push({ start: call.start, end: spanEnd, segment: { type: 'tool_call', toolCall: {
-      id: stableToolId(call.name, call.start), name: call.name, arguments: call.args,
-      output, isStreaming, isPending: !res && isLast,
-    } } });
+    spans.push({
+      start: call.start,
+      end: spanEnd,
+      segment: {
+        type: 'tool_call',
+        toolCall: {
+          id: stableToolId(call.name, call.start),
+          name: call.name,
+          arguments: call.args,
+          output,
+          isStreaming,
+          isPending: !res && isLast,
+        },
+      },
+    });
   }
   return spans;
 }
@@ -139,24 +192,29 @@ function buildToolSpans(
 // --- Mistral: [TOOL_CALLS]...[/TOOL_CALLS] + [TOOL_RESULTS]...[/TOOL_RESULTS] ---
 
 function parseMistralBody(body: string): { name: string; args: Record<string, unknown> }[] {
-  // Mistral comma format: name,{json}
   const commaIdx = body.indexOf(',{');
   if (commaIdx > 0) {
     const name = body.slice(0, commaIdx).trim();
     try {
       const args = JSON.parse(body.slice(commaIdx + 1));
       if (name && !name.includes(' ')) return [{ name, args }];
-    } catch { /* fall through */ }
+    } catch {
+      /* fall through */
+    }
   }
-  // JSON object or array
   try {
     const parsed = JSON.parse(body);
     const items = Array.isArray(parsed) ? parsed : [parsed];
     const calls = items
       .filter((item: Record<string, unknown>) => item?.name)
-      .map((item: Record<string, unknown>) => ({ name: item.name as string, args: (item.arguments || {}) as Record<string, unknown> }));
+      .map((item: Record<string, unknown>) => ({
+        name: item.name as string,
+        args: (item.arguments || {}) as Record<string, unknown>,
+      }));
     if (calls.length > 0) return calls;
-  } catch { /* skip */ }
+  } catch {
+    /* skip */
+  }
   return [];
 }
 
@@ -169,8 +227,15 @@ function mistralBracketCalls(content: string): ParsedCall[] {
     const balanced = extractBalancedJson(content, match.index + match[0].length);
     if (!balanced) continue;
     try {
-      calls.push({ start: match.index, end: balanced.end, name: match[1].trim(), args: JSON.parse(balanced.json) });
-    } catch { /* skip */ }
+      calls.push({
+        start: match.index,
+        end: balanced.end,
+        name: match[1].trim(),
+        args: JSON.parse(balanced.json),
+      });
+    } catch {
+      /* skip */
+    }
   }
   return calls;
 }
@@ -198,24 +263,42 @@ function mistralBareJsonCalls(content: string): ParsedCall[] {
     if (!balanced) continue;
     try {
       const parsed = JSON.parse(balanced.json);
-      if (parsed.name) calls.push({ start: match.index, end: balanced.end, name: parsed.name, args: parsed.arguments || {} });
-    } catch { /* skip */ }
+      if (parsed.name) {
+        calls.push({
+          start: match.index,
+          end: balanced.end,
+          name: parsed.name,
+          args: parsed.arguments || {},
+        });
+      }
+    } catch {
+      /* skip */
+    }
   }
   return calls;
 }
 
-export function collectMistralSpans(content: string, toolTags?: ToolTags): Span[] {
+function selectMistralCalls(content: string): ParsedCall[] {
   const bracket = mistralBracketCalls(content);
-  const closed = bracket.length > 0 ? [] : mistralClosedTagCalls(content);
-  const calls = bracket.length > 0 ? bracket : closed.length > 0 ? closed : mistralBareJsonCalls(content);
+  if (bracket.length > 0) return bracket;
+  const closed = mistralClosedTagCalls(content);
+  if (closed.length > 0) return closed;
+  return mistralBareJsonCalls(content);
+}
 
+export function collectMistralSpans(content: string, toolTags?: ToolTags): Span[] {
+  const calls = selectMistralCalls(content);
   if (calls.length === 0) return [];
 
-  // Collect results from both [TOOL_RESULTS] and <tool_response> tags
   const results: ParsedResult[] = [];
   let match;
-  while ((match = MISTRAL_RESULT_REGEX.exec(content)) !== null)
-    results.push({ start: match.index, end: match.index + match[0].length, content: (match[1] || '').trim() });
+  while ((match = MISTRAL_RESULT_REGEX.exec(content)) !== null) {
+    results.push({
+      start: match.index,
+      end: match.index + match[0].length,
+      content: (match[1] || '').trim(),
+    });
+  }
   results.push(...freshResponseMatches(content));
   results.sort((a, b) => a.start - b.start);
 
@@ -228,23 +311,31 @@ const EXEC_REGEX = /(?:<\|\|)?SYSTEM\.EXEC>([\s\S]*?)<(?:\|\|)?SYSTEM\.EXEC\|\|>
 const SYS_OUTPUT_REGEX = /(?:<\|\|)?SYSTEM\.OUTPUT>([\s\S]*?)<(?:\|\|)?SYSTEM\.OUTPUT\|\|>/g;
 
 /** Convert a raw command string to one or more ToolCall-compatible name + arguments. */
-export function parseExecCommand(command: string): { name: string; args: Record<string, unknown> }[] {
+export function parseExecCommand(
+  command: string,
+): { name: string; args: Record<string, unknown> }[] {
   try {
     const parsed = JSON.parse(command);
-    // Handle JSON arrays: multiple tool calls
     if (Array.isArray(parsed)) {
       const calls = parsed
         .filter((item: Record<string, unknown>) => item?.name)
-        .map((item: Record<string, unknown>) => ({ name: item.name as string, args: (item.arguments || {}) as Record<string, unknown> }));
+        .map((item: Record<string, unknown>) => ({
+          name: item.name as string,
+          args: (item.arguments || {}) as Record<string, unknown>,
+        }));
       if (calls.length > 0) return calls;
     }
     if (parsed.name) return [{ name: parsed.name, args: parsed.arguments || {} }];
-  } catch { /* not JSON */ }
+  } catch {
+    /* not JSON */
+  }
   const funcMatch = command.match(/^(\w+)\((\{[\s\S]*\})\)$/);
   if (funcMatch) {
     try {
       return [{ name: funcMatch[1], args: JSON.parse(funcMatch[2]) }];
-    } catch { /* fall through */ }
+    } catch {
+      /* fall through */
+    }
   }
   return [{ name: 'execute_command', args: { command } }];
 }
@@ -255,12 +346,20 @@ export function collectExecSpans(content: string): Span[] {
   let match;
 
   while ((match = EXEC_REGEX.exec(content)) !== null) {
-    execMatches.push({ start: match.index, end: match.index + match[0].length, command: (match[1] || '').trim() });
+    execMatches.push({
+      start: match.index,
+      end: match.index + match[0].length,
+      command: (match[1] || '').trim(),
+    });
   }
 
   const outputMatches: { start: number; end: number; output: string }[] = [];
   while ((match = SYS_OUTPUT_REGEX.exec(content)) !== null) {
-    outputMatches.push({ start: match.index, end: match.index + match[0].length, output: (match[1] || '').trim() });
+    outputMatches.push({
+      start: match.index,
+      end: match.index + match[0].length,
+      output: (match[1] || '').trim(),
+    });
   }
 
   for (let i = 0; i < execMatches.length; i++) {
@@ -271,11 +370,17 @@ export function collectExecSpans(content: string): Span[] {
     for (const { name, args } of parsedCalls) {
       if (output) {
         spans.push({
-          start: exec.start, end: output.end,
-          segment: { type: 'tool_call', toolCall: {
-            id: stableToolId(name, exec.start), name, arguments: args,
-            output: output.output,
-          } },
+          start: exec.start,
+          end: output.end,
+          segment: {
+            type: 'tool_call',
+            toolCall: {
+              id: stableToolId(name, exec.start),
+              name,
+              arguments: args,
+              output: output.output,
+            },
+          },
         });
       } else {
         const partialMatch = content.match(/(?:<\|\|)?SYSTEM\.OUTPUT>([\s\S]*)$/);
@@ -283,247 +388,37 @@ export function collectExecSpans(content: string): Span[] {
         const partialStart = content.lastIndexOf('SYSTEM.OUTPUT>');
         if (partialMatch && partialStart > lastCompleteEnd) {
           spans.push({
-            start: exec.start, end: content.length,
-            segment: { type: 'tool_call', toolCall: {
-              id: stableToolId(name, exec.start), name, arguments: args,
-              output: partialMatch[1] || '', isStreaming: true, isPending: true,
-            } },
+            start: exec.start,
+            end: content.length,
+            segment: {
+              type: 'tool_call',
+              toolCall: {
+                id: stableToolId(name, exec.start),
+                name,
+                arguments: args,
+                output: partialMatch[1] || '',
+                isStreaming: true,
+                isPending: true,
+              },
+            },
           });
         } else {
           spans.push({
-            start: exec.start, end: exec.end,
-            segment: { type: 'tool_call', toolCall: {
-              id: stableToolId(name, exec.start), name, arguments: args, isPending: true,
-            } },
+            start: exec.start,
+            end: exec.end,
+            segment: {
+              type: 'tool_call',
+              toolCall: {
+                id: stableToolId(name, exec.start),
+                name,
+                arguments: args,
+                isPending: true,
+              },
+            },
           });
         }
       }
     }
-  }
-
-  return spans;
-}
-
-// --- Qwen/GLM: <tool_call>{"name":"...","arguments":{...}}</tool_call> ---
-// Both Qwen and GLM use <tool_call>...</tool_call> as native tool call tags.
-// NOTE: GLM models sometimes close with <|end_of_box|> instead of </tool_call>
-// (<|begin_of_box|>/<|end_of_box|> are vision bounding box markers, but GLM
-// repurposes <|end_of_box|> as a tool call terminator).
-
-// Also match unclosed <tool_call> where </function> ends the block (Qwen3-Coder Jinja format:
-// the backend tool detector matches </function> before </tool_call> is generated)
-const TOOL_CALL_REGEX = /<tool_call>([\s\S]*?)(?:<\/tool_call>|<\|end_of_box\|>|(?=\s*<tool_response>))/g;
-const LFM2_CALL_REGEX = /<\|tool_call_start\|>([\s\S]*?)<\|tool_call_end\|>/g;
-const LFM2_RESPONSE_REGEX = /<\|tool_response_start\|>([\s\S]*?)<\|tool_response_end\|>/g;
-
-type QwenTcMatch = { start: number; end: number; json: string };
-type QwenTrMatch = { start: number; end: number; content: string };
-
-/** Resolve output/streaming state for a paired tool call + response. */
-function resolveQwenOutput(
-  content: string,
-  tc: QwenTcMatch,
-  tr: QwenTrMatch | null,
-  isLastUnmatched: boolean,
-  toolTags?: ToolTags,
-): { output?: string; isStreaming: boolean; spanEnd: number } {
-  let output: string | undefined = tr ? tr.content : undefined;
-  let isStreaming = false;
-  let spanEnd = tr ? tr.end : tc.end;
-  if (isLastUnmatched) {
-    const streaming = findStreamingResponse(content, tc.end, toolTags);
-    if (streaming) { output = streaming.output; isStreaming = true; spanEnd = streaming.end; }
-  }
-  return { output, isStreaming, spanEnd };
-}
-
-/** Parse GLM native XML arg format: `name\n<arg_key>k</arg_key>\n<arg_value>v</arg_value>` */
-function parseGlmXmlArgs(body: string): { name: string; args: Record<string, unknown> } | null {
-  if (!body.includes('<arg_key>')) return null;
-  const firstArgPos = body.indexOf('<arg_key>');
-  const name = body.slice(0, firstArgPos).trim();
-  if (!name || name.includes(' ') || name.includes('{')) return null;
-  const args: Record<string, unknown> = {};
-  const re = /<arg_key>([\s\S]*?)<\/arg_key>\s*<arg_value>([\s\S]*?)<\/arg_value>/g;
-  let m;
-  while ((m = re.exec(body)) !== null) {
-    const key = m[1].trim();
-    const val = m[2].trim();
-    try { args[key] = JSON.parse(val); } catch { args[key] = val; }
-  }
-  return Object.keys(args).length > 0 ? { name, args } : null;
-}
-
-export function collectQwenSpans(content: string, toolTags?: ToolTags): Span[] {
-  const spans: Span[] = [];
-  let match;
-
-  const tcMatches: QwenTcMatch[] = [];
-  while ((match = TOOL_CALL_REGEX.exec(content)) !== null) {
-    const body = match[1].trim();
-    // Try JSON first (standard Qwen format)
-    try {
-      const parsed = JSON.parse(body);
-      const items = Array.isArray(parsed) ? parsed : [parsed];
-      if (!items.some((item: Record<string, unknown>) => item?.name)) continue;
-      tcMatches.push({ start: match.index, end: match.index + match[0].length, json: body });
-      continue;
-    } catch { /* not JSON, try GLM XML format below */ }
-    // Fallback 1: GLM-4.7 "name{json}" format — function name directly followed by JSON args
-    // e.g. <tool_call>web_search{"query": "hello"}</tool_call>
-    const nameJsonMatch = body.match(/^(\w+)(\{[\s\S]*\})$/);
-    if (nameJsonMatch) {
-      try {
-        const args = JSON.parse(nameJsonMatch[2]);
-        const wrapped = JSON.stringify({ name: nameJsonMatch[1], arguments: args });
-        tcMatches.push({ start: match.index, end: match.index + match[0].length, json: wrapped });
-        continue;
-      } catch { /* fall through to XML format */ }
-    }
-    // Fallback 2: GLM native XML format — name\n<arg_key>k</arg_key>\n<arg_value>v</arg_value>
-    const glmParsed = parseGlmXmlArgs(body);
-    if (glmParsed) {
-      const wrapped = JSON.stringify({ name: glmParsed.name, arguments: glmParsed.args });
-      tcMatches.push({ start: match.index, end: match.index + match[0].length, json: wrapped });
-      continue;
-    }
-    // Fallback 3: Llama3 format inside <tool_call> — <function=name>{json}</function> or without </function>
-    // Used by models like Qwen3-Coder whose Jinja template nests this inside <tool_call>
-    const funcMatchClosed = body.match(/<function=([^>]+)>([\s\S]*)<\/function>/);
-    if (funcMatchClosed) {
-      const args = parseXmlParams(funcMatchClosed[2]);
-      const wrapped = JSON.stringify({ name: funcMatchClosed[1].trim(), arguments: args });
-      tcMatches.push({ start: match.index, end: match.index + match[0].length, json: wrapped });
-      continue;
-    }
-    // Fallback 4: <function=name> without </function> — extract name + JSON args from body
-    const funcMatchOpen = body.match(/^<function=([^>]+)>([\s\S]*)$/);
-    if (funcMatchOpen) {
-      const name = funcMatchOpen[1].trim();
-      const rest = funcMatchOpen[2].trim();
-      const jsonStart = rest.indexOf('{');
-      if (jsonStart >= 0) {
-        const balanced = extractBalancedJson(rest, jsonStart);
-        if (balanced) {
-          try {
-            const args = JSON.parse(balanced.json);
-            // Handle {"arguments": {...}} wrapper some models emit
-            const finalArgs = args.arguments && typeof args.arguments === 'object' && !args.name ? args.arguments : args;
-            const wrapped = JSON.stringify({ name, arguments: finalArgs });
-            tcMatches.push({ start: match.index, end: match.index + match[0].length, json: wrapped });
-          } catch { /* skip */ }
-        }
-      }
-    }
-  }
-
-  const trMatches: QwenTrMatch[] = [];
-  const trRe = new RegExp(TOOL_RESPONSE_REGEX.source, 'g');
-  while ((match = trRe.exec(content)) !== null) {
-    trMatches.push({ start: match.index, end: match.index + match[0].length, content: (match[1] || '').trim() });
-  }
-
-  const paired: { tc: QwenTcMatch; tr: QwenTrMatch | null }[] = [];
-  for (const tc of tcMatches) {
-    const tr = trMatches.find(r => r.start > tc.end);
-    if (tr) trMatches.splice(trMatches.indexOf(tr), 1);
-    paired.push({ tc, tr: tr || null });
-  }
-
-  const lastUnmatchedIdx = paired.reduce(
-    (acc, p, i) => (p.tr === null ? i : acc), -1
-  );
-
-  for (let i = 0; i < paired.length; i++) {
-    const { tc, tr } = paired[i];
-    try {
-      const parsed = JSON.parse(tc.json);
-      const items = Array.isArray(parsed) ? parsed : [parsed];
-      const isLastUnmatched = !tr && i === lastUnmatchedIdx;
-      const resolved = resolveQwenOutput(content, tc, tr, isLastUnmatched, toolTags);
-
-      for (const item of items) {
-        if (!item?.name) continue;
-        spans.push({
-          start: tc.start, end: resolved.spanEnd,
-          segment: { type: 'tool_call', toolCall: {
-            id: stableToolId(item.name, tc.start), name: item.name, arguments: item.arguments || {},
-            output: resolved.output, isStreaming: resolved.isStreaming, isPending: isLastUnmatched,
-          } },
-        });
-      }
-    } catch {
-      // Skip unparseable tool calls
-    }
-  }
-
-  return spans;
-}
-
-// --- LFM2: <|tool_call_start|>[func_name(key="value")]<|tool_call_end|> ---
-type Lfm2TcMatch = { start: number; end: number; name: string; args: Record<string, unknown> };
-type Lfm2TrMatch = { start: number; end: number; content: string };
-
-export function collectLfm2Spans(content: string, toolTags?: ToolTags): Span[] {
-  const spans: Span[] = [];
-  let match;
-
-  const tcMatches: Lfm2TcMatch[] = [];
-  while ((match = LFM2_CALL_REGEX.exec(content)) !== null) {
-    const body = match[1].trim();
-    const parsed = parsePythonFunctionCall(body);
-    if (!parsed) continue;
-    tcMatches.push({
-      start: match.index,
-      end: match.index + match[0].length,
-      name: parsed.name,
-      args: parsed.args,
-    });
-  }
-
-  const trMatches: Lfm2TrMatch[] = [];
-  const trRe = new RegExp(LFM2_RESPONSE_REGEX.source, 'g');
-  while ((match = trRe.exec(content)) !== null) {
-    trMatches.push({
-      start: match.index,
-      end: match.index + match[0].length,
-      content: (match[1] || '').trim(),
-    });
-  }
-
-  const paired: { tc: Lfm2TcMatch; tr: Lfm2TrMatch | null }[] = [];
-  for (const tc of tcMatches) {
-    const tr = trMatches.find(r => r.start > tc.end);
-    if (tr) trMatches.splice(trMatches.indexOf(tr), 1);
-    paired.push({ tc, tr: tr || null });
-  }
-
-  const lastUnmatchedIdx = paired.reduce(
-    (acc, p, i) => (p.tr === null ? i : acc), -1
-  );
-
-  for (let i = 0; i < paired.length; i++) {
-    const { tc, tr } = paired[i];
-    const isLastUnmatched = !tr && i === lastUnmatchedIdx;
-    const resolved = resolveQwenOutput(
-      content,
-      { start: tc.start, end: tc.end, json: '' },
-      tr ? { start: tr.start, end: tr.end, content: tr.content } : null,
-      isLastUnmatched,
-      toolTags,
-    );
-    spans.push({
-      start: tc.start,
-      end: resolved.spanEnd,
-      segment: { type: 'tool_call', toolCall: {
-        id: stableToolId(tc.name, tc.start),
-        name: tc.name,
-        arguments: tc.args,
-        output: resolved.output,
-        isStreaming: resolved.isStreaming,
-        isPending: isLastUnmatched,
-      } },
-    });
   }
 
   return spans;
@@ -537,10 +432,14 @@ export const THINKING_UNCLOSED_REGEX = /<think>([\s\S]*)$/;
 export const THINKING_ORPHAN_CLOSE_REGEX = /<\/think>/g;
 
 // Regexes for tool call+response pairs inside thinking blocks
-const EXEC_PAIR_RE = /(?:<\|\|)?SYSTEM\.EXEC>[\s\S]*?<(?:\|\|)?SYSTEM\.EXEC\|\|>(?:\s*(?:<\|\|)?SYSTEM\.OUTPUT>[\s\S]*?<(?:\|\|)?SYSTEM\.OUTPUT\|\|>)?/g;
-const TOOL_CALL_PAIR_RE = /<tool_call>[\s\S]*?(?:<\/tool_call>|<\|end_of_box\|>)(?:\s*<tool_response>[\s\S]*?<\/tool_response>)?/g;
-const LFM2_PAIR_RE = /<\|tool_call_start\|>[\s\S]*?<\|tool_call_end\|>(?:\s*<\|tool_response_start\|>[\s\S]*?<\|tool_response_end\|>)?/g;
-const MISTRAL_PAIR_RE = /\[TOOL_CALLS\][\s\S]*?(?:\[\/TOOL_CALLS\]|\})(?:\s*\[TOOL_RESULTS\][\s\S]*?\[\/TOOL_RESULTS\])?/g;
+const EXEC_PAIR_RE =
+  /(?:<\|\|)?SYSTEM\.EXEC>[\s\S]*?<(?:\|\|)?SYSTEM\.EXEC\|\|>(?:\s*(?:<\|\|)?SYSTEM\.OUTPUT>[\s\S]*?<(?:\|\|)?SYSTEM\.OUTPUT\|\|>)?/g;
+const TOOL_CALL_PAIR_RE =
+  /<tool_call>[\s\S]*?(?:<\/tool_call>|<\|end_of_box\|>)(?:\s*<tool_response>[\s\S]*?<\/tool_response>)?/g;
+const LFM2_PAIR_RE =
+  /<\|tool_call_start\|>[\s\S]*?<\|tool_call_end\|>(?:\s*<\|tool_response_start\|>[\s\S]*?<\|tool_response_end\|>)?/g;
+const MISTRAL_PAIR_RE =
+  /\[TOOL_CALLS\][\s\S]*?(?:\[\/TOOL_CALLS\]|\})(?:\s*\[TOOL_RESULTS\][\s\S]*?\[\/TOOL_RESULTS\])?/g;
 
 /**
  * Move tool call+response pairs out of `<think>` blocks so they render as widgets.
@@ -548,12 +447,10 @@ const MISTRAL_PAIR_RE = /\[TOOL_CALLS\][\s\S]*?(?:\[\/TOOL_CALLS\]|\})(?:\s*\[TO
  */
 export function moveToolsOutOfThinking(content: string): string {
   return content.replace(/<think>([\s\S]*?)<\/think>/g, (_match, inner: string) => {
-    // Collect all tool call+response pairs from inside the thinking block
     const toolParts: string[] = [];
     let cleaned = inner;
 
     for (const re of [EXEC_PAIR_RE, TOOL_CALL_PAIR_RE, LFM2_PAIR_RE, MISTRAL_PAIR_RE]) {
-      // Reset lastIndex for each regex
       re.lastIndex = 0;
       const matches = [...cleaned.matchAll(new RegExp(re.source, re.flags))];
       for (const m of matches) {
@@ -564,94 +461,36 @@ export function moveToolsOutOfThinking(content: string): string {
 
     if (toolParts.length === 0) return `<think>${inner}</think>`;
 
-    // Rebuild: thinking (cleaned) + tool calls placed after
     const trimmedThinking = cleaned.trim();
     const thinkBlock = trimmedThinking ? `<think>${trimmedThinking}</think>\n` : '';
-    return thinkBlock + toolParts.join('\n') + '\n';
+    return `${thinkBlock + toolParts.join('\n')}\n`;
   });
 }
 
-// --- Gemma 4 / Dynamic: <|tool_call>call:name{args}<tool_call|> ---
-// Parses Gemma 4 native format and pairs with <|tool_response>...<tool_response|>
-
-// Gemma 4 tool call: close tag may be <tool_call|> or may be stripped by backend,
-// in which case the block ends at <|tool_response> or end of text.
-const GEMMA4_CALL_REGEX = /<\|tool_call>call:(\w+)\{([\s\S]*?)\}(?:<tool_call\|>)?/g;
-const GEMMA4_RESPONSE_REGEX = /<\|tool_response>([\s\S]*?)(?:<tool_response\|>|$)/g;
-// Channel tags (thinking): <|channel>thought<channel|> or <|channel>thought\n...<channel|>
-const CHANNEL_TAG_REGEX = /<\|channel>[\s\S]*?<channel\|>/g;
-// Turn tags: <|turn>model, <turn|>, etc.
-const TURN_TAG_REGEX = /<(?:\|turn>(?:model|user|system|tool)|turn\|>)/g;
-
-/** Parse Gemma 4 key:value args into a simple object */
-function parseGemma4Args(raw: string): Record<string, unknown> {
-  const args: Record<string, unknown> = {};
-  const quoteDelim = '<|"|>';
-  let pos = 0;
-  while (pos < raw.length) {
-    while (pos < raw.length && /\s/.test(raw[pos])) pos++;
-    if (pos >= raw.length) break;
-    const colonIdx = raw.indexOf(':', pos);
-    if (colonIdx < 0) break;
-    const key = raw.slice(pos, colonIdx).trim();
-    pos = colonIdx + 1;
-    while (pos < raw.length && /\s/.test(raw[pos])) pos++;
-    if (pos >= raw.length) break;
-    if (raw.startsWith(quoteDelim, pos)) {
-      const contentStart = pos + quoteDelim.length;
-      const endIdx = raw.indexOf(quoteDelim, contentStart);
-      if (endIdx >= 0) {
-        args[key] = raw.slice(contentStart, endIdx);
-        pos = endIdx + quoteDelim.length;
-      } else {
-        args[key] = raw.slice(contentStart);
-        pos = raw.length;
-      }
-    } else if (raw.startsWith('true', pos)) {
-      args[key] = true; pos += 4;
-    } else if (raw.startsWith('false', pos)) {
-      args[key] = false; pos += 5;
-    } else {
-      const valStart = pos;
-      while (pos < raw.length && raw[pos] !== ',') pos++;
-      args[key] = raw.slice(valStart, pos).trim();
-    }
-    if (pos < raw.length && raw[pos] === ',') pos++;
-  }
-  return args;
-}
-
-function collectGemma4Spans(content: string): Span[] {
-  const spans: Span[] = [];
-  const calls: { start: number; end: number; name: string; args: Record<string, unknown> }[] = [];
-  const responses: { start: number; end: number; content: string }[] = [];
-
-  let m;
-  const callRe = new RegExp(GEMMA4_CALL_REGEX.source, 'g');
-  while ((m = callRe.exec(content)) !== null) {
-    calls.push({ start: m.index, end: m.index + m[0].length, name: m[1], args: parseGemma4Args(m[2]) });
-  }
-  const respRe = new RegExp(GEMMA4_RESPONSE_REGEX.source, 'g');
-  while ((m = respRe.exec(content)) !== null) {
-    responses.push({ start: m.index, end: m.index + m[0].length, content: m[1].trim() });
+/** Select the best format-specific tool spans for the given content. */
+function selectToolSpans(pruned: string, toolTags?: ToolTags): Span[] {
+  // Try Gemma 4 format first (detected by exec_open tag)
+  if (toolTags?.exec_open === '<|tool_call>') {
+    const gemma4 = collectGemma4Spans(pruned);
+    if (gemma4.length > 0) return gemma4;
   }
 
-  for (let i = 0; i < calls.length; i++) {
-    const call = calls[i];
-    const resp = i < responses.length ? responses[i] : null;
-    const spanEnd = resp ? resp.end : call.end;
-    spans.push({
-      start: call.start, end: spanEnd,
-      segment: { type: 'tool_call', toolCall: {
-        id: stableToolId(call.name, call.start),
-        name: call.name,
-        arguments: call.args,
-        output: resp?.content,
-        isPending: !resp,
-      } },
-    });
+  // Try LFM2 format
+  if (toolTags?.exec_open === '<|tool_call_start|>') {
+    const lfm2 = collectLfm2Spans(pruned, toolTags);
+    if (lfm2.length > 0) return lfm2;
   }
-  return spans;
+
+  // Try Qwen/GLM format
+  const qwen = collectQwenSpans(pruned, toolTags);
+  if (qwen.length > 0) return qwen;
+
+  // Try Mistral format
+  const mistral = collectMistralSpans(pruned, toolTags);
+  if (mistral.length > 0) return mistral;
+
+  // Fall back to Llama3 format
+  return collectLlama3Spans(pruned, toolTags);
 }
 
 /** Strip channel/turn tags from text content (for text segments only) */
@@ -668,25 +507,8 @@ export function buildSegments(content: string, toolTags?: ToolTags): MessageSegm
     .replace(THINKING_ORPHAN_CLOSE_REGEX, '');
   const pruned = stripUnclosedToolCallTail(cleaned, toolTags);
 
-  // Try Gemma 4 format first (detected by exec_open tag)
-  const gemma4Spans = toolTags?.exec_open === '<|tool_call>'
-    ? collectGemma4Spans(pruned)
-    : [];
-  const lfm2Spans = gemma4Spans.length > 0 ? []
-    : toolTags?.exec_open === '<|tool_call_start|>'
-    ? collectLfm2Spans(pruned, toolTags)
-    : [];
-  const qwenSpans = gemma4Spans.length > 0 || lfm2Spans.length > 0 ? [] : collectQwenSpans(pruned, toolTags);
-  const mistralSpans = gemma4Spans.length > 0 || lfm2Spans.length > 0 || qwenSpans.length > 0
-    ? []
-    : collectMistralSpans(pruned, toolTags);
-  const toolSpans = gemma4Spans.length > 0 ? gemma4Spans
-    : lfm2Spans.length > 0 ? lfm2Spans
-    : qwenSpans.length > 0 ? qwenSpans
-    : mistralSpans.length > 0 ? mistralSpans
-    : collectLlama3Spans(pruned, toolTags);
-  const spans = [...collectExecSpans(pruned), ...toolSpans]
-    .sort((a, b) => a.start - b.start);
+  const toolSpans = selectToolSpans(pruned, toolTags);
+  const spans = [...collectExecSpans(pruned), ...toolSpans].sort((a, b) => a.start - b.start);
 
   // Determine if we need to strip channel/turn tags from text segments
   const needsChannelStrip = toolTags?.exec_open === '<|tool_call>';
@@ -712,3 +534,6 @@ export function buildSegments(content: string, toolTags?: ToolTags): MessageSegm
 
   return result;
 }
+
+// Re-export for consumers
+export { collectQwenSpans } from './toolSpanCollectorsQwen';

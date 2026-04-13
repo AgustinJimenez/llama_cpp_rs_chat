@@ -5,7 +5,10 @@
 import type { ToolTags } from '../types';
 
 /** Extract balanced JSON starting at text[start]. Returns { end, json } or null. */
-export function extractBalancedJson(text: string, start: number): { end: number; json: string } | null {
+export function extractBalancedJson(
+  text: string,
+  start: number,
+): { end: number; json: string } | null {
   if (start >= text.length || text[start] !== '{') return null;
   let depth = 0;
   let inString = false;
@@ -16,9 +19,14 @@ export function extractBalancedJson(text: string, start: number): { end: number;
       if (ch === '"' && !prevBackslash) inString = false;
       prevBackslash = ch === '\\' && !prevBackslash;
     } else {
-      if (ch === '"') { inString = true; prevBackslash = false; }
-      else if (ch === '{') depth++;
-      else if (ch === '}') { depth--; if (depth === 0) return { end: i + 1, json: text.slice(start, i + 1) }; }
+      if (ch === '"') {
+        inString = true;
+        prevBackslash = false;
+      } else if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) return { end: i + 1, json: text.slice(start, i + 1) };
+      }
     }
   }
   return null;
@@ -31,7 +39,10 @@ function escapeRegExp(value: string): string {
 function parsePythonValue(raw: string): unknown {
   const value = raw.trim();
   if (!value) return '';
-  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
     const unquoted = value.slice(1, -1);
     return unquoted.replace(/\\(['"\\nrt])/g, (_, ch) => {
       if (ch === 'n') return '\n';
@@ -44,7 +55,10 @@ function parsePythonValue(raw: string): unknown {
   if (value === 'false' || value === 'False') return false;
   if (value === 'null' || value === 'None') return null;
   if (/^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(value)) return Number(value);
-  if ((value.startsWith('{') && value.endsWith('}')) || (value.startsWith('[') && value.endsWith(']'))) {
+  if (
+    (value.startsWith('{') && value.endsWith('}')) ||
+    (value.startsWith('[') && value.endsWith(']'))
+  ) {
     try {
       return JSON.parse(value);
     } catch {
@@ -97,7 +111,9 @@ function splitPythonArgs(argList: string): string[] {
   return parts;
 }
 
-export function parsePythonFunctionCall(body: string): { name: string; args: Record<string, unknown> } | null {
+export function parsePythonFunctionCall(
+  body: string,
+): { name: string; args: Record<string, unknown> } | null {
   let trimmed = body.trim();
   if (trimmed.startsWith('[') && trimmed.endsWith(']')) trimmed = trimmed.slice(1, -1).trim();
 
@@ -223,12 +239,12 @@ export function stripUnclosedToolCallTail(content: string, toolTags?: ToolTags):
     // SYSTEM.EXEC: <||SYSTEM.EXEC> ... (no closing tag yet)
     const lastExecOpen = Math.max(
       content.lastIndexOf('<||SYSTEM.EXEC>'),
-      content.lastIndexOf('SYSTEM.EXEC>')
+      content.lastIndexOf('SYSTEM.EXEC>'),
     );
     if (lastExecOpen !== -1) {
       const lastExecClose = Math.max(
         content.lastIndexOf('<SYSTEM.EXEC||>'),
-        content.lastIndexOf('SYSTEM.EXEC||>')
+        content.lastIndexOf('SYSTEM.EXEC||>'),
       );
       if (lastExecClose < lastExecOpen) cutoff = Math.min(cutoff, lastExecOpen);
     }

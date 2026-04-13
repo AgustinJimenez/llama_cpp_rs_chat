@@ -1,14 +1,16 @@
-import { useEffect } from 'react';
 import { X } from 'lucide-react';
-import { SystemUsage } from './SystemUsage';
+import { useEffect } from 'react';
+
 import { useSystemResources } from '../../contexts/SystemResourcesContext';
+
+import { SystemUsage } from './SystemUsage';
 
 interface RightSidebarProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-export function RightSidebar({ isOpen, onClose }: RightSidebarProps) {
+export const RightSidebar = ({ isOpen, onClose }: RightSidebarProps) => {
   const { setMonitorActive } = useSystemResources();
 
   useEffect(() => {
@@ -19,13 +21,17 @@ export function RightSidebar({ isOpen, onClose }: RightSidebarProps) {
   return (
     <>
       {/* Overlay for mobile */}
-      {isOpen ? <div
+      {isOpen ? (
+        <div
           className="fixed inset-0 bg-black/50 z-40 md:hidden"
           role="button"
           tabIndex={0}
           onClick={onClose}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClose(); }}
-        /> : null}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') onClose();
+          }}
+        />
+      ) : null}
 
       {/* Sidebar */}
       <div
@@ -53,4 +59,4 @@ export function RightSidebar({ isOpen, onClose }: RightSidebarProps) {
       </div>
     </>
   );
-}
+};

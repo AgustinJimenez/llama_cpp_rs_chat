@@ -1,10 +1,14 @@
 import { useEffect, useRef } from 'react';
 import { toast } from 'react-hot-toast';
+
+const CONVERSATION_POLL_INTERVAL_MS = 5000;
+const MIN_CONTEXT_SIZE_WARNING = 4096;
+
+import type { Message } from '../types';
 import { parseConversationFile } from '../utils/conversationParser';
-import { logToastError, logToastWarning } from '../utils/toastLogger';
 import { isTauriEnv } from '../utils/tauri';
 import { getConversation } from '../utils/tauriCommands';
-import type { Message } from '../types';
+import { logToastError, logToastWarning } from '../utils/toastLogger';
 
 /**
  * Check if the content has an unclosed tool response/output tag, indicating
@@ -64,7 +68,10 @@ function reconcileMessages(incoming: Message[], local: Message[], isStreaming: b
     if (local.length > 0 && incoming.length > 0) {
       let hasTimings = false;
       for (const msg of local) {
-        if (msg.timings) { hasTimings = true; break; }
+        if (msg.timings) {
+          hasTimings = true;
+          break;
+        }
       }
       if (hasTimings) {
         return incoming.map((msg, i) => {
@@ -100,6 +107,83 @@ function getNextDelay(attempt: number): number {
   return Math.min(exp, WS_RECONNECT_MAX_MS);
 }
 
+/** Handle context size warning toasts from conversation content. */
+function handleContextWarnings(content: string) {
+  if (
+    content.includes('\u26a0\ufe0f Context Size Reduced') &&
+    content.includes('Auto-reduced to:')
+  ) {
+    const match = content.match(/Auto-reduced to: (\d+) tokens/);
+    if (match) {
+      const reducedSize = parseInt(match[1]);
+      if (reducedSize < MIN_CONTEXT_SIZE_WARNING) {
+        const display = `\u26a0\ufe0f Context size critically low (${reducedSize} tokens)! Model may not work properly.`;
+        logToastWarning('useConversationWatcher.context', display);
+        toast.error(display, { duration: 10000 });
+      } else {
+        const display = `\u26a0\ufe0f Context size reduced to ${reducedSize} tokens due to VRAM limits.`;
+        logToastWarning('useConversationWatcher.context', display);
+        toast(display, {
+          duration: 5000,
+          icon: '\u26a0\ufe0f',
+        });
+      }
+    }
+  }
+}
+
+interface WsUpdateMessage {
+  type?: string;
+  content?: string;
+  tokens_used?: number;
+  max_tokens?: number;
+}
+
+/** Process a WebSocket update message: parse messages, handle errors, update token counts. */
+function handleWsUpdate(
+  message: WsUpdateMessage,
+  opts: Pick<
+    UseConversationWatcherOptions,
+    'isStreamingRef' | 'setMessages' | 'setIsLoading' | 'setTokensUsed' | 'setMaxTokens'
+  >,
+) {
+  const { isStreamingRef, setMessages, setIsLoading, setTokensUsed, setMaxTokens } = opts;
+
+  // Skip updates during active streaming
+  if (isStreamingRef.current) {
+    console.warn('[ConversationWatcher] Skipping update - streaming is active');
+    return;
+  }
+
+  const { content } = message;
+  if (!content) return;
+
+  handleContextWarnings(content);
+
+  const parsedMessages = parseConversationFile(content);
+  setMessages(parsedMessages);
+  console.warn('[ConversationWatcher] Updated messages, count:', parsedMessages.length);
+
+  if (content.includes('\u26a0\ufe0f Generation Error:')) {
+    console.error('[ConversationWatcher] Generation error detected');
+    const display =
+      'Model generation failed. Try simplifying your request or reducing context size.';
+    logToastError('useConversationWatcher.handleUpdate', display);
+    toast.error(display, { duration: 7000 });
+    setIsLoading(false);
+    return;
+  }
+
+  setIsLoading(false);
+
+  if (message.tokens_used !== undefined && message.tokens_used !== null) {
+    setTokensUsed(message.tokens_used);
+  }
+  if (message.max_tokens !== undefined && message.max_tokens !== null) {
+    setMaxTokens(message.max_tokens);
+  }
+}
+
 /**
  * Hook to watch conversation updates via WebSocket.
  * Handles real-time updates and context warnings.
@@ -107,7 +191,6 @@ function getNextDelay(attempt: number): number {
  * Tool execution is handled entirely by the backend inline during generation.
  * This hook only manages message display and loading state.
  */
-// eslint-disable-next-line max-lines-per-function
 export function useConversationWatcher({
   currentConversationId,
   isStreamingRef,
@@ -124,70 +207,55 @@ export function useConversationWatcher({
   // Fallback: re-fetch conversation if WS is disconnected but a conversation is active
   useEffect(() => {
     const shouldPollConversation = () => {
-      if (!currentConversationId) {
-        return false;
-      }
-
-      if (!isStreamingRef.current) {
-        return false;
-      }
-
+      if (!currentConversationId || !isStreamingRef.current) return false;
       return Date.now() - lastWsUpdateAtRef.current >= WS_STUCK_STREAMING_POLL_MS;
     };
 
     const reconcileUiStateFromMessages = async (parsedMessages: Message[]) => {
       const lastMessage = parsedMessages[parsedMessages.length - 1];
-      if (!lastMessage || lastMessage.role !== 'assistant') {
-        return;
-      }
-
+      if (!lastMessage || lastMessage.role !== 'assistant') return;
       const content = lastMessage.content.trim();
-      if (content.length === 0) return;
-
-      // Don't declare generation "done" if there's an unclosed tool response tag —
-      // that means a command is still executing and we're waiting for output.
-      if (hasUnclosedToolExecution(content)) return;
-
+      if (content.length === 0 || hasUnclosedToolExecution(content)) return;
       isStreamingRef.current = false;
       setIsLoading(false);
     };
 
     const fetchConversation = async () => {
-      if (!shouldPollConversation()) {
-        return;
-      }
+      if (!shouldPollConversation() || !currentConversationId) return;
       try {
-        const data = await getConversation(currentConversationId!);
-        const parsedMessages = data.content
-          ? parseConversationFile(data.content)
-          : data.messages
-            ? (data.messages as unknown as Message[])
-            : null;
+        const data = await getConversation(currentConversationId);
+        let parsedMessages: Message[] | null = null;
+        if (data.content) {
+          parsedMessages = parseConversationFile(data.content);
+        } else if (data.messages) {
+          parsedMessages = data.messages as unknown as Message[];
+        }
 
         if (!parsedMessages) return;
 
-        const nextMessages = reconcileMessages(parsedMessages, currentMessagesRef.current, isStreamingRef.current);
-        // Only update state if messages actually changed to avoid unnecessary re-renders
-        // that close menus, reset scroll position, etc.
-        const current = currentMessagesRef.current;
-        const changed = nextMessages.length !== current.length ||
-          nextMessages.some((m, i) => m.content !== current[i]?.content || m.role !== current[i]?.role);
-        if (changed) {
-          setMessages(nextMessages);
-        }
+        const nextMessages = reconcileMessages(
+          parsedMessages,
+          currentMessagesRef.current,
+          isStreamingRef.current,
+        );
+        const { current } = currentMessagesRef;
+        const changed =
+          nextMessages.length !== current.length ||
+          nextMessages.some(
+            (m, i) => m.content !== current[i]?.content || m.role !== current[i]?.role,
+          );
+        if (changed) setMessages(nextMessages);
 
         if (isStreamingRef.current) {
-          const lastMessage = nextMessages[nextMessages.length - 1];
-          const assistantContent = lastMessage?.role === 'assistant' ? lastMessage.content : '';
+          const lastMsg = nextMessages[nextMessages.length - 1];
+          const assistantContent = lastMsg?.role === 'assistant' ? lastMsg.content : '';
           if (!assistantContent) return;
-
           if (assistantContent === lastPolledAssistantContentRef.current) {
             stablePollsRef.current += 1;
           } else {
             stablePollsRef.current = 0;
             lastPolledAssistantContentRef.current = assistantContent;
           }
-
           if (stablePollsRef.current < 1) return;
         } else {
           stablePollsRef.current = 0;
@@ -200,63 +268,40 @@ export function useConversationWatcher({
       }
     };
 
-    const interval = setInterval(fetchConversation, 5000);
+    const interval = setInterval(fetchConversation, CONVERSATION_POLL_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [
-    currentConversationId,
-    isStreamingRef,
-    currentMessagesRef,
-    setIsLoading,
-    setMessages,
-  ]);
+  }, [currentConversationId, isStreamingRef, currentMessagesRef, setIsLoading, setMessages]);
 
   useEffect(() => {
-    if (!currentConversationId) {
-      return;
-    }
-
-    // In Tauri mode, token streaming is handled by events from generate_stream.
-    // No WebSocket needed — just skip.
-    if (isTauriEnv()) {
-      return;
-    }
+    if (!currentConversationId || isTauriEnv()) return;
 
     let attempt = 0;
     let shouldReconnect = true;
-
-    // Determine WebSocket URL based on current protocol
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/conversation/watch/${currentConversationId}`;
-
     let ws: WebSocket | null = null;
+    const updateOpts = { isStreamingRef, setMessages, setIsLoading, setTokensUsed, setMaxTokens };
 
     const connect = () => {
       ws = new WebSocket(wsUrl);
-
       ws.onopen = () => {
         attempt = 0;
         lastWsUpdateAtRef.current = Date.now();
       };
-
       ws.onmessage = (event) => {
         try {
           lastWsUpdateAtRef.current = Date.now();
           const message = JSON.parse(event.data);
-
-          if (message.type === 'update') {
-            handleUpdate(message);
-          }
+          if (message.type === 'update') handleWsUpdate(message, updateOpts);
         } catch (e) {
           console.error('[ConversationWatcher] Failed to parse update:', e);
         }
       };
-
       ws.onerror = (error) => {
         console.error('[ConversationWatcher] WebSocket ERROR:', error);
       };
-
       ws.onclose = (event) => {
-        console.log('[ConversationWatcher] WebSocket closed:', event.code, event.reason);
+        console.warn('[ConversationWatcher] WebSocket closed:', event.code, event.reason);
         if (shouldReconnect) {
           const delay = getNextDelay(attempt);
           attempt += 1;
@@ -269,74 +314,8 @@ export function useConversationWatcher({
 
     return () => {
       shouldReconnect = false;
-      if (ws) {
-        ws.close();
-      }
+      if (ws) ws.close();
     };
-
-    function handleUpdate(message: { type?: string; content?: string; tokens_used?: number; max_tokens?: number }) {
-      // Skip updates during active streaming
-      if (isStreamingRef.current) {
-        console.log('[ConversationWatcher] Skipping update - streaming is active');
-        return;
-      }
-
-      const content = message.content;
-      if (!content) {
-        return;
-      }
-
-      // Check for context size warnings
-      handleContextWarnings(content);
-
-      // Parse and update messages
-      const parsedMessages = parseConversationFile(content);
-      setMessages(parsedMessages);
-      console.log('[ConversationWatcher] Updated messages, count:', parsedMessages.length);
-
-      // Check for generation errors
-      if (content.includes('\u26a0\ufe0f Generation Error:')) {
-        console.error('[ConversationWatcher] Generation error detected');
-        const display = 'Model generation failed. Try simplifying your request or reducing context size.';
-        logToastError('useConversationWatcher.handleUpdate', display);
-        toast.error(display, { duration: 7000 });
-        setIsLoading(false);
-        return;
-      }
-
-      // No tool calls to handle — backend does this inline during generation.
-      // Just turn off loading spinner.
-      setIsLoading(false);
-
-      // Update token counts
-      if (message.tokens_used !== undefined && message.tokens_used !== null) {
-        setTokensUsed(message.tokens_used);
-      }
-      if (message.max_tokens !== undefined && message.max_tokens !== null) {
-        setMaxTokens(message.max_tokens);
-      }
-    }
-
-    function handleContextWarnings(content: string) {
-      if (content.includes('\u26a0\ufe0f Context Size Reduced') && content.includes('Auto-reduced to:')) {
-        const match = content.match(/Auto-reduced to: (\d+) tokens/);
-        if (match) {
-          const reducedSize = parseInt(match[1]);
-          if (reducedSize < 4096) {
-            const display = `\u26a0\ufe0f Context size critically low (${reducedSize} tokens)! Model may not work properly.`;
-            logToastWarning('useConversationWatcher.context', display);
-            toast.error(display, { duration: 10000 });
-          } else {
-            const display = `\u26a0\ufe0f Context size reduced to ${reducedSize} tokens due to VRAM limits.`;
-            logToastWarning('useConversationWatcher.context', display);
-            toast(display, {
-              duration: 5000,
-              icon: '\u26a0\ufe0f',
-            });
-          }
-        }
-      }
-    }
   }, [
     currentConversationId,
     isStreamingRef,

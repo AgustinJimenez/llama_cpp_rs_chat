@@ -1,7 +1,7 @@
-import { MessageInput } from '../molecules';
 import { useModelContext } from '../../contexts/ModelContext';
+import { MessageInput } from '../molecules';
 
-export function ChatInputArea() {
+export const ChatInputArea = () => {
   const { status } = useModelContext();
   if (!status.loaded) return null;
 
@@ -12,4 +12,4 @@ export function ChatInputArea() {
       </div>
     </div>
   );
-}
+};
