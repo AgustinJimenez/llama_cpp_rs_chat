@@ -332,13 +332,12 @@ async fn run_http(_tools: Vec<Tool>, port: u16) {
 
     let ct = CancellationToken::new();
 
-    let config = StreamableHttpServerConfig {
-        stateful_mode: true,
-        sse_keep_alive: Some(std::time::Duration::from_secs(15)),
-        sse_retry: Some(std::time::Duration::from_secs(3)),
-        json_response: false,
-        cancellation_token: ct.child_token(),
-    };
+    let mut config = StreamableHttpServerConfig::default();
+    config.stateful_mode = true;
+    config.sse_keep_alive = Some(std::time::Duration::from_secs(15));
+    config.sse_retry = Some(std::time::Duration::from_secs(3));
+    config.json_response = false;
+    config.cancellation_token = ct.child_token();
 
     let session_manager = Arc::new(LocalSessionManager::default());
 

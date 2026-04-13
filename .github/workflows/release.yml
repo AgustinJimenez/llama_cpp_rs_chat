@@ -57,12 +57,17 @@ jobs:
       - name: Refresh Cargo.lock
         run: rm -f Cargo.lock
 
+      - name: Install sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.LLAMA_CHAT_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+          SCCACHE_GHA_ENABLED: "true"
+          RUSTC_WRAPPER: sccache
         with:
           tagName: v__VERSION__
           releaseName: 'LLaMA Chat v__VERSION__'
