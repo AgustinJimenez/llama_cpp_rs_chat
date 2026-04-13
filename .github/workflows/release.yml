@@ -55,7 +55,9 @@ jobs:
 
       # Remove stale Cargo.lock so path deps resolve correctly
       - name: Refresh Cargo.lock
-        run: rm -f Cargo.lock
+        run: |
+          if [ -f Cargo.lock ]; then rm Cargo.lock; fi
+        shell: bash
 
       - name: Install sccache
         uses: mozilla-actions/sccache-action@v0.0.7
