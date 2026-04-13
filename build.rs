@@ -68,9 +68,7 @@ fn write_nsis_installer_hooks() {
     let mut delete_lines = String::new();
     for dll in backend_dlls.iter().map(|s| s.to_string()).chain(vc_dll_names.iter().cloned()) {
         file_lines.push_str(&format!(
-            "  File /oname={name} \"{target}\\{name}\"\n",
-            name = dll,
-            target = target_release_str
+            "  File /oname={dll} \"{target_release_str}\\{dll}\"\n"
         ));
         delete_lines.push_str(&format!("  Delete \"$INSTDIR\\{dll}\"\n"));
     }
