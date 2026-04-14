@@ -519,7 +519,18 @@ static ALL_TOOLS: &[ToolDef] = &[
         ]),
         required: &[],
     },
-    // ─── 36. ocr_find_text ───
+    // ─── 36. detect_ui_elements ───
+    ToolDef {
+        name: "detect_ui_elements",
+        description: "Detect all interactive UI elements on screen using YOLO vision model + OCR. Returns a numbered list of elements with labels and coordinates. Works on ANY app including GPU-rendered ones (Unreal, Unity, Blender). Use this instead of get_ui_tree when the app uses custom rendering. Each element includes center coordinates for use with click_screen.",
+        params: Params::Simple(&[
+            p("monitor", "integer", "Monitor index (default 0)"),
+            p("confidence", "number", "Detection confidence threshold 0.0-1.0 (default 0.15)"),
+            p("ocr", "boolean", "Run OCR on detected elements to read labels (default true)"),
+        ]),
+        required: &[],
+    },
+    // ─── 37. ocr_find_text ───
     ToolDef {
         name: "ocr_find_text",
         description: "OCR the screen and find specific text, returning its bounding box coordinates. Prefer pid when you already know the target window identity; otherwise use window/title or a manual region to avoid scanning the full monitor.",

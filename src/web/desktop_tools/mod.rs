@@ -17,6 +17,7 @@ use super::native_tools::NativeToolResult;
 
 mod helpers;
 mod trace;
+pub(crate) mod yolo_detect;
 
 // Re-export helpers/trace so sibling modules keep using `super::tool_error` etc.
 #[allow(unused_imports)]

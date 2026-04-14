@@ -64,3 +64,5 @@ assets/images/
 
 # Auto-generated schemas
 gen/schemas/
+assets/yolo-model/ui-detect.onnx
+snapshot.txt

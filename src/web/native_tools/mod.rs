@@ -344,6 +344,9 @@ pub fn dispatch_native_tool(
     if name == "get_ui_tree" {
         return Some(super::desktop_tools::tool_get_ui_tree(&args));
     }
+    if name == "detect_ui_elements" {
+        return Some(super::desktop_tools::yolo_detect::tool_detect_ui_elements(&args));
+    }
     if name == "ocr_find_text" {
         return Some(super::desktop_tools::tool_ocr_find_text(&args));
     }

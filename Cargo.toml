@@ -68,6 +68,9 @@ panic = "abort"
 strip = true
 
 [dependencies]
+# ONNX Runtime for YOLO UI element detection
+ort = { version = "2.0.0-rc.12", features = ["download-binaries", "copy-dylibs"] }
+
 # Tauri framework
 tauri = { version = "2.0", features = ["tray-icon"] }
 tauri-plugin-dialog = "2.0"
