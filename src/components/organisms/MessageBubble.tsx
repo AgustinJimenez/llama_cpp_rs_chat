@@ -327,7 +327,7 @@ const AssistantMessage: React.FC<{
           {thinkingContent ? (
             <ThinkingBlock
               content={thinkingContent}
-              isStreaming={isThinkingStreaming ? isStreaming : null}
+              isStreaming={isThinkingStreaming ? isStreaming : undefined}
             />
           ) : null}
 

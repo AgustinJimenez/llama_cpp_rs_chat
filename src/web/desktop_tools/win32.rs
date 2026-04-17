@@ -145,6 +145,9 @@ extern "system" {
     pub fn ShowWindow(hwnd: HWND, cmd: i32) -> BOOL;
     pub fn PostMessageW(hwnd: HWND, msg: u32, wparam: usize, lparam: isize) -> BOOL;
     pub fn GetCursorPos(point: *mut POINT) -> BOOL;
+    pub fn SetCursorPos(x: i32, y: i32) -> BOOL;
+    pub fn GetAsyncKeyState(vkey: i32) -> i16;
+    pub fn GetMessageExtraInfo() -> usize;
     // Window positioning
     pub fn SetWindowPos(hwnd: HWND, after: HWND, x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> BOOL;
     // Pixel color
@@ -517,6 +520,132 @@ pub fn get_cursor_position() -> (i32, i32) {
     let mut point = POINT { x: 0, y: 0 };
     unsafe { GetCursorPos(&mut point); }
     (point.x, point.y)
+}
+
+// ─── Stealth mouse input (save/click/restore without user seeing it) ────────
+
+pub const INPUT_MOUSE: u32 = 0;
+pub const MOUSEEVENTF_MOVE: u32 = 0x0001;
+pub const MOUSEEVENTF_LEFTDOWN: u32 = 0x0002;
+pub const MOUSEEVENTF_LEFTUP: u32 = 0x0004;
+pub const MOUSEEVENTF_RIGHTDOWN: u32 = 0x0008;
+pub const MOUSEEVENTF_RIGHTUP: u32 = 0x0010;
+pub const MOUSEEVENTF_ABSOLUTE: u32 = 0x8000;
+const VK_LBUTTON: i32 = 0x01;
+
+#[repr(C)]
+pub struct MOUSEINPUT {
+    pub dx: i32,
+    pub dy: i32,
+    pub mouse_data: u32,
+    pub dw_flags: u32,
+    pub time: u32,
+    pub dw_extra_info: usize,
+}
+
+/// Raw INPUT struct sized for MOUSEINPUT (largest union variant = 24 bytes on x64).
+#[repr(C)]
+pub struct MouseINPUT {
+    pub input_type: u32,
+    pub _pad_union: [u8; 4], // alignment padding on x64
+    pub mi: MOUSEINPUT,
+}
+
+fn to_absolute(x: i32, y: i32) -> (i32, i32) {
+    // Convert screen coordinates to absolute (0..65535) range
+    let screen_w = unsafe { GetSystemMetrics(0) } as f64;
+    let screen_h = unsafe { GetSystemMetrics(1) } as f64;
+    let abs_x = ((x as f64 * 65535.0) / screen_w + 0.5) as i32;
+    let abs_y = ((y as f64 * 65535.0) / screen_h + 0.5) as i32;
+    (abs_x, abs_y)
+}
+
+extern "system" {
+    fn GetSystemMetrics(index: i32) -> i32;
+}
+
+/// Perform a "stealth click": save cursor → move → click → restore.
+/// Total time ~0.05ms. Returns true if the user's left button was NOT held
+/// (i.e., click was safe to perform).
+pub fn stealth_click(target_x: i32, target_y: i32, right_click: bool) -> Result<(), String> {
+    unsafe {
+        // 1. Check if user is mid-drag (left button held) — skip if so
+        if GetAsyncKeyState(VK_LBUTTON) & (0x8000u16 as i16) != 0 {
+            return Err("User is currently clicking/dragging, skipping stealth click".into());
+        }
+
+        // 2. Save current cursor position
+        let mut saved = POINT { x: 0, y: 0 };
+        GetCursorPos(&mut saved);
+
+        // 3. Move to target (absolute coordinates)
+        let (abs_x, abs_y) = to_absolute(target_x, target_y);
+        let extra = GetMessageExtraInfo();
+
+        let (down_flag, up_flag) = if right_click {
+            (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP)
+        } else {
+            (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP)
+        };
+
+        let inputs = [
+            // Move to target
+            MouseINPUT {
+                input_type: INPUT_MOUSE,
+                _pad_union: [0; 4],
+                mi: MOUSEINPUT {
+                    dx: abs_x,
+                    dy: abs_y,
+                    mouse_data: 0,
+                    dw_flags: MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE,
+                    time: 0,
+                    dw_extra_info: extra,
+                },
+            },
+            // Mouse down
+            MouseINPUT {
+                input_type: INPUT_MOUSE,
+                _pad_union: [0; 4],
+                mi: MOUSEINPUT {
+                    dx: abs_x,
+                    dy: abs_y,
+                    mouse_data: 0,
+                    dw_flags: down_flag | MOUSEEVENTF_ABSOLUTE,
+                    time: 0,
+                    dw_extra_info: extra,
+                },
+            },
+            // Mouse up
+            MouseINPUT {
+                input_type: INPUT_MOUSE,
+                _pad_union: [0; 4],
+                mi: MOUSEINPUT {
+                    dx: abs_x,
+                    dy: abs_y,
+                    mouse_data: 0,
+                    dw_flags: up_flag | MOUSEEVENTF_ABSOLUTE,
+                    time: 0,
+                    dw_extra_info: extra,
+                },
+            },
+        ];
+
+        // 4. Send all three events at once (move + down + up)
+        let sent = SendInput(
+            3,
+            inputs.as_ptr() as *const INPUT,
+            std::mem::size_of::<MouseINPUT>() as i32,
+        );
+
+        // 5. Immediately restore cursor position
+        SetCursorPos(saved.x, saved.y);
+
+        if sent != 3 {
+            return Err(format!("SendInput returned {sent}, expected 3"));
+        }
+
+        Ok(())
+    }
 }
 
 pub fn read_clipboard() -> Result<String, String> {

@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use tokio::sync::{mpsc, oneshot, Mutex as TokioMutex};
+use tokio::time::{timeout, Duration};
 
 use super::ipc_types::*;
 use super::process_manager::ProcessManager;
@@ -149,13 +150,34 @@ impl WorkerBridge {
         self.loading_progress.store(0, Ordering::Relaxed);
         *self.loading_model_path.lock().await = Some(model_path.to_string());
 
-        let payload = self
-            .send_and_wait(WorkerCommand::LoadModel {
+        // Timeout: if the worker doesn't respond within 120s, it's likely stuck
+        // due to VRAM overflow (CUDA VMM silently pages to RAM → infinite stall).
+        const LOAD_TIMEOUT_SECS: u64 = 120;
+        let payload = match timeout(
+            Duration::from_secs(LOAD_TIMEOUT_SECS),
+            self.send_and_wait(WorkerCommand::LoadModel {
                 model_path: model_path.to_string(),
                 gpu_layers,
                 mmproj_path,
-            })
-            .await;
+            }),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => {
+                eprintln!("[LOAD] Timeout after {LOAD_TIMEOUT_SECS}s — likely VRAM overflow. Killing worker.");
+                self.loading.store(false, Ordering::SeqCst);
+                self.loading_progress.store(0, Ordering::Relaxed);
+                *self.loading_model_path.lock().await = None;
+                // Kill and restart the worker so it doesn't stay hung
+                let _ = self.force_unload().await;
+                return Err(format!(
+                    "Model load timed out after {LOAD_TIMEOUT_SECS}s. This usually means the \
+                     context size + KV cache exceeds available VRAM. Try reducing context size \
+                     or using a smaller KV cache quantization (e.g. q4_0)."
+                ));
+            }
+        };
 
         self.loading.store(false, Ordering::SeqCst);
         self.loading_progress.store(0, Ordering::Relaxed);

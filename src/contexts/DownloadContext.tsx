@@ -85,18 +85,6 @@ export const DownloadProvider = ({ children }: { children: ReactNode }) => {
       // so the item stays visible in the UI during the connection gap
 
       const controller = startHubDownload(modelId, file.name, destPath, (event) => {
-        // On first progress event, clear from pending (now tracked in downloads)
-        if (event.type === 'progress') {
-          setPendingDownloads((prev) => {
-            if (prev.has(key)) {
-              const next = new Map(prev);
-              next.delete(key);
-              return next;
-            }
-            return prev;
-          });
-        }
-
         setDownloads((prev) => {
           const next = new Map(prev);
           if (event.type === 'done' || event.type === 'error') {
@@ -120,6 +108,8 @@ export const DownloadProvider = ({ children }: { children: ReactNode }) => {
       });
 
       abortControllers.current.set(key, controller);
+      // Refresh so the new DB record appears in pendingDownloads immediately
+      refreshRecords();
     },
     [refreshRecords],
   );

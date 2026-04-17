@@ -16,7 +16,6 @@ import {
 import { ModelFileInput, ModelConfigSystemPrompt } from '../../molecules';
 
 import { AdvancedContextSection } from './AdvancedContextSection';
-import { GpuLayersSection } from './GpuLayersSection';
 import { MemoryVisualization } from './MemoryVisualization';
 import { ModelMetadataDisplay } from './ModelMetadataDisplay';
 import { SamplingParametersSection } from './SamplingParametersSection';
@@ -555,15 +554,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                       loaded (with a download link). On a CPU-only machine
                       it shows "No GPU backend detected" so the user knows
                       why all layers will run on CPU. */}
-                  {modelInfo ? (
-                    <GpuLayersSection
-                      gpuLayers={config.gpu_layers || 0}
-                      onGpuLayersChange={(layers) => handleInputChange('gpu_layers', layers)}
-                      maxLayers={maxLayers}
-                    />
-                  ) : null}
-
-                  {/* Memory Visualization - Real-time VRAM/RAM usage */}
+                  {/* Memory Visualization - Real-time VRAM/RAM usage (includes GPU layers slider) */}
                   {modelInfo ? (
                     <MemoryVisualization
                       memory={memoryBreakdown}

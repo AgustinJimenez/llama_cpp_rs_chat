@@ -130,36 +130,88 @@ pub fn tool_click_screen(args: &Value) -> NativeToolResult {
         Err(result) => return result,
     };
 
-    if let Err(e) = with_enigo(|enigo| {
-        enigo
-            .move_mouse(x, y, Coordinate::Abs)
-            .map_err(|e| format!("move_mouse failed: {e}"))?;
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        match button_str {
-            "left" => enigo
-                .button(Button::Left, Direction::Click)
-                .map_err(|e| format!("click failed: {e}")),
-            "right" => enigo
-                .button(Button::Right, Direction::Click)
-                .map_err(|e| format!("click failed: {e}")),
-            "middle" => enigo
-                .button(Button::Middle, Direction::Click)
-                .map_err(|e| format!("click failed: {e}")),
-            "double" => {
-                enigo
-                    .button(Button::Left, Direction::Click)
-                    .map_err(|e| format!("click failed: {e}"))?;
-                std::thread::sleep(std::time::Duration::from_millis(50));
-                enigo
-                    .button(Button::Left, Direction::Click)
-                    .map_err(|e| format!("double-click failed: {e}"))
-            }
-            other => Err(format!(
-                "Unknown button '{other}'. Use: left, right, middle, double"
-            )),
+    // Stealth mode: save cursor → move → click → restore in <0.1ms
+    // The user's cursor barely moves. Safe to use while user is working.
+    // Stealth is ON by default — user's cursor is saved/restored in <0.1ms
+    let stealth = args.get("stealth").map(|v| parse_bool(v, true)).unwrap_or(true);
+
+    #[cfg(windows)]
+    if stealth {
+        let right = button_str == "right";
+        if button_str == "double" || button_str == "middle" {
+            return tool_error("click_screen", "Stealth mode only supports left/right clicks");
         }
-    }) {
-        return tool_error("click_screen", e);
+        if let Err(e) = super::win32::stealth_click(x, y, right) {
+            return tool_error("click_screen", e);
+        }
+    }
+    #[cfg(windows)]
+    if !stealth {
+        if let Err(e) = with_enigo(|enigo| {
+            enigo
+                .move_mouse(x, y, Coordinate::Abs)
+                .map_err(|e| format!("move_mouse failed: {e}"))?;
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            match button_str {
+                "left" => enigo
+                    .button(Button::Left, Direction::Click)
+                    .map_err(|e| format!("click failed: {e}")),
+                "right" => enigo
+                    .button(Button::Right, Direction::Click)
+                    .map_err(|e| format!("click failed: {e}")),
+                "middle" => enigo
+                    .button(Button::Middle, Direction::Click)
+                    .map_err(|e| format!("click failed: {e}")),
+                "double" => {
+                    enigo
+                        .button(Button::Left, Direction::Click)
+                        .map_err(|e| format!("click failed: {e}"))?;
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    enigo
+                        .button(Button::Left, Direction::Click)
+                        .map_err(|e| format!("double-click failed: {e}"))
+                }
+                other => Err(format!(
+                    "Unknown button '{other}'. Use: left, right, middle, double"
+                )),
+            }
+        }) {
+            return tool_error("click_screen", e);
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        if let Err(e) = with_enigo(|enigo| {
+            enigo
+                .move_mouse(x, y, Coordinate::Abs)
+                .map_err(|e| format!("move_mouse failed: {e}"))?;
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            match button_str {
+                "left" => enigo
+                    .button(Button::Left, Direction::Click)
+                    .map_err(|e| format!("click failed: {e}")),
+                "right" => enigo
+                    .button(Button::Right, Direction::Click)
+                    .map_err(|e| format!("click failed: {e}")),
+                "middle" => enigo
+                    .button(Button::Middle, Direction::Click)
+                    .map_err(|e| format!("click failed: {e}")),
+                "double" => {
+                    enigo
+                        .button(Button::Left, Direction::Click)
+                        .map_err(|e| format!("click failed: {e}"))?;
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    enigo
+                        .button(Button::Left, Direction::Click)
+                        .map_err(|e| format!("double-click failed: {e}"))
+                }
+                other => Err(format!(
+                    "Unknown button '{other}'. Use: left, right, middle, double"
+                )),
+            }
+        }) {
+            return tool_error("click_screen", e);
+        }
     }
 
     finalize_action_result(

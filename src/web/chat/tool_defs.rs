@@ -1314,11 +1314,12 @@ fn complex_tool_definitions() -> Vec<Value> {
         // ─── click_screen (tool 19) — has verification params ───
         tool_with_verify(
             "click_screen",
-            "Click the mouse at screen coordinates. Takes a screenshot after clicking by default; pass screenshot=false during long automation sessions to avoid bloating context. Use take_screenshot first to see the screen and identify coordinates.",
+            "Click the mouse at screen coordinates. Takes a screenshot after clicking by default; pass screenshot=false during long automation sessions to avoid bloating context. Use take_screenshot first to see the screen and identify coordinates. Use stealth=true for non-disruptive clicks that won't interrupt the user.",
             &[
                 p("x", "integer", "X coordinate in pixels from left edge of screen"),
                 p("y", "integer", "Y coordinate in pixels from top edge of screen"),
                 p("button", "string", "Mouse button: 'left' (default), 'right', 'middle', 'double' (double left click)"),
+                p("stealth", "boolean", "Stealth mode (Windows only, default: true): saves cursor position, clicks target in <0.1ms, restores cursor. User is not interrupted. Skips if user is mid-drag. Set to false for actions that need the cursor to stay at the target (e.g. hover menus)."),
                 p("screenshot", "boolean", "Take a screenshot after clicking (default: true). Set to false to avoid embedding a full-screen capture in the result."),
                 p("delay_ms", "integer", "Milliseconds to wait after clicking before taking screenshot (default: 500). Increase for slow UI animations."),
                 p("dpi_aware", "boolean", "If true, coordinates are logical (96 DPI basis) and will be scaled to physical pixels by the system DPI factor (default: false)"),

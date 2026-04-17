@@ -104,6 +104,20 @@ function extractQuant(filename: string): string | null {
   return null;
 }
 
+/** Sort key for a quant string — lower = smaller/faster model */
+/* eslint-disable @typescript-eslint/no-magic-numbers */
+function quantSortKey(quant: string | null): number {
+  if (!quant) return 999;
+  const q = quant.toUpperCase();
+  if (q.startsWith('BF16')) return 200;
+  if (q.startsWith('F16')) return 190;
+  if (q.startsWith('F32')) return 210;
+  const m = q.match(/^(?:IQ|Q|MXFP)(\d+)/);
+  if (m) return parseInt(m[1], 10);
+  return 100;
+}
+/* eslint-enable @typescript-eslint/no-magic-numbers */
+
 /** Classify file type */
 function fileType(name: string): 'mmproj' | 'imatrix' | 'model' {
   const lower = name.toLowerCase();
@@ -314,20 +328,38 @@ const ModelCard = ({
             </div>
           ) : null}
           {!loadingFiles &&
-            files.map((f) => {
-              const key = `${model.id}/${f.name}`;
-              return (
-                <FileRow
-                  key={f.name}
-                  file={f}
-                  modelId={model.id}
-                  onDownload={onDownload}
-                  progress={downloads.get(key)}
-                  persistedDone={downloadedSet.has(key)}
-                  pendingRecord={pendingDownloads.get(key)}
-                />
-              );
-            })}
+            [...files]
+              .sort((a, b) => {
+                const ta = fileType(a.name);
+                const tb = fileType(b.name);
+                // mmproj/imatrix after models
+                const typeOrder = (t: string) => {
+                  if (t === 'model') return 0;
+                  if (t === 'mmproj') return 1;
+                  return 2;
+                };
+                if (ta !== tb) return typeOrder(ta) - typeOrder(tb);
+                // Among models: sort by size ascending (0 = unknown size, sort last)
+                const sa = a.size || Number.MAX_SAFE_INTEGER;
+                const sb = b.size || Number.MAX_SAFE_INTEGER;
+                if (sa !== sb) return sa - sb;
+                // Fallback: quant bits ascending
+                return quantSortKey(extractQuant(a.name)) - quantSortKey(extractQuant(b.name));
+              })
+              .map((f) => {
+                const key = `${model.id}/${f.name}`;
+                return (
+                  <FileRow
+                    key={f.name}
+                    file={f}
+                    modelId={model.id}
+                    onDownload={onDownload}
+                    progress={downloads.get(key)}
+                    persistedDone={downloadedSet.has(key)}
+                    pendingRecord={pendingDownloads.get(key)}
+                  />
+                );
+              })}
         </div>
       ) : null}
     </div>
