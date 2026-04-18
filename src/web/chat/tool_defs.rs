@@ -333,6 +333,31 @@ static ALL_TOOLS: &[ToolDef] = &[
         ]),
         required: &["action", "symbol"],
     },
+    // ─── Camofox CAPTCHA interaction tools ───
+    ToolDef {
+        name: "camofox_click",
+        description: "Click an element on the active Camofox browser tab (used after a CAPTCHA is detected during web_search). Provide the element ref shown in the page snapshot (e.g. 'e1', 'e3'). Returns a screenshot of the updated page.",
+        params: Params::Simple(&[
+            p("ref", "string", "Element reference to click (e.g. 'e1', 'e3')"),
+        ]),
+        required: &["ref"],
+    },
+    ToolDef {
+        name: "camofox_screenshot",
+        description: "Take a screenshot of the active Camofox browser tab. Use this to see the current state of a CAPTCHA page after interacting with it.",
+        params: Params::Simple(&[]),
+        required: &[],
+    },
+    ToolDef {
+        name: "camofox_type",
+        description: "Type text into an input field on the active Camofox browser tab. Used during CAPTCHA solving if text input is needed.",
+        params: Params::Simple(&[
+            p("ref", "string", "Element reference of the input field (e.g. 'e2')"),
+            p("text", "string", "Text to type"),
+            p("press_enter", "boolean", "Whether to press Enter after typing (default: false)"),
+        ]),
+        required: &["ref", "text"],
+    },
     // ─── 19. take_screenshot ───
     ToolDef {
         name: "take_screenshot",

@@ -25,6 +25,13 @@ export interface UIContextValue {
   isMobileSidebarOpen: boolean;
   toggleMobileSidebar: () => void;
   closeMobileSidebar: () => void;
+  /** Browser view state — URL or Camofox tab ID to display */
+  browserViewUrl: string | null;
+  browserViewTabId: string | null;
+  isBrowserViewOpen: boolean;
+  openBrowserView: (url: string, camofoxTabId?: string) => void;
+  closeBrowserView: () => void;
+  toggleBrowserView: () => void;
 }
 
 export const UIContext = createContext<UIContextValue | null>(null);

@@ -16,6 +16,9 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
   const [isEventLogOpen, setIsEventLogOpen] = useState(false);
   const [isProviderSelectorOpen, setIsProviderSelectorOpen] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [browserViewUrl, setBrowserViewUrl] = useState<string | null>(null);
+  const [browserViewTabId, setBrowserViewTabId] = useState<string | null>(null);
+  const [isBrowserViewOpen, setIsBrowserViewOpen] = useState(false);
 
   const setViewMode = useCallback((mode: ViewMode) => {
     setViewModeRaw(mode);
@@ -35,6 +38,17 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
   const closeProviderSelector = useCallback(() => setIsProviderSelectorOpen(false), []);
   const toggleMobileSidebar = useCallback(() => setIsMobileSidebarOpen((p) => !p), []);
   const closeMobileSidebar = useCallback(() => setIsMobileSidebarOpen(false), []);
+  const openBrowserView = useCallback((url: string, camofoxTabId?: string) => {
+    setBrowserViewUrl(url);
+    setBrowserViewTabId(camofoxTabId ?? null);
+    setIsBrowserViewOpen(true);
+  }, []);
+  const closeBrowserView = useCallback(() => {
+    setIsBrowserViewOpen(false);
+    setBrowserViewUrl(null);
+    setBrowserViewTabId(null);
+  }, []);
+  const toggleBrowserView = useCallback(() => setIsBrowserViewOpen((p) => !p), []);
 
   const value = useMemo<UIContextValue>(
     () => ({
@@ -60,6 +74,12 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
       isMobileSidebarOpen,
       toggleMobileSidebar,
       closeMobileSidebar,
+      browserViewUrl,
+      browserViewTabId,
+      isBrowserViewOpen,
+      openBrowserView,
+      closeBrowserView,
+      toggleBrowserView,
     }),
     [
       viewModeRaw,
@@ -84,6 +104,12 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
       isMobileSidebarOpen,
       toggleMobileSidebar,
       closeMobileSidebar,
+      browserViewUrl,
+      browserViewTabId,
+      isBrowserViewOpen,
+      openBrowserView,
+      closeBrowserView,
+      toggleBrowserView,
     ],
   );
 

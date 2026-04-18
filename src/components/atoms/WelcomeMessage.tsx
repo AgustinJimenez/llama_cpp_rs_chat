@@ -1,14 +1,18 @@
-import { Zap, Loader2, X } from 'lucide-react';
-import React from 'react';
+import { Download, Zap, Loader2, X, CheckCircle } from 'lucide-react';
+import React, { useCallback, useEffect, useState } from 'react';
 
 import { useModelContext } from '../../contexts/ModelContext';
 import { useUIContext } from '../../hooks/useUIContext';
 import { getProviderLabel } from '../../utils/providerLabels';
+import { getAvailableBackends } from '../../utils/tauriCommands';
 
 interface WelcomeMessageProps {
   children?: React.ReactNode;
 }
 
+type InstallState = 'idle' | 'installing' | 'done' | 'error';
+
+// eslint-disable-next-line complexity, max-lines-per-function
 export const WelcomeMessage: React.FC<WelcomeMessageProps> = ({ children }) => {
   const {
     status,
@@ -22,6 +26,68 @@ export const WelcomeMessage: React.FC<WelcomeMessageProps> = ({ children }) => {
   const { openProviderSelector } = useUIContext();
   const remoteProviderLabel = getProviderLabel(activeProvider);
   const remoteHeading = `${remoteProviderLabel} (${activeProviderModel})`;
+
+  // Detect NVIDIA GPU without CUDA for the welcome screen hint
+  const [cudaBanner, setCudaBanner] = useState(false);
+  const [installState, setInstallState] = useState<InstallState>('idle');
+  const [installProgress, setInstallProgress] = useState(0);
+  const [installError, setInstallError] = useState('');
+
+  useEffect(() => {
+    getAvailableBackends()
+      .then((resp) => {
+        if (resp.nvidia_gpu_detected && !resp.cuda_backend_loaded) {
+          setCudaBanner(true);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleInstallGpu = useCallback(() => {
+    setInstallState('installing');
+    setInstallProgress(0);
+    setInstallError('');
+
+    fetch('/api/backends/install', { method: 'POST' })
+      .then((resp) => {
+        if (!resp.body) throw new Error('No response body');
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        const read = (): Promise<void> =>
+          reader.read().then(({ done, value }) => {
+            if (done) return;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue;
+              try {
+                const SSE_PREFIX_LEN = 6; // "data: ".length
+                const evt = JSON.parse(line.slice(SSE_PREFIX_LEN));
+                if (evt.type === 'progress') {
+                  setInstallProgress(evt.percent || 0);
+                } else if (evt.type === 'done') {
+                  setInstallState('done');
+                } else if (evt.type === 'error') {
+                  setInstallState('error');
+                  setInstallError(evt.message || 'Download failed');
+                }
+              } catch {
+                /* ignore parse errors */
+              }
+            }
+            return read();
+          });
+
+        return read();
+      })
+      .catch((e) => {
+        setInstallState('error');
+        setInstallError(String(e));
+      });
+  }, []);
 
   // Show loading here only when the header is hidden (model not yet loaded).
   // When status.loaded is true, the header is visible and its ModelSelector handles loading/unloading state — only one indicator at a time.
@@ -89,6 +155,71 @@ export const WelcomeMessage: React.FC<WelcomeMessageProps> = ({ children }) => {
           Choose a provider to start chatting
         </span>
       </button>
+      {cudaBanner ? (
+        <div className="max-w-sm p-3 rounded-lg bg-primary/10 border border-primary/30 text-center space-y-2">
+          <p className="text-xs text-foreground">
+            NVIDIA GPU detected but CUDA acceleration is not installed.
+          </p>
+          {installState === 'idle' ? (
+            <button
+              type="button"
+              onClick={handleInstallGpu}
+              className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded bg-primary hover:bg-primary/90 text-primary-foreground transition-colors"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Install GPU Acceleration
+            </button>
+          ) : null}
+          {installState === 'installing' ? (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-center gap-2">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                <span className="text-xs text-foreground">Downloading... {installProgress}%</span>
+              </div>
+              <div className="w-full h-1.5 bg-foreground/20 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-primary rounded-full transition-all duration-300 ease-out"
+                  style={{ width: `${installProgress}%` }}
+                />
+              </div>
+            </div>
+          ) : null}
+          {installState === 'done' ? (
+            <div className="flex items-center justify-center gap-1.5">
+              <CheckCircle className="h-3.5 w-3.5 text-green-500" />
+              <span className="text-xs text-green-500">
+                Installed! Restart the app to activate.
+              </span>
+            </div>
+          ) : null}
+          {installState === 'error' ? (
+            <div className="space-y-1">
+              <p className="text-xs text-red-400">{installError}</p>
+              <button
+                type="button"
+                onClick={handleInstallGpu}
+                className="text-xs text-primary hover:underline"
+              >
+                Retry
+              </button>
+            </div>
+          ) : null}
+          {installState === 'idle' ? (
+            <p className="text-[10px] text-muted-foreground">
+              Downloads ~170MB GPU backend. Requires CUDA Toolkit from{' '}
+              <a
+                href="https://developer.nvidia.com/cuda-downloads"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline"
+              >
+                nvidia.com
+              </a>
+              .
+            </p>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 };

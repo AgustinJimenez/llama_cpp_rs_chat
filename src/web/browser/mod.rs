@@ -7,6 +7,7 @@
 pub mod chrome;
 pub mod chrome_headless;
 pub mod agent_browser;
+pub mod camofox;
 
 /// Which browser engine to use for web_fetch / web_search.
 #[derive(Debug, Clone, PartialEq)]
@@ -17,6 +18,8 @@ pub enum BrowserBackend {
     ChromeHeadlessShell,
     /// Vercel agent-browser: Rust CLI + Playwright daemon (subprocess).
     AgentBrowser,
+    /// Camofox — anti-detection Firefox via REST API (camofox-browser).
+    Camofox,
     /// No browser — HTTP-only via ureq, no JS rendering.
     None,
 }
@@ -27,6 +30,7 @@ impl BrowserBackend {
         match s {
             Some("chrome-headless-shell") => Self::ChromeHeadlessShell,
             Some("agent-browser") => Self::AgentBrowser,
+            Some("camofox") => Self::Camofox,
             Some("none") => Self::None,
             _ => Self::Chrome, // default
         }
@@ -38,6 +42,7 @@ impl BrowserBackend {
             Self::Chrome => "chrome",
             Self::ChromeHeadlessShell => "chrome-headless-shell",
             Self::AgentBrowser => "agent-browser",
+            Self::Camofox => "camofox",
             Self::None => "none",
         }
     }
@@ -50,6 +55,7 @@ pub fn web_fetch(backend: &BrowserBackend, url: &str, max_chars: usize) -> Resul
         BrowserBackend::Chrome => chrome::chrome_web_fetch(url, max_chars),
         BrowserBackend::ChromeHeadlessShell => chrome_headless::fetch_text(url, max_chars),
         BrowserBackend::AgentBrowser => agent_browser::fetch_text(url, max_chars),
+        BrowserBackend::Camofox => camofox::fetch_text(url, max_chars),
         BrowserBackend::None => http_only_fetch(url, max_chars),
     };
     let elapsed = start.elapsed();
@@ -68,6 +74,7 @@ pub fn web_fetch_html(backend: &BrowserBackend, url: &str) -> Result<String, Str
         BrowserBackend::Chrome => chrome::chrome_web_fetch_html(url),
         BrowserBackend::ChromeHeadlessShell => chrome_headless::fetch_html(url),
         BrowserBackend::AgentBrowser => agent_browser::fetch_html(url),
+        BrowserBackend::Camofox => camofox::fetch_html(url),
         BrowserBackend::None => http_only_fetch_html(url),
     };
     let elapsed = start.elapsed();
@@ -84,6 +91,7 @@ pub fn web_fetch_html(backend: &BrowserBackend, url: &str) -> Result<String, Str
 pub fn shutdown_all() {
     chrome::shutdown_browser();
     chrome_headless::shutdown();
+    camofox::shutdown();
 }
 
 // ── HTTP-only fallback (no JS rendering) ────────────────────────────

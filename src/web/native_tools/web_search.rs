@@ -35,6 +35,11 @@ pub(super) fn tool_web_search(args: &Value, provider: Option<&str>, api_key: Opt
             eprintln!("[WEB_SEARCH] Using Google via browser backend");
             tool_web_search_google_chrome(query, max_results, backend)
         }
+        // Camofox provider is handled in tool_web_search_with_vision() (supports CAPTCHA screenshots)
+        Some("Camofox") => {
+            eprintln!("[WEB_SEARCH] Camofox should be handled by tool_web_search_with_vision");
+            tool_web_search_ureq(query, max_results)
+        }
         _ => {
             // DuckDuckGo (default)
             // Try DuckDuckGo Instant Answer API first (reliable, no CAPTCHAs)

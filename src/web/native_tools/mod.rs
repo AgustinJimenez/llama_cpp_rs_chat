@@ -140,6 +140,7 @@ pub fn extract_execute_command_with_opts(text: &str) -> Option<(String, bool)> {
 const VALIDATED_TOOLS: &[&str] = &[
     "read_file", "write_file", "edit_file", "execute_command", "execute_python",
     "search_files", "find_files", "list_directory", "web_search", "web_fetch",
+    "camofox_click", "camofox_screenshot", "camofox_type",
     "git_status", "git_diff", "git_commit", "open_url", "send_telegram",
     "check_background_process", "lsp_query", "sleep", "todo_write",
     "use_skill", "set_response_style", "insert_text", "undo_edit",
@@ -525,6 +526,27 @@ pub fn dispatch_native_tool(
         ));
     }
 
+    // Camofox interaction tools (return NativeToolResult with optional images)
+    if name == "camofox_click" {
+        return Some(super::browser::camofox::tool_camofox_click(&args));
+    }
+    if name == "camofox_screenshot" {
+        return Some(super::browser::camofox::tool_camofox_screenshot(&args));
+    }
+    if name == "camofox_type" {
+        return Some(super::browser::camofox::tool_camofox_type(&args));
+    }
+
+    // web_search may return images (CAPTCHA screenshots) when using Camofox provider
+    if name == "web_search" {
+        return Some(tool_web_search_with_vision(
+            &args,
+            web_search_provider,
+            web_search_api_key,
+            browser_backend,
+        ));
+    }
+
     // All other tools return text-only results
     Some(NativeToolResult::text_only(match name.as_str() {
         "read_file" => file_tools::tool_read_file(&args),
@@ -536,7 +558,6 @@ pub fn dispatch_native_tool(
         "find_files" => search_tools::tool_find_files(&args),
         "execute_python" => command_tools::tool_execute_python(&args),
         "list_directory" => command_tools::tool_list_directory(&args),
-        "web_search" => tool_web_search(&args, web_search_provider, web_search_api_key, browser_backend),
         "web_fetch" => {
             let content = tool_web_fetch(&args, use_htmd, browser_backend);
             if let Some(prompt) = args.get("prompt").and_then(|v| v.as_str()) {
@@ -812,6 +833,49 @@ pub fn dispatch_native_tool(
 
 // Telegram tool: see telegram.rs
 // MCP tools: see mcp_tools.rs
+
+/// web_search with vision support — returns screenshot if Camofox detects a CAPTCHA.
+fn tool_web_search_with_vision(
+    args: &Value,
+    web_search_provider: Option<&str>,
+    web_search_api_key: Option<&str>,
+    browser_backend: &super::browser::BrowserBackend,
+) -> NativeToolResult {
+    // For non-Camofox providers, return text-only as before
+    if web_search_provider != Some("Camofox") {
+        return NativeToolResult::text_only(
+            tool_web_search(args, web_search_provider, web_search_api_key, browser_backend),
+        );
+    }
+
+    // Camofox provider — may return a CAPTCHA screenshot
+    let query = match args.get("query").and_then(|v| v.as_str()) {
+        Some(q) => q,
+        None => {
+            return NativeToolResult::text_only(
+                "Error: 'query' argument is required".to_string(),
+            );
+        }
+    };
+
+    let max_results = args
+        .get("max_results")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(20) as usize;
+
+    eprintln!("[WEB_SEARCH] Using Camofox (anti-detection Google)");
+    let result = super::browser::camofox::search(query, max_results);
+
+    if result.captcha_detected {
+        if let Some(screenshot) = result.screenshot {
+            NativeToolResult::with_image(result.text, screenshot)
+        } else {
+            NativeToolResult::text_only(result.text)
+        }
+    } else {
+        NativeToolResult::text_only(result.text)
+    }
+}
 
 /// Capture a screenshot — returns NativeToolResult with image bytes for vision pipeline.
 pub(crate) fn tool_take_screenshot_with_image(args: &Value) -> NativeToolResult {

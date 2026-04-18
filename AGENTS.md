@@ -17,7 +17,7 @@ Frontend alternatives: "npm run build" for production build. If the backend is a
 
 Backend alternatives: "cargo run --bin llama_chat_web" if Vite is already running. Rust builds: "cargo build --lib" and "cargo build --bin llama_chat_web".
 
-Desktop app: "cargo tauri dev" for hot reload, "cargo tauri build" for production desktop.
+Desktop app: "cargo tauri dev" for hot reload, "cargo tauri build" for production desktop. IMPORTANT: Always use "npm run tauri:build" (NOT "tauri:build:cuda") for the installer. CUDA DLLs must NOT be bundled — the user installs the CUDA toolkit themselves. The app detects NVIDIA GPU + missing CUDA at runtime and shows an install link in the load model modal. Bundling CUDA bloats the installer from ~20MB to ~654MB.
 
 CMake: required by llama-cpp-sys-2. All npm scripts route through tools/ensure-cmake, a standalone Rust tool that auto-downloads a portable CMake if it's not on PATH. This solves the chicken-and-egg problem where llama-cpp-sys-2's build script needs cmake before our build.rs runs. The ensure-cmake tool checks: (1) "cmake" on PATH, (2) well-known install locations (C:\Program Files\CMake, /usr/local/bin, /opt/homebrew/bin), (3) cached download in target/cmake/, (4) fresh download from GitHub releases. When cmake is found at an absolute path not on PATH, it injects the directory into the child process's PATH.
 

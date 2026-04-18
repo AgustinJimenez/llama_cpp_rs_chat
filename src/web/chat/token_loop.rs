@@ -208,6 +208,26 @@ pub(super) fn run_generation_loop(
                 stall_checkpoint = Instant::now();
             }
 
+            // Wall-clock stall check BEFORE sample() — if sample() itself blocks
+            // (e.g. VRAM oversubscription, GPU hang), the per-16-token check above
+            // never fires because `i` doesn't increment.
+            if stall_checkpoint.elapsed() > TOKEN_STALL_TIMEOUT {
+                let secs = stall_checkpoint.elapsed().as_secs();
+                eprintln!("[STALL] Pre-sample stall: no progress for {}s", secs);
+                log_event(cfg.conversation_id, "stall", &format!("Pre-sample stall: {}s", secs));
+                if let Some(ref sender) = token_sender {
+                    let _ = sender.send(TokenData {
+                        token: format!("\n\n[Generation stalled — no token produced for {}s]", secs),
+                        tokens_used: gen.total_tokens_generated,
+                        max_tokens: cfg.max_total_tokens, status: None,
+                        ..Default::default()
+                    });
+                }
+                gen.finish_reason = "error".to_string();
+                hit_stop_condition = true;
+                break;
+            }
+
             let next_token = sampler.sample(context, -1);
 
             if next_token == model.token_eos() {

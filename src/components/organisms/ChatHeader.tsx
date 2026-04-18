@@ -1,4 +1,4 @@
-import { Unplug, Activity, SlidersHorizontal, ScrollText, X, Menu } from 'lucide-react';
+import { Unplug, Activity, SlidersHorizontal, ScrollText, X, Menu, Globe } from 'lucide-react';
 import React from 'react';
 
 import { useModelContext } from '../../contexts/ModelContext';
@@ -66,6 +66,9 @@ export const ChatHeader = React.memo(({ onModelUnload, onForceUnload }: ChatHead
     toggleEventLog,
     openProviderSelector,
     toggleMobileSidebar,
+    isBrowserViewOpen,
+    toggleBrowserView,
+    browserViewUrl,
   } = useUIContext();
 
   const modelLoaded = modelStatus.loaded || activeProvider !== 'local';
@@ -133,6 +136,16 @@ export const ChatHeader = React.memo(({ onModelUnload, onForceUnload }: ChatHead
           <div className="hidden md:block">
             <ViewModeToggle viewMode={viewMode} onChange={setViewMode} />
           </div>
+
+          {browserViewUrl ? (
+            <button
+              onClick={toggleBrowserView}
+              className={`btn-icon ${isBrowserViewOpen ? 'active' : ''} ${!isBrowserViewOpen ? 'animate-pulse text-primary' : ''}`}
+              title="Toggle browser view"
+            >
+              <Globe className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
 
           <button
             onClick={toggleEventLog}

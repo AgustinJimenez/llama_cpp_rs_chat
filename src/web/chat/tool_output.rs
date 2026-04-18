@@ -413,7 +413,7 @@ pub(super) fn summarize_tool_output(
         }
     };
 
-    Ok(format!("[Summarized from {} chars]\n{}", original_len, summary))
+    Ok(summary)
 }
 
 /// Generate a compact one-line summary of a tool execution result.

@@ -88,6 +88,59 @@ const CLOUD_PROVIDERS = [
   },
 ];
 
+/** Camofox browser status indicator — shows download progress on first use. */
+const CamofoxStatus = () => {
+  const [status, setStatus] = useState<{
+    available: boolean;
+    healthy: boolean;
+    downloading: boolean;
+    message: string | null;
+  } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const poll = async () => {
+      try {
+        const res = await fetch('/api/camofox/status');
+        if (res.ok && active) {
+          setStatus(await res.json());
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    poll();
+    const POLL_MS = 3000;
+    const interval = setInterval(poll, POLL_MS);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  if (!status) return null;
+
+  let dotColor = 'bg-red-500';
+  let label = 'Camofox binary not found — build with: node scripts/build-camofox.mjs';
+  if (status.healthy) {
+    dotColor = 'bg-green-500';
+    label = 'Camofox server running';
+  } else if (status.downloading) {
+    dotColor = 'bg-yellow-500 animate-pulse';
+    label = status.message || 'Downloading Camoufox browser...';
+  } else if (status.available) {
+    dotColor = 'bg-orange-500';
+    label = 'Camofox binary found, server not running (starts on first search)';
+  }
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/50 border border-border text-xs text-muted-foreground">
+      <span className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
+      <span>{label}</span>
+    </div>
+  );
+};
+
 // eslint-disable-next-line max-lines-per-function, complexity -- single cohesive form section, splitting would hurt readability
 const ProviderApiKeysSection = ({
   providerApiKeys,
@@ -444,6 +497,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
                   <option value="DuckDuckGo">DuckDuckGo (API + HTML scraping)</option>
                   <option value="Brave">Brave (API key required)</option>
                   <option value="Google">Google (via headless Chrome)</option>
+                  <option value="Camofox">Camofox (anti-detection Google)</option>
                 </select>
               </div>
 
@@ -471,6 +525,8 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
                 </div>
               ) : null}
 
+              {(provider === 'Camofox' || browserBackend === 'camofox') && <CamofoxStatus />}
+
               {/* Browser Backend */}
               <div className="space-y-2">
                 <label
@@ -496,6 +552,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
                   <option value="chrome">Chrome (standard headless)</option>
                   <option value="chrome-headless-shell">Chrome Headless Shell (lightweight)</option>
                   <option value="agent-browser">Agent Browser (Playwright-based)</option>
+                  <option value="camofox">Camofox (anti-detection Firefox)</option>
                   <option value="none">None (HTTP-only, no JS rendering)</option>
                 </select>
               </div>

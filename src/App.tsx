@@ -5,12 +5,14 @@ import { Toaster } from 'react-hot-toast';
 import { WelcomeMessage, ErrorBoundary } from './components/atoms';
 import { ConnectionBanner, MessageInput } from './components/molecules';
 import { ChatHeader, Sidebar } from './components/organisms';
+import { BrowserView } from './components/organisms/BrowserView';
 import { ConversationLog } from './components/organisms/ConversationLog';
 import { DownloadFloat } from './components/organisms/DownloadFloat';
 import { ProviderSelector } from './components/organisms/ProviderSelector';
 import { MessagesArea } from './components/templates';
 import { useChatContext } from './contexts/ChatContext';
 import { useModelContext } from './contexts/ModelContext';
+import { useCamofoxCaptcha } from './hooks/useCamofoxCaptcha';
 import { useUIContext } from './hooks/useUIContext';
 import type { SamplerConfig } from './types';
 import { isTauriEnv } from './utils/tauri';
@@ -173,8 +175,28 @@ const MainContent = ({
   } = useModelContext();
   const { messages, lastTimings, tokensUsed, maxTokens, streamStatus, providerRef } =
     useChatContext();
-  const { isProviderSelectorOpen, closeProviderSelector, openModelConfig, toggleMobileSidebar } =
-    useUIContext();
+  const {
+    isProviderSelectorOpen,
+    closeProviderSelector,
+    openModelConfig,
+    toggleMobileSidebar,
+    isBrowserViewOpen,
+    openBrowserView,
+    closeBrowserView,
+  } = useUIContext();
+
+  // Poll for CAPTCHA status — auto-opens browser view when detected
+  useCamofoxCaptcha();
+
+  // DEV: expose openBrowserView for testing from console
+  useEffect(() => {
+    (window as Record<string, unknown>).__openBrowserView = openBrowserView;
+    (window as Record<string, unknown>).__closeBrowserView = closeBrowserView;
+    return () => {
+      delete (window as Record<string, unknown>).__openBrowserView;
+      delete (window as Record<string, unknown>).__closeBrowserView;
+    };
+  }, [openBrowserView, closeBrowserView]);
 
   // Sync provider ref with model context
   if (providerRef) {
@@ -215,7 +237,8 @@ const MainContent = ({
           </button>
         )}
 
-        {messages.length === 0 ? (
+        {isBrowserViewOpen ? <BrowserView /> : null}
+        {!isBrowserViewOpen && messages.length === 0 && (
           <WelcomeMessage>
             {modelStatus.loaded || activeProvider !== 'local' ? (
               <div className="w-full max-w-2xl px-3 md:px-6">
@@ -223,7 +246,8 @@ const MainContent = ({
               </div>
             ) : null}
           </WelcomeMessage>
-        ) : (
+        )}
+        {!isBrowserViewOpen && messages.length > 0 && (
           <>
             <MessagesArea />
             <ConversationLog />
