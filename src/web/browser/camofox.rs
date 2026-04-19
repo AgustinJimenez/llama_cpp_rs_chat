@@ -64,9 +64,16 @@ pub fn get_status() -> CamofoxStatus {
     let msg = STATUS_MESSAGE.lock().ok().and_then(|g| g.clone());
     // Try local CAPTCHA_TAB first (worker process), then query Camofox server (web server process)
     let captcha_tab = get_captcha_tab().or_else(detect_captcha_tab_from_server);
-    let (agent_tab_id, agent_tab_url) = AGENT_BROWSER_TAB.lock().ok()
+    // Try local AGENT_BROWSER_TAB first; fall back to the most recent
+    // non-CAPTCHA tab on the Camofox server (works across processes).
+    let (agent_tab_id, agent_tab_url) = AGENT_BROWSER_TAB
+        .lock()
+        .ok()
         .and_then(|g| g.clone())
         .map(|(id, url)| (Some(id), Some(url)))
+        .or_else(|| {
+            detect_agent_tab_from_server().map(|(id, url)| (Some(id), Some(url)))
+        })
         .unwrap_or((None, None));
     CamofoxStatus {
         available: find_camofox_binary().is_some(),
@@ -77,6 +84,29 @@ pub fn get_status() -> CamofoxStatus {
         agent_tab_id,
         agent_tab_url,
     }
+}
+
+/// Find a non-CAPTCHA tab on Camofox — used by the web server process to
+/// surface tabs created by the worker process (where AGENT_BROWSER_TAB lives).
+fn detect_agent_tab_from_server() -> Option<(String, String)> {
+    let resp = agent()
+        .get(&format!("{}/tabs?userId={USER_ID}", base_url()))
+        .call()
+        .ok()?;
+    let text = resp.into_string().ok()?;
+    let data: Value = serde_json::from_str(&text).ok()?;
+    let tabs = data.get("tabs")?.as_array()?;
+    // Return the LAST tab that's not a CAPTCHA page (most recently created)
+    for tab in tabs.iter().rev() {
+        let url = tab.get("url").and_then(|v| v.as_str()).unwrap_or("");
+        if url.contains("/sorry") || url.contains("captcha") || url.contains("recaptcha") {
+            continue;
+        }
+        if let Some(id) = extract_tab_id(tab) {
+            return Some((id, url.to_string()));
+        }
+    }
+    None
 }
 
 /// Query the Camofox server for tabs on Google's CAPTCHA page (google.com/sorry/).
