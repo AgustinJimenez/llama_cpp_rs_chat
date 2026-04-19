@@ -17,46 +17,25 @@ pub(super) fn tool_web_search(args: &Value, provider: Option<&str>, api_key: Opt
         .and_then(|v| v.as_u64())
         .unwrap_or(20) as usize;
 
-    match provider {
-        Some("Brave") => {
-            eprintln!("[WEB_SEARCH] Using Brave Search API");
-            match tool_web_search_brave(query, max_results, api_key) {
-                Ok(output) => output,
-                Err(e) => {
-                    if e.contains("missing") {
-                        return format!("Error: {e}");
-                    }
-                    eprintln!("[WEB_SEARCH] Brave API failed: {e}, falling back to DDG");
-                    tool_web_search_ureq(query, max_results)
-                }
-            }
-        }
-        Some("Google") => {
-            eprintln!("[WEB_SEARCH] Using Google via browser backend");
-            tool_web_search_google_chrome(query, max_results, backend)
-        }
-        // Camofox provider is handled in tool_web_search_with_vision() (supports CAPTCHA screenshots)
-        Some("Camofox") => {
-            eprintln!("[WEB_SEARCH] Camofox should be handled by tool_web_search_with_vision");
-            tool_web_search_ureq(query, max_results)
-        }
+    // Camofox is handled in tool_web_search_with_vision() — returns CAPTCHA screenshots.
+    // All other providers (or no config) fall through to the lightweight DuckDuckGo path.
+    let _ = (api_key, backend); // reserved for future providers
+    if matches!(provider, Some("Camofox")) {
+        eprintln!("[WEB_SEARCH] Camofox should be handled by tool_web_search_with_vision");
+        return tool_web_search_ureq(query, max_results);
+    }
+    // DuckDuckGo default — Instant Answer API, falling back to HTML scraping
+    match tool_web_search_ddg_api(query, max_results) {
+        Some(result) if !result.is_empty() => return result,
         _ => {
-            // DuckDuckGo (default)
-            // Try DuckDuckGo Instant Answer API first (reliable, no CAPTCHAs)
-            match tool_web_search_ddg_api(query, max_results) {
-                Some(result) if !result.is_empty() => return result,
-                _ => {
-                    eprintln!("[WEB_SEARCH] DDG API returned no results, trying HTML scraping");
-                }
-            }
-
-            // Fallback: ureq-based DuckDuckGo HTML scraping
-            tool_web_search_ureq(query, max_results)
+            eprintln!("[WEB_SEARCH] DDG API returned no results, trying HTML scraping");
         }
     }
+    tool_web_search_ureq(query, max_results)
 }
 
 /// Search using Brave Search API.
+#[allow(dead_code)]
 fn tool_web_search_brave(
     query: &str,
     max_results: usize,
@@ -168,6 +147,7 @@ fn tool_web_search_brave(
 
 /// Search using Google via headless Chrome.
 /// Navigates to Google search, extracts result titles, snippets, and URLs from the DOM.
+#[allow(dead_code)]
 fn tool_web_search_google_chrome(query: &str, max_results: usize, backend: &crate::web::browser::BrowserBackend) -> String {
     let url = format!(
         "https://www.google.com/search?q={}&num={}&hl=en",

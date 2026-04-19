@@ -407,9 +407,9 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
     }
   };
 
-  const provider = localConfig?.web_search_provider || 'DuckDuckGo';
+  const provider = localConfig?.web_search_provider || 'Camofox';
   const apiKey = localConfig?.web_search_api_key || '';
-  const browserBackend = localConfig?.web_browser_backend || 'chrome';
+  const browserBackend = localConfig?.web_browser_backend || 'camofox';
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -494,10 +494,8 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
                     )
                   }
                 >
-                  <option value="DuckDuckGo">DuckDuckGo (API + HTML scraping)</option>
-                  <option value="Brave">Brave (API key required)</option>
-                  <option value="Google">Google (via headless Chrome)</option>
-                  <option value="Camofox">Camofox (anti-detection Google)</option>
+                  <option value="Camofox">Camofox (anti-detection Firefox → DuckDuckGo)</option>
+                  <option value="DuckDuckGo">DuckDuckGo (lightweight, no browser)</option>
                 </select>
               </div>
 
