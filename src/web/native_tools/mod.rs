@@ -536,6 +536,12 @@ pub fn dispatch_native_tool(
     if name == "camofox_type" {
         return Some(super::browser::camofox::tool_camofox_type(&args));
     }
+    if name == "open_browser_view" {
+        return Some(super::browser::camofox::tool_open_browser_view(&args));
+    }
+    if name == "close_browser_view" {
+        return Some(super::browser::camofox::tool_close_browser_view(&args));
+    }
 
     // web_search may return images (CAPTCHA screenshots) when using Camofox provider
     if name == "web_search" {

@@ -16,14 +16,17 @@ export function useCamofoxCaptcha() {
       const resp = await fetch('/api/camofox/status');
       if (!resp.ok) return;
       const data = await resp.json();
-      const tabId: string | null = data.captcha_tab_id ?? null;
+      // Prefer agent-requested tab over CAPTCHA tab
+      const agentTabId: string | null = data.agent_tab_id ?? null;
+      const agentTabUrl: string | null = data.agent_tab_url ?? null;
+      const captchaTabId: string | null = data.captcha_tab_id ?? null;
+      const tabId = agentTabId ?? captchaTabId;
+      const url = agentTabUrl ?? (captchaTabId ? 'CAPTCHA — click to solve' : null);
 
       if (tabId && tabId !== lastTabIdRef.current) {
-        // New CAPTCHA detected — auto-open browser view
         lastTabIdRef.current = tabId;
-        openBrowserView('CAPTCHA — click to solve', tabId);
+        openBrowserView(url ?? '', tabId);
       } else if (!tabId && lastTabIdRef.current) {
-        // CAPTCHA solved — auto-close
         lastTabIdRef.current = null;
         if (browserViewTabId) {
           closeBrowserView();

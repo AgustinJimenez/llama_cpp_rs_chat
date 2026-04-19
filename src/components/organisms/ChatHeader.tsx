@@ -137,15 +137,13 @@ export const ChatHeader = React.memo(({ onModelUnload, onForceUnload }: ChatHead
             <ViewModeToggle viewMode={viewMode} onChange={setViewMode} />
           </div>
 
-          {browserViewUrl ? (
-            <button
-              onClick={toggleBrowserView}
-              className={`btn-icon ${isBrowserViewOpen ? 'active' : ''} ${!isBrowserViewOpen ? 'animate-pulse text-primary' : ''}`}
-              title="Toggle browser view"
-            >
-              <Globe className="h-3.5 w-3.5" />
-            </button>
-          ) : null}
+          <button
+            onClick={toggleBrowserView}
+            className={`btn-icon ${isBrowserViewOpen ? 'active' : ''} ${browserViewUrl && !isBrowserViewOpen ? 'animate-pulse text-primary' : ''}`}
+            title="Toggle browser view"
+          >
+            <Globe className="h-3.5 w-3.5" />
+          </button>
 
           <button
             onClick={toggleEventLog}

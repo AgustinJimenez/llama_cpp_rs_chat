@@ -181,22 +181,10 @@ const MainContent = ({
     openModelConfig,
     toggleMobileSidebar,
     isBrowserViewOpen,
-    openBrowserView,
-    closeBrowserView,
   } = useUIContext();
 
-  // Poll for CAPTCHA status — auto-opens browser view when detected
+  // Poll for CAPTCHA status + agent browser view — auto-opens browser view when detected
   useCamofoxCaptcha();
-
-  // DEV: expose openBrowserView for testing from console
-  useEffect(() => {
-    (window as Record<string, unknown>).__openBrowserView = openBrowserView;
-    (window as Record<string, unknown>).__closeBrowserView = closeBrowserView;
-    return () => {
-      delete (window as Record<string, unknown>).__openBrowserView;
-      delete (window as Record<string, unknown>).__closeBrowserView;
-    };
-  }, [openBrowserView, closeBrowserView]);
 
   // Sync provider ref with model context
   if (providerRef) {

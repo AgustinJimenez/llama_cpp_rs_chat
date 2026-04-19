@@ -358,6 +358,21 @@ static ALL_TOOLS: &[ToolDef] = &[
         ]),
         required: &["ref", "text"],
     },
+    // ─── Browser view control (visible to user in chat UI) ───
+    ToolDef {
+        name: "open_browser_view",
+        description: "Open the in-app browser view with a URL, visible to the user. Use this when you want to show the user a webpage directly in the chat interface. The user can see the page and interact with it. Useful for: showing search results, showing an article, or asking the user to solve a CAPTCHA. Creates a new Camofox tab and displays it live.",
+        params: Params::Simple(&[
+            p("url", "string", "Full URL to navigate to (e.g. 'https://example.com')"),
+        ]),
+        required: &["url"],
+    },
+    ToolDef {
+        name: "close_browser_view",
+        description: "Close the in-app browser view. Call this when the user is done viewing the page or the CAPTCHA is solved.",
+        params: Params::Simple(&[]),
+        required: &[],
+    },
     // ─── 19. take_screenshot ───
     ToolDef {
         name: "take_screenshot",

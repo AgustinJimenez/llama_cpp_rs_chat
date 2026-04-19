@@ -32,6 +32,10 @@ static MANAGED_PROCESS: Mutex<Option<Child>> = Mutex::new(None);
 /// Active CAPTCHA tab — kept open so the user/model can interact with it.
 static CAPTCHA_TAB: Mutex<Option<String>> = Mutex::new(None);
 
+/// Agent-requested browser view tab — opened via `open_browser_view` tool,
+/// shown to the user in the in-app browser view.
+static AGENT_BROWSER_TAB: Mutex<Option<(String, String)>> = Mutex::new(None); // (tab_id, url)
+
 /// Current status message (for frontend progress display).
 static STATUS_MESSAGE: Mutex<Option<String>> = Mutex::new(None);
 
@@ -49,6 +53,10 @@ pub struct CamofoxStatus {
     pub message: Option<String>,
     /// Active CAPTCHA tab ID — frontend can use this to open the browser view.
     pub captcha_tab_id: Option<String>,
+    /// Agent-requested browser view tab ID (from `open_browser_view` tool).
+    pub agent_tab_id: Option<String>,
+    /// URL of the agent-requested tab.
+    pub agent_tab_url: Option<String>,
 }
 
 /// Get current Camofox status for the frontend.
@@ -56,12 +64,18 @@ pub fn get_status() -> CamofoxStatus {
     let msg = STATUS_MESSAGE.lock().ok().and_then(|g| g.clone());
     // Try local CAPTCHA_TAB first (worker process), then query Camofox server (web server process)
     let captcha_tab = get_captcha_tab().or_else(detect_captcha_tab_from_server);
+    let (agent_tab_id, agent_tab_url) = AGENT_BROWSER_TAB.lock().ok()
+        .and_then(|g| g.clone())
+        .map(|(id, url)| (Some(id), Some(url)))
+        .unwrap_or((None, None));
     CamofoxStatus {
         available: find_camofox_binary().is_some(),
         healthy: is_healthy(),
         downloading: DOWNLOADING.load(Ordering::Relaxed),
         message: msg,
         captcha_tab_id: captcha_tab,
+        agent_tab_id,
+        agent_tab_url,
     }
 }
 
@@ -734,6 +748,22 @@ pub fn proxy_screenshot(tab_id: &str) -> Result<Vec<u8>, String> {
         .ok_or_else(|| "Failed to capture screenshot".to_string())
 }
 
+/// Proxy tab creation from the frontend to Camofox.
+/// Body: `{"url": "..."}`. Returns: `{"tabId": "..."}`.
+pub fn proxy_create_tab(body: &str) -> Result<String, String> {
+    ensure_running()?;
+
+    let data: Value = serde_json::from_str(body)
+        .map_err(|e| format!("Invalid JSON: {e}"))?;
+    let url = data.get("url").and_then(|v| v.as_str())
+        .ok_or("Missing 'url' field")?;
+
+    eprintln!("[CAMOFOX] Creating tab for {url}");
+
+    let tab_id = create_tab(url)?;
+    Ok(serde_json::json!({ "tabId": tab_id }).to_string())
+}
+
 /// Proxy a click from the frontend to Camofox.
 /// Body should be JSON with `x` and `y` coordinates (pixel coords on the page).
 ///
@@ -931,6 +961,56 @@ pub fn tool_camofox_screenshot(_args: &Value) -> super::super::native_tools::Nat
         Some(img) => super::super::native_tools::NativeToolResult::with_image(text, img),
         None => super::super::native_tools::NativeToolResult::text_only(text),
     }
+}
+
+/// Agent tool: open a URL in the in-app browser view (visible to the user).
+/// The frontend polls the status endpoint and auto-opens the view when
+/// agent_tab_id is set.
+pub fn tool_open_browser_view(args: &Value) -> super::super::native_tools::NativeToolResult {
+    let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
+    if url.is_empty() {
+        return super::super::native_tools::NativeToolResult::text_only(
+            "Error: 'url' argument is required".to_string(),
+        );
+    }
+
+    if let Err(e) = ensure_running() {
+        return super::super::native_tools::NativeToolResult::text_only(
+            format!("Error starting Camofox: {e}"),
+        );
+    }
+
+    // Create a Camofox tab at the URL
+    let tab_id = match create_tab(url) {
+        Ok(id) => id,
+        Err(e) => {
+            return super::super::native_tools::NativeToolResult::text_only(
+                format!("Error creating browser tab: {e}"),
+            );
+        }
+    };
+
+    // Store it as the agent-requested tab — frontend will auto-open the browser view
+    if let Ok(mut guard) = AGENT_BROWSER_TAB.lock() {
+        *guard = Some((tab_id.clone(), url.to_string()));
+    }
+
+    super::super::native_tools::NativeToolResult::text_only(format!(
+        "Opened browser view for {url}. The user can now see the page in the chat interface. \
+         They can interact with it by clicking. When done, call close_browser_view."
+    ))
+}
+
+/// Agent tool: close the in-app browser view.
+pub fn tool_close_browser_view(_args: &Value) -> super::super::native_tools::NativeToolResult {
+    if let Ok(mut guard) = AGENT_BROWSER_TAB.lock() {
+        if let Some((tab_id, _)) = guard.take() {
+            close_tab(&tab_id);
+        }
+    }
+    super::super::native_tools::NativeToolResult::text_only(
+        "Browser view closed.".to_string(),
+    )
 }
 
 /// Type text into an element on the active CAPTCHA tab.

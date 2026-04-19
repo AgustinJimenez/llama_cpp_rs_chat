@@ -70,6 +70,7 @@ async fn handle_request_impl(
                 .await.unwrap_or_else(|_| web::browser::camofox::CamofoxStatus {
                     available: false, healthy: false, downloading: false,
                     message: Some("Internal error".to_string()), captcha_tab_id: None,
+                    agent_tab_id: None, agent_tab_url: None,
                 });
             let json = serde_json::to_string(&status).unwrap_or_default();
             Response::builder()
@@ -77,6 +78,26 @@ async fn handle_request_impl(
                 .header("Content-Type", "application/json")
                 .body(Body::from(json))
                 .unwrap()
+        }
+
+        // Camofox tab creation — POST /api/camofox/tabs
+        (&Method::POST, "/api/camofox/tabs") => {
+            let body_bytes = hyper::body::to_bytes(req.into_body()).await.unwrap_or_default();
+            let body_str = String::from_utf8_lossy(&body_bytes).to_string();
+            match tokio::task::spawn_blocking(move || {
+                web::browser::camofox::proxy_create_tab(&body_str)
+            }).await.unwrap_or_else(|e| Err(format!("Join error: {e}"))) {
+                Ok(resp) => Response::builder()
+                    .status(200)
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(resp))
+                    .unwrap(),
+                Err(e) => Response::builder()
+                    .status(500)
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(format!("{{\"error\":\"{e}\"}}")))
+                    .unwrap(),
+            }
         }
 
         // Camofox tab screenshot proxy — GET /api/camofox/tabs/:tabId/screenshot
