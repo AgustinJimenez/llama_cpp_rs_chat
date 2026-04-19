@@ -259,6 +259,9 @@ const CORE_TOOL_NAMES: &[&str] = &[
     "send_telegram", "spawn_agent",
     "list_skills", "use_skill", "set_response_style",
     "ocr_screen",
+    // Unified browser session tools (Camofox-backed; Tauri-native later)
+    "browser_navigate", "browser_click", "browser_type", "browser_eval",
+    "browser_get_html", "browser_screenshot", "browser_wait", "browser_close",
 ];
 
 /// Admin tool names (MCP server management).
