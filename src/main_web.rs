@@ -188,6 +188,30 @@ async fn handle_request_impl(
             web::routes::status::handle_status_websocket(req, bridge.clone()).await?
         }
 
+        // Camofox screencast — streams JPEG frames at ~10 FPS over WebSocket
+        (&Method::GET, path) if path.starts_with("/ws/camofox/screencast/") => {
+            use crate::web::websocket_utils::{
+                build_json_error_response, build_websocket_upgrade_response,
+                calculate_websocket_accept_key, get_websocket_key, is_websocket_upgrade,
+            };
+            if !is_websocket_upgrade(&req) {
+                build_json_error_response(StatusCode::BAD_REQUEST, "WebSocket upgrade required")
+            } else {
+                let tab_id = path
+                    .strip_prefix("/ws/camofox/screencast/")
+                    .unwrap_or("")
+                    .to_string();
+                let key = get_websocket_key(&req).unwrap_or_default();
+                let accept_key = calculate_websocket_accept_key(&key);
+                tokio::spawn(async move {
+                    if let Ok(upgraded) = hyper::upgrade::on(req).await {
+                        let _ = web::websocket::handle_camofox_screencast_ws(upgraded, tab_id).await;
+                    }
+                });
+                build_websocket_upgrade_response(&accept_key)
+            }
+        }
+
         // Configuration endpoints
         (&Method::GET, "/api/config") => {
             web::routes::config::handle_get_config(bridge.clone(), db.clone()).await?

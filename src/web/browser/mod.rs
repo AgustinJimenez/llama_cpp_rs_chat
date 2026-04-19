@@ -8,6 +8,7 @@ pub mod chrome;
 pub mod chrome_headless;
 pub mod agent_browser;
 pub mod camofox;
+pub mod session;
 
 /// Which browser engine to use for web_fetch / web_search.
 #[derive(Debug, Clone, PartialEq)]

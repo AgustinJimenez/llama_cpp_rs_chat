@@ -373,6 +373,68 @@ static ALL_TOOLS: &[ToolDef] = &[
         params: Params::Simple(&[]),
         required: &[],
     },
+    // ─── Unified browser control tools (work for both web and Tauri) ───
+    ToolDef {
+        name: "browser_navigate",
+        description: "Open or navigate the in-app browser to a URL. Creates a new session if none exists. Use this to start any browser-based task. The page becomes visible to the user in the browser view.",
+        params: Params::Simple(&[
+            p("url", "string", "URL to navigate to (with or without https://)"),
+        ]),
+        required: &["url"],
+    },
+    ToolDef {
+        name: "browser_click",
+        description: "Click an element in the browser using a CSS selector (e.g. 'button.submit', '#login', 'a[href*=\"signin\"]'). Returns immediately; effects appear in the next screenshot.",
+        params: Params::Simple(&[
+            p("selector", "string", "CSS selector of the element to click"),
+        ]),
+        required: &["selector"],
+    },
+    ToolDef {
+        name: "browser_type",
+        description: "Type text into an input field in the browser by CSS selector. Set press_enter=true to submit the form after typing.",
+        params: Params::Simple(&[
+            p("selector", "string", "CSS selector of the input field"),
+            p("text", "string", "Text to type"),
+            p("press_enter", "boolean", "Press Enter after typing (default: false)"),
+        ]),
+        required: &["selector", "text"],
+    },
+    ToolDef {
+        name: "browser_eval",
+        description: "Evaluate arbitrary JavaScript in the browser page context and return the result. Use for queries that don't fit click/type (e.g. read computed styles, extract data, scroll, dispatch events). Return value must be JSON-serializable.",
+        params: Params::Simple(&[
+            p("js", "string", "JavaScript expression or async function body. Last expression is returned."),
+        ]),
+        required: &["js"],
+    },
+    ToolDef {
+        name: "browser_get_html",
+        description: "Get the full HTML of the current page. Useful for scraping or debugging selectors. Output may be truncated if very large.",
+        params: Params::Simple(&[]),
+        required: &[],
+    },
+    ToolDef {
+        name: "browser_screenshot",
+        description: "Capture a screenshot of the current browser page. Returns an image visible to vision-capable models.",
+        params: Params::Simple(&[]),
+        required: &[],
+    },
+    ToolDef {
+        name: "browser_wait",
+        description: "Wait for a CSS selector to appear in the page (after navigation, AJAX load, etc.). Returns true if found, false on timeout.",
+        params: Params::Simple(&[
+            p("selector", "string", "CSS selector to wait for"),
+            p("timeout_ms", "integer", "Max wait time in milliseconds (default: 5000)"),
+        ]),
+        required: &["selector"],
+    },
+    ToolDef {
+        name: "browser_close",
+        description: "Close the active browser session and free its resources.",
+        params: Params::Simple(&[]),
+        required: &[],
+    },
     // ─── 19. take_screenshot ───
     ToolDef {
         name: "take_screenshot",

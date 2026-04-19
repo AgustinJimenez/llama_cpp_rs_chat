@@ -141,6 +141,9 @@ const VALIDATED_TOOLS: &[&str] = &[
     "read_file", "write_file", "edit_file", "execute_command", "execute_python",
     "search_files", "find_files", "list_directory", "web_search", "web_fetch",
     "camofox_click", "camofox_screenshot", "camofox_type",
+    "browser_navigate", "browser_click", "browser_type", "browser_eval",
+    "browser_get_html", "browser_screenshot", "browser_wait", "browser_close",
+    "open_browser_view", "close_browser_view",
     "git_status", "git_diff", "git_commit", "open_url", "send_telegram",
     "check_background_process", "lsp_query", "sleep", "todo_write",
     "use_skill", "set_response_style", "insert_text", "undo_edit",
@@ -541,6 +544,11 @@ pub fn dispatch_native_tool(
     }
     if name == "close_browser_view" {
         return Some(super::browser::camofox::tool_close_browser_view(&args));
+    }
+
+    // Unified browser_* tools (work the same in web and Tauri)
+    if let Some(name) = name.strip_prefix("browser_") {
+        return Some(handle_browser_tool(name, &args));
     }
 
     // web_search may return images (CAPTCHA screenshots) when using Camofox provider
@@ -976,6 +984,139 @@ pub(crate) fn tool_take_screenshot_with_image(args: &Value) -> NativeToolResult 
         // Resize + JPEG-compress for vision models (saves tokens)
         let optimized = crate::web::desktop_tools::optimize_screenshot_for_vision(&png_bytes);
         NativeToolResult::with_image(text, optimized)
+    }
+}
+
+/// Dispatcher for the unified `browser_*` tool family.
+/// Operates on the active browser session (Camofox-backed for now,
+/// Tauri WebView later). Tool name comes in stripped of the prefix.
+fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
+    use super::browser::session::{current_session, open_session, BrowserSession};
+
+    // navigate: reuse existing session if any, else open a fresh one
+    if name == "navigate" {
+        let url = match args.get("url").and_then(|v| v.as_str()) {
+            Some(u) if !u.trim().is_empty() => u,
+            _ => return NativeToolResult::text_only("Error: 'url' is required".to_string()),
+        };
+        let full_url = if url.starts_with("http://") || url.starts_with("https://") {
+            url.to_string()
+        } else {
+            format!("https://{url}")
+        };
+        return match current_session() {
+            Ok(mut s) => match s.navigate(&full_url) {
+                Ok(()) => NativeToolResult::text_only(format!("Navigated to {full_url}.")),
+                Err(_) => match open_session(&full_url) {
+                    Ok(s2) => NativeToolResult::text_only(format!(
+                        "Opened new session at {}.",
+                        s2.url()
+                    )),
+                    Err(e) => NativeToolResult::text_only(format!("navigate failed: {e}")),
+                },
+            },
+            Err(_) => match open_session(&full_url) {
+                Ok(s) => NativeToolResult::text_only(format!(
+                    "Navigated to {}. Browser view opened — the user can see the page.",
+                    s.url()
+                )),
+                Err(e) => NativeToolResult::text_only(format!("navigate failed: {e}")),
+            },
+        };
+    }
+
+    // All other tools require an active session
+    let session = match current_session() {
+        Ok(s) => s,
+        Err(e) => return NativeToolResult::text_only(format!("Error: {e}")),
+    };
+
+    match name {
+        "click" => {
+            let sel = args.get("selector").and_then(|v| v.as_str()).unwrap_or("");
+            if sel.is_empty() {
+                return NativeToolResult::text_only("Error: 'selector' is required".into());
+            }
+            match session.click(sel) {
+                Ok(()) => NativeToolResult::text_only(format!("Clicked '{sel}'")),
+                Err(e) => NativeToolResult::text_only(format!("click failed: {e}")),
+            }
+        }
+        "type" => {
+            let sel = args.get("selector").and_then(|v| v.as_str()).unwrap_or("");
+            let text = args.get("text").and_then(|v| v.as_str()).unwrap_or("");
+            let press_enter = args.get("press_enter").and_then(|v| v.as_bool()).unwrap_or(false);
+            if sel.is_empty() || text.is_empty() {
+                return NativeToolResult::text_only(
+                    "Error: 'selector' and 'text' are required".into(),
+                );
+            }
+            match session.type_text(sel, text, press_enter) {
+                Ok(()) => NativeToolResult::text_only(format!(
+                    "Typed into '{sel}'{}",
+                    if press_enter { " and pressed Enter" } else { "" }
+                )),
+                Err(e) => NativeToolResult::text_only(format!("type failed: {e}")),
+            }
+        }
+        "eval" => {
+            let js = args.get("js").and_then(|v| v.as_str()).unwrap_or("");
+            if js.is_empty() {
+                return NativeToolResult::text_only("Error: 'js' is required".into());
+            }
+            match session.eval(js) {
+                Ok(v) => NativeToolResult::text_only(v.to_string()),
+                Err(e) => NativeToolResult::text_only(format!("eval failed: {e}")),
+            }
+        }
+        "get_html" => match session.html() {
+            Ok(html) => {
+                const MAX: usize = 50_000;
+                let mut s = html;
+                if s.len() > MAX {
+                    let mut end = MAX;
+                    while end > 0 && !s.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    s.truncate(end);
+                    s.push_str("\n... [truncated]");
+                }
+                NativeToolResult::text_only(s)
+            }
+            Err(e) => NativeToolResult::text_only(format!("get_html failed: {e}")),
+        },
+        "screenshot" => match session.screenshot() {
+            Ok(bytes) => NativeToolResult::with_image(
+                "Screenshot captured (visible to vision models).".to_string(),
+                bytes,
+            ),
+            Err(e) => NativeToolResult::text_only(format!("screenshot failed: {e}")),
+        },
+        "wait" => {
+            let sel = args.get("selector").and_then(|v| v.as_str()).unwrap_or("");
+            let timeout = args
+                .get("timeout_ms")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(5000);
+            if sel.is_empty() {
+                return NativeToolResult::text_only("Error: 'selector' is required".into());
+            }
+            match session.wait_for(sel, timeout) {
+                Ok(true) => NativeToolResult::text_only(format!("Element '{sel}' appeared")),
+                Ok(false) => {
+                    NativeToolResult::text_only(format!("Timeout waiting for '{sel}'"))
+                }
+                Err(e) => NativeToolResult::text_only(format!("wait failed: {e}")),
+            }
+        }
+        "close" => {
+            let mut s = session;
+            match s.close() {
+                Ok(()) => NativeToolResult::text_only("Browser session closed.".into()),
+                Err(e) => NativeToolResult::text_only(format!("close failed: {e}")),
+            }
+        }
+        other => NativeToolResult::text_only(format!("Unknown browser tool: browser_{other}")),
     }
 }
 

@@ -732,6 +732,122 @@ fn extract_url_from_line(line: &str) -> Option<String> {
     None
 }
 
+// ── Generic browser session API (used by unified `browser_*` tools) ──
+
+/// Click an element by CSS selector.
+pub fn cf_click_selector(tab_id: &str, selector: &str) -> Result<(), String> {
+    let body = serde_json::json!({ "userId": USER_ID, "selector": selector });
+    agent()
+        .post(&format!("{}/tabs/{tab_id}/click", base_url()))
+        .set("Content-Type", "application/json")
+        .send_string(&body.to_string())
+        .map_err(|e| format!("click failed: {e}"))?;
+    Ok(())
+}
+
+/// Type text into an element by CSS selector.
+pub fn cf_type_selector(
+    tab_id: &str,
+    selector: &str,
+    text: &str,
+    press_enter: bool,
+) -> Result<(), String> {
+    let body = serde_json::json!({
+        "userId": USER_ID,
+        "selector": selector,
+        "text": text,
+        "pressEnter": press_enter,
+    });
+    agent()
+        .post(&format!("{}/tabs/{tab_id}/type", base_url()))
+        .set("Content-Type", "application/json")
+        .send_string(&body.to_string())
+        .map_err(|e| format!("type failed: {e}"))?;
+    Ok(())
+}
+
+/// Evaluate JavaScript in the page context. Returns the JSON result.
+pub fn cf_eval(tab_id: &str, expression: &str) -> Result<Value, String> {
+    let body = serde_json::json!({ "userId": USER_ID, "expression": expression });
+    let resp = agent()
+        .post(&format!("{}/tabs/{tab_id}/evaluate", base_url()))
+        .set("Content-Type", "application/json")
+        .send_string(&body.to_string())
+        .map_err(|e| format!("evaluate failed: {e}"))?;
+    let text = resp.into_string().map_err(|e| format!("read response: {e}"))?;
+    serde_json::from_str(&text).map_err(|e| format!("parse response: {e}"))
+}
+
+/// Get the full page HTML via evaluate.
+pub fn cf_get_html(tab_id: &str) -> Result<String, String> {
+    let v = cf_eval(tab_id, "document.documentElement.outerHTML")?;
+    Ok(v.get("result")
+        .and_then(|r| r.as_str())
+        .unwrap_or("")
+        .to_string())
+}
+
+/// Wait for a CSS selector to appear in the page.
+pub fn cf_wait_selector(tab_id: &str, selector: &str, timeout_ms: u64) -> Result<bool, String> {
+    let js = format!(
+        r#"new Promise((resolve) => {{
+            const t0 = Date.now();
+            const check = () => {{
+                if (document.querySelector({sel_lit})) return resolve(true);
+                if (Date.now() - t0 >= {timeout}) return resolve(false);
+                setTimeout(check, 100);
+            }};
+            check();
+        }})"#,
+        sel_lit = serde_json::to_string(selector).unwrap_or_else(|_| "''".to_string()),
+        timeout = timeout_ms,
+    );
+    let v = cf_eval(tab_id, &js)?;
+    Ok(v.get("result").and_then(|r| r.as_bool()).unwrap_or(false))
+}
+
+/// Navigate an existing tab to a new URL.
+pub fn cf_navigate(tab_id: &str, url: &str) -> Result<(), String> {
+    let body = serde_json::json!({ "userId": USER_ID, "url": url });
+    agent()
+        .post(&format!("{}/tabs/{tab_id}/navigate", base_url()))
+        .set("Content-Type", "application/json")
+        .send_string(&body.to_string())
+        .map_err(|e| format!("navigate failed: {e}"))?;
+    Ok(())
+}
+
+/// Get the active agent browser tab — created by `open_browser_view` or implicitly
+/// when the agent calls a `browser_*` tool. Returns (tab_id, url).
+pub fn get_agent_tab() -> Option<(String, String)> {
+    AGENT_BROWSER_TAB.lock().ok().and_then(|g| g.clone())
+}
+
+/// Set the active agent browser tab. Closes the previous one if any.
+pub fn set_agent_tab(tab_id: String, url: String) {
+    if let Ok(mut guard) = AGENT_BROWSER_TAB.lock() {
+        if let Some((prev_id, _)) = guard.take() {
+            close_tab(&prev_id);
+        }
+        *guard = Some((tab_id, url));
+    }
+}
+
+/// Clear and close the active agent browser tab.
+pub fn clear_agent_tab() {
+    if let Ok(mut guard) = AGENT_BROWSER_TAB.lock() {
+        if let Some((tab_id, _)) = guard.take() {
+            close_tab(&tab_id);
+        }
+    }
+}
+
+/// Public wrapper around the internal `create_tab` for use by the session abstraction.
+pub fn cf_create_tab(url: &str) -> Result<String, String> {
+    ensure_running()?;
+    create_tab(url)
+}
+
 // ── Frontend Proxy API ────────────────────────────────────────────
 
 /// Proxy a screenshot request from the frontend to Camofox.
@@ -816,6 +932,29 @@ pub fn get_active_tab_id() -> Option<String> {
 }
 
 // ── Screenshot & CAPTCHA Interaction ───────────────────────────────
+
+/// Take a JPEG screenshot of a tab for fast streaming (used by screencast WS).
+pub fn take_tab_screenshot_jpeg(tab_id: &str, quality: u8) -> Option<Vec<u8>> {
+    let q = quality.clamp(10, 95);
+    let resp = agent()
+        .get(&format!(
+            "{}/tabs/{tab_id}/screenshot?userId={USER_ID}&type=jpeg&quality={q}",
+            base_url()
+        ))
+        .call()
+        .ok()?;
+    let mut bytes = Vec::new();
+    resp.into_reader().read_to_end(&mut bytes).ok()?;
+    if bytes.len() > 4 && bytes[0] == 0xFF && bytes[1] == 0xD8 {
+        Some(bytes)
+    } else {
+        eprintln!(
+            "[CAMOFOX] JPEG screenshot returned non-JPEG bytes ({} bytes)",
+            bytes.len()
+        );
+        None
+    }
+}
 
 /// Take a screenshot of a tab. Returns raw PNG bytes or None.
 fn take_tab_screenshot(tab_id: &str) -> Option<Vec<u8>> {

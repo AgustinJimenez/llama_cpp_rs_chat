@@ -4,15 +4,14 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useUIContext } from '../../hooks/useUIContext';
 
 const API_BASE = '/api/camofox';
-const CLICK_REFRESH_DELAY_MS = 300;
-const SCREENSHOT_POLL_MS = 1000;
+const CLICK_REFRESH_DELAY_MS = 100;
 
 /**
  * In-app browser view — displays a Camofox tab as a live screenshot with URL bar.
  * The user (and agent) can navigate to any URL, click on the page, and browse.
  * Used for CAPTCHA solving and general in-app web browsing.
  */
-// eslint-disable-next-line max-lines-per-function
+// eslint-disable-next-line max-lines-per-function, complexity
 export const BrowserView = React.memo(() => {
   const { browserViewUrl, browserViewTabId, openBrowserView, closeBrowserView } = useUIContext();
   const [screenshot, setScreenshot] = useState<string | null>(null);
@@ -23,18 +22,21 @@ export const BrowserView = React.memo(() => {
   const [urlInput, setUrlInput] = useState(browserViewUrl ?? '');
   const [navigating, setNavigating] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const lastUrlRef = useRef<string | null>(null);
 
   // Keep URL input in sync when external state changes
   useEffect(() => {
     if (browserViewUrl) setUrlInput(browserViewUrl);
   }, [browserViewUrl]);
 
-  // Fetch screenshot from Camofox proxy
+  // One-shot screenshot fetch (used for refresh button + post-click feedback)
   const fetchScreenshot = useCallback(async () => {
     if (!browserViewTabId) return;
     try {
-      const resp = await fetch(`${API_BASE}/tabs/${browserViewTabId}/screenshot`);
+      const resp = await fetch(
+        `${API_BASE}/tabs/${browserViewTabId}/screenshot?type=jpeg&quality=70`,
+      );
       if (!resp.ok) {
         setStatus(`Error: ${resp.status}`);
         return;
@@ -51,16 +53,52 @@ export const BrowserView = React.memo(() => {
     }
   }, [browserViewTabId]);
 
-  // Poll screenshots when we have a Camofox tab
+  // Stream screencast via WebSocket (10 FPS JPEG)
   useEffect(() => {
     if (!browserViewTabId) return undefined;
     setLoading(true);
-    fetchScreenshot().finally(() => setLoading(false));
-    pollingRef.current = setInterval(fetchScreenshot, SCREENSHOT_POLL_MS);
-    return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
+    const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/camofox/screencast/${browserViewTabId}`;
+    const ws = new WebSocket(wsUrl);
+    ws.binaryType = 'blob';
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      setLoading(false);
+      setStatus('');
     };
-  }, [browserViewTabId, fetchScreenshot]);
+    ws.onmessage = (ev) => {
+      if (typeof ev.data === 'string') {
+        // Control message (e.g. tab_closed)
+        try {
+          const msg = JSON.parse(ev.data);
+          if (msg.type === 'tab_closed') {
+            setStatus(
+              'Browser tab closed by Camofox (idle timeout). Navigate to a URL to start a new tab.',
+            );
+            setScreenshot(null);
+          }
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
+      if (!(ev.data instanceof Blob)) return;
+      const url = URL.createObjectURL(ev.data);
+      const prev = lastUrlRef.current;
+      lastUrlRef.current = url;
+      setScreenshot(url);
+      if (prev) URL.revokeObjectURL(prev);
+    };
+    ws.onerror = () => setStatus('Stream error');
+    ws.onclose = () => {
+      if (wsRef.current === ws) wsRef.current = null;
+    };
+
+    return () => {
+      ws.close();
+      wsRef.current = null;
+    };
+  }, [browserViewTabId]);
 
   // Cleanup object URLs on unmount
   useEffect(() => {
@@ -122,6 +160,9 @@ export const BrowserView = React.memo(() => {
 
       setLastClick({ x, y });
       setClicking(true);
+      // Auto-clear ripple after a short flash
+      const RIPPLE_MS = 600;
+      setTimeout(() => setLastClick(null), RIPPLE_MS);
 
       fetch(`${API_BASE}/tabs/${browserViewTabId}/click`, {
         method: 'POST',
@@ -129,6 +170,7 @@ export const BrowserView = React.memo(() => {
         body: JSON.stringify({ x, y }),
       })
         .then(() => {
+          // Refresh quickly to show focus/click feedback from the page
           setTimeout(fetchScreenshot, CLICK_REFRESH_DELAY_MS);
         })
         .catch((err) => console.error('Click failed:', err))
@@ -191,17 +233,23 @@ export const BrowserView = React.memo(() => {
 
       {/* Content area */}
       <div className="flex-1 overflow-auto flex items-start justify-center p-4 bg-background/50">
-        {!browserViewTabId && !screenshot ? (
-          <div className="text-center mt-20 text-muted-foreground">
-            <Globe className="h-10 w-10 mx-auto mb-3 opacity-30" />
+        {navigating && !screenshot ? (
+          <div className="text-center mt-20 text-foreground">
+            <div className="inline-block w-10 h-10 border-4 border-primary/30 border-t-primary rounded-full animate-spin mb-3" />
+            <p className="text-sm">Loading page...</p>
+          </div>
+        ) : null}
+        {!navigating && !browserViewTabId && !screenshot ? (
+          <div className="text-center mt-20 text-foreground">
+            <Globe className="h-10 w-10 mx-auto mb-3 opacity-70" />
             <p className="text-sm">Enter a URL above to start browsing</p>
-            <p className="text-xs mt-1 opacity-60">
+            <p className="text-xs mt-1 text-muted-foreground">
               Uses Camofox (anti-detection Firefox) — pages rendered remotely
             </p>
           </div>
         ) : null}
-        {status && !screenshot ? (
-          <div className="text-sm text-muted-foreground mt-20">{status}</div>
+        {!navigating && status && !screenshot && browserViewTabId ? (
+          <div className="text-sm text-foreground mt-20">{status}</div>
         ) : null}
         {screenshot ? (
           <div className="relative">
@@ -210,13 +258,13 @@ export const BrowserView = React.memo(() => {
               ref={imgRef}
               src={screenshot}
               alt="Remote browser"
-              className={`max-w-full max-h-[calc(100vh-14rem)] object-contain rounded-lg border border-border shadow-lg ${clicking ? 'opacity-80' : 'cursor-crosshair'}`}
+              className={`max-w-full max-h-[calc(100vh-14rem)] object-contain rounded-lg border border-border shadow-lg ${clicking ? 'opacity-80 cursor-wait' : 'cursor-pointer'}`}
               onClick={handleImageClick}
               draggable={false}
             />
-            {lastClick && clicking ? (
+            {lastClick ? (
               <div
-                className="absolute w-6 h-6 -ml-3 -mt-3 rounded-full bg-primary/40 animate-ping pointer-events-none"
+                className="absolute w-5 h-5 -ml-2.5 -mt-2.5 rounded-full ring-2 ring-primary/70 bg-primary/20 pointer-events-none animate-ping"
                 style={{
                   left: `${(lastClick.x / (imgRef.current?.naturalWidth || 1)) * 100}%`,
                   top: `${(lastClick.y / (imgRef.current?.naturalHeight || 1)) * 100}%`,
