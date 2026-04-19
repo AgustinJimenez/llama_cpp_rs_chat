@@ -18,6 +18,8 @@ pub trait BrowserSession: Send + Sync {
     fn html(&self) -> Result<String, String>;
     fn screenshot(&self) -> Result<Vec<u8>, String>;
     fn wait_for(&self, selector: &str, timeout_ms: u64) -> Result<bool, String>;
+    fn press_key(&self, key: &str) -> Result<(), String>;
+    fn snapshot(&self) -> Result<String, String>;
     fn close(&mut self) -> Result<(), String>;
     fn url(&self) -> &str;
 }
@@ -79,6 +81,14 @@ impl BrowserSession for CamofoxSession {
 
     fn wait_for(&self, selector: &str, timeout_ms: u64) -> Result<bool, String> {
         camofox::cf_wait_selector(&self.tab_id, selector, timeout_ms)
+    }
+
+    fn press_key(&self, key: &str) -> Result<(), String> {
+        camofox::cf_press_key(&self.tab_id, key)
+    }
+
+    fn snapshot(&self) -> Result<String, String> {
+        camofox::cf_snapshot(&self.tab_id)
     }
 
     fn close(&mut self) -> Result<(), String> {

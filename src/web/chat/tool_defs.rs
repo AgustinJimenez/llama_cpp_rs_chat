@@ -435,6 +435,41 @@ static ALL_TOOLS: &[ToolDef] = &[
         params: Params::Simple(&[]),
         required: &[],
     },
+    ToolDef {
+        name: "browser_get_text",
+        description: "Get the visible text of the current page (innerText). Strips HTML tags, scripts, styles. Much smaller than browser_get_html — prefer this for reading page content.",
+        params: Params::Simple(&[]),
+        required: &[],
+    },
+    ToolDef {
+        name: "browser_get_links",
+        description: "Get all links on the current page as a list of {text, href} pairs. Useful for discovering navigation targets without parsing HTML.",
+        params: Params::Simple(&[]),
+        required: &[],
+    },
+    ToolDef {
+        name: "browser_snapshot",
+        description: "Get the accessibility snapshot of the page — a structured list of interactable elements (buttons, links, inputs) with labels and types. Compact and focused on what the agent can interact with.",
+        params: Params::Simple(&[]),
+        required: &[],
+    },
+    ToolDef {
+        name: "browser_scroll",
+        description: "Scroll the page. Use 'amount' for relative scroll in pixels (positive=down, negative=up), or 'selector' to scroll an element into view.",
+        params: Params::Simple(&[
+            p("amount", "integer", "Pixels to scroll (positive=down). Optional if selector given."),
+            p("selector", "string", "CSS selector of element to scroll into view. Optional if amount given."),
+        ]),
+        required: &[],
+    },
+    ToolDef {
+        name: "browser_press_key",
+        description: "Press a keyboard key in the active page. Examples: 'Enter', 'Tab', 'Escape', 'ArrowDown', 'PageDown', 'Control+a', 'Control+l'. Useful for forms and keyboard shortcuts.",
+        params: Params::Simple(&[
+            p("key", "string", "Key name (e.g. 'Enter', 'Tab', 'ArrowDown', 'Control+a')"),
+        ]),
+        required: &["key"],
+    },
     // ─── 19. take_screenshot ───
     ToolDef {
         name: "take_screenshot",

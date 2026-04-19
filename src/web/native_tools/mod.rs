@@ -143,6 +143,8 @@ const VALIDATED_TOOLS: &[&str] = &[
     "camofox_click", "camofox_screenshot", "camofox_type",
     "browser_navigate", "browser_click", "browser_type", "browser_eval",
     "browser_get_html", "browser_screenshot", "browser_wait", "browser_close",
+    "browser_get_text", "browser_get_links", "browser_snapshot",
+    "browser_scroll", "browser_press_key",
     "open_browser_view", "close_browser_view",
     "git_status", "git_diff", "git_commit", "open_url", "send_telegram",
     "check_background_process", "lsp_query", "sleep", "todo_write",
@@ -1107,6 +1109,74 @@ fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
                     NativeToolResult::text_only(format!("Timeout waiting for '{sel}'"))
                 }
                 Err(e) => NativeToolResult::text_only(format!("wait failed: {e}")),
+            }
+        }
+        "get_text" => match session.eval("document.body && document.body.innerText || ''") {
+            Ok(v) => {
+                let text = v.get("result").and_then(|r| r.as_str()).unwrap_or("").to_string();
+                const MAX: usize = 30_000;
+                let mut s = text;
+                if s.len() > MAX {
+                    let mut end = MAX;
+                    while end > 0 && !s.is_char_boundary(end) { end -= 1; }
+                    s.truncate(end);
+                    s.push_str("\n... [truncated]");
+                }
+                NativeToolResult::text_only(s)
+            }
+            Err(e) => NativeToolResult::text_only(format!("get_text failed: {e}")),
+        },
+        "get_links" => {
+            let js = "JSON.stringify(Array.from(document.links).slice(0, 200).map(l => ({text: (l.innerText||'').trim().slice(0, 80), href: l.href})))";
+            match session.eval(js) {
+                Ok(v) => {
+                    let json_str = v.get("result").and_then(|r| r.as_str()).unwrap_or("[]");
+                    NativeToolResult::text_only(json_str.to_string())
+                }
+                Err(e) => NativeToolResult::text_only(format!("get_links failed: {e}")),
+            }
+        }
+        "snapshot" => match session.snapshot() {
+            Ok(s) => {
+                const MAX: usize = 20_000;
+                let mut text = s;
+                if text.len() > MAX {
+                    let mut end = MAX;
+                    while end > 0 && !text.is_char_boundary(end) { end -= 1; }
+                    text.truncate(end);
+                    text.push_str("\n... [truncated]");
+                }
+                NativeToolResult::text_only(text)
+            }
+            Err(e) => NativeToolResult::text_only(format!("snapshot failed: {e}")),
+        },
+        "scroll" => {
+            let sel = args.get("selector").and_then(|v| v.as_str()).unwrap_or("");
+            let amount = args.get("amount").and_then(|v| v.as_i64()).unwrap_or(0);
+            let js = if !sel.is_empty() {
+                format!(
+                    "(() => {{ const el = document.querySelector({sel_lit}); if (el) {{ el.scrollIntoView({{behavior:'smooth', block:'center'}}); return 'scrolled to '+{sel_lit}; }} return 'element not found'; }})()",
+                    sel_lit = serde_json::to_string(sel).unwrap_or_else(|_| "''".into())
+                )
+            } else {
+                format!("(() => {{ window.scrollBy(0, {amount}); return 'scrolled '+{amount}+' px'; }})()")
+            };
+            match session.eval(&js) {
+                Ok(v) => {
+                    let msg = v.get("result").and_then(|r| r.as_str()).unwrap_or("done");
+                    NativeToolResult::text_only(msg.to_string())
+                }
+                Err(e) => NativeToolResult::text_only(format!("scroll failed: {e}")),
+            }
+        }
+        "press_key" => {
+            let key = args.get("key").and_then(|v| v.as_str()).unwrap_or("");
+            if key.is_empty() {
+                return NativeToolResult::text_only("Error: 'key' is required".into());
+            }
+            match session.press_key(key) {
+                Ok(()) => NativeToolResult::text_only(format!("Pressed '{key}'")),
+                Err(e) => NativeToolResult::text_only(format!("press_key failed: {e}")),
             }
         }
         "close" => {

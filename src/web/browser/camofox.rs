@@ -847,6 +847,33 @@ pub fn cf_navigate(tab_id: &str, url: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Press a keyboard key in the tab. Uses Playwright's `page.keyboard.press()`
+/// which produces real browser events (works in iframes, focused inputs, etc.).
+pub fn cf_press_key(tab_id: &str, key: &str) -> Result<(), String> {
+    let body = serde_json::json!({ "userId": USER_ID, "key": key });
+    agent()
+        .post(&format!("{}/tabs/{tab_id}/key", base_url()))
+        .set("Content-Type", "application/json")
+        .send_string(&body.to_string())
+        .map_err(|e| format!("key failed: {e}"))?;
+    Ok(())
+}
+
+/// Get the accessibility snapshot of the page — a structured list of
+/// interactable elements with refs, labels, types. Much smaller than HTML.
+pub fn cf_snapshot(tab_id: &str) -> Result<String, String> {
+    let resp = agent()
+        .get(&format!("{}/tabs/{tab_id}/snapshot?userId={USER_ID}", base_url()))
+        .call()
+        .map_err(|e| format!("snapshot failed: {e}"))?;
+    let text = resp.into_string().map_err(|e| format!("read snapshot: {e}"))?;
+    let data: Value = serde_json::from_str(&text).unwrap_or(Value::String(text.clone()));
+    Ok(data.get("snapshot")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&text)
+        .to_string())
+}
+
 /// Get the active agent browser tab — created by `open_browser_view` or implicitly
 /// when the agent calls a `browser_*` tool. Returns (tab_id, url).
 pub fn get_agent_tab() -> Option<(String, String)> {
