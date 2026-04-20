@@ -319,6 +319,17 @@ async fn delete_conversation(
 }
 
 #[tauri::command]
+async fn truncate_conversation(
+    conversation_id: String,
+    from_sequence: i32,
+    db: tauri::State<'_, SharedDatabase>,
+) -> Result<serde_json::Value, String> {
+    let id = conversation_id.trim_end_matches(".txt");
+    let deleted = db.truncate_messages(id, from_sequence)?;
+    Ok(serde_json::json!({"success": true, "deleted": deleted}))
+}
+
+#[tauri::command]
 async fn get_conversation_metrics(
     conversation_id: String,
     db: tauri::State<'_, SharedDatabase>,
@@ -1315,6 +1326,7 @@ fn main() {
             get_conversations,
             get_conversation,
             delete_conversation,
+            truncate_conversation,
             get_conversation_metrics,
             // Chat
             generate_stream,
