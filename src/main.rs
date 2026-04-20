@@ -13,6 +13,8 @@ use log4rs::config::{Appender, Config, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
+
+mod mcp_ui_server;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::tray::TrayIconBuilder;
 use tauri::webview::WebviewBuilder;
@@ -1279,6 +1281,16 @@ fn main() {
             app.manage(db);
             app.manage(bridge);
 
+            // MCP UI server — pending JS eval results + HTTP server
+            let mcp_pending: mcp_ui_server::McpPendingResults =
+                std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
+            app.manage(mcp_pending);
+
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                mcp_ui_server::start_default(app_handle).await;
+            });
+
             // ─── App Menu ────────────────────────────────────────────
             let new_chat = MenuItemBuilder::with_id("new-chat", "New Chat")
                 .accelerator("CmdOrCtrl+N")
@@ -1425,6 +1437,8 @@ fn main() {
             web_fetch,
             // System
             get_system_usage,
+            // MCP UI server JS eval callback
+            mcp_ui_server::__mcp_result,
             // Native browser panel (Tauri-only real webview)
             browser_panel_open,
             browser_panel_navigate,

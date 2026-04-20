@@ -106,11 +106,7 @@ pub async fn is_available() -> bool {
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .stdin(Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    }
+    crate::web::providers::hide_cli_window(&mut cmd);
     cmd.output()
         .await
         .map(|o| o.status.success())
@@ -124,11 +120,7 @@ pub async fn get_version() -> Option<String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .stdin(Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    }
+    crate::web::providers::hide_cli_window(&mut cmd);
     let output = cmd.output().await.ok()?;
     String::from_utf8(output.stdout).ok().map(|s| s.trim().to_string())
 }

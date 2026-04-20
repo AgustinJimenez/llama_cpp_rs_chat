@@ -13,6 +13,17 @@ pub mod claude_code;
 pub mod codex;
 pub mod openai_compat;
 
+/// Apply CREATE_NO_WINDOW on Windows to prevent terminal flashing for CLI providers.
+#[cfg(windows)]
+pub fn hide_cli_window(cmd: &mut tokio::process::Command) {
+    #[allow(unused_imports)]
+    use std::os::windows::process::CommandExt;
+    cmd.creation_flags(0x08000000);
+}
+
+#[cfg(not(windows))]
+pub fn hide_cli_window(_cmd: &mut tokio::process::Command) {}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ProviderInfo {
     pub id: String,

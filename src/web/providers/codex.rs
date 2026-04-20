@@ -8,14 +8,9 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
 
-/// Apply CREATE_NO_WINDOW on Windows to prevent terminal flashing.
-#[cfg(windows)]
 fn hide_window(cmd: &mut Command) {
-    use std::os::windows::process::CommandExt;
-    cmd.creation_flags(0x08000000);
+    super::hide_cli_window(cmd);
 }
-#[cfg(not(windows))]
-fn hide_window(_cmd: &mut Command) {}
 
 use super::{resolve_cli_cwd, CliTokenData};
 
