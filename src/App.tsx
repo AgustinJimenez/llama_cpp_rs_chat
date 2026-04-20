@@ -1,6 +1,6 @@
 import { Menu } from 'lucide-react';
 import React, { useCallback, useEffect, Suspense } from 'react';
-import { Toaster } from 'react-hot-toast';
+import toast, { Toaster, ToastBar } from 'react-hot-toast';
 
 import { WelcomeMessage, ErrorBoundary } from './components/atoms';
 import { ConnectionBanner, MessageInput } from './components/molecules';
@@ -139,13 +139,14 @@ const App = () => {
             },
           },
           error: {
-            duration: 5000,
+            duration: Infinity,
             style: {
               background: 'hsl(var(--flat-red))',
               color: '#fff',
               border: 'none',
               borderRadius: '0.5rem',
               fontWeight: '500',
+              cursor: 'pointer',
             },
             iconTheme: {
               primary: '#fff',
@@ -153,7 +154,27 @@ const App = () => {
             },
           },
         }}
-      />
+      >
+        {(t) => (
+          <ToastBar toast={t}>
+            {({ icon, message }) => (
+              <>
+                {icon}
+                {message}
+                {t.type === 'error' ? (
+                  <button
+                    onClick={() => toast.dismiss(t.id)}
+                    className="ml-2 text-white/70 hover:text-white text-lg leading-none"
+                    aria-label="Dismiss"
+                  >
+                    ✕
+                  </button>
+                ) : null}
+              </>
+            )}
+          </ToastBar>
+        )}
+      </Toaster>
     </div>
   );
 };
@@ -225,7 +246,10 @@ const MainContent = ({
           </button>
         )}
 
-        {isBrowserViewOpen ? <BrowserView /> : null}
+        {/* BrowserView stays mounted (hidden via CSS) so the Tauri native panel isn't destroyed on toggle */}
+        <div className={isBrowserViewOpen ? 'flex flex-col flex-1 overflow-hidden' : 'hidden'}>
+          <BrowserView />
+        </div>
         {!isBrowserViewOpen && messages.length === 0 && (
           <WelcomeMessage>
             {modelStatus.loaded || activeProvider !== 'local' ? (

@@ -100,7 +100,7 @@ export const WelcomeMessage: React.FC<WelcomeMessageProps> = ({ children }) => {
     if (loadingAction === 'unloading') {
       text = 'Unloading model...';
     } else if (isWarmup) {
-      text = 'Preparing system prompt...';
+      text = 'Loading system prompt...';
     } else if (hasProgress) {
       text = `Loading model... ${progress}%`;
     }

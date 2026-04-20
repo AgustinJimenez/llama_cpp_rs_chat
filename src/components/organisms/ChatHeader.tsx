@@ -68,8 +68,15 @@ export const ChatHeader = React.memo(({ onModelUnload, onForceUnload }: ChatHead
     toggleMobileSidebar,
     isBrowserViewOpen,
     toggleBrowserView,
+    closeBrowserView,
     browserViewUrl,
   } = useUIContext();
+
+  // When user clicks MD/TXT/RAW, close browser view to show the chat
+  const handleSetViewMode = (mode: ViewMode) => {
+    if (isBrowserViewOpen) closeBrowserView();
+    setViewMode(mode);
+  };
 
   const modelLoaded = modelStatus.loaded || activeProvider !== 'local';
   const remoteProviderLabel = getProviderLabel(activeProvider);
@@ -134,7 +141,7 @@ export const ChatHeader = React.memo(({ onModelUnload, onForceUnload }: ChatHead
       {modelLoaded ? (
         <div className="flex items-center gap-1.5 md:gap-3">
           <div className="hidden md:block">
-            <ViewModeToggle viewMode={viewMode} onChange={setViewMode} />
+            <ViewModeToggle viewMode={viewMode} onChange={handleSetViewMode} />
           </div>
 
           <button

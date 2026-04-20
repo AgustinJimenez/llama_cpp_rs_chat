@@ -72,7 +72,7 @@ strip = true
 ort = { version = "2.0.0-rc.12", features = ["download-binaries", "copy-dylibs"] }
 
 # Tauri framework
-tauri = { version = "2.0", features = ["tray-icon"] }
+tauri = { version = "2.0", features = ["tray-icon", "unstable"] }
 tauri-plugin-dialog = "2.0"
 tauri-plugin-window-state = "2"
 tauri-plugin-single-instance = "2"

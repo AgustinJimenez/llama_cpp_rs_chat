@@ -45,7 +45,7 @@ fn core_behavior_block() -> String {
 - Use `execute_python` for Python code (avoids shell quoting issues).
 - Use `execute_command` for shell tools (npm, curl, git, etc.).
 - Use `git_status`, `git_diff`, `git_commit` for git operations instead of `execute_command`.
-- Use `web_search` to find information online, then `web_fetch` to read specific pages.
+- Use `browser_navigate` to open pages in the browser, then `browser_get_text` or `browser_get_html` to read them. The user can see the browser view.
 - Use `take_screenshot` to see the user's screen. Use `click_screen`, `type_text`, `press_key` for desktop automation.
 - If a tool is not in PATH, use its full path (e.g., `C:\php\php.exe`) or download it and reference by full path.
 
@@ -57,8 +57,8 @@ fn core_behavior_block() -> String {
 - Use `list_background_processes` to see all tracked background processes and their status.
 
 ## Research First
-- When working with a framework or library you're not fully confident about, use `web_fetch` to read official docs BEFORE writing code. Your training data may be outdated.
-- When you hit a blocker, investigate with `web_search`/`web_fetch` instead of writing workarounds.
+- When working with a framework or library you're not fully confident about, use `browser_navigate` + `browser_get_text` to read official docs BEFORE writing code. Your training data may be outdated.
+- When you hit a blocker, investigate with `browser_navigate`/`browser_get_text` instead of writing workarounds.
 - Prefer official docs over Stack Overflow or blog posts.
 
 ## Sub-Agents
@@ -207,11 +207,11 @@ For servers/daemons: {exec_open}{{"name": "execute_command", "arguments": {{"com
 ### spawn_agent — Spawn a sub-agent for an isolated sub-task (fresh context)
 {exec_open}{{"name": "spawn_agent", "arguments": {{"task": "Install Node.js and set up a React project", "context": "Target directory: E:/projects/myapp"}}}}{exec_close}
 
-### web_search — Search the web
-{exec_open}{{"name": "web_search", "arguments": {{"query": "rust async tutorial"}}}}{exec_close}
+### browser_navigate — Open a page in the browser (visible to user)
+{exec_open}{{"name": "browser_navigate", "arguments": {{"url": "https://example.com"}}}}{exec_close}
 
-### web_fetch — Fetch a web page and return its text content
-{exec_open}{{"name": "web_fetch", "arguments": {{"url": "https://example.com"}}}}{exec_close}
+### browser_get_text — Read visible text from the current browser page
+{exec_open}{{"name": "browser_get_text", "arguments": {{}}}}{exec_close}
 
 ### take_screenshot — Capture the user's screen (use monitor=-1 to list monitors)
 {exec_open}{{"name": "take_screenshot", "arguments": {{"monitor": 0}}}}{exec_close}
@@ -230,8 +230,8 @@ For servers/daemons: {exec_open}{{"name": "execute_command", "arguments": {{"com
 To call multiple tools at once, use a JSON array:
 
 {exec_open}[
-  {{"name": "web_search", "arguments": {{"query": "topic A"}}}},
-  {{"name": "web_search", "arguments": {{"query": "topic B"}}}}
+  {{"name": "browser_navigate", "arguments": {{"url": "https://example.com"}}}},
+  {{"name": "browser_get_text", "arguments": {{}}}}
 ]{exec_close}
 
 Independent tools execute concurrently. Use this for multiple independent lookups or file reads.
@@ -303,11 +303,11 @@ to=check_background_process code<|message|>{{"pid": 12345, "wait_seconds": 15}}<
 ### list_background_processes — List all tracked background processes
 to=list_background_processes code<|message|>{{}}<|call|>
 
-### web_search — Search the web
-to=web_search code<|message|>{{"query": "rust async tutorial"}}<|call|>
+### browser_navigate — Open a page in the browser (visible to user)
+to=browser_navigate code<|message|>{{"url": "https://example.com"}}<|call|>
 
-### web_fetch — Fetch a web page and return its text content
-to=web_fetch code<|message|>{{"url": "https://example.com"}}<|call|>
+### browser_get_text — Read visible text from the current browser page
+to=browser_get_text code<|message|>{{}}<|call|>
 
 ### take_screenshot — Capture the user's screen
 to=take_screenshot code<|message|>{{"monitor": 0}}<|call|>

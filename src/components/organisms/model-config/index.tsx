@@ -280,12 +280,12 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   useEffect(() => {
     if (optimized.ready && modelPath && autoOptimizedForPath.current !== modelPath) {
       autoOptimizedForPath.current = modelPath;
+      // Only set gpu_layers (hardware-specific). Context size comes from
+      // the preset and should never be overridden by the optimizer.
       setConfig((prev) => ({ ...prev, gpu_layers: optimized.optimalGpuLayers }));
-      setContextSize(optimized.optimalContextSize);
       // eslint-disable-next-line no-console
       console.log('[ModelConfig] VRAM auto-optimized:', {
         gpuLayers: optimized.optimalGpuLayers,
-        contextSize: optimized.optimalContextSize,
         kvAttentionLayers: optimized.kvAttentionLayers,
       });
     }

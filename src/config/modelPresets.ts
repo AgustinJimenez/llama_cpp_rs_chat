@@ -160,7 +160,7 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     min_p: 0.0,
     presence_penalty: 1.5,
     repeat_penalty: 1.0,
-    context_size: 262144,
+    context_size: 32768,
     flash_attention: true,
     cache_type_k: 'q8_0',
     cache_type_v: 'q8_0',
