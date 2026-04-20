@@ -441,8 +441,48 @@ impl WorkerBridge {
     }
 
     /// Cancel the in-progress generation.
-    pub async fn cancel_generation(&self) {
+    /// If the worker doesn't stop within 5s, auto-kill and restart it,
+    /// then reload the same model so the user can continue chatting.
+    pub async fn cancel_generation(self: &Arc<Self>) {
         self.send_fire_and_forget(WorkerCommand::CancelGeneration).await;
+
+        // Spawn a background watchdog that auto-recovers if cancel didn't work
+        let bridge = Arc::clone(self);
+        tokio::spawn(async move {
+            // Give the worker 5 seconds to stop gracefully
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+            if !bridge.is_generating().await {
+                return; // Worker stopped in time — all good
+            }
+
+            eprintln!("[CANCEL_WATCHDOG] Worker still generating after 5s — force-restarting");
+
+            // Remember the current model path so we can reload after restart
+            let model_path = bridge
+                .model_status()
+                .await
+                .map(|m| m.model_path.clone());
+
+            // Kill and restart the worker process
+            if let Err(e) = bridge.force_unload().await {
+                eprintln!("[CANCEL_WATCHDOG] force_unload failed: {e}");
+                return;
+            }
+
+            // Auto-reload the same model if one was loaded
+            if let Some(path) = model_path {
+                eprintln!("[CANCEL_WATCHDOG] Auto-reloading model: {path}");
+                bridge.set_status_message(Some("Reloading model after cancel...".to_string())).await;
+                let load_cmd = WorkerCommand::LoadModel {
+                    model_path: path,
+                    gpu_layers: None,
+                    mmproj_path: None,
+                };
+                let _ = bridge.send_and_wait(load_cmd).await;
+                bridge.set_status_message(None).await;
+            }
+        });
     }
 
     /// Refresh MCP server connections in the worker.

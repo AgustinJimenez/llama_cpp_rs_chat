@@ -184,6 +184,22 @@ CREATE INDEX IF NOT EXISTS idx_logs_timestamp
 ON logs(timestamp)
 "#;
 
+const CREATE_APP_ERRORS_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS app_errors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    level TEXT NOT NULL,
+    source TEXT NOT NULL,
+    message TEXT NOT NULL,
+    details TEXT,
+    timestamp INTEGER NOT NULL
+)
+"#;
+
+const CREATE_APP_ERRORS_TIMESTAMP_INDEX: &str = r#"
+CREATE INDEX IF NOT EXISTS idx_app_errors_timestamp
+ON app_errors(timestamp)
+"#;
+
 /// Initialize the database schema (create all tables and indexes)
 pub fn initialize(conn: &Connection) -> Result<(), String> {
     // Create tables in order (respecting foreign key constraints)
@@ -202,6 +218,8 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         ("logs", CREATE_LOGS_TABLE),
         ("logs_conversation_index", CREATE_LOGS_CONVERSATION_INDEX),
         ("logs_timestamp_index", CREATE_LOGS_TIMESTAMP_INDEX),
+        ("app_errors", CREATE_APP_ERRORS_TABLE),
+        ("app_errors_timestamp_index", CREATE_APP_ERRORS_TIMESTAMP_INDEX),
     ];
 
     for (name, sql) in statements.iter() {

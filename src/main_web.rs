@@ -162,6 +162,17 @@ async fn handle_request_impl(
             web::routes::frontend_logs::handle_post_frontend_logs(req).await?
         }
 
+        // App-level frontend/runtime errors
+        (&Method::POST, "/api/errors") => {
+            web::routes::app_errors::handle_record_app_error(req, db.clone()).await?
+        }
+        (&Method::GET, "/api/errors") => {
+            web::routes::app_errors::handle_get_app_errors(&req, db.clone()).await?
+        }
+        (&Method::DELETE, "/api/errors") => {
+            web::routes::app_errors::handle_clear_app_errors(db.clone()).await?
+        }
+
         // Chat endpoints
         (&Method::POST, "/api/chat") => {
             web::routes::chat::handle_post_chat(req, bridge.clone(), db.clone()).await?

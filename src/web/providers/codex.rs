@@ -8,6 +8,15 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
 
+/// Apply CREATE_NO_WINDOW on Windows to prevent terminal flashing.
+#[cfg(windows)]
+fn hide_window(cmd: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    cmd.creation_flags(0x08000000);
+}
+#[cfg(not(windows))]
+fn hide_window(_cmd: &mut Command) {}
+
 use super::{resolve_cli_cwd, CliTokenData};
 
 #[derive(Debug, Deserialize)]
@@ -87,27 +96,19 @@ pub async fn is_available() -> bool {
     // On Windows, try node + codex.js directly (avoids broken .cmd wrapper)
     #[cfg(target_os = "windows")]
     if let Some(js) = resolve_codex_js() {
-        if let Ok(o) = Command::new("node")
-            .arg(&js)
-            .arg("--version")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .output()
-            .await
-        {
+        let mut cmd = Command::new("node");
+        cmd.arg(&js).arg("--version").stdout(Stdio::piped()).stderr(Stdio::null()).stdin(Stdio::null());
+        hide_window(&mut cmd);
+        if let Ok(o) = cmd.output().await {
             if o.status.success() {
                 return true;
             }
         }
     }
-    Command::new(codex_cmd())
-        .arg("--version")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .output()
-        .await
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    let mut cmd = Command::new(codex_cmd());
+    cmd.arg("--version").stdout(Stdio::piped()).stderr(Stdio::null()).stdin(Stdio::null());
+    hide_window(&mut cmd);
+    cmd.output().await.map(|o| o.status.success()).unwrap_or(false)
 }
 
 pub async fn get_version() -> Option<String> {

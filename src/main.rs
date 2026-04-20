@@ -64,6 +64,36 @@ struct LogEntry {
     message: String,
 }
 
+#[derive(Deserialize)]
+struct AppErrorInput {
+    level: String,
+    source: String,
+    message: String,
+    details: Option<String>,
+    timestamp: Option<i64>,
+}
+
+#[derive(Serialize)]
+struct AppErrorEntry {
+    id: i64,
+    level: String,
+    source: String,
+    message: String,
+    details: Option<String>,
+    timestamp: i64,
+}
+
+fn truncate_owned(mut text: String, max_len: usize) -> String {
+    if text.len() > max_len {
+        let mut end = max_len;
+        while end > 0 && !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+    }
+    text
+}
+
 #[tauri::command]
 fn log_to_file(logs: Vec<LogEntry>) {
     for log in logs {
@@ -74,6 +104,60 @@ fn log_to_file(logs: Vec<LogEntry>) {
             _ => info!("[FRONTEND] {}", log.message),
         }
     }
+}
+
+#[tauri::command]
+fn record_app_error(
+    error: AppErrorInput,
+    db: tauri::State<'_, SharedDatabase>,
+) -> Result<serde_json::Value, String> {
+    let level = error.level.trim();
+    let source = error.source.trim();
+    let message = error.message.trim();
+    if level.is_empty() || source.is_empty() || message.is_empty() {
+        return Err("level, source, and message are required".into());
+    }
+
+    let level = truncate_owned(level.to_string(), 32);
+    let source = truncate_owned(source.to_string(), 128);
+    let message = truncate_owned(message.to_string(), 8_000);
+    let details = error.details.map(|value| truncate_owned(value, 32_000));
+
+    db.record_app_error(
+        &level,
+        &source,
+        &message,
+        details.as_deref(),
+        error.timestamp,
+    )?;
+
+    Ok(serde_json::json!({"success": true}))
+}
+
+#[tauri::command]
+fn get_app_errors(
+    limit: Option<usize>,
+    db: tauri::State<'_, SharedDatabase>,
+) -> Result<Vec<AppErrorEntry>, String> {
+    db.get_app_errors(limit.unwrap_or(100).clamp(1, 500))?
+        .into_iter()
+        .map(|row| {
+            Ok(AppErrorEntry {
+                id: row.id,
+                level: row.level,
+                source: row.source,
+                message: row.message,
+                details: row.details,
+                timestamp: row.timestamp,
+            })
+        })
+        .collect()
+}
+
+#[tauri::command]
+fn clear_app_errors(db: tauri::State<'_, SharedDatabase>) -> Result<serde_json::Value, String> {
+    let deleted = db.clear_app_errors()?;
+    Ok(serde_json::json!({"success": true, "deleted": deleted}))
 }
 
 // ─── Configuration Commands ───────────────────────────────────────────
@@ -1311,6 +1395,9 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             log_to_file,
+            record_app_error,
+            get_app_errors,
+            clear_app_errors,
             // Configuration
             get_config,
             save_config,

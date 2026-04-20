@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- unified API surface, splitting would fragment related functions */
 /**
  * Unified typed wrappers for all backend commands.
  * Each function branches between Tauri invoke() and HTTP fetch().
@@ -90,6 +91,15 @@ export interface HubModel {
   files: HubFile[];
 }
 
+export interface AppErrorEntry {
+  id: number;
+  level: string;
+  source: string;
+  message: string;
+  details?: string | null;
+  timestamp: number;
+}
+
 // ─── Helper ───────────────────────────────────────────────────────────
 
 async function invokeCmd<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -126,6 +136,40 @@ export async function saveConfig(config: SamplerConfig): Promise<void> {
     body: JSON.stringify(config),
   });
   if (!response.ok) throw new Error('Failed to save configuration');
+}
+
+export async function recordAppError(error: {
+  level: string;
+  source: string;
+  message: string;
+  details?: string;
+  timestamp?: number;
+}): Promise<void> {
+  if (isTauriEnv()) {
+    await invokeCmd('record_app_error', { error });
+    return;
+  }
+  await fetchJson('/api/errors', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(error),
+  });
+}
+
+export async function getAppErrors(limit = 100): Promise<AppErrorEntry[]> {
+  if (isTauriEnv()) {
+    return invokeCmd<AppErrorEntry[]>('get_app_errors', { limit });
+  }
+  return fetchJson<AppErrorEntry[]>(`/api/errors?limit=${limit}`);
+}
+
+export async function clearAppErrors(): Promise<{ success: boolean; deleted: number }> {
+  if (isTauriEnv()) {
+    return invokeCmd<{ success: boolean; deleted: number }>('clear_app_errors');
+  }
+  return fetchJson<{ success: boolean; deleted: number }>('/api/errors', {
+    method: 'DELETE',
+  });
 }
 
 // ─── Per-Conversation Config ──────────────────────────────────────────

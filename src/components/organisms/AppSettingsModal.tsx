@@ -5,6 +5,7 @@ import { toast } from 'react-hot-toast';
 
 import { useSettings } from '../../hooks/useSettings';
 import type { SamplerConfig } from '../../types';
+import { clearAppErrors, getAppErrors, type AppErrorEntry } from '../../utils/tauriCommands';
 import {
   Dialog,
   DialogContent,
@@ -386,24 +387,62 @@ interface AppSettingsModalProps {
   onClose: () => void;
 }
 
-const TABS = ['General', 'Providers', 'Notifications', 'MCP'] as const;
+const TABS = ['General', 'Providers', 'Notifications', 'MCP', 'Errors'] as const;
 type Tab = (typeof TABS)[number];
+
+function formatErrorTime(timestamp: number) {
+  return new Date(timestamp).toLocaleString();
+}
 
 // eslint-disable-next-line max-lines-per-function -- single modal component, splitting tabs would fragment readability
 export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onClose }) => {
   const { config, updateConfig } = useSettings();
   const [localConfig, setLocalConfig] = useState<SamplerConfig | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('General');
+  const [appErrors, setAppErrors] = useState<AppErrorEntry[]>([]);
+  const [errorsLoading, setErrorsLoading] = useState(false);
 
   useEffect(() => {
     if (config) setLocalConfig(config);
   }, [config]);
+
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'Errors') return;
+    let cancelled = false;
+    setErrorsLoading(true);
+    const MAX_ERRORS = 150;
+    getAppErrors(MAX_ERRORS)
+      .then((errors) => {
+        if (!cancelled) setAppErrors(errors);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          toast.error(err instanceof Error ? err.message : 'Failed to load app errors');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setErrorsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, isOpen]);
 
   const handleSave = async () => {
     if (localConfig) {
       await updateConfig(localConfig);
       toast.success('Settings saved');
       onClose();
+    }
+  };
+
+  const handleClearErrors = async () => {
+    try {
+      await clearAppErrors();
+      setAppErrors([]);
+      toast.success('Error log cleared');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to clear app errors');
     }
   };
 
@@ -609,6 +648,65 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
           {activeTab === 'MCP' && (
             <div className="space-y-4">
               <McpSettingsSection />
+            </div>
+          )}
+
+          {activeTab === 'Errors' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-medium text-foreground">App Errors</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Persisted frontend runtime errors and unhandled rejections. Stored in SQLite so
+                    they survive app restarts.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleClearErrors}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-muted hover:bg-muted/80 text-foreground border border-border whitespace-nowrap"
+                >
+                  Clear Errors
+                </button>
+              </div>
+
+              {/* eslint-disable-next-line no-nested-ternary */}
+              {errorsLoading ? (
+                <div className="text-sm text-muted-foreground">Loading errors...</div>
+              ) : appErrors.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No app errors recorded.</div>
+              ) : (
+                <div className="space-y-2">
+                  {appErrors.map((error) => (
+                    <div
+                      key={error.id}
+                      className="rounded-lg border border-border bg-muted/30 p-3 space-y-2"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-xs text-muted-foreground">
+                            {formatErrorTime(error.timestamp)}
+                          </div>
+                          <div className="text-sm font-medium text-foreground break-words">
+                            {error.message}
+                          </div>
+                        </div>
+                        <div className="shrink-0 text-[10px] uppercase tracking-wide rounded px-2 py-1 bg-red-500/15 text-red-400">
+                          {error.level}
+                        </div>
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">
+                        Source: {error.source}
+                      </div>
+                      {error.details ? (
+                        <pre className="whitespace-pre-wrap break-words text-[11px] text-foreground/80 bg-background/60 rounded p-2 overflow-x-auto">
+                          {error.details}
+                        </pre>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

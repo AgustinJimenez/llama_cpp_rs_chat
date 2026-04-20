@@ -101,11 +101,17 @@ fn claude_cmd() -> &'static str {
 
 /// Check if the Claude CLI is available
 pub async fn is_available() -> bool {
-    Command::new(claude_cmd())
-        .arg("--version")
+    let mut cmd = Command::new(claude_cmd());
+    cmd.arg("--version")
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
-        .output()
+        .stdin(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    cmd.output()
         .await
         .map(|o| o.status.success())
         .unwrap_or(false)
@@ -113,13 +119,17 @@ pub async fn is_available() -> bool {
 
 /// Get the Claude CLI version
 pub async fn get_version() -> Option<String> {
-    let output = Command::new(claude_cmd())
-        .arg("--version")
+    let mut cmd = Command::new(claude_cmd());
+    cmd.arg("--version")
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
-        .output()
-        .await
-        .ok()?;
+        .stdin(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    let output = cmd.output().await.ok()?;
     String::from_utf8(output.stdout).ok().map(|s| s.trim().to_string())
 }
 

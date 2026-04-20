@@ -7,6 +7,7 @@ pub mod conversation;
 pub mod conversation_config;
 pub mod conversation_context;
 pub mod hub_downloads;
+pub mod app_errors;
 #[allow(dead_code)]
 pub mod mcp;
 pub mod migration;
