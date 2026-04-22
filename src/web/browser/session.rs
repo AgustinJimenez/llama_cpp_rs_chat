@@ -24,6 +24,8 @@ pub trait BrowserSession: Send + Sync {
     fn url(&self) -> &str;
 }
 
+const TAURI_UI_BRIDGE_BASE: &str = "http://127.0.0.1:18091";
+
 /// Camofox-backed browser session. Talks to the local Camofox HTTP server.
 pub struct CamofoxSession {
     pub tab_id: String,
@@ -118,4 +120,25 @@ pub fn open_session(url: &str) -> Result<CamofoxSession, String> {
         format!("https://{url}")
     };
     CamofoxSession::open(&full_url)
+}
+
+/// Best-effort: ask the Tauri app process to open/navigate the visible native browser panel.
+/// This bridge is only available in desktop mode; callers should ignore failures and continue.
+pub fn notify_tauri_browser_navigate(url: &str) -> Result<(), String> {
+    let body = serde_json::json!({ "url": url });
+    ureq::post(&format!("{TAURI_UI_BRIDGE_BASE}/bridge/browser/navigate"))
+        .set("Content-Type", "application/json")
+        .timeout(std::time::Duration::from_secs(3))
+        .send_string(&body.to_string())
+        .map_err(|e| format!("Tauri browser bridge navigate failed: {e}"))?;
+    Ok(())
+}
+
+/// Best-effort: ask the Tauri app process to close the visible native browser panel.
+pub fn notify_tauri_browser_close() -> Result<(), String> {
+    ureq::post(&format!("{TAURI_UI_BRIDGE_BASE}/bridge/browser/close"))
+        .timeout(std::time::Duration::from_secs(3))
+        .call()
+        .map_err(|e| format!("Tauri browser bridge close failed: {e}"))?;
+    Ok(())
 }

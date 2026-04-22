@@ -253,7 +253,7 @@ pub fn parse_conversation_for_jinja(
 const CORE_TOOL_NAMES: &[&str] = &[
     "read_file", "write_file", "edit_file", "undo_edit", "insert_text",
     "search_files", "find_files", "lsp_query", "execute_python", "execute_command",
-    "list_directory", "open_url",
+    "list_directory",
     // "web_search", "web_fetch", // disabled — use browser_* tools instead
     "git_status", "git_diff", "git_commit",
     "check_background_process", "list_background_processes",

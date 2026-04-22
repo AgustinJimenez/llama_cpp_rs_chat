@@ -24,7 +24,8 @@ const USER_ID: &str = "llama-chat";
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(300); // 5min for first-run download
 
 /// Maximum wait time for individual HTTP requests to Camofox.
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+/// Tab creation/navigation may legitimately take longer on first load or on slow sites.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(75);
 
 /// Managed Camofox child process.
 static MANAGED_PROCESS: Mutex<Option<Child>> = Mutex::new(None);
@@ -106,6 +107,36 @@ fn detect_agent_tab_from_server() -> Option<(String, String)> {
             return Some((id, url.to_string()));
         }
     }
+    None
+}
+
+fn normalize_url_for_match(url: &str) -> String {
+    url.trim().trim_end_matches('/').to_ascii_lowercase()
+}
+
+/// Recover a recently-created non-CAPTCHA tab for the requested URL.
+/// This is used when the create-tab request times out but the browser server
+/// actually created the tab anyway.
+fn recover_tab_for_url(url: &str) -> Option<String> {
+    let requested = normalize_url_for_match(url);
+    let resp = agent()
+        .get(&format!("{}/tabs?userId={USER_ID}", base_url()))
+        .call()
+        .ok()?;
+    let text = resp.into_string().ok()?;
+    let data: Value = serde_json::from_str(&text).ok()?;
+    let tabs = data.get("tabs")?.as_array()?;
+
+    for tab in tabs.iter().rev() {
+        let tab_url = tab.get("url").and_then(|v| v.as_str()).unwrap_or("");
+        if tab_url.contains("/sorry") || tab_url.contains("captcha") || tab_url.contains("recaptcha") {
+            continue;
+        }
+        if normalize_url_for_match(tab_url) == requested {
+            return extract_tab_id(tab);
+        }
+    }
+
     None
 }
 
@@ -438,11 +469,20 @@ fn create_tab(url: &str) -> Result<String, String> {
         "url": url,
     });
 
-    let resp = agent()
+    let resp = match agent()
         .post(&format!("{}/tabs", base_url()))
         .set("Content-Type", "application/json")
         .send_string(&body.to_string())
-        .map_err(|e| format!("Camofox create tab failed: {e}"))?;
+    {
+        Ok(resp) => resp,
+        Err(e) => {
+            if let Some(tab_id) = recover_tab_for_url(url) {
+                eprintln!("[CAMOFOX] create_tab timed out/error, recovered existing tab {tab_id} for {url}");
+                return Ok(tab_id);
+            }
+            return Err(format!("Camofox create tab failed: {e}"));
+        }
+    };
 
     let text = resp
         .into_string()
@@ -1170,6 +1210,14 @@ pub fn tool_open_browser_view(args: &Value) -> super::super::native_tools::Nativ
         );
     }
 
+    let full_url = if url.starts_with("http://") || url.starts_with("https://") {
+        url.to_string()
+    } else {
+        format!("https://{url}")
+    };
+
+    let _ = super::session::notify_tauri_browser_navigate(&full_url);
+
     if let Err(e) = ensure_running() {
         return super::super::native_tools::NativeToolResult::text_only(
             format!("Error starting Camofox: {e}"),
@@ -1177,7 +1225,7 @@ pub fn tool_open_browser_view(args: &Value) -> super::super::native_tools::Nativ
     }
 
     // Create a Camofox tab at the URL
-    let tab_id = match create_tab(url) {
+    let tab_id = match create_tab(&full_url) {
         Ok(id) => id,
         Err(e) => {
             return super::super::native_tools::NativeToolResult::text_only(
@@ -1188,17 +1236,18 @@ pub fn tool_open_browser_view(args: &Value) -> super::super::native_tools::Nativ
 
     // Store it as the agent-requested tab — frontend will auto-open the browser view
     if let Ok(mut guard) = AGENT_BROWSER_TAB.lock() {
-        *guard = Some((tab_id.clone(), url.to_string()));
+        *guard = Some((tab_id.clone(), full_url.clone()));
     }
 
     super::super::native_tools::NativeToolResult::text_only(format!(
-        "Opened browser view for {url}. The user can now see the page in the chat interface. \
+        "Opened browser view for {full_url}. The user can now see the page in the chat interface. \
          They can interact with it by clicking. When done, call close_browser_view."
     ))
 }
 
 /// Agent tool: close the in-app browser view.
 pub fn tool_close_browser_view(_args: &Value) -> super::super::native_tools::NativeToolResult {
+    let _ = super::session::notify_tauri_browser_close();
     if let Ok(mut guard) = AGENT_BROWSER_TAB.lock() {
         if let Some((tab_id, _)) = guard.take() {
             close_tab(&tab_id);

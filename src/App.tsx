@@ -33,10 +33,11 @@ const ModelConfigModal = React.lazy(() =>
   import('./components/organisms/model-config').then((m) => ({ default: m.ModelConfigModal })),
 );
 
+// eslint-disable-next-line max-lines-per-function
 const App = () => {
   const { status: modelStatus, loadModel, unloadModel, forceUnload } = useModelContext();
   const { clearMessages } = useChatContext();
-  const { closeModelConfig, openAppSettings } = useUIContext();
+  const { closeModelConfig, openAppSettings, openBrowserView, closeBrowserView } = useUIContext();
 
   // Listen for Tauri menu/tray events
   useEffect(() => {
@@ -62,6 +63,40 @@ const App = () => {
       unlisten.forEach((fn) => fn());
     };
   }, [clearMessages, openAppSettings]);
+
+  useEffect(() => {
+    (
+      window as Window & {
+        __openBrowserView?: (url: string) => void;
+        __closeBrowserView?: () => void;
+      }
+    ).__openBrowserView = (url: string) => {
+      openBrowserView(url);
+    };
+    (
+      window as Window & {
+        __openBrowserView?: (url: string) => void;
+        __closeBrowserView?: () => void;
+      }
+    ).__closeBrowserView = () => {
+      closeBrowserView();
+    };
+
+    return () => {
+      delete (
+        window as Window & {
+          __openBrowserView?: (url: string) => void;
+          __closeBrowserView?: () => void;
+        }
+      ).__openBrowserView;
+      delete (
+        window as Window & {
+          __openBrowserView?: (url: string) => void;
+          __closeBrowserView?: () => void;
+        }
+      ).__closeBrowserView;
+    };
+  }, [openBrowserView, closeBrowserView]);
 
   const handleNewConversation = useCallback(() => {
     clearMessages();

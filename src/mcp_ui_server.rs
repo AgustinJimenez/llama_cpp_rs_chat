@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use axum::{body::Bytes, extract::State, routing::post};
 use rmcp::{
     ServerHandler,
     model::{
@@ -113,6 +114,55 @@ impl AppUiServer {
             }
         }
     }
+}
+
+async fn open_browser_view_js(app: &AppHandle, url: &str) -> Result<String, String> {
+    let server = AppUiServer::new(app.clone());
+    let js = format!(
+        r#"(() => {{
+            if (window.__openBrowserView) {{
+                window.__openBrowserView({url});
+                return 'Browser view opened: ' + {url};
+            }}
+            return 'openBrowserView not available';
+        }})()"#,
+        url = serde_json::to_string(url).unwrap()
+    );
+    server.eval_js(&js).await
+}
+
+async fn close_browser_view_js(app: &AppHandle) -> Result<String, String> {
+    let server = AppUiServer::new(app.clone());
+    let js = r#"(() => {
+        if (window.__closeBrowserView) {
+            window.__closeBrowserView();
+            return 'Browser view closed';
+        }
+        return 'closeBrowserView not available';
+    })()"#;
+    server.eval_js(js).await
+}
+
+async fn bridge_browser_navigate(
+    State(app): State<AppHandle>,
+    body: Bytes,
+) -> Result<String, axum::http::StatusCode> {
+    let body: Value = serde_json::from_slice(&body)
+        .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
+    let url = body.get("url")
+        .and_then(|v| v.as_str())
+        .ok_or(axum::http::StatusCode::BAD_REQUEST)?;
+    open_browser_view_js(&app, url)
+        .await
+        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn bridge_browser_close(
+    State(app): State<AppHandle>,
+) -> Result<String, axum::http::StatusCode> {
+    close_browser_view_js(&app)
+        .await
+        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 // ─── ServerHandler impl ───────────────────────────────────────────
@@ -351,18 +401,7 @@ async fn dispatch_tool(server: &AppUiServer, name: &str, args: &Value) -> Result
         "app_navigate_browser" => {
             let url = args.get("url").and_then(|v| v.as_str())
                 .ok_or("'url' is required")?;
-            // Trigger via the frontend's openBrowserView
-            let js = format!(
-                r#"(() => {{
-                    if (window.__openBrowserView) {{
-                        window.__openBrowserView({url});
-                        return 'Browser view opened: ' + {url};
-                    }}
-                    return 'openBrowserView not available';
-                }})()"#,
-                url = serde_json::to_string(url).unwrap()
-            );
-            server.eval_js(&js).await
+            open_browser_view_js(&server.app, url).await
         }
 
         "app_screenshot" => {
@@ -495,7 +534,11 @@ pub async fn start(app: AppHandle, port: u16) {
         config,
     );
 
-    let router = axum::Router::new().nest_service("/mcp", service);
+    let router = axum::Router::new()
+        .route("/bridge/browser/navigate", post(bridge_browser_navigate))
+        .route("/bridge/browser/close", post(bridge_browser_close))
+        .with_state(app.clone())
+        .nest_service("/mcp", service);
 
     let addr = format!("127.0.0.1:{port}");
     let listener = match tokio::net::TcpListener::bind(&addr).await {

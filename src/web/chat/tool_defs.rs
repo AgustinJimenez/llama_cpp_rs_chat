@@ -276,7 +276,7 @@ static ALL_TOOLS: &[ToolDef] = &[
     // ─── 13. open_url ───
     ToolDef {
         name: "open_url",
-        description: "Open a URL in the user's default web browser. Use this to show web apps, documentation, or results to the user. The URL opens in a new browser tab.",
+        description: "Open a URL in the user's external system browser outside the app. Only use this when the user explicitly asks to open something in their default browser or leave the in-app browser. Do NOT use this for web browsing, web search, reading pages, or screenshots inside the app — use browser_navigate and the other browser_* tools instead.",
         params: Params::Simple(&[
             p("url", "string", "The URL to open (must start with http:// or https://)"),
         ]),

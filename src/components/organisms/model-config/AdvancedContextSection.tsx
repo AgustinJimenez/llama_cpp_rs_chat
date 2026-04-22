@@ -97,7 +97,21 @@ const KvCacheGroup = ({
       <span className="flex items-center gap-1.5">
         KV Cache{' '}
         <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-primary/20 text-primary">
-          TurboQuant Added
+          TurboQuant
+        </span>
+        <span
+          className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full border border-muted-foreground/40 text-[9px] text-muted-foreground cursor-help"
+          title={
+            'TurboQuant uses asymmetric K/V types for best quality-per-bit.\n\n' +
+            'Recommended configs (memory savings vs F16):\n' +
+            '  K=TQ2, V=TQ3 — best balance (5.5x savings, minimal quality loss)\n' +
+            '  K=Q8_0, V=TQ3 — safer (3.5x savings, near-lossless)\n' +
+            '  K=TQ3, V=TQ3 — aggressive (4.9x savings)\n\n' +
+            'K cache (keys) tolerates lower precision than V cache (values).\n' +
+            'Using different types for K and V is intentional, not a mistake.'
+          }
+        >
+          ?
         </span>
       </span>
     }

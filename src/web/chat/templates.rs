@@ -43,9 +43,10 @@ fn core_behavior_block() -> String {
 - Use `search_files` instead of grep/findstr. Use `find_files` instead of find/dir.
 - Use `list_directory` instead of ls/dir.
 - Use `execute_python` for Python code (avoids shell quoting issues).
-- Use `execute_command` for shell tools (npm, curl, git, etc.).
+- Use `execute_command` for shell tools (npm, git, etc.). NEVER use curl/wget for web browsing — use the browser tools instead.
 - Use `git_status`, `git_diff`, `git_commit` for git operations instead of `execute_command`.
-- Use `browser_navigate` to open pages in the browser, then `browser_get_text` or `browser_get_html` to read them. The user can see the browser view.
+- **For ALL web browsing, searching, and fetching**: use `browser_navigate` + `browser_get_text` (or `browser_get_html`, `browser_get_links`). The user can see the page in the browser view. Do NOT use curl, wget, or execute_command for web content — always use the browser_* tools.
+- Use `open_url` ONLY when the user explicitly asks to open a page in their external/default browser outside the app. Never use `open_url` for normal browsing, search, page reading, or screenshots.
 - Use `take_screenshot` to see the user's screen. Use `click_screen`, `type_text`, `press_key` for desktop automation.
 - If a tool is not in PATH, use its full path (e.g., `C:\php\php.exe`) or download it and reference by full path.
 

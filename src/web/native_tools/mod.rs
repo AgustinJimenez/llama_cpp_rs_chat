@@ -993,7 +993,10 @@ pub(crate) fn tool_take_screenshot_with_image(args: &Value) -> NativeToolResult 
 /// Operates on the active browser session (Camofox-backed for now,
 /// Tauri WebView later). Tool name comes in stripped of the prefix.
 fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
-    use super::browser::session::{current_session, open_session, BrowserSession};
+    use super::browser::session::{
+        current_session, notify_tauri_browser_close, notify_tauri_browser_navigate, open_session,
+        BrowserSession,
+    };
 
     // navigate: reuse existing session if any, else open a fresh one
     if name == "navigate" {
@@ -1006,6 +1009,7 @@ fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
         } else {
             format!("https://{url}")
         };
+        let _ = notify_tauri_browser_navigate(&full_url);
         return match current_session() {
             Ok(mut s) => match s.navigate(&full_url) {
                 Ok(()) => NativeToolResult::text_only(format!("Navigated to {full_url}.")),
@@ -1181,6 +1185,7 @@ fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
         }
         "close" => {
             let mut s = session;
+            let _ = notify_tauri_browser_close();
             match s.close() {
                 Ok(()) => NativeToolResult::text_only("Browser session closed.".into()),
                 Err(e) => NativeToolResult::text_only(format!("close failed: {e}")),
