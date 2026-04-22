@@ -110,14 +110,10 @@ pub async fn get_version() -> Option<String> {
     // On Windows, try node + codex.js directly
     #[cfg(target_os = "windows")]
     if let Some(js) = resolve_codex_js() {
-        if let Ok(o) = Command::new("node")
-            .arg(&js)
-            .arg("--version")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .output()
-            .await
-        {
+        let mut cmd = Command::new("node");
+        cmd.arg(&js).arg("--version").stdout(Stdio::piped()).stderr(Stdio::null()).stdin(Stdio::null());
+        hide_window(&mut cmd);
+        if let Ok(o) = cmd.output().await {
             if o.status.success() {
                 let v = String::from_utf8_lossy(&o.stdout).trim().to_string();
                 if !v.is_empty() {
@@ -126,13 +122,10 @@ pub async fn get_version() -> Option<String> {
             }
         }
     }
-    let output = Command::new(codex_cmd())
-        .arg("--version")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .output()
-        .await
-        .ok()?;
+    let mut cmd = Command::new(codex_cmd());
+    cmd.arg("--version").stdout(Stdio::piped()).stderr(Stdio::null()).stdin(Stdio::null());
+    hide_window(&mut cmd);
+    let output = cmd.output().await.ok()?;
     String::from_utf8(output.stdout).ok().map(|s| s.trim().to_string())
 }
 

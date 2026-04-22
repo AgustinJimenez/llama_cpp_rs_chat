@@ -916,6 +916,7 @@ pub fn cf_snapshot(tab_id: &str) -> Result<String, String> {
 
 /// Get the active agent browser tab — created by `open_browser_view` or implicitly
 /// when the agent calls a `browser_*` tool. Returns (tab_id, url).
+#[allow(dead_code)]
 pub fn get_agent_tab() -> Option<(String, String)> {
     AGENT_BROWSER_TAB.lock().ok().and_then(|g| g.clone())
 }
@@ -940,6 +941,7 @@ pub fn clear_agent_tab() {
 }
 
 /// Public wrapper around the internal `create_tab` for use by the session abstraction.
+#[allow(dead_code)]
 pub fn cf_create_tab(url: &str) -> Result<String, String> {
     ensure_running()?;
     create_tab(url)

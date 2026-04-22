@@ -1,7 +1,9 @@
 //! Browser session abstraction — unified API for agent browser tools.
 //!
-//! Currently has one backend (Camofox), but designed so a Tauri-native
-//! WebView backend can be added without changing the agent tools.
+//! Two backends:
+//! - TauriHttpSession (default): opens Tauri native webview for the user,
+//!   reads content via HTTP (ureq). No Camofox needed.
+//! - CamofoxSession (fallback): headless Firefox for anti-detection browsing.
 
 use serde_json::Value;
 
@@ -27,11 +29,15 @@ pub trait BrowserSession: Send + Sync {
 const TAURI_UI_BRIDGE_BASE: &str = "http://127.0.0.1:18091";
 
 /// Camofox-backed browser session. Talks to the local Camofox HTTP server.
+/// Currently unused — TauriHttpSession is the default. Kept for future
+/// anti-detection browsing needs.
+#[allow(dead_code)]
 pub struct CamofoxSession {
     pub tab_id: String,
     pub current_url: String,
 }
 
+#[allow(dead_code)]
 impl CamofoxSession {
     /// Open a new session by creating a Camofox tab.
     pub fn open(url: &str) -> Result<Self, String> {
@@ -103,23 +109,135 @@ impl BrowserSession for CamofoxSession {
     }
 }
 
-/// Get or create the active session. Used by agent tools — if no session
-/// exists, this returns an error so the agent knows it needs to call
-/// `browser_navigate` first.
-pub fn current_session() -> Result<CamofoxSession, String> {
-    CamofoxSession::resume_active()
-        .ok_or_else(|| "No active browser session. Call browser_navigate(url) first.".to_string())
+// ─── Tauri HTTP Session (default, no Camofox needed) ──────────────
+
+/// Browser session that opens the Tauri native webview (user sees the page)
+/// and reads content via HTTP (ureq). No external browser server needed.
+pub struct TauriHttpSession {
+    pub current_url: String,
 }
 
-/// Open a fresh session at the given URL (closes any existing one).
-pub fn open_session(url: &str) -> Result<CamofoxSession, String> {
-    // Ensure the URL has a scheme
+impl TauriHttpSession {
+    pub fn open(url: &str) -> Result<Self, String> {
+        // Tell the Tauri app to open the browser panel
+        let _ = notify_tauri_browser_navigate(url);
+        Ok(Self {
+            current_url: url.to_string(),
+        })
+    }
+
+    /// Fetch page content via HTTP using ureq + html2text.
+    fn fetch_text(&self, max_chars: usize) -> Result<String, String> {
+        let resp = ureq::AgentBuilder::new()
+            .timeout(std::time::Duration::from_secs(15))
+            .build()
+            .get(&self.current_url)
+            .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .call()
+            .map_err(|e| format!("HTTP fetch failed: {e}"))?;
+        let body = resp.into_string()
+            .map_err(|e| format!("Read body failed: {e}"))?;
+        // Strip HTML tags for plain text
+        let text = html2text::from_read(body.as_bytes(), 120);
+        if text.len() > max_chars {
+            let mut end = max_chars;
+            while end > 0 && !text.is_char_boundary(end) { end -= 1; }
+            Ok(format!("{}...\n[Truncated]", &text[..end]))
+        } else {
+            Ok(text)
+        }
+    }
+
+    fn fetch_html(&self) -> Result<String, String> {
+        let resp = ureq::AgentBuilder::new()
+            .timeout(std::time::Duration::from_secs(15))
+            .build()
+            .get(&self.current_url)
+            .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .call()
+            .map_err(|e| format!("HTTP fetch failed: {e}"))?;
+        resp.into_string()
+            .map_err(|e| format!("Read body failed: {e}"))
+    }
+}
+
+impl BrowserSession for TauriHttpSession {
+    fn navigate(&mut self, url: &str) -> Result<(), String> {
+        self.current_url = url.to_string();
+        let _ = notify_tauri_browser_navigate(url);
+        Ok(())
+    }
+
+    fn click(&self, _selector: &str) -> Result<(), String> {
+        Err("Click not supported in Tauri HTTP mode. Use Camofox for interactive browsing.".into())
+    }
+
+    fn type_text(&self, _selector: &str, _text: &str, _press_enter: bool) -> Result<(), String> {
+        Err("Type not supported in Tauri HTTP mode. Use Camofox for interactive browsing.".into())
+    }
+
+    fn eval(&self, _js: &str) -> Result<Value, String> {
+        Err("JS eval not supported in Tauri HTTP mode.".into())
+    }
+
+    fn html(&self) -> Result<String, String> {
+        self.fetch_html()
+    }
+
+    fn screenshot(&self) -> Result<Vec<u8>, String> {
+        Err("Screenshot not supported in Tauri HTTP mode.".into())
+    }
+
+    fn wait_for(&self, _selector: &str, _timeout_ms: u64) -> Result<bool, String> {
+        // Can't wait for DOM elements via HTTP — just return true
+        Ok(true)
+    }
+
+    fn press_key(&self, _key: &str) -> Result<(), String> {
+        Err("Press key not supported in Tauri HTTP mode.".into())
+    }
+
+    fn snapshot(&self) -> Result<String, String> {
+        self.fetch_text(20_000)
+    }
+
+    fn close(&mut self) -> Result<(), String> {
+        let _ = notify_tauri_browser_close();
+        Ok(())
+    }
+
+    fn url(&self) -> &str {
+        &self.current_url
+    }
+}
+
+// ─── Active session tracking ─────────────────────────────────────
+
+use std::sync::Mutex;
+
+/// The active session URL — shared between calls.
+static ACTIVE_URL: Mutex<Option<String>> = Mutex::new(None);
+
+/// Get or create the active session.
+pub fn current_session() -> Result<TauriHttpSession, String> {
+    let url = ACTIVE_URL.lock().ok()
+        .and_then(|g| g.clone())
+        .ok_or("No active browser session. Call browser_navigate(url) first.")?;
+    Ok(TauriHttpSession { current_url: url })
+}
+
+/// Open a fresh session at the given URL.
+pub fn open_session(url: &str) -> Result<TauriHttpSession, String> {
     let full_url = if url.starts_with("http://") || url.starts_with("https://") {
         url.to_string()
     } else {
         format!("https://{url}")
     };
-    CamofoxSession::open(&full_url)
+    let session = TauriHttpSession::open(&full_url)?;
+    if let Ok(mut guard) = ACTIVE_URL.lock() {
+        *guard = Some(full_url);
+    }
+    Ok(session)
 }
 
 /// Best-effort: ask the Tauri app process to open/navigate the visible native browser panel.

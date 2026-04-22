@@ -1096,7 +1096,11 @@ fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
                 "Screenshot captured (visible to vision models).".to_string(),
                 bytes,
             ),
-            Err(e) => NativeToolResult::text_only(format!("screenshot failed: {e}")),
+            // Fallback: return page text instead of image
+            Err(_) => match session.snapshot() {
+                Ok(text) => NativeToolResult::text_only(format!("Screenshot not available. Page text:\n{}", text.chars().take(20_000).collect::<String>())),
+                Err(e) => NativeToolResult::text_only(format!("screenshot failed: {e}")),
+            },
         },
         "wait" => {
             let sel = args.get("selector").and_then(|v| v.as_str()).unwrap_or("");
@@ -1115,9 +1119,8 @@ fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
                 Err(e) => NativeToolResult::text_only(format!("wait failed: {e}")),
             }
         }
-        "get_text" => match session.eval("document.body && document.body.innerText || ''") {
-            Ok(v) => {
-                let text = v.get("result").and_then(|r| r.as_str()).unwrap_or("").to_string();
+        "get_text" => match session.snapshot() {
+            Ok(text) => {
                 const MAX: usize = 30_000;
                 let mut s = text;
                 if s.len() > MAX {
@@ -1130,15 +1133,27 @@ fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
             }
             Err(e) => NativeToolResult::text_only(format!("get_text failed: {e}")),
         },
-        "get_links" => {
-            let js = "JSON.stringify(Array.from(document.links).slice(0, 200).map(l => ({text: (l.innerText||'').trim().slice(0, 80), href: l.href})))";
-            match session.eval(js) {
-                Ok(v) => {
-                    let json_str = v.get("result").and_then(|r| r.as_str()).unwrap_or("[]");
-                    NativeToolResult::text_only(json_str.to_string())
+        "get_links" => match session.html() {
+            Ok(html) => {
+                // Extract links from HTML using simple regex
+                let mut links = Vec::new();
+                for cap in regex::Regex::new(r#"<a[^>]+href="([^"]*)"[^>]*>(.*?)</a>"#)
+                    .unwrap()
+                    .captures_iter(&html)
+                {
+                    if links.len() >= 200 { break; }
+                    let href = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+                    let text = cap.get(2).map(|m| m.as_str()).unwrap_or("");
+                    // Strip HTML tags from link text
+                    let clean = regex::Regex::new(r"<[^>]+>").unwrap()
+                        .replace_all(text, "").trim().chars().take(80).collect::<String>();
+                    if !href.is_empty() && !clean.is_empty() {
+                        links.push(serde_json::json!({"text": clean, "href": href}));
+                    }
                 }
-                Err(e) => NativeToolResult::text_only(format!("get_links failed: {e}")),
+                NativeToolResult::text_only(serde_json::to_string(&links).unwrap_or("[]".into()))
             }
+            Err(e) => NativeToolResult::text_only(format!("get_links failed: {e}")),
         }
         "snapshot" => match session.snapshot() {
             Ok(s) => {
@@ -1157,6 +1172,7 @@ fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
         "scroll" => {
             let sel = args.get("selector").and_then(|v| v.as_str()).unwrap_or("");
             let amount = args.get("amount").and_then(|v| v.as_i64()).unwrap_or(0);
+            // Try eval first (Camofox), fall back to no-op (HTTP mode)
             let js = if !sel.is_empty() {
                 format!(
                     "(() => {{ const el = document.querySelector({sel_lit}); if (el) {{ el.scrollIntoView({{behavior:'smooth', block:'center'}}); return 'scrolled to '+{sel_lit}; }} return 'element not found'; }})()",
@@ -1170,7 +1186,7 @@ fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
                     let msg = v.get("result").and_then(|r| r.as_str()).unwrap_or("done");
                     NativeToolResult::text_only(msg.to_string())
                 }
-                Err(e) => NativeToolResult::text_only(format!("scroll failed: {e}")),
+                Err(_) => NativeToolResult::text_only("Scroll not available in HTTP mode (content is fetched statically).".into()),
             }
         }
         "press_key" => {
