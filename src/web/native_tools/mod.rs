@@ -61,7 +61,12 @@ pub fn extract_tool_args_summary(cmd: &str) -> String {
         }
     }
     let s = args.to_string();
-    if s.len() > 80 { format!("{}...", &s[..77]) } else { s }
+    if s.chars().count() > 80 {
+        let truncated: String = s.chars().take(77).collect();
+        format!("{truncated}...")
+    } else {
+        s
+    }
 }
 
 // ─── In-memory todo store (per conversation) ─────────────────────────────────

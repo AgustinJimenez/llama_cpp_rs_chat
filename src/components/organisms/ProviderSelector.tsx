@@ -34,27 +34,67 @@ export const ProviderSelector = ({
   currentProvider,
 }: ProviderSelectorProps) => {
   const [providers, setProviders] = useState<Provider[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loadingCli, setLoadingCli] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
-    setLoading(true);
+    let cancelled = false;
+    setProviders([]);
+    setLoadingCli(true);
     (async () => {
+      const mergeProviders = (incoming: Provider[], replaceCli: boolean) => {
+        setProviders((current) => {
+          const retained = replaceCli
+            ? current.filter((provider) => !CLI_PROVIDERS.includes(provider.id))
+            : current;
+          const merged = new Map<string, Provider>();
+          for (const provider of retained) {
+            merged.set(provider.id, provider);
+          }
+          for (const provider of incoming) {
+            merged.set(provider.id, provider);
+          }
+          return Array.from(merged.values());
+        });
+      };
+
       try {
-        let data;
         if (isTauriEnv()) {
           const { invoke } = await import('@tauri-apps/api/core');
-          data = await invoke('list_providers');
+          const configured = await invoke<{ providers?: Provider[] }>('list_configured_providers');
+          if (!cancelled) {
+            mergeProviders(configured.providers || [], false);
+          }
+
+          const cli = await invoke<{ providers?: Provider[] }>('list_cli_providers');
+          if (!cancelled) {
+            mergeProviders(cli.providers || [], true);
+          }
         } else {
-          const r = await fetch('/api/providers');
-          data = await r.json();
+          const configuredResponse = await fetch('/api/providers/configured');
+          const configured = await configuredResponse.json();
+          if (!cancelled) {
+            mergeProviders(configured.providers || [], false);
+          }
+
+          const cliResponse = await fetch('/api/providers/cli-status');
+          const cli = await cliResponse.json();
+          if (!cancelled) {
+            mergeProviders(cli.providers || [], true);
+          }
         }
-        setProviders(data.providers || []);
       } catch {
         // intentionally empty — providers will remain empty
+      } finally {
+        if (!cancelled) {
+          setLoadingCli(false);
+        }
       }
-      setLoading(false);
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -117,7 +157,7 @@ export const ProviderSelector = ({
           </button>
 
           {/* CLI-backed providers (Claude Code, Codex) */}
-          {loading && cliProviders.length === 0 ? (
+          {loadingCli && cliProviders.length === 0 ? (
             <>
               {[
                 { name: 'Claude Code', desc: 'Checking CLI availability...' },

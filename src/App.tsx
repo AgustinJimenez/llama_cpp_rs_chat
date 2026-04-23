@@ -37,7 +37,7 @@ const ModelConfigModal = React.lazy(() =>
 const App = () => {
   const { status: modelStatus, loadModel, unloadModel, forceUnload } = useModelContext();
   const { clearMessages } = useChatContext();
-  const { closeModelConfig, openAppSettings, openBrowserView, closeBrowserView } = useUIContext();
+  const { closeModelConfig, openAppSettings, openBrowserView, clearBrowserView } = useUIContext();
 
   // Listen for Tauri menu/tray events
   useEffect(() => {
@@ -79,7 +79,7 @@ const App = () => {
         __closeBrowserView?: () => void;
       }
     ).__closeBrowserView = () => {
-      closeBrowserView();
+      clearBrowserView();
     };
 
     return () => {
@@ -96,7 +96,7 @@ const App = () => {
         }
       ).__closeBrowserView;
     };
-  }, [openBrowserView, closeBrowserView]);
+  }, [openBrowserView, clearBrowserView]);
 
   const handleNewConversation = useCallback(() => {
     clearMessages();

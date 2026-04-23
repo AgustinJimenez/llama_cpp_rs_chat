@@ -5,6 +5,7 @@
 //!   reads content via HTTP (ureq). No Camofox needed.
 //! - CamofoxSession (fallback): headless Firefox for anti-detection browsing.
 
+use std::io::Read;
 use serde_json::Value;
 
 use super::camofox;
@@ -129,16 +130,25 @@ impl TauriHttpSession {
     /// Fetch page content via HTTP using ureq + html2text.
     fn fetch_text(&self, max_chars: usize) -> Result<String, String> {
         let resp = ureq::AgentBuilder::new()
-            .timeout(std::time::Duration::from_secs(15))
+            .timeout_connect(std::time::Duration::from_secs(10))
+            .timeout_read(std::time::Duration::from_secs(15))
             .build()
             .get(&self.current_url)
             .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             .call()
             .map_err(|e| format!("HTTP fetch failed: {e}"))?;
-        let body = resp.into_string()
+        // Limit body size to prevent blocking on huge pages
+        let max_body: u64 = 500_000;
+        let reader = resp.into_reader();
+        let mut body = String::new();
+        let bytes_read = reader.take(max_body).read_to_string(&mut body)
             .map_err(|e| format!("Read body failed: {e}"))?;
+        let was_truncated = bytes_read as u64 >= max_body;
         // Strip HTML tags for plain text
-        let text = html2text::from_read(body.as_bytes(), 120);
+        let mut text = html2text::from_read(body.as_bytes(), 120);
+        if was_truncated {
+            text.push_str("\n\n[Page was too large — only the first 500KB was read. Use browser_get_links to find specific article URLs, then browser_navigate to each one.]");
+        }
         if text.len() > max_chars {
             let mut end = max_chars;
             while end > 0 && !text.is_char_boundary(end) { end -= 1; }
@@ -150,7 +160,8 @@ impl TauriHttpSession {
 
     fn fetch_html(&self) -> Result<String, String> {
         let resp = ureq::AgentBuilder::new()
-            .timeout(std::time::Duration::from_secs(15))
+            .timeout_connect(std::time::Duration::from_secs(10))
+            .timeout_read(std::time::Duration::from_secs(15))
             .build()
             .get(&self.current_url)
             .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
