@@ -5,7 +5,6 @@
 //!   reads content via HTTP (ureq). No Camofox needed.
 //! - CamofoxSession (fallback): headless Firefox for anti-detection browsing.
 
-use std::io::Read;
 use serde_json::Value;
 
 use super::camofox;
@@ -114,41 +113,101 @@ impl BrowserSession for CamofoxSession {
 
 /// Browser session that opens the Tauri native webview (user sees the page)
 /// and reads content via HTTP (ureq). No external browser server needed.
+/// Page content is cached on navigate — reads are instant.
 pub struct TauriHttpSession {
     pub current_url: String,
+    cached_html: Option<String>,
+    cached_text: Option<String>,
 }
 
 impl TauriHttpSession {
     pub fn open(url: &str) -> Result<Self, String> {
-        // Tell the Tauri app to open the browser panel
         let _ = notify_tauri_browser_navigate(url);
         Ok(Self {
             current_url: url.to_string(),
+            cached_html: None,
+            cached_text: None,
         })
     }
 
-    /// Fetch page content via HTTP using ureq + html2text.
-    fn fetch_text(&self, max_chars: usize) -> Result<String, String> {
-        let resp = ureq::AgentBuilder::new()
-            .timeout_connect(std::time::Duration::from_secs(10))
-            .timeout_read(std::time::Duration::from_secs(15))
-            .build()
-            .get(&self.current_url)
-            .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-            .call()
-            .map_err(|e| format!("HTTP fetch failed: {e}"))?;
-        // Limit body size to prevent blocking on huge pages
-        let max_body: u64 = 500_000;
-        let reader = resp.into_reader();
-        let mut body = String::new();
-        let bytes_read = reader.take(max_body).read_to_string(&mut body)
-            .map_err(|e| format!("Read body failed: {e}"))?;
-        let was_truncated = bytes_read as u64 >= max_body;
-        // Strip HTML tags for plain text
-        let mut text = html2text::from_read(body.as_bytes(), 120);
-        if was_truncated {
-            text.push_str("\n\n[Page was too large — only the first 500KB was read. Use browser_get_links to find specific article URLs, then browser_navigate to each one.]");
+    /// Fetch page and cache both HTML and text.
+    fn prefetch(&mut self) -> Result<(), String> {
+        let html = self.do_fetch()?;
+        let text = Self::strip_html(&html);
+        self.cached_html = Some(html);
+        self.cached_text = Some(text);
+        Ok(())
+    }
+
+    /// Fast HTML tag stripper using regex (replaces slow html2text).
+    fn strip_html(html: &str) -> String {
+        // Remove script/style blocks
+        let no_script = regex::Regex::new(r"(?is)<(script|style)[^>]*>.*?</\1>").unwrap()
+            .replace_all(html, "");
+        // Remove HTML tags
+        let no_tags = regex::Regex::new(r"<[^>]+>").unwrap()
+            .replace_all(&no_script, " ");
+        // Collapse whitespace
+        let clean = regex::Regex::new(r"\s+").unwrap()
+            .replace_all(&no_tags, " ");
+        // Decode common entities
+        clean.replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .replace("&nbsp;", " ")
+            .trim()
+            .to_string()
+    }
+
+    /// Fetch page via curl (fast, reliable) with 15s timeout.
+    pub fn do_fetch(&self) -> Result<String, String> {
+        eprintln!("[BROWSER_HTTP] do_fetch START: {}", self.current_url);
+        let start = std::time::Instant::now();
+        let mut cmd = std::process::Command::new("curl");
+        cmd.args([
+                "-sL",
+                "--max-time", "15",
+                "-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                &self.current_url,
+            ])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
         }
+        let output = cmd.output()
+            .map_err(|e| {
+                eprintln!("[BROWSER_HTTP] curl spawn FAILED: {e} (after {}ms)", start.elapsed().as_millis());
+                format!("curl failed: {e}")
+            })?;
+        eprintln!("[BROWSER_HTTP] curl finished: status={} body={}bytes ({}ms)",
+            output.status, output.stdout.len(), start.elapsed().as_millis());
+        if !output.status.success() {
+            return Err(format!("curl returned status {}", output.status));
+        }
+        let body = String::from_utf8_lossy(&output.stdout);
+        let max = 500_000;
+        if body.len() > max {
+            Ok(body[..max].to_string())
+        } else {
+            Ok(body.to_string())
+        }
+    }
+
+    /// Get text — from cache (instant) or fetch.
+    fn get_text(&self, max_chars: usize) -> Result<String, String> {
+        let text = match &self.cached_text {
+            Some(t) => t.clone(),
+            None => {
+                let html = self.do_fetch()?;
+                Self::strip_html(&html)
+            }
+        };
         if text.len() > max_chars {
             let mut end = max_chars;
             while end > 0 && !text.is_char_boundary(end) { end -= 1; }
@@ -158,23 +217,20 @@ impl TauriHttpSession {
         }
     }
 
-    fn fetch_html(&self) -> Result<String, String> {
-        let resp = ureq::AgentBuilder::new()
-            .timeout_connect(std::time::Duration::from_secs(10))
-            .timeout_read(std::time::Duration::from_secs(15))
-            .build()
-            .get(&self.current_url)
-            .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-            .call()
-            .map_err(|e| format!("HTTP fetch failed: {e}"))?;
-        resp.into_string()
-            .map_err(|e| format!("Read body failed: {e}"))
+    /// Get HTML — from cache (instant) or fetch.
+    fn get_html(&self) -> Result<String, String> {
+        match &self.cached_html {
+            Some(h) => Ok(h.clone()),
+            None => self.do_fetch(),
+        }
     }
 }
 
 impl BrowserSession for TauriHttpSession {
     fn navigate(&mut self, url: &str) -> Result<(), String> {
         self.current_url = url.to_string();
+        self.cached_html = None;
+        self.cached_text = None;
         let _ = notify_tauri_browser_navigate(url);
         Ok(())
     }
@@ -192,7 +248,7 @@ impl BrowserSession for TauriHttpSession {
     }
 
     fn html(&self) -> Result<String, String> {
-        self.fetch_html()
+        self.get_html()
     }
 
     fn screenshot(&self) -> Result<Vec<u8>, String> {
@@ -209,7 +265,7 @@ impl BrowserSession for TauriHttpSession {
     }
 
     fn snapshot(&self) -> Result<String, String> {
-        self.fetch_text(20_000)
+        self.get_text(20_000)
     }
 
     fn close(&mut self) -> Result<(), String> {
@@ -226,15 +282,19 @@ impl BrowserSession for TauriHttpSession {
 
 use std::sync::Mutex;
 
-/// The active session URL — shared between calls.
+/// The active session state — shared between calls.
 static ACTIVE_URL: Mutex<Option<String>> = Mutex::new(None);
+static CACHED_HTML: Mutex<Option<String>> = Mutex::new(None);
+static CACHED_TEXT: Mutex<Option<String>> = Mutex::new(None);
 
 /// Get or create the active session.
 pub fn current_session() -> Result<TauriHttpSession, String> {
     let url = ACTIVE_URL.lock().ok()
         .and_then(|g| g.clone())
         .ok_or("No active browser session. Call browser_navigate(url) first.")?;
-    Ok(TauriHttpSession { current_url: url })
+    let cached_html = CACHED_HTML.lock().ok().and_then(|g| g.clone());
+    let cached_text = CACHED_TEXT.lock().ok().and_then(|g| g.clone());
+    Ok(TauriHttpSession { current_url: url, cached_html, cached_text })
 }
 
 /// Open a fresh session at the given URL.
@@ -244,7 +304,16 @@ pub fn open_session(url: &str) -> Result<TauriHttpSession, String> {
     } else {
         format!("https://{url}")
     };
-    let session = TauriHttpSession::open(&full_url)?;
+    let mut session = TauriHttpSession::open(&full_url)?;
+    eprintln!("[BROWSER_HTTP] open_session: fetching {full_url}");
+    // Fetch and cache immediately so subsequent reads are instant
+    if let Ok(html) = session.do_fetch() {
+        let text = TauriHttpSession::strip_html(&html);
+        session.cached_html = Some(html.clone());
+        session.cached_text = Some(text.clone());
+        if let Ok(mut g) = CACHED_HTML.lock() { *g = Some(html); }
+        if let Ok(mut g) = CACHED_TEXT.lock() { *g = Some(text); }
+    }
     if let Ok(mut guard) = ACTIVE_URL.lock() {
         *guard = Some(full_url);
     }

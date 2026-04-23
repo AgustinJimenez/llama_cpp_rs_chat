@@ -1096,16 +1096,17 @@ fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
             }
             Err(e) => NativeToolResult::text_only(format!("get_html failed: {e}")),
         },
-        "screenshot" => match session.screenshot() {
-            Ok(bytes) => NativeToolResult::with_image(
-                "Screenshot captured (visible to vision models).".to_string(),
-                bytes,
-            ),
-            // Fallback: return page text instead of image
-            Err(_) => match session.snapshot() {
-                Ok(text) => NativeToolResult::text_only(format!("Screenshot not available. Page text:\n{}", text.chars().take(20_000).collect::<String>())),
-                Err(e) => NativeToolResult::text_only(format!("screenshot failed: {e}")),
-            },
+        "screenshot" => {
+            // Try real screenshot first (Camofox), then return page text (HTTP mode)
+            if let Ok(bytes) = session.screenshot() {
+                NativeToolResult::with_image("Screenshot captured.".into(), bytes)
+            } else {
+                let text = session.url().to_string();
+                NativeToolResult::text_only(format!(
+                    "Screenshot not available in HTTP mode. Use browser_get_text or browser_get_links to read the page at {}",
+                    text
+                ))
+            }
         },
         "wait" => {
             let sel = args.get("selector").and_then(|v| v.as_str()).unwrap_or("");
