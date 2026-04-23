@@ -139,26 +139,67 @@ impl TauriHttpSession {
         Ok(())
     }
 
-    /// Fast HTML tag stripper using regex (replaces slow html2text).
+    /// Fast HTML tag stripper — no regex, pure iteration. Handles script/style removal.
     fn strip_html(html: &str) -> String {
-        // Remove script/style blocks
-        let no_script = regex::Regex::new(r"(?is)<(script|style)[^>]*>.*?</\1>").unwrap()
-            .replace_all(html, "");
-        // Remove HTML tags
-        let no_tags = regex::Regex::new(r"<[^>]+>").unwrap()
-            .replace_all(&no_script, " ");
-        // Collapse whitespace
-        let clean = regex::Regex::new(r"\s+").unwrap()
-            .replace_all(&no_tags, " ");
-        // Decode common entities
-        clean.replace("&amp;", "&")
+        let mut result = String::with_capacity(html.len() / 3);
+        let mut in_tag = false;
+        let mut in_script = false;
+        let lower = html.to_lowercase();
+        let bytes = html.as_bytes();
+        let lower_bytes = lower.as_bytes();
+        let len = bytes.len();
+        let mut i = 0;
+
+        while i < len {
+            if in_script {
+                // Look for </script> or </style>
+                if i + 8 < len && lower_bytes[i] == b'<' && lower_bytes[i + 1] == b'/' {
+                    if lower[i..].starts_with("</script>") {
+                        i += 9;
+                        in_script = false;
+                        continue;
+                    }
+                    if lower[i..].starts_with("</style>") {
+                        i += 8;
+                        in_script = false;
+                        continue;
+                    }
+                }
+                i += 1;
+                continue;
+            }
+            if bytes[i] == b'<' {
+                // Check for <script or <style
+                if i + 7 < len
+                    && (lower[i..].starts_with("<script") || lower[i..].starts_with("<style"))
+                {
+                    in_script = true;
+                }
+                in_tag = true;
+                i += 1;
+                continue;
+            }
+            if bytes[i] == b'>' && in_tag {
+                in_tag = false;
+                result.push(' ');
+                i += 1;
+                continue;
+            }
+            if !in_tag {
+                result.push(bytes[i] as char);
+            }
+            i += 1;
+        }
+
+        // Collapse whitespace + decode entities
+        let collapsed: String = result.split_whitespace().collect::<Vec<_>>().join(" ");
+        collapsed
+            .replace("&amp;", "&")
             .replace("&lt;", "<")
             .replace("&gt;", ">")
             .replace("&quot;", "\"")
             .replace("&#39;", "'")
             .replace("&nbsp;", " ")
-            .trim()
-            .to_string()
     }
 
     /// Fetch page via curl (fast, reliable) with 15s timeout.
@@ -228,10 +269,24 @@ impl TauriHttpSession {
 
 impl BrowserSession for TauriHttpSession {
     fn navigate(&mut self, url: &str) -> Result<(), String> {
+        eprintln!("[BROWSER_HTTP] navigate: {url}");
         self.current_url = url.to_string();
         self.cached_html = None;
         self.cached_text = None;
+        // Clear static cache too
+        if let Ok(mut g) = CACHED_HTML.lock() { *g = None; }
+        if let Ok(mut g) = CACHED_TEXT.lock() { *g = None; }
+        if let Ok(mut g) = ACTIVE_URL.lock() { *g = Some(url.to_string()); }
         let _ = notify_tauri_browser_navigate(url);
+        // Fetch and cache the new page
+        if let Ok(html) = self.do_fetch() {
+            let text = Self::strip_html(&html);
+            eprintln!("[BROWSER_HTTP] navigate fetched {} bytes, text {} bytes", html.len(), text.len());
+            self.cached_html = Some(html.clone());
+            self.cached_text = Some(text.clone());
+            if let Ok(mut g) = CACHED_HTML.lock() { *g = Some(html); }
+            if let Ok(mut g) = CACHED_TEXT.lock() { *g = Some(text); }
+        }
         Ok(())
     }
 
@@ -306,23 +361,31 @@ pub fn open_session(url: &str) -> Result<TauriHttpSession, String> {
     };
     let mut session = TauriHttpSession::open(&full_url)?;
     eprintln!("[BROWSER_HTTP] open_session: fetching {full_url}");
+    let fetch_start = std::time::Instant::now();
     // Fetch and cache immediately so subsequent reads are instant
     if let Ok(html) = session.do_fetch() {
+        eprintln!("[BROWSER_HTTP] fetch done ({}ms), stripping HTML ({} bytes)...", fetch_start.elapsed().as_millis(), html.len());
+        let strip_start = std::time::Instant::now();
         let text = TauriHttpSession::strip_html(&html);
+        eprintln!("[BROWSER_HTTP] strip_html done ({}ms), text={} bytes", strip_start.elapsed().as_millis(), text.len());
         session.cached_html = Some(html.clone());
         session.cached_text = Some(text.clone());
+        eprintln!("[BROWSER_HTTP] storing cache...");
         if let Ok(mut g) = CACHED_HTML.lock() { *g = Some(html); }
         if let Ok(mut g) = CACHED_TEXT.lock() { *g = Some(text); }
+        eprintln!("[BROWSER_HTTP] cache stored");
     }
     if let Ok(mut guard) = ACTIVE_URL.lock() {
-        *guard = Some(full_url);
+        *guard = Some(full_url.clone());
     }
+    eprintln!("[BROWSER_HTTP] open_session COMPLETE: {full_url}");
     Ok(session)
 }
 
 /// Best-effort: ask the Tauri app process to open/navigate the visible native browser panel.
 /// This bridge is only available in desktop mode; callers should ignore failures and continue.
 pub fn notify_tauri_browser_navigate(url: &str) -> Result<(), String> {
+    eprintln!("[BROWSER_HTTP] notify_tauri_browser_navigate: {url}");
     let body = serde_json::json!({ "url": url });
     ureq::post(&format!("{TAURI_UI_BRIDGE_BASE}/bridge/browser/navigate"))
         .set("Content-Type", "application/json")

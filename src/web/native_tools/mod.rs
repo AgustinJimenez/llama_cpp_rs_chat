@@ -1014,25 +1014,43 @@ fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
         } else {
             format!("https://{url}")
         };
+        eprintln!("[BROWSER_TOOL] navigate: {full_url}");
+        eprintln!("[BROWSER_TOOL] notify_tauri_browser_navigate...");
         let _ = notify_tauri_browser_navigate(&full_url);
+        eprintln!("[BROWSER_TOOL] notify done, checking current_session...");
         return match current_session() {
-            Ok(mut s) => match s.navigate(&full_url) {
-                Ok(()) => NativeToolResult::text_only(format!("Navigated to {full_url}.")),
-                Err(_) => match open_session(&full_url) {
-                    Ok(s2) => NativeToolResult::text_only(format!(
-                        "Opened new session at {}.",
-                        s2.url()
-                    )),
-                    Err(e) => NativeToolResult::text_only(format!("navigate failed: {e}")),
-                },
-            },
-            Err(_) => match open_session(&full_url) {
-                Ok(s) => NativeToolResult::text_only(format!(
-                    "Navigated to {}. Browser view opened — the user can see the page.",
-                    s.url()
-                )),
-                Err(e) => NativeToolResult::text_only(format!("navigate failed: {e}")),
-            },
+            Ok(mut s) => {
+                eprintln!("[BROWSER_TOOL] existing session, calling navigate...");
+                match s.navigate(&full_url) {
+                    Ok(()) => {
+                        eprintln!("[BROWSER_TOOL] navigate OK");
+                        NativeToolResult::text_only(format!("Navigated to {full_url}."))
+                    }
+                    Err(e) => {
+                        eprintln!("[BROWSER_TOOL] navigate failed: {e}, opening new session...");
+                        match open_session(&full_url) {
+                            Ok(s2) => NativeToolResult::text_only(format!("Opened new session at {}.", s2.url())),
+                            Err(e) => NativeToolResult::text_only(format!("navigate failed: {e}")),
+                        }
+                    }
+                }
+            }
+            Err(_) => {
+                eprintln!("[BROWSER_TOOL] no existing session, calling open_session...");
+                match open_session(&full_url) {
+                    Ok(s) => {
+                        eprintln!("[BROWSER_TOOL] open_session OK");
+                        NativeToolResult::text_only(format!(
+                            "Navigated to {}. Browser view opened — the user can see the page.",
+                            s.url()
+                        ))
+                    }
+                    Err(e) => {
+                        eprintln!("[BROWSER_TOOL] open_session FAILED: {e}");
+                        NativeToolResult::text_only(format!("navigate failed: {e}"))
+                    }
+                }
+            }
         };
     }
 

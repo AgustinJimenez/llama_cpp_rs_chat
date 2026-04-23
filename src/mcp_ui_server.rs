@@ -534,9 +534,20 @@ pub async fn start(app: AppHandle, port: u16) {
         config,
     );
 
+    // Return 404 for OAuth discovery — tells Claude Code "no auth needed".
+    // If we return 200 with any JSON, Claude Code tries to complete OAuth flow.
+    // A 404 means "no OAuth server" = no auth required.
+    async fn oauth_not_found() -> axum::response::Response {
+        axum::response::Response::builder()
+            .status(404)
+            .body(axum::body::Body::from("Not Found"))
+            .unwrap()
+    }
+
     let router = axum::Router::new()
         .route("/bridge/browser/navigate", post(bridge_browser_navigate))
         .route("/bridge/browser/close", post(bridge_browser_close))
+        .route("/.well-known/oauth-authorization-server", axum::routing::get(oauth_not_found))
         .with_state(app.clone())
         .nest_service("/mcp", service);
 
