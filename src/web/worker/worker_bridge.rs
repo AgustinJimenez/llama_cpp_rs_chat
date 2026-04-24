@@ -441,12 +441,15 @@ impl WorkerBridge {
     }
 
     /// Cancel the in-progress generation.
-    /// If the worker doesn't stop within 5s, auto-kill and restart it,
-    /// then reload the same model so the user can continue chatting.
     pub async fn cancel_generation(self: &Arc<Self>) {
         self.send_fire_and_forget(WorkerCommand::CancelGeneration).await;
 
-        // Spawn a background watchdog that auto-recovers if cancel didn't work
+        // NOTE: Cancel watchdog disabled — it was killing new generations
+        // that started after a previous cancel. The watchdog checked
+        // is_generating() after 5s but couldn't distinguish between
+        // "old generation that should stop" and "new generation that just started".
+        // TODO: track generation ID to fix this properly.
+        /*
         let bridge = Arc::clone(self);
         tokio::spawn(async move {
             // Give the worker 5 seconds to stop gracefully
@@ -483,6 +486,7 @@ impl WorkerBridge {
                 bridge.set_status_message(None).await;
             }
         });
+        */
     }
 
     /// Refresh MCP server connections in the worker.

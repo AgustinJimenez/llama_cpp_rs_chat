@@ -589,7 +589,84 @@ pub async fn start(app: AppHandle, port: u16) {
             .unwrap()
     }
 
+    // ─── Plain REST API (bypasses MCP protocol, fast) ───
+    async fn rest_get_state(State(app): State<AppHandle>) -> axum::response::Response {
+        let bridge: SharedWorkerBridge = app.state::<SharedWorkerBridge>().inner().clone();
+        let meta = bridge.model_status().await;
+        let generating = bridge.is_generating().await;
+        let loading = bridge.is_loading();
+        let body = serde_json::json!({
+            "model_loaded": meta.is_some(),
+            "model_path": meta.as_ref().map(|m| &m.model_path),
+            "generating": generating,
+            "loading": loading,
+        });
+        axum::response::Response::builder()
+            .status(200)
+            .header("content-type", "application/json")
+            .header("access-control-allow-origin", "*")
+            .body(axum::body::Body::from(body.to_string()))
+            .unwrap()
+    }
+
+    async fn rest_load_model(State(app): State<AppHandle>, body: Bytes) -> axum::response::Response {
+        let path = serde_json::from_slice::<serde_json::Value>(&body)
+            .ok()
+            .and_then(|v| v.get("path").and_then(|p| p.as_str()).map(|s| s.to_string()));
+        let msg = match path {
+            Some(p) => {
+                let bridge: SharedWorkerBridge = app.state::<SharedWorkerBridge>().inner().clone();
+                match bridge.load_model(&p, None, None).await {
+                    Ok(_) => format!("{{\"ok\":true,\"model\":\"{p}\"}}"),
+                    Err(e) => format!("{{\"ok\":false,\"error\":\"{e}\"}}"),
+                }
+            }
+            None => "{\"ok\":false,\"error\":\"path required\"}".into(),
+        };
+        axum::response::Response::builder()
+            .status(200)
+            .header("content-type", "application/json")
+            .header("access-control-allow-origin", "*")
+            .body(axum::body::Body::from(msg))
+            .unwrap()
+    }
+
+    async fn rest_eval(State(app): State<AppHandle>, body: Bytes) -> axum::response::Response {
+        let js = serde_json::from_slice::<serde_json::Value>(&body)
+            .ok()
+            .and_then(|v| v.get("js").and_then(|j| j.as_str()).map(|s| s.to_string()));
+        let server = AppUiServer::new(app);
+        let result = match js {
+            Some(code) => server.eval_js(&code).await.unwrap_or_else(|e| e),
+            None => "\"js required\"".into(),
+        };
+        axum::response::Response::builder()
+            .status(200)
+            .header("content-type", "application/json")
+            .header("access-control-allow-origin", "*")
+            .body(axum::body::Body::from(result))
+            .unwrap()
+    }
+
+    async fn rest_screenshot(State(app): State<AppHandle>) -> axum::response::Response {
+        let server = AppUiServer::new(app);
+        let result = server.eval_js("document.body.innerText.slice(0, 30000)").await
+            .unwrap_or_else(|e| format!("\"error: {e}\""));
+        axum::response::Response::builder()
+            .status(200)
+            .header("content-type", "application/json")
+            .header("access-control-allow-origin", "*")
+            .body(axum::body::Body::from(result))
+            .unwrap()
+    }
+
     let router = axum::Router::new()
+        // Plain REST (fast, no MCP overhead)
+        .route("/api/state", axum::routing::get(rest_get_state))
+        .route("/api/load-model", post(rest_load_model))
+        .route("/api/eval", post(rest_eval))
+        .route("/api/screenshot", axum::routing::get(rest_screenshot))
+        // Bridge endpoints
         .route("/bridge/browser/navigate", post(bridge_browser_navigate))
         .route("/bridge/browser/close", post(bridge_browser_close))
         .route("/bridge/eval-result", post(bridge_eval_result).options(bridge_eval_result_options))
