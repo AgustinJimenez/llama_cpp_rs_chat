@@ -104,6 +104,9 @@ pub(super) const READ_ONLY_TOOLS: &[&str] = &[
     "todo_read", "list_tools", "get_tool_details", "list_skills",
     "take_screenshot", "list_windows", "get_cursor_position",
     "get_active_window", "list_monitors", "ocr_screen",
+    // Browser tools — read-only, safe for parallel execution
+    "browser_get_text", "browser_get_html", "browser_get_links",
+    "browser_snapshot", "browser_screenshot", "browser_wait",
 ];
 
 /// Maximum number of tools to execute concurrently in a parallel batch.
@@ -113,8 +116,10 @@ pub(super) fn is_read_only_tool(name: &str) -> bool {
     READ_ONLY_TOOLS.contains(&name)
 }
 
-/// Timeout for native tool execution (web_search, web_fetch, etc.)
+/// Default timeout for native tool execution.
 const NATIVE_TOOL_TIMEOUT_SECS: u64 = 30;
+/// Browser tools may need longer for first-run startup, tab creation, and slow pages.
+const BROWSER_TOOL_TIMEOUT_SECS: u64 = 90;
 
 /// Run a native tool with a timeout to prevent blocking the generation thread indefinitely.
 pub(super) fn run_native_tool_with_timeout(
@@ -153,7 +158,16 @@ pub(super) fn run_native_tool_with_timeout(
         let _ = tx.send(result);
     });
 
-    match rx.recv_timeout(std::time::Duration::from_secs(NATIVE_TOOL_TIMEOUT_SECS)) {
+    let timeout_secs = if tool_name.starts_with("browser_")
+        || tool_name == "open_browser_view"
+        || tool_name == "close_browser_view"
+    {
+        BROWSER_TOOL_TIMEOUT_SECS
+    } else {
+        NATIVE_TOOL_TIMEOUT_SECS
+    };
+
+    match rx.recv_timeout(std::time::Duration::from_secs(timeout_secs)) {
         Ok(result) => {
             let elapsed = tool_start.elapsed();
             let output_len = result.as_ref().map(|r| r.text.len()).unwrap_or(0);
@@ -164,10 +178,13 @@ pub(super) fn run_native_tool_with_timeout(
         }
         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
             crate::web::event_log::log_event(conversation_id, "tool_timeout", &format!(
-                "{}: timed out after {}s", tool_name, NATIVE_TOOL_TIMEOUT_SECS
+                "{}: timed out after {}s", tool_name, timeout_secs
             ));
-            log_info!(conversation_id, "⏱️ Native tool timed out after {}s", NATIVE_TOOL_TIMEOUT_SECS);
-            Some(native_tools::NativeToolResult::text_only(format!("Error: Tool execution timed out after {} seconds. The network request may be slow or unresponsive. Please try again.", NATIVE_TOOL_TIMEOUT_SECS)))
+            log_info!(conversation_id, "⏱️ Native tool timed out after {}s", timeout_secs);
+            Some(native_tools::NativeToolResult::text_only(format!(
+                "Error: Tool execution timed out after {} seconds. The network request may be slow or unresponsive. Please try again.",
+                timeout_secs
+            )))
         }
         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
             log_info!(conversation_id, "⚠️ Native tool thread panicked");

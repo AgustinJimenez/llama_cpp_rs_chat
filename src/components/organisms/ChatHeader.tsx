@@ -146,7 +146,7 @@ export const ChatHeader = React.memo(({ onModelUnload, onForceUnload }: ChatHead
 
           <button
             onClick={toggleBrowserView}
-            className={`btn-icon ${isBrowserViewOpen ? 'active' : ''} ${browserViewUrl && !isBrowserViewOpen ? 'animate-pulse text-primary' : ''}`}
+            className={`btn-icon ${isBrowserViewOpen ? 'active' : ''} ${browserViewUrl && !isBrowserViewOpen ? 'animate-pulse text-foreground' : ''}`}
             title="Toggle browser view"
           >
             <Globe className="h-3.5 w-3.5" />
