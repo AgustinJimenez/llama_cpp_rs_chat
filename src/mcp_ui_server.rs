@@ -553,11 +553,12 @@ pub async fn start(app: AppHandle, port: u16) {
             .unwrap()
     }
 
-    // Eval result handler — receives JS eval results via fetch from the webview
+    // Eval result handler — receives JS eval results via fetch from the webview.
+    // Must include CORS headers since the webview origin differs from the MCP server.
     async fn bridge_eval_result(
         State(app): State<AppHandle>,
         body: Bytes,
-    ) -> axum::http::StatusCode {
+    ) -> axum::response::Response {
         if let Ok(data) = serde_json::from_slice::<serde_json::Value>(&body) {
             let id = data.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
             let value = data.get("value").and_then(|v| v.as_str()).unwrap_or("null").to_string();
@@ -568,13 +569,30 @@ pub async fn start(app: AppHandle, port: u16) {
                 }
             }
         }
-        axum::http::StatusCode::OK
+        axum::response::Response::builder()
+            .status(200)
+            .header("access-control-allow-origin", "*")
+            .header("access-control-allow-methods", "POST, OPTIONS")
+            .header("access-control-allow-headers", "content-type")
+            .body(axum::body::Body::from("ok"))
+            .unwrap()
+    }
+
+    // CORS preflight for eval-result
+    async fn bridge_eval_result_options() -> axum::response::Response {
+        axum::response::Response::builder()
+            .status(204)
+            .header("access-control-allow-origin", "*")
+            .header("access-control-allow-methods", "POST, OPTIONS")
+            .header("access-control-allow-headers", "content-type")
+            .body(axum::body::Body::empty())
+            .unwrap()
     }
 
     let router = axum::Router::new()
         .route("/bridge/browser/navigate", post(bridge_browser_navigate))
         .route("/bridge/browser/close", post(bridge_browser_close))
-        .route("/bridge/eval-result", post(bridge_eval_result))
+        .route("/bridge/eval-result", post(bridge_eval_result).options(bridge_eval_result_options))
         .route("/.well-known/oauth-authorization-server", axum::routing::get(oauth_not_found))
         .with_state(app.clone())
         .nest_service("/mcp", service);
