@@ -75,18 +75,27 @@ impl AppUiServer {
             map.insert(id, tx);
         }
 
-        // Inject JS that evaluates the code and calls back with the result
+        // Inject JS that evaluates the code and POSTs the result back via HTTP.
+        // This bypasses Tauri IPC (which breaks after model generation) and uses
+        // fetch() which always works in any webview state.
         let wrapper = format!(
             r#"(async () => {{
+                let __val;
                 try {{
-                    const __result = await (async () => {{ return {js} }})();
-                    const ipc = window.__TAURI_INTERNALS__?.invoke || window.__TAURI__?.core?.invoke;
-                    if (ipc) ipc('__mcp_result', {{ id: {id}, value: JSON.stringify(__result ?? null) }});
+                    __val = await (async () => {{ return {js} }})();
+                    __val = JSON.stringify(__val ?? null);
                 }} catch (e) {{
-                    const ipc = window.__TAURI_INTERNALS__?.invoke || window.__TAURI__?.core?.invoke;
-                    if (ipc) ipc('__mcp_result', {{ id: {id}, value: JSON.stringify({{ __error: e.message }}) }});
+                    __val = JSON.stringify({{ __error: e.message }});
                 }}
-            }})()"#
+                try {{
+                    await fetch('http://127.0.0.1:{port}/bridge/eval-result', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{ id: {id}, value: __val }}),
+                    }});
+                }} catch (_) {{}}
+            }})()"#,
+            port = DEFAULT_PORT,
         );
 
         webview.eval(&wrapper).map_err(|e| format!("eval failed: {e}"))?;
@@ -544,9 +553,28 @@ pub async fn start(app: AppHandle, port: u16) {
             .unwrap()
     }
 
+    // Eval result handler — receives JS eval results via fetch from the webview
+    async fn bridge_eval_result(
+        State(app): State<AppHandle>,
+        body: Bytes,
+    ) -> axum::http::StatusCode {
+        if let Ok(data) = serde_json::from_slice::<serde_json::Value>(&body) {
+            let id = data.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
+            let value = data.get("value").and_then(|v| v.as_str()).unwrap_or("null").to_string();
+            if let Some(pending) = app.try_state::<McpPendingResults>() {
+                let mut map = pending.lock().await;
+                if let Some(tx) = map.remove(&id) {
+                    let _ = tx.send(value);
+                }
+            }
+        }
+        axum::http::StatusCode::OK
+    }
+
     let router = axum::Router::new()
         .route("/bridge/browser/navigate", post(bridge_browser_navigate))
         .route("/bridge/browser/close", post(bridge_browser_close))
+        .route("/bridge/eval-result", post(bridge_eval_result))
         .route("/.well-known/oauth-authorization-server", axum::routing::get(oauth_not_found))
         .with_state(app.clone())
         .nest_service("/mcp", service);
