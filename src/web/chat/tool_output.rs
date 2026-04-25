@@ -514,15 +514,19 @@ pub fn maybe_truncate_tool_output(output: &str, tool_name: &str, conversation_id
     );
 
     let one_liner = tool_use_one_liner(tool_name, "", output, 0);
-    let head = TOOL_OUTPUT_TRUNCATION_THRESHOLD * 3 / 4; // 6000 chars from start
-    let tail = TOOL_OUTPUT_TRUNCATION_THRESHOLD / 4;     // 2000 chars from end (errors often at end)
+    let mut head = (TOOL_OUTPUT_TRUNCATION_THRESHOLD * 3 / 4).min(output.len()); // ~6000 chars from start
+    let mut tail_start = output.len().saturating_sub(TOOL_OUTPUT_TRUNCATION_THRESHOLD / 4); // ~2000 chars from end
+    // Ensure we slice on char boundaries
+    while head > 0 && !output.is_char_boundary(head) { head -= 1; }
+    while tail_start < output.len() && !output.is_char_boundary(tail_start) { tail_start += 1; }
+    let truncated = output.len().saturating_sub(head).saturating_sub(output.len() - tail_start);
     format!(
         "{}\n{}\n\n[...{} chars truncated — {} total. Key info may be at the end.]\n\n{}",
         one_liner,
-        &output[..head.min(output.len())],
-        output.len() - head - tail,
+        &output[..head],
+        truncated,
         output.len(),
-        &output[output.len().saturating_sub(tail)..]
+        &output[tail_start..]
     )
 }
 

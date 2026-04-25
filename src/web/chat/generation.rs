@@ -728,6 +728,10 @@ pub async fn generate_llama_response(
     // If the model stopped naturally (EOS) but was in an agentic task (tool calls made),
     // do a quick Y/N check to see if the task is actually complete.
     // This catches cases where the model emits EOS mid-task.
+    log_event(&conversation_id, "task_check", &format!(
+        "finish_reason={}, tool_response_tokens={}, commands={}",
+        gen.finish_reason, gen.tool_response_tokens, gen.recent_commands.len()
+    ));
     eprintln!("[TASK_CHECK] finish_reason={}, tool_response_tokens={}, recent_commands={}", gen.finish_reason, gen.tool_response_tokens, gen.recent_commands.len());
     if gen.finish_reason == "stop" && gen.tool_response_tokens > 0 {
         // Include the user's request + last ~800 chars of response for context.
@@ -749,8 +753,10 @@ pub async fn generate_llama_response(
         );
         if !is_complete {
             eprintln!("[TASK_CHECK] Y/N check said NO → setting finish_reason=yn_continue for auto-continue");
-            log_event(&conversation_id, "yn_check", "Task incomplete → auto-continue");
+            log_event(&conversation_id, "yn_check", "NO → auto-continue");
             gen.finish_reason = "yn_continue".to_string();
+        } else {
+            log_event(&conversation_id, "yn_check", "YES → task complete");
         }
     }
 
