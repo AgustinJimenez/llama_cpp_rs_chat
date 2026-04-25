@@ -125,7 +125,7 @@ crossbeam-channel = "0.5"
 rmcp = { version = "1.1", default-features = false, features = ["client", "server", "transport-child-process", "transport-io", "transport-streamable-http-server", "transport-streamable-http-client-reqwest"] }
 
 # HTTP framework for MCP HTTP/SSE transport (avoids stdio pipe stalling)
-axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "query"] }
 tokio-util = "0.7"
 
 # HTTP client for web fetching (ureq: lightweight, blocking, rustls for TLS)
@@ -193,6 +193,9 @@ windows = { version = "0.62", features = [
     "Media_Ocr", "Graphics_Imaging", "Foundation", "Storage_Streams", "Globalization",
     "Win32_Foundation", "Win32_UI_Accessibility", "Win32_System_Com",
 ] }
+# WebView2 COM bindings — direct access to ICoreWebView2::ExecuteScript with callback
+# (Tauri only exposes fire-and-forget eval, this lets us get JS return values)
+webview2-com = "0.38"
 
 # System monitoring (optional - requires rebuild)
 # sysinfo = "0.30"

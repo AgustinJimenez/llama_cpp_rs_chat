@@ -202,42 +202,83 @@ impl TauriHttpSession {
             .replace("&nbsp;", " ")
     }
 
-    /// Fetch page via curl (fast, reliable) with 15s timeout.
+    /// Fetch page HTML via the Tauri webview (reads from real browser, bypasses bot detection).
+    /// Falls back to curl if the webview eval endpoint isn't available.
     pub fn do_fetch(&self) -> Result<String, String> {
         eprintln!("[BROWSER_HTTP] do_fetch START: {}", self.current_url);
         let start = std::time::Instant::now();
+
+        // Wait for page to load in the webview (navigated by caller)
+        std::thread::sleep(std::time::Duration::from_millis(2000));
+
+        // Read the page HTML from the browser panel webview via eval REST endpoint
+        // Timeout is short — if eval fails, we fall back to curl quickly
+        let eval_result = ureq::AgentBuilder::new()
+            .timeout(std::time::Duration::from_secs(12))
+            .build()
+            .post(&format!("{TAURI_UI_BRIDGE_BASE}/api/eval"))
+            .set("Content-Type", "application/json")
+            .send_string(&serde_json::json!({
+                "js": "document.documentElement.outerHTML",
+                "target": "browser-panel"
+            }).to_string());
+
+        let body = match eval_result {
+            Ok(resp) => resp.into_string().unwrap_or_default(),
+            Err(e) => {
+                eprintln!("[BROWSER_HTTP] webview eval HTTP error: {e}, falling back to curl");
+                return Self::curl_fetch(&self.current_url);
+            }
+        };
+
+        // Check for eval failures (timeout, panel not open, etc.)
+        if body.contains("timed out") || body.contains("not open") || body.contains("not found") || body.contains("eval failed") {
+            eprintln!("[BROWSER_HTTP] webview eval returned error: {body}, falling back to curl");
+            return Self::curl_fetch(&self.current_url);
+        }
+
+        // Unwrap the JSON string wrapper from eval result
+        let html = if body.starts_with('"') && body.ends_with('"') {
+            serde_json::from_str::<String>(&body).unwrap_or(body)
+        } else {
+            body
+        };
+
+        // Sanity check: result should look like HTML (not a short error message)
+        if html.len() < 50 && !html.contains('<') {
+            eprintln!("[BROWSER_HTTP] webview eval returned non-HTML: {html}, falling back to curl");
+            return Self::curl_fetch(&self.current_url);
+        }
+
+        eprintln!("[BROWSER_HTTP] webview eval OK: {}bytes ({}ms)",
+            html.len(), start.elapsed().as_millis());
+        let max = 500_000;
+        if html.len() > max {
+            Ok(html[..max].to_string())
+        } else {
+            Ok(html)
+        }
+    }
+
+    /// Fallback: fetch via curl (for web mode where Tauri webview isn't available).
+    fn curl_fetch(url: &str) -> Result<String, String> {
         let mut cmd = std::process::Command::new("curl");
-        cmd.args([
-                "-sL",
-                "--max-time", "15",
+        cmd.args(["-sL", "--max-time", "15",
                 "-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                &self.current_url,
-            ])
+                url])
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null());
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+            cmd.creation_flags(0x08000000);
         }
-        let output = cmd.output()
-            .map_err(|e| {
-                eprintln!("[BROWSER_HTTP] curl spawn FAILED: {e} (after {}ms)", start.elapsed().as_millis());
-                format!("curl failed: {e}")
-            })?;
-        eprintln!("[BROWSER_HTTP] curl finished: status={} body={}bytes ({}ms)",
-            output.status, output.stdout.len(), start.elapsed().as_millis());
+        let output = cmd.output().map_err(|e| format!("curl failed: {e}"))?;
         if !output.status.success() {
-            return Err(format!("curl returned status {}", output.status));
+            return Err(format!("curl status {}", output.status));
         }
-        let body = String::from_utf8_lossy(&output.stdout);
-        let max = 500_000;
-        if body.len() > max {
-            Ok(body[..max].to_string())
-        } else {
-            Ok(body.to_string())
-        }
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 
     /// Get text — from cache (instant) or fetch.
@@ -290,16 +331,57 @@ impl BrowserSession for TauriHttpSession {
         Ok(())
     }
 
-    fn click(&self, _selector: &str) -> Result<(), String> {
-        Err("Click not supported in Tauri HTTP mode. Use Camofox for interactive browsing.".into())
+    fn click(&self, selector: &str) -> Result<(), String> {
+        let js = format!(
+            r#"(() => {{
+                const el = document.querySelector({sel});
+                if (!el) return 'Element not found: ' + {sel};
+                el.click();
+                return 'clicked';
+            }})()"#,
+            sel = serde_json::to_string(selector).unwrap_or_default()
+        );
+        match eval_in_browser_panel(&js) {
+            Ok(r) if r.contains("not found") => Err(r),
+            Ok(_) => Ok(()),
+            Err(e) => Err(format!("click failed: {e}")),
+        }
     }
 
-    fn type_text(&self, _selector: &str, _text: &str, _press_enter: bool) -> Result<(), String> {
-        Err("Type not supported in Tauri HTTP mode. Use Camofox for interactive browsing.".into())
+    fn type_text(&self, selector: &str, text: &str, press_enter: bool) -> Result<(), String> {
+        let enter_js = if press_enter {
+            r#"el.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',keyCode:13,bubbles:true}));"#
+        } else {
+            ""
+        };
+        let js = format!(
+            r#"(() => {{
+                const el = document.querySelector({sel});
+                if (!el) return 'Element not found: ' + {sel};
+                el.focus();
+                el.value = {val};
+                el.dispatchEvent(new Event('input', {{bubbles:true}}));
+                el.dispatchEvent(new Event('change', {{bubbles:true}}));
+                {enter}
+                return 'typed';
+            }})()"#,
+            sel = serde_json::to_string(selector).unwrap_or_default(),
+            val = serde_json::to_string(text).unwrap_or_default(),
+            enter = enter_js
+        );
+        match eval_in_browser_panel(&js) {
+            Ok(r) if r.contains("not found") => Err(r),
+            Ok(_) => Ok(()),
+            Err(e) => Err(format!("type failed: {e}")),
+        }
     }
 
-    fn eval(&self, _js: &str) -> Result<Value, String> {
-        Err("JS eval not supported in Tauri HTTP mode.".into())
+    fn eval(&self, js: &str) -> Result<Value, String> {
+        let result = eval_in_browser_panel(js)?;
+        // Parse as JSON; if it fails, return as a plain string (not an error).
+        // eval_in_browser_panel double-unwraps JSON encoding, so string results
+        // arrive as plain text which isn't valid JSON — that's fine.
+        Ok(serde_json::from_str(&result).unwrap_or(Value::String(result)))
     }
 
     fn html(&self) -> Result<String, String> {
@@ -310,17 +392,55 @@ impl BrowserSession for TauriHttpSession {
         Err("Screenshot not supported in Tauri HTTP mode.".into())
     }
 
-    fn wait_for(&self, _selector: &str, _timeout_ms: u64) -> Result<bool, String> {
-        // Can't wait for DOM elements via HTTP — just return true
-        Ok(true)
+    fn wait_for(&self, selector: &str, timeout_ms: u64) -> Result<bool, String> {
+        let js = format!(
+            r#"!!document.querySelector({sel})"#,
+            sel = serde_json::to_string(selector).unwrap_or_default()
+        );
+        let max_polls = (timeout_ms / 500).max(1);
+        for _ in 0..max_polls {
+            if let Ok(r) = eval_in_browser_panel(&js) {
+                if r.contains("true") { return Ok(true); }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        Ok(false)
     }
 
-    fn press_key(&self, _key: &str) -> Result<(), String> {
-        Err("Press key not supported in Tauri HTTP mode.".into())
+    fn press_key(&self, key: &str) -> Result<(), String> {
+        let js = format!(
+            r#"(() => {{
+                const el = document.activeElement || document.body;
+                el.dispatchEvent(new KeyboardEvent('keydown', {{key:{k}, bubbles:true}}));
+                el.dispatchEvent(new KeyboardEvent('keyup', {{key:{k}, bubbles:true}}));
+                return 'pressed';
+            }})()"#,
+            k = serde_json::to_string(key).unwrap_or_default()
+        );
+        eval_in_browser_panel(&js).map(|_| ())
     }
 
     fn snapshot(&self) -> Result<String, String> {
-        self.get_text(20_000)
+        // Use cached text if available (populated by navigate/do_fetch)
+        if let Some(ref text) = self.cached_text {
+            if text.len() > 50 {
+                return self.get_text(20_000);
+            }
+        }
+        // No cache — read directly from webview (after click navigation, etc.)
+        match eval_in_browser_panel("document.body.innerText") {
+            Ok(text) if text.len() > 50 => {
+                let max = 20_000;
+                if text.len() > max {
+                    let mut end = max;
+                    while end > 0 && !text.is_char_boundary(end) { end -= 1; }
+                    Ok(format!("{}...\n[Truncated]", &text[..end]))
+                } else {
+                    Ok(text)
+                }
+            }
+            _ => self.get_text(20_000),
+        }
     }
 
     fn close(&mut self) -> Result<(), String> {
@@ -341,6 +461,12 @@ use std::sync::Mutex;
 static ACTIVE_URL: Mutex<Option<String>> = Mutex::new(None);
 static CACHED_HTML: Mutex<Option<String>> = Mutex::new(None);
 static CACHED_TEXT: Mutex<Option<String>> = Mutex::new(None);
+
+/// Clear cached HTML/text (e.g. after a click that may navigate).
+pub fn clear_cache() {
+    if let Ok(mut g) = CACHED_HTML.lock() { *g = None; }
+    if let Ok(mut g) = CACHED_TEXT.lock() { *g = None; }
+}
 
 /// Get or create the active session.
 pub fn current_session() -> Result<TauriHttpSession, String> {
@@ -380,6 +506,41 @@ pub fn open_session(url: &str) -> Result<TauriHttpSession, String> {
     }
     eprintln!("[BROWSER_HTTP] open_session COMPLETE: {full_url}");
     Ok(session)
+}
+
+/// Execute JavaScript in the browser-panel webview via the MCP bridge REST endpoint.
+fn eval_in_browser_panel(js: &str) -> Result<String, String> {
+    // Retry up to 3 times — COM callback can fail during heavy generation
+    for attempt in 0..3 {
+        let resp = ureq::AgentBuilder::new()
+            .timeout(std::time::Duration::from_secs(15))
+            .build()
+            .post(&format!("{TAURI_UI_BRIDGE_BASE}/api/eval"))
+            .set("Content-Type", "application/json")
+            .send_string(&serde_json::json!({
+                "js": js,
+                "target": "browser-panel"
+            }).to_string())
+            .map_err(|e| format!("eval bridge failed: {e}"))?;
+        let body = resp.into_string().unwrap_or_default();
+
+        // Retry on COM channel failures (webview busy during generation)
+        if body.contains("Result channel closed") || body.contains("eval timed out") {
+            if attempt < 2 {
+                eprintln!("[BROWSER_EVAL] attempt {}: {}, retrying...", attempt + 1, body.trim());
+                std::thread::sleep(std::time::Duration::from_millis(1000));
+                continue;
+            }
+            return Err(body);
+        }
+
+        // Unwrap JSON string wrapper
+        if body.starts_with('"') && body.ends_with('"') {
+            return Ok(serde_json::from_str::<String>(&body).unwrap_or(body));
+        }
+        return Ok(body);
+    }
+    Err("eval_in_browser_panel: all retries failed".into())
 }
 
 /// Best-effort: ask the Tauri app process to open/navigate the visible native browser panel.

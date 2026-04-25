@@ -999,8 +999,7 @@ pub(crate) fn tool_take_screenshot_with_image(args: &Value) -> NativeToolResult 
 /// Tauri WebView later). Tool name comes in stripped of the prefix.
 fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
     use super::browser::session::{
-        current_session, notify_tauri_browser_close, notify_tauri_browser_navigate, open_session,
-        BrowserSession,
+        current_session, notify_tauri_browser_close, open_session, BrowserSession,
     };
 
     // navigate: reuse existing session if any, else open a fresh one
@@ -1015,9 +1014,6 @@ fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
             format!("https://{url}")
         };
         eprintln!("[BROWSER_TOOL] navigate: {full_url}");
-        eprintln!("[BROWSER_TOOL] notify_tauri_browser_navigate...");
-        let _ = notify_tauri_browser_navigate(&full_url);
-        eprintln!("[BROWSER_TOOL] notify done, checking current_session...");
         return match current_session() {
             Ok(mut s) => {
                 eprintln!("[BROWSER_TOOL] existing session, calling navigate...");
@@ -1041,7 +1037,7 @@ fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
                     Ok(s) => {
                         eprintln!("[BROWSER_TOOL] open_session OK");
                         NativeToolResult::text_only(format!(
-                            "Navigated to {}. Browser view opened — the user can see the page.",
+                            "Navigated to {}.",
                             s.url()
                         ))
                     }
@@ -1067,7 +1063,11 @@ fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
                 return NativeToolResult::text_only("Error: 'selector' is required".into());
             }
             match session.click(sel) {
-                Ok(()) => NativeToolResult::text_only(format!("Clicked '{sel}'")),
+                Ok(()) => {
+                    // Click may navigate — clear caches so next get_text reads fresh
+                    super::browser::session::clear_cache();
+                    NativeToolResult::text_only(format!("Clicked '{sel}'"))
+                }
                 Err(e) => NativeToolResult::text_only(format!("click failed: {e}")),
             }
         }
@@ -1094,6 +1094,7 @@ fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
                 return NativeToolResult::text_only("Error: 'js' is required".into());
             }
             match session.eval(js) {
+                Ok(Value::String(s)) => NativeToolResult::text_only(s),
                 Ok(v) => NativeToolResult::text_only(v.to_string()),
                 Err(e) => NativeToolResult::text_only(format!("eval failed: {e}")),
             }

@@ -1,11 +1,11 @@
 
 use llama_cpp_2::{
-    context::LlamaContext,
     llama_batch::LlamaBatch,
     model::AddBos,
     sampling::LlamaSampler,
-    token::LlamaToken,
 };
+#[cfg(feature = "vision")]
+use llama_cpp_2::{context::LlamaContext, token::LlamaToken};
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -25,7 +25,9 @@ use crate::web::event_log::log_event;
 pub(super) use super::context_eval::create_fresh_context;
 pub use super::prompt_builder::warmup_system_prompt;
 
-use super::context_eval::{build_context_params, evaluate_text_prompt, CONTEXT_SIZE, MODEL_PATH};
+use super::context_eval::{evaluate_text_prompt, CONTEXT_SIZE, MODEL_PATH};
+#[cfg(feature = "vision")]
+use super::context_eval::build_context_params;
 use super::prompt_builder::{resolve_tool_tags, snapshot_context_overhead};
 #[cfg(feature = "vision")]
 use super::prompt_builder::inject_media_markers;
@@ -73,8 +75,14 @@ fn quick_task_completion_check(
     use crate::web::models::SamplerConfig;
 
     let prompt_text = format!(
-        "Here is the end of an AI assistant's response that used tool calls:\n\n{}\n\nDid the assistant FINISH the task completely, or did it stop mid-way (e.g., said 'Let me...' or 'Now I will...' but didn't do it)? Answer YES if complete, NO if incomplete.",
-        response_tail
+        "{response_tail}\n\n\
+         ---\n\
+         Is the ENTIRE user request fulfilled? Rules:\n\
+         - If the user asked for multiple items (e.g., 'top 5', 'each article') and only some were done → NO\n\
+         - If the response ends with tool output but no final summary/answer to the user → NO\n\
+         - If the assistant said 'Now let me...' or 'Starting with...' → NO\n\
+         - Only answer YES if the task is 100% complete with a final answer.\n\
+         Answer YES or NO."
     );
 
     let formatted = if let Some(template_str) = chat_template_string {
@@ -722,15 +730,22 @@ pub async fn generate_llama_response(
     // This catches cases where the model emits EOS mid-task.
     eprintln!("[TASK_CHECK] finish_reason={}, tool_response_tokens={}, recent_commands={}", gen.finish_reason, gen.tool_response_tokens, gen.recent_commands.len());
     if gen.finish_reason == "stop" && gen.tool_response_tokens > 0 {
-        // Pass the last ~500 chars of the response for context
-        let response_tail = if gen.response.len() > 500 {
-            &gen.response[gen.response.len() - 500..]
+        // Include the user's request + last ~800 chars of response for context.
+        // More context helps the checker see partial task completion.
+        let user_prefix = if user_message.len() > 300 {
+            format!("{}...", &user_message[..300])
+        } else {
+            user_message.to_string()
+        };
+        let response_tail = if gen.response.len() > 800 {
+            &gen.response[gen.response.len() - 800..]
         } else {
             &gen.response
         };
+        let check_text = format!("USER REQUEST: {user_prefix}\n\nASSISTANT RESPONSE TAIL:\n{response_tail}");
         let is_complete = quick_task_completion_check(
             model, &state.backend, state.chat_template_string.as_deref(), &conversation_id,
-            response_tail,
+            &check_text,
         );
         if !is_complete {
             eprintln!("[TASK_CHECK] Y/N check said NO → setting finish_reason=yn_continue for auto-continue");

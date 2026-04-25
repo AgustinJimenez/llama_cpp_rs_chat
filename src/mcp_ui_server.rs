@@ -6,9 +6,7 @@
 //!
 //! Starts on http://localhost:18091/mcp (HTTP/SSE transport).
 
-use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use axum::{body::Bytes, extract::State, routing::post};
 use rmcp::{
@@ -22,7 +20,7 @@ use rmcp::{
 };
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager};
-use tokio::sync::{Mutex, oneshot};
+use tokio::sync::oneshot;
 
 use crate::web::worker::worker_bridge::SharedWorkerBridge;
 
@@ -31,12 +29,6 @@ const DEFAULT_PORT: u16 = 18091;
 
 /// Timeout for JS eval results (ms).
 const EVAL_TIMEOUT_MS: u64 = 10_000;
-
-/// Pending JS evaluation results — shared between MCP server and __mcp_result command.
-pub type McpPendingResults = Arc<Mutex<HashMap<u64, oneshot::Sender<String>>>>;
-
-/// Counter for unique eval request IDs.
-static EVAL_ID: AtomicU64 = AtomicU64::new(1);
 
 // ─── Server struct ────────────────────────────────────────────────
 
@@ -53,75 +45,184 @@ impl AppUiServer {
         }
     }
 
-    /// Execute JavaScript in the main webview and return the result string.
-    /// Uses the __mcp_result IPC callback pattern since eval() is fire-and-forget.
-    async fn eval_js(&self, js: &str) -> Result<String, String> {
-        let webview = self.app
-            .get_webview_window("main")
-            .ok_or("Main webview not found")?;
+    /// Execute JavaScript in a webview and return the result.
+    ///
+    /// Uses WebView2's `ExecuteScript` COM API directly (via `with_webview`),
+    /// which returns JS eval results through a COM callback — bypasses CSP,
+    /// CORS, and mixed-content restrictions that plagued the old HTTP callback approach.
+    async fn eval_js_in(&self, js: &str, target: &str) -> Result<String, String> {
+        let (tx, rx) = oneshot::channel::<String>();
 
-        let pending: McpPendingResults = self.app
-            .try_state::<McpPendingResults>()
-            .ok_or("McpPendingResults state not registered")?
-            .inner()
-            .clone();
-
-        let id = EVAL_ID.fetch_add(1, Ordering::Relaxed);
-        let (tx, rx) = oneshot::channel();
-
-        // Register pending result
+        // Wrap user JS to always return a JSON string.
+        // IMPORTANT: Must be synchronous — WebView2 ExecuteScript does NOT
+        // await Promises (returns `{}` for Promise objects).
+        //
+        // Handles 4 cases:
+        // 1. Arrow function `() => {...}` → call it as IIFE
+        // 2. Multi-statement with `return` → wrap in IIFE
+        // 3. Multi-statement (const/let/var) → wrap in IIFE, return last expression
+        // 4. Simple expression → use directly
+        let trimmed = js.trim().trim_end_matches(';').trim();
+        let is_multistatement = trimmed.starts_with("const ")
+            || trimmed.starts_with("let ")
+            || trimmed.starts_with("var ")
+            || trimmed.contains(";\n")
+            || trimmed.contains("; ");
+        let is_iife = trimmed.starts_with('(')
+            && (trimmed.ends_with(")()")  || trimmed.ends_with(")()\n"));
+        let eval_expr = if trimmed.starts_with("() =>")
+            || trimmed.starts_with("function(")
+            || trimmed.starts_with("function (")
         {
-            let mut map = pending.lock().await;
-            map.insert(id, tx);
-        }
-
-        // Inject JS that evaluates the code and POSTs the result back via HTTP.
-        // This bypasses Tauri IPC (which breaks after model generation) and uses
-        // fetch() which always works in any webview state.
-        let wrapper = format!(
-            r#"(async () => {{
-                let __val;
+            // Case 1: function definition — call it
+            format!("({trimmed})()")
+        } else if is_iife {
+            // Case 1b: already an IIFE — use directly
+            trimmed.to_string()
+        } else if js.contains("return ") {
+            // Case 2: has explicit return — wrap in IIFE
+            format!("(function() {{ {js} }})()")
+        } else if is_multistatement {
+            // Case 3: multi-statement without return — wrap in IIFE.
+            // Split on last `;`, add `return` before the final expression.
+            // e.g. "const x = 1; x" → "(function() { const x = 1; return x; })()"
+            let parts: Vec<&str> = trimmed.rsplitn(2, ';').collect();
+            if parts.len() == 2 {
+                let last_expr = parts[0].trim();
+                let prefix = parts[1];
+                if last_expr.is_empty() {
+                    format!("(function() {{ {prefix}; }})()")
+                } else {
+                    format!("(function() {{ {prefix}; return ({last_expr}); }})()")
+                }
+            } else {
+                format!("(function() {{ return ({trimmed}); }})()")
+            }
+        } else {
+            // Case 4: simple expression
+            js.to_string()
+        };
+        let wrapped_js = format!(
+            r#"(function() {{
                 try {{
-                    __val = await (async () => {{ return {js} }})();
-                    __val = JSON.stringify(__val ?? null);
+                    var __val = {eval_expr};
+                    return JSON.stringify(__val ?? null);
                 }} catch (e) {{
-                    __val = JSON.stringify({{ __error: e.message }});
+                    return JSON.stringify({{ __error: e.message }});
                 }}
-                try {{
-                    await fetch('http://127.0.0.1:{port}/bridge/eval-result', {{
-                        method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{ id: {id}, value: __val }}),
-                    }});
-                }} catch (_) {{}}
             }})()"#,
-            port = DEFAULT_PORT,
         );
 
-        webview.eval(&wrapper).map_err(|e| format!("eval failed: {e}"))?;
+        // Find the target webview
+        let webviews = self.app.webviews();
+        let webview = if target == "browser-panel" {
+            webviews.get(target)
+                .ok_or("Browser panel not open. Use browser_navigate first.")?
+                .clone()
+        } else if let Some(wv) = self.app.get_webview_window("main") {
+            wv.as_ref().clone()
+        } else if let Some(wv) = webviews.values().next() {
+            wv.clone()
+        } else {
+            return Err("No webview available".into());
+        };
 
-        // Wait for result with timeout
+        // Use WebView2 ExecuteScript directly — returns result via COM callback.
+        // Bypasses CSP/CORS since results come through the COM API, not HTTP.
+        //
+        // We call ExecuteScript through the raw COM vtable because webview2-com
+        // depends on windows-core 0.61 while we depend on windows 0.62, making
+        // the PCWSTR types incompatible at Rust's type level (same ABI though).
+        #[cfg(windows)]
+        {
+            let js_for_closure = wrapped_js.clone();
+            webview.with_webview(move |platform_wv| {
+                let controller = platform_wv.controller();
+                let core_wv = unsafe { controller.CoreWebView2() };
+
+                match core_wv {
+                    Ok(core) => {
+                        let handler = webview2_com::ExecuteScriptCompletedHandler::create(
+                            Box::new(move |_hr, result| {
+                                let _ = tx.send(result);
+                                Ok(())
+                            }),
+                        );
+                        // Encode JS as null-terminated UTF-16
+                        let wide: Vec<u16> = js_for_closure
+                            .encode_utf16()
+                            .chain(std::iter::once(0))
+                            .collect();
+                        // Call ExecuteScript via raw COM vtable to avoid
+                        // PCWSTR version conflicts between windows 0.61/0.62.
+                        // Vtable layout: IUnknown(3) + ICoreWebView2 methods.
+                        // Index 29 = ExecuteScript (verified from ICoreWebView2_Vtbl).
+                        unsafe {
+                            let this: *mut std::ffi::c_void = std::mem::transmute_copy(&core);
+                            let vtable = *(this as *const *const usize);
+                            type ExecuteScriptFn = unsafe extern "system" fn(
+                                this: *mut std::ffi::c_void,
+                                js: *const u16,
+                                handler: *mut std::ffi::c_void,
+                            ) -> i32;
+                            let func: ExecuteScriptFn =
+                                std::mem::transmute(*vtable.add(29));
+                            let handler_ptr: *mut std::ffi::c_void =
+                                std::mem::transmute_copy(&handler);
+                            func(this, wide.as_ptr(), handler_ptr);
+                        }
+                    }
+                    Err(e) => {
+                        let _ = tx.send(format!(
+                            r#"{{"__error":"CoreWebView2 unavailable: {e}"}}"#
+                        ));
+                    }
+                }
+            }).map_err(|e| format!("with_webview failed: {e}"))?;
+        }
+
+        // Non-Windows: fall back to old eval (fire-and-forget, won't return values)
+        #[cfg(not(windows))]
+        {
+            webview.eval(&wrapped_js).map_err(|e| format!("eval failed: {e}"))?;
+            let _ = tx.send(r#""eval sent (no return value on this platform)""#.to_string());
+        }
+
+        // Wait for the result with timeout
         match tokio::time::timeout(
             std::time::Duration::from_millis(EVAL_TIMEOUT_MS),
             rx,
         ).await {
             Ok(Ok(value)) => {
-                // Check for error
-                if let Ok(parsed) = serde_json::from_str::<Value>(&value) {
+                // WebView2 returns JSON-encoded strings (extra quotes), unwrap them
+                let cleaned = if value.starts_with('"') && value.ends_with('"') {
+                    // Parse the outer JSON string encoding added by WebView2
+                    serde_json::from_str::<String>(&value).unwrap_or(value)
+                } else {
+                    value
+                };
+                // Check for JS errors
+                if let Ok(parsed) = serde_json::from_str::<Value>(&cleaned) {
                     if let Some(err) = parsed.get("__error").and_then(|e| e.as_str()) {
                         return Err(format!("JS error: {err}"));
                     }
                 }
-                Ok(value)
+                Ok(cleaned)
             }
             Ok(Err(_)) => Err("Result channel closed".into()),
-            Err(_) => {
-                // Clean up pending entry
-                let mut map = pending.lock().await;
-                map.remove(&id);
-                Err("JS eval timed out (10s)".into())
-            }
+            Err(_) => Err(format!("JS eval timed out ({EVAL_TIMEOUT_MS}ms)")),
         }
+    }
+
+    /// Execute JavaScript in the main webview.
+    async fn eval_js(&self, js: &str) -> Result<String, String> {
+        self.eval_js_in(js, "main").await
+    }
+
+    /// Execute JavaScript in the browser panel webview.
+    #[allow(dead_code)]
+    async fn eval_browser_panel(&self, js: &str) -> Result<String, String> {
+        self.eval_js_in(js, "browser-panel").await
     }
 }
 
@@ -161,9 +262,34 @@ async fn bridge_browser_navigate(
     let url = body.get("url")
         .and_then(|v| v.as_str())
         .ok_or(axum::http::StatusCode::BAD_REQUEST)?;
-    open_browser_view_js(&app, url)
-        .await
-        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)
+
+    // Create/navigate the hidden Tauri child webview (for JS eval access).
+    // Does NOT touch the React browser UI — agent works silently.
+    let parsed = url.parse::<tauri::Url>()
+        .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
+    let webview_count = app.webviews().len();
+    eprintln!("[MCP_BROWSER] navigate to {url}, webviews: {webview_count}");
+    if let Some(existing) = app.webviews().get("browser-panel").cloned() {
+        eprintln!("[MCP_BROWSER] reusing existing browser-panel webview");
+        let _ = existing.navigate(parsed);
+    } else if let Some(window) = app.get_window("main") {
+        let builder = tauri::webview::WebviewBuilder::new(
+            "browser-panel",
+            tauri::WebviewUrl::External(parsed),
+        );
+        // Hidden child webview — zero height so it's invisible, but
+        // still functional for COM ExecuteScript calls.
+        match window.add_child(
+            builder,
+            tauri::LogicalPosition::new(0.0, 0.0),
+            tauri::LogicalSize::new(800.0, 0.0),
+        ) {
+            Ok(wv) => eprintln!("[MCP_BROWSER] created child webview: {:?}", wv.label()),
+            Err(e) => eprintln!("[MCP_BROWSER] add_child FAILED: {e}"),
+        }
+    }
+
+    Ok(format!("Browser view opened: {url}"))
 }
 
 async fn bridge_browser_close(
@@ -553,42 +679,6 @@ pub async fn start(app: AppHandle, port: u16) {
             .unwrap()
     }
 
-    // Eval result handler — receives JS eval results via fetch from the webview.
-    // Must include CORS headers since the webview origin differs from the MCP server.
-    async fn bridge_eval_result(
-        State(app): State<AppHandle>,
-        body: Bytes,
-    ) -> axum::response::Response {
-        if let Ok(data) = serde_json::from_slice::<serde_json::Value>(&body) {
-            let id = data.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
-            let value = data.get("value").and_then(|v| v.as_str()).unwrap_or("null").to_string();
-            if let Some(pending) = app.try_state::<McpPendingResults>() {
-                let mut map = pending.lock().await;
-                if let Some(tx) = map.remove(&id) {
-                    let _ = tx.send(value);
-                }
-            }
-        }
-        axum::response::Response::builder()
-            .status(200)
-            .header("access-control-allow-origin", "*")
-            .header("access-control-allow-methods", "POST, OPTIONS")
-            .header("access-control-allow-headers", "content-type")
-            .body(axum::body::Body::from("ok"))
-            .unwrap()
-    }
-
-    // CORS preflight for eval-result
-    async fn bridge_eval_result_options() -> axum::response::Response {
-        axum::response::Response::builder()
-            .status(204)
-            .header("access-control-allow-origin", "*")
-            .header("access-control-allow-methods", "POST, OPTIONS")
-            .header("access-control-allow-headers", "content-type")
-            .body(axum::body::Body::empty())
-            .unwrap()
-    }
-
     // ─── Plain REST API (bypasses MCP protocol, fast) ───
     async fn rest_get_state(State(app): State<AppHandle>) -> axum::response::Response {
         let bridge: SharedWorkerBridge = app.state::<SharedWorkerBridge>().inner().clone();
@@ -632,12 +722,12 @@ pub async fn start(app: AppHandle, port: u16) {
     }
 
     async fn rest_eval(State(app): State<AppHandle>, body: Bytes) -> axum::response::Response {
-        let js = serde_json::from_slice::<serde_json::Value>(&body)
-            .ok()
-            .and_then(|v| v.get("js").and_then(|j| j.as_str()).map(|s| s.to_string()));
+        let data = serde_json::from_slice::<serde_json::Value>(&body).ok();
+        let js = data.as_ref().and_then(|v| v.get("js").and_then(|j| j.as_str()).map(|s| s.to_string()));
+        let target = data.as_ref().and_then(|v| v.get("target").and_then(|t| t.as_str())).unwrap_or("main");
         let server = AppUiServer::new(app);
         let result = match js {
-            Some(code) => server.eval_js(&code).await.unwrap_or_else(|e| e),
+            Some(code) => server.eval_js_in(&code, target).await.unwrap_or_else(|e| e),
             None => "\"js required\"".into(),
         };
         axum::response::Response::builder()
@@ -669,7 +759,6 @@ pub async fn start(app: AppHandle, port: u16) {
         // Bridge endpoints
         .route("/bridge/browser/navigate", post(bridge_browser_navigate))
         .route("/bridge/browser/close", post(bridge_browser_close))
-        .route("/bridge/eval-result", post(bridge_eval_result).options(bridge_eval_result_options))
         .route("/.well-known/oauth-authorization-server", axum::routing::get(oauth_not_found))
         .with_state(app.clone())
         .nest_service("/mcp", service);
@@ -698,19 +787,3 @@ pub async fn start_default(app: AppHandle) {
     start(app, DEFAULT_PORT).await;
 }
 
-// ─── Tauri command for JS eval results ────────────────────────────
-
-/// Receives evaluation results from injected JavaScript.
-/// Registered as a Tauri command: `__mcp_result`.
-#[tauri::command]
-pub async fn __mcp_result(
-    id: u64,
-    value: String,
-    results: tauri::State<'_, McpPendingResults>,
-) -> Result<(), String> {
-    let mut map = results.lock().await;
-    if let Some(tx) = map.remove(&id) {
-        let _ = tx.send(value);
-    }
-    Ok(())
-}

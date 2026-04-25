@@ -863,19 +863,36 @@ async fn get_system_usage() -> Result<serde_json::Value, String> {
     }))
 }
 
+fn load_provider_api_keys_json(db: &SharedDatabase) -> Option<String> {
+    let conn = db.connection();
+    conn.query_row(
+        "SELECT provider_api_keys FROM config WHERE id = 1",
+        [],
+        |row| row.get::<_, Option<String>>(0),
+    )
+    .ok()
+    .flatten()
+}
+
 #[tauri::command]
 async fn list_providers(db: tauri::State<'_, SharedDatabase>) -> Result<serde_json::Value, String> {
-    let api_keys_json = {
-        let conn = db.connection();
-        conn.query_row(
-            "SELECT provider_api_keys FROM config WHERE id = 1",
-            [],
-            |row| row.get::<_, Option<String>>(0),
-        )
-        .ok()
-        .flatten()
-    };
+    let api_keys_json = load_provider_api_keys_json(&db);
     let providers = web::providers::list_providers_with_keys(api_keys_json.as_deref()).await;
+    Ok(serde_json::json!({ "providers": providers }))
+}
+
+#[tauri::command]
+async fn list_configured_providers(
+    db: tauri::State<'_, SharedDatabase>,
+) -> Result<serde_json::Value, String> {
+    let api_keys_json = load_provider_api_keys_json(&db);
+    let providers = web::providers::list_configured_providers_with_keys(api_keys_json.as_deref());
+    Ok(serde_json::json!({ "providers": providers }))
+}
+
+#[tauri::command]
+async fn list_cli_providers() -> Result<serde_json::Value, String> {
+    let providers = web::providers::list_cli_providers().await;
     Ok(serde_json::json!({ "providers": providers }))
 }
 
@@ -1281,11 +1298,7 @@ fn main() {
             app.manage(db);
             app.manage(bridge);
 
-            // MCP UI server — pending JS eval results + HTTP server
-            let mcp_pending: mcp_ui_server::McpPendingResults =
-                std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
-            app.manage(mcp_pending);
-
+            // MCP UI server — direct WebView2 ExecuteScript (no HTTP callbacks needed)
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 mcp_ui_server::start_default(app_handle).await;
@@ -1437,8 +1450,6 @@ fn main() {
             web_fetch,
             // System
             get_system_usage,
-            // MCP UI server JS eval callback
-            mcp_ui_server::__mcp_result,
             // Native browser panel (Tauri-only real webview)
             browser_panel_open,
             browser_panel_navigate,
@@ -1446,6 +1457,8 @@ fn main() {
             browser_panel_close,
             // Providers
             list_providers,
+            list_configured_providers,
+            list_cli_providers,
             // HuggingFace Hub
             search_hub_models,
             fetch_hub_tree,

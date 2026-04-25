@@ -455,8 +455,9 @@ pub fn tool_use_one_liner(tool_name: &str, args_hint: &str, output: &str, durati
         }
         _ => {
             let first_line = output.lines().next().unwrap_or("done");
-            if first_line.len() > 80 {
-                format!("{}...", &first_line[..77])
+            if first_line.chars().count() > 80 {
+                let truncated: String = first_line.chars().take(77).collect();
+                format!("{truncated}...")
             } else {
                 first_line.to_string()
             }
@@ -466,8 +467,9 @@ pub fn tool_use_one_liner(tool_name: &str, args_hint: &str, output: &str, durati
     let args_part = if args_hint.is_empty() {
         String::new()
     } else {
-        let hint = if args_hint.len() > 60 {
-            format!("{}...", &args_hint[..57])
+        let hint = if args_hint.chars().count() > 60 {
+            let truncated: String = args_hint.chars().take(57).collect();
+            format!("{truncated}...")
         } else {
             args_hint.to_string()
         };
@@ -550,6 +552,20 @@ pub fn maybe_summarize_tool_output(
         return maybe_truncate_tool_output(output, tool_name, conversation_id);
     }
 
+    // Tool-specific summarization instructions
+    let extra_instructions = if lower_name.contains("browser_get_links") || lower_name.contains("browser_get_html") {
+        "\nCRITICAL: Preserve ALL URLs/href values and their associated text. \
+         The user needs the actual links to navigate. Never omit or paraphrase URLs."
+    } else if lower_name.contains("browser_get_text") || lower_name.contains("web_fetch") {
+        "\nPreserve key facts, names, dates, and quotes from the page content. \
+         Keep article structure (headings, main points)."
+    } else if lower_name.contains("browser_eval") {
+        "\nPreserve the complete data structure (JSON arrays, objects). \
+         Do not paraphrase structured data — keep it verbatim if possible."
+    } else {
+        ""
+    };
+
     let system_prompt = format!(
         "Summarize this {} tool output concisely. Extract ONLY:\n\
          - Key results and status\n\
@@ -557,7 +573,7 @@ pub fn maybe_summarize_tool_output(
          - Important warnings\n\
          - Actionable information\n\n\
          Remove verbose logs, progress bars, repeated output, boilerplate.\n\
-         Keep under 500 words.",
+         Keep under 500 words.{extra_instructions}",
         tool_name
     );
 

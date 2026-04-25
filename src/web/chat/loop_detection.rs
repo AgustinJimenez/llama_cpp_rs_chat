@@ -47,6 +47,19 @@ pub(crate) fn check_loop(
         || cmd_lower.contains("sleep")
         || cmd_lower.contains("check_background_process");
 
+    // Browser read tools return different content after each navigation,
+    // so they should not be counted as loops. Navigation resets context.
+    let is_browser_read = cmd_lower.contains("browser_get_text")
+        || cmd_lower.contains("browser_get_html")
+        || cmd_lower.contains("browser_get_links")
+        || cmd_lower.contains("browser_screenshot")
+        || cmd_lower.contains("get_text")
+        || cmd_lower.contains("get_html")
+        || cmd_lower.contains("get_links");
+    if is_browser_read {
+        return Ok(LoopCheckResult::Continue(None));
+    }
+
     let repeat_count = recent_commands.iter().filter(|c| *c == &normalized_cmd).count();
 
     // Fuzzy similarity: compare middle 100 chars (skips XML wrapper, catches actual arguments)
