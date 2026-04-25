@@ -352,8 +352,17 @@ pub fn check_and_execute_command_with_tags(
 
                     let (tool_output, tool_images) = results[i].take().unwrap_or_default();
                     all_response_images.extend(tool_images);
-                    // Summarize (or truncate as fallback) individual tool output before merging
-                    let tool_output = maybe_summarize_tool_output(&tool_output, name, model, backend, chat_template_string, conversation_id);
+                    // Check if model explicitly opted out of summarization via summary=false
+                    let summary_opt_out = _args.get("summary")
+                        .and_then(|v| v.as_bool().or_else(|| v.as_str().map(|s| s != "false")))
+                        .map(|v| !v) // summary=false → opt_out=true
+                        .unwrap_or(false);
+                    // Summarize (or truncate as fallback) individual tool output
+                    let tool_output = if summary_opt_out {
+                        maybe_truncate_tool_output(&tool_output, name, conversation_id)
+                    } else {
+                        maybe_summarize_tool_output(&tool_output, name, model, backend, chat_template_string, conversation_id)
+                    };
                     log_info!(
                         conversation_id,
                         "📤 Tool {} ({}) output: {} chars",
@@ -525,7 +534,14 @@ pub fn check_and_execute_command_with_tags(
             // the model only receives the summary (injected via model_block/model_tokens).
             // Use original output length to decide summarization — the sanitized version may
             // be heavily truncated but the user still sees the full streamed output.
-            let (display_text, model_text) = if output.len() > SUMMARIZE_THRESHOLD || sanitized.len() > SUMMARIZE_THRESHOLD {
+            // Check if model opted out of summarization via summary: false
+            let summary_disabled = command_text.contains("\"summary\": false")
+                || command_text.contains("\"summary\":false")
+                || command_text.contains("\"summary\": \"false\"");
+            let (display_text, model_text) = if summary_disabled {
+                // Model wants raw output — skip summarization
+                (sanitized.clone(), sanitized)
+            } else if output.len() > SUMMARIZE_THRESHOLD || sanitized.len() > SUMMARIZE_THRESHOLD {
                 match summarize_tool_output(model, backend, &sanitized, chat_template_string, conversation_id) {
                     Ok(summary) => {
                         log_info!(conversation_id, "📝 Summarized tool output: {} → {} chars", sanitized.len(), summary.len());

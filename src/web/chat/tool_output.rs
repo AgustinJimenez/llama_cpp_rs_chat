@@ -548,7 +548,9 @@ pub fn maybe_summarize_tool_output(
 
     // Skip summarization for tools where raw output is important
     let lower_name = tool_name.to_lowercase();
-    if lower_name.contains("read_file") || lower_name.contains("write_file") || lower_name.contains("edit_file") {
+    if lower_name.contains("read_file") || lower_name.contains("write_file") || lower_name.contains("edit_file")
+        || lower_name.contains("browser_get_html") || lower_name.contains("browser_eval")
+    {
         return maybe_truncate_tool_output(output, tool_name, conversation_id);
     }
 

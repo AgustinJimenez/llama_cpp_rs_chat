@@ -410,8 +410,10 @@ static ALL_TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "browser_get_html",
-        description: "Get the full HTML of the current page. Useful for scraping or debugging selectors. Output may be truncated if very large.",
-        params: Params::Simple(&[]),
+        description: "Get the full HTML of the current page. Useful for scraping or debugging selectors. Output may be truncated if very large. Set summary=false to get raw HTML (for parsing), or summary=true (default) to get an AI-summarized version.",
+        params: Params::Simple(&[
+            p("summary", "boolean", "If true (default), large output is AI-summarized. Set false to get raw/truncated HTML for parsing."),
+        ]),
         required: &[],
     },
     ToolDef {
@@ -437,14 +439,18 @@ static ALL_TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "browser_get_text",
-        description: "Get the visible text of the current page (innerText). Strips HTML tags, scripts, styles. Much smaller than browser_get_html — prefer this for reading page content.",
-        params: Params::Simple(&[]),
+        description: "Get the visible text of the current page (innerText). Strips HTML tags, scripts, styles. Much smaller than browser_get_html — prefer this for reading page content. Set summary=false to get raw text (for data extraction).",
+        params: Params::Simple(&[
+            p("summary", "boolean", "If true (default), large output is AI-summarized. Set false to get raw/truncated text."),
+        ]),
         required: &[],
     },
     ToolDef {
         name: "browser_get_links",
         description: "Get all links on the current page as a list of {text, href} pairs. Useful for discovering navigation targets without parsing HTML.",
-        params: Params::Simple(&[]),
+        params: Params::Simple(&[
+            p("summary", "boolean", "If true (default), large output is AI-summarized. Set false to get all links raw."),
+        ]),
         required: &[],
     },
     ToolDef {
