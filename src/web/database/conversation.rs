@@ -17,6 +17,7 @@ use crate::sys_error;
 #[allow(dead_code)]
 pub struct ConversationRecord {
     pub id: String,
+    pub title: String,
     pub system_prompt: Option<String>,
     pub provider_id: Option<String>,
     pub provider_session_id: Option<String>,
@@ -105,14 +106,15 @@ impl Database {
     pub fn get_conversation(&self, id: &str) -> Result<Option<ConversationRecord>, String> {
         let conn = self.connection();
         let result = conn.query_row(
-            "SELECT id, system_prompt, provider_id, provider_session_id FROM conversations WHERE id = ?1",
+            "SELECT id, COALESCE(title, ''), system_prompt, provider_id, provider_session_id FROM conversations WHERE id = ?1",
             [id],
             |row| {
                 Ok(ConversationRecord {
                     id: row.get(0)?,
-                    system_prompt: row.get(1)?,
-                    provider_id: row.get(2)?,
-                    provider_session_id: row.get(3)?,
+                    title: row.get::<_, String>(1).unwrap_or_default(),
+                    system_prompt: row.get(2)?,
+                    provider_id: row.get(3)?,
+                    provider_session_id: row.get(4)?,
                 })
             },
         );
@@ -129,7 +131,7 @@ impl Database {
         let conn = self.connection();
         let mut stmt = conn
             .prepare(
-                "SELECT id, system_prompt, provider_id, provider_session_id FROM conversations ORDER BY created_at DESC",
+                "SELECT id, COALESCE(title, ''), system_prompt, provider_id, provider_session_id FROM conversations ORDER BY created_at DESC",
             )
             .map_err(db_error("prepare statement"))?;
 
@@ -137,9 +139,10 @@ impl Database {
             .query_map([], |row| {
                 Ok(ConversationRecord {
                     id: row.get(0)?,
-                    system_prompt: row.get(1)?,
-                    provider_id: row.get(2)?,
-                    provider_session_id: row.get(3)?,
+                    title: row.get::<_, String>(1).unwrap_or_default(),
+                    system_prompt: row.get(2)?,
+                    provider_id: row.get(3)?,
+                    provider_session_id: row.get(4)?,
                 })
             })
             .map_err(db_error("query conversations"))?

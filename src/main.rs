@@ -369,7 +369,7 @@ async fn get_conversations(
                 name: format!("{}.txt", r.id),
                 display_name: format!("Chat {timestamp_part}"),
                 timestamp: timestamp_part,
-                title: None,
+                title: if r.title.is_empty() { None } else { Some(r.title) },
                 provider_id: None,
             }
         })
