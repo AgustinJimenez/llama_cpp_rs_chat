@@ -270,6 +270,7 @@ static ALL_TOOLS: &[ToolDef] = &[
             p("url", "string", "The URL to fetch"),
             p("max_length", "integer", "Maximum characters to return (default: 15000)"),
             p("prompt", "string", "What to extract from the page (e.g. 'Find the download link for Windows x64'). If set, returns only the relevant information instead of the full page."),
+            p("summary", "boolean", "If true (default), large output is AI-summarized. Set false to get raw/truncated content."),
         ]),
         required: &["url"],
     },
@@ -463,7 +464,9 @@ static ALL_TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "browser_snapshot",
         description: "Get the accessibility snapshot of the page — a structured list of interactable elements (buttons, links, inputs) with labels and types. Compact and focused on what the agent can interact with.",
-        params: Params::Simple(&[]),
+        params: Params::Simple(&[
+            p("summary", "boolean", "If true (default), large output is AI-summarized. Set false to get raw data."),
+        ]),
         required: &[],
     },
     ToolDef {

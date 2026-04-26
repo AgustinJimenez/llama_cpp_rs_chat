@@ -564,9 +564,13 @@ pub fn check_and_execute_command_with_tags(
                             });
                         }
                         // Display: original output + summary with content
-                        // Model: summary only
+                        // Model: summary with label (so model knows it's not raw output)
                         let display = format!("{}{}", sanitized, summary_block);
-                        (display, summary)
+                        let model_summary = format!(
+                            "[SUMMARIZED: {} → {} chars. Use summary=false to get raw output.]\n{}",
+                            sanitized.len(), summary.len(), summary
+                        );
+                        (display, model_summary)
                     }
                     Err(e) => {
                         log_warn!(conversation_id, "Summarization failed ({}), using raw output", e);
