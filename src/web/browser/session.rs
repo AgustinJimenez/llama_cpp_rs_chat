@@ -220,7 +220,7 @@ impl TauriHttpSession {
             .set("Content-Type", "application/json")
             .send_string(&serde_json::json!({
                 "js": "document.documentElement.outerHTML",
-                "target": "browser-panel"
+                "target": "agent-browser"
             }).to_string());
 
         let body = match eval_result {
@@ -519,7 +519,7 @@ pub fn eval_in_browser_panel(js: &str) -> Result<String, String> {
             .set("Content-Type", "application/json")
             .send_string(&serde_json::json!({
                 "js": js,
-                "target": "browser-panel"
+                "target": "agent-browser"
             }).to_string())
             .map_err(|e| format!("eval bridge failed: {e}"))?;
         let body = resp.into_string().unwrap_or_default();

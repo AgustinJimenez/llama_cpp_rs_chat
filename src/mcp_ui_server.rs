@@ -115,7 +115,7 @@ impl AppUiServer {
 
         // Find the target webview
         let webviews = self.app.webviews();
-        let webview = if target == "browser-panel" {
+        let webview = if target == "browser-panel" || target == "agent-browser" {
             webviews.get(target)
                 .ok_or("Browser panel not open. Use browser_navigate first.")?
                 .clone()
@@ -222,7 +222,7 @@ impl AppUiServer {
     /// Execute JavaScript in the browser panel webview.
     #[allow(dead_code)]
     async fn eval_browser_panel(&self, js: &str) -> Result<String, String> {
-        self.eval_js_in(js, "browser-panel").await
+        self.eval_js_in(js, "agent-browser").await
     }
 }
 
@@ -263,18 +263,26 @@ async fn bridge_browser_navigate(
         .and_then(|v| v.as_str())
         .ok_or(axum::http::StatusCode::BAD_REQUEST)?;
 
-    // Create/navigate the hidden Tauri child webview (for JS eval access).
-    // Does NOT touch the React browser UI — agent works silently.
+    // Sync URL to the React browser view (user can toggle it open to see the page).
+    // Does NOT auto-open — just updates the URL in React state.
+    let server = AppUiServer::new(app.clone());
+    let url_json = serde_json::to_string(url).unwrap_or_default();
+    let _ = server.eval_js(&format!(
+        "(() => {{ if (window.__openBrowserView) window.__openBrowserView({url_json}); return 'ok'; }})()"
+    )).await;
+
+    // Create/navigate the hidden agent webview (separate from user's browser-panel).
+    // Uses label "agent-browser" to avoid conflicting with the user's browser panel.
     let parsed = url.parse::<tauri::Url>()
         .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
     let webview_count = app.webviews().len();
     eprintln!("[MCP_BROWSER] navigate to {url}, webviews: {webview_count}");
-    if let Some(existing) = app.webviews().get("browser-panel").cloned() {
-        eprintln!("[MCP_BROWSER] reusing existing browser-panel webview");
+    if let Some(existing) = app.webviews().get("agent-browser").cloned() {
+        eprintln!("[MCP_BROWSER] reusing existing agent-browser webview");
         let _ = existing.navigate(parsed);
     } else if let Some(window) = app.get_window("main") {
         let builder = tauri::webview::WebviewBuilder::new(
-            "browser-panel",
+            "agent-browser",
             tauri::WebviewUrl::External(parsed),
         );
         // Hidden child webview — zero height so it's invisible, but
