@@ -737,12 +737,16 @@ pub async fn generate_llama_response(
         // Include the user's request + last ~800 chars of response for context.
         // More context helps the checker see partial task completion.
         let user_prefix = if user_message.len() > 300 {
-            format!("{}...", &user_message[..300])
+            let mut end = 300;
+            while end < user_message.len() && !user_message.is_char_boundary(end) { end += 1; }
+            format!("{}...", &user_message[..end])
         } else {
             user_message.to_string()
         };
         let response_tail = if gen.response.len() > 800 {
-            &gen.response[gen.response.len() - 800..]
+            let mut start = gen.response.len() - 800;
+            while start > 0 && !gen.response.is_char_boundary(start) { start += 1; }
+            &gen.response[start..]
         } else {
             &gen.response
         };
