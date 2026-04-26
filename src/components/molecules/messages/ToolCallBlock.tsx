@@ -103,11 +103,21 @@ const TOOL_SUMMARIZERS: Record<string, (args: Record<string, unknown>) => string
   },
 };
 
+function formatParamValue(key: string, val: unknown): string {
+  if (key === 'summary') return val ? 'Yes' : 'No';
+  if (typeof val === 'boolean') return val ? 'Yes' : 'No';
+  if (typeof val === 'string') return val;
+  return JSON.stringify(val);
+}
+
 function defaultToolSummary(args: Record<string, unknown>): string {
-  const entries = Object.entries(args);
+  // Filter out the 'summary' param when other params exist (it's noise)
+  const entries = Object.entries(args).filter(
+    ([k]) => !(k === 'summary' && Object.keys(args).length > 1),
+  );
   if (entries.length === 0) return '';
   const [key, val] = entries[0];
-  const valStr = typeof val === 'string' ? val : JSON.stringify(val);
+  const valStr = formatParamValue(key, val);
   return `${key}: ${valStr.slice(0, 60)}${valStr.length > 60 ? '...' : ''}`;
 }
 

@@ -535,9 +535,12 @@ pub fn check_and_execute_command_with_tags(
             // Use original output length to decide summarization — the sanitized version may
             // be heavily truncated but the user still sees the full streamed output.
             // Check if model opted out of summarization via summary: false
-            let summary_disabled = command_text.contains("\"summary\": false")
-                || command_text.contains("\"summary\":false")
-                || command_text.contains("\"summary\": \"false\"");
+            let cmd_lower = command_text.to_lowercase();
+            let summary_disabled = cmd_lower.contains("\"summary\": false")
+                || cmd_lower.contains("\"summary\":false")
+                || cmd_lower.contains("\"summary\": \"false\"")
+                || cmd_lower.contains("summary>\nfalse")
+                || cmd_lower.contains("summary>false");
             let (display_text, model_text) = if summary_disabled {
                 // Model wants raw output — skip summarization
                 (sanitized.clone(), sanitized)
