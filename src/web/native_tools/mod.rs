@@ -70,10 +70,8 @@ pub fn extract_tool_args_summary(cmd: &str) -> String {
 }
 
 // ─── In-memory todo store (per conversation) ─────────────────────────────────
-#[allow(dead_code)]
 static TODO_STORE: OnceLock<StdMutex<HashMap<String, String>>> = OnceLock::new();
 
-#[allow(dead_code)]
 fn todo_store() -> &'static StdMutex<HashMap<String, String>> {
     TODO_STORE.get_or_init(|| StdMutex::new(HashMap::new()))
 }
@@ -81,17 +79,11 @@ fn todo_store() -> &'static StdMutex<HashMap<String, String>> {
 mod parsing;
 pub use parsing::*;
 use parsing::{value_as_bool_flexible, try_parse_with_fixups};
-mod web_search;
-use web_search::tool_web_search;
-#[cfg(test)]
-use web_search::{tool_web_search_ddg_api, parse_ddg_results};
-mod web_fetch;
-pub use web_fetch::*;
-use web_fetch::tool_web_fetch;
+mod doc_extractors;
+pub use doc_extractors::*;
 mod mcp_tools;
 mod telegram;
 
-pub use web_fetch::clear_web_fetch_cache;
 
 /// If the text is an `execute_command` tool call, extract the command string and background flag.
 /// Returns `(command, is_background)`.
@@ -144,8 +136,7 @@ pub fn extract_execute_command_with_opts(text: &str) -> Option<(String, bool)> {
 /// MCP tools are validated by their own servers).
 const VALIDATED_TOOLS: &[&str] = &[
     "read_file", "write_file", "edit_file", "execute_command", "execute_python",
-    "search_files", "find_files", "list_directory", "web_search", "web_fetch",
-    "camofox_click", "camofox_screenshot", "camofox_type",
+    "search_files", "find_files", "list_directory", 
     "browser_navigate", "browser_click", "browser_type", "browser_query", "browser_eval",
     "browser_get_html", "browser_screenshot", "browser_wait", "browser_close",
     "browser_get_text", "browser_get_links", "browser_snapshot",
@@ -248,10 +239,7 @@ fn validate_tool_args(tool_name: &str, args: &serde_json::Value) -> Result<(), S
 
 pub fn dispatch_native_tool(
     text: &str,
-    web_search_provider: Option<&str>,
-    web_search_api_key: Option<&str>,
-    use_htmd: bool,
-    browser_backend: &super::browser::BrowserBackend,
+    _use_htmd: bool,
     mcp_manager: Option<&super::mcp::McpManager>,
     db: Option<&super::database::SharedDatabase>,
 ) -> Option<NativeToolResult> {
@@ -536,36 +524,30 @@ pub fn dispatch_native_tool(
         ));
     }
 
-    // Camofox interaction tools (return NativeToolResult with optional images)
-    if name == "camofox_click" {
-        return Some(super::browser::camofox::tool_camofox_click(&args));
-    }
-    if name == "camofox_screenshot" {
-        return Some(super::browser::camofox::tool_camofox_screenshot(&args));
-    }
-    if name == "camofox_type" {
-        return Some(super::browser::camofox::tool_camofox_type(&args));
-    }
+    // Browser view tools (open/close the in-app browser panel via Tauri)
     if name == "open_browser_view" {
-        return Some(super::browser::camofox::tool_open_browser_view(&args));
+        let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
+        if url.is_empty() {
+            return Some(NativeToolResult::text_only("Error: 'url' argument is required".to_string()));
+        }
+        let full_url = if url.starts_with("http://") || url.starts_with("https://") {
+            url.to_string()
+        } else {
+            format!("https://{url}")
+        };
+        let _ = super::browser::session::notify_tauri_browser_navigate(&full_url);
+        return Some(NativeToolResult::text_only(format!(
+            "Opened browser view for {full_url}."
+        )));
     }
     if name == "close_browser_view" {
-        return Some(super::browser::camofox::tool_close_browser_view(&args));
+        let _ = super::browser::session::notify_tauri_browser_close();
+        return Some(NativeToolResult::text_only("Browser view closed.".to_string()));
     }
 
     // Unified browser_* tools (work the same in web and Tauri)
     if let Some(name) = name.strip_prefix("browser_") {
         return Some(handle_browser_tool(name, &args));
-    }
-
-    // web_search may return images (CAPTCHA screenshots) when using Camofox provider
-    if name == "web_search" {
-        return Some(tool_web_search_with_vision(
-            &args,
-            web_search_provider,
-            web_search_api_key,
-            browser_backend,
-        ));
     }
 
     // All other tools return text-only results
@@ -579,19 +561,6 @@ pub fn dispatch_native_tool(
         "find_files" => search_tools::tool_find_files(&args),
         "execute_python" => command_tools::tool_execute_python(&args),
         "list_directory" => command_tools::tool_list_directory(&args),
-        "web_fetch" => {
-            let content = tool_web_fetch(&args, use_htmd, browser_backend);
-            if let Some(prompt) = args.get("prompt").and_then(|v| v.as_str()) {
-                if !prompt.is_empty() && !content.starts_with("Error") {
-                    let max_len = args.get("max_length").and_then(|v| v.as_u64()).unwrap_or(15_000) as usize;
-                    web_fetch::apply_prompt_extraction(&content, prompt, max_len)
-                } else {
-                    content
-                }
-            } else {
-                content
-            }
-        }
         "execute_command" => {
             let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
             if command.is_empty() {
@@ -854,49 +823,6 @@ pub fn dispatch_native_tool(
 
 // Telegram tool: see telegram.rs
 // MCP tools: see mcp_tools.rs
-
-/// web_search with vision support — returns screenshot if Camofox detects a CAPTCHA.
-fn tool_web_search_with_vision(
-    args: &Value,
-    web_search_provider: Option<&str>,
-    web_search_api_key: Option<&str>,
-    browser_backend: &super::browser::BrowserBackend,
-) -> NativeToolResult {
-    // For non-Camofox providers, return text-only as before
-    if web_search_provider != Some("Camofox") {
-        return NativeToolResult::text_only(
-            tool_web_search(args, web_search_provider, web_search_api_key, browser_backend),
-        );
-    }
-
-    // Camofox provider — may return a CAPTCHA screenshot
-    let query = match args.get("query").and_then(|v| v.as_str()) {
-        Some(q) => q,
-        None => {
-            return NativeToolResult::text_only(
-                "Error: 'query' argument is required".to_string(),
-            );
-        }
-    };
-
-    let max_results = args
-        .get("max_results")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(20) as usize;
-
-    eprintln!("[WEB_SEARCH] Using Camofox (anti-detection Google)");
-    let result = super::browser::camofox::search(query, max_results);
-
-    if result.captcha_detected {
-        if let Some(screenshot) = result.screenshot {
-            NativeToolResult::with_image(result.text, screenshot)
-        } else {
-            NativeToolResult::text_only(result.text)
-        }
-    } else {
-        NativeToolResult::text_only(result.text)
-    }
-}
 
 /// Capture a screenshot — returns NativeToolResult with image bytes for vision pipeline.
 pub(crate) fn tool_take_screenshot_with_image(args: &Value) -> NativeToolResult {
@@ -1290,7 +1216,7 @@ mod tests {
             r#"{{"name": "read_file", "arguments": {{"path": "{}"}}}}"#,
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
+        let result = dispatch_native_tool(&json, None, None);
         assert!(result.is_some());
         assert!(result.unwrap().text.contains("hello world"));
 
@@ -1304,7 +1230,7 @@ mod tests {
             r#"{{"name": "write_file", "arguments": {{"path": "{}", "content": "test content"}}}}"#,
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
+        let result = dispatch_native_tool(&json, None, None);
         assert!(result.is_some());
         assert!(result.unwrap().text.contains("Written"));
         assert_eq!(std::fs::read_to_string(&temp).unwrap(), "test content");
@@ -1320,7 +1246,7 @@ mod tests {
             "{{\n  \"name\": \"write_file\",\n  \"arguments\": {{\n    \"path\": \"{}\",\n    \"content\": \"{{\n  \\\"name\\\": \\\"test\\\",\n  \\\"version\\\": \\\"1.0.0\\\"\n}}\"\n  }}\n}}",
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
+        let result = dispatch_native_tool(&json, None, None);
         assert!(result.is_some(), "Should parse multiline JSON content: {json}");
         assert!(result.unwrap().text.contains("Written"));
         let content = std::fs::read_to_string(&temp).unwrap();
@@ -1342,7 +1268,7 @@ line3"}}"#;
     #[test]
     fn test_dispatch_list_directory() {
         let json = r#"{"name": "list_directory", "arguments": {"path": "."}}"#;
-        let result = dispatch_native_tool(json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
+        let result = dispatch_native_tool(json, None, None);
         assert!(result.is_some());
         assert!(result.unwrap().text.contains("Directory listing"));
     }
@@ -1350,13 +1276,13 @@ line3"}}"#;
     #[test]
     fn test_dispatch_unknown_tool_returns_none() {
         let json = r#"{"name": "unknown_tool", "arguments": {}}"#;
-        let result = dispatch_native_tool(json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
+        let result = dispatch_native_tool(json, None, None);
         assert!(result.is_none());
     }
 
     #[test]
     fn test_dispatch_non_json_returns_none() {
-        let result = dispatch_native_tool("ls -la", None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
+        let result = dispatch_native_tool("ls -la", None, None);
         assert!(result.is_none());
     }
 
@@ -1369,7 +1295,7 @@ line3"}}"#;
             r#"[{{"name": "read_file", "arguments": {{"path": "{}"}}}}]"#,
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
+        let result = dispatch_native_tool(&json, None, None);
         assert!(result.is_some());
         assert!(result.unwrap().text.contains("mistral test"));
 
@@ -1386,7 +1312,7 @@ line3"}}"#;
             r#"read_file,{{"path": "{}"}}"#,
             temp.display().to_string().replace('\\', "\\\\")
         );
-        let result = dispatch_native_tool(&input, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
+        let result = dispatch_native_tool(&input, None, None);
         assert!(result.is_some(), "Should parse Mistral comma format");
         assert!(result.unwrap().text.contains("comma format test"));
 
@@ -1397,7 +1323,7 @@ line3"}}"#;
     fn test_dispatch_mistral_comma_execute_command() {
         // Devstral: execute_command,{"command": "echo hello"}
         let input = r#"execute_command,{"command": "echo hello"}"#;
-        let result = dispatch_native_tool(input, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
+        let result = dispatch_native_tool(input, None, None);
         assert!(result.is_some(), "Should parse comma format execute_command");
         assert!(result.unwrap().text.contains("hello"));
     }
@@ -1412,7 +1338,7 @@ line3"}}"#;
             "<function=read_file> <parameter=path> {} </parameter> </function>",
             temp.display()
         );
-        let result = dispatch_native_tool(&input, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
+        let result = dispatch_native_tool(&input, None, None);
         assert!(result.is_some(), "Should parse Llama3 XML format");
         assert!(result.unwrap().text.contains("xml format test"));
 
@@ -1426,7 +1352,7 @@ line3"}}"#;
             "<function=write_file> <parameter=path> {} </parameter> <parameter=content> hello world </parameter> </function>",
             temp.display()
         );
-        let result = dispatch_native_tool(&input, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
+        let result = dispatch_native_tool(&input, None, None);
         assert!(result.is_some(), "Should parse Llama3 XML write_file");
         assert!(result.unwrap().text.contains("Written"));
         assert_eq!(std::fs::read_to_string(&temp).unwrap(), "hello world");
@@ -1438,7 +1364,7 @@ line3"}}"#;
     fn test_dispatch_name_json_format() {
         // Granite outputs: list_directory{"path": "."}
         let input = r#"list_directory{"path": "."}"#;
-        let result = dispatch_native_tool(input, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
+        let result = dispatch_native_tool(input, None, None);
         assert!(result.is_some(), "Should parse name+JSON format");
         assert!(result.unwrap().text.contains("Directory listing"));
     }
@@ -1446,7 +1372,7 @@ line3"}}"#;
     #[test]
     fn test_execute_python_simple() {
         let json = r#"{"name": "execute_python", "arguments": {"code": "print('hello from python')"}}"#;
-        let result = dispatch_native_tool(json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
+        let result = dispatch_native_tool(json, None, None);
         assert!(result.is_some());
         let output = result.unwrap().text;
         // If python is available, should contain the output; if not, should contain an error
@@ -1490,7 +1416,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
         // Exact pattern GLM produces: multiline content + missing outer closing }
         let json = "{\"name\": \"write_file\", \"arguments\": {\"path\": \"/tmp/test-autoclose.txt\", \"content\": \"{\n  \\\"name\\\": \\\"test\\\",\n  \\\"version\\\": \\\"1.0.0\\\"\n}\"}}";
         // This should work (has both braces)
-        let result = dispatch_native_tool(json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
+        let result = dispatch_native_tool(json, None, None);
         assert!(result.is_some(), "Valid JSON should work: {:?}", result);
         let _ = std::fs::remove_file("/tmp/test-autoclose.txt");
 
@@ -1498,7 +1424,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
         let broken = "{\"name\": \"write_file\", \"arguments\": {\"path\": \"/tmp/test-autoclose2.txt\", \"content\": \"{\n  \\\"name\\\": \\\"test\\\",\n  \\\"version\\\": \\\"1.0.0\\\"\n}\"}}";
         // Remove last }
         let broken = &broken[..broken.len() - 1];
-        let result = dispatch_native_tool(broken, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
+        let result = dispatch_native_tool(broken, None, None);
         assert!(result.is_some(), "Should auto-close missing brace and dispatch write_file");
         let output = result.unwrap().text;
         assert!(output.contains("written") || output.contains("success") || output.contains("Written"),
@@ -1534,7 +1460,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
             r#"{{"name":"write_file","arguments":{{"path":"{}","content":"<?php\nnamespace App\Models;\nuse Illuminate\Database\Eloquent\Model;\n\nclass Person extends Model {{\n    protected $fillable = ['name'];\n}}"}}}}"#,
             temp.display()
         );
-        let result = dispatch_native_tool(&json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
+        let result = dispatch_native_tool(&json, None, None);
         assert!(result.is_some(), "Should parse PHP namespace JSON via fixup chain");
         let output = result.unwrap().text;
         assert!(output.contains("Written"), "Should write file: {}", output);
@@ -1546,60 +1472,7 @@ print(f"Found: {match.group()}" if match else "No match")"#;
         std::fs::remove_file(&temp).ok();
     }
 
-    #[test]
-    fn test_parse_ddg_results_extracts_links_and_snippets() {
-        let html = r#"
-        <div class="result">
-            <a class="result__a" href="https://example.com/page1">Example Page One</a>
-            <td class="result__snippet">This is the first result snippet about example.</td>
-        </div>
-        <div class="result">
-            <a class="result__a" href="https://example.com/page2">Example &amp; Page Two</a>
-            <td class="result__snippet">Second result with <b>bold</b> text.</td>
-        </div>
-        "#;
-
-        let result = parse_ddg_results(html, 10);
-        assert!(result.contains("Example Page One"), "Should extract first title");
-        assert!(result.contains("https://example.com/page1"), "Should extract first URL");
-        assert!(result.contains("first result snippet"), "Should extract first snippet");
-        assert!(result.contains("Example & Page Two"), "Should decode &amp;");
-        assert!(result.contains("https://example.com/page2"), "Should extract second URL");
-        assert!(result.contains("Second result with"), "Should extract second snippet");
-        assert!(!result.contains("<b>"), "Should strip inner HTML tags from snippets");
-    }
-
-    #[test]
-    fn test_parse_ddg_results_empty_html() {
-        let result = parse_ddg_results("<html><body>no results</body></html>", 10);
-        assert!(result.is_empty(), "Should return empty string for no results");
-    }
-
-    #[test]
-    fn test_dispatch_web_search_missing_query() {
-        let json = r#"{"name": "web_search", "arguments": {}}"#;
-        let result = dispatch_native_tool(json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
-        assert!(result.is_some());
-        assert!(result.unwrap().text.contains("Error"));
-    }
-
-    #[test]
-    fn test_dispatch_web_fetch_missing_url() {
-        let json = r#"{"name": "web_fetch", "arguments": {}}"#;
-        let result = dispatch_native_tool(json, None, None, false, &crate::web::browser::BrowserBackend::Chrome, None, None);
-        assert!(result.is_some());
-        assert!(result.unwrap().text.contains("Error"));
-    }
-
-    #[test]
-    fn test_ddg_api_formats_output() {
-        // Test that tool_web_search_ddg_api returns formatted output for known queries
-        // This is an integration test that calls the real API
-        let result = tool_web_search_ddg_api("rust programming language", 5);
-        assert!(result.is_some(), "DDG API should return results for 'rust programming language'");
-        let text = result.unwrap();
-        assert!(text.contains("Rust"), "Should contain 'Rust' in results");
-        assert!(text.contains("URL:"), "Should contain URLs");
-        assert!(text.contains("Search results for"), "Should have header");
-    }
 }
+
+/// No-op stub — web_fetch cache was removed.
+pub fn clear_web_fetch_cache() {}

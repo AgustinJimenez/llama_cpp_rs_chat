@@ -1,17 +1,8 @@
-//! Browser session abstraction — unified API for agent browser tools.
-//!
-//! Two backends:
-//! - TauriHttpSession (default): opens Tauri native webview for the user,
-//!   reads content via HTTP (ureq). No Camofox needed.
-//! - CamofoxSession (fallback): headless Firefox for anti-detection browsing.
+//! Browser session abstraction — Tauri WebView-based browsing.
 
 use serde_json::Value;
 
-use super::camofox;
-
-/// A controllable browser session. Implementations route to different
-/// backends (Camofox HTTP, Tauri WebView IPC, etc.) but expose the same
-/// methods so agent tools don't need to know which backend is active.
+/// A controllable browser session.
 pub trait BrowserSession: Send + Sync {
     fn navigate(&mut self, url: &str) -> Result<(), String>;
     fn click(&self, selector: &str) -> Result<(), String>;
@@ -28,88 +19,7 @@ pub trait BrowserSession: Send + Sync {
 
 const TAURI_UI_BRIDGE_BASE: &str = "http://127.0.0.1:18091";
 
-/// Camofox-backed browser session. Talks to the local Camofox HTTP server.
-/// Currently unused — TauriHttpSession is the default. Kept for future
-/// anti-detection browsing needs.
-#[allow(dead_code)]
-pub struct CamofoxSession {
-    pub tab_id: String,
-    pub current_url: String,
-}
-
-#[allow(dead_code)]
-impl CamofoxSession {
-    /// Open a new session by creating a Camofox tab.
-    pub fn open(url: &str) -> Result<Self, String> {
-        let tab_id = camofox::cf_create_tab(url)?;
-        camofox::set_agent_tab(tab_id.clone(), url.to_string());
-        Ok(Self {
-            tab_id,
-            current_url: url.to_string(),
-        })
-    }
-
-    /// Resume the active session if one exists (e.g. after process restart).
-    pub fn resume_active() -> Option<Self> {
-        camofox::get_agent_tab().map(|(tab_id, url)| Self {
-            tab_id,
-            current_url: url,
-        })
-    }
-}
-
-impl BrowserSession for CamofoxSession {
-    fn navigate(&mut self, url: &str) -> Result<(), String> {
-        camofox::cf_navigate(&self.tab_id, url)?;
-        self.current_url = url.to_string();
-        camofox::set_agent_tab(self.tab_id.clone(), url.to_string());
-        Ok(())
-    }
-
-    fn click(&self, selector: &str) -> Result<(), String> {
-        camofox::cf_click_selector(&self.tab_id, selector)
-    }
-
-    fn type_text(&self, selector: &str, text: &str, press_enter: bool) -> Result<(), String> {
-        camofox::cf_type_selector(&self.tab_id, selector, text, press_enter)
-    }
-
-    fn eval(&self, js: &str) -> Result<Value, String> {
-        camofox::cf_eval(&self.tab_id, js)
-    }
-
-    fn html(&self) -> Result<String, String> {
-        camofox::cf_get_html(&self.tab_id)
-    }
-
-    fn screenshot(&self) -> Result<Vec<u8>, String> {
-        camofox::take_tab_screenshot_jpeg(&self.tab_id, 80)
-            .ok_or_else(|| "failed to capture screenshot".to_string())
-    }
-
-    fn wait_for(&self, selector: &str, timeout_ms: u64) -> Result<bool, String> {
-        camofox::cf_wait_selector(&self.tab_id, selector, timeout_ms)
-    }
-
-    fn press_key(&self, key: &str) -> Result<(), String> {
-        camofox::cf_press_key(&self.tab_id, key)
-    }
-
-    fn snapshot(&self) -> Result<String, String> {
-        camofox::cf_snapshot(&self.tab_id)
-    }
-
-    fn close(&mut self) -> Result<(), String> {
-        camofox::clear_agent_tab();
-        Ok(())
-    }
-
-    fn url(&self) -> &str {
-        &self.current_url
-    }
-}
-
-// ─── Tauri HTTP Session (default, no Camofox needed) ──────────────
+// ─── Tauri HTTP Session ─────────────────────────────────────────
 
 /// Browser session that opens the Tauri native webview (user sees the page)
 /// and reads content via HTTP (ureq). No external browser server needed.
@@ -131,6 +41,7 @@ impl TauriHttpSession {
     }
 
     /// Fetch page and cache both HTML and text.
+    #[allow(dead_code)]
     fn prefetch(&mut self) -> Result<(), String> {
         let html = self.do_fetch()?;
         let text = Self::strip_html(&html);

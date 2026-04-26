@@ -12,7 +12,6 @@ import { ProviderSelector } from './components/organisms/ProviderSelector';
 import { MessagesArea } from './components/templates';
 import { useChatContext } from './contexts/ChatContext';
 import { useModelContext } from './contexts/ModelContext';
-import { useCamofoxCaptcha } from './hooks/useCamofoxCaptcha';
 import { useUIContext } from './hooks/useUIContext';
 import type { SamplerConfig } from './types';
 import { isTauriEnv } from './utils/tauri';
@@ -245,7 +244,6 @@ const MainContent = ({
   } = useUIContext();
 
   // Poll for CAPTCHA status + agent browser view — auto-opens browser view when detected
-  useCamofoxCaptcha();
 
   // Sync provider ref with model context
   if (providerRef) {

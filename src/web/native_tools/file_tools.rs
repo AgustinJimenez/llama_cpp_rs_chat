@@ -6,7 +6,7 @@ use std::path::Path;
 use std::sync::Mutex as StdMutex;
 use std::sync::OnceLock;
 
-use super::web_fetch::{
+use super::doc_extractors::{
     extract_csv_structured, extract_docx_text, extract_eml_text, extract_epub_text,
     extract_odt_text, extract_pdf_text, extract_pptx_text, extract_rtf_text,
     extract_xlsx_text, extract_zip_listing,
@@ -16,10 +16,8 @@ use super::web_fetch::{
 const MAX_READ_SIZE: usize = 100 * 1024;
 
 // ─── File modification time cache (for edit_file concurrent modification detection) ──
-#[allow(dead_code)]
 static FILE_MTIME_CACHE: OnceLock<StdMutex<HashMap<String, u64>>> = OnceLock::new();
 
-#[allow(dead_code)]
 fn file_mtime_cache() -> &'static StdMutex<HashMap<String, u64>> {
     FILE_MTIME_CACHE.get_or_init(|| StdMutex::new(HashMap::new()))
 }
@@ -38,7 +36,6 @@ fn invalidate_read_cache(path: &str) {
     }
 }
 
-#[allow(dead_code)]
 pub(super) fn get_file_mtime(path: &str) -> Option<u64> {
     std::fs::metadata(path).ok()
         .and_then(|m| m.modified().ok())

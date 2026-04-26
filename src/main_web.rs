@@ -63,93 +63,6 @@ async fn handle_request_impl(
         (&Method::GET, "/api/info") => web::routes::system::handle_app_info().await?,
         (&Method::GET, "/api/docs") => web::routes::system::handle_api_docs().await?,
 
-        // Camofox browser status
-        (&Method::GET, "/api/camofox/status") => {
-            // Run off Tokio thread — get_status() may query Camofox server via blocking HTTP
-            let status = tokio::task::spawn_blocking(web::browser::camofox::get_status)
-                .await.unwrap_or_else(|_| web::browser::camofox::CamofoxStatus {
-                    available: false, healthy: false, downloading: false,
-                    message: Some("Internal error".to_string()), captcha_tab_id: None,
-                    agent_tab_id: None, agent_tab_url: None,
-                });
-            let json = serde_json::to_string(&status).unwrap_or_default();
-            Response::builder()
-                .status(200)
-                .header("Content-Type", "application/json")
-                .body(Body::from(json))
-                .unwrap()
-        }
-
-        // Camofox tab creation — POST /api/camofox/tabs
-        (&Method::POST, "/api/camofox/tabs") => {
-            let body_bytes = hyper::body::to_bytes(req.into_body()).await.unwrap_or_default();
-            let body_str = String::from_utf8_lossy(&body_bytes).to_string();
-            match tokio::task::spawn_blocking(move || {
-                web::browser::camofox::proxy_create_tab(&body_str)
-            }).await.unwrap_or_else(|e| Err(format!("Join error: {e}"))) {
-                Ok(resp) => Response::builder()
-                    .status(200)
-                    .header("Content-Type", "application/json")
-                    .body(Body::from(resp))
-                    .unwrap(),
-                Err(e) => Response::builder()
-                    .status(500)
-                    .header("Content-Type", "application/json")
-                    .body(Body::from(format!("{{\"error\":\"{e}\"}}")))
-                    .unwrap(),
-            }
-        }
-
-        // Camofox tab screenshot proxy — GET /api/camofox/tabs/:tabId/screenshot
-        (&Method::GET, path) if path.starts_with("/api/camofox/tabs/") && path.ends_with("/screenshot") => {
-            let tab_id = path
-                .strip_prefix("/api/camofox/tabs/")
-                .and_then(|s| s.strip_suffix("/screenshot"))
-                .unwrap_or("")
-                .to_string();
-            // Run blocking ureq call off the Tokio thread
-            match tokio::task::spawn_blocking(move || {
-                web::browser::camofox::proxy_screenshot(&tab_id)
-            }).await.unwrap_or_else(|e| Err(format!("Join error: {e}"))) {
-                Ok(png_bytes) => Response::builder()
-                    .status(200)
-                    .header("Content-Type", "image/png")
-                    .header("Cache-Control", "no-cache")
-                    .body(Body::from(png_bytes))
-                    .unwrap(),
-                Err(e) => Response::builder()
-                    .status(500)
-                    .header("Content-Type", "application/json")
-                    .body(Body::from(format!("{{\"error\":\"{e}\"}}")))
-                    .unwrap(),
-            }
-        }
-
-        // Camofox tab click proxy — POST /api/camofox/tabs/:tabId/click
-        (&Method::POST, path) if path.starts_with("/api/camofox/tabs/") && path.ends_with("/click") => {
-            let tab_id = path
-                .strip_prefix("/api/camofox/tabs/")
-                .and_then(|s| s.strip_suffix("/click"))
-                .unwrap_or("")
-                .to_string();
-            let body_bytes = hyper::body::to_bytes(req.into_body()).await.unwrap_or_default();
-            let body_str = String::from_utf8_lossy(&body_bytes).to_string();
-            // Run blocking ureq call off the Tokio thread to avoid UI freeze
-            match tokio::task::spawn_blocking(move || {
-                web::browser::camofox::proxy_click(&tab_id, &body_str)
-            }).await.unwrap_or_else(|e| Err(format!("Join error: {e}"))) {
-                Ok(resp) => Response::builder()
-                    .status(200)
-                    .header("Content-Type", "application/json")
-                    .body(Body::from(resp))
-                    .unwrap(),
-                Err(e) => Response::builder()
-                    .status(500)
-                    .header("Content-Type", "application/json")
-                    .body(Body::from(format!("{{\"error\":\"{e}\"}}")))
-                    .unwrap(),
-            }
-        }
 
         // System monitoring
         (&Method::GET, "/api/system/usage") => web::routes::system::handle_system_usage().await?,
@@ -199,29 +112,6 @@ async fn handle_request_impl(
             web::routes::status::handle_status_websocket(req, bridge.clone()).await?
         }
 
-        // Camofox screencast — streams JPEG frames at ~10 FPS over WebSocket
-        (&Method::GET, path) if path.starts_with("/ws/camofox/screencast/") => {
-            use crate::web::websocket_utils::{
-                build_json_error_response, build_websocket_upgrade_response,
-                calculate_websocket_accept_key, get_websocket_key, is_websocket_upgrade,
-            };
-            if !is_websocket_upgrade(&req) {
-                build_json_error_response(StatusCode::BAD_REQUEST, "WebSocket upgrade required")
-            } else {
-                let tab_id = path
-                    .strip_prefix("/ws/camofox/screencast/")
-                    .unwrap_or("")
-                    .to_string();
-                let key = get_websocket_key(&req).unwrap_or_default();
-                let accept_key = calculate_websocket_accept_key(&key);
-                tokio::spawn(async move {
-                    if let Ok(upgraded) = hyper::upgrade::on(req).await {
-                        let _ = web::websocket::handle_camofox_screencast_ws(upgraded, tab_id).await;
-                    }
-                });
-                build_websocket_upgrade_response(&accept_key)
-            }
-        }
 
         // Configuration endpoints
         (&Method::GET, "/api/config") => {

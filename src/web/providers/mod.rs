@@ -36,7 +36,6 @@ pub struct ProviderInfo {
 }
 
 /// Token/event data sent from CLI-backed providers to the frontend.
-#[allow(dead_code)]
 pub struct CliTokenData {
     pub token: String,
     pub is_done: bool,
@@ -169,6 +168,7 @@ pub async fn list_providers_with_keys(api_keys_json: Option<&str>) -> Vec<Provid
 }
 
 /// Synchronous variant for Tauri commands — lists providers without async CLI checks.
+#[allow(dead_code)]
 pub fn list_configured_providers_with_keys(api_keys_json: Option<&str>) -> Vec<ProviderInfo> {
     let mut providers = vec![
         ProviderInfo {
@@ -196,6 +196,7 @@ pub fn list_configured_providers_with_keys(api_keys_json: Option<&str>) -> Vec<P
 }
 
 /// List CLI-based providers (Claude Code, Codex) with availability checks.
+#[allow(dead_code)]
 pub async fn list_cli_providers() -> Vec<ProviderInfo> {
     let claude_available = claude_code::is_available().await;
     let codex_available = codex::is_available().await;

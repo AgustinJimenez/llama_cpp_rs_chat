@@ -1,207 +1,5 @@
-//! Web fetching, HTML-to-markdown conversion, and document format extractors.
-
-use serde_json::Value;
+//! Document format extractors.
 use std::io::Read;
-use std::collections::HashMap;
-use std::sync::Mutex;
-
-use lazy_static::lazy_static;
-
-/// Maximum characters to return from web page fetch.
-const MAX_FETCH_CHARS: usize = 15_000;
-
-lazy_static! {
-    /// Per-URL cache for web_fetch results within a session.
-    /// Prevents re-fetching the same URL multiple times in a conversation.
-    /// Key: URL, Value: fetched content string.
-    pub(crate) static ref WEB_FETCH_CACHE: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
-}
-
-/// Clear the web fetch cache (call on new conversation or model reload).
-pub fn clear_web_fetch_cache() {
-    if let Ok(mut cache) = WEB_FETCH_CACHE.lock() {
-        cache.clear();
-    }
-}
-
-/// Apply prompt-based keyword extraction to fetched content.
-/// Searches for lines containing keywords from the prompt and returns them with context.
-pub(super) fn apply_prompt_extraction(content: &str, prompt: &str, max_length: usize) -> String {
-    let keywords: Vec<&str> = prompt.split_whitespace()
-        .filter(|w| w.len() > 3)
-        .collect();
-
-    if keywords.is_empty() {
-        return content.to_string();
-    }
-
-    let lines: Vec<&str> = content.lines().collect();
-    let mut relevant: Vec<String> = Vec::new();
-    let mut seen: std::collections::HashSet<usize> = std::collections::HashSet::new();
-
-    for (i, line) in lines.iter().enumerate() {
-        let lower = line.to_lowercase();
-        if keywords.iter().any(|k| lower.contains(&k.to_lowercase())) {
-            // Include context: 2 lines before and after
-            let start = i.saturating_sub(2);
-            let end = (i + 3).min(lines.len());
-            for j in start..end {
-                if seen.insert(j) {
-                    relevant.push(lines[j].to_string());
-                }
-            }
-        }
-    }
-
-    if !relevant.is_empty() {
-        let extracted = relevant.join("\n");
-        let truncated = if extracted.len() > max_length {
-            let mut end = max_length;
-            while end > 0 && !extracted.is_char_boundary(end) {
-                end -= 1;
-            }
-            &extracted[..end]
-        } else {
-            &extracted
-        };
-        format!("Extracted for '{}' ({} relevant lines from {} total):\n\n{}",
-            prompt, relevant.len(), lines.len(), truncated)
-    } else {
-        // No matches — return full content (prompt keywords didn't match)
-        content.to_string()
-    }
-}
-
-/// Fetch a web page using the configured browser backend (JS-rendered), falling back to ureq.
-/// Includes per-session URL cache and PDF text extraction.
-pub(super) fn tool_web_fetch(args: &Value, use_htmd: bool, backend: &crate::web::browser::BrowserBackend) -> String {
-    let url = match args.get("url").and_then(|v| v.as_str()) {
-        Some(u) => u,
-        None => return "Error: 'url' argument is required".to_string(),
-    };
-
-    let max_chars = args
-        .get("max_length")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(MAX_FETCH_CHARS as u64) as usize;
-
-    // --- Cache check: return cached result if URL was already fetched this session ---
-    if let Ok(cache) = WEB_FETCH_CACHE.lock() {
-        if let Some(cached) = cache.get(url) {
-            eprintln!("[WEB_FETCH] Cache hit for {url}");
-            return cached.clone();
-        }
-    }
-
-    // --- PDF detection: fetch raw bytes and extract text ---
-    let url_lower = url.to_ascii_lowercase();
-    if url_lower.ends_with(".pdf") || url_lower.contains(".pdf?") || url_lower.contains(".pdf#") {
-        let result = fetch_pdf_text(url, max_chars);
-        cache_result(url, &result);
-        return result;
-    }
-
-    // When use_htmd is enabled, use htmd (HTML→Markdown) instead of html2text (HTML→plaintext)
-    // This produces LLM-optimized markdown with links, headers, and formatting preserved
-    if use_htmd {
-        // Try Chrome first for JS-rendered content, convert to markdown via htmd
-        match crate::web::browser::web_fetch_html(backend, url) {
-            Ok(html) if !html.is_empty() => {
-                let result = html_to_markdown_truncated(&html, max_chars);
-                cache_result(url, &result);
-                return result;
-            }
-            Ok(_) => eprintln!("[WEB_FETCH/MD] Chrome returned empty HTML, trying ureq"),
-            Err(e) => eprintln!("[WEB_FETCH/MD] Chrome failed: {e}, trying ureq"),
-        }
-
-        // Fallback: ureq fetch — check content-type for PDF before converting
-        match fetch_bytes_with_content_type(url) {
-            Ok((bytes, content_type)) => {
-                if content_type.contains("application/pdf") {
-                    let result = extract_pdf_text(&bytes, max_chars);
-                    cache_result(url, &result);
-                    return result;
-                }
-                let html = String::from_utf8_lossy(&bytes).to_string();
-                let result = html_to_markdown_truncated(&html, max_chars);
-                cache_result(url, &result);
-                return result;
-            }
-            Err(e) => eprintln!("[WEB_FETCH/MD] ureq also failed: {e}, falling back to plain text"),
-        }
-    }
-
-    // Default path: Try headless Chrome first (gets JS-rendered content)
-    let chrome_timed_out = match crate::web::browser::web_fetch(backend, url, max_chars) {
-        Ok(content) if !content.is_empty() => {
-            cache_result(url, &content);
-            return content;
-        }
-        Ok(_) => {
-            eprintln!("[WEB_FETCH] Chrome returned empty content, falling back to ureq");
-            false
-        }
-        Err(e) => {
-            let e_lower = e.to_lowercase();
-            let timed_out = e_lower.contains("timed out") || e_lower.contains("timeout");
-            eprintln!("[WEB_FETCH] Chrome failed: {e}, falling back to ureq");
-            timed_out
-        }
-    };
-
-    // Fallback: ureq-based fetch
-    let result = tool_web_fetch_ureq(url, max_chars);
-
-    // If both Chrome and ureq failed, prepend a clear timeout notice
-    let result = if chrome_timed_out && result.starts_with("Error") {
-        format!("Error: Request timed out. The URL '{url}' did not respond within the timeout period. {result}")
-    } else {
-        result
-    };
-
-    cache_result(url, &result);
-    result
-}
-
-/// Store a web_fetch result in the per-session cache.
-fn cache_result(url: &str, content: &str) {
-    if let Ok(mut cache) = WEB_FETCH_CACHE.lock() {
-        cache.insert(url.to_string(), content.to_string());
-    }
-}
-
-/// Fetch a URL as raw bytes and return (bytes, content-type).
-fn fetch_bytes_with_content_type(url: &str) -> Result<(Vec<u8>, String), String> {
-    let agent = ureq::AgentBuilder::new()
-        .timeout_read(std::time::Duration::from_secs(15))
-        .timeout_connect(std::time::Duration::from_secs(10))
-        .user_agent("Mozilla/5.0 (compatible; LlamaChat/1.0)")
-        .build();
-
-    let response = agent.get(url).call().map_err(|e| format!("{e}"))?;
-    let content_type = response.content_type().to_string();
-
-    let mut buf = Vec::with_capacity(500_000);
-    response
-        .into_reader()
-        .take(2_000_000) // 2MB limit for PDFs
-        .read_to_end(&mut buf)
-        .map_err(|e| format!("{e}"))?;
-
-    Ok((buf, content_type))
-}
-
-/// Fetch a PDF URL and extract text.
-fn fetch_pdf_text(url: &str, max_chars: usize) -> String {
-    eprintln!("[WEB_FETCH/PDF] Detected PDF URL: {url}");
-    match fetch_bytes_with_content_type(url) {
-        Ok((bytes, _)) => extract_pdf_text(&bytes, max_chars),
-        Err(e) => format!("Error fetching PDF: {e}"),
-    }
-}
-
-/// Extract text from PDF bytes using pdf-extract.
 pub fn extract_pdf_text(bytes: &[u8], max_chars: usize) -> String {
     match pdf_extract::extract_text_from_mem(bytes) {
         Ok(text) => {
@@ -718,6 +516,7 @@ pub fn extract_eml_text(bytes: &[u8], max_chars: usize) -> String {
 ///
 /// Pipeline: full HTML → dom_smoothie (extract article) → htmd (HTML→markdown)
 /// Fallback: if readability fails → extract <body> → htmd → html2text
+#[allow(dead_code)]
 fn html_to_markdown_truncated(html: &str, max_chars: usize) -> String {
     // Step 1: Try dom_smoothie readability extraction (strips nav, ads, footer)
     let article_html = match dom_smoothie::Readability::new(html, None, None) {
@@ -759,6 +558,7 @@ fn html_to_markdown_truncated(html: &str, max_chars: usize) -> String {
 }
 
 /// Convert HTML source to markdown and truncate.
+#[allow(dead_code)]
 fn convert_and_truncate(source: &str, max_chars: usize) -> String {
     let converter = htmd::HtmlToMarkdown::new();
     let markdown = converter.convert(source).unwrap_or_else(|e| {
@@ -782,6 +582,7 @@ fn convert_and_truncate(source: &str, max_chars: usize) -> String {
 }
 
 /// Extract content between <body> and </body> tags (case-insensitive).
+#[allow(dead_code)]
 fn extract_body_content(html: &str) -> String {
     let lower = html.to_ascii_lowercase();
     let start = lower.find("<body").and_then(|i| lower[i..].find('>').map(|j| i + j + 1));
@@ -789,25 +590,5 @@ fn extract_body_content(html: &str) -> String {
     match (start, end) {
         (Some(s), Some(e)) if s < e => html[s..e].to_string(),
         _ => String::new(), // fallback: convert whole HTML
-    }
-}
-
-/// Fetch raw HTML via ureq (no html2text conversion).
-/// Fallback web fetch via ureq HTTP client (used when Chrome is unavailable).
-fn tool_web_fetch_ureq(url: &str, max_chars: usize) -> String {
-    let result = crate::web::routes::tools::fetch_url_as_text(url, max_chars);
-
-    if let Some(true) = result.get("success").and_then(|v| v.as_bool()) {
-        result
-            .get("result")
-            .and_then(|v| v.as_str())
-            .unwrap_or("(empty page)")
-            .to_string()
-    } else {
-        let error = result
-            .get("error")
-            .and_then(|v| v.as_str())
-            .unwrap_or("Unknown error");
-        format!("Error fetching URL: {error}")
     }
 }

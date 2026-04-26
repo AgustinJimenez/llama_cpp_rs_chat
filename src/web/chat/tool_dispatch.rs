@@ -128,13 +128,13 @@ pub(super) fn run_native_tool_with_timeout(
     web_search_api_key: Option<&str>,
     conversation_id: &str,
     use_htmd: bool,
-    browser_backend: crate::web::browser::BrowserBackend,
+    _browser_backend: crate::web::browser::BrowserBackend,
     mcp_manager: Option<Arc<crate::web::mcp::McpManager>>,
     db: crate::web::database::SharedDatabase,
 ) -> Option<native_tools::NativeToolResult> {
     let cmd = command_text.to_string();
-    let provider = web_search_provider.map(|s| s.to_string());
-    let api_key = web_search_api_key.map(|s| s.to_string());
+    let _provider = web_search_provider.map(|s| s.to_string());
+    let _api_key = web_search_api_key.map(|s| s.to_string());
     let mcp = mcp_manager.clone();
     let db = db.clone();
 
@@ -148,10 +148,7 @@ pub(super) fn run_native_tool_with_timeout(
     std::thread::spawn(move || {
         let result = native_tools::dispatch_native_tool(
             &cmd,
-            provider.as_deref(),
-            api_key.as_deref(),
             use_htmd,
-            &browser_backend,
             mcp.as_deref(),
             Some(&db),
         );

@@ -514,10 +514,7 @@ fn execute_openai_tool(name: &str, arguments_json: &str) -> String {
     // Use dispatch_native_tool for full tool support
     match crate::web::native_tools::dispatch_native_tool(
         &tool_json,
-        None, // web_search_provider
-        None, // web_search_api_key
-        true, // use_htmd (allow web_fetch html-to-md)
-        &crate::web::browser::BrowserBackend::Chrome,
+        true,
         None, // mcp_manager
         None, // db
     ) {
