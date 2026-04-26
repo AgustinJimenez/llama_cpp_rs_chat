@@ -39,10 +39,20 @@ export const BrowserView = React.memo(() => {
   const panelRef = useRef<HTMLDivElement>(null);
   const skipHistoryPushRef = useRef(false);
   const panelOpenedRef = useRef(false);
+  const pendingNavigateRef = useRef(false);
+
+  // Open Google as default page when browser view opens with no URL
+  useEffect(() => {
+    if (isBrowserViewOpen && !browserViewUrl) {
+      openBrowserView('https://www.google.com');
+    }
+  }, [isBrowserViewOpen, browserViewUrl, openBrowserView]);
 
   // Keep URL input + history in sync when external state changes
   useEffect(() => {
     if (!browserViewUrl) return;
+    // External URL change (agent navigation) — navigate the panel
+    if (TAURI && panelOpenedRef.current) pendingNavigateRef.current = true;
     setUrlInput(browserViewUrl);
     setLoadFailed(false);
     setIframeKey((k) => k + 1);
@@ -59,16 +69,29 @@ export const BrowserView = React.memo(() => {
     });
     setHistoryIdx((prev) => {
       // If URL matched the current entry, idx unchanged; otherwise advance
+      if (TAURI && prev >= 0) setHasGoBack(true);
       return prev + 1;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [browserViewUrl]);
 
-  const canGoBack = historyIdx > 0;
-  const canGoForward = historyIdx >= 0 && historyIdx < history.length - 1;
+  // In Tauri mode, back is always available (native webview tracks its own history).
+  // Forward is only available after going back. We track this with a simple flag.
+  const [hasGoBack, setHasGoBack] = useState(false);
+  const [hasGoForward, setHasGoForward] = useState(false);
+  const canGoBack = TAURI ? isBrowserViewOpen && hasGoBack : historyIdx > 0;
+  const canGoForward = TAURI
+    ? isBrowserViewOpen && hasGoForward
+    : historyIdx >= 0 && historyIdx < history.length - 1;
 
   const goBack = () => {
-    if (!canGoBack) return;
+    if (TAURI && panelOpenedRef.current) {
+      tauriInvoke('browser_panel_go_back').catch(() => {});
+      showLoading();
+      setHasGoForward(true); // After going back, forward is available
+      return;
+    }
+    if (historyIdx <= 0) return;
     const newIdx = historyIdx - 1;
     setHistoryIdx(newIdx);
     skipHistoryPushRef.current = true;
@@ -76,7 +99,13 @@ export const BrowserView = React.memo(() => {
   };
 
   const goForward = () => {
-    if (!canGoForward) return;
+    if (TAURI && panelOpenedRef.current) {
+      tauriInvoke('browser_panel_go_forward').catch(() => {});
+      showLoading();
+      setHasGoForward(false); // After going forward, no more forward
+      return;
+    }
+    if (historyIdx >= history.length - 1) return;
     const newIdx = historyIdx + 1;
     setHistoryIdx(newIdx);
     skipHistoryPushRef.current = true;
@@ -103,11 +132,14 @@ export const BrowserView = React.memo(() => {
       };
       try {
         if (open && !panelOpenedRef.current) {
+          // First time — create the webview
           await tauriInvoke('browser_panel_open', args);
           panelOpenedRef.current = true;
         } else if (panelOpenedRef.current) {
-          // Already open — either navigate or just resize
-          if (open) {
+          // Already exists — navigate only if explicitly requested (URL bar),
+          // otherwise just resize (re-show from hidden preserves current page).
+          if (pendingNavigateRef.current) {
+            pendingNavigateRef.current = false;
             await tauriInvoke('browser_panel_navigate', { url: browserViewUrl });
           }
           await tauriInvoke('browser_panel_resize', {
@@ -137,11 +169,19 @@ export const BrowserView = React.memo(() => {
     };
   }, [browserViewUrl, isBrowserViewOpen]);
 
-  // Close the Tauri panel when the browser view is hidden or cleared.
+  // Hide/show the Tauri panel when the browser view is toggled.
+  // Only destroy on explicit URL clear — toggling just hides it to preserve navigation.
   useEffect(() => {
-    if ((!browserViewUrl || !isBrowserViewOpen) && TAURI && panelOpenedRef.current) {
+    if (!TAURI || !panelOpenedRef.current) return;
+    if (!browserViewUrl) {
+      // URL cleared — destroy the panel
       tauriInvoke('browser_panel_close').catch(() => {});
       panelOpenedRef.current = false;
+    } else if (!isBrowserViewOpen) {
+      // Just hidden — move off-screen to hide without destroying
+      tauriInvoke('browser_panel_resize', { x: -9999, y: -9999, width: 1, height: 1 }).catch(
+        () => {},
+      );
     }
   }, [browserViewUrl, isBrowserViewOpen]);
 
@@ -172,6 +212,9 @@ export const BrowserView = React.memo(() => {
     if (fullUrl === browserViewUrl && TAURI && panelOpenedRef.current) {
       tauriInvoke('browser_panel_navigate', { url: fullUrl }).catch(() => {});
     }
+    if (TAURI && browserViewUrl) setHasGoBack(true);
+    setHasGoForward(false);
+    pendingNavigateRef.current = true; // Tell the effect to navigate
     openBrowserView(fullUrl);
   };
 
@@ -182,13 +225,45 @@ export const BrowserView = React.memo(() => {
     }
   };
 
-  const handleReload = () => setIframeKey((k) => k + 1);
+  const handleReload = () => {
+    if (TAURI && panelOpenedRef.current) {
+      // Reload the webview's actual current page (not React's browserViewUrl,
+      // which may be stale if the user clicked links inside the webview)
+      tauriInvoke('browser_panel_reload').catch(() => {});
+      showLoading();
+    } else {
+      setIframeKey((k) => k + 1);
+    }
+  };
 
   const handleIframeLoad = () => setLoadFailed(false);
   const handleIframeError = () => setLoadFailed(true);
 
+  // Loading indicator — shows briefly when navigating
+  const [isPageLoading, setIsPageLoading] = useState(false);
+  const loadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showLoading = () => {
+    setIsPageLoading(true);
+    if (loadingTimerRef.current) clearTimeout(loadingTimerRef.current);
+    const LOADING_DISPLAY_MS = 3000;
+    loadingTimerRef.current = setTimeout(() => setIsPageLoading(false), LOADING_DISPLAY_MS);
+  };
+  useEffect(() => {
+    if (browserViewUrl) showLoading();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [browserViewUrl]);
+
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
+      {/* Loading bar */}
+      {isPageLoading ? (
+        <div className="h-0.5 bg-primary/30 overflow-hidden">
+          <div
+            className="h-full bg-primary animate-pulse"
+            style={{ width: '60%', animation: 'loading-bar 1.5s ease-in-out infinite' }}
+          />
+        </div>
+      ) : null}
       {/* URL bar */}
       <div className="flex items-center gap-1 px-3 py-2 border-b border-border bg-muted/30">
         <button

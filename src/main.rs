@@ -1232,6 +1232,30 @@ async fn browser_panel_navigate(app: AppHandle, url: String) -> Result<(), Strin
 }
 
 #[tauri::command]
+async fn browser_panel_reload(app: AppHandle) -> Result<(), String> {
+    let webview = app.webviews().get(BROWSER_PANEL_LABEL).cloned()
+        .ok_or("Browser panel not open")?;
+    webview.eval("window.location.reload()").map_err(|e| format!("Reload failed: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn browser_panel_go_back(app: AppHandle) -> Result<(), String> {
+    let webview = app.webviews().get(BROWSER_PANEL_LABEL).cloned()
+        .ok_or("Browser panel not open")?;
+    webview.eval("window.history.back()").map_err(|e| format!("Back failed: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn browser_panel_go_forward(app: AppHandle) -> Result<(), String> {
+    let webview = app.webviews().get(BROWSER_PANEL_LABEL).cloned()
+        .ok_or("Browser panel not open")?;
+    webview.eval("window.history.forward()").map_err(|e| format!("Forward failed: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
 async fn browser_panel_resize(
     app: AppHandle,
     x: f64,
@@ -1513,6 +1537,9 @@ fn main() {
             // Native browser panel (Tauri-only real webview)
             browser_panel_open,
             browser_panel_navigate,
+            browser_panel_reload,
+            browser_panel_go_back,
+            browser_panel_go_forward,
             browser_panel_resize,
             browser_panel_close,
             // Providers
