@@ -45,12 +45,14 @@ function relativeTime(timestamp: string): string {
   if (parts.length < TIMESTAMP_PARTS_COUNT) return timestamp;
   const [year, month, day, hour, minute, second] = parts;
   const date = new Date(
-    Number(year),
-    Number(month) - 1,
-    Number(day),
-    Number(hour),
-    Number(minute),
-    Number(second),
+    Date.UTC(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute),
+      Number(second),
+    ),
   );
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
@@ -74,15 +76,17 @@ function getDateGroup(timestamp: string): string {
   const parts = timestamp.split('-');
   if (parts.length < 3) return 'Older';
   const date = new Date(
-    Number(parts[0]),
-    Number(parts[1]) - 1,
-    Number(parts[2]),
-    parts.length >= 4 ? Number(parts[3]) : 0,
-    parts.length >= 5 ? Number(parts[4]) : 0,
-    parts.length >= TIMESTAMP_PARTS_COUNT ? Number(parts[5]) : 0,
+    Date.UTC(
+      Number(parts[0]),
+      Number(parts[1]) - 1,
+      Number(parts[2]),
+      parts.length >= 4 ? Number(parts[3]) : 0,
+      parts.length >= 5 ? Number(parts[4]) : 0,
+      parts.length >= TIMESTAMP_PARTS_COUNT ? Number(parts[5]) : 0,
+    ),
   );
   const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const yesterday = new Date(today);
   yesterday.setDate(yesterday.getDate() - 1);
   const weekAgo = new Date(today);
