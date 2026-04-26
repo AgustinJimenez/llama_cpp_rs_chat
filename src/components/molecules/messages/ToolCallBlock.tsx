@@ -104,7 +104,7 @@ const TOOL_SUMMARIZERS: Record<string, (args: Record<string, unknown>) => string
 };
 
 function formatParamValue(key: string, val: unknown): string {
-  if (key === 'summary') return val ? 'Yes' : 'No';
+  if (key === 'summary') return val === false || val === 'false' || val === 'no' ? 'No' : 'Yes';
   if (typeof val === 'boolean') return val ? 'Yes' : 'No';
   if (typeof val === 'string') return val;
   return JSON.stringify(val);

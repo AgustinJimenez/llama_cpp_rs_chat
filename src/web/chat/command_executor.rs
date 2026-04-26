@@ -539,8 +539,10 @@ pub fn check_and_execute_command_with_tags(
             let summary_disabled = cmd_lower.contains("\"summary\": false")
                 || cmd_lower.contains("\"summary\":false")
                 || cmd_lower.contains("\"summary\": \"false\"")
+                || cmd_lower.contains("\"summary\":\"false\"")
                 || cmd_lower.contains("summary>\nfalse")
-                || cmd_lower.contains("summary>false");
+                || cmd_lower.contains("summary>false")
+                || cmd_lower.contains("summary>\n\"false\"");
             let (display_text, model_text) = if summary_disabled {
                 // Model wants raw output — skip summarization
                 (sanitized.clone(), sanitized)
