@@ -529,7 +529,7 @@ async fn generate_stream(
                     },
                 );
 
-                // Auto-generate title in background
+                // Auto-generate/update title in background
                 let bridge_bg: SharedWorkerBridge = app.state::<SharedWorkerBridge>().inner().clone();
                 let db_bg: SharedDatabase = app.state::<SharedDatabase>().inner().clone();
                 let conv_id_for_title = conversation_id.clone();
@@ -543,8 +543,35 @@ async fn generate_stream(
                     let first_user = messages.iter().find(|m| m.role == "user");
                     let first_asst = messages.iter().find(|m| m.role == "assistant");
                     if first_user.is_none() || first_asst.is_none() { return; }
+
+                    // Check if title already exists
+                    let existing_title = db_bg.list_conversations().ok()
+                        .and_then(|convs| convs.into_iter().find(|c| c.id == conv_clean))
+                        .map(|c| c.title)
+                        .unwrap_or_default();
+
                     let fu: String = first_user.unwrap().content.chars().take(200).collect();
                     let fa: String = first_asst.unwrap().content.chars().take(200).collect();
+
+                    if !existing_title.is_empty() {
+                        // Title exists — only update if topic changed
+                        // (last user message is substantially different from first)
+                        let last_user = messages.iter().rev().find(|m| m.role == "user");
+                        if let Some(lu) = last_user {
+                            let fu_content = &first_user.unwrap().content;
+                            // Same user message or auto-continue ("Continue working on")
+                            if lu.content == *fu_content
+                                || lu.content.starts_with("Continue working on")
+                                || lu.content == "Continue"
+                            {
+                                eprintln!("[TAURI_TITLE] Same topic, keeping: '{existing_title}'");
+                                return;
+                            }
+                        }
+                        eprintln!("[TAURI_TITLE] Topic may have changed, regenerating");
+                    }
+
+                    // Generate new title
                     let prompt = format!("User: {fu}\nAssistant: {fa}");
                     match bridge_bg.generate_title(conv_clean, &prompt).await {
                         Ok(raw) => {
@@ -552,7 +579,6 @@ async fn generate_stream(
                             eprintln!("[TAURI_TITLE] Generated: '{title}'");
                             if !title.is_empty() {
                                 let _ = db_bg.update_conversation_title(conv_clean, &title);
-                                // Notify frontend to refresh sidebar
                                 let _ = app.emit("conversation-title-updated", serde_json::json!({
                                     "conversation_id": conv_clean,
                                     "title": title,
