@@ -32,7 +32,9 @@ fn sanitize_level(level: &str) -> &str {
 fn truncate_message(mut message: String) -> String {
     const MAX_LEN: usize = 20_000;
     if message.len() > MAX_LEN {
-        message.truncate(MAX_LEN);
+        let mut end = MAX_LEN;
+        while end < message.len() && !message.is_char_boundary(end) { end += 1; }
+        message.truncate(end);
         message.push_str("…[truncated]");
     }
     message

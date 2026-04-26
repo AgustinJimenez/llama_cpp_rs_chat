@@ -20,7 +20,9 @@ struct RecordAppErrorRequest {
 
 fn truncate_text(mut text: String, max_len: usize) -> String {
     if text.len() > max_len {
-        text.truncate(max_len);
+        let mut end = max_len;
+        while end < text.len() && !text.is_char_boundary(end) { end += 1; }
+        text.truncate(end);
         text.push_str("…[truncated]");
     }
     text

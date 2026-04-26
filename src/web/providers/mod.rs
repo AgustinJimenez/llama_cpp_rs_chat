@@ -168,6 +168,61 @@ pub async fn list_providers_with_keys(api_keys_json: Option<&str>) -> Vec<Provid
     providers
 }
 
+/// Synchronous variant for Tauri commands — lists providers without async CLI checks.
+pub fn list_configured_providers_with_keys(api_keys_json: Option<&str>) -> Vec<ProviderInfo> {
+    let mut providers = vec![
+        ProviderInfo {
+            id: "local".into(),
+            name: "Local Model (llama.cpp)".into(),
+            available: true,
+            description: "Run models locally on your GPU".into(),
+            version: None,
+            models: Vec::new(),
+        },
+    ];
+    // Add OpenAI-compatible providers from presets
+    for preset in openai_compat::PROVIDER_PRESETS {
+        let has_key = openai_compat::resolve_api_key(preset.id, api_keys_json).is_some();
+        providers.push(ProviderInfo {
+            id: preset.id.into(),
+            name: preset.name.into(),
+            available: has_key,
+            description: preset.description.into(),
+            version: None,
+            models: preset.models.iter().map(|s| s.to_string()).collect(),
+        });
+    }
+    providers
+}
+
+/// List CLI-based providers (Claude Code, Codex) with availability checks.
+pub async fn list_cli_providers() -> Vec<ProviderInfo> {
+    let claude_available = claude_code::is_available().await;
+    let codex_available = codex::is_available().await;
+    let mut providers = Vec::new();
+    if claude_available {
+        providers.push(ProviderInfo {
+            id: "claude_code".into(),
+            name: "Claude Code".into(),
+            available: true,
+            description: "Use your Claude Code subscription".into(),
+            version: claude_code::get_version().await,
+            models: vec!["opus".into(), "sonnet".into(), "haiku".into()],
+        });
+    }
+    if codex_available {
+        providers.push(ProviderInfo {
+            id: "codex".into(),
+            name: "Codex CLI".into(),
+            available: true,
+            description: "Use your local Codex CLI session".into(),
+            version: codex::get_version().await,
+            models: vec!["gpt-5".into()],
+        });
+    }
+    providers
+}
+
 pub async fn generate(
     provider_id: &str,
     prompt: &str,

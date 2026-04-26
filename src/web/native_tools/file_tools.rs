@@ -536,7 +536,9 @@ fn simple_diff(old: &str, new: &str, path: &str) -> String {
 
     // Truncate if too long
     if diff.len() > 2000 {
-        diff.truncate(1800);
+        let mut end = 1800;
+        while end < diff.len() && !diff.is_char_boundary(end) { end += 1; }
+        diff.truncate(end);
         diff.push_str("\n... (diff truncated)\n");
     }
 

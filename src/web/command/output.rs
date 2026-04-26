@@ -77,7 +77,9 @@ pub fn truncate_command_output(text: &str) -> String {
 
     // Hard character limit
     if result.len() > MAX_COMMAND_OUTPUT_CHARS {
-        result.truncate(MAX_COMMAND_OUTPUT_CHARS);
+        let mut end = MAX_COMMAND_OUTPUT_CHARS;
+        while end < result.len() && !result.is_char_boundary(end) { end += 1; }
+        result.truncate(end);
         result.push_str("\n... (output truncated)");
     }
 
