@@ -234,6 +234,7 @@ pub async fn handle_websocket(
                                     // Get conversation_id and timings from completion result
                                     match done_rx.await {
                                         Ok(GenerationResult::Complete { conversation_id, prompt_tok_per_sec, gen_tok_per_sec, gen_eval_ms, gen_tokens, prompt_eval_ms, prompt_tokens, finish_reason, token_breakdown, .. }) => {
+                                            eprintln!("[WS_CHAT] Generation complete: conv={}, finish={:?}", conversation_id, finish_reason);
                                             let done_msg = serde_json::json!({
                                                 "type": "done",
                                                 "conversation_id": conversation_id,
@@ -252,11 +253,14 @@ pub async fn handle_websocket(
                                             sys_debug!("[WS_CHAT] Done message sent");
 
                                             // Background: auto-generate/update title after each response
+                                            // Brief delay to let the worker's generation thread fully join
                                             {
                                                 let conv_id_clean = conversation_id.trim_end_matches(".txt").to_string();
                                                 let db_bg = db.clone();
                                                 let bridge_bg = bridge.clone();
                                                 tokio::spawn(async move {
+                                                    // Wait for worker generation thread to fully join
+                                                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                                                     let messages = match db_bg.get_messages(&conv_id_clean) {
                                                         Ok(m) => m,
                                                         Err(_) => return,
@@ -285,16 +289,18 @@ pub async fn handle_websocket(
                                                         }
                                                     }
 
+                                                    eprintln!("[WS_TITLE] Requesting title for {conv_id_clean}");
                                                     match bridge_bg.generate_title(&conv_id_clean, &prompt).await {
                                                         Ok(raw_title) => {
                                                             let title = sanitize_title(&raw_title);
+                                                            eprintln!("[WS_TITLE] Generated: '{title}' (raw: '{raw_title}')");
                                                             if !title.is_empty() {
                                                                 if let Err(e) = db_bg.update_conversation_title(&conv_id_clean, &title) {
-                                                                    eprintln!("[WS_CHAT] Failed to store title: {e}");
+                                                                    eprintln!("[WS_TITLE] Failed to store: {e}");
                                                                 }
                                                             }
                                                         }
-                                                        Err(e) => eprintln!("[WS_CHAT] Title generation failed: {e}"),
+                                                        Err(e) => eprintln!("[WS_TITLE] Title generation FAILED: {e}"),
                                                     }
                                                 });
                                             }
@@ -685,7 +691,7 @@ pub async fn handle_camofox_screencast_ws(
 }
 
 /// Clean up model-generated title: strip quotes, markdown, "Title:" prefix, truncate.
-fn sanitize_title(raw: &str) -> String {
+pub fn sanitize_title(raw: &str) -> String {
     let mut s = raw.trim().to_string();
     // Strip leading "Title:" or "title:" prefix
     if let Some(rest) = s.strip_prefix("Title:").or_else(|| s.strip_prefix("title:")) {

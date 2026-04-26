@@ -516,7 +516,7 @@ async fn generate_stream(
                     "chat-done",
                     ChatDoneEvent {
                         event_type: "done".into(),
-                        conversation_id: Some(conversation_id),
+                        conversation_id: Some(conversation_id.clone()),
                         tokens_used: Some(tokens_used),
                         max_tokens: Some(max_tokens),
                         error: None,
@@ -528,6 +528,35 @@ async fn generate_stream(
                         prompt_tokens,
                     },
                 );
+
+                // Auto-generate title in background
+                let bridge_bg: SharedWorkerBridge = app.state::<SharedWorkerBridge>().inner().clone();
+                let db_bg: SharedDatabase = app.state::<SharedDatabase>().inner().clone();
+                let conv_id_for_title = conversation_id.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    let conv_clean = conv_id_for_title.trim_end_matches(".txt");
+                    let messages = match db_bg.get_messages(conv_clean) {
+                        Ok(m) => m,
+                        Err(_) => return,
+                    };
+                    let first_user = messages.iter().find(|m| m.role == "user");
+                    let first_asst = messages.iter().find(|m| m.role == "assistant");
+                    if first_user.is_none() || first_asst.is_none() { return; }
+                    let fu: String = first_user.unwrap().content.chars().take(200).collect();
+                    let fa: String = first_asst.unwrap().content.chars().take(200).collect();
+                    let prompt = format!("User: {fu}\nAssistant: {fa}");
+                    match bridge_bg.generate_title(conv_clean, &prompt).await {
+                        Ok(raw) => {
+                            let title = crate::web::websocket::sanitize_title(&raw);
+                            eprintln!("[TAURI_TITLE] Generated: '{title}'");
+                            if !title.is_empty() {
+                                let _ = db_bg.update_conversation_title(conv_clean, &title);
+                            }
+                        }
+                        Err(e) => eprintln!("[TAURI_TITLE] Failed: {e}"),
+                    }
+                });
             }
             Ok(GenerationResult::Cancelled) => {
                 let _ = app.emit(
