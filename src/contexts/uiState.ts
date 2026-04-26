@@ -30,6 +30,7 @@ export interface UIContextValue {
   browserViewTabId: string | null;
   isBrowserViewOpen: boolean;
   openBrowserView: (url: string, camofoxTabId?: string) => void;
+  setBrowserViewUrlOnly: (url: string) => void;
   closeBrowserView: () => void;
   toggleBrowserView: () => void;
 }

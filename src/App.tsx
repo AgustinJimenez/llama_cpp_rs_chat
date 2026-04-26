@@ -36,7 +36,13 @@ const ModelConfigModal = React.lazy(() =>
 const App = () => {
   const { status: modelStatus, loadModel, unloadModel, forceUnload } = useModelContext();
   const { clearMessages } = useChatContext();
-  const { closeModelConfig, openAppSettings, openBrowserView, clearBrowserView } = useUIContext();
+  const {
+    closeModelConfig,
+    openAppSettings,
+    openBrowserView,
+    clearBrowserView,
+    setBrowserViewUrlOnly,
+  } = useUIContext();
 
   // Listen for Tauri menu/tray events
   useEffect(() => {
@@ -75,7 +81,9 @@ const App = () => {
         __closeBrowserView?: () => void;
       }
     ).__openBrowserView = (url: string) => {
-      openBrowserView(url);
+      // Only set the URL (for agent background navigation).
+      // Does NOT auto-open the panel — user toggles it manually.
+      setBrowserViewUrlOnly(url);
     };
     (
       window as Window & {
@@ -100,7 +108,7 @@ const App = () => {
         }
       ).__closeBrowserView;
     };
-  }, [openBrowserView, clearBrowserView]);
+  }, [openBrowserView, clearBrowserView, setBrowserViewUrlOnly]);
 
   const handleNewConversation = useCallback(() => {
     clearMessages();

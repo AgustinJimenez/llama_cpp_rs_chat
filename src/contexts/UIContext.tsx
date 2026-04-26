@@ -43,6 +43,10 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
     setBrowserViewTabId(camofoxTabId ?? null);
     setIsBrowserViewOpen(true);
   }, []);
+  // Set URL without opening the panel (for agent background navigation)
+  const setBrowserViewUrlOnly = useCallback((url: string) => {
+    setBrowserViewUrl(url);
+  }, []);
   const closeBrowserView = useCallback(() => {
     setIsBrowserViewOpen(false);
     setBrowserViewUrl(null);
@@ -78,6 +82,7 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
       browserViewTabId,
       isBrowserViewOpen,
       openBrowserView,
+      setBrowserViewUrlOnly,
       closeBrowserView,
       toggleBrowserView,
     }),
@@ -108,6 +113,7 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
       browserViewTabId,
       isBrowserViewOpen,
       openBrowserView,
+      setBrowserViewUrlOnly,
       closeBrowserView,
       toggleBrowserView,
     ],

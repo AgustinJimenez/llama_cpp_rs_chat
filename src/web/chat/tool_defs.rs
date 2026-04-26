@@ -403,9 +403,9 @@ static ALL_TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "browser_get_html",
-        description: "Get the full HTML of the current page. Useful for scraping or debugging selectors. Output may be truncated if very large. Set summary=false to get raw HTML (for parsing), or summary=true (default) to get an AI-summarized version.",
+        description: "Get the full HTML of the current page. Large output is summarized by default — pass a custom summary prompt to extract exactly what you need and save tokens.",
         params: Params::Simple(&[
-            p("summary", "boolean", "If true (default), large output is AI-summarized. Set false to get raw/truncated HTML for parsing."),
+            p("summary", "string", "'false' for raw HTML, 'true' (default) for generic summary, or a custom prompt to extract specific data (e.g. 'extract all article titles, URLs, and dates'). Custom prompts save tokens by returning only what you need."),
         ]),
         required: &[],
     },
@@ -429,25 +429,25 @@ static ALL_TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "browser_get_text",
-        description: "Get the visible text of the current page (innerText). Strips HTML tags, scripts, styles. Much smaller than browser_get_html — prefer this for reading page content.",
+        description: "Get the visible text of the current page. Strips HTML tags. Large output is summarized by default — pass a custom summary prompt to extract exactly what you need and save tokens.",
         params: Params::Simple(&[
-            p("summary", "string", "Controls output summarization. 'false' for raw text, 'true' (default) for AI summary, or a custom prompt string (e.g. 'extract article titles and URLs')."),
+            p("summary", "string", "'false' for raw text, 'true' (default) for generic summary, or a custom prompt (e.g. 'summarize the main article in 3 sentences', 'extract the pricing table'). Custom prompts save tokens."),
         ]),
         required: &[],
     },
     ToolDef {
         name: "browser_get_links",
-        description: "Get all links on the current page as a list of {text, href} pairs. Useful for discovering navigation targets without parsing HTML.",
+        description: "Get all links on the current page as {text, href} pairs. Large output is summarized by default — pass a custom prompt to filter (e.g. 'only article links, skip navigation').",
         params: Params::Simple(&[
-            p("summary", "string", "Controls output summarization. 'false' for raw links, 'true' (default) for AI summary, or a custom prompt string."),
+            p("summary", "string", "'false' for all links raw, 'true' (default) for summary, or a custom prompt to filter/extract specific links."),
         ]),
         required: &[],
     },
     ToolDef {
         name: "browser_snapshot",
-        description: "Get the accessibility snapshot of the page — a structured list of interactable elements (buttons, links, inputs) with labels and types. Compact and focused on what the agent can interact with.",
+        description: "Get the accessibility snapshot — interactable elements (buttons, links, inputs) with labels. Compact view of what can be clicked/typed.",
         params: Params::Simple(&[
-            p("summary", "string", "Controls output summarization. 'false' for raw data, 'true' (default) for AI summary, or a custom prompt string."),
+            p("summary", "string", "'false' for raw data, 'true' (default) for summary, or a custom prompt."),
         ]),
         required: &[],
     },
