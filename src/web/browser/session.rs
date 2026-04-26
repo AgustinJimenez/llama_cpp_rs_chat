@@ -509,7 +509,7 @@ pub fn open_session(url: &str) -> Result<TauriHttpSession, String> {
 }
 
 /// Execute JavaScript in the browser-panel webview via the MCP bridge REST endpoint.
-fn eval_in_browser_panel(js: &str) -> Result<String, String> {
+pub fn eval_in_browser_panel(js: &str) -> Result<String, String> {
     // Retry up to 3 times — COM callback can fail during heavy generation
     for attempt in 0..3 {
         let resp = ureq::AgentBuilder::new()

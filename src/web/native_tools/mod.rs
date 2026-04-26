@@ -1150,15 +1150,19 @@ fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
             Err(e) => NativeToolResult::text_only(format!("get_html failed: {e}")),
         },
         "screenshot" => {
-            // Try real screenshot first (Camofox), then return page text (HTTP mode)
+            // Try Camofox screenshot first
             if let Ok(bytes) = session.screenshot() {
                 NativeToolResult::with_image("Screenshot captured.".into(), bytes)
             } else {
-                let text = session.url().to_string();
-                NativeToolResult::text_only(format!(
-                    "Screenshot not available in HTTP mode. Use browser_get_text or browser_get_links to read the page at {}",
-                    text
-                ))
+                // No visual screenshot — return page info + suggestion
+                match super::browser::session::eval_in_browser_panel("document.title + ' — ' + window.location.href") {
+                    Ok(info) => NativeToolResult::text_only(format!(
+                        "Visual screenshot not available. Page: {info}\nUse browser_get_text to read content or browser_query to extract structured data."
+                    )),
+                    Err(_) => NativeToolResult::text_only(
+                        "Screenshot not available. Use browser_get_text or browser_query instead.".into()
+                    ),
+                }
             }
         },
         "wait" => {

@@ -426,12 +426,9 @@ static ALL_TOOLS: &[ToolDef] = &[
         ]),
         required: &[],
     },
-    ToolDef {
-        name: "browser_screenshot",
-        description: "Capture a screenshot of the current browser page. Returns an image visible to vision-capable models.",
-        params: Params::Simple(&[]),
-        required: &[],
-    },
+    // browser_screenshot: not exposed — browser_get_text is better for content reading,
+    // and the hidden webview can't capture visual screenshots. The handler still exists
+    // in case models call it (returns page info + suggests alternatives).
     ToolDef {
         name: "browser_wait",
         description: "Wait for a CSS selector to appear in the page (after navigation, AJAX load, etc.). Returns true if found, false on timeout.",
