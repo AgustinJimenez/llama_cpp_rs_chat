@@ -1206,7 +1206,13 @@ async fn browser_panel_open(
         tokio::time::sleep(std::time::Duration::from_millis(80)).await;
     }
     let parsed = parse_url(&url)?;
-    let builder = WebviewBuilder::new(BROWSER_PANEL_LABEL, WebviewUrl::External(parsed));
+    // Persistent data directory for cookies/sessions across app restarts
+    let data_dir = app.path().app_data_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join("browser_data");
+    let builder = WebviewBuilder::new(BROWSER_PANEL_LABEL, WebviewUrl::External(parsed))
+        .data_directory(data_dir)
+        .zoom_hotkeys_enabled(true);
     main_window
         .add_child(
             builder,
@@ -1228,6 +1234,46 @@ async fn browser_panel_navigate(app: AppHandle, url: String) -> Result<(), Strin
     webview
         .navigate(parsed)
         .map_err(|e| format!("Navigate failed: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn browser_panel_get_info(app: AppHandle) -> Result<serde_json::Value, String> {
+    let webview = app.webviews().get(BROWSER_PANEL_LABEL).cloned()
+        .ok_or("Browser panel not open")?;
+    let url = webview.url().map(|u| u.to_string()).unwrap_or_default();
+    // Get title via eval — fire-and-forget eval doesn't return, so we use
+    // a simple heuristic: return the URL-based title for now.
+    // The frontend will poll this periodically.
+    Ok(serde_json::json!({ "url": url }))
+}
+
+#[tauri::command]
+async fn browser_panel_zoom(app: AppHandle, delta: f64) -> Result<f64, String> {
+    let webview = app.webviews().get(BROWSER_PANEL_LABEL).cloned()
+        .ok_or("Browser panel not open")?;
+    // Get current zoom, apply delta
+    // WebView2 default zoom is 1.0, range 0.25-5.0
+    // We'll use eval to read/set since Tauri's set_zoom is available
+    let current = webview.url().map(|_| 1.0_f64).unwrap_or(1.0); // placeholder
+    let new_zoom = (current + delta).clamp(0.25, 5.0);
+    webview.set_zoom(new_zoom).map_err(|e| format!("Zoom failed: {e}"))?;
+    Ok(new_zoom)
+}
+
+#[tauri::command]
+async fn browser_panel_set_zoom(app: AppHandle, zoom: f64) -> Result<(), String> {
+    let webview = app.webviews().get(BROWSER_PANEL_LABEL).cloned()
+        .ok_or("Browser panel not open")?;
+    webview.set_zoom(zoom.clamp(0.25, 5.0)).map_err(|e| format!("Zoom failed: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn browser_panel_eval_js(app: AppHandle, js: String) -> Result<(), String> {
+    let webview = app.webviews().get(BROWSER_PANEL_LABEL).cloned()
+        .ok_or("Browser panel not open")?;
+    webview.eval(&js).map_err(|e| format!("Eval failed: {e}"))?;
     Ok(())
 }
 
@@ -1537,6 +1583,10 @@ fn main() {
             // Native browser panel (Tauri-only real webview)
             browser_panel_open,
             browser_panel_navigate,
+            browser_panel_get_info,
+            browser_panel_zoom,
+            browser_panel_set_zoom,
+            browser_panel_eval_js,
             browser_panel_reload,
             browser_panel_go_back,
             browser_panel_go_forward,

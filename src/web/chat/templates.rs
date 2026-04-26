@@ -43,9 +43,9 @@ fn core_behavior_block() -> String {
 - Use `search_files` instead of grep/findstr. Use `find_files` instead of find/dir.
 - Use `list_directory` instead of ls/dir.
 - Use `execute_python` for Python code (avoids shell quoting issues).
-- Use `execute_command` for shell tools (npm, git, etc.). NEVER use curl/wget/python for web content — use web_search and browser_* tools instead.
+- Use `execute_command` for shell tools (npm, git, etc.).
 - Use `git_status`, `git_diff`, `git_commit` for git operations instead of `execute_command`.
-- **For web research**: use `web_search` to find URLs, then `browser_navigate` + `browser_get_text` to read each page. Do NOT use curl, wget, execute_command, or execute_python for web content.
+- **Web browsing**: Use `browser_navigate` to open pages, `browser_get_text` to read content, `browser_query` to extract structured data (CSS selectors). To search the web, navigate to `https://www.google.com/search?q=YOUR+QUERY` or `https://duckduckgo.com/?q=YOUR+QUERY`. Do NOT use curl, wget, execute_command, execute_python, or urllib to fetch web pages — those get blocked by bot detection. The browser tools use a real browser that handles JS and bypasses bot detection.
 - Use `open_url` ONLY when the user explicitly asks to open a page in their external/default browser outside the app. Never use `open_url` for normal browsing, search, page reading, or screenshots.
 - Use `take_screenshot` to see the user's screen. Use `click_screen`, `type_text`, `press_key` for desktop automation.
 - If a tool is not in PATH, use its full path (e.g., `C:\php\php.exe`) or download it and reference by full path.
@@ -58,8 +58,8 @@ fn core_behavior_block() -> String {
 - Use `list_background_processes` to see all tracked background processes and their status.
 
 ## Research First
-- When working with a framework or library you're not fully confident about, use `browser_navigate` + `browser_get_text` to read official docs BEFORE writing code. Your training data may be outdated.
-- When you hit a blocker, investigate with `browser_navigate`/`browser_get_text` instead of writing workarounds.
+- When working with a framework or library you're not fully confident about, search the web (browser_navigate to Google) to find docs, then `browser_get_text` to read them. Your training data may be outdated.
+- When you hit a blocker, search the web to investigate — never write Python/curl scripts to fetch web pages.
 - Prefer official docs over Stack Overflow or blog posts.
 
 ## Sub-Agents
@@ -184,9 +184,6 @@ After execution, the system injects the result between {output_open} and {output
 {exec_open}{{"name": "execute_command", "arguments": {{"command": "{list_cmd}", "background": false}}}}{exec_close}
 For servers/daemons: {exec_open}{{"name": "execute_command", "arguments": {{"command": "php artisan serve", "background": true}}}}{exec_close}
 
-### execute_python — Run Python code (multi-line, imports, regex all work)
-{exec_open}{{"name": "execute_python", "arguments": {{"code": "print('hello')"}}}}{exec_close}
-
 ### git_status — Show working tree status
 {exec_open}{{"name": "git_status", "arguments": {{}}}}{exec_close}
 
@@ -208,14 +205,14 @@ For servers/daemons: {exec_open}{{"name": "execute_command", "arguments": {{"com
 ### spawn_agent — Spawn a sub-agent for an isolated sub-task (fresh context)
 {exec_open}{{"name": "spawn_agent", "arguments": {{"task": "Install Node.js and set up a React project", "context": "Target directory: E:/projects/myapp"}}}}{exec_close}
 
-### web_search — Search the web (returns URLs and snippets)
-{exec_open}{{"name": "web_search", "arguments": {{"query": "rust async tutorial"}}}}{exec_close}
-
-### browser_navigate — Open a page in the browser (visible to user)
-{exec_open}{{"name": "browser_navigate", "arguments": {{"url": "https://example.com"}}}}{exec_close}
+### browser_navigate — Open a page or search the web
+{exec_open}{{"name": "browser_navigate", "arguments": {{"url": "https://www.google.com/search?q=rust+async+tutorial"}}}}{exec_close}
 
 ### browser_get_text — Read visible text from the current browser page
 {exec_open}{{"name": "browser_get_text", "arguments": {{}}}}{exec_close}
+
+### browser_query — Extract structured data using CSS selectors
+{exec_open}{{"name": "browser_query", "arguments": {{"selector": ".titleline > a", "attributes": "text,href", "limit": 5}}}}{exec_close}
 
 ### take_screenshot — Capture the user's screen (use monitor=-1 to list monitors)
 {exec_open}{{"name": "take_screenshot", "arguments": {{"monitor": 0}}}}{exec_close}

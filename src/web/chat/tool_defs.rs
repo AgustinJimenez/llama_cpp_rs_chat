@@ -252,28 +252,10 @@ static ALL_TOOLS: &[ToolDef] = &[
         ]),
         required: &[],
     },
-    // ─── 11. web_search ───
-    ToolDef {
-        name: "web_search",
-        description: "Search the web using the configured provider. Returns a list of results with titles, URLs, and descriptions. Use this to find current information, documentation, or answers.",
-        params: Params::Simple(&[
-            p("query", "string", "The search query"),
-            p("max_results", "integer", "Maximum number of results to return (default: 8)"),
-        ]),
-        required: &["query"],
-    },
-    // ─── 12. web_fetch ───
-    ToolDef {
-        name: "web_fetch",
-        description: "Fetch a web page and return its content as plain text. Use the prompt parameter to extract specific information instead of getting the full page.",
-        params: Params::Simple(&[
-            p("url", "string", "The URL to fetch"),
-            p("max_length", "integer", "Maximum characters to return (default: 15000)"),
-            p("prompt", "string", "What to extract from the page (e.g. 'Find the download link for Windows x64'). If set, returns only the relevant information instead of the full page."),
-            p("summary", "string", "Controls output summarization. 'false' for raw content, 'true' (default) for AI summary, or a custom prompt string."),
-        ]),
-        required: &["url"],
-    },
+    // web_search and web_fetch removed — browser tools (browser_navigate +
+    // browser_get_text + browser_query) replace them with a real browser that
+    // bypasses bot detection and handles JS-rendered pages.
+    // The handlers still exist for backward compatibility with existing conversations.
     // ─── 13. open_url ───
     ToolDef {
         name: "open_url",

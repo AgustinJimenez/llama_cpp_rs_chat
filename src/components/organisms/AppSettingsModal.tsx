@@ -89,59 +89,6 @@ const CLOUD_PROVIDERS = [
   },
 ];
 
-/** Camofox browser status indicator — shows download progress on first use. */
-const CamofoxStatus = () => {
-  const [status, setStatus] = useState<{
-    available: boolean;
-    healthy: boolean;
-    downloading: boolean;
-    message: string | null;
-  } | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    const poll = async () => {
-      try {
-        const res = await fetch('/api/camofox/status');
-        if (res.ok && active) {
-          setStatus(await res.json());
-        }
-      } catch {
-        /* ignore */
-      }
-    };
-    poll();
-    const POLL_MS = 3000;
-    const interval = setInterval(poll, POLL_MS);
-    return () => {
-      active = false;
-      clearInterval(interval);
-    };
-  }, []);
-
-  if (!status) return null;
-
-  let dotColor = 'bg-red-500';
-  let label = 'Camofox binary not found — build with: node scripts/build-camofox.mjs';
-  if (status.healthy) {
-    dotColor = 'bg-green-500';
-    label = 'Camofox server running';
-  } else if (status.downloading) {
-    dotColor = 'bg-yellow-500 animate-pulse';
-    label = status.message || 'Downloading Camoufox browser...';
-  } else if (status.available) {
-    dotColor = 'bg-orange-500';
-    label = 'Camofox binary found, server not running (starts on first search)';
-  }
-
-  return (
-    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/50 border border-border text-xs text-muted-foreground">
-      <span className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
-      <span>{label}</span>
-    </div>
-  );
-};
-
 // eslint-disable-next-line max-lines-per-function, complexity -- single cohesive form section, splitting would hurt readability
 const ProviderApiKeysSection = ({
   providerApiKeys,
@@ -446,10 +393,6 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
     }
   };
 
-  const provider = localConfig?.web_search_provider || 'Camofox';
-  const apiKey = localConfig?.web_search_api_key || '';
-  const browserBackend = localConfig?.web_browser_backend || 'camofox';
-
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-lg">
@@ -512,87 +455,8 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
                 </div>
               </div>
 
-              {/* Web Search Provider */}
-              <div className="space-y-2">
-                <label
-                  htmlFor="web-search-provider"
-                  className="text-sm font-medium text-foreground"
-                >
-                  Web Search Provider
-                </label>
-                <p className="text-xs text-muted-foreground">
-                  Choose which search engine the model uses for web_search tool calls.
-                </p>
-                <select
-                  id="web-search-provider"
-                  className="w-full px-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground"
-                  value={provider}
-                  onChange={(e) =>
-                    setLocalConfig((prev) =>
-                      prev ? { ...prev, web_search_provider: e.target.value } : prev,
-                    )
-                  }
-                >
-                  <option value="Camofox">Camofox (anti-detection Firefox → DuckDuckGo)</option>
-                  <option value="DuckDuckGo">DuckDuckGo (lightweight, no browser)</option>
-                </select>
-              </div>
-
-              {provider === 'Brave' ? (
-                <div className="space-y-2">
-                  <label htmlFor="brave-api-key" className="text-sm font-medium text-foreground">
-                    Brave API Key
-                  </label>
-                  <p className="text-xs text-muted-foreground">
-                    Stored in your local database and used only for Brave web_search.
-                  </p>
-                  <input
-                    id="brave-api-key"
-                    type="password"
-                    autoComplete="off"
-                    className="w-full px-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground"
-                    value={apiKey}
-                    placeholder="BRAVE_SEARCH_API_KEY"
-                    onChange={(e) =>
-                      setLocalConfig((prev) =>
-                        prev ? { ...prev, web_search_api_key: e.target.value } : prev,
-                      )
-                    }
-                  />
-                </div>
-              ) : null}
-
-              {(provider === 'Camofox' || browserBackend === 'camofox') && <CamofoxStatus />}
-
-              {/* Browser Backend */}
-              <div className="space-y-2">
-                <label
-                  htmlFor="web-browser-backend"
-                  className="text-sm font-medium text-foreground"
-                >
-                  Browser Backend
-                </label>
-                <p className="text-xs text-muted-foreground">
-                  Browser engine used for web_fetch and Chrome-based web_search. Lighter backends
-                  use less RAM.
-                </p>
-                <select
-                  id="web-browser-backend"
-                  className="w-full px-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground"
-                  value={browserBackend}
-                  onChange={(e) =>
-                    setLocalConfig((prev) =>
-                      prev ? { ...prev, web_browser_backend: e.target.value } : prev,
-                    )
-                  }
-                >
-                  <option value="chrome">Chrome (standard headless)</option>
-                  <option value="chrome-headless-shell">Chrome Headless Shell (lightweight)</option>
-                  <option value="agent-browser">Agent Browser (Playwright-based)</option>
-                  <option value="camofox">Camofox (anti-detection Firefox)</option>
-                  <option value="none">None (HTTP-only, no JS rendering)</option>
-                </select>
-              </div>
+              {/* Web browsing uses the built-in Tauri WebView — no external
+                  browser or API key configuration needed. */}
             </div>
           )}
 

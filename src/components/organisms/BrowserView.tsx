@@ -6,8 +6,12 @@ import {
   ChevronLeft,
   ChevronRight,
   MessageSquare,
+  ZoomIn,
+  ZoomOut,
+  Search,
+  X,
 } from 'lucide-react';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useUIContext } from '../../hooks/useUIContext';
 import { isTauriEnv } from '../../utils/tauri';
@@ -253,6 +257,71 @@ export const BrowserView = React.memo(() => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [browserViewUrl]);
 
+  // ─── URL bar sync: poll webview for actual current URL + title ───
+  const URL_POLL_MS = 2000;
+  useEffect(() => {
+    if (!TAURI || !isBrowserViewOpen || !panelOpenedRef.current) return undefined;
+    const poll = async () => {
+      try {
+        const info = await tauriInvoke<{ url: string }>('browser_panel_get_info');
+        if (info.url && info.url !== 'about:blank') {
+          setUrlInput(info.url);
+        }
+      } catch {
+        /* panel not open */
+      }
+    };
+    const interval = setInterval(poll, URL_POLL_MS);
+    poll(); // immediate first poll
+    return () => clearInterval(interval);
+  }, [isBrowserViewOpen]);
+
+  // ─── Zoom state ───
+  const [zoomLevel, setZoomLevel] = useState(1.0);
+  const ZOOM_STEP = 0.1;
+  const ZOOM_MIN = 0.25;
+  const ZOOM_MAX = 3.0;
+  const handleZoomIn = useCallback(async () => {
+    if (!TAURI) return;
+    const newZoom = Math.min(zoomLevel + ZOOM_STEP, ZOOM_MAX);
+    setZoomLevel(newZoom);
+    await tauriInvoke('browser_panel_set_zoom', { zoom: newZoom }).catch(() => {});
+  }, [zoomLevel]);
+  const handleZoomOut = useCallback(async () => {
+    if (!TAURI) return;
+    const newZoom = Math.max(zoomLevel - ZOOM_STEP, ZOOM_MIN);
+    setZoomLevel(newZoom);
+    await tauriInvoke('browser_panel_set_zoom', { zoom: newZoom }).catch(() => {});
+  }, [zoomLevel]);
+  const handleZoomReset = useCallback(async () => {
+    if (!TAURI) return;
+    setZoomLevel(1.0);
+    await tauriInvoke('browser_panel_set_zoom', { zoom: 1.0 }).catch(() => {});
+  }, []);
+
+  // ─── Find in page (JS-based) ───
+  const [showFind, setShowFind] = useState(false);
+  const [findQuery, setFindQuery] = useState('');
+  const findInputRef = useRef<HTMLInputElement>(null);
+  const handleFind = useCallback(async () => {
+    if (!TAURI || !findQuery.trim()) return;
+    const escaped = findQuery.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    await tauriInvoke('browser_panel_go_back').catch(() => {}); // dummy to check panel exists
+    // Use window.find() — built-in browser search
+    const js = `window.find('${escaped}', false, false, true)`;
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('browser_panel_eval_js', { js });
+    } catch {
+      // Fallback: try via the MCP eval endpoint
+      fetch('http://127.0.0.1:18091/api/eval', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ js, target: 'browser-panel' }),
+      }).catch(() => {});
+    }
+  }, [findQuery]);
+
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
       {/* Loading bar */}
@@ -310,9 +379,36 @@ export const BrowserView = React.memo(() => {
           <ArrowRight className="h-3.5 w-3.5" />
         </button>
         {browserViewUrl ? (
-          <button onClick={handleReload} className="btn-icon" title="Reload">
-            <RefreshCw className="h-3.5 w-3.5" />
-          </button>
+          <>
+            <button onClick={handleReload} className="btn-icon" title="Reload">
+              <RefreshCw className="h-3.5 w-3.5" />
+            </button>
+            <div className="border-l border-border h-4 mx-1" />
+            <button onClick={handleZoomOut} className="btn-icon" title="Zoom out">
+              <ZoomOut className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={handleZoomReset}
+              className="text-xs text-muted-foreground hover:text-foreground px-1 min-w-[3rem] text-center"
+              title="Reset zoom"
+            >
+              {Math.round(zoomLevel * 100)}%
+            </button>
+            <button onClick={handleZoomIn} className="btn-icon" title="Zoom in">
+              <ZoomIn className="h-3.5 w-3.5" />
+            </button>
+            <div className="border-l border-border h-4 mx-1" />
+            <button
+              onClick={() => {
+                setShowFind((p) => !p);
+                if (!showFind) setTimeout(() => findInputRef.current?.focus(), 100);
+              }}
+              className="btn-icon"
+              title="Find in page (Ctrl+F)"
+            >
+              <Search className="h-3.5 w-3.5" />
+            </button>
+          </>
         ) : null}
         <button
           onClick={() => {
@@ -324,6 +420,30 @@ export const BrowserView = React.memo(() => {
           <MessageSquare className="h-4 w-4" />
         </button>
       </div>
+      {/* Find bar */}
+      {showFind ? (
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-muted/50">
+          <Search className="h-3.5 w-3.5 text-muted-foreground" />
+          <input
+            ref={findInputRef}
+            type="text"
+            value={findQuery}
+            onChange={(e) => setFindQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleFind();
+              if (e.key === 'Escape') setShowFind(false);
+            }}
+            placeholder="Find in page..."
+            className="flex-1 bg-transparent text-sm outline-none text-foreground placeholder:text-muted-foreground"
+          />
+          <button onClick={handleFind} className="btn-icon text-xs" title="Find next">
+            <ArrowRight className="h-3 w-3" />
+          </button>
+          <button onClick={() => setShowFind(false)} className="btn-icon" title="Close">
+            <X className="h-3 w-3" />
+          </button>
+        </div>
+      ) : null}
 
       {/* Content area */}
       <div className="flex-1 overflow-hidden bg-background">
