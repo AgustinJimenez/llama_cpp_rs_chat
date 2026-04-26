@@ -401,8 +401,18 @@ static ALL_TOOLS: &[ToolDef] = &[
         required: &["selector", "text"],
     },
     ToolDef {
+        name: "browser_query",
+        description: "Extract structured data from the page using CSS selectors. Returns an array of matched elements with the requested attributes. Much simpler than browser_eval for data extraction.",
+        params: Params::Simple(&[
+            p("selector", "string", "CSS selector to match elements (e.g. '.titleline > a', 'article h2', 'table tr')"),
+            p("attributes", "string", "Comma-separated attributes to extract: 'text' (innerText), 'href', 'src', 'class', 'id', 'html' (outerHTML), or any HTML attribute. Default: 'text'"),
+            p("limit", "integer", "Max number of elements to return (default: 20)"),
+        ]),
+        required: &["selector"],
+    },
+    ToolDef {
         name: "browser_eval",
-        description: "Evaluate arbitrary JavaScript in the browser page context and return the result. Use for queries that don't fit click/type (e.g. read computed styles, extract data, scroll, dispatch events). Return value must be JSON-serializable.",
+        description: "Evaluate arbitrary JavaScript in the browser page context and return the result. Use for complex queries that browser_query can't handle (computed styles, DOM manipulation, event dispatch). Return value must be JSON-serializable.",
         params: Params::Simple(&[
             p("js", "string", "JavaScript expression or async function body. Last expression is returned."),
         ]),

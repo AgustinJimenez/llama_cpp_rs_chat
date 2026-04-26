@@ -146,7 +146,7 @@ const VALIDATED_TOOLS: &[&str] = &[
     "read_file", "write_file", "edit_file", "execute_command", "execute_python",
     "search_files", "find_files", "list_directory", "web_search", "web_fetch",
     "camofox_click", "camofox_screenshot", "camofox_type",
-    "browser_navigate", "browser_click", "browser_type", "browser_eval",
+    "browser_navigate", "browser_click", "browser_type", "browser_query", "browser_eval",
     "browser_get_html", "browser_screenshot", "browser_wait", "browser_close",
     "browser_get_text", "browser_get_links", "browser_snapshot",
     "browser_scroll", "browser_press_key",
@@ -1086,6 +1086,40 @@ fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
                     if press_enter { " and pressed Enter" } else { "" }
                 )),
                 Err(e) => NativeToolResult::text_only(format!("type failed: {e}")),
+            }
+        }
+        "query" => {
+            let selector = args.get("selector").and_then(|v| v.as_str()).unwrap_or("");
+            if selector.is_empty() {
+                return NativeToolResult::text_only("Error: 'selector' is required".into());
+            }
+            let attributes = args.get("attributes").and_then(|v| v.as_str()).unwrap_or("text");
+            let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(20) as usize;
+
+            // Build JS that extracts requested attributes from matched elements
+            let attr_list: Vec<&str> = attributes.split(',').map(|s| s.trim()).collect();
+            let extract_js: Vec<String> = attr_list.iter().map(|attr| {
+                match *attr {
+                    "text" => "text: el.innerText?.trim() || ''".to_string(),
+                    "html" => "html: el.outerHTML".to_string(),
+                    "href" => "href: el.href || el.getAttribute('href') || ''".to_string(),
+                    "src" => "src: el.src || el.getAttribute('src') || ''".to_string(),
+                    other => format!("{k}: el.getAttribute('{k}') || ''", k = other),
+                }
+            }).collect();
+            let extract_obj = extract_js.join(", ");
+
+            let js = format!(
+                "Array.from(document.querySelectorAll({sel})).slice(0, {limit}).map(el => ({{ {extract} }}))",
+                sel = serde_json::to_string(selector).unwrap_or_default(),
+                extract = extract_obj,
+            );
+            match session.eval(&js) {
+                Ok(Value::Array(arr)) if arr.is_empty() => {
+                    NativeToolResult::text_only(format!("No elements found matching '{selector}'"))
+                }
+                Ok(v) => NativeToolResult::text_only(v.to_string()),
+                Err(e) => NativeToolResult::text_only(format!("query failed: {e}")),
             }
         }
         "eval" => {
