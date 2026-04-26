@@ -391,11 +391,15 @@ pub fn check_and_execute_command_with_tags(
 
                     let (tool_output, tool_images) = results[i].take().unwrap_or_default();
                     all_response_images.extend(tool_images);
-                    // Check if model explicitly opted out of summarization via summary=false
-                    let summary_opt_out = _args.get("summary")
-                        .and_then(|v| v.as_bool().or_else(|| v.as_str().map(|s| s != "false")))
-                        .map(|v| !v) // summary=false → opt_out=true
+                    // Check summary param: false → skip, string → custom prompt
+                    let summary_val = _args.get("summary");
+                    let summary_opt_out = summary_val
+                        .map(|v| v.as_bool() == Some(false) || v.as_str() == Some("false"))
                         .unwrap_or(false);
+                    let _custom_prompt = summary_val
+                        .and_then(|v| v.as_str())
+                        .filter(|s| *s != "true" && *s != "false" && s.len() > 3)
+                        .map(|s| s.to_string());
                     // Summarize (or truncate as fallback) individual tool output
                     let tool_output = if summary_opt_out {
                         maybe_truncate_tool_output(&tool_output, name, conversation_id)
@@ -573,17 +577,21 @@ pub fn check_and_execute_command_with_tags(
             // the model only receives the summary (injected via model_block/model_tokens).
             // Use original output length to decide summarization — the sanitized version may
             // be heavily truncated but the user still sees the full streamed output.
-            // Check if model opted out of summarization via summary: false
+            // Extract 'summary' param — can be boolean (true/false) or custom prompt string.
+            // If false → skip summarization. If string → use as custom prompt.
+            let summary_value = extract_param_string(&command_text, "summary");
             let cmd_lower = command_text.to_lowercase();
-            let summary_disabled = cmd_lower.contains("\"summary\": false")
+            let summary_disabled = summary_value.as_deref() == Some("false")
+                || cmd_lower.contains("\"summary\": false")
                 || cmd_lower.contains("\"summary\":false")
-                || cmd_lower.contains("\"summary\": \"false\"")
-                || cmd_lower.contains("\"summary\":\"false\"")
                 || cmd_lower.contains("summary>\nfalse")
-                || cmd_lower.contains("summary>false")
-                || cmd_lower.contains("summary>\n\"false\"");
-            // Extract custom summary_prompt if provided
-            let custom_summary_prompt = extract_param_string(&command_text, "summary_prompt");
+                || cmd_lower.contains("summary>false");
+            let custom_summary_prompt = if summary_disabled {
+                None
+            } else {
+                // If summary is a non-boolean string, use it as the custom prompt
+                summary_value.filter(|s| s != "true" && s != "false" && s.len() > 3)
+            };
             let (display_text, model_text) = if summary_disabled {
                 // Model wants raw output — skip summarization
                 (sanitized.clone(), sanitized)

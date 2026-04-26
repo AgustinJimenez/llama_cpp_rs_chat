@@ -219,7 +219,7 @@ impl TauriHttpSession {
             .post(&format!("{TAURI_UI_BRIDGE_BASE}/api/eval"))
             .set("Content-Type", "application/json")
             .send_string(&serde_json::json!({
-                "js": "document.documentElement.outerHTML",
+                "js": "document.documentElement ? document.documentElement.outerHTML : ''",
                 "target": "agent-browser"
             }).to_string());
 
