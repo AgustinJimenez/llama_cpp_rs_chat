@@ -29,7 +29,7 @@ async function tauriInvoke<T = unknown>(cmd: string, args?: Record<string, unkno
  */
 /* eslint-disable max-lines-per-function, no-nested-ternary */
 export const BrowserView = React.memo(() => {
-  const { browserViewUrl, openBrowserView, closeBrowserView } = useUIContext();
+  const { browserViewUrl, openBrowserView, closeBrowserView, isBrowserViewOpen } = useUIContext();
   const [urlInput, setUrlInput] = useState(browserViewUrl ?? '');
   const [iframeKey, setIframeKey] = useState(0);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -87,7 +87,7 @@ export const BrowserView = React.memo(() => {
   // In Tauri mode, attach a real native webview as a child of the main window,
   // positioned to overlay the panel placeholder. ResizeObserver keeps it in sync.
   useEffect(() => {
-    if (!TAURI || !browserViewUrl || !panelRef.current) return undefined;
+    if (!TAURI || !browserViewUrl || !isBrowserViewOpen || !panelRef.current) return undefined;
     let cancelled = false;
 
     const sendRect = async (open: boolean) => {
@@ -135,15 +135,15 @@ export const BrowserView = React.memo(() => {
       window.removeEventListener('resize', onScroll);
       window.removeEventListener('scroll', onScroll, true);
     };
-  }, [browserViewUrl]);
+  }, [browserViewUrl, isBrowserViewOpen]);
 
-  // Close the Tauri panel when browserViewUrl is cleared (close button)
+  // Close the Tauri panel when the browser view is hidden or cleared.
   useEffect(() => {
-    if (!browserViewUrl && TAURI && panelOpenedRef.current) {
+    if ((!browserViewUrl || !isBrowserViewOpen) && TAURI && panelOpenedRef.current) {
       tauriInvoke('browser_panel_close').catch(() => {});
       panelOpenedRef.current = false;
     }
-  }, [browserViewUrl]);
+  }, [browserViewUrl, isBrowserViewOpen]);
 
   // Detect iframes that fail to load (X-Frame-Options / CSP)
   useEffect(() => {
@@ -168,6 +168,10 @@ export const BrowserView = React.memo(() => {
     if (!url) return;
     const fullUrl =
       url.startsWith('http://') || url.startsWith('https://') ? url : `https://${url}`;
+    // Force navigation even if URL looks the same (user may want to reload)
+    if (fullUrl === browserViewUrl && TAURI && panelOpenedRef.current) {
+      tauriInvoke('browser_panel_navigate', { url: fullUrl }).catch(() => {});
+    }
     openBrowserView(fullUrl);
   };
 
@@ -247,7 +251,7 @@ export const BrowserView = React.memo(() => {
       </div>
 
       {/* Content area */}
-      <div className="flex-1 overflow-hidden bg-background/50">
+      <div className="flex-1 overflow-hidden bg-background">
         {!browserViewUrl ? (
           <div className="h-full flex items-center justify-center text-foreground">
             <div className="text-center">
@@ -260,7 +264,7 @@ export const BrowserView = React.memo(() => {
           </div>
         ) : TAURI ? (
           // Tauri: native webview overlay positioned over this placeholder
-          <div ref={panelRef} className="w-full h-full bg-white" />
+          <div ref={panelRef} className="w-full h-full bg-background" />
         ) : (
           <>
             <iframe
