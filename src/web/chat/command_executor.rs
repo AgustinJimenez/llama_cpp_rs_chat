@@ -19,6 +19,7 @@ pub(crate) use super::tool_output::{
     tool_use_one_liner,
     maybe_truncate_tool_output,
     maybe_summarize_tool_output,
+    summarize_tool_output_with_prompt,
     wrap_output_for_model,
 };
 
@@ -52,6 +53,44 @@ pub struct CommandExecutionResult {
     /// instead of (or alongside) the text tokens.
     #[allow(dead_code)]
     pub response_images: Vec<Vec<u8>>,
+}
+
+/// Extract a string parameter from raw tool call text (JSON or XML format).
+fn extract_param_string(command_text: &str, param_name: &str) -> Option<String> {
+    // JSON: "param_name": "value"
+    let json_pattern = format!("\"{}\":", param_name);
+    if let Some(pos) = command_text.find(&json_pattern) {
+        let rest = &command_text[pos + json_pattern.len()..];
+        let rest = rest.trim_start();
+        if rest.starts_with('"') {
+            // Find closing quote (handle escaped quotes)
+            let inner = &rest[1..];
+            let mut end = 0;
+            let bytes = inner.as_bytes();
+            while end < bytes.len() {
+                if bytes[end] == b'"' && (end == 0 || bytes[end - 1] != b'\\') { break; }
+                end += 1;
+            }
+            return Some(inner[..end].to_string());
+        }
+    }
+    // XML: <parameter=param_name>value</parameter>
+    let xml_open = format!("={}>\n", param_name);
+    if let Some(pos) = command_text.find(&xml_open) {
+        let rest = &command_text[pos + xml_open.len()..];
+        if let Some(end) = rest.find("</parameter>") {
+            return Some(rest[..end].trim().to_string());
+        }
+    }
+    // XML without newline
+    let xml_open2 = format!("={}>", param_name);
+    if let Some(pos) = command_text.find(&xml_open2) {
+        let rest = &command_text[pos + xml_open2.len()..];
+        if let Some(end) = rest.find("</") {
+            return Some(rest[..end].trim().to_string());
+        }
+    }
+    None
 }
 
 /// Check for and execute commands using model-specific tool tags.
@@ -543,11 +582,17 @@ pub fn check_and_execute_command_with_tags(
                 || cmd_lower.contains("summary>\nfalse")
                 || cmd_lower.contains("summary>false")
                 || cmd_lower.contains("summary>\n\"false\"");
+            // Extract custom summary_prompt if provided
+            let custom_summary_prompt = extract_param_string(&command_text, "summary_prompt");
             let (display_text, model_text) = if summary_disabled {
                 // Model wants raw output — skip summarization
                 (sanitized.clone(), sanitized)
             } else if output.len() > SUMMARIZE_THRESHOLD || sanitized.len() > SUMMARIZE_THRESHOLD {
-                match summarize_tool_output(model, backend, &sanitized, chat_template_string, conversation_id) {
+                match if let Some(ref prompt) = custom_summary_prompt {
+                    summarize_tool_output_with_prompt(model, backend, &sanitized, chat_template_string, conversation_id, Some(prompt))
+                } else {
+                    summarize_tool_output(model, backend, &sanitized, chat_template_string, conversation_id)
+                } {
                     Ok(summary) => {
                         log_info!(conversation_id, "📝 Summarized tool output: {} → {} chars", sanitized.len(), summary.len());
                         // Stream summary with actual content to frontend (before output_close)

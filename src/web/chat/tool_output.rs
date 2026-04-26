@@ -358,6 +358,17 @@ pub(super) fn summarize_tool_output(
     chat_template_string: Option<&str>,
     conversation_id: &str,
 ) -> Result<String, String> {
+    summarize_tool_output_with_prompt(model, backend, output, chat_template_string, conversation_id, None)
+}
+
+pub fn summarize_tool_output_with_prompt(
+    model: &llama_cpp_2::model::LlamaModel,
+    backend: &llama_cpp_2::llama_backend::LlamaBackend,
+    output: &str,
+    chat_template_string: Option<&str>,
+    conversation_id: &str,
+    custom_prompt: Option<&str>,
+) -> Result<String, String> {
     let original_len = output.len();
 
     // Estimate if output fits in a single pass (use tokenizer if available, else ~4 chars per token)
@@ -369,7 +380,11 @@ pub(super) fn summarize_tool_output(
 
     let summary = if estimated_tokens < single_pass_limit {
         // Single pass — output fits in one context
-        run_summary_pass(model, backend, output, chat_template_string, conversation_id)?
+        if let Some(prompt) = custom_prompt {
+            run_summary_pass_with_system(model, backend, output, chat_template_string, conversation_id, prompt)?
+        } else {
+            run_summary_pass(model, backend, output, chat_template_string, conversation_id)?
+        }
     } else {
         // Chunked map-reduce: split → summarize each → combine → final pass if needed
         let mut chunk_texts = Vec::new();
@@ -388,7 +403,11 @@ pub(super) fn summarize_tool_output(
 
         let mut chunk_summaries = Vec::new();
         for (i, chunk) in chunk_texts.iter().enumerate() {
-            match run_summary_pass(model, backend, chunk, chat_template_string, conversation_id) {
+            match if let Some(prompt) = custom_prompt {
+                run_summary_pass_with_system(model, backend, chunk, chat_template_string, conversation_id, prompt)
+            } else {
+                run_summary_pass(model, backend, chunk, chat_template_string, conversation_id)
+            } {
                 Ok(s) => {
                     log_info!(conversation_id, "📝 Chunk {}/{}: {} → {} chars", i + 1, chunk_texts.len(), chunk.len(), s.len());
                     chunk_summaries.push(s);
