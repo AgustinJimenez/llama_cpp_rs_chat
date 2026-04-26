@@ -58,6 +58,11 @@ const App = () => {
           openAppSettings();
         }),
       );
+      unlisten.push(
+        await listen('conversation-title-updated', () => {
+          window.dispatchEvent(new CustomEvent('conversation-title-updated'));
+        }),
+      );
     })();
     return () => {
       unlisten.forEach((fn) => fn());

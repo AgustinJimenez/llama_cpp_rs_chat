@@ -552,6 +552,11 @@ async fn generate_stream(
                             eprintln!("[TAURI_TITLE] Generated: '{title}'");
                             if !title.is_empty() {
                                 let _ = db_bg.update_conversation_title(conv_clean, &title);
+                                // Notify frontend to refresh sidebar
+                                let _ = app.emit("conversation-title-updated", serde_json::json!({
+                                    "conversation_id": conv_clean,
+                                    "title": title,
+                                }));
                             }
                         }
                         Err(e) => eprintln!("[TAURI_TITLE] Failed: {e}"),
