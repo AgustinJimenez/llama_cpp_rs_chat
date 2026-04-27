@@ -34,16 +34,33 @@ const LiveStreamingStats = ({
   const [polledStatus, setPolledStatus] = useState<string | undefined>(undefined);
   const [elapsed, setElapsed] = useState(0);
   const [tokenCount, setTokenCount] = useState(0);
+  const [liveTokPerSec, setLiveTokPerSec] = useState(0);
   const startRef = useRef(Date.now());
   const firstTokensUsedRef = useRef<number | null>(null);
+  const lastTokensRef = useRef<number>(0);
+  const genTimeRef = useRef(0); // accumulated generation-only time (ms)
+  const lastTickRef = useRef(Date.now());
   const fmt = (n: number) => n.toLocaleString('en-US').replace(/,/g, '.');
   const pct = tokensUsed && maxTokens ? Math.round((tokensUsed / maxTokens) * 100) : 0;
 
   useEffect(() => {
     startRef.current = Date.now();
+    lastTickRef.current = Date.now();
+    genTimeRef.current = 0;
     setTokenCount(0);
+    setLiveTokPerSec(0);
     firstTokensUsedRef.current = null;
-    const id = setInterval(() => setElapsed(Date.now() - startRef.current), 1000);
+    lastTokensRef.current = 0;
+    const id = setInterval(() => {
+      const now = Date.now();
+      setElapsed(now - startRef.current);
+      // Only count time as "generation time" if tokens changed since last tick
+      const currentTokens = lastTokensRef.current;
+      if (currentTokens > 0 && genTimeRef.current > 0) {
+        setLiveTokPerSec(currentTokens / (genTimeRef.current / 1000));
+      }
+      lastTickRef.current = now;
+    }, 1000);
     return () => clearInterval(id);
   }, []);
 
@@ -52,7 +69,14 @@ const LiveStreamingStats = ({
     if (firstTokensUsedRef.current === null) {
       firstTokensUsedRef.current = tokensUsed;
     }
-    setTokenCount(tokensUsed - firstTokensUsedRef.current);
+    const newCount = tokensUsed - firstTokensUsedRef.current;
+    // If token count increased, this tick was generation (not tool execution)
+    if (newCount > lastTokensRef.current) {
+      genTimeRef.current += Date.now() - lastTickRef.current;
+      lastTickRef.current = Date.now();
+    }
+    lastTokensRef.current = newCount;
+    setTokenCount(newCount);
   }, [tokensUsed]);
 
   useEffect(() => {
@@ -78,8 +102,10 @@ const LiveStreamingStats = ({
 
   const displayStatus = streamStatus || polledStatus;
   const hasContext = tokensUsed !== undefined && maxTokens !== undefined;
-  const secs = Math.floor(elapsed / 1000);
-  const tokPerSec = secs > 0 && tokenCount > 0 ? (tokenCount / secs).toFixed(1) : null;
+  // Use generation-only tok/s (excludes tool execution time)
+  const tokPerSec = liveTokPerSec > 0 ? liveTokPerSec.toFixed(1) : null;
+  const genSecs = Math.round(genTimeRef.current / 1000);
+  const totalSecs = Math.floor(elapsed / 1000);
 
   if (!hasContext && !displayStatus) return null;
   return (
@@ -96,8 +122,19 @@ const LiveStreamingStats = ({
         </span>
       ) : null}
       {tokPerSec ? (
-        <span className="inline-flex items-center gap-1" title="Generation speed">
+        <span
+          className="inline-flex items-center gap-1"
+          title="Generation speed (excluding tool execution time)"
+        >
           {tokPerSec} tok/s
+        </span>
+      ) : null}
+      {totalSecs > 0 ? (
+        <span
+          className="inline-flex items-center gap-1"
+          title={`Generation: ${genSecs}s, Total: ${totalSecs}s`}
+        >
+          {genSecs > 0 && genSecs < totalSecs ? `${genSecs}s / ${totalSecs}s` : `${totalSecs}s`}
         </span>
       ) : null}
       {hasContext ? (
