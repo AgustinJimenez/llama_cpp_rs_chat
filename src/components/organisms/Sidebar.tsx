@@ -18,8 +18,8 @@ import {
 } from '../atoms/dialog';
 import { BackgroundProcesses } from '../molecules/BackgroundProcesses';
 
-import { ConversationItem, SelectBar, DATE_GROUPS, getDateGroup } from './sidebar';
-import type { ConversationFile } from './sidebar';
+import { ConversationItem, SelectBar, DATE_GROUPS, getDateGroup } from './sidebar-components';
+import type { ConversationFile } from './sidebar-components';
 
 const HubExplorer = React.lazy(() =>
   import('./HubExplorer').then((m) => ({ default: m.HubExplorer })),

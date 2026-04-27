@@ -263,14 +263,6 @@ async fn bridge_browser_navigate(
         .and_then(|v| v.as_str())
         .ok_or(axum::http::StatusCode::BAD_REQUEST)?;
 
-    // Sync URL to the React browser view (user can toggle it open to see the page).
-    // Does NOT auto-open — just updates the URL in React state.
-    let server = AppUiServer::new(app.clone());
-    let url_json = serde_json::to_string(url).unwrap_or_default();
-    let _ = server.eval_js(&format!(
-        "(() => {{ if (window.__openBrowserView) window.__openBrowserView({url_json}); return 'ok'; }})()"
-    )).await;
-
     // Create/navigate the hidden agent webview (separate from user's browser-panel).
     // Uses label "agent-browser" to avoid conflicting with the user's browser panel.
     let parsed = url.parse::<tauri::Url>()

@@ -52,6 +52,7 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
     setBrowserViewUrl(null);
     setBrowserViewTabId(null);
   }, []);
+  const clearBrowserView = closeBrowserView;
   const toggleBrowserView = useCallback(() => setIsBrowserViewOpen((p) => !p), []);
 
   const value = useMemo<UIContextValue>(
@@ -84,6 +85,7 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
       openBrowserView,
       setBrowserViewUrlOnly,
       closeBrowserView,
+      clearBrowserView,
       toggleBrowserView,
     }),
     [
@@ -116,6 +118,7 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
       setBrowserViewUrlOnly,
       closeBrowserView,
       toggleBrowserView,
+      clearBrowserView,
     ],
   );
 
