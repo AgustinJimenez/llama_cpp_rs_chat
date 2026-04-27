@@ -145,9 +145,23 @@ pub async fn hard_unload(
 
 #[tauri::command]
 pub async fn get_model_info(model_path: String) -> Result<serde_json::Value, String> {
-    tokio::task::spawn_blocking(move || extract_model_info(&model_path))
-        .await
-        .map_err(|e| format!("Task failed: {e}"))?
+    tokio::task::spawn_blocking(move || {
+        let mut info = extract_model_info(&model_path)?;
+        // Add tag pair detection (same as web routes/model.rs)
+        let model_name = info.get("general_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        if !model_name.is_empty() {
+            use crate::web::chat::tool_tags::get_tag_pairs_for_model;
+            info["detected_tag_pairs"] = serde_json::json!(
+                get_tag_pairs_for_model(Some(&model_name))
+            );
+        }
+        Ok(info)
+    })
+    .await
+    .map_err(|e| format!("Task failed: {e}"))?
 }
 
 #[tauri::command]

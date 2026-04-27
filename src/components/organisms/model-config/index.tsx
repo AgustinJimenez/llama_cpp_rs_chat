@@ -149,11 +149,13 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   });
 
   // Initialize model path from config when modal opens
+  // Reset and re-set modelPath when modal opens to force metadata re-fetch
   useEffect(() => {
-    if (isOpen && initialModelPath && !modelPath) {
-      setModelPath(initialModelPath);
+    if (isOpen && initialModelPath) {
+      setModelPath('');
+      requestAnimationFrame(() => setModelPath(initialModelPath));
     }
-  }, [isOpen, initialModelPath, modelPath]);
+  }, [isOpen, initialModelPath]);
 
   // Fetch model history and saved config when modal opens
   useEffect(() => {
@@ -174,9 +176,11 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
         // When reopening for an already-loaded model, restore all saved settings
         // (cache types, context size, sampling params, tag pairs, etc.)
         if (saved) {
+          // Don't override tag_pairs from DB — those are auto-detected from GGUF
+          const { tag_pairs: _ignoredPairs, ...savedWithoutPairs } = saved;
           setConfig((prev) => ({
             ...prev,
-            ...saved,
+            ...savedWithoutPairs,
             model_path: prev.model_path || saved.model_path || '',
           }));
           if (saved.context_size) {
