@@ -206,13 +206,13 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     }
   }, [modelPath]);
 
-  // Set context size to model's max when metadata is loaded
-  // If a preset specifies a smaller context_size, the preset useEffect below will override this
+  // Set context size to model's max when metadata is loaded (first load only).
+  // Skip if saved config was loaded — user's saved context_size takes priority.
   useEffect(() => {
+    if (savedConfigLoaded.current) return;
     if (modelInfo?.context_length) {
       const maxContext = parseInt(modelInfo.context_length.toString().replace(/,/g, ''));
       if (!isNaN(maxContext)) {
-        // Set to model's max — VRAM optimizer will adjust to fit available memory
         setContextSize(maxContext);
       }
     }
@@ -292,7 +292,12 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   // Auto-apply VRAM-optimized gpu_layers and context_size once per model
   const autoOptimizedForPath = useRef('');
   useEffect(() => {
-    if (optimized.ready && modelPath && autoOptimizedForPath.current !== modelPath) {
+    if (
+      optimized.ready &&
+      modelPath &&
+      autoOptimizedForPath.current !== modelPath &&
+      !savedConfigLoaded.current
+    ) {
       autoOptimizedForPath.current = modelPath;
       // Only set gpu_layers (hardware-specific). Context size comes from
       // the preset and should never be overridden by the optimizer.
