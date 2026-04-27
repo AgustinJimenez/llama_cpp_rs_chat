@@ -245,22 +245,19 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     // saved DB config (the user's actual running settings take priority).
     const { context_size: presetContextSize, ...samplerPreset } =
       merged as Partial<SamplerConfig> & { context_size?: number };
-    setConfig((prev) => {
-      // If we already loaded saved config from DB, only apply preset for
-      // fields that aren't set (keep user's cache types, context, etc.)
-      if (savedConfigLoaded.current) {
-        const onlyNew: Record<string, unknown> = {};
-        for (const [k, v] of Object.entries(samplerPreset)) {
-          if (!(k in prev) || prev[k as keyof SamplerConfig] === undefined) {
-            onlyNew[k] = v;
-          }
-        }
-        return { ...prev, ...onlyNew, model_path: prev.model_path };
+    // If saved config was already loaded from DB (reopening for loaded model),
+    // skip preset entirely — user's saved values take priority.
+    if (savedConfigLoaded.current) {
+      console.log('[ModelConfig] Skipping preset — using saved config from DB'); // eslint-disable-line no-console
+    } else {
+      setConfig((prev) => ({
+        ...prev,
+        ...samplerPreset,
+        model_path: prev.model_path,
+      }));
+      if (presetContextSize) {
+        setContextSize(presetContextSize);
       }
-      return { ...prev, ...samplerPreset, model_path: prev.model_path };
-    });
-    if (presetContextSize && !savedConfigLoaded.current) {
-      setContextSize(presetContextSize);
     }
 
     console.log('[ModelConfig] Auto-applied preset for:', generalName, merged); // eslint-disable-line no-console
