@@ -475,6 +475,11 @@ async fn generate_stream(
         logger.get_conversation_id()
     };
 
+    // Notify frontend that a new conversation was created (so sidebar updates immediately)
+    let _ = app.emit("conversation-title-updated", serde_json::json!({
+        "conversation_id": &conversation_id,
+    }));
+
     // Start generation (skip_user_logging since we logged above)
     let (mut token_rx, done_rx) = bridge
         .generate(

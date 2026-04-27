@@ -516,17 +516,50 @@ pub fn check_and_execute_command_with_tags(
                     let one_liner = tool_use_one_liner(&tool_name_for_log, "", &native_result.text, 0);
                     log_info!(conversation_id, "📦 Native tool result: {}", one_liner);
                     crate::web::event_log::log_event(conversation_id, "tool_done", &one_liner);
-                    // Non-execute tools complete quickly, stream their output at once
+
+                    // Check if tool result is successful using sub-agent.
+                    // Skip check for action tools that always succeed (navigate, scroll, etc.)
+                    let skip_check = matches!(tool_name_for_log.as_str(),
+                        "browser_scroll" | "browser_close" | "browser_press_key" | "open_url"
+                    );
+                    let result_status = if skip_check || native_result.text.len() < 20 {
+                        "" // No indicator for action tools or very short output
+                    } else {
+                        let check_text = if native_result.text.len() > 500 {
+                            let mut end = 500;
+                            while end < native_result.text.len() && !native_result.text.is_char_boundary(end) { end += 1; }
+                            &native_result.text[..end]
+                        } else {
+                            &native_result.text
+                        };
+                        let is_ok = super::generation::quick_tool_result_check(
+                            model, backend, chat_template_string, conversation_id,
+                            &tool_name_for_log, check_text,
+                        );
+                        if is_ok { "success" } else { "error" }
+                    };
+
+                    // Stream output with optional TOOL_RESULT status tag for frontend
                     if let Some(ref sender) = token_sender {
+                        let prefix = if result_status.is_empty() {
+                            String::new()
+                        } else {
+                            format!("[TOOL_RESULT:{}]", result_status)
+                        };
                         let _ = sender.send(TokenData {
-                            token: native_result.text.trim().to_string(),
+                            token: format!("{}{}", prefix, native_result.text.trim()),
                             tokens_used: token_pos,
                             max_tokens: context_size as i32, status: None,
                             ..Default::default()
                         });
                     }
                     all_response_images.extend(native_result.images);
-                    native_result.text
+                    // Prepend status tag so it persists in DB for reloaded conversations
+                    if result_status.is_empty() {
+                        native_result.text
+                    } else {
+                        format!("[TOOL_RESULT:{}]{}", result_status, native_result.text)
+                    }
                 } else {
                     let trimmed_cmd = command_text.trim();
                     if trimmed_cmd.starts_with('{') || trimmed_cmd.starts_with('[') {
@@ -567,7 +600,13 @@ pub fn check_and_execute_command_with_tags(
             );
 
             // Sanitize output: strip ANSI codes + truncate long output.
-            let sanitized = sanitize_command_output(&output);
+            // Strip [TOOL_RESULT:...] tag before model sees it (tag is for frontend only)
+            let output_for_model = if output.starts_with("[TOOL_RESULT:") {
+                output.splitn(2, ']').nth(1).unwrap_or(&output).to_string()
+            } else {
+                output.clone()
+            };
+            let sanitized = sanitize_command_output(&output_for_model);
 
             // Smart-truncate large output before LLM summarization to bound context usage.
             let sanitized = maybe_truncate_tool_output(&sanitized, &tool_name_for_log, conversation_id);

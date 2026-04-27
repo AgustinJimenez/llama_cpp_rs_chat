@@ -119,8 +119,34 @@ impl TauriHttpSession {
         eprintln!("[BROWSER_HTTP] do_fetch START: {}", self.current_url);
         let start = std::time::Instant::now();
 
-        // Wait for page to load in the webview (navigated by caller)
-        std::thread::sleep(std::time::Duration::from_millis(2000));
+        // Wait for page to fully load by polling document.readyState.
+        // Much more reliable than a fixed sleep — handles slow sites like Reuters.
+        let max_wait = std::time::Duration::from_secs(10);
+        let poll_interval = std::time::Duration::from_millis(300);
+        let mut ready = false;
+        while start.elapsed() < max_wait {
+            match eval_in_browser_panel("document.readyState") {
+                Ok(state) if state == "complete" || state == "interactive" => {
+                    // Also check we have actual content (not just empty shell)
+                    if let Ok(len) = eval_in_browser_panel("document.body?.innerText?.length || 0") {
+                        if let Ok(n) = len.parse::<usize>() {
+                            if n > 50 {
+                                ready = true;
+                                eprintln!("[BROWSER_HTTP] page ready: readyState={state}, text={n} chars ({:.1}s)",
+                                    start.elapsed().as_secs_f64());
+                                break;
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+            std::thread::sleep(poll_interval);
+        }
+        if !ready {
+            eprintln!("[BROWSER_HTTP] page not ready after {:.1}s, proceeding anyway",
+                start.elapsed().as_secs_f64());
+        }
 
         // Read the page HTML from the browser panel webview via eval REST endpoint
         // Timeout is short — if eval fails, we fall back to curl quickly

@@ -394,6 +394,15 @@ static ALL_TOOLS: &[ToolDef] = &[
         required: &["selector"],
     },
     ToolDef {
+        name: "browser_search",
+        description: "Search the web using Google. Returns a list of results with titles, URLs, and snippets. Faster and more reliable than manually navigating to Google.",
+        params: Params::Simple(&[
+            p("query", "string", "The search query"),
+            p("max_results", "integer", "Max results to return (default: 8)"),
+        ]),
+        required: &["query"],
+    },
+    ToolDef {
         name: "browser_eval",
         description: "Evaluate arbitrary JavaScript in the browser page context and return the result. Use for complex queries that browser_query can't handle (computed styles, DOM manipulation, event dispatch). Return value must be JSON-serializable.",
         params: Params::Simple(&[

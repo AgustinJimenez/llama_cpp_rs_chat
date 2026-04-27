@@ -137,7 +137,7 @@ pub fn extract_execute_command_with_opts(text: &str) -> Option<(String, bool)> {
 const VALIDATED_TOOLS: &[&str] = &[
     "read_file", "write_file", "edit_file", "execute_command", "execute_python",
     "search_files", "find_files", "list_directory", 
-    "browser_navigate", "browser_click", "browser_type", "browser_query", "browser_eval",
+    "browser_navigate", "browser_search", "browser_click", "browser_type", "browser_query", "browser_eval",
     "browser_get_html", "browser_screenshot", "browser_wait", "browser_close",
     "browser_get_text", "browser_get_links", "browser_snapshot",
     "browser_scroll", "browser_press_key",
@@ -522,6 +522,58 @@ pub fn dispatch_native_tool(
         return Some(NativeToolResult::text_only(
             "Error: spawn_agent must be handled by the generation pipeline".to_string()
         ));
+    }
+
+    // browser_search: navigate to Google, extract results
+    if name == "browser_search" {
+        let query = match args.get("query").and_then(|v| v.as_str()) {
+            Some(q) if !q.trim().is_empty() => q.trim(),
+            _ => return Some(NativeToolResult::text_only("Error: 'query' is required".into())),
+        };
+        let max_results = args.get("max_results").and_then(|v| v.as_u64()).unwrap_or(8) as usize;
+        let encoded = urlencoding::encode(query);
+        let search_url = format!("https://www.google.com/search?q={encoded}&num={max_results}&hl=en");
+
+        // Navigate to Google Search
+        let _ = super::browser::session::notify_tauri_browser_navigate(&search_url);
+        std::thread::sleep(std::time::Duration::from_millis(2500));
+
+        // Extract results using eval
+        let js = format!(
+            r#"Array.from(document.querySelectorAll('a')).filter(a => a.querySelector('h3')).slice(0, {max}).map(a => {{
+                const title = a.querySelector('h3')?.textContent || '';
+                const url = a.href || '';
+                const parent = a.closest('[data-sokoban-container], [data-hveid], [jscontroller]');
+                const snippet = parent?.querySelector('[data-sncf], .VwiC3b, [style*="-webkit-line-clamp"], span:not(:has(*))')?.textContent || '';
+                return {{ title, url, snippet }};
+            }}).filter(r => r.url && !r.url.includes('google.com/search'))"#,
+            max = max_results,
+        );
+        match super::browser::session::eval_in_browser_panel(&js) {
+            Ok(text) => {
+                // Parse and format
+                if let Ok(results) = serde_json::from_str::<Vec<serde_json::Value>>(&text) {
+                    if results.is_empty() {
+                        return Some(NativeToolResult::text_only(format!(
+                            "No results found for '{query}'. Try a different query."
+                        )));
+                    }
+                    let mut output = format!("Search results for '{query}':\n\n");
+                    for (i, r) in results.iter().enumerate() {
+                        let title = r.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                        let url = r.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                        let snippet = r.get("snippet").and_then(|v| v.as_str()).unwrap_or("");
+                        output.push_str(&format!("{}. {}\n   URL: {}\n   {}\n\n", i + 1, title, url, snippet));
+                    }
+                    return Some(NativeToolResult::text_only(output));
+                }
+                // Fallback: return raw text
+                NativeToolResult::text_only(text)
+            }
+            Err(e) => NativeToolResult::text_only(format!("Search failed: {e}")),
+        };
+        // If we reach here, return the fallback
+        return Some(NativeToolResult::text_only(format!("Search for '{query}' completed.")));
     }
 
     // Browser view tools (open/close the in-app browser panel via Tauri)

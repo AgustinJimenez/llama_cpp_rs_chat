@@ -45,7 +45,8 @@ fn core_behavior_block() -> String {
 - Use `execute_python` for Python code (avoids shell quoting issues).
 - Use `execute_command` for shell tools (npm, git, etc.).
 - Use `git_status`, `git_diff`, `git_commit` for git operations instead of `execute_command`.
-- **Web browsing**: Use `browser_navigate` to open pages, `browser_get_text` to read content, `browser_query` to extract structured data (CSS selectors). To search the web, navigate to `https://www.google.com/search?q=YOUR+QUERY` or `https://duckduckgo.com/?q=YOUR+QUERY`. Do NOT use curl, wget, execute_command, execute_python, or urllib to fetch web pages — those get blocked by bot detection. The browser tools use a real browser that handles JS and bypasses bot detection.
+- **Web browsing**: Use `browser_search` to search the web (returns Google results). Use `browser_navigate` to open pages, `browser_get_text` to read content, `browser_query` to extract structured data. Do NOT use curl, wget, execute_command, or urllib to fetch web pages — the browser tools use a real browser that bypasses bot detection.
+- **Browsing tips**: Avoid JS-heavy sites like Google News or Twitter — use `browser_search` or Google Search instead. If a page returns 404/paywall/empty, try a different source immediately. Use the `summary` parameter with a custom prompt to save tokens on large pages.
 - Use `open_url` ONLY when the user explicitly asks to open a page in their external/default browser outside the app. Never use `open_url` for normal browsing, search, page reading, or screenshots.
 - Use `take_screenshot` to see the user's screen. Use `click_screen`, `type_text`, `press_key` for desktop automation.
 - If a tool is not in PATH, use its full path (e.g., `C:\php\php.exe`) or download it and reference by full path.
@@ -205,14 +206,17 @@ For servers/daemons: {exec_open}{{"name": "execute_command", "arguments": {{"com
 ### spawn_agent — Spawn a sub-agent for an isolated sub-task (fresh context)
 {exec_open}{{"name": "spawn_agent", "arguments": {{"task": "Install Node.js and set up a React project", "context": "Target directory: E:/projects/myapp"}}}}{exec_close}
 
-### browser_navigate — Open a page or search the web
-{exec_open}{{"name": "browser_navigate", "arguments": {{"url": "https://www.google.com/search?q=rust+async+tutorial"}}}}{exec_close}
+### browser_search — Search the web (returns Google results with titles, URLs, snippets)
+{exec_open}{{"name": "browser_search", "arguments": {{"query": "rust async tutorial"}}}}{exec_close}
 
-### browser_get_text — Read visible text from the current browser page
-{exec_open}{{"name": "browser_get_text", "arguments": {{}}}}{exec_close}
+### browser_navigate — Open a specific page
+{exec_open}{{"name": "browser_navigate", "arguments": {{"url": "https://example.com"}}}}{exec_close}
+
+### browser_get_text — Read page content (use summary param to save tokens)
+{exec_open}{{"name": "browser_get_text", "arguments": {{"summary": "extract the main article text"}}}}{exec_close}
 
 ### browser_query — Extract structured data using CSS selectors
-{exec_open}{{"name": "browser_query", "arguments": {{"selector": ".titleline > a", "attributes": "text,href", "limit": 5}}}}{exec_close}
+{exec_open}{{"name": "browser_query", "arguments": {{"selector": "h2 a", "attributes": "text,href", "limit": 10}}}}{exec_close}
 
 ### take_screenshot — Capture the user's screen (use monitor=-1 to list monitors)
 {exec_open}{{"name": "take_screenshot", "arguments": {{"monitor": 0}}}}{exec_close}

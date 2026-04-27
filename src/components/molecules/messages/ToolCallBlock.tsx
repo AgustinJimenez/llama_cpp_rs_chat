@@ -269,11 +269,20 @@ const CompletedHeader: React.FC<{
   summary: string;
   isExpanded: boolean;
   onToggle: () => void;
-}> = ({ name, summary, isExpanded, onToggle }) => (
+  resultStatus?: 'success' | 'error';
+}> = ({ name, summary, isExpanded, onToggle, resultStatus }) => (
   <button
     onClick={onToggle}
-    className="w-full bg-muted px-3 py-2 flex items-center gap-2 text-left hover:bg-accent transition-colors"
+    className={`w-full px-3 py-2 flex items-center gap-2 text-left hover:bg-accent transition-colors ${
+      resultStatus === 'error' ? 'bg-red-500/10 border-l-2 border-red-500' : 'bg-muted'
+    }`}
   >
+    {resultStatus ? (
+      <span
+        className={`w-2 h-2 rounded-full flex-shrink-0 ${resultStatus === 'error' ? 'bg-red-500' : 'bg-green-500'}`}
+        title={resultStatus === 'error' ? 'Tool call returned an error' : 'Tool call succeeded'}
+      />
+    ) : null}
     <span className="text-xs font-medium text-foreground">{formatToolName(name)}</span>
     <span className="text-xs text-foreground truncate flex-1">{summary}</span>
     {isExpanded ? (
@@ -447,7 +456,13 @@ const SingleToolCall: React.FC<{ toolCall: ToolCall; isGenerating?: boolean }> =
   const elapsed = useElapsedTime(isExecuting);
   const outputLanguage = getOutputLanguage(toolCall.name, toolCall.arguments);
 
-  const hasOutput = !!toolCall.output && toolCall.output.length > 0;
+  // Parse [TOOL_RESULT:success/error] tag from output
+  const toolResultMatch = toolCall.output?.match(/^\[TOOL_RESULT:(success|error)\]/);
+  const toolResultStatus = toolResultMatch?.[1] as 'success' | 'error' | undefined;
+  const cleanOutput = toolResultMatch
+    ? (toolCall.output ?? '').slice(toolResultMatch[0].length)
+    : toolCall.output;
+  const hasOutput = !!cleanOutput && cleanOutput.length > 0;
   const isEditFile = toolCall.name === 'edit_file' && typeof toolCall.arguments === 'object';
   const expandedContent = isEditFile ? (
     <EditFileDiff args={toolCall.arguments as Record<string, unknown>} />
@@ -474,12 +489,13 @@ const SingleToolCall: React.FC<{ toolCall: ToolCall; isGenerating?: boolean }> =
           summary={summary}
           isExpanded={isExpanded}
           onToggle={() => setIsExpanded(!isExpanded)}
+          resultStatus={toolResultStatus}
         />
       )}
       {isExpanded ? expandedContent : null}
-      {hasOutput && (toolCall.output ?? '').trim().length > 0 ? (
+      {hasOutput && (cleanOutput ?? '').trim().length > 0 ? (
         <CompletedOutput
-          output={toolCall.output ?? ''}
+          output={cleanOutput ?? ''}
           isExpanded={isOutputExpanded}
           onToggle={() => setIsOutputExpanded(!isOutputExpanded)}
           language={outputLanguage}
