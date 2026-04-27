@@ -532,7 +532,7 @@ pub fn check_and_execute_command_with_tags(
                         } else {
                             &native_result.text
                         };
-                        let is_ok = super::generation::quick_tool_result_check(
+                        let is_ok = super::sub_checks::quick_tool_result_check(
                             model, backend, chat_template_string, conversation_id,
                             &tool_name_for_log, check_text,
                         );
