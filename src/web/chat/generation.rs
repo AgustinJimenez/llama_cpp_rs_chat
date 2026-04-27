@@ -572,6 +572,32 @@ pub async fn generate_llama_response(
         let mut logger = conversation_logger
             .lock()
             .map_err(|_| "Failed to lock conversation logger")?;
+
+        // If cancelled mid-tool-call, strip the incomplete tool call XML to
+        // prevent conversation corruption. Find the last complete text before
+        // the unclosed <tool_call> tag.
+        if was_cancelled {
+            // Check if there's an unclosed tool_call tag
+            let last_tool_open = gen.response.rfind("<tool_call>");
+            let last_tool_close = gen.response.rfind("</tool_call>");
+            let last_fn_close = gen.response.rfind("</function>");
+            if let Some(open_pos) = last_tool_open {
+                let is_unclosed = match last_tool_close {
+                    Some(close_pos) => close_pos < open_pos,
+                    None => true,
+                };
+                let is_fn_unclosed = match last_fn_close {
+                    Some(close_pos) => close_pos < open_pos,
+                    None => true,
+                };
+                if is_unclosed || is_fn_unclosed {
+                    eprintln!("[CANCEL] Stripping incomplete tool call at pos {}", open_pos);
+                    gen.response.truncate(open_pos);
+                    gen.logger_synced_len = gen.logger_synced_len.min(open_pos);
+                }
+            }
+        }
+
         let remaining = &gen.response[gen.logger_synced_len..];
         if !remaining.is_empty() {
             logger.log_token_bulk(remaining);
