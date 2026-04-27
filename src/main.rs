@@ -3,6 +3,7 @@
 
 #[allow(dead_code)]
 mod web;
+mod commands;
 
 use std::sync::Arc;
 
@@ -13,23 +14,15 @@ use log4rs::config::{Appender, Config, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
+// WebviewBuilder, LogicalPosition, LogicalSize, WebviewUrl moved to commands::browser_panel
 
 mod mcp_ui_server;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::tray::TrayIconBuilder;
-use tauri::webview::WebviewBuilder;
-use tauri::{LogicalPosition, LogicalSize, WebviewUrl};
 
-use web::config::{
-    add_to_model_history, db_config_to_sampler_config, load_config, sampler_config_to_db,
-};
+use web::config::load_config;
 use web::database::{Database, SharedDatabase};
-use web::models::{
-    BrowseFilesResponse, ChatRequest, ConversationContentResponse, ConversationFile,
-    ConversationsResponse, FileItem, ModelLoadRequest, ModelResponse, ModelStatus, SamplerConfig,
-};
-use web::chat::tool_tags::get_tool_tags_for_model;
-use web::gguf_info::extract_model_info;
+use web::models::{BrowseFilesResponse, ChatRequest, FileItem};
 use web::worker::process_manager::ProcessManager;
 use web::worker::worker_bridge::{GenerationResult, SharedWorkerBridge, WorkerBridge};
 
@@ -162,269 +155,8 @@ fn clear_app_errors(db: tauri::State<'_, SharedDatabase>) -> Result<serde_json::
     Ok(serde_json::json!({"success": true, "deleted": deleted}))
 }
 
-// ─── Configuration Commands ───────────────────────────────────────────
 
-#[tauri::command]
-async fn get_config(db: tauri::State<'_, SharedDatabase>) -> Result<SamplerConfig, String> {
-    let db_config = db.load_config();
-    Ok(db_config_to_sampler_config(&db_config))
-}
 
-#[tauri::command]
-async fn save_config(
-    config: SamplerConfig,
-    db: tauri::State<'_, SharedDatabase>,
-) -> Result<serde_json::Value, String> {
-    if !(0.0..=2.0).contains(&config.temperature) {
-        return Err("temperature must be between 0.0 and 2.0".into());
-    }
-    if !(0.0..=1.0).contains(&config.top_p) {
-        return Err("top_p must be between 0.0 and 1.0".into());
-    }
-    if config.context_size.unwrap_or(0) == 0 {
-        return Err("context_size must be positive".into());
-    }
-
-    let existing = db.load_config();
-    let mut merged = sampler_config_to_db(&config);
-    merged.model_history = existing.model_history;
-
-    db.save_config(&merged)
-        .map_err(|e| format!("Failed to save configuration: {e}"))?;
-
-    Ok(serde_json::json!({"success": true}))
-}
-
-// ─── Model Commands ───────────────────────────────────────────────────
-
-#[tauri::command]
-async fn get_model_status(
-    bridge: tauri::State<'_, SharedWorkerBridge>,
-) -> Result<ModelStatus, String> {
-    let is_loading = bridge.is_loading();
-    let progress = if is_loading { Some(bridge.loading_progress()) } else { None };
-    let is_generating = bridge.is_generating().await;
-
-    Ok(match bridge.model_status().await {
-        Some(meta) => {
-            let tags = if meta.loaded {
-                Some(get_tool_tags_for_model(meta.general_name.as_deref()))
-            } else {
-                None
-            };
-            ModelStatus {
-                loaded: meta.loaded,
-                loading: if is_loading { Some(true) } else { None },
-                loading_progress: progress,
-                generating: if is_generating { Some(true) } else { None },
-                active_conversation_id: None,
-                status_message: None,
-                model_path: Some(meta.model_path),
-                last_used: None,
-                memory_usage_mb: if meta.loaded { Some(512) } else { None },
-                has_vision: Some(meta.has_vision),
-                tool_tags: tags,
-                gpu_layers: meta.gpu_layers,
-                block_count: meta.block_count,
-                system_prompt_tokens: None,
-                tool_definitions_tokens: None, last_finish_reason: None,
-            }
-        }
-        None => ModelStatus {
-            loaded: false,
-            loading: if is_loading { Some(true) } else { None },
-            loading_progress: progress,
-            generating: if is_generating { Some(true) } else { None },
-            active_conversation_id: None,
-            status_message: None,
-            model_path: None,
-            last_used: None,
-            memory_usage_mb: None,
-            has_vision: None,
-            tool_tags: None,
-            gpu_layers: None,
-            block_count: None,
-            system_prompt_tokens: None,
-            tool_definitions_tokens: None, last_finish_reason: None,
-        },
-    })
-}
-
-#[tauri::command]
-async fn load_model(
-    request: ModelLoadRequest,
-    bridge: tauri::State<'_, SharedWorkerBridge>,
-    db: tauri::State<'_, SharedDatabase>,
-) -> Result<ModelResponse, String> {
-    match bridge.load_model(&request.model_path, request.gpu_layers, request.mmproj_path).await {
-        Ok(meta) => {
-            add_to_model_history(&db, &request.model_path);
-            Ok(ModelResponse {
-                success: true,
-                message: format!("Model loaded successfully from {}", request.model_path),
-                status: Some(ModelStatus {
-                    loaded: true,
-                    loading: None,
-                    loading_progress: None,
-                    generating: None,
-                    active_conversation_id: None,
-                    status_message: None,
-                    model_path: Some(meta.model_path.clone()),
-                    last_used: None,
-                    memory_usage_mb: Some(512),
-                    has_vision: Some(meta.has_vision),
-                    tool_tags: Some(get_tool_tags_for_model(meta.general_name.as_deref())),
-                    gpu_layers: meta.gpu_layers,
-                    block_count: meta.block_count,
-                    system_prompt_tokens: None,
-                    tool_definitions_tokens: None, last_finish_reason: None,
-                }),
-            })
-        }
-        Err(e) => Ok(ModelResponse {
-            success: false,
-            message: format!("Failed to load model: {e}"),
-            status: None,
-        }),
-    }
-}
-
-#[tauri::command]
-async fn unload_model(
-    bridge: tauri::State<'_, SharedWorkerBridge>,
-) -> Result<ModelResponse, String> {
-    match bridge.unload_model().await {
-        Ok(_) => Ok(ModelResponse {
-            success: true,
-            message: "Model unloaded successfully".into(),
-            status: Some(ModelStatus {
-                loaded: false,
-                loading: None,
-                loading_progress: None,
-                generating: None,
-                active_conversation_id: None,
-                status_message: None,
-                model_path: None,
-                last_used: None,
-                memory_usage_mb: None,
-                has_vision: None,
-                tool_tags: None,
-                gpu_layers: None,
-                block_count: None,
-                system_prompt_tokens: None,
-                tool_definitions_tokens: None, last_finish_reason: None,
-            }),
-        }),
-        Err(e) => Ok(ModelResponse {
-            success: false,
-            message: format!("Failed to unload model: {e}"),
-            status: None,
-        }),
-    }
-}
-
-#[tauri::command]
-async fn hard_unload(
-    bridge: tauri::State<'_, SharedWorkerBridge>,
-) -> Result<serde_json::Value, String> {
-    bridge.force_unload().await?;
-    Ok(serde_json::json!({"success": true, "message": "Worker process killed, memory reclaimed"}))
-}
-
-#[tauri::command]
-async fn get_model_info(model_path: String) -> Result<serde_json::Value, String> {
-    tokio::task::spawn_blocking(move || extract_model_info(&model_path))
-        .await
-        .map_err(|e| format!("Task failed: {e}"))?
-}
-
-#[tauri::command]
-async fn get_model_history(
-    db: tauri::State<'_, SharedDatabase>,
-) -> Result<Vec<String>, String> {
-    db.get_model_history()
-}
-
-#[tauri::command]
-async fn add_model_history(
-    model_path: String,
-    db: tauri::State<'_, SharedDatabase>,
-) -> Result<serde_json::Value, String> {
-    add_to_model_history(&db, &model_path);
-    Ok(serde_json::json!({"success": true}))
-}
-
-// ─── Conversation Commands ────────────────────────────────────────────
-
-#[tauri::command]
-async fn get_conversations(
-    db: tauri::State<'_, SharedDatabase>,
-) -> Result<ConversationsResponse, String> {
-    let records = db.list_conversations().unwrap_or_default();
-    let conversations = records
-        .into_iter()
-        .map(|r| {
-            let timestamp_part = r.id.strip_prefix("chat_").unwrap_or(&r.id).to_string();
-            ConversationFile {
-                name: format!("{}.txt", r.id),
-                display_name: format!("Chat {timestamp_part}"),
-                timestamp: timestamp_part,
-                title: if r.title.is_empty() { None } else { Some(r.title) },
-                provider_id: None,
-            }
-        })
-        .collect();
-    Ok(ConversationsResponse { conversations })
-}
-
-#[tauri::command]
-async fn get_conversation(
-    filename: String,
-    db: tauri::State<'_, SharedDatabase>,
-) -> Result<ConversationContentResponse, String> {
-    let conversation_id = filename.trim_end_matches(".txt");
-    let content = db.get_conversation_as_text(conversation_id)?;
-    let messages = parse_conversation_to_messages(&content);
-    Ok(ConversationContentResponse { content, messages, provider_id: None, provider_session_id: None })
-}
-
-#[tauri::command]
-async fn delete_conversation(
-    filename: String,
-    db: tauri::State<'_, SharedDatabase>,
-) -> Result<serde_json::Value, String> {
-    if filename.contains("..") || filename.contains('/') || filename.contains('\\') {
-        return Err("Invalid filename".into());
-    }
-    if !filename.starts_with("chat_") {
-        return Err("Invalid conversation file".into());
-    }
-    let conversation_id = filename.trim_end_matches(".txt");
-    db.delete_conversation(conversation_id)?;
-    Ok(serde_json::json!({"success": true}))
-}
-
-#[tauri::command]
-async fn truncate_conversation(
-    conversation_id: String,
-    from_sequence: i32,
-    db: tauri::State<'_, SharedDatabase>,
-) -> Result<serde_json::Value, String> {
-    let id = conversation_id.trim_end_matches(".txt");
-    let deleted = db.truncate_messages(id, from_sequence)?;
-    Ok(serde_json::json!({"success": true, "deleted": deleted}))
-}
-
-#[tauri::command]
-async fn get_conversation_metrics(
-    conversation_id: String,
-    db: tauri::State<'_, SharedDatabase>,
-) -> Result<serde_json::Value, String> {
-    let conv_id = conversation_id.trim_end_matches(".txt");
-    let logs = db.get_logs_for_conversation(conv_id)?;
-    let metrics: Vec<_> = logs.into_iter().filter(|l| l.level == "metrics").collect();
-    Ok(serde_json::to_value(&metrics).unwrap_or_default())
-}
 
 // ─── Chat Commands ────────────────────────────────────────────────────
 
@@ -961,190 +693,7 @@ async fn list_cli_providers() -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({ "providers": providers }))
 }
 
-// ─── HuggingFace Hub ──────────────────────────────────────────────────
-
-#[tauri::command]
-async fn search_hub_models(
-    query: String,
-    limit: Option<usize>,
-    sort: Option<String>,
-) -> Result<Vec<web::routes::hub::HubModel>, String> {
-    let limit = limit.unwrap_or(20).min(50);
-    let sort = sort.unwrap_or_else(|| "downloads".to_string());
-    tokio::task::spawn_blocking(move || web::routes::hub::search_hf(&query, limit, &sort))
-        .await
-        .map_err(|e| format!("Task failed: {e}"))?
-}
-
-#[tauri::command]
-async fn fetch_hub_tree(model_id: String) -> Result<Vec<web::routes::hub::HubFile>, String> {
-    tokio::task::spawn_blocking(move || web::routes::hub::tree_hf(&model_id))
-        .await
-        .map_err(|e| format!("Task failed: {e}"))?
-}
-
-#[tauri::command]
-async fn verify_hub_downloads(
-    db: tauri::State<'_, SharedDatabase>,
-) -> Result<Vec<web::database::hub_downloads::HubDownloadRecord>, String> {
-    let db_clone = db.inner().clone();
-    tokio::task::spawn_blocking(move || web::routes::download::verify_hub_downloads(&db_clone))
-        .await
-        .map_err(|e| format!("Task failed: {e}"))
-}
-
-#[tauri::command]
-async fn delete_hub_download(
-    id: i64,
-    db: tauri::State<'_, SharedDatabase>,
-) -> Result<(), String> {
-    let db_clone = db.inner().clone();
-    tokio::task::spawn_blocking(move || web::routes::download::delete_hub_download_by_id(&db_clone, id))
-        .await
-        .map_err(|e| format!("Task failed: {e}"))?
-}
-
-#[tauri::command]
-async fn download_hub_model(
-    app: AppHandle,
-    model_id: String,
-    filename: String,
-    destination: String,
-    db: tauri::State<'_, SharedDatabase>,
-) -> Result<(), String> {
-    use std::path::{Path, PathBuf};
-
-    // Sanitize filename — strip any path components
-    let sanitized = Path::new(&filename)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("download.gguf")
-        .to_string();
-
-    let dest_dir = PathBuf::from(&destination);
-    if !dest_dir.is_dir() {
-        return Err("Destination directory does not exist".to_string());
-    }
-
-    let dest_file = dest_dir.join(&sanitized);
-    let part_file = dest_dir.join(format!("{sanitized}.part"));
-    let key = format!("{model_id}/{filename}");
-
-    // If the final file already exists, emit done immediately
-    if dest_file.exists() {
-        let size = std::fs::metadata(&dest_file).map(|m| m.len()).unwrap_or(0);
-        let _ = app.emit(
-            "hub-download-progress",
-            serde_json::json!({
-                "key": key,
-                "type": "done",
-                "path": dest_file.to_string_lossy(),
-                "bytes": size,
-            }),
-        );
-        return Ok(());
-    }
-
-    // Build HF download URL
-    let url = format!(
-        "https://huggingface.co/{}/resolve/main/{}",
-        model_id,
-        urlencoding::encode(&filename),
-    );
-
-    let (progress_tx, mut progress_rx) = tokio::sync::mpsc::channel::<String>(64);
-    let db_clone: SharedDatabase = db.inner().clone();
-
-    // Clone values for the blocking thread
-    let model_id_b = model_id.clone();
-    let filename_b = filename.clone();
-    let dest_path_str = destination.clone();
-
-    // Blocking download thread
-    tokio::task::spawn_blocking(move || {
-        web::routes::download::download_file_blocking(
-            &url,
-            &dest_file,
-            &part_file,
-            db_clone,
-            &model_id_b,
-            &filename_b,
-            &dest_path_str,
-            progress_tx,
-        );
-    });
-
-    // Forward progress events as Tauri events — key is embedded so the
-    // frontend can demux multiple concurrent downloads.
-    let key_clone = key.clone();
-    tokio::spawn(async move {
-        while let Some(raw) = progress_rx.recv().await {
-            let mut payload: serde_json::Value = match serde_json::from_str(&raw) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            if let serde_json::Value::Object(ref mut map) = payload {
-                map.insert("key".to_string(), serde_json::Value::String(key_clone.clone()));
-            }
-            let _ = app.emit("hub-download-progress", payload);
-        }
-    });
-
-    Ok(())
-}
-
 // ─── Helper: Parse conversation text to messages ──────────────────────
-
-fn parse_conversation_to_messages(content: &str) -> Vec<web::models::ChatMessage> {
-    let mut messages = Vec::new();
-    let mut current_role = String::new();
-    let mut current_content = String::new();
-    let mut sequence = 0u64;
-
-    for line in content.lines() {
-        if line == "SYSTEM:" || line == "USER:" || line == "ASSISTANT:" {
-            if !current_role.is_empty() && !current_content.trim().is_empty() {
-                messages.push(web::models::ChatMessage {
-                    id: format!("msg_{sequence}"),
-                    role: current_role.to_lowercase(),
-                    content: current_content.trim().to_string(),
-                    timestamp: sequence,
-                    prompt_tok_per_sec: None,
-                    gen_tok_per_sec: None,
-                    gen_eval_ms: None,
-                    gen_tokens: None,
-                    prompt_eval_ms: None,
-                    prompt_tokens: None,
-                });
-                sequence += 1;
-            }
-            current_role = line.trim_end_matches(':').to_string();
-            current_content.clear();
-        } else {
-            current_content.push_str(line);
-            current_content.push('\n');
-        }
-    }
-
-    if !current_role.is_empty() && !current_content.trim().is_empty() {
-        messages.push(web::models::ChatMessage {
-            id: format!("msg_{sequence}"),
-            role: current_role.to_lowercase(),
-            content: current_content.trim().to_string(),
-            timestamp: sequence,
-            prompt_tok_per_sec: None,
-            gen_tok_per_sec: None,
-            gen_eval_ms: None,
-            gen_tokens: None,
-            prompt_eval_ms: None,
-            prompt_tokens: None,
-        });
-    }
-
-    messages
-}
-
-// ─── Helper trait for piping ──────────────────────────────────────────
 
 trait Pipe: Sized {
     fn pipe<F, R>(self, f: F) -> R
@@ -1180,161 +729,6 @@ fn setup_logging() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// ─── Native browser panel (child WebView, no iframe restrictions) ───
-//
-// Opens a real native webview as a CHILD of the main window, positioned to
-// look embedded inside the React UI. Unlike `<iframe>`, this webview is a
-// top-level browser process — sites with X-Frame-Options (Google, Twitter,
-// banks) load normally. Requires the `unstable` Tauri feature flag.
-
-const BROWSER_PANEL_LABEL: &str = "browser-panel";
-
-fn parse_url(s: &str) -> Result<tauri::Url, String> {
-    s.parse::<tauri::Url>().map_err(|e| format!("Invalid URL: {e}"))
-}
-
-#[tauri::command]
-async fn browser_panel_open(
-    app: AppHandle,
-    url: String,
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
-) -> Result<(), String> {
-    let main_window = app
-        .get_window("main")
-        .ok_or("Main window not found")?;
-    // Close any existing panel first so we don't leak webviews
-    if let Some(existing) = app.webviews().get(BROWSER_PANEL_LABEL) {
-        let _ = existing.close();
-        tokio::time::sleep(std::time::Duration::from_millis(80)).await;
-    }
-    let parsed = parse_url(&url)?;
-    // Persistent data directory for cookies/sessions across app restarts
-    let data_dir = app.path().app_data_dir()
-        .unwrap_or_else(|_| std::path::PathBuf::from("."))
-        .join("browser_data");
-    let builder = WebviewBuilder::new(BROWSER_PANEL_LABEL, WebviewUrl::External(parsed))
-        .data_directory(data_dir)
-        .zoom_hotkeys_enabled(true);
-    main_window
-        .add_child(
-            builder,
-            LogicalPosition::new(x, y),
-            LogicalSize::new(width.max(50.0), height.max(50.0)),
-        )
-        .map_err(|e| format!("Failed to attach webview: {e}"))?;
-    Ok(())
-}
-
-#[tauri::command]
-async fn browser_panel_navigate(app: AppHandle, url: String) -> Result<(), String> {
-    let webview = app
-        .webviews()
-        .get(BROWSER_PANEL_LABEL)
-        .cloned()
-        .ok_or("Browser panel not open")?;
-    let parsed = parse_url(&url)?;
-    webview
-        .navigate(parsed)
-        .map_err(|e| format!("Navigate failed: {e}"))?;
-    Ok(())
-}
-
-#[tauri::command]
-async fn browser_panel_get_info(app: AppHandle) -> Result<serde_json::Value, String> {
-    let webview = app.webviews().get(BROWSER_PANEL_LABEL).cloned()
-        .ok_or("Browser panel not open")?;
-    let url = webview.url().map(|u| u.to_string()).unwrap_or_default();
-    // Get title via eval — fire-and-forget eval doesn't return, so we use
-    // a simple heuristic: return the URL-based title for now.
-    // The frontend will poll this periodically.
-    Ok(serde_json::json!({ "url": url }))
-}
-
-#[tauri::command]
-async fn browser_panel_zoom(app: AppHandle, delta: f64) -> Result<f64, String> {
-    let webview = app.webviews().get(BROWSER_PANEL_LABEL).cloned()
-        .ok_or("Browser panel not open")?;
-    // Get current zoom, apply delta
-    // WebView2 default zoom is 1.0, range 0.25-5.0
-    // We'll use eval to read/set since Tauri's set_zoom is available
-    let current = webview.url().map(|_| 1.0_f64).unwrap_or(1.0); // placeholder
-    let new_zoom = (current + delta).clamp(0.25, 5.0);
-    webview.set_zoom(new_zoom).map_err(|e| format!("Zoom failed: {e}"))?;
-    Ok(new_zoom)
-}
-
-#[tauri::command]
-async fn browser_panel_set_zoom(app: AppHandle, zoom: f64) -> Result<(), String> {
-    let webview = app.webviews().get(BROWSER_PANEL_LABEL).cloned()
-        .ok_or("Browser panel not open")?;
-    webview.set_zoom(zoom.clamp(0.25, 5.0)).map_err(|e| format!("Zoom failed: {e}"))?;
-    Ok(())
-}
-
-#[tauri::command]
-async fn browser_panel_eval_js(app: AppHandle, js: String) -> Result<(), String> {
-    let webview = app.webviews().get(BROWSER_PANEL_LABEL).cloned()
-        .ok_or("Browser panel not open")?;
-    webview.eval(&js).map_err(|e| format!("Eval failed: {e}"))?;
-    Ok(())
-}
-
-#[tauri::command]
-async fn browser_panel_reload(app: AppHandle) -> Result<(), String> {
-    let webview = app.webviews().get(BROWSER_PANEL_LABEL).cloned()
-        .ok_or("Browser panel not open")?;
-    webview.eval("window.location.reload()").map_err(|e| format!("Reload failed: {e}"))?;
-    Ok(())
-}
-
-#[tauri::command]
-async fn browser_panel_go_back(app: AppHandle) -> Result<(), String> {
-    let webview = app.webviews().get(BROWSER_PANEL_LABEL).cloned()
-        .ok_or("Browser panel not open")?;
-    webview.eval("window.history.back()").map_err(|e| format!("Back failed: {e}"))?;
-    Ok(())
-}
-
-#[tauri::command]
-async fn browser_panel_go_forward(app: AppHandle) -> Result<(), String> {
-    let webview = app.webviews().get(BROWSER_PANEL_LABEL).cloned()
-        .ok_or("Browser panel not open")?;
-    webview.eval("window.history.forward()").map_err(|e| format!("Forward failed: {e}"))?;
-    Ok(())
-}
-
-#[tauri::command]
-async fn browser_panel_resize(
-    app: AppHandle,
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
-) -> Result<(), String> {
-    let webview = app
-        .webviews()
-        .get(BROWSER_PANEL_LABEL)
-        .cloned()
-        .ok_or("Browser panel not open")?;
-    webview
-        .set_position(LogicalPosition::new(x, y))
-        .map_err(|e| format!("set_position failed: {e}"))?;
-    webview
-        .set_size(LogicalSize::new(width.max(50.0), height.max(50.0)))
-        .map_err(|e| format!("set_size failed: {e}"))?;
-    Ok(())
-}
-
-#[tauri::command]
-async fn browser_panel_close(app: AppHandle) -> Result<(), String> {
-    if let Some(webview) = app.webviews().get(BROWSER_PANEL_LABEL).cloned() {
-        webview.close().map_err(|e| format!("Close failed: {e}"))?;
-    }
-    Ok(())
-}
 
 fn main() {
     // Check for --worker flag BEFORE Tauri setup.
@@ -1559,22 +953,22 @@ fn main() {
             get_app_errors,
             clear_app_errors,
             // Configuration
-            get_config,
-            save_config,
+            commands::config::get_config,
+            commands::config::save_config,
             // Model
-            get_model_status,
-            load_model,
-            unload_model,
-            hard_unload,
-            get_model_info,
-            get_model_history,
-            add_model_history,
+            commands::model::get_model_status,
+            commands::model::load_model,
+            commands::model::unload_model,
+            commands::model::hard_unload,
+            commands::model::get_model_info,
+            commands::model::get_model_history,
+            commands::model::add_model_history,
             // Conversations
-            get_conversations,
-            get_conversation,
-            delete_conversation,
-            truncate_conversation,
-            get_conversation_metrics,
+            commands::conversation::get_conversations,
+            commands::conversation::get_conversation,
+            commands::conversation::delete_conversation,
+            commands::conversation::truncate_conversation,
+            commands::conversation::get_conversation_metrics,
             // Chat
             generate_stream,
             cancel_generation,
@@ -1585,28 +979,28 @@ fn main() {
             web_fetch,
             // System
             get_system_usage,
-            // Native browser panel (Tauri-only real webview)
-            browser_panel_open,
-            browser_panel_navigate,
-            browser_panel_get_info,
-            browser_panel_zoom,
-            browser_panel_set_zoom,
-            browser_panel_eval_js,
-            browser_panel_reload,
-            browser_panel_go_back,
-            browser_panel_go_forward,
-            browser_panel_resize,
-            browser_panel_close,
+            // Native browser panel
+            commands::browser_panel::browser_panel_open,
+            commands::browser_panel::browser_panel_navigate,
+            commands::browser_panel::browser_panel_get_info,
+            commands::browser_panel::browser_panel_zoom,
+            commands::browser_panel::browser_panel_set_zoom,
+            commands::browser_panel::browser_panel_eval_js,
+            commands::browser_panel::browser_panel_reload,
+            commands::browser_panel::browser_panel_go_back,
+            commands::browser_panel::browser_panel_go_forward,
+            commands::browser_panel::browser_panel_resize,
+            commands::browser_panel::browser_panel_close,
             // Providers
             list_providers,
             list_configured_providers,
             list_cli_providers,
             // HuggingFace Hub
-            search_hub_models,
-            fetch_hub_tree,
-            verify_hub_downloads,
-            delete_hub_download,
-            download_hub_model,
+            commands::hub::search_hub_models,
+            commands::hub::fetch_hub_tree,
+            commands::hub::verify_hub_downloads,
+            commands::hub::delete_hub_download,
+            commands::hub::download_hub_model,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
