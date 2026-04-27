@@ -166,15 +166,15 @@ pub fn warmup_system_prompt(
 /// Known models always use their native tags (model name lookup).
 /// Saved tag_pairs are only used for unknown models (custom user configuration).
 pub(super) fn resolve_tool_tags(config: &SamplerConfig, general_name: Option<&str>) -> ToolTags {
-    // Priority 1: Model name lookup (always correct for known models)
-    if let Some(tags) = try_get_tool_tags_for_model(general_name) {
-        return tags;
-    }
-    // Priority 2: Derive from saved tag_pairs (user-edited in UI, for unknown models)
+    // Priority 1: Saved tag_pairs from config (user chose these in Load Model modal)
     if let Some(pairs) = &config.tag_pairs {
         if let Some(tags) = derive_tool_tags_from_pairs(pairs) {
             return tags;
         }
+    }
+    // Priority 2: Auto-detect from model name (fallback for models loaded without tag pairs)
+    if let Some(tags) = try_get_tool_tags_for_model(general_name) {
+        return tags;
     }
     // Priority 3: Old override fields + default tags (backward compat)
     default_tags().with_overrides(

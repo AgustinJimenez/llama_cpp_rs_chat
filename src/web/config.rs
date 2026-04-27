@@ -149,14 +149,9 @@ pub fn load_config(db: &Database) -> SamplerConfig {
 
 /// Load configuration for a specific conversation.
 /// Falls back to global config if no per-conversation config exists.
-pub fn load_config_for_conversation(db: &Database, conversation_id: &str) -> SamplerConfig {
-    if let Some(conv_config) = db.load_conversation_config(conversation_id) {
-        // Per-conversation config doesn't store model_path — fill it from global
-        let mut config = db_config_to_sampler_config(&conv_config);
-        let global = load_config(db);
-        config.model_path = global.model_path;
-        return config;
-    }
+pub fn load_config_for_conversation(db: &Database, _conversation_id: &str) -> SamplerConfig {
+    // Always use the global config from Load Model modal.
+    // Per-conversation overrides were removed — one config for all conversations.
     load_config(db)
 }
 
