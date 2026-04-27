@@ -282,7 +282,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   const { sendMessage: onSendMessage, isLoading, stopGeneration } = useChatContext();
   const { status, isLoading: isModelLoading, loadingAction } = useModelContext();
   const hasVision = status.has_vision ?? false;
-  const isModelBusy = isModelLoading && loadingAction === 'loading';
+  const isModelBusy = isModelLoading && loadingAction !== null;
   const disabled = isLoading || isModelBusy;
 
   const [message, setMessage] = useState('');
@@ -353,7 +353,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   const hasContent = message.trim() || attachedImages.length > 0 || attachedFiles.length > 0;
   let placeholder = 'Ask anything';
   if (isModelBusy) {
-    placeholder = 'Loading model...';
+    placeholder = loadingAction === 'unloading' ? 'Unloading model...' : 'Loading model...';
   } else if (disabled && disabledReason) {
     placeholder = disabledReason;
   }
