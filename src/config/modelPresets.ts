@@ -147,8 +147,8 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     repeat_penalty: 1.0,
     context_size: 262144,
     flash_attention: true,
-    cache_type_k: 'q8_0',
-    cache_type_v: 'q8_0',
+    cache_type_k: 'turbo2',
+    cache_type_v: 'turbo3',
     gpu_layers: 40,
   },
   // Qwen3.6-35B-A3B (same qwen35moe arch as 3.5, with vision + MTP)
@@ -162,8 +162,8 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     repeat_penalty: 1.0,
     context_size: 32768,
     flash_attention: true,
-    cache_type_k: 'q8_0',
-    cache_type_v: 'q8_0',
+    cache_type_k: 'turbo2',
+    cache_type_v: 'turbo3',
     gpu_layers: 40,
   },
   // Qwen3.5-9B (dense, 9.5GB Q8)
@@ -177,8 +177,8 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     repeat_penalty: 1.0,
     context_size: 32768,
     flash_attention: true,
-    cache_type_k: 'q8_0',
-    cache_type_v: 'q8_0',
+    cache_type_k: 'turbo2',
+    cache_type_v: 'turbo3',
   },
   // Alias: GGUF general.name uses this format
   'Qwen_Qwen3.5 35B A3B': {
@@ -191,8 +191,8 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     repeat_penalty: 1.0,
     context_size: 262144,
     flash_attention: true,
-    cache_type_k: 'q8_0',
-    cache_type_v: 'q8_0',
+    cache_type_k: 'turbo2',
+    cache_type_v: 'turbo3',
     gpu_layers: 40,
   },
 
@@ -256,8 +256,8 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     min_p: 0.0,
     context_size: 32768,
     flash_attention: true,
-    cache_type_k: 'f16',
-    cache_type_v: 'f16',
+    cache_type_k: 'turbo2',
+    cache_type_v: 'turbo3',
     gpu_layers: 30,
   },
   // Gemma 4 31B Dense (31B params, all active)
@@ -272,8 +272,8 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     min_p: 0.0,
     context_size: 16384,
     flash_attention: true,
-    cache_type_k: 'q4_0',
-    cache_type_v: 'q4_0',
+    cache_type_k: 'turbo2',
+    cache_type_v: 'turbo3',
     gpu_layers: 60,
   },
   'Gemma 3 12b It': {

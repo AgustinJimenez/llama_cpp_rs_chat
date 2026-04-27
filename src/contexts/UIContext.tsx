@@ -10,7 +10,6 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
     () => (localStorage.getItem('viewMode') as ViewMode) || 'markdown',
   );
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
-  const [isConfigSidebarOpen, setIsConfigSidebarOpen] = useState(false);
   const [isAppSettingsOpen, setIsAppSettingsOpen] = useState(false);
   const [isModelConfigOpen, setIsModelConfigOpen] = useState(false);
   const [isEventLogOpen, setIsEventLogOpen] = useState(false);
@@ -27,8 +26,6 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
 
   const toggleRightSidebar = useCallback(() => setIsRightSidebarOpen((p) => !p), []);
   const closeRightSidebar = useCallback(() => setIsRightSidebarOpen(false), []);
-  const toggleConfigSidebar = useCallback(() => setIsConfigSidebarOpen((p) => !p), []);
-  const closeConfigSidebar = useCallback(() => setIsConfigSidebarOpen(false), []);
   const openAppSettings = useCallback(() => setIsAppSettingsOpen(true), []);
   const closeAppSettings = useCallback(() => setIsAppSettingsOpen(false), []);
   const openModelConfig = useCallback(() => setIsModelConfigOpen(true), []);
@@ -62,9 +59,6 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
       isRightSidebarOpen,
       toggleRightSidebar,
       closeRightSidebar,
-      isConfigSidebarOpen,
-      toggleConfigSidebar,
-      closeConfigSidebar,
       isAppSettingsOpen,
       openAppSettings,
       closeAppSettings,
@@ -94,9 +88,6 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
       isRightSidebarOpen,
       toggleRightSidebar,
       closeRightSidebar,
-      isConfigSidebarOpen,
-      toggleConfigSidebar,
-      closeConfigSidebar,
       isAppSettingsOpen,
       openAppSettings,
       closeAppSettings,

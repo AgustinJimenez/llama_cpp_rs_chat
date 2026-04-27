@@ -130,8 +130,8 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     modelMetadata: modelInfo,
     availableVramGb,
     maxLayers,
-    cacheTypeK: resolvedPreset.cache_type_k || 'f16',
-    cacheTypeV: resolvedPreset.cache_type_v || 'f16',
+    cacheTypeK: resolvedPreset.cache_type_k || 'turbo2',
+    cacheTypeV: resolvedPreset.cache_type_v || 'turbo3',
     presetContextSize: resolvedPreset.context_size,
     maxContextSize,
   });
@@ -144,8 +144,8 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     availableVramGb,
     availableRamGb,
     overheadGb,
-    cacheTypeK: config.cache_type_k || resolvedPreset.cache_type_k || 'f16',
-    cacheTypeV: config.cache_type_v || resolvedPreset.cache_type_v || 'f16',
+    cacheTypeK: config.cache_type_k || resolvedPreset.cache_type_k || 'turbo2',
+    cacheTypeV: config.cache_type_v || resolvedPreset.cache_type_v || 'turbo2',
   });
 
   // Initialize model path from config when modal opens
@@ -171,14 +171,17 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     const fetchSavedConfig = async () => {
       try {
         const saved = await getConfig();
-        if (saved.tag_pairs?.length) {
-          setConfig((prev) => ({ ...prev, tag_pairs: saved.tag_pairs }));
-          // eslint-disable-next-line no-console
-          console.log(
-            '[ModelConfig] Loaded saved tag_pairs from DB:',
-            saved.tag_pairs.length,
-            'pairs',
-          );
+        // When reopening for an already-loaded model, restore all saved settings
+        // (cache types, context size, sampling params, tag pairs, etc.)
+        if (saved) {
+          setConfig((prev) => ({
+            ...prev,
+            ...saved,
+            model_path: prev.model_path || saved.model_path || '',
+          }));
+          if (saved.context_size) {
+            setContextSize(saved.context_size);
+          }
         }
       } catch (error) {
         console.error('Failed to fetch saved config:', error); // eslint-disable-line no-console
@@ -234,15 +237,25 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
       ? { ...DEFAULT_PRESET, ...ggufParams, ...specificPreset }
       : { ...namedPreset, ...ggufParams };
 
-    // Apply the preset (including context_size if specified)
+    // Apply the preset — but don't override fields that were loaded from the
+    // saved DB config (the user's actual running settings take priority).
     const { context_size: presetContextSize, ...samplerPreset } =
       merged as Partial<SamplerConfig> & { context_size?: number };
-    setConfig((prev) => ({
-      ...prev,
-      ...samplerPreset,
-      model_path: prev.model_path,
-    }));
-    if (presetContextSize) {
+    setConfig((prev) => {
+      // If we already loaded saved config from DB, only apply preset for
+      // fields that aren't set (keep user's cache types, context, etc.)
+      if (savedConfigLoaded.current) {
+        const onlyNew: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(samplerPreset)) {
+          if (!(k in prev) || prev[k as keyof SamplerConfig] === undefined) {
+            onlyNew[k] = v;
+          }
+        }
+        return { ...prev, ...onlyNew, model_path: prev.model_path };
+      }
+      return { ...prev, ...samplerPreset, model_path: prev.model_path };
+    });
+    if (presetContextSize && !savedConfigLoaded.current) {
       setContextSize(presetContextSize);
     }
 

@@ -60,8 +60,8 @@ export const ChatHeader = React.memo(({ onModelUnload, onForceUnload }: ChatHead
     setViewMode,
     isRightSidebarOpen,
     toggleRightSidebar,
-    isConfigSidebarOpen,
-    toggleConfigSidebar,
+    isModelConfigOpen,
+    openModelConfig,
     isEventLogOpen,
     toggleEventLog,
     openProviderSelector,
@@ -161,10 +161,10 @@ export const ChatHeader = React.memo(({ onModelUnload, onForceUnload }: ChatHead
           </button>
 
           <button
-            onClick={toggleConfigSidebar}
+            onClick={openModelConfig}
             disabled={isModelLoading}
-            className={`btn-icon ${isConfigSidebarOpen ? 'active' : ''} ${isModelLoading ? 'opacity-30 cursor-not-allowed' : ''}`}
-            title="Conversation settings"
+            className={`btn-icon ${isModelConfigOpen ? 'active' : ''} ${isModelLoading ? 'opacity-30 cursor-not-allowed' : ''}`}
+            title="Model settings"
           >
             <SlidersHorizontal className="h-3.5 w-3.5" />
           </button>

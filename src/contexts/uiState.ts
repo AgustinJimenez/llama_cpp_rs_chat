@@ -8,9 +8,6 @@ export interface UIContextValue {
   isRightSidebarOpen: boolean;
   toggleRightSidebar: () => void;
   closeRightSidebar: () => void;
-  isConfigSidebarOpen: boolean;
-  toggleConfigSidebar: () => void;
-  closeConfigSidebar: () => void;
   isAppSettingsOpen: boolean;
   openAppSettings: () => void;
   closeAppSettings: () => void;

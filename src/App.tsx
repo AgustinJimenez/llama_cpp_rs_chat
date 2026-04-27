@@ -20,11 +20,6 @@ import { isTauriEnv } from './utils/tauri';
 const RightSidebar = React.lazy(() =>
   import('./components/organisms/RightSidebar').then((m) => ({ default: m.RightSidebar })),
 );
-const ConversationConfigSidebar = React.lazy(() =>
-  import('./components/organisms/ConversationConfigSidebar').then((m) => ({
-    default: m.ConversationConfigSidebar,
-  })),
-);
 const AppSettingsModal = React.lazy(() =>
   import('./components/organisms/AppSettingsModal').then((m) => ({ default: m.AppSettingsModal })),
 );
@@ -138,13 +133,6 @@ const App = () => {
     clearMessages();
   }, [forceUnload, clearMessages]);
 
-  const handleReloadModel = useCallback(
-    (modelPath: string, config: SamplerConfig) => {
-      loadModel(modelPath, config);
-    },
-    [loadModel],
-  );
-
   return (
     <div className="h-screen bg-background flex" data-testid="chat-app">
       <Sidebar onNewChat={handleNewConversation} />
@@ -156,7 +144,6 @@ const App = () => {
       <Overlays
         modelPath={modelStatus.model_path ?? undefined}
         onModelConfigSave={handleModelConfigSave}
-        onReloadModel={handleReloadModel}
       />
 
       <Toaster
@@ -335,23 +322,18 @@ const MainContent = ({
 const Overlays = ({
   modelPath,
   onModelConfigSave,
-  onReloadModel,
 }: {
   modelPath?: string;
   onModelConfigSave: (config: SamplerConfig) => void;
-  onReloadModel: (modelPath: string, config: SamplerConfig) => void;
 }) => {
   const {
     isRightSidebarOpen,
     closeRightSidebar,
-    isConfigSidebarOpen,
-    closeConfigSidebar,
     isAppSettingsOpen,
     closeAppSettings,
     isModelConfigOpen,
     closeModelConfig,
   } = useUIContext();
-  const { currentConversationId } = useChatContext();
 
   return (
     <>
@@ -359,19 +341,6 @@ const Overlays = ({
         <ErrorBoundary>
           <Suspense fallback={null}>
             <RightSidebar isOpen={isRightSidebarOpen} onClose={closeRightSidebar} />
-          </Suspense>
-        </ErrorBoundary>
-      ) : null}
-      {isConfigSidebarOpen ? (
-        <ErrorBoundary>
-          <Suspense fallback={null}>
-            <ConversationConfigSidebar
-              isOpen={isConfigSidebarOpen}
-              onClose={closeConfigSidebar}
-              conversationId={currentConversationId}
-              currentModelPath={modelPath}
-              onReloadModel={onReloadModel}
-            />
           </Suspense>
         </ErrorBoundary>
       ) : null}
