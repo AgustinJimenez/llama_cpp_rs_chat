@@ -168,11 +168,13 @@ pub(crate) fn run_generation_loop(
             let last = watchdog_heartbeat.load(Ordering::Relaxed);
             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
             if now.saturating_sub(last) > WATCHDOG_TIMEOUT_MS {
-                eprintln!("[WATCHDOG] sample()/decode() deadlock detected after {}ms — forcing cancel (conv={})",
+                eprintln!("[WATCHDOG] sample()/decode() deadlock detected after {}ms — killing worker process (conv={})",
                     now - last, watchdog_conv_id);
-                log_event(&watchdog_conv_id, "watchdog", &format!("Deadlock detected: {}ms since last heartbeat", now - last));
-                watchdog_cancel.store(true, Ordering::Relaxed);
-                break;
+                log_event(&watchdog_conv_id, "watchdog", &format!("Deadlock detected: {}ms — worker process exit", now - last));
+                // sample() is stuck in CUDA and can't be interrupted.
+                // Kill the worker process — it will auto-restart with clean state.
+                // The model reloads from disk, conversation continues from DB.
+                std::process::exit(42); // Exit code 42 = watchdog kill
             }
         }
     });
