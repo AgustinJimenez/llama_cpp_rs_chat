@@ -6,9 +6,9 @@ use super::generation::create_fresh_context;
 use llama_chat_types::*;
 // --- Tool output summarization via LLM sub-agent ---
 
-/// Minimum output size (chars) to trigger LLM summarization.
-/// Set to 0 to always summarize (useful for testing).
-pub(crate) const SUMMARIZE_THRESHOLD: usize = 1500;
+/// Minimum output size (chars) to trigger LLM summarization on GPU.
+/// Outputs below this pass through raw — cheap enough to keep in context.
+pub(crate) const SUMMARIZE_THRESHOLD: usize = 4000;
 /// Context size for each summarization pass (tokens).
 const SUMMARY_CTX_SIZE: u32 = 4096;
 /// Maximum tokens to generate per summary.

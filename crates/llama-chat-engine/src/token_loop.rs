@@ -69,9 +69,10 @@ pub(crate) type VisionCtxRef<'a> = Option<&'a llama_cpp_2::mtmd::MtmdContext>;
 #[cfg(not(feature = "vision"))]
 pub(crate) type VisionCtxRef<'a> = ();
 
-/// Stall detection: if 16 tokens take longer than this, abort generation.
-/// Set high enough to accommodate large contexts (65K+ at ~0.2 tok/s = 80s for 16 tokens).
-const TOKEN_STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);
+/// Stall detection: if no token is produced within this duration, abort generation.
+/// 30s is generous — even at 1 tok/s this allows plenty of time. A true stall
+/// (CUDA deadlock, model hang) should be caught quickly rather than waiting 3 min.
+const TOKEN_STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 // Tool call round limit removed — context window is the natural limit.
 
