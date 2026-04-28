@@ -6,9 +6,10 @@ use super::generation::create_fresh_context;
 use llama_chat_types::*;
 // --- Tool output summarization via LLM sub-agent ---
 
-/// Minimum output size (chars) to trigger LLM summarization on GPU.
-/// Outputs below this pass through raw — cheap enough to keep in context.
-pub(crate) const SUMMARIZE_THRESHOLD: usize = 4000;
+/// Minimum output size (chars) to trigger LLM summarization (CPU).
+/// Set high to avoid frequent slow CPU summarization with large models.
+/// Outputs below this are smart-truncated instead (instant, keeps head + tail).
+pub(crate) const SUMMARIZE_THRESHOLD: usize = 15000;
 /// Context size for each summarization pass (tokens).
 const SUMMARY_CTX_SIZE: u32 = 4096;
 /// Maximum tokens to generate per summary.
@@ -56,10 +57,10 @@ fn run_summary_pass(
 
     let n_ctx = NonZeroU32::new(SUMMARY_CTX_SIZE).unwrap();
     let config = SamplerConfig::default();
-    // offload_kqv=true: summary context uses GPU alongside the main context.
-    // The 4K KV cache uses ~50MB VRAM — trivial next to the main context.
-    // Both contexts share the same model weights (read-only).
-    let mut ctx = create_fresh_context(model, backend, n_ctx, true, &config)?;
+    // offload_kqv=false: summary context runs on CPU. GPU dual-context deadlocks
+    // with the main generation context (CUDA stream contention). CPU is slower but
+    // reliable. The 4K threshold ensures this only triggers on larger outputs.
+    let mut ctx = create_fresh_context(model, backend, n_ctx, false, &config)?;
 
     // Eval prompt in batches
     let batch_cap = 512usize;
@@ -179,7 +180,7 @@ fn run_summary_pass_with_system(
 
     let n_ctx = NonZeroU32::new(SUMMARY_CTX_SIZE).unwrap();
     let config = SamplerConfig::default();
-    let mut ctx = create_fresh_context(model, backend, n_ctx, true, &config)?;
+    let mut ctx = create_fresh_context(model, backend, n_ctx, false, &config)?;
 
     let batch_cap = 512usize;
     let mut batch = LlamaBatch::new(batch_cap, 1);
@@ -628,7 +629,7 @@ pub fn maybe_summarize_tool_output(
 
     let n_ctx = NonZeroU32::new(MAP_REDUCE_CTX).unwrap();
     let config = SamplerConfig::default();
-    let mut ctx = match create_fresh_context(model, backend, n_ctx, true, &config) {
+    let mut ctx = match create_fresh_context(model, backend, n_ctx, false, &config) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("[TOOL_SUMMARY] Failed to create summary context: {}", e);
