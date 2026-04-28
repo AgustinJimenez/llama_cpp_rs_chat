@@ -803,6 +803,10 @@ pub fn inject_output_tokens(
         *token_pos += chunk.len() as i32;
     }
 
+    // Synchronize CUDA to ensure all async tensor operations from decode() are complete
+    // before the caller calls sample(). Prevents race condition (llama.cpp issue #18310).
+    context.synchronize();
+
     // Check if we've consumed too much context after injection
     // (catches recurrent/hybrid models where decode succeeds but context is full)
     let ctx_size = context.n_ctx();
