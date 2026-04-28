@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/llama-chat-types", "crates/llama-chat-db", "crates/llama-chat-config", "crates/llama-chat-command", "crates/llama-chat-desktop-tools", "crates/llama-chat-tools", "crates/llama-chat-engine", "crates/llama-chat-worker", "crates/llama-chat-web", "."]
+members = ["crates/llama-chat-types", "crates/llama-chat-db", "crates/llama-chat-config", "crates/llama-chat-command", "crates/llama-chat-desktop-tools", "crates/llama-chat-tools", "crates/llama-chat-engine", "crates/llama-chat-worker", "crates/llama-chat-web", "crates/tests", "."]
 exclude = ["tools/ensure-cmake"]
 
 # Inherited by deps/llama-cpp-rs workspace members (llama-cpp-2, llama-cpp-sys-2)

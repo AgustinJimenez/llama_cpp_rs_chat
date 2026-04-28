@@ -1,0 +1,19 @@
+[package]
+name = "llama-chat-tests"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "llama-chat-tests"
+path = "src/main.rs"
+
+[dependencies]
+llama-cpp-2 = { path = "../../deps/llama-cpp-rs/llama-cpp-2" }
+
+[features]
+default = []
+cuda = ["llama-cpp-2/cuda"]
+vision = ["llama-cpp-2/mtmd"]
+
+[lints.rust]
+warnings = "allow"

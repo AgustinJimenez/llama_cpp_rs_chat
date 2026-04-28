@@ -3442,6 +3442,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "llama-chat-tests"
+version = "0.1.0"
+dependencies = [
+ "llama-cpp-2",
+]
+
+[[package]]
 name = "llama-chat-tools"
 version = "0.1.0"
 dependencies = [

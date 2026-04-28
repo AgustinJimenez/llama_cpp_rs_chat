@@ -147,6 +147,36 @@ pub(crate) fn run_generation_loop(
     let mut stall_checkpoint = Instant::now();
     let gen_start_time = Instant::now();
 
+    // Watchdog thread: monitors heartbeat and sets cancel flag if sample()/decode()
+    // deadlocks in CUDA. The heartbeat is updated after every successful sample().
+    // If not updated within WATCHDOG_TIMEOUT, the watchdog assumes a deadlock.
+    const WATCHDOG_TIMEOUT_MS: u64 = 10_000; // 10 seconds
+    let heartbeat = Arc::new(std::sync::atomic::AtomicU64::new(
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64
+    ));
+    let watchdog_done = Arc::new(AtomicBool::new(false));
+    let watchdog_cancel = cancel.clone();
+    let watchdog_heartbeat = heartbeat.clone();
+    let watchdog_done_flag = watchdog_done.clone();
+    let watchdog_conv_id = cfg.conversation_id.to_string();
+    let watchdog_handle = std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            if watchdog_done_flag.load(Ordering::Relaxed) {
+                break; // Generation finished normally
+            }
+            let last = watchdog_heartbeat.load(Ordering::Relaxed);
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
+            if now.saturating_sub(last) > WATCHDOG_TIMEOUT_MS {
+                eprintln!("[WATCHDOG] sample()/decode() deadlock detected after {}ms — forcing cancel (conv={})",
+                    now - last, watchdog_conv_id);
+                log_event(&watchdog_conv_id, "watchdog", &format!("Deadlock detected: {}ms since last heartbeat", now - last));
+                watchdog_cancel.store(true, Ordering::Relaxed);
+                break;
+            }
+        }
+    });
+
     loop {
         let mut command_executed = false;
         let mut hit_stop_condition = false;
@@ -234,7 +264,27 @@ pub(crate) fn run_generation_loop(
                 log_debug!(cfg.conversation_id, "Sampling token {} (i={}) ...", gen.total_tokens_generated, i);
             }
             let next_token = sampler.sample(context, -1);
-            stall_checkpoint = Instant::now(); // Reset stall timer after successful sample
+            // Update watchdog heartbeat + stall timer after successful sample
+            heartbeat.store(
+                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64,
+                Ordering::Relaxed,
+            );
+            stall_checkpoint = Instant::now();
+            // If watchdog triggered cancel during sample(), break out
+            if cancel.load(Ordering::Relaxed) {
+                eprintln!("[WATCHDOG] Cancel detected after sample() returned — aborting generation");
+                gen.finish_reason = "watchdog".to_string();
+                if let Some(ref sender) = token_sender {
+                    let _ = sender.send(TokenData {
+                        token: "\n\n[Generation stalled — restarting]".to_string(),
+                        tokens_used: gen.total_tokens_generated,
+                        max_tokens: cfg.max_total_tokens, status: None,
+                        ..Default::default()
+                    });
+                }
+                hit_stop_condition = true;
+                break;
+            }
 
             if next_token == model.token_eos() {
                 log_debug!(
@@ -281,6 +331,12 @@ pub(crate) fn run_generation_loop(
                 }
                 return Err(format!("Decode failed at token {}: {e}", gen.total_tokens_generated));
             }
+
+            // Update watchdog heartbeat after successful decode
+            heartbeat.store(
+                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64,
+                Ordering::Relaxed,
+            );
 
             gen.token_pos += 1;
             gen.total_tokens_generated += 1;
@@ -544,5 +600,8 @@ pub(crate) fn run_generation_loop(
         }
     }
 
+    // Stop watchdog thread
+    watchdog_done.store(true, Ordering::Relaxed);
+    let _ = watchdog_handle.join();
     Ok(())
 }
