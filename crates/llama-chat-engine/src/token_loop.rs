@@ -155,7 +155,7 @@ pub(crate) fn run_generation_loop(
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64
     ));
     let watchdog_done = Arc::new(AtomicBool::new(false));
-    let watchdog_cancel = cancel.clone();
+    let _watchdog_cancel = cancel.clone();
     let watchdog_heartbeat = heartbeat.clone();
     let watchdog_done_flag = watchdog_done.clone();
     let watchdog_conv_id = cfg.conversation_id.to_string();
