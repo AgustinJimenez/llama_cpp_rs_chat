@@ -8,8 +8,6 @@ use super::super::models::*;
 use super::super::native_tools;
 use super::sub_agent::{run_sub_agent};
 use super::tool_tags::ToolTags;
-use crate::{log_info};
-
 /// Prefix a command with `rtk` for output compression, if RTK mode is enabled.
 pub(super) fn maybe_rtk_prefix(cmd: &str, use_rtk: bool) -> String {
     if use_rtk {

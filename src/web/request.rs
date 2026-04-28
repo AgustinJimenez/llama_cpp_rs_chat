@@ -6,8 +6,6 @@ use serde::de::DeserializeOwned;
 use super::response_helpers::json_error;
 use hyper::StatusCode;
 
-// Import logging macros
-use crate::sys_error;
 
 /// Parse request body as JSON
 /// Returns the deserialized value or an error response

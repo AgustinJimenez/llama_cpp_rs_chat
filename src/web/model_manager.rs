@@ -11,8 +11,6 @@ use std::sync::Arc;
 use super::models::{LlamaState, ModelStatus, SharedLlamaState};
 #[cfg(feature = "vision")]
 use super::models::VisionState;
-use crate::{log_debug, log_info, log_warn};
-
 // Re-export VRAM functions for backward compatibility (used by other modules)
 pub use super::vram_calculator::calculate_optimal_gpu_layers;
 

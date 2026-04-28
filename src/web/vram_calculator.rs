@@ -10,7 +10,6 @@ use gguf_llms::{GgufHeader, GgufReader, Value};
 use std::fs;
 use std::io::BufReader;
 
-use crate::{log_info, log_warn};
 use super::utils::silent_command;
 
 // Constants for VRAM calculations

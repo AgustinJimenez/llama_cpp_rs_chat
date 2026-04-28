@@ -4,8 +4,6 @@ use std::convert::Infallible;
 use std::io::Write;
 
 use crate::web::{request_parsing::parse_json_body, response_helpers::json_error};
-use crate::{sys_debug, sys_warn};
-
 #[derive(Debug, Deserialize)]
 struct FrontendLogBatch {
     logs: Vec<FrontendLogEntry>,

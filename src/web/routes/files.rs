@@ -12,8 +12,6 @@ use crate::web::{
     response_helpers::{json_error, json_raw, json_response},
 };
 
-// Import logging macros
-use crate::sys_error;
 
 pub async fn handle_get_browse(
     req: Request<Body>,

@@ -7,8 +7,6 @@ use std::num::NonZeroU32;
 
 use super::context_eval::create_fresh_context;
 use crate::web::models::{SamplerConfig, SharedLlamaState};
-use crate::log_info;
-
 pub fn quick_tool_result_check(
     model: &llama_cpp_2::model::LlamaModel,
     backend: &llama_cpp_2::llama_backend::LlamaBackend,

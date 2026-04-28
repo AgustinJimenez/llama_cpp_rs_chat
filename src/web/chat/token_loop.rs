@@ -16,7 +16,6 @@ use super::command_executor::{
     check_and_execute_command_with_tags, inject_output_tokens,
 };
 use super::stop_conditions::{check_stop_conditions, ExecBlockTracker};
-use crate::{log_debug, log_info, log_warn};
 use crate::web::event_log::log_event;
 
 /// Mutable state tracked across the token generation loop.

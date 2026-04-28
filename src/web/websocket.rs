@@ -9,9 +9,6 @@ use super::database::SharedDatabase;
 use super::models::ChatRequest;
 use super::worker::worker_bridge::{GenerationResult, SharedWorkerBridge};
 
-// Import logging macros
-use crate::{sys_debug, sys_error, sys_info, sys_warn};
-
 // Import the global counter
 use std::sync::atomic::AtomicU32;
 pub static ACTIVE_WS_CONNECTIONS: AtomicU32 = AtomicU32::new(0);

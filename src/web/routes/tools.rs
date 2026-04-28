@@ -14,8 +14,6 @@ use crate::web::{
     response_helpers::{json_error, json_raw},
 };
 
-// Import logging macros
-use crate::sys_debug;
 
 #[cfg(not(feature = "mock"))]
 use crate::web::worker::worker_bridge::SharedWorkerBridge;

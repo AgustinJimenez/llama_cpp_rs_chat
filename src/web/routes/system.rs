@@ -6,9 +6,6 @@ use std::convert::Infallible;
 use crate::web::database::SharedDatabase;
 use crate::web::response_helpers::{json_raw, json_response, json_error};
 #[cfg(target_os = "windows")]
-use crate::{sys_debug, sys_warn};
-
-#[cfg(target_os = "windows")]
 use std::sync::Mutex;
 #[cfg(target_os = "windows")]
 use std::time::{Duration, Instant};

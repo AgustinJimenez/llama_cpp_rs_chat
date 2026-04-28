@@ -14,8 +14,6 @@ use tokio::process::Command;
 
 use super::config::{McpServerConfig, McpTransport};
 use super::tool_registry::McpToolDef;
-use crate::{log_info, log_warn, log_debug};
-
 /// A connected MCP client session.
 pub struct McpClient {
     pub server_id: String,

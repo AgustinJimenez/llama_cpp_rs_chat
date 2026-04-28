@@ -1,3 +1,30 @@
+[workspace]
+members = ["crates/llama-chat-types", "crates/llama-chat-db", "."]
+exclude = ["tools/ensure-cmake"]
+
+# Inherited by deps/llama-cpp-rs workspace members (llama-cpp-2, llama-cpp-sys-2)
+[workspace.dependencies]
+thiserror = "2"
+tracing = "0.1"
+tracing-core = "0.1"
+encoding_rs = "0.8.35"
+hf-hub = { version = "0.5.0" }
+criterion = "0.5.1"
+pprof = "0.13.0"
+bindgen = "0.72.1"
+cc = "1.2.58"
+anyhow = "1.0.102"
+clap = "4.6.0"
+tracing-subscriber = { version = "0.3", features = ["json"] }
+
+# Inherited by deps/llama-cpp-rs/llama-cpp-2 [lints] workspace = true
+[workspace.lints.rust]
+missing_docs = { level = "warn" }
+missing_debug_implementations = { level = "warn" }
+
+[workspace.lints.clippy]
+pedantic = { level = "warn" }
+
 [package]
 name = "llama_cpp_chat"
 version = "0.1.0"
@@ -68,6 +95,11 @@ panic = "abort"
 strip = true
 
 [dependencies]
+# Shared types crate (workspace member)
+llama-chat-types = { path = "crates/llama-chat-types" }
+# Database crate (workspace member)
+llama-chat-db = { path = "crates/llama-chat-db" }
+
 # ONNX Runtime for YOLO UI element detection
 ort = { version = "2.0.0-rc.12", features = ["download-binaries", "copy-dylibs"] }
 
@@ -204,10 +236,10 @@ webview2-com = "0.38"
 [features]
 default = []
 mock = []  # Mock implementation for E2E tests
-cuda = ["llama-cpp-2/cuda"]  # CUDA support feature
-metal = ["llama-cpp-2/metal"]  # Metal support feature for macOS
-vision = ["llama-cpp-2/mtmd"]  # Vision/multimodal support (disabled by default, re-enable later)
-dynamic-backends = ["llama-cpp-2/dynamic-backends"]  # Runtime GPU backend loading (CUDA/Vulkan as DLLs)
+cuda = ["llama-cpp-2/cuda", "llama-chat-types/cuda"]  # CUDA support feature
+metal = ["llama-cpp-2/metal", "llama-chat-types/metal"]  # Metal support feature for macOS
+vision = ["llama-cpp-2/mtmd", "llama-chat-types/vision"]  # Vision/multimodal support (disabled by default, re-enable later)
+dynamic-backends = ["llama-cpp-2/dynamic-backends", "llama-chat-types/dynamic-backends"]  # Runtime GPU backend loading (CUDA/Vulkan as DLLs)
 # Enables Tauri's embedded asset protocol so release builds use `frontendDist`
 # instead of `devUrl`. `cargo tauri build` sets this automatically; plain
 # `cargo build --release` needs it passed explicitly (or via the wrapper script).

@@ -3,8 +3,6 @@ use llama_cpp_2::model::AddBos;
 use super::command_executor::wrap_output_for_model;
 use super::command_executor::CommandExecutionResult;
 use super::tool_tags::ToolTags;
-use crate::log_info;
-
 /// Maximum number of times the same command can be repeated before blocking.
 pub(crate) const MAX_COMMAND_REPEATS: usize = 3;
 

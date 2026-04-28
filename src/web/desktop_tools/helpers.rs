@@ -47,7 +47,7 @@ pub(crate) fn tool_not_supported(tool: &str) -> NativeToolResult {
 /// Return cached monitors or re-enumerate if stale/empty.
 pub(crate) fn cached_monitors() -> Result<Vec<xcap::Monitor>, String> {
     let mut lock = MONITOR_CACHE.lock().unwrap_or_else(|p| {
-        crate::log_warn!("system", "Mutex poisoned in MONITOR_CACHE, recovering");
+        log_warn!("system", "Mutex poisoned in MONITOR_CACHE, recovering");
         p.into_inner()
     });
     if let Some((ref monitors, ref ts)) = lock.0 {

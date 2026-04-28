@@ -5,8 +5,6 @@ use super::Database;
 use std::fs;
 use std::path::Path;
 
-// Import logging macro
-use crate::sys_warn;
 
 /// Migrate existing conversation files to SQLite
 pub fn migrate_existing_conversations(db: &Database) -> Result<u32, String> {
@@ -226,7 +224,7 @@ pub fn migrate_config(db: &Database) -> Result<bool, String> {
 
     // Convert to DbSamplerConfig
     // "UserDefined" was removed — all legacy values map to Custom
-    let system_prompt_type = crate::web::models::SystemPromptType::Custom;
+    let system_prompt_type = llama_chat_types::SystemPromptType::Custom;
 
     let db_config = DbSamplerConfig {
         sampler_type: json_config

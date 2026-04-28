@@ -424,7 +424,7 @@ pub fn tool_show_status_overlay(args: &Value) -> NativeToolResult {
         use std::process::{Command, Stdio};
 
         let mut lock = OVERLAY.lock().unwrap_or_else(|poisoned| {
-            crate::log_warn!("system", "Mutex poisoned in OVERLAY, recovering");
+            log_warn!("system", "Mutex poisoned in OVERLAY, recovering");
             poisoned.into_inner()
         });
 
@@ -536,7 +536,7 @@ pub fn tool_update_status_overlay(args: &Value) -> NativeToolResult {
     };
 
     let mut lock = OVERLAY.lock().unwrap_or_else(|poisoned| {
-        crate::log_warn!("system", "Mutex poisoned in OVERLAY, recovering");
+        log_warn!("system", "Mutex poisoned in OVERLAY, recovering");
         poisoned.into_inner()
     });
     match lock.as_mut() {
@@ -577,7 +577,7 @@ pub fn tool_update_status_overlay(args: &Value) -> NativeToolResult {
 /// Hide (dismiss) the status overlay.
 pub fn tool_hide_status_overlay(_args: &Value) -> NativeToolResult {
     let mut lock = OVERLAY.lock().unwrap_or_else(|poisoned| {
-        crate::log_warn!("system", "Mutex poisoned in OVERLAY, recovering");
+        log_warn!("system", "Mutex poisoned in OVERLAY, recovering");
         poisoned.into_inner()
     });
     match lock.take() {

@@ -2,8 +2,6 @@ use llama_cpp_2::{model::LlamaModel, sampling::LlamaSampler};
 
 use super::super::models::SamplerConfig;
 use super::tool_grammar::create_tool_grammar_sampler;
-use crate::log_info;
-
 /// Common sequence breakers for the DRY anti-repetition sampler.
 const DRY_SEQ_BREAKERS: &[&[u8]] = &[b"\n", b".", b",", b"!", b"?", b";", b":", b" "];
 

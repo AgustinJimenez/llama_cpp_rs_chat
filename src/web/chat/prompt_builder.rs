@@ -11,8 +11,6 @@ use super::super::models::*;
 use super::context_eval::{build_context_params, CONTEXT_SIZE};
 use super::templates::apply_system_prompt_by_type_with_tags;
 use super::tool_tags::{default_tags, derive_tool_tags_from_pairs, get_tool_tags_for_model, try_get_tool_tags_for_model, ToolTags};
-use crate::{log_warn, sys_debug};
-
 /// Special conversation ID for warmup cache (system prompt pre-evaluation).
 pub const WARMUP_CONVERSATION_ID: &str = "__warmup__";
 
@@ -255,9 +253,6 @@ pub(super) fn inject_tool_response_with_vision(
     conversation_id: &str,
 ) -> Result<(), String> {
     use llama_cpp_2::mtmd::{MtmdBitmap, MtmdInputText};
-    use crate::log_info;
-    use crate::log_debug;
-
     let n_images = exec_result.response_images.len();
     log_info!(
         conversation_id,

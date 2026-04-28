@@ -11,8 +11,6 @@ use crate::web::websocket_utils::{
 use crate::web::websocket::handle_status_ws;
 #[cfg(not(feature = "mock"))]
 use crate::web::worker::worker_bridge::SharedWorkerBridge;
-#[cfg(not(feature = "mock"))]
-use crate::sys_error;
 
 /// WebSocket upgrade handler for persistent status/health connection.
 ///

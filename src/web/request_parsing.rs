@@ -3,9 +3,6 @@
 use hyper::{Body, Response, StatusCode, Uri};
 use serde::de::DeserializeOwned;
 
-// Import logging macros
-use crate::{sys_debug, sys_error};
-
 /// Parse JSON request body into a typed structure.
 ///
 /// Returns the deserialized value on success, or an error Response on failure.

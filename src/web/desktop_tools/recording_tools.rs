@@ -84,7 +84,7 @@ pub fn tool_start_screen_recording(args: &Value) -> NativeToolResult {
     // Check if already recording
     {
         let lock = RECORDING_STATE.lock().unwrap_or_else(|p| {
-            crate::log_warn!("system", "Mutex poisoned in RECORDING_STATE, recovering");
+            log_warn!("system", "Mutex poisoned in RECORDING_STATE, recovering");
             p.into_inner()
         });
         if lock.is_some() {
@@ -170,7 +170,7 @@ pub fn tool_start_screen_recording(args: &Value) -> NativeToolResult {
     };
 
     let mut lock = RECORDING_STATE.lock().unwrap_or_else(|p| {
-        crate::log_warn!("system", "Mutex poisoned in RECORDING_STATE, recovering");
+        log_warn!("system", "Mutex poisoned in RECORDING_STATE, recovering");
         p.into_inner()
     });
     *lock = Some(RecordingState {
@@ -194,7 +194,7 @@ pub fn tool_stop_screen_recording(args: &Value) -> NativeToolResult {
 
     let state = {
         let mut lock = RECORDING_STATE.lock().unwrap_or_else(|p| {
-            crate::log_warn!("system", "Mutex poisoned in RECORDING_STATE, recovering");
+            log_warn!("system", "Mutex poisoned in RECORDING_STATE, recovering");
             p.into_inner()
         });
         lock.take()

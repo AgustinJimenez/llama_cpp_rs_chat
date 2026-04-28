@@ -11,8 +11,6 @@ use super::generation::create_fresh_context;
 use super::tool_tags::ToolTags;
 use super::super::models::*;
 use super::super::native_tools;
-use crate::{log_info, log_warn};
-
 /// Context size for sub-agent (tokens). Large enough for real work.
 const AGENT_CTX_SIZE: u32 = 16384;
 /// Maximum tokens a sub-agent can generate.

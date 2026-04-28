@@ -2,7 +2,7 @@
 
 use super::{current_timestamp_millis, db_error, Database};
 use super::config::DbSamplerConfig;
-use crate::web::models::SystemPromptType;
+use llama_chat_types::SystemPromptType;
 use rusqlite::params;
 
 #[allow(dead_code)]

@@ -1,7 +1,7 @@
 //! Database CRUD operations for MCP server configurations.
 
 use super::{db_error, current_timestamp_secs, SharedDatabase};
-use crate::web::mcp::config::{McpServerConfig, McpTransport};
+use llama_chat_types::mcp_config::{McpServerConfig, McpTransport};
 use std::collections::HashMap;
 
 /// Load all MCP server configurations from the database.

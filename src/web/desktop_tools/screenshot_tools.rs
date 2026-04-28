@@ -115,7 +115,7 @@ pub fn tool_screenshot_diff(args: &Value) -> NativeToolResult {
 
     if save_baseline {
         let mut lock = BASELINE.lock().unwrap_or_else(|poisoned| {
-            crate::log_warn!("system", "Mutex poisoned in BASELINE, recovering");
+            log_warn!("system", "Mutex poisoned in BASELINE, recovering");
             poisoned.into_inner()
         });
         *lock = Some(current_bytes);
@@ -127,7 +127,7 @@ pub fn tool_screenshot_diff(args: &Value) -> NativeToolResult {
 
     // Compare with baseline
     let lock = BASELINE.lock().unwrap_or_else(|poisoned| {
-        crate::log_warn!("system", "Mutex poisoned in BASELINE, recovering");
+        log_warn!("system", "Mutex poisoned in BASELINE, recovering");
         poisoned.into_inner()
     });
     let baseline = match lock.as_ref() {

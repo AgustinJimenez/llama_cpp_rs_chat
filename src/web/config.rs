@@ -10,8 +10,6 @@ use super::models::SharedLlamaState;
 
 use super::chat::{get_tool_tags_for_model, get_universal_system_prompt_with_tags};
 
-// Import logging macro
-use crate::sys_warn;
 
 /// Convert DbSamplerConfig to the JSON-serializable SamplerConfig
 pub fn db_config_to_sampler_config(db_config: &DbSamplerConfig) -> SamplerConfig {

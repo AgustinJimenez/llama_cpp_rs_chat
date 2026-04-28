@@ -1,4 +1,7 @@
 // Simple web server version of LLaMA Chat (without Tauri)
+#[macro_use]
+extern crate llama_chat_types;
+
 mod web; // Declare web module for model capabilities and utilities
 
 // Import all types and functions from web modules

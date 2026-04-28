@@ -10,6 +10,9 @@
 
 #![allow(dead_code, unused_imports)]
 
+#[macro_use]
+extern crate llama_chat_types;
+
 mod web;
 
 use std::sync::Arc;

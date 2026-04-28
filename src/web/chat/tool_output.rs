@@ -4,8 +4,6 @@ use std::num::NonZeroU32;
 
 use super::generation::create_fresh_context;
 use crate::web::models::*;
-use crate::{log_info, log_warn};
-
 // --- Tool output summarization via LLM sub-agent ---
 
 /// Minimum output size (chars) to trigger LLM summarization.

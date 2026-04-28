@@ -11,9 +11,6 @@ use crate::web::{
     response_helpers::{json_error, json_raw, serialize_with_fallback},
 };
 
-// Import logging macros
-use crate::{sys_error, sys_info};
-
 pub async fn handle_get_conversation(
     path: &str,
     #[cfg(not(feature = "mock"))] _llama_state: crate::web::worker::worker_bridge::SharedWorkerBridge,

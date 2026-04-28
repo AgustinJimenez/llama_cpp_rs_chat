@@ -11,8 +11,6 @@ use super::loop_detection::{self, LoopCheckResult};
 use super::sub_agent::{run_sub_agent, try_extract_spawn_agent};
 use super::tool_parser::FORMAT_PRIORITY;
 use super::tool_tags::ToolTags;
-use crate::{log_info, log_debug, log_warn};
-
 pub(crate) use super::tool_output::{
     run_summary_pass_public,
     run_summary_reusing_ctx,
@@ -771,7 +769,6 @@ pub fn inject_output_tokens(
     token_pos: &mut i32,
     conversation_id: &str,
 ) -> Result<(), String> {
-    use crate::log_debug;
     log_debug!(
         conversation_id,
         "Injecting {} output tokens into context",

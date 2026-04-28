@@ -1,5 +1,8 @@
 #![allow(dead_code, unused_imports)]
 
+#[macro_use]
+extern crate llama_chat_types;
+
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;

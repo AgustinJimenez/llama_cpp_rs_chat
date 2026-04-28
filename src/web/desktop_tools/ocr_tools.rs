@@ -248,7 +248,7 @@ fn get_cached_ocr_payload(
     }
     let lock = OCR_CACHE.lock().unwrap_or_else(|poisoned| {
         eprintln!("[ocr_tools] OCR_CACHE mutex poisoned — recovering from panic");
-        crate::log_warn!("system", "Mutex poisoned in OCR_CACHE, recovering");
+        log_warn!("system", "Mutex poisoned in OCR_CACHE, recovering");
         poisoned.into_inner()
     });
     let entry = lock.as_ref()?;
@@ -265,7 +265,7 @@ fn get_cached_ocr_payload(
 fn update_cached_ocr_payload(key: String, raw: Vec<u8>, payload: OcrCachePayload) {
     let mut lock = OCR_CACHE.lock().unwrap_or_else(|poisoned| {
         eprintln!("[ocr_tools] OCR_CACHE mutex poisoned — recovering from panic");
-        crate::log_warn!("system", "Mutex poisoned in OCR_CACHE, recovering");
+        log_warn!("system", "Mutex poisoned in OCR_CACHE, recovering");
         poisoned.into_inner()
     });
     *lock = Some(OcrCacheEntry {

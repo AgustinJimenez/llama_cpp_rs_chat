@@ -9,8 +9,6 @@ use llama_cpp_2::{
 use std::num::NonZeroU32;
 
 use super::super::models::*;
-use crate::{log_debug, log_info};
-
 // Constants for LLaMA configuration
 pub(super) const CONTEXT_SIZE: u32 = 32768;
 

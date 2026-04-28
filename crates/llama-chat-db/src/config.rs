@@ -1,7 +1,7 @@
 // Configuration database operations
 
 use super::{current_timestamp_millis, db_error, Database};
-use crate::web::models::SystemPromptType;
+use llama_chat_types::SystemPromptType;
 use rusqlite::params;
 
 /// Sampler configuration stored in database
@@ -627,6 +627,7 @@ mod tests {
             tag_pairs: None, proactive_compaction: false,
             telegram_bot_token: None,
             telegram_chat_id: None,
+            provider_api_keys: None,
         };
 
         db.save_config(&config).unwrap();

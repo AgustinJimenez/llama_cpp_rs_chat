@@ -18,9 +18,6 @@ use crate::web::{
     },
 };
 
-// Import logging macros
-use crate::{sys_error, sys_info};
-
 #[cfg(not(feature = "mock"))]
 use crate::web::worker::worker_bridge::SharedWorkerBridge;
 

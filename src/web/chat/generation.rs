@@ -17,7 +17,6 @@ use super::super::models::*;
 use super::templates::{apply_system_prompt_by_type_with_tags, get_behavioral_system_prompt};
 use super::jinja_templates::get_available_tools_openai_with_mcp;
 use super::sampler::create_sampler;
-use crate::{log_debug, log_info, log_warn, sys_debug};
 use crate::web::event_log::log_event;
 use super::sub_checks::quick_task_completion_check;
 

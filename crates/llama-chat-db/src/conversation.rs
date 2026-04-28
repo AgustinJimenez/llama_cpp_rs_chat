@@ -9,8 +9,6 @@ use serde_json;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-// Import logging macros
-use crate::sys_error;
 
 /// Conversation metadata
 #[derive(Debug, Clone)]
