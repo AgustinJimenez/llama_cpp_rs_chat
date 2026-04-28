@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/llama-chat-types", "crates/llama-chat-db", "."]
+members = ["crates/llama-chat-types", "crates/llama-chat-db", "crates/llama-chat-config", "crates/llama-chat-command", "crates/llama-chat-desktop-tools", "crates/llama-chat-tools", "crates/llama-chat-engine", "crates/llama-chat-worker", "crates/llama-chat-web", "."]
 exclude = ["tools/ensure-cmake"]
 
 # Inherited by deps/llama-cpp-rs workspace members (llama-cpp-2, llama-cpp-sys-2)
@@ -99,6 +99,20 @@ strip = true
 llama-chat-types = { path = "crates/llama-chat-types" }
 # Database crate (workspace member)
 llama-chat-db = { path = "crates/llama-chat-db" }
+# Config crate (workspace member)
+llama-chat-config = { path = "crates/llama-chat-config" }
+# Command execution crate (workspace member)
+llama-chat-command = { path = "crates/llama-chat-command" }
+# Desktop automation tools crate (workspace member)
+llama-chat-desktop-tools = { path = "crates/llama-chat-desktop-tools" }
+# Native tools crate (workspace member)
+llama-chat-tools = { path = "crates/llama-chat-tools" }
+# Chat engine crate (workspace member)
+llama-chat-engine = { path = "crates/llama-chat-engine" }
+# Worker process crate (workspace member)
+llama-chat-worker = { path = "crates/llama-chat-worker" }
+# Web server components crate (workspace member)
+llama-chat-web = { path = "crates/llama-chat-web" }
 
 # ONNX Runtime for YOLO UI element detection
 ort = { version = "2.0.0-rc.12", features = ["download-binaries", "copy-dylibs"] }
@@ -236,10 +250,10 @@ webview2-com = "0.38"
 [features]
 default = []
 mock = []  # Mock implementation for E2E tests
-cuda = ["llama-cpp-2/cuda", "llama-chat-types/cuda"]  # CUDA support feature
+cuda = ["llama-cpp-2/cuda", "llama-chat-types/cuda", "llama-chat-web/cuda"]  # CUDA support feature
 metal = ["llama-cpp-2/metal", "llama-chat-types/metal"]  # Metal support feature for macOS
-vision = ["llama-cpp-2/mtmd", "llama-chat-types/vision"]  # Vision/multimodal support (disabled by default, re-enable later)
-dynamic-backends = ["llama-cpp-2/dynamic-backends", "llama-chat-types/dynamic-backends"]  # Runtime GPU backend loading (CUDA/Vulkan as DLLs)
+vision = ["llama-cpp-2/mtmd", "llama-chat-types/vision", "llama-chat-engine/vision", "llama-chat-worker/vision", "llama-chat-web/vision"]  # Vision/multimodal support (disabled by default, re-enable later)
+dynamic-backends = ["llama-cpp-2/dynamic-backends", "llama-chat-types/dynamic-backends", "llama-chat-engine/dynamic-backends", "llama-chat-worker/dynamic-backends", "llama-chat-web/dynamic-backends"]  # Runtime GPU backend loading (CUDA/Vulkan as DLLs)
 # Enables Tauri's embedded asset protocol so release builds use `frontendDist`
 # instead of `devUrl`. `cargo tauri build` sets this automatically; plain
 # `cargo build --release` needs it passed explicitly (or via the wrapper script).

@@ -1,0 +1,269 @@
+use llama_cpp_2::{model::LlamaModel, sampling::LlamaSampler};
+
+use llama_chat_types::SamplerConfig;
+use super::tool_grammar::create_tool_grammar_sampler;
+/// Common sequence breakers for the DRY anti-repetition sampler.
+const DRY_SEQ_BREAKERS: &[&[u8]] = &[b"\n", b".", b",", b"!", b"?", b";", b":", b" "];
+
+/// Resolve the seed from config: >=0 means fixed, <0 means random.
+fn resolve_seed(config: &SamplerConfig) -> u32 {
+    if config.seed >= 0 {
+        config.seed as u32
+    } else {
+        // Use system time as a simple random seed
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u32)
+            .unwrap_or(1234)
+    }
+}
+
+/// Create a sampler based on the configuration.
+///
+/// `model` is needed only for the DRY sampler; pass `None` if unavailable.
+pub(crate) fn create_sampler(
+    config: &SamplerConfig,
+    conversation_id: &str,
+    model: Option<&LlamaModel>,
+) -> LlamaSampler {
+    let seed = resolve_seed(config);
+    if config.seed >= 0 {
+        log_info!(conversation_id, "Using fixed seed: {}", seed);
+    }
+    let use_penalties = config.repeat_penalty > 1.0
+        || config.frequency_penalty > 0.0
+        || config.presence_penalty > 0.0;
+
+    if use_penalties {
+        log_info!(
+            conversation_id,
+            "Penalties enabled: repeat={}, freq={}, presence={}, last_n={}",
+            config.repeat_penalty,
+            config.frequency_penalty,
+            config.presence_penalty,
+            config.penalty_last_n
+        );
+    }
+
+    /// Push the standard penalty sampler onto a chain when any penalty is active.
+    fn push_penalties(samplers: &mut Vec<LlamaSampler>, config: &SamplerConfig) {
+        samplers.push(LlamaSampler::penalties(
+            config.penalty_last_n,
+            config.repeat_penalty as f32,
+            config.frequency_penalty as f32,
+            config.presence_penalty as f32,
+        ));
+    }
+
+    /// Push DRY anti-repetition sampler when multiplier > 0 and model is available.
+    fn push_dry(
+        samplers: &mut Vec<LlamaSampler>,
+        config: &SamplerConfig,
+        model: Option<&LlamaModel>,
+    ) {
+        if config.dry_multiplier > 0.0 {
+            if let Some(m) = model {
+                samplers.push(LlamaSampler::dry(
+                    m,
+                    config.dry_multiplier as f32,
+                    config.dry_base as f32,
+                    config.dry_allowed_length,
+                    config.dry_penalty_last_n,
+                    DRY_SEQ_BREAKERS.iter().copied(),
+                ));
+            }
+        }
+    }
+
+    /// Push top-N sigma filter when enabled (value > 0).
+    fn push_top_n_sigma(samplers: &mut Vec<LlamaSampler>, config: &SamplerConfig) {
+        if config.top_n_sigma > 0.0 {
+            samplers.push(LlamaSampler::top_n_sigma(config.top_n_sigma as f32));
+        }
+    }
+
+    /// Push lazy grammar sampler for JSON tool call constraints.
+    fn push_tool_grammar(samplers: &mut Vec<LlamaSampler>, model: Option<&LlamaModel>) {
+        if let Some(m) = model {
+            if let Some(grammar) = create_tool_grammar_sampler(m) {
+                samplers.push(grammar);
+            }
+        }
+    }
+
+    match config.sampler_type.as_str() {
+        "Temperature" => {
+            log_info!(
+                conversation_id,
+                "Using Temperature sampler: temp={}, top_p={}, top_k={}",
+                config.temperature, config.top_p, config.top_k
+            );
+            let mut s: Vec<LlamaSampler> = Vec::new();
+            if use_penalties { push_penalties(&mut s, config); }
+            push_dry(&mut s, config, model);
+            push_top_n_sigma(&mut s, config);
+            s.push(LlamaSampler::temp(config.temperature as f32));
+            s.push(LlamaSampler::top_k(config.top_k as i32));
+            s.push(LlamaSampler::top_p(config.top_p as f32, 1));
+            if config.min_p > 0.0 {
+                s.push(LlamaSampler::min_p(config.min_p as f32, 1));
+            }
+            push_tool_grammar(&mut s, model);
+            s.push(LlamaSampler::dist(seed));
+            LlamaSampler::chain(s, true)
+        }
+
+        "Mirostat" => {
+            log_info!(
+                conversation_id,
+                "Using Mirostat sampler: tau={}, eta={}",
+                config.mirostat_tau, config.mirostat_eta
+            );
+            // Mirostat is a standalone sampler (doesn't chain well with penalties)
+            LlamaSampler::mirostat(
+                0,    // n_vocab (0 = auto)
+                seed,
+                config.mirostat_tau as f32,
+                config.mirostat_eta as f32,
+                100,  // m
+            )
+        }
+
+        "TopP" => {
+            log_info!(conversation_id, "Using TopP sampler: top_p={}", config.top_p);
+            let mut s: Vec<LlamaSampler> = Vec::new();
+            if use_penalties { push_penalties(&mut s, config); }
+            push_dry(&mut s, config, model);
+            push_top_n_sigma(&mut s, config);
+            s.push(LlamaSampler::top_p(config.top_p as f32, 1));
+            push_tool_grammar(&mut s, model);
+            s.push(LlamaSampler::dist(seed));
+            LlamaSampler::chain(s, true)
+        }
+
+        "TopK" => {
+            log_info!(conversation_id, "Using TopK sampler: top_k={}", config.top_k);
+            let mut s: Vec<LlamaSampler> = Vec::new();
+            if use_penalties { push_penalties(&mut s, config); }
+            push_dry(&mut s, config, model);
+            push_top_n_sigma(&mut s, config);
+            s.push(LlamaSampler::top_k(config.top_k as i32));
+            push_tool_grammar(&mut s, model);
+            s.push(LlamaSampler::dist(seed));
+            LlamaSampler::chain(s, true)
+        }
+
+        "Typical" => {
+            log_info!(conversation_id, "Using Typical sampler: p={}", config.typical_p);
+            let mut s: Vec<LlamaSampler> = Vec::new();
+            if use_penalties { push_penalties(&mut s, config); }
+            push_dry(&mut s, config, model);
+            push_top_n_sigma(&mut s, config);
+            s.push(LlamaSampler::typical(config.typical_p as f32, 1));
+            push_tool_grammar(&mut s, model);
+            s.push(LlamaSampler::dist(seed));
+            LlamaSampler::chain(s, true)
+        }
+
+        "MinP" => {
+            log_info!(conversation_id, "Using MinP sampler: min_p={}", config.min_p);
+            let mut s: Vec<LlamaSampler> = Vec::new();
+            if use_penalties { push_penalties(&mut s, config); }
+            push_dry(&mut s, config, model);
+            push_top_n_sigma(&mut s, config);
+            s.push(LlamaSampler::min_p(config.min_p as f32, 1));
+            push_tool_grammar(&mut s, model);
+            s.push(LlamaSampler::dist(seed));
+            LlamaSampler::chain(s, true)
+        }
+
+        "TempExt" => {
+            log_info!(
+                conversation_id,
+                "Using TempExt (dynamic temperature) sampler: temp={}",
+                config.temperature
+            );
+            let mut s: Vec<LlamaSampler> = Vec::new();
+            if use_penalties { push_penalties(&mut s, config); }
+            push_dry(&mut s, config, model);
+            push_top_n_sigma(&mut s, config);
+            // temp_ext(t, delta, exponent) — delta/exponent not yet exposed in UI
+            s.push(LlamaSampler::temp_ext(config.temperature as f32, 0.0, 1.0));
+            push_tool_grammar(&mut s, model);
+            s.push(LlamaSampler::dist(seed));
+            LlamaSampler::chain(s, true)
+        }
+
+        "ChainTempTopP" => {
+            log_info!(
+                conversation_id,
+                "Using ChainTempTopP: temp={}, top_p={}",
+                config.temperature, config.top_p
+            );
+            let mut s: Vec<LlamaSampler> = Vec::new();
+            if use_penalties { push_penalties(&mut s, config); }
+            push_dry(&mut s, config, model);
+            push_top_n_sigma(&mut s, config);
+            s.push(LlamaSampler::temp(config.temperature as f32));
+            s.push(LlamaSampler::top_p(config.top_p as f32, 1));
+            push_tool_grammar(&mut s, model);
+            s.push(LlamaSampler::dist(seed));
+            LlamaSampler::chain(s, true)
+        }
+
+        "ChainTempTopK" => {
+            log_info!(
+                conversation_id,
+                "Using ChainTempTopK: temp={}, top_k={}",
+                config.temperature, config.top_k
+            );
+            let mut s: Vec<LlamaSampler> = Vec::new();
+            if use_penalties { push_penalties(&mut s, config); }
+            push_dry(&mut s, config, model);
+            push_top_n_sigma(&mut s, config);
+            s.push(LlamaSampler::temp(config.temperature as f32));
+            s.push(LlamaSampler::top_k(config.top_k as i32));
+            push_tool_grammar(&mut s, model);
+            s.push(LlamaSampler::dist(seed));
+            LlamaSampler::chain(s, true)
+        }
+
+        "ChainFull" => {
+            log_info!(
+                conversation_id,
+                "Using ChainFull: temp={}, top_k={}, top_p={}, min_p={}, typical_p={}",
+                config.temperature, config.top_k, config.top_p, config.min_p, config.typical_p
+            );
+            let mut s: Vec<LlamaSampler> = Vec::new();
+            if use_penalties { push_penalties(&mut s, config); }
+            push_dry(&mut s, config, model);
+            push_top_n_sigma(&mut s, config);
+            s.push(LlamaSampler::temp(config.temperature as f32));
+            s.push(LlamaSampler::top_k(config.top_k as i32));
+            s.push(LlamaSampler::top_p(config.top_p as f32, 1));
+            if config.min_p > 0.0 {
+                s.push(LlamaSampler::min_p(config.min_p as f32, 1));
+            }
+            if config.typical_p < 1.0 {
+                s.push(LlamaSampler::typical(config.typical_p as f32, 1));
+            }
+            push_tool_grammar(&mut s, model);
+            s.push(LlamaSampler::dist(seed));
+            LlamaSampler::chain(s, true)
+        }
+
+        // "Greedy" and any unknown type
+        _ => {
+            log_info!(conversation_id, "Using Greedy sampler");
+            // Always chain for greedy so we can add grammar
+            let mut s: Vec<LlamaSampler> = Vec::new();
+            if use_penalties {
+                push_penalties(&mut s, config);
+                push_dry(&mut s, config, model);
+            }
+            push_tool_grammar(&mut s, model);
+            s.push(LlamaSampler::greedy());
+            LlamaSampler::chain(s, true)
+        }
+    }
+}

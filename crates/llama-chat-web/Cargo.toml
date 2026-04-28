@@ -1,0 +1,75 @@
+[package]
+name = "llama-chat-web"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Workspace crates
+llama-chat-types = { path = "../llama-chat-types" }
+llama-chat-db = { path = "../llama-chat-db" }
+llama-chat-config = { path = "../llama-chat-config" }
+llama-chat-command = { path = "../llama-chat-command" }
+llama-chat-desktop-tools = { path = "../llama-chat-desktop-tools" }
+llama-chat-tools = { path = "../llama-chat-tools" }
+llama-chat-engine = { path = "../llama-chat-engine" }
+llama-chat-worker = { path = "../llama-chat-worker" }
+
+# Web server
+hyper = { version = "0.14", features = ["full"] }
+urlencoding = "2.1"
+
+# WebSocket
+tokio-tungstenite = "0.21"
+futures-util = "0.3"
+sha1 = "0.10"
+base64 = "0.21"
+
+# Async runtime
+tokio = { version = "1.0", features = ["full"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# File dialog (folder picker for web mode)
+rfd = "0.15"
+
+# UUID
+uuid = { version = "1.0", features = ["v4"] }
+
+# GGUF parser
+gguf-llms = "0.0.2"
+
+# Directory walking
+walkdir = "2.5"
+
+# Regex
+regex = "1.10"
+
+# SQLite (used by some route handlers for direct queries)
+rusqlite = { version = "0.30", features = ["bundled"] }
+
+# Logging
+log = "0.4"
+chrono = "0.4"
+lazy_static = "1.4"
+
+# HTTP client (for provider backends)
+ureq = { version = "2.9", default-features = false, features = ["tls"] }
+
+# HTML conversion
+htmd = "0.1"
+html2text = "0.12"
+
+[features]
+default = []
+mock = []
+cuda = []
+vision = ["llama-chat-types/vision", "llama-chat-engine/vision", "llama-chat-worker/vision"]
+dynamic-backends = ["llama-chat-types/dynamic-backends", "llama-chat-engine/dynamic-backends", "llama-chat-worker/dynamic-backends"]
+
+[lints.rust]
+warnings = "deny"
+
+[lints.clippy]
+all = "warn"

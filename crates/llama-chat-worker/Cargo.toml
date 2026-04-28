@@ -1,0 +1,46 @@
+[package]
+name = "llama-chat-worker"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Workspace crates
+llama-chat-types = { path = "../llama-chat-types" }
+llama-chat-db = { path = "../llama-chat-db" }
+llama-chat-config = { path = "../llama-chat-config" }
+llama-chat-command = { path = "../llama-chat-command" }
+llama-chat-tools = { path = "../llama-chat-tools" }
+llama-chat-engine = { path = "../llama-chat-engine" }
+
+# LLaMA C++ bindings
+llama-cpp-2 = { path = "../../deps/llama-cpp-rs/llama-cpp-2" }
+
+# MCP (Model Context Protocol) client
+rmcp = { version = "1.1", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Async runtime
+tokio = { version = "1.0", features = ["full"] }
+
+# Cross-thread channels
+crossbeam-channel = "0.5"
+
+# UUID generation
+uuid = { version = "1.0", features = ["v4"] }
+
+[target.'cfg(not(windows))'.dependencies]
+libc = "0.2"
+
+[features]
+default = []
+vision = ["llama-cpp-2/mtmd", "llama-chat-types/vision", "llama-chat-engine/vision"]
+dynamic-backends = ["llama-cpp-2/dynamic-backends", "llama-chat-types/dynamic-backends", "llama-chat-engine/dynamic-backends"]
+
+[lints.rust]
+warnings = "deny"
+
+[lints.clippy]
+all = "warn"

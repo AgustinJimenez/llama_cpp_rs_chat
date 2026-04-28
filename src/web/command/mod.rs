@@ -1,20 +1,22 @@
-mod shell_env;
-mod parsing;
-mod execution;
-mod output;
-
+// Re-export all command functionality from the extracted crate
 #[allow(unused_imports)]
-pub(crate) use shell_env::get_shell_env;
+pub(crate) use llama_chat_command::execute_command;
 #[allow(unused_imports)]
-pub(crate) use parsing::parse_command_with_quotes;
-pub(crate) use execution::{
-    execute_command,
-    execute_command_streaming,
-    execute_command_streaming_with_timeout,
-    kill_process_tree,
-};
+pub(crate) use llama_chat_command::execute_command_streaming;
+#[allow(unused_imports)]
+pub(crate) use llama_chat_command::execute_command_streaming_with_timeout;
+#[allow(unused_imports)]
+pub(crate) use llama_chat_command::kill_process_tree;
+#[allow(unused_imports)]
+pub(crate) use llama_chat_command::strip_ansi_codes;
+#[allow(unused_imports)]
+pub(crate) use llama_chat_command::sanitize_command_output;
+#[allow(unused_imports)]
+pub(crate) use llama_chat_command::truncate_command_output;
+#[allow(unused_imports)]
+pub(crate) use llama_chat_command::get_shell_env;
+#[allow(unused_imports)]
+pub(crate) use llama_chat_command::parse_command_with_quotes;
 #[cfg(windows)]
-pub(crate) use execution::enriched_windows_path;
-pub(crate) use output::{strip_ansi_codes, sanitize_command_output};
 #[allow(unused_imports)]
-pub(crate) use output::truncate_command_output;
+pub(crate) use llama_chat_command::enriched_windows_path;

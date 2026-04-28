@@ -1,4 +1,5 @@
 // Simple web server version of LLaMA Chat (without Tauri)
+#[allow(unused_imports)]
 #[macro_use]
 extern crate llama_chat_types;
 

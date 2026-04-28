@@ -1,16 +1,15 @@
-//! Browser module — Tauri WebView-based browsing for agent tools.
+//! Browser module — re-exports from workspace crates.
 
-pub mod session;
-
-/// Legacy browser backend enum — kept for backward compatibility with
-/// config/pipeline code. Only None is used (Tauri WebView handles everything).
-#[derive(Debug, Clone, PartialEq)]
-pub enum BrowserBackend {
-    None,
+/// Browser session management (Tauri WebView-based).
+#[allow(unused_imports)]
+pub mod session {
+    pub use llama_chat_tools::browser_session::{
+        BrowserSession, TauriHttpSession,
+        clear_cache, current_session, open_session,
+        eval_in_browser_panel, notify_tauri_browser_navigate, notify_tauri_browser_close,
+    };
 }
 
-impl BrowserBackend {
-    pub fn from_config(_s: Option<&str>) -> Self {
-        Self::None
-    }
-}
+/// Re-export BrowserBackend from the engine crate.
+#[allow(unused_imports)]
+pub use llama_chat_engine::browser::BrowserBackend;

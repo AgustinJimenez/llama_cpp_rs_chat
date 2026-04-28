@@ -512,11 +512,13 @@ fn execute_openai_tool(name: &str, arguments_json: &str) -> String {
     }).to_string();
 
     // Use dispatch_native_tool for full tool support
+    let ctx = crate::web::native_tools::make_dispatch_context();
     match crate::web::native_tools::dispatch_native_tool(
         &tool_json,
         true,
         None, // mcp_manager
         None, // db
+        &ctx,
     ) {
         Some(result) => result.text,
         None => {

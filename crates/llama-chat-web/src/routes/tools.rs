@@ -1,0 +1,880 @@
+// Tool execution route handler
+
+use hyper::{Body, Request, Response, StatusCode};
+use std::convert::Infallible;
+use std::io::Read as _;
+use std::path::{Path, PathBuf};
+use tokio::fs;
+use tokio::task::spawn_blocking;
+use tokio::time::{timeout, Duration};
+use regex;
+
+use crate::request_parsing::{get_query_param, parse_json_body};
+use crate::response_helpers::{json_error, json_raw};
+
+
+#[cfg(not(feature = "mock"))]
+use llama_chat_worker::worker::worker_bridge::SharedWorkerBridge;
+
+/// GET /api/tools/available — list all available tools with their schemas
+pub async fn handle_get_available_tools(
+    #[cfg(not(feature = "mock"))] _bridge: SharedWorkerBridge,
+    #[cfg(feature = "mock")] _bridge: (),
+) -> Result<Response<Body>, Infallible> {
+    let core_tools = llama_chat_engine::jinja_templates::get_available_tools();
+    let body = serde_json::json!({
+        "core_tools": core_tools.len(),
+        "tools": core_tools,
+    });
+    Ok(json_raw(StatusCode::OK, serde_json::to_string(&body).unwrap()))
+}
+
+#[derive(serde::Deserialize)]
+struct ToolExecuteRequest {
+    tool_name: String,
+    arguments: serde_json::Value,
+}
+
+async fn canonicalize_allowed(path: &str) -> Result<PathBuf, String> {
+    const ROOTS: [&str; 2] = ["/app", "/app/models"];
+
+    let input = path.to_string();
+    let canonical = spawn_blocking(move || std::fs::canonicalize(&input))
+        .await
+        .map_err(|e| format!("Failed to resolve path: {e}"))?
+        .map_err(|e| format!("Failed to resolve path: {e}"))?;
+
+    for root in ROOTS {
+        let root_path = Path::new(root);
+        if canonical.starts_with(root_path) {
+            return Ok(canonical);
+        }
+    }
+
+    Err("Path not allowed".to_string())
+}
+
+const FETCH_TIMEOUT_SECS: u64 = 15;
+const MAX_RESPONSE_BYTES: usize = 100_000; // 100KB max download
+const MAX_TEXT_CHARS: usize = 10_000; // 10K chars returned to model by default
+
+/// Fetch a URL and return its content as plain text (HTML stripped).
+pub fn fetch_url_as_text(url: &str, max_chars: usize) -> serde_json::Value {
+    sys_debug!("[WEB_FETCH] Fetching URL: {}", url);
+
+    let agent = ureq::AgentBuilder::new()
+        .timeout_read(std::time::Duration::from_secs(FETCH_TIMEOUT_SECS))
+        .timeout_connect(std::time::Duration::from_secs(10))
+        .user_agent("Mozilla/5.0 (compatible; LlamaChat/1.0)")
+        .build();
+
+    let response = match agent.get(url).call() {
+        Ok(r) => r,
+        Err(ureq::Error::Status(code, resp)) => {
+            // HTTP error status (4xx, 5xx)
+            let body = resp.into_string().unwrap_or_default();
+            let mut preview_end = body.len().min(500);
+            while preview_end > 0 && !body.is_char_boundary(preview_end) { preview_end -= 1; }
+            return serde_json::json!({
+                "success": false,
+                "error": format!("HTTP {} for URL '{}'", code, url),
+                "url": url,
+                "status_code": code,
+                "body_preview": &body[..preview_end]
+            });
+        }
+        Err(e) => {
+            return serde_json::json!({
+                "success": false,
+                "error": format!("Failed to fetch URL '{}': {}", url, e),
+                "url": url
+            });
+        }
+    };
+
+    let status = response.status();
+    let content_type = response
+        .header("content-type")
+        .unwrap_or("")
+        .to_string();
+
+    // Read body with size limit
+    let mut body_buf = Vec::with_capacity(MAX_RESPONSE_BYTES);
+    let mut reader = response.into_reader().take(MAX_RESPONSE_BYTES as u64);
+    if let Err(e) = reader.read_to_end(&mut body_buf) {
+        return serde_json::json!({
+            "success": false,
+            "error": format!("Failed to read response body: {}", e),
+            "url": url
+        });
+    }
+
+    let body_str = String::from_utf8_lossy(&body_buf).to_string();
+
+    // Convert HTML to plain text if content looks like HTML
+    let text = if content_type.contains("text/html") || body_str.trim_start().starts_with('<') {
+        html2text::from_read(body_str.as_bytes(), 120)
+    } else {
+        body_str
+    };
+
+    // Truncate to max_chars (find valid UTF-8 boundary)
+    let truncated = if text.len() > max_chars {
+        let mut end = max_chars;
+        while end > 0 && !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}...\n[TRUNCATED - showing first {} of {} chars]", &text[..end], end, text.len())
+    } else {
+        text.clone()
+    };
+
+    serde_json::json!({
+        "success": true,
+        "result": truncated,
+        "url": url,
+        "status_code": status,
+        "content_length": text.len()
+    })
+}
+
+pub async fn handle_post_tools_execute(
+    req: Request<Body>,
+    #[cfg(not(feature = "mock"))] _bridge: SharedWorkerBridge,
+    #[cfg(feature = "mock")] _bridge: (),
+) -> Result<Response<Body>, Infallible> {
+    // Parse request body using helper
+    let request: ToolExecuteRequest = match parse_json_body(req.into_body()).await {
+        Ok(req) => req,
+        Err(error_response) => return Ok(error_response),
+    };
+
+    // Get current model's capabilities for tool translation
+    #[cfg(not(feature = "mock"))]
+    let (tool_name, tool_arguments) = {
+        // Get chat template from worker bridge cached metadata
+        let meta = _bridge.model_status().await;
+        let chat_template = meta
+            .as_ref()
+            .and_then(|m| m.chat_template_type.as_deref())
+            .unwrap_or("Unknown");
+        let capabilities = llama_chat_types::models::get_model_capabilities(chat_template);
+
+        // Translate tool if model doesn't support it natively
+        llama_chat_types::models::translate_tool_for_model(
+            &request.tool_name,
+            &request.arguments,
+            &capabilities,
+        )
+    };
+
+    #[cfg(feature = "mock")]
+    let (tool_name, tool_arguments) = (request.tool_name.clone(), request.arguments.clone());
+
+    sys_debug!(
+        "[TOOL EXECUTE] Original: {} → Actual: {}",
+        request.tool_name,
+        tool_name
+    );
+
+    // Execute tool based on (possibly translated) name
+    let result = match tool_name.as_str() {
+        "read_file" => {
+            // Extract file path from arguments
+            let path = tool_arguments
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            if path.is_empty() {
+                return Ok(json_error(StatusCode::BAD_REQUEST, "File path is required"));
+            }
+
+            // Validate path
+            let safe_path = match canonicalize_allowed(path).await {
+                Ok(p) => p,
+                Err(e) => return Ok(json_error(StatusCode::FORBIDDEN, &e)),
+            };
+
+            // Read file
+            match fs::read_to_string(&safe_path).await {
+                Ok(content) => {
+                    serde_json::json!({
+                        "success": true,
+                        "result": content,
+                        "path": safe_path.to_string_lossy()
+                    })
+                }
+                Err(e) => {
+                    serde_json::json!({
+                        "success": false,
+                        "error": format!("Failed to read file '{}': {}", safe_path.to_string_lossy(), e)
+                    })
+                }
+            }
+        }
+        "write_file" => {
+            // Extract path and content from arguments
+            let path = tool_arguments
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let content = tool_arguments
+                .get("content")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            if path.is_empty() {
+                return Ok(json_error(StatusCode::BAD_REQUEST, "File path is required"));
+            }
+
+            // Validate path
+            let safe_path = match canonicalize_allowed(path).await {
+                Ok(p) => p,
+                Err(e) => return Ok(json_error(StatusCode::FORBIDDEN, &e)),
+            };
+
+            // Write file
+            match fs::write(&safe_path, content).await {
+                Ok(_) => {
+                    serde_json::json!({
+                        "success": true,
+                        "result": format!("Successfully wrote {} bytes to '{}'", content.len(), safe_path.to_string_lossy()),
+                        "path": safe_path.to_string_lossy(),
+                        "bytes_written": content.len()
+                    })
+                }
+                Err(e) => {
+                    serde_json::json!({
+                        "success": false,
+                        "error": format!("Failed to write file '{}': {}", safe_path.to_string_lossy(), e)
+                    })
+                }
+            }
+        }
+        "edit_file" => {
+            let path = tool_arguments
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let old_string = tool_arguments
+                .get("old_string")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let new_string = tool_arguments
+                .get("new_string")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            if path.is_empty() {
+                return Ok(json_error(StatusCode::BAD_REQUEST, "File path is required"));
+            }
+            if old_string.is_empty() {
+                return Ok(json_error(StatusCode::BAD_REQUEST, "old_string is required"));
+            }
+
+            let safe_path = match canonicalize_allowed(path).await {
+                Ok(p) => p,
+                Err(e) => return Ok(json_error(StatusCode::FORBIDDEN, &e)),
+            };
+
+            match fs::read_to_string(&safe_path).await {
+                Ok(content) => {
+                    let match_count = content.matches(old_string).count();
+                    if match_count == 0 {
+                        serde_json::json!({
+                            "success": false,
+                            "error": format!("old_string not found in '{}'", safe_path.to_string_lossy())
+                        })
+                    } else if match_count > 1 {
+                        serde_json::json!({
+                            "success": false,
+                            "error": format!("old_string found {} times — include more context to make it unique", match_count)
+                        })
+                    } else {
+                        let new_content = content.replacen(old_string, new_string, 1);
+                        match fs::write(&safe_path, &new_content).await {
+                            Ok(_) => {
+                                serde_json::json!({
+                                    "success": true,
+                                    "result": format!("Edited '{}': replaced {} chars with {} chars", safe_path.to_string_lossy(), old_string.len(), new_string.len()),
+                                    "path": safe_path.to_string_lossy()
+                                })
+                            }
+                            Err(e) => {
+                                serde_json::json!({
+                                    "success": false,
+                                    "error": format!("Failed to write '{}': {}", safe_path.to_string_lossy(), e)
+                                })
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    serde_json::json!({
+                        "success": false,
+                        "error": format!("Failed to read '{}': {}", safe_path.to_string_lossy(), e)
+                    })
+                }
+            }
+        }
+        "undo_edit" => {
+            let path = tool_arguments
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if path.is_empty() {
+                return Ok(json_error(StatusCode::BAD_REQUEST, "File path is required"));
+            }
+            let safe_path = match canonicalize_allowed(path).await {
+                Ok(p) => p,
+                Err(e) => return Ok(json_error(StatusCode::FORBIDDEN, &e)),
+            };
+            let backup_path_str = format!("{}.llama_bak", safe_path.to_string_lossy());
+            let backup_path = std::path::PathBuf::from(&backup_path_str);
+            if !backup_path.exists() {
+                serde_json::json!({
+                    "success": false,
+                    "error": format!("No backup found for '{}'", safe_path.to_string_lossy())
+                })
+            } else {
+                match fs::read(&backup_path).await {
+                    Ok(backup_content) => {
+                        match fs::write(&safe_path, &backup_content).await {
+                            Ok(_) => {
+                                let _ = fs::remove_file(&backup_path).await;
+                                serde_json::json!({
+                                    "success": true,
+                                    "result": format!("Restored '{}' from backup", safe_path.to_string_lossy())
+                                })
+                            }
+                            Err(e) => serde_json::json!({
+                                "success": false,
+                                "error": format!("Failed to restore '{}': {}", safe_path.to_string_lossy(), e)
+                            }),
+                        }
+                    }
+                    Err(e) => serde_json::json!({
+                        "success": false,
+                        "error": format!("Failed to read backup: {}", e)
+                    }),
+                }
+            }
+        }
+        "insert_text" => {
+            let path = tool_arguments
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let line = tool_arguments
+                .get("line")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize;
+            let text = tool_arguments
+                .get("text")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if path.is_empty() {
+                return Ok(json_error(StatusCode::BAD_REQUEST, "File path is required"));
+            }
+            if line == 0 {
+                return Ok(json_error(StatusCode::BAD_REQUEST, "Line number is required (1-based)"));
+            }
+            let safe_path = match canonicalize_allowed(path).await {
+                Ok(p) => p,
+                Err(e) => return Ok(json_error(StatusCode::FORBIDDEN, &e)),
+            };
+            match fs::read_to_string(&safe_path).await {
+                Ok(content) => {
+                    let mut lines: Vec<&str> = content.lines().collect();
+                    let insert_idx = if line - 1 > lines.len() { lines.len() } else { line - 1 };
+                    lines.insert(insert_idx, text);
+                    let new_content = lines.join("\n");
+                    // Preserve trailing newline
+                    let new_content = if content.ends_with('\n') {
+                        format!("{}\n", new_content)
+                    } else {
+                        new_content
+                    };
+                    match fs::write(&safe_path, &new_content).await {
+                        Ok(_) => serde_json::json!({
+                            "success": true,
+                            "result": format!("Inserted text at line {} in '{}'", line, safe_path.to_string_lossy())
+                        }),
+                        Err(e) => serde_json::json!({
+                            "success": false,
+                            "error": format!("Failed to write '{}': {}", safe_path.to_string_lossy(), e)
+                        }),
+                    }
+                }
+                Err(e) => serde_json::json!({
+                    "success": false,
+                    "error": format!("Failed to read '{}': {}", safe_path.to_string_lossy(), e)
+                }),
+            }
+        }
+        "search_files" => {
+            let pattern = tool_arguments
+                .get("pattern")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let path = tool_arguments
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or(".");
+            let include = tool_arguments
+                .get("include")
+                .and_then(|v| v.as_str());
+            if pattern.is_empty() {
+                return Ok(json_error(StatusCode::BAD_REQUEST, "Search pattern is required"));
+            }
+            let safe_path = match canonicalize_allowed(path).await {
+                Ok(p) => p,
+                Err(e) => return Ok(json_error(StatusCode::FORBIDDEN, &e)),
+            };
+            let pattern_owned = pattern.to_string();
+            let include_owned = include.map(|s| s.to_string());
+            let result = spawn_blocking(move || {
+                use walkdir::WalkDir;
+                let re = regex::Regex::new(&pattern_owned).ok();
+                let mut output = String::new();
+                let mut match_count = 0usize;
+                for entry in WalkDir::new(&safe_path).into_iter().filter_map(|e| e.ok()) {
+                    if !entry.file_type().is_file() { continue; }
+                    let fname = entry.file_name().to_string_lossy();
+                    // Skip hidden/noise dirs
+                    let path_str = entry.path().to_string_lossy();
+                    if path_str.contains("node_modules") || path_str.contains(".git") || path_str.contains("target") { continue; }
+                    // Apply include filter
+                    if let Some(ref inc) = include_owned {
+                        let pat = inc.trim_start_matches('*');
+                        if !fname.ends_with(pat) { continue; }
+                    }
+                    // Read and search
+                    if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                        for (i, line) in content.lines().enumerate() {
+                            let matched = if let Some(ref r) = re {
+                                r.is_match(line)
+                            } else {
+                                line.contains(&pattern_owned)
+                            };
+                            if matched {
+                                output.push_str(&format!("{}:{}: {}\n", entry.path().display(), i + 1, line.chars().take(200).collect::<String>()));
+                                match_count += 1;
+                                if match_count >= 50 || output.len() >= 8000 { break; }
+                            }
+                        }
+                    }
+                    if match_count >= 50 || output.len() >= 8000 { break; }
+                }
+                if match_count == 0 {
+                    format!("No matches found for pattern '{}'", pattern_owned)
+                } else {
+                    format!("{} match{}\n{}", match_count, if match_count == 1 { "" } else { "es" }, output)
+                }
+            }).await;
+            match result {
+                Ok(text) => serde_json::json!({
+                    "success": true,
+                    "result": text
+                }),
+                Err(e) => serde_json::json!({
+                    "success": false,
+                    "error": format!("Search failed: {}", e)
+                }),
+            }
+        }
+        "find_files" => {
+            let pattern = tool_arguments
+                .get("pattern")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let path = tool_arguments
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or(".");
+            if pattern.is_empty() {
+                return Ok(json_error(StatusCode::BAD_REQUEST, "File pattern is required"));
+            }
+            let safe_path = match canonicalize_allowed(path).await {
+                Ok(p) => p,
+                Err(e) => return Ok(json_error(StatusCode::FORBIDDEN, &e)),
+            };
+            let pattern_owned = pattern.to_string();
+            let result = spawn_blocking(move || {
+                use walkdir::WalkDir;
+                let mut matches = Vec::new();
+                // Strip directory prefix from pattern
+                let pat = pattern_owned.split('/').last().unwrap_or(&pattern_owned);
+                let pat = pat.split('\\').last().unwrap_or(pat);
+                for entry in WalkDir::new(&safe_path).into_iter().filter_map(|e| e.ok()) {
+                    if !entry.file_type().is_file() { continue; }
+                    let path_str = entry.path().to_string_lossy();
+                    if path_str.contains("node_modules") || path_str.contains(".git") || path_str.contains("target") { continue; }
+                    let fname = entry.file_name().to_string_lossy();
+                    // Simple glob: *.ext, prefix*, *sub*
+                    let matched = if pat.starts_with('*') && pat.ends_with('*') && pat.len() > 2 {
+                        fname.contains(&pat[1..pat.len()-1])
+                    } else if pat.starts_with('*') {
+                        fname.ends_with(&pat[1..])
+                    } else if pat.ends_with('*') {
+                        fname.starts_with(&pat[..pat.len()-1])
+                    } else {
+                        fname.as_ref() == pat
+                    };
+                    if matched {
+                        matches.push(entry.path().display().to_string());
+                        if matches.len() >= 100 { break; }
+                    }
+                }
+                if matches.is_empty() {
+                    format!("No files matching '{}' found", pattern_owned)
+                } else {
+                    format!("{} file{}\n{}", matches.len(), if matches.len() == 1 { "" } else { "s" }, matches.join("\n"))
+                }
+            }).await;
+            match result {
+                Ok(text) => serde_json::json!({
+                    "success": true,
+                    "result": text
+                }),
+                Err(e) => serde_json::json!({
+                    "success": false,
+                    "error": format!("Find failed: {}", e)
+                }),
+            }
+        }
+        "list_directory" => {
+            // Extract path and recursive flag from arguments
+            let path = tool_arguments
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or(".");
+            let recursive = tool_arguments
+                .get("recursive")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+
+            // Validate path
+            let safe_path = match canonicalize_allowed(path).await {
+                Ok(p) => p,
+                Err(e) => return Ok(json_error(StatusCode::FORBIDDEN, &e)),
+            };
+
+            // List directory contents
+            if recursive {
+                // Recursive listing using walkdir
+                use walkdir::WalkDir;
+                let root = safe_path.clone();
+                let result = spawn_blocking(move || {
+                    let entries: Vec<String> = WalkDir::new(root)
+                        .into_iter()
+                        .filter_map(|e| e.ok())
+                        .map(|e| {
+                            let metadata = e.metadata().ok();
+                            let size = metadata.as_ref().and_then(|m| {
+                                if m.is_file() {
+                                    Some(m.len())
+                                } else {
+                                    None
+                                }
+                            });
+                            let file_type = if e.file_type().is_dir() {
+                                "DIR"
+                            } else {
+                                "FILE"
+                            };
+                            format!(
+                                "{:>10} {:>15} {}",
+                                file_type,
+                                size.map(|s| format!("{s} bytes"))
+                                    .unwrap_or_default(),
+                                e.path().display()
+                            )
+                        })
+                        .collect();
+                    entries
+                })
+                .await;
+
+                match result {
+                    Ok(entries) => serde_json::json!({
+                        "success": true,
+                        "result": entries.join("\n"),
+                        "path": safe_path.to_string_lossy(),
+                        "count": entries.len(),
+                        "recursive": true
+                    }),
+                    Err(e) => serde_json::json!({
+                        "success": false,
+                        "error": format!("Failed to list directory '{}': {}", safe_path.to_string_lossy(), e)
+                    }),
+                }
+            } else {
+                // Non-recursive listing
+                match fs::read_dir(&safe_path).await {
+                    Ok(mut entries) => {
+                        let mut items: Vec<String> = Vec::new();
+                        while let Ok(Some(e)) = entries.next_entry().await {
+                            let metadata = e.metadata().await.ok();
+                            let size = metadata.as_ref().and_then(|m| {
+                                if m.is_file() {
+                                    Some(m.len())
+                                } else {
+                                    None
+                                }
+                            });
+                            let file_type =
+                                if metadata.as_ref().map(|m| m.is_dir()).unwrap_or(false) {
+                                    "DIR"
+                                } else {
+                                    "FILE"
+                                };
+                            items.push(format!(
+                                "{:>10} {:>15} {}",
+                                file_type,
+                                size.map(|s| format!("{s} bytes"))
+                                    .unwrap_or_else(|| "".to_string()),
+                                e.file_name().to_string_lossy()
+                            ));
+                        }
+
+                        serde_json::json!({
+                            "success": true,
+                            "result": items.join("\n"),
+                            "path": safe_path.to_string_lossy(),
+                            "count": items.len(),
+                            "recursive": false
+                        })
+                    }
+                    Err(e) => {
+                        serde_json::json!({
+                            "success": false,
+                            "error": format!("Failed to list directory '{}': {}", safe_path.to_string_lossy(), e)
+                        })
+                    }
+                }
+            }
+        }
+        "bash" | "shell" | "command" => {
+            // Extract command from arguments
+            let command = tool_arguments
+                .get("command")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            if command.is_empty() {
+                return Ok(json_error(StatusCode::BAD_REQUEST, "Command is required"));
+            }
+
+            const COMMAND_TIMEOUT_SECS: u64 = 15;
+            // Execute command with timeout to avoid hanging tasks
+            let cmd_string = command.to_string();
+            let exec = spawn_blocking(move || {
+                if cfg!(target_os = "windows") {
+                    sys_debug!(
+                        "[BASH TOOL] Executing Windows command via PowerShell: {}",
+                        cmd_string
+                    );
+                    llama_chat_engine::utils::silent_command("powershell")
+                        .args(["-NoProfile", "-NonInteractive", "-Command", &cmd_string])
+                        .output()
+                } else {
+                    sys_debug!("[BASH TOOL] Executing Unix command: sh -c {}", cmd_string);
+                    llama_chat_engine::utils::silent_command("sh")
+                        .arg("-c")
+                        .arg(&cmd_string)
+                        .output()
+                }
+            });
+
+            match timeout(Duration::from_secs(COMMAND_TIMEOUT_SECS), exec).await {
+                Ok(Ok(Ok(output))) => {
+                    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                    let combined = if !stderr.is_empty() {
+                        format!("{stdout}\nSTDERR:\n{stderr}")
+                    } else {
+                        stdout
+                    };
+
+                    serde_json::json!({
+                        "success": true,
+                        "result": combined,
+                        "exit_code": output.status.code()
+                    })
+                }
+                Ok(Ok(Err(e))) => {
+                    serde_json::json!({
+                        "success": false,
+                        "error": format!("Failed to execute command: {}", e)
+                    })
+                }
+                Ok(Err(join_err)) => {
+                    serde_json::json!({
+                        "success": false,
+                        "error": format!("Command task failed: {}", join_err)
+                    })
+                }
+                Err(_) => {
+                    serde_json::json!({
+                        "success": false,
+                        "error": format!("Command timed out after {}s", COMMAND_TIMEOUT_SECS)
+                    })
+                }
+            }
+        }
+        "web_fetch" => {
+            let url = tool_arguments
+                .get("url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            if url.is_empty() {
+                return Ok(json_error(StatusCode::BAD_REQUEST, "URL is required"));
+            }
+
+            let max_chars = tool_arguments
+                .get("max_length")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as usize)
+                .unwrap_or(MAX_TEXT_CHARS);
+
+            let url_owned = url.to_string();
+            match timeout(
+                Duration::from_secs(FETCH_TIMEOUT_SECS + 5),
+                spawn_blocking(move || fetch_url_as_text(&url_owned, max_chars)),
+            )
+            .await
+            {
+                Ok(Ok(result)) => result,
+                Ok(Err(e)) => serde_json::json!({
+                    "success": false,
+                    "error": format!("Web fetch task failed: {}", e)
+                }),
+                Err(_) => serde_json::json!({
+                    "success": false,
+                    "error": format!("Web fetch timed out after {}s", FETCH_TIMEOUT_SECS)
+                }),
+            }
+        }
+        _ => {
+            serde_json::json!({
+                "success": false,
+                "error": format!("Unknown tool: {}", request.tool_name)
+            })
+        }
+    };
+
+    Ok(json_raw(StatusCode::OK, result.to_string()))
+}
+
+/// Standalone GET endpoint: /api/tools/web-fetch?url=https://example.com&max_length=10000
+pub async fn handle_get_web_fetch(
+    req: Request<Body>,
+) -> Result<Response<Body>, Infallible> {
+    let url = match get_query_param(req.uri(), "url") {
+        Some(u) if !u.is_empty() => u,
+        _ => return Ok(json_error(StatusCode::BAD_REQUEST, "Missing 'url' query parameter")),
+    };
+
+    let max_chars = get_query_param(req.uri(), "max_length")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(MAX_TEXT_CHARS);
+
+    let result = match timeout(
+        Duration::from_secs(FETCH_TIMEOUT_SECS + 5),
+        spawn_blocking(move || fetch_url_as_text(&url, max_chars)),
+    )
+    .await
+    {
+        Ok(Ok(result)) => result,
+        Ok(Err(e)) => serde_json::json!({
+            "success": false,
+            "error": format!("Web fetch task failed: {}", e)
+        }),
+        Err(_) => serde_json::json!({
+            "success": false,
+            "error": format!("Web fetch timed out after {}s", FETCH_TIMEOUT_SECS)
+        }),
+    };
+
+    Ok(json_raw(StatusCode::OK, result.to_string()))
+}
+
+/// POST /api/file/extract-text?filename=report.xlsx
+/// Accepts raw file bytes in body, detects type by extension, returns extracted text.
+pub async fn handle_post_extract_text(
+    req: Request<Body>,
+) -> Result<Response<Body>, Infallible> {
+    let filename = get_query_param(req.uri(), "filename")
+        .unwrap_or_default();
+
+    if filename.is_empty() {
+        return Ok(json_error(StatusCode::BAD_REQUEST, "Missing 'filename' query parameter"));
+    }
+
+    // Read raw body bytes
+    let body_bytes = match hyper::body::to_bytes(req.into_body()).await {
+        Ok(b) => b,
+        Err(e) => return Ok(json_error(StatusCode::BAD_REQUEST, &format!("Failed to read body: {e}"))),
+    };
+
+    if body_bytes.is_empty() {
+        return Ok(json_error(StatusCode::BAD_REQUEST, "Empty file body"));
+    }
+
+    const MAX_EXTRACT_CHARS: usize = 100_000;
+    let fname_lower = filename.to_ascii_lowercase();
+    let bytes = body_bytes.to_vec();
+
+    let result = spawn_blocking(move || {
+        use llama_chat_tools::{
+            extract_pdf_text, extract_docx_text, extract_pptx_text,
+            extract_xlsx_text, extract_epub_text, extract_odt_text,
+            extract_rtf_text, extract_zip_listing, extract_csv_structured,
+            extract_eml_text, read_with_encoding_detection, truncate_text_content,
+        };
+
+        if fname_lower.ends_with(".pdf") {
+            extract_pdf_text(&bytes, MAX_EXTRACT_CHARS)
+        } else if fname_lower.ends_with(".docx") {
+            extract_docx_text(&bytes, MAX_EXTRACT_CHARS)
+        } else if fname_lower.ends_with(".pptx") {
+            extract_pptx_text(&bytes, MAX_EXTRACT_CHARS)
+        } else if fname_lower.ends_with(".xlsx") || fname_lower.ends_with(".xls") || fname_lower.ends_with(".xlsm") {
+            extract_xlsx_text(&bytes, MAX_EXTRACT_CHARS)
+        } else if fname_lower.ends_with(".epub") {
+            extract_epub_text(&bytes, MAX_EXTRACT_CHARS)
+        } else if fname_lower.ends_with(".odt") {
+            extract_odt_text(&bytes, MAX_EXTRACT_CHARS)
+        } else if fname_lower.ends_with(".rtf") {
+            extract_rtf_text(&bytes, MAX_EXTRACT_CHARS)
+        } else if fname_lower.ends_with(".zip") {
+            extract_zip_listing(&bytes, MAX_EXTRACT_CHARS)
+        } else if fname_lower.ends_with(".csv") {
+            extract_csv_structured(&bytes, MAX_EXTRACT_CHARS)
+        } else if fname_lower.ends_with(".eml") {
+            extract_eml_text(&bytes, MAX_EXTRACT_CHARS)
+        } else {
+            // Try as text (UTF-8 first, then encoding detection)
+            match String::from_utf8(bytes.clone()) {
+                Ok(text) => truncate_text_content(&text, MAX_EXTRACT_CHARS),
+                Err(_) => read_with_encoding_detection(&bytes, MAX_EXTRACT_CHARS),
+            }
+        }
+    }).await;
+
+    match result {
+        Ok(text) => {
+            let json = serde_json::json!({
+                "success": true,
+                "filename": filename,
+                "text": text,
+                "chars": text.len(),
+            });
+            Ok(json_raw(StatusCode::OK, json.to_string()))
+        }
+        Err(e) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Extraction failed: {e}"))),
+    }
+}

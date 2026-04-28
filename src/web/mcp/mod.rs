@@ -1,17 +1,29 @@
-//! MCP (Model Context Protocol) client integration.
-//!
-//! Manages connections to external MCP tool servers, discovers their tools,
-//! and routes tool calls from the LLM to the appropriate MCP server.
+// Re-export everything from the llama-chat-worker crate's MCP module
 
-pub mod client;
-pub mod config;
-pub mod manager;
-pub mod tool_registry;
+#[allow(unused_imports)]
+pub mod client {
+    pub use llama_chat_worker::mcp::client::*;
+}
 
-// Re-exports — used in phases 2-5 when wired into worker + routes.
 #[allow(unused_imports)]
-pub use manager::{McpManager, SharedMcpManager};
+pub mod config {
+    pub use llama_chat_worker::mcp::config::*;
+}
+
 #[allow(unused_imports)]
-pub use config::McpServerConfig;
+pub mod manager {
+    pub use llama_chat_worker::mcp::manager::*;
+}
+
 #[allow(unused_imports)]
-pub use tool_registry::McpToolDef;
+pub mod tool_registry {
+    pub use llama_chat_worker::mcp::tool_registry::*;
+}
+
+// Top-level re-exports
+#[allow(unused_imports)]
+pub use llama_chat_worker::{McpManager, SharedMcpManager};
+#[allow(unused_imports)]
+pub use llama_chat_worker::McpServerConfig;
+#[allow(unused_imports)]
+pub use llama_chat_worker::McpToolDef;

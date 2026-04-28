@@ -1,0 +1,68 @@
+[package]
+name = "llama-chat-tools"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Workspace crates
+llama-chat-types = { path = "../llama-chat-types" }
+llama-chat-db = { path = "../llama-chat-db" }
+llama-chat-command = { path = "../llama-chat-command" }
+llama-chat-desktop-tools = { path = "../llama-chat-desktop-tools" }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# File search (.gitignore-aware traversal)
+ignore = "0.4"
+
+# Regex
+regex = "1.10"
+lazy_static = "1.4"
+
+# URL encoding
+urlencoding = "2.1"
+
+# HTTP client (browser session, telegram)
+ureq = { version = "2.9", default-features = false, features = ["tls"] }
+
+# HTML to Markdown conversion
+htmd = "0.1"
+
+# Readability article extraction
+dom_smoothie = "0.15"
+
+# PDF text extraction
+pdf-extract = "0.10"
+
+# DOCX/PPTX extraction (ZIP + XML)
+zip = { version = "8.1", default-features = false, features = ["deflate"] }
+quick-xml = "0.37"
+
+# XLSX/XLS spreadsheet reading
+calamine = "0.26"
+
+# CSV parsing
+csv = "1.3"
+
+# Email (.eml) parsing
+mailparse = "0.15"
+
+# RTF text extraction
+rtf-parser = "0.3"
+
+# HTML to text fallback
+html2text = "0.12"
+
+# Non-UTF8 encoding detection
+encoding_rs = "0.8.35"
+
+# UUID generation (for MCP server IDs)
+uuid = { version = "1.0", features = ["v4"] }
+
+[lints.rust]
+warnings = "deny"
+
+[lints.clippy]
+all = "warn"

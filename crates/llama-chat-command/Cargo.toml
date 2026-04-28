@@ -1,0 +1,13 @@
+[package]
+name = "llama-chat-command"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+llama-chat-types = { path = "../llama-chat-types" }
+llama-chat-db = { path = "../llama-chat-db" }
+lazy_static = "1.4"
+rusqlite = { version = "0.30", features = ["bundled"] }
+
+[target.'cfg(not(windows))'.dependencies]
+libc = "0.2"

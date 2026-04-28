@@ -3490,6 +3490,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
+name = "llama-chat-command"
+version = "0.1.0"
+dependencies = [
+ "lazy_static",
+ "libc",
+ "llama-chat-db",
+ "llama-chat-types",
+ "rusqlite",
+]
+
+[[package]]
+name = "llama-chat-config"
+version = "0.1.0"
+dependencies = [
+ "llama-chat-db",
+ "llama-chat-types",
+ "serde_json",
+]
+
+[[package]]
 name = "llama-chat-db"
 version = "0.1.0"
 dependencies = [
@@ -3502,6 +3522,80 @@ dependencies = [
 ]
 
 [[package]]
+name = "llama-chat-desktop-tools"
+version = "0.1.0"
+dependencies = [
+ "arboard",
+ "chrono",
+ "enigo",
+ "image",
+ "lazy_static",
+ "llama-chat-types",
+ "log",
+ "ocrs",
+ "ort",
+ "rten",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "windows 0.62.2",
+ "xcap",
+]
+
+[[package]]
+name = "llama-chat-engine"
+version = "0.1.0"
+dependencies = [
+ "base64 0.21.7",
+ "chrono",
+ "gguf-llms",
+ "lazy_static",
+ "llama-chat-command",
+ "llama-chat-config",
+ "llama-chat-db",
+ "llama-chat-tools",
+ "llama-chat-types",
+ "llama-cpp-2",
+ "llama-cpp-sys-2",
+ "minijinja",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "llama-chat-tools"
+version = "0.1.0"
+dependencies = [
+ "calamine",
+ "csv",
+ "dom_smoothie",
+ "encoding_rs",
+ "htmd",
+ "html2text",
+ "ignore",
+ "lazy_static",
+ "llama-chat-command",
+ "llama-chat-db",
+ "llama-chat-desktop-tools",
+ "llama-chat-types",
+ "mailparse",
+ "pdf-extract",
+ "quick-xml 0.37.5",
+ "regex",
+ "rtf-parser",
+ "serde",
+ "serde_json",
+ "ureq 2.12.1",
+ "urlencoding",
+ "uuid",
+ "zip 8.5.1",
+]
+
+[[package]]
 name = "llama-chat-types"
 version = "0.1.0"
 dependencies = [
@@ -3510,6 +3604,61 @@ dependencies = [
  "llama-cpp-2",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "llama-chat-web"
+version = "0.1.0"
+dependencies = [
+ "base64 0.21.7",
+ "chrono",
+ "futures-util",
+ "gguf-llms",
+ "htmd",
+ "html2text",
+ "hyper 0.14.32",
+ "lazy_static",
+ "llama-chat-command",
+ "llama-chat-config",
+ "llama-chat-db",
+ "llama-chat-desktop-tools",
+ "llama-chat-engine",
+ "llama-chat-tools",
+ "llama-chat-types",
+ "llama-chat-worker",
+ "log",
+ "regex",
+ "rfd 0.15.4",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha1",
+ "tokio",
+ "tokio-tungstenite",
+ "ureq 2.12.1",
+ "urlencoding",
+ "uuid",
+ "walkdir",
+]
+
+[[package]]
+name = "llama-chat-worker"
+version = "0.1.0"
+dependencies = [
+ "crossbeam-channel",
+ "libc",
+ "llama-chat-command",
+ "llama-chat-config",
+ "llama-chat-db",
+ "llama-chat-engine",
+ "llama-chat-tools",
+ "llama-chat-types",
+ "llama-cpp-2",
+ "rmcp",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -3569,8 +3718,15 @@ dependencies = [
  "image",
  "lazy_static",
  "libc",
+ "llama-chat-command",
+ "llama-chat-config",
  "llama-chat-db",
+ "llama-chat-desktop-tools",
+ "llama-chat-engine",
+ "llama-chat-tools",
  "llama-chat-types",
+ "llama-chat-web",
+ "llama-chat-worker",
  "llama-cpp-2",
  "llama-cpp-sys-2",
  "log",

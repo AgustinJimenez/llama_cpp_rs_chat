@@ -1,33 +1,52 @@
-// Chat module - split from chat_handler.rs for better organization
+// Chat module — re-exports from the `llama-chat-engine` workspace crate.
 //
-// This module contains the core chat functionality:
-// - templates.rs: Chat template formatting (ChatML, Mistral, Llama3, Gemma)
-// - generation.rs: Token generation with sampling and streaming
-// - command_executor.rs: Command detection and execution during generation
-// - stop_conditions.rs: Stop condition checking logic
+// All chat engine functionality (generation, tool dispatch, templates,
+// compaction, sub-agents) is now in the engine crate.
 
-mod command_executor;
-mod compaction;
-mod context_eval;
-mod tool_dispatch;
-mod tool_output;
-mod generation;
-pub mod sub_checks;
-pub mod jinja_templates;
-pub mod loop_detection;
-mod prompt_builder;
-mod sampler;
-pub mod tool_defs;
-mod stop_conditions;
-pub mod sub_agent;
-mod token_loop;
-mod tool_grammar;
-pub mod tool_parser;
-mod templates;
-pub mod tool_tags;
+// Re-export public modules
+#[allow(unused_imports)]
+pub mod jinja_templates {
+    pub use llama_chat_engine::jinja_templates::*;
+}
+#[allow(unused_imports)]
+pub mod loop_detection {
+    pub use llama_chat_engine::loop_detection::*;
+}
+#[allow(unused_imports)]
+pub mod sub_checks {
+    pub use llama_chat_engine::sub_checks::*;
+}
+#[allow(unused_imports)]
+pub mod sub_agent {
+    pub use llama_chat_engine::sub_agent::*;
+}
+#[allow(unused_imports)]
+pub mod tool_defs {
+    pub use llama_chat_engine::tool_defs::*;
+}
+#[allow(unused_imports)]
+pub mod tool_parser {
+    pub use llama_chat_engine::tool_parser::*;
+}
+#[allow(unused_imports)]
+pub mod tool_tags {
+    pub use llama_chat_engine::tool_tags::*;
+}
+#[allow(unused_imports)]
+pub mod templates {
+    pub use llama_chat_engine::templates::*;
+}
 
-pub use generation::generate_llama_response;
-pub use sub_checks::generate_title_text;
-pub use generation::warmup_system_prompt;
-pub use templates::get_universal_system_prompt_with_tags;
-pub use tool_tags::get_tool_tags_for_model;
+// Top-level re-exports (used by other modules)
+#[allow(unused_imports)]
+pub use llama_chat_engine::generate_llama_response;
+#[allow(unused_imports)]
+pub use llama_chat_engine::generate_title_text;
+#[allow(unused_imports)]
+pub use llama_chat_engine::warmup_system_prompt;
+#[allow(unused_imports)]
+pub use llama_chat_engine::get_universal_system_prompt_with_tags;
+#[allow(unused_imports)]
+pub use llama_chat_engine::get_tool_tags_for_model;
+#[allow(unused_imports)]
+pub use llama_chat_engine::GenerationOutput;

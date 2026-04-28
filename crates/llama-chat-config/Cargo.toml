@@ -1,0 +1,9 @@
+[package]
+name = "llama-chat-config"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+llama-chat-types = { path = "../llama-chat-types" }
+llama-chat-db = { path = "../llama-chat-db" }
+serde_json = "1.0"

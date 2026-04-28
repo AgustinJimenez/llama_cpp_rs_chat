@@ -1,0 +1,59 @@
+[package]
+name = "llama-chat-engine"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Workspace crates
+llama-chat-types = { path = "../llama-chat-types" }
+llama-chat-db = { path = "../llama-chat-db" }
+llama-chat-config = { path = "../llama-chat-config" }
+llama-chat-command = { path = "../llama-chat-command" }
+llama-chat-tools = { path = "../llama-chat-tools" }
+
+# LLaMA C++ bindings
+llama-cpp-2 = { path = "../../deps/llama-cpp-rs/llama-cpp-2" }
+llama-cpp-sys-2 = { path = "../../deps/llama-cpp-rs/llama-cpp-sys-2" }
+
+# GGUF metadata parsing
+gguf-llms = "0.0.2"
+
+# Jinja2 template engine for chat templates
+minijinja = { version = "2.3", features = ["json"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Regex
+regex = "1.10"
+lazy_static = "1.4"
+
+# Async runtime
+tokio = { version = "1.0", features = ["full"] }
+
+# Date/time
+chrono = "0.4"
+
+# Base64 decoding (for image data)
+base64 = "0.21"
+
+# SQLite (used by compaction for direct queries)
+rusqlite = { version = "0.30", features = ["bundled"] }
+
+# UUID generation
+uuid = { version = "1.0", features = ["v4"] }
+
+# Silent command utility (Windows CREATE_NO_WINDOW)
+# (vram_calculator uses it)
+
+[features]
+default = []
+vision = ["llama-cpp-2/mtmd", "llama-chat-types/vision"]
+dynamic-backends = ["llama-cpp-2/dynamic-backends", "llama-chat-types/dynamic-backends"]
+
+[lints.rust]
+warnings = "deny"
+
+[lints.clippy]
+all = "warn"
