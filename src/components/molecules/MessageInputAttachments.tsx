@@ -130,6 +130,21 @@ export function formatCharCount(n: number): string {
   return `${n}`;
 }
 
+export function buildFinalMessage(
+  message: string,
+  attachedFiles: AttachedFile[],
+  attachedImages: string[],
+): string {
+  let finalMessage = '';
+  for (const f of attachedFiles) {
+    const ext = getFileExtension(f.name);
+    const lang = EXT_TO_LANG[ext] || 'text';
+    finalMessage += `File: ${f.name}\n\`\`\`${lang}\n${f.text}\n\`\`\`\n\n`;
+  }
+  finalMessage += message.trim() || (attachedImages.length > 0 ? 'What is in this image?' : '');
+  return finalMessage;
+}
+
 /** File accept string for the hidden file input */
 export const FILE_ACCEPT =
   '.pdf,.docx,.pptx,.xlsx,.xls,.xlsm,.epub,.odt,.rtf,.zip,.csv,.eml,.txt,.json,.xml,.md,.rs,.py,.js,.ts,.tsx,.jsx,.html,.css,.toml,.yaml,.yml,.sh,.bat,.c,.cpp,.h,.hpp,.cs,.go,.java,.rb,.php,.sql,.log,.cfg,.ini,.nim,.ex,.exs,.kt,.swift,.r,.lua,.pl,.scala,.zig,.v,.dart,.png,.jpg,.jpeg,.gif,.webp';

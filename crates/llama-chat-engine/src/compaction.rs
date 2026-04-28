@@ -35,6 +35,23 @@ const FALLBACK_OVERHEAD_TOKENS: usize = 1200;
 /// Recursion guard for recompaction: prevents infinite loops.
 static RECOMPACT_DEPTH: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
+/// Cheap check: does the conversation likely need compaction?
+/// Uses chars/4 heuristic to avoid tokenizing. Returns true if compaction is likely needed.
+pub fn should_compact(
+    conversation_content: &str,
+    context_size: u32,
+    overhead_tokens: Option<i32>,
+) -> bool {
+    let estimated_tokens = conversation_content.len() / 4;
+    let overhead = overhead_tokens
+        .filter(|&o| o > 0)
+        .map(|o| o as usize)
+        .unwrap_or(FALLBACK_OVERHEAD_TOKENS);
+    let available_context = (context_size as usize).saturating_sub(overhead);
+    let threshold = (available_context as f64 * COMPACTION_THRESHOLD) as usize;
+    estimated_tokens > threshold
+}
+
 /// Check if conversation needs compaction and perform it if so.
 ///
 /// This checks the conversation text size against context limits.

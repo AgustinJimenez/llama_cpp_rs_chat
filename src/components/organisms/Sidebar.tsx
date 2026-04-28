@@ -37,7 +37,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
     messages,
   } = useChatContext();
   const { status: modelStatus } = useModelContext();
-  const activeGeneratingId = modelStatus.active_conversation_id;
+  const isModelGenerating = modelStatus.generating === true;
+  const activeGeneratingId = isModelGenerating ? modelStatus.active_conversation_id : undefined;
   const { openAppSettings: onOpenAppSettings } = useUIContext();
   const { activeCount: downloadActiveCount } = useDownloadContext();
   const { connected } = useConnection();

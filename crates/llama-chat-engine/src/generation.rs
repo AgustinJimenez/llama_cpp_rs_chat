@@ -153,11 +153,19 @@ pub async fn generate_llama_response(
     let conv_id_for_overhead = conversation_id.trim_end_matches(".txt");
     let cached_overhead = db.get_context_overhead_tokens(conv_id_for_overhead);
 
-    // Drop inference cache BEFORE compaction to free VRAM for the summary context.
+    // Only drop inference cache if compaction actually needs to run.
     // Compaction creates a temporary 4K context for summarization — on GPUs with tight
     // VRAM (24GB), having two contexts simultaneously causes OOM and worker crash.
-    // The cache will be recreated during prompt evaluation after compaction.
-    state.inference_cache = None;
+    // For normal turns (no compaction), preserving the cache lets us skip re-evaluating
+    // the entire conversation, saving 10-90+ seconds on long conversations.
+    let needs_compaction = super::compaction::should_compact(
+        &raw_conversation_content,
+        context_size,
+        if cached_overhead > 0 { Some(cached_overhead) } else { None },
+    );
+    if needs_compaction {
+        state.inference_cache = None;
+    }
 
     let conversation_content = super::compaction::maybe_compact_conversation(
         &raw_conversation_content,
@@ -173,7 +181,7 @@ pub async fn generate_llama_response(
 
     // Log if compaction changed the conversation
     if conversation_content != raw_conversation_content {
-        eprintln!("[COMPACTION] Conversation changed after compaction — cache already dropped");
+        eprintln!("[COMPACTION] Conversation compacted — cache was dropped");
     }
 
     // Convert conversation to chat format using the new 3-system prompt approach

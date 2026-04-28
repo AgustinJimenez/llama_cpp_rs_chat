@@ -292,15 +292,10 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   // Auto-apply VRAM-optimized gpu_layers and context_size once per model
   const autoOptimizedForPath = useRef('');
   useEffect(() => {
-    if (
-      optimized.ready &&
-      modelPath &&
-      autoOptimizedForPath.current !== modelPath &&
-      !savedConfigLoaded.current
-    ) {
+    if (optimized.ready && modelPath && autoOptimizedForPath.current !== modelPath) {
       autoOptimizedForPath.current = modelPath;
-      // Only set gpu_layers (hardware-specific). Context size comes from
-      // the preset and should never be overridden by the optimizer.
+      // Always apply VRAM-optimized gpu_layers — it's hardware-specific and
+      // should reflect current VRAM availability, not a stale DB value.
       setConfig((prev) => ({ ...prev, gpu_layers: optimized.optimalGpuLayers }));
       // eslint-disable-next-line no-console
       console.log('[ModelConfig] VRAM auto-optimized:', {

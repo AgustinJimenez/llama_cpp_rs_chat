@@ -1,4 +1,4 @@
-import { Loader2, MoreVertical, Trash2, CheckSquare, Square } from 'lucide-react';
+import { MoreVertical, Trash2, CheckSquare, Square } from 'lucide-react';
 import React, { useState } from 'react';
 
 import type { ConversationFile } from './types';
@@ -77,7 +77,10 @@ export const ConversationItem = React.memo(
 
         <div className="flex items-center gap-1 truncate flex-1 min-w-0">
           {isGenerating ? (
-            <Loader2 size={12} className="animate-spin text-cyan-400 flex-shrink-0" />
+            <span className="relative flex h-2.5 w-2.5 flex-shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500" />
+            </span>
           ) : null}
           <span className="truncate" title={displayName}>
             {displayName}

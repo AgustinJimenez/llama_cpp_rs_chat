@@ -56,9 +56,10 @@ fn run_summary_pass(
 
     let n_ctx = NonZeroU32::new(SUMMARY_CTX_SIZE).unwrap();
     let config = SamplerConfig::default();
-    // offload_kqv=false: keep summarization context on CPU to avoid competing for VRAM
-    // with the main context's KV cache (which may use nearly all GPU memory).
-    let mut ctx = create_fresh_context(model, backend, n_ctx, false, &config)?;
+    // offload_kqv=true: summary context uses GPU alongside the main context.
+    // The 4K KV cache uses ~50MB VRAM — trivial next to the main context.
+    // Both contexts share the same model weights (read-only).
+    let mut ctx = create_fresh_context(model, backend, n_ctx, true, &config)?;
 
     // Eval prompt in batches
     let batch_cap = 512usize;
@@ -178,7 +179,7 @@ fn run_summary_pass_with_system(
 
     let n_ctx = NonZeroU32::new(SUMMARY_CTX_SIZE).unwrap();
     let config = SamplerConfig::default();
-    let mut ctx = create_fresh_context(model, backend, n_ctx, false, &config)?;
+    let mut ctx = create_fresh_context(model, backend, n_ctx, true, &config)?;
 
     let batch_cap = 512usize;
     let mut batch = LlamaBatch::new(batch_cap, 1);
@@ -627,7 +628,7 @@ pub fn maybe_summarize_tool_output(
 
     let n_ctx = NonZeroU32::new(MAP_REDUCE_CTX).unwrap();
     let config = SamplerConfig::default();
-    let mut ctx = match create_fresh_context(model, backend, n_ctx, false, &config) {
+    let mut ctx = match create_fresh_context(model, backend, n_ctx, true, &config) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("[TOOL_SUMMARY] Failed to create summary context: {}", e);

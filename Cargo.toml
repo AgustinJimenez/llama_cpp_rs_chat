@@ -133,23 +133,17 @@ regex = "1.10"
 # LLaMA dependencies - with conditional CUDA GPU acceleration
 llama-cpp-2 = { path = "deps/llama-cpp-rs/llama-cpp-2" }
 llama-cpp-sys-2 = { path = "deps/llama-cpp-rs/llama-cpp-sys-2" }
-anyhow = "1.0"
 uuid = { version = "1.0", features = ["v4"] }
 
 # Web server dependencies
 hyper = { version = "0.14", features = ["full"] }
 urlencoding = "2.1"
-async-stream = "0.3"
-tokio-tungstenite = "0.21"
 futures-util = "0.3"
-walkdir = "2.5"  # For recursive directory listing
-ignore = "0.4"   # ripgrep's directory walker with .gitignore support
 
 # GGUF file parser for reading model metadata
 gguf-llms = "0.0.2"
 
 # WebSocket support
-sha1 = "0.10"
 base64 = "0.21"
 
 # Logging
@@ -158,14 +152,8 @@ log4rs = "1.2"
 chrono = "0.4"
 lazy_static = "1.4"
 
-# Jinja2 template engine for chat templates
-minijinja = { version = "2.3", features = ["json"] }
-
 # SQLite database
 rusqlite = { version = "0.30", features = ["bundled"] }
-
-# Cross-thread channels for worker process IPC
-crossbeam-channel = "0.5"
 
 # MCP (Model Context Protocol) client + server for external tool servers
 rmcp = { version = "1.1", default-features = false, features = ["client", "server", "transport-child-process", "transport-io", "transport-streamable-http-server", "transport-streamable-http-client-reqwest"] }
@@ -174,33 +162,8 @@ rmcp = { version = "1.1", default-features = false, features = ["client", "serve
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "query"] }
 tokio-util = "0.7"
 
-# HTTP client for web fetching (ureq: lightweight, blocking, rustls for TLS)
+# HTTP client for web fetching
 ureq = { version = "2.9", default-features = false, features = ["tls"] }
-
-# HTML to Markdown conversion (LLM-optimized output, replaces html2text when enabled)
-htmd = "0.1"
-
-# Readability article extraction (Mozilla algorithm — strips nav, ads, footer)
-dom_smoothie = "0.15"
-
-# PDF text extraction (pure Rust, no external dependencies)
-pdf-extract = "0.10"
-
-# DOCX/PPTX text extraction (ZIP + XML parsing)
-zip = { version = "8.1", default-features = false, features = ["deflate"] }
-quick-xml = "0.37"
-
-# XLSX/XLS spreadsheet reading (pure Rust)
-calamine = "0.26"
-
-# CSV structured parsing
-csv = "1.3"
-
-# Email (.eml) parsing
-mailparse = "0.15"
-
-# RTF text extraction
-rtf-parser = "0.3"
 
 # HTML to text conversion
 html2text = "0.12"
@@ -208,26 +171,8 @@ html2text = "0.12"
 # Native OS file dialogs (folder picker for web mode)
 rfd = "0.15"
 
-# Headless Chrome for web search (bypasses CAPTCHAs)
-headless_chrome = "1.0"
-encoding_rs = "0.8.35"
-
-# Cross-platform screen capture (Windows, macOS, Linux X11)
-xcap = "0.8"
-
-# Cross-platform keyboard/mouse input simulation (computer use tools)
-enigo = "0.6"
-
-# Image processing (pixel ops for screenshot_diff/region, already transitive via xcap)
+# Image processing
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
-ocrs = "0.9"
-rten = "0.13"
-
-# Cross-platform clipboard (text/image, replaces Win32 clipboard on macOS/Linux)
-arboard = "3"
-
-# Cross-platform process info (replaces Win32 Toolhelp32/psapi on macOS/Linux)
-sysinfo = "0.33"
 
 # libc for Unix fd operations (dup/dup2 in worker IPC)
 [target.'cfg(not(windows))'.dependencies]

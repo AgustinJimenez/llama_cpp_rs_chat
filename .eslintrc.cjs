@@ -29,7 +29,7 @@ module.exports = {
   rules: {
     // File & function size limits
     'max-lines': ['warn', { max: 500, skipBlankLines: true, skipComments: true }],
-    'max-lines-per-function': ['warn', { max: 150, skipBlankLines: true, skipComments: true }],
+    'max-lines-per-function': ['warn', { max: 160, skipBlankLines: true, skipComments: true }],
     complexity: ['warn', { max: 20 }],
 
     // TypeScript

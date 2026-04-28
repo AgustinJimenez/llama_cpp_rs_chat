@@ -29,12 +29,12 @@ interface VramOptimizerResult {
 // Note: Windows display driver typically reserves 1-2 GB of reported VRAM,
 // so the total_vram_gb from the system API is already reduced. This headroom
 // covers CUDA scratch memory, activation buffers, and compute overhead.
-const VRAM_HEADROOM_GB = 2.0;
+const VRAM_HEADROOM_GB = 1.5;
 // Performance headroom: CUDA needs additional workspace for attention scratch
 // buffers. When VRAM is too tight, CUDA falls back to slower memory-efficient
-// kernels (e.g. 60 tok/s instead of 127 tok/s). This factor ensures the
-// optimizer leaves enough room for full-speed generation.
-const VRAM_PERF_HEADROOM_GB = 1.0;
+// kernels (e.g. 60 tok/s instead of 127 tok/s). With TurboQuant KV cache
+// the memory savings are significant, so we can use less headroom.
+const VRAM_PERF_HEADROOM_GB = 0.5;
 const MIN_CONTEXT = 2048;
 
 /** Calculate total VRAM usage for a given configuration */

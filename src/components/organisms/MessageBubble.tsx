@@ -137,6 +137,7 @@ const UserMessage: React.FC<{
   onEditMessage?: (messageIndex: number, newContent: string) => void;
   isGenerating?: boolean;
 }> = ({ message, cleanContent, viewMode, messageIndex, onEditMessage, isGenerating }) => {
+  const { status } = useModelContext();
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -175,7 +176,7 @@ const UserMessage: React.FC<{
     }
   };
 
-  const canEdit = onEditMessage && messageIndex != null && !isGenerating;
+  const canEdit = onEditMessage && messageIndex != null && !isGenerating && status.loaded;
 
   if (isEditing) {
     return (
