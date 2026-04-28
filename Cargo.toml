@@ -52,6 +52,11 @@ path = "src/main.rs"
 name = "llama_chat_web"
 path = "src/main_web.rs"
 
+# Test binary to reproduce sample() deadlock after tool injection
+[[bin]]
+name = "test_sample_deadlock"
+path = "src/test_sample_deadlock.rs"
+
 # Temporary utility to check Gemma template
 [[bin]]
 name = "check_gemma_template"
