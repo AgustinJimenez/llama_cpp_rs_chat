@@ -229,10 +229,9 @@ pub(crate) fn run_generation_loop(
                 break;
             }
 
-            // sample() is synchronous and can deadlock inside CUDA if the GPU
-            // context is corrupted. Log before/after so we can diagnose hangs.
-            if gen.total_tokens_generated % 100 == 0 {
-                log_debug!(cfg.conversation_id, "Sampling token {} ...", gen.total_tokens_generated);
+            // Log first token after tool injection and every 100th token for hang diagnosis
+            if i == 0 || gen.total_tokens_generated % 100 == 0 {
+                log_debug!(cfg.conversation_id, "Sampling token {} (i={}) ...", gen.total_tokens_generated, i);
             }
             let next_token = sampler.sample(context, -1);
             stall_checkpoint = Instant::now(); // Reset stall timer after successful sample
@@ -263,6 +262,7 @@ pub(crate) fn run_generation_loop(
             batch.clear();
             batch.add(next_token, gen.token_pos, &[0], true)
                 .map_err(|e| format!("Batch add failed at token {}: {e}", gen.total_tokens_generated))?;
+            if i == 0 { log_debug!(cfg.conversation_id, "Decoding first token after cycle start..."); }
             if let Err(e) = context.decode(batch) {
                 let err_str = format!("{e}");
                 if err_str.contains("NoKvCacheSlot") || err_str.contains("no kv cache slot") {
