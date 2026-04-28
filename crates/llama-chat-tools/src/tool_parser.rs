@@ -125,6 +125,7 @@ pub const FORMAT_PRIORITY: &[(&str, FormatDetector)] = &[
     ("exec", detect_exec),
     ("llama3", detect_llama3),
     ("harmony", detect_harmony),
+    ("tool_call_json", detect_tool_call_json),
     ("mistral_bracket", detect_mistral_bracket),
     ("mistral_json", detect_mistral_json),
 ];
@@ -263,6 +264,26 @@ fn detect_mistral_bracket(text: &str, _tags: &ToolTags) -> Option<String> {
         tool_name.as_str(),
         args_json.trim()
     ))
+}
+
+/// Detect `<tool_call>{"name": "...", "arguments": {...}}</tool_call>` format.
+/// Also matches without closing `</tool_call>` tag — some models (Qwen3.6) emit
+/// the JSON but stop generating before the closing tag, causing the generation to hang.
+fn detect_tool_call_json(text: &str, _tags: &ToolTags) -> Option<String> {
+    // Find <tool_call> followed by JSON
+    let marker = "<tool_call>";
+    let idx = text.find(marker)?;
+    let after = &text[idx + marker.len()..];
+    // Find the JSON start
+    let json_start_offset = after.find('{')?;
+    let json_text = &after[json_start_offset..];
+    let (_end, json) = extract_balanced_json(json_text, 0)?;
+    let parsed: serde_json::Value = serde_json::from_str(&json).ok()?;
+    if parsed.get("name").is_some() && parsed.get("arguments").is_some() {
+        Some(json)
+    } else {
+        None
+    }
 }
 
 fn detect_mistral_json(text: &str, _tags: &ToolTags) -> Option<String> {
