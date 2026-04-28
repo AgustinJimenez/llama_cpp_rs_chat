@@ -5,6 +5,7 @@ use super::config::DbSamplerConfig;
 use crate::web::models::SystemPromptType;
 use rusqlite::params;
 
+#[allow(dead_code)]
 fn parse_system_prompt_type(s: Option<String>) -> SystemPromptType {
     match s.as_deref() {
         // "UserDefined" was removed — map legacy DB values to Custom
@@ -104,6 +105,7 @@ impl Database {
 
     /// Load configuration for a specific conversation.
     /// Returns None if no per-conversation config exists (caller should fall back to global).
+    #[allow(dead_code)]
     pub fn load_conversation_config(&self, conversation_id: &str) -> Option<DbSamplerConfig> {
         let conn = self.connection();
         conn.query_row(

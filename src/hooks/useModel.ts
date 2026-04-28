@@ -27,6 +27,7 @@ interface ModelStatus {
   block_count?: number;
   system_prompt_tokens?: number;
   tool_definitions_tokens?: number;
+  context_size?: number;
 }
 
 interface ModelResponse {

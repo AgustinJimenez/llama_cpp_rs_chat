@@ -36,6 +36,34 @@ export const MessagesArea = () => {
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (_item, _delta) =>
     !autoScrollRef.current;
 
+  // Preserve scroll position across viewMode toggles (raw/rendered).
+  // Save scrollTop ratio before re-render, restore after virtualizer re-measures.
+  const prevViewModeRef = useRef(viewMode);
+  const savedScrollRatioRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (viewMode !== prevViewModeRef.current) {
+      const el = containerRef.current;
+      if (el && el.scrollHeight > el.clientHeight) {
+        savedScrollRatioRef.current = el.scrollTop / (el.scrollHeight - el.clientHeight);
+      }
+      prevViewModeRef.current = viewMode;
+    }
+  }, [viewMode]);
+  useEffect(() => {
+    if (savedScrollRatioRef.current === null) return;
+    const ratio = savedScrollRatioRef.current;
+    savedScrollRatioRef.current = null;
+    // Wait for virtualizer to re-measure after viewMode change
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = containerRef.current;
+        if (!el) return;
+        programmaticScrollRef.current = true;
+        el.scrollTop = ratio * (el.scrollHeight - el.clientHeight);
+      });
+    });
+  });
+
   // Engage auto-scroll when streaming starts
   useEffect(() => {
     if (isLoading) autoScrollRef.current = true;

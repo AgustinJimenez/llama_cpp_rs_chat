@@ -472,6 +472,9 @@ pub async fn handle_get_model_status(
                     None
                 };
                 let lp = if is_loading { Some(bridge.loading_progress()) } else { None };
+                // Get effective context size: config override or model's native context length
+                let config = crate::web::config::load_config(&db);
+                let context_size = config.context_size.or(meta.context_length);
                 crate::web::models::ModelStatus {
                     loaded: meta.loaded,
                     loading: if is_loading { Some(true) } else { None },
@@ -487,6 +490,7 @@ pub async fn handle_get_model_status(
                     block_count: meta.block_count,
                     system_prompt_tokens: if sys_tokens > 0 { Some(sys_tokens) } else { None },
                     tool_definitions_tokens: if tool_tokens > 0 { Some(tool_tokens) } else { None },
+                    context_size,
                     last_finish_reason: last_finish_reason.clone(),
                 }
             }
@@ -508,6 +512,7 @@ pub async fn handle_get_model_status(
                     block_count: None,
                     system_prompt_tokens: if sys_tokens > 0 { Some(sys_tokens) } else { None },
                     tool_definitions_tokens: if tool_tokens > 0 { Some(tool_tokens) } else { None },
+                    context_size: None,
                     last_finish_reason: last_finish_reason.clone(),
                 }
             },
@@ -626,6 +631,7 @@ pub async fn handle_post_model_load(
                     block_count: meta.block_count,
                     system_prompt_tokens: None,
                     tool_definitions_tokens: None,
+                    context_size: None,
                     last_finish_reason: None,
                 };
                 let response = ModelResponse {
@@ -696,6 +702,7 @@ pub async fn handle_post_model_unload(
                     block_count: None,
                     system_prompt_tokens: None,
                     tool_definitions_tokens: None,
+                    context_size: None,
                     last_finish_reason: None,
                 };
                 let response = ModelResponse {

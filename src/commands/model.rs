@@ -12,6 +12,7 @@ use crate::web::config::*;
 #[tauri::command]
 pub async fn get_model_status(
     bridge: tauri::State<'_, SharedWorkerBridge>,
+    db: tauri::State<'_, SharedDatabase>,
 ) -> Result<ModelStatus, String> {
     let is_loading = bridge.is_loading();
     let progress = if is_loading { Some(bridge.loading_progress()) } else { None };
@@ -24,6 +25,9 @@ pub async fn get_model_status(
             } else {
                 None
             };
+            // Get effective context size: config override or model's native context length
+            let config = load_config(&db);
+            let context_size = config.context_size.or(meta.context_length);
             ModelStatus {
                 loaded: meta.loaded,
                 loading: if is_loading { Some(true) } else { None },
@@ -39,7 +43,9 @@ pub async fn get_model_status(
                 gpu_layers: meta.gpu_layers,
                 block_count: meta.block_count,
                 system_prompt_tokens: None,
-                tool_definitions_tokens: None, last_finish_reason: None,
+                tool_definitions_tokens: None,
+                context_size,
+                last_finish_reason: None,
             }
         }
         None => ModelStatus {
@@ -57,7 +63,9 @@ pub async fn get_model_status(
             gpu_layers: None,
             block_count: None,
             system_prompt_tokens: None,
-            tool_definitions_tokens: None, last_finish_reason: None,
+            tool_definitions_tokens: None,
+            context_size: None,
+            last_finish_reason: None,
         },
     })
 }
@@ -71,6 +79,8 @@ pub async fn load_model(
     match bridge.load_model(&request.model_path, request.gpu_layers, request.mmproj_path).await {
         Ok(meta) => {
             add_to_model_history(&db, &request.model_path);
+            let config = load_config(&db);
+            let context_size = config.context_size.or(meta.context_length);
             Ok(ModelResponse {
                 success: true,
                 message: format!("Model loaded successfully from {}", request.model_path),
@@ -89,7 +99,9 @@ pub async fn load_model(
                     gpu_layers: meta.gpu_layers,
                     block_count: meta.block_count,
                     system_prompt_tokens: None,
-                    tool_definitions_tokens: None, last_finish_reason: None,
+                    tool_definitions_tokens: None,
+                    context_size,
+                    last_finish_reason: None,
                 }),
             })
         }
@@ -124,7 +136,9 @@ pub async fn unload_model(
                 gpu_layers: None,
                 block_count: None,
                 system_prompt_tokens: None,
-                tool_definitions_tokens: None, last_finish_reason: None,
+                tool_definitions_tokens: None,
+                context_size: None,
+                last_finish_reason: None,
             }),
         }),
         Err(e) => Ok(ModelResponse {

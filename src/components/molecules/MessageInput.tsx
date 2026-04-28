@@ -1,6 +1,6 @@
 import { ArrowUp, Square, X, FileText, Loader2, Paperclip, Database } from 'lucide-react';
 import type { KeyboardEvent } from 'react';
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 
 const STATUS_POLL_INTERVAL_MS = 2000;
 const CONTEXT_WARNING_THRESHOLD_PCT = 90;
@@ -225,6 +225,8 @@ const StatsBar = ({
   disabled,
   isLoading,
   stopGeneration,
+  estimatedConvTokens,
+  modelContextSize,
 }: {
   timings?: TimingInfo;
   tokensUsed?: number;
@@ -233,10 +235,15 @@ const StatsBar = ({
   disabled: boolean;
   isLoading: boolean;
   stopGeneration?: (() => void) | null;
+  estimatedConvTokens?: number;
+  modelContextSize?: number;
 }) => {
-  const showBar =
+  const isGenerating =
     timings?.genTokPerSec || disabled || (tokensUsed !== undefined && maxTokens !== undefined);
-  if (!showBar) return null;
+  const hasContextInfo = estimatedConvTokens && modelContextSize;
+  if (!isGenerating && !hasContextInfo) return null;
+  const ctxPct = hasContextInfo ? Math.round((estimatedConvTokens / modelContextSize) * 100) : 0;
+  const CONTEXT_HIGH_PCT = 70;
   return (
     <div className="flex items-center justify-between mb-1">
       <div className="flex-1">
@@ -249,6 +256,20 @@ const StatsBar = ({
             maxTokens={maxTokens}
             streamStatus={streamStatus}
           />
+        ) : null}
+        {!isGenerating && hasContextInfo ? (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
+            <Database className="h-3 w-3" />
+            <span
+              className={ctxPct > CONTEXT_HIGH_PCT ? 'text-yellow-400' : ''}
+              title={`Estimated conversation: ~${estimatedConvTokens.toLocaleString()} tokens / ${modelContextSize.toLocaleString()} context`}
+            >
+              ~{(estimatedConvTokens / 1000).toFixed(1)}K / {(modelContextSize / 1000).toFixed(1)}K
+            </span>
+            {ctxPct > CONTEXT_HIGH_PCT ? (
+              <span className="text-yellow-400 text-[10px]">({ctxPct}% used)</span>
+            ) : null}
+          </div>
         ) : null}
       </div>
       {disabled ? (
@@ -309,6 +330,44 @@ function buildFinalMessage(
   return finalMessage;
 }
 
+const CHARS_PER_TOKEN = 4;
+
+function useInputState() {
+  const { sendMessage: onSendMessage, isLoading, stopGeneration, messages } = useChatContext();
+  const { status, isLoading: isModelLoading, loadingAction } = useModelContext();
+  const hasVision = status.has_vision ?? false;
+  const isModelBusy = isModelLoading && loadingAction !== null;
+  const disabled = isLoading || isModelBusy;
+  const estimatedConvTokens = useMemo(
+    () =>
+      Math.round(messages.reduce((sum, m) => sum + (m.content?.length || 0), 0) / CHARS_PER_TOKEN),
+    [messages],
+  );
+  const modelContextSize = status.context_size;
+  return {
+    onSendMessage,
+    isLoading,
+    stopGeneration,
+    hasVision,
+    isModelBusy,
+    disabled,
+    estimatedConvTokens,
+    modelContextSize,
+    loadingAction,
+  };
+}
+
+function getPlaceholder(
+  isModelBusy: boolean,
+  loadingAction: string | null,
+  disabled: boolean,
+  disabledReason?: string,
+) {
+  if (isModelBusy) return loadingAction === 'unloading' ? 'Unloading model...' : 'Loading model...';
+  if (disabled && disabledReason) return disabledReason;
+  return 'Ask anything';
+}
+
 export const MessageInput: React.FC<MessageInputProps> = ({
   disabledReason,
   timings,
@@ -316,11 +375,17 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   maxTokens,
   streamStatus,
 }) => {
-  const { sendMessage: onSendMessage, isLoading, stopGeneration } = useChatContext();
-  const { status, isLoading: isModelLoading, loadingAction } = useModelContext();
-  const hasVision = status.has_vision ?? false;
-  const isModelBusy = isModelLoading && loadingAction !== null;
-  const disabled = isLoading || isModelBusy;
+  const {
+    onSendMessage,
+    isLoading,
+    stopGeneration,
+    hasVision,
+    isModelBusy,
+    disabled,
+    estimatedConvTokens,
+    modelContextSize,
+    loadingAction,
+  } = useInputState();
 
   const [message, setMessage] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -388,12 +453,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     message.includes('\n') ||
     (textareaRef.current?.scrollHeight ?? 0) > MULTILINE_SCROLL_THRESHOLD_PX;
   const hasContent = message.trim() || attachedImages.length > 0 || attachedFiles.length > 0;
-  let placeholder = 'Ask anything';
-  if (isModelBusy) {
-    placeholder = loadingAction === 'unloading' ? 'Unloading model...' : 'Loading model...';
-  } else if (disabled && disabledReason) {
-    placeholder = disabledReason;
-  }
+  const placeholder = getPlaceholder(isModelBusy, loadingAction, disabled, disabledReason);
 
   return (
     <form
@@ -414,6 +474,8 @@ export const MessageInput: React.FC<MessageInputProps> = ({
         disabled={disabled}
         isLoading={isLoading}
         stopGeneration={stopGeneration}
+        estimatedConvTokens={estimatedConvTokens}
+        modelContextSize={modelContextSize}
       />
       <ImagePreviews images={attachedImages} onRemove={removeImage} />
       <FilePreviews files={attachedFiles} onRemove={removeFile} />
