@@ -229,7 +229,13 @@ pub(crate) fn run_generation_loop(
                 break;
             }
 
+            // sample() is synchronous and can deadlock inside CUDA if the GPU
+            // context is corrupted. Log before/after so we can diagnose hangs.
+            if gen.total_tokens_generated % 100 == 0 {
+                log_debug!(cfg.conversation_id, "Sampling token {} ...", gen.total_tokens_generated);
+            }
             let next_token = sampler.sample(context, -1);
+            stall_checkpoint = Instant::now(); // Reset stall timer after successful sample
 
             if next_token == model.token_eos() {
                 log_debug!(
