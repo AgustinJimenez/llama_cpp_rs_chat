@@ -69,6 +69,9 @@ fn steal_stdout_for_ipc() -> std::fs::File {
 
 /// Run the worker process. This function never returns normally.
 pub fn run_worker(db_path: &str) {
+    // Install crash handler to log info before process dies from segfault
+    install_crash_handler();
+
     // CRITICAL: Steal the real stdout fd for IPC before anything else.
     // After this, C printf/fprintf(stdout) goes to stderr.
     let ipc_out = steal_stdout_for_ipc();
@@ -601,6 +604,68 @@ pub fn run_worker(db_path: &str) {
     eprintln!("[WORKER] Exiting");
     crate::prevent_sleep::force_release();
     std::process::exit(0);
+}
+
+/// Install a crash handler to capture segfault/access violation info.
+/// On Windows, uses SetUnhandledExceptionFilter to log the crash address
+/// and exception code before the process dies.
+fn install_crash_handler() {
+    #[cfg(windows)]
+    {
+        use std::sync::Once;
+        static ONCE: Once = Once::new();
+        ONCE.call_once(|| {
+            unsafe {
+                extern "system" fn crash_handler(
+                    info: *mut std::ffi::c_void,
+                ) -> i32 {
+                    #[repr(C)]
+                    struct ExceptionPointers {
+                        record: *const ExceptionRecord,
+                        _context: *const std::ffi::c_void,
+                    }
+                    #[repr(C)]
+                    struct ExceptionRecord {
+                        code: u32,
+                        _flags: u32,
+                        _nested: *const std::ffi::c_void,
+                        address: *const std::ffi::c_void,
+                    }
+
+                    unsafe {
+                        let ptrs = info as *const ExceptionPointers;
+                        if !ptrs.is_null() && !(*ptrs).record.is_null() {
+                            let rec = &*(*ptrs).record;
+                            eprintln!("[CRASH] Exception code: 0x{:08X}, address: {:?}",
+                                rec.code, rec.address);
+                            if rec.code == 0xC0000005 {
+                                eprintln!("[CRASH] ACCESS VIOLATION (segfault) — likely CUDA memory corruption");
+                            }
+                        } else {
+                            eprintln!("[CRASH] Unhandled exception (no details available)");
+                        }
+                    }
+                    eprintln!("[CRASH] Worker crashing. Check logs/last_prompt_dump.txt, last_inject_dump.txt, last_gen_tokens.txt");
+                    0 // EXCEPTION_CONTINUE_SEARCH
+                }
+
+                // SetUnhandledExceptionFilter
+                extern "system" {
+                    fn SetUnhandledExceptionFilter(
+                        filter: extern "system" fn(*mut std::ffi::c_void) -> i32,
+                    ) -> *mut std::ffi::c_void;
+                }
+                SetUnhandledExceptionFilter(crash_handler);
+                eprintln!("[WORKER] Crash handler installed");
+            }
+        });
+    }
+
+    #[cfg(not(windows))]
+    {
+        // On Unix, could use signal handler for SIGSEGV
+        eprintln!("[WORKER] Crash handler not implemented for this platform");
+    }
 }
 
 /// Parameters for a generation request.
