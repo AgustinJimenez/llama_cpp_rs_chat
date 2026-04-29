@@ -91,16 +91,19 @@ impl WorkerBridge {
         tokio::spawn(stdin_writer_task(cmd_rx, stdin_handle));
 
         // Stdout reader task
+        let cmd_tx_arc = Arc::new(TokioMutex::new(cmd_tx));
         tokio::spawn(stdout_reader_task(
             stdout_handle,
             pending.clone(),
             active_generation.clone(),
             model_meta.clone(),
             loading_progress.clone(),
+            process_manager.clone(),
+            cmd_tx_arc.clone(),
         ));
 
         Self {
-            cmd_tx: Arc::new(TokioMutex::new(cmd_tx)),
+            cmd_tx: cmd_tx_arc,
             pending,
             active_generation,
             model_meta,
@@ -297,6 +300,8 @@ impl WorkerBridge {
                 self.active_generation.clone(),
                 self.model_meta.clone(),
                 self.loading_progress.clone(),
+                self.process_manager.clone(),
+                self.cmd_tx.clone(),
             ));
         }
     }
@@ -618,6 +623,8 @@ async fn stdout_reader_task(
     active_generation: Arc<TokioMutex<Option<ActiveGeneration>>>,
     model_meta: Arc<TokioMutex<Option<ModelMeta>>>,
     loading_progress: Arc<AtomicU8>,
+    process_manager: Arc<super::process_manager::ProcessManager>,
+    cmd_tx: Arc<TokioMutex<mpsc::UnboundedSender<String>>>,
 ) {
     // Read stdout on a blocking thread (pipe reads are blocking on Windows)
     let (line_tx, mut line_rx) = mpsc::unbounded_channel::<String>();
@@ -715,20 +722,19 @@ async fn stdout_reader_task(
         }
     }
 
-    // Worker died — clear active generation so the UI stops showing the spinner.
-    // Send an error token so the frontend knows the generation was interrupted.
+    // Worker died — clear state and auto-restart.
     {
+        // Clear active generation so the UI stops showing the spinner
         let mut gen = active_generation.lock().await;
         if let Some(ag) = gen.take() {
             eprintln!("[BRIDGE] Worker died during generation — clearing active generation");
             let _ = ag.token_tx.send(TokenData {
-                token: "\n\n[Worker process crashed — generation interrupted. Please retry.]".to_string(),
+                token: "\n\n[Worker process crashed — restarting automatically.]".to_string(),
                 tokens_used: 0,
                 max_tokens: 0,
                 status: None,
                 ..Default::default()
             });
-            // Send a final result so the pending request resolves
             let mut pending_guard = pending.lock().await;
             if let Some(req) = pending_guard.remove(&ag.request_id) {
                 let _ = req.tx.send(WorkerPayload::Error {
@@ -736,6 +742,43 @@ async fn stdout_reader_task(
                 });
             }
         }
+
+        // Clear model metadata (model needs to be reloaded)
+        *model_meta.lock().await = None;
+        loading_progress.store(0, Ordering::Relaxed);
+
+        // Fail any other pending requests
+        {
+            let mut pending_guard = pending.lock().await;
+            for (_, req) in pending_guard.drain() {
+                let _ = req.tx.send(WorkerPayload::Error {
+                    message: "Worker process crashed".to_string(),
+                });
+            }
+        }
+
+        // Auto-restart the worker process and reconnect IO.
+        // Must be done on the tokio runtime that owns these tasks.
+        eprintln!("[BRIDGE] Auto-restarting worker process...");
+        if let Err(e) = process_manager.restart() {
+            eprintln!("[BRIDGE] Failed to restart worker: {e}");
+        } else {
+            eprintln!("[BRIDGE] Worker restarted successfully");
+            if let Some(stdin) = process_manager.take_stdin() {
+                let (new_cmd_tx, new_cmd_rx) = mpsc::unbounded_channel::<String>();
+                tokio::spawn(stdin_writer_task(new_cmd_rx, stdin));
+                *cmd_tx.lock().await = new_cmd_tx;
+            }
+            if let Some(stdout) = process_manager.take_stdout() {
+                // New reader runs as a separate top-level task
+                let fut = stdout_reader_task(
+                    stdout, pending.clone(), active_generation.clone(),
+                    model_meta.clone(), loading_progress.clone(),
+                    process_manager.clone(), cmd_tx.clone(),
+                );
+                tokio::task::spawn_local(fut);
+            }
+        }
     }
-    eprintln!("[BRIDGE] Stdout reader task exiting");
+    eprintln!("[BRIDGE] Stdout reader task exiting (old worker)");
 }
