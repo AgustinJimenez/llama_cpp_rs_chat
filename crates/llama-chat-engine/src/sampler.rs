@@ -83,12 +83,13 @@ pub(crate) fn create_sampler(
     }
 
     /// Push lazy grammar sampler for JSON tool call constraints.
-    fn push_tool_grammar(samplers: &mut Vec<LlamaSampler>, model: Option<&LlamaModel>) {
-        if let Some(m) = model {
-            if let Some(grammar) = create_tool_grammar_sampler(m) {
-                samplers.push(grammar);
-            }
-        }
+    fn push_tool_grammar(samplers: &mut Vec<LlamaSampler>, _model: Option<&LlamaModel>) {
+        // DISABLED: Tool grammar sampler crashes with C++ exception
+        // "Unexpected empty grammar stack after accepting piece: <think>"
+        // when Qwen3.6 produces <think> tokens. The grammar can't handle
+        // model-specific special tokens outside its grammar definition.
+        // TODO: Fix the grammar to include <think>/<think> as valid tokens.
+        let _ = _model;
     }
 
     match config.sampler_type.as_str() {
