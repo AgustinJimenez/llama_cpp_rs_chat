@@ -758,7 +758,6 @@ async fn stdout_reader_task(
         }
 
         // Auto-restart the worker process and reconnect IO.
-        // Must be done on the tokio runtime that owns these tasks.
         eprintln!("[BRIDGE] Auto-restarting worker process...");
         if let Err(e) = process_manager.restart() {
             eprintln!("[BRIDGE] Failed to restart worker: {e}");
@@ -770,13 +769,19 @@ async fn stdout_reader_task(
                 *cmd_tx.lock().await = new_cmd_tx;
             }
             if let Some(stdout) = process_manager.take_stdout() {
-                // New reader runs as a separate top-level task
-                let fut = stdout_reader_task(
-                    stdout, pending.clone(), active_generation.clone(),
-                    model_meta.clone(), loading_progress.clone(),
-                    process_manager.clone(), cmd_tx.clone(),
-                );
-                tokio::task::spawn_local(fut);
+                let p = pending.clone();
+                let ag = active_generation.clone();
+                let mm = model_meta.clone();
+                let lp = loading_progress.clone();
+                let pm = process_manager.clone();
+                let ct = cmd_tx.clone();
+                std::thread::spawn(move || {
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .expect("Failed to build recovery runtime");
+                    rt.block_on(stdout_reader_task(stdout, p, ag, mm, lp, pm, ct));
+                });
             }
         }
     }
