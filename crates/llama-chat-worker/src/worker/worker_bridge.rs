@@ -758,31 +758,41 @@ async fn stdout_reader_task(
         }
 
         // Auto-restart the worker process and reconnect IO.
+        // Runs on a new thread with its own tokio runtime since the original
+        // task context may not be available after worker death.
         eprintln!("[BRIDGE] Auto-restarting worker process...");
         if let Err(e) = process_manager.restart() {
             eprintln!("[BRIDGE] Failed to restart worker: {e}");
         } else {
             eprintln!("[BRIDGE] Worker restarted successfully");
-            if let Some(stdin) = process_manager.take_stdin() {
-                let (new_cmd_tx, new_cmd_rx) = mpsc::unbounded_channel::<String>();
-                tokio::spawn(stdin_writer_task(new_cmd_rx, stdin));
-                *cmd_tx.lock().await = new_cmd_tx;
-            }
-            if let Some(stdout) = process_manager.take_stdout() {
-                let p = pending.clone();
-                let ag = active_generation.clone();
-                let mm = model_meta.clone();
-                let lp = loading_progress.clone();
-                let pm = process_manager.clone();
-                let ct = cmd_tx.clone();
-                std::thread::spawn(move || {
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .expect("Failed to build recovery runtime");
-                    rt.block_on(stdout_reader_task(stdout, p, ag, mm, lp, pm, ct));
+            let stdin_opt = process_manager.take_stdin();
+            let stdout_opt = process_manager.take_stdout();
+            let p = pending.clone();
+            let ag = active_generation.clone();
+            let mm = model_meta.clone();
+            let lp = loading_progress.clone();
+            let pm = process_manager.clone();
+            let ct = cmd_tx.clone();
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("Failed to build recovery runtime");
+                rt.block_on(async move {
+                    // Reconnect stdin writer
+                    if let Some(stdin) = stdin_opt {
+                        let (new_cmd_tx, new_cmd_rx) = mpsc::unbounded_channel::<String>();
+                        tokio::spawn(stdin_writer_task(new_cmd_rx, stdin));
+                        *ct.lock().await = new_cmd_tx;
+                        eprintln!("[BRIDGE] Stdin writer reconnected");
+                    }
+                    // Reconnect stdout reader (blocks until next worker death)
+                    if let Some(stdout) = stdout_opt {
+                        eprintln!("[BRIDGE] Stdout reader reconnected");
+                        stdout_reader_task(stdout, p, ag, mm, lp, pm, ct).await;
+                    }
                 });
-            }
+            });
         }
     }
     eprintln!("[BRIDGE] Stdout reader task exiting (old worker)");
