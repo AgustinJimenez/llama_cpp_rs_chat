@@ -1,97 +1,85 @@
-# Current Task: CUDA sample() crash after tool injection
+# Current Task: C++ exception crash during decode() after tool injection
 
-## Status: IN PROGRESS — Safety net implemented, root cause unresolved
+## Status: IN PROGRESS — Safety net works (auto-restart), root cause unresolved
 
 ## The Bug
 
-`sampler.sample(context, -1)` crashes (segfault) or deadlocks after injecting tool response tokens into the context mid-generation. This happens non-deterministically — the same prompt + injection data passes in isolated tests but crashes in the live app.
+`context.decode(batch)` throws a C++ exception (`0xE06D7363`) during tool response token injection. The exception propagates through the Rust FFI boundary and crashes the worker process. This happens non-deterministically — the exact same prompt + injection tokens pass in isolated tests.
 
 ## Symptoms
 
 - Model generates tokens normally, calls a tool (browser_search, browser_get_text, etc.)
-- Tool executes successfully, response tokens are injected into the context via `inject_output_tokens()`
-- Next call to `sampler.sample()` either:
-  - **Segfaults** (worker process dies instantly, no logs)
-  - **Deadlocks** (sample() never returns, watchdog kills worker after 10s)
-- Happens after 1-12 tool injections per conversation, non-deterministic
-- More likely with longer conversations / more tool calls
+- Tool executes successfully (2-5 seconds)
+- Tool response tokens are injected via `inject_output_tokens()` → `decode()`
+- `decode()` throws C++ exception → worker crashes
+- Happens consistently on 2nd message (after first completes fine)
+- Happens with both TurboQuant (turbo2/turbo3) AND q8_0 KV cache types
+- Non-deterministic: exact same data passes in test binary
 
-## What We Know
+## Root Cause Analysis
 
-1. **Not reproducible in isolation (yet)**: Test binary (`crates/tests/`) replays exact prompt + 12 injection token sequences from a real crash — all pass. BUT the test was using a **different sampler config** (missing penalties, top_k, tool_grammar). The generated tokens between injections are also different each run.
-2. **Not related to KV cache reuse**: Happens with both fresh context (drop cache each turn) and reused cache
-3. **Not related to TurboQuant KV types**: Test with TURBO2_0/TURBO3_0 KV cache passes
-4. **Not a race condition**: `context.synchronize()` after injection doesn't help
-5. **Non-deterministic**: Depends on actual tokens generated between injections (different each run)
-6. **Model-specific?**: Only tested with Qwen3.6-35B-A3B (hybrid MoE+SSM). Might affect other models too.
+### Confirmed: C++ exception (NOT segfault)
+- Exception code: `0xE06D7363` = Microsoft C++ exception (`msc`)
+- Address: `0x7ffee53179da` (MSVC runtime `RaiseException`)
+- The crash is in `decode()`, not in `sample()` as originally thought
+- `catch_unwind` does NOT catch C++ exceptions on MSVC
 
-## Root Cause FOUND (2026-04-29)
+### Chain of failure
+1. `inject_output_tokens()` calls `context.decode(batch)` with tool response tokens
+2. Inside llama.cpp C++ code, an exception is thrown (likely from `output_resolve_row`, ring buffer, or GGML_ASSERT)
+3. Exception propagates through C FFI boundary (undefined behavior in Rust)
+4. Process crashes
 
-**Exception code 0xE06D7363 = C++ exception**, NOT a segfault!
+### Key difference between test and app
+The test binary replays the exact same prompt + tokens and passes. Possible differentiators:
+- **Time gap**: In the app, the GPU context sits idle for 2-5s while browser tools execute. Windows WDDM can preempt/reclaim idle GPU contexts. `synchronize()` before injection didn't help.
+- **Thread context**: App runs generation in `thread::spawn`. The generation thread shares `Arc<Mutex<LlamaState>>` with the main worker thread. Test runs everything single-threaded.
+- **Accumulated state**: First message's generation may leave residual state in the llama backend/CUDA that affects the second message's fresh context.
 
-`llama-context.cpp:74` throws: `"the backend samplers must be of type llama_sampler_chain"`
+### What we tried (didn't fix)
+- `context.synchronize()` before and after injection
+- `catch_unwind` around decode()
+- KV cache reuse vs fresh context each turn
+- q8_0 KV cache instead of TurboQuant
+- Exact token replay in test binary (always passes)
+- Logits check before sample() (crash is in decode, not sample)
 
-This means the sampler object passed to `sample()` is not a valid `llama_sampler_chain`. This could happen if:
-- The sampler is corrupted after many sample() calls
-- The Rust wrapper creates a sampler type that llama.cpp doesn't recognize as a chain
-- The sampler is freed/moved while still in use
+## Safety Net (Working)
 
-The crash is non-deterministic because the corruption accumulates over time.
-
-## Previous Theory (WRONG)
-
-~~Memory corruption in llama.cpp's CUDA code that accumulates over multiple `decode()` → `sample()` cycles with injected tokens.~~ Possibly related to:
-- KV cache state corruption with TurboQuant (TURBO2_0=43, TURBO3_0=41) types
-- CUDA graph caching issues (warmup/reset during mid-generation injection)
-- Flash attention buffer management with hybrid MoE+SSM architecture
-
-## Safety Net (Implemented)
-
-1. **Watchdog thread** (`token_loop.rs`): Monitors heartbeat timestamp updated after each successful `sample()`/`decode()`. If no heartbeat for 10s, calls `process::exit(42)` to kill the worker.
-2. **Bridge auto-restart** (`worker_bridge.rs`): When the bridge detects worker death (stdout reader exits), it:
-   - Clears active generation (stops spinner)
-   - Sends error message to UI
-   - Fails pending requests
-   - Restarts worker process via `ProcessManager::restart()`
-   - Reconnects stdin/stdout IO on a new thread runtime
-3. **User experience**: Generation stops, "[Worker crashed — restarting]" appears, model unloads, user reloads model and retries.
+1. **Crash handler** (`worker_main.rs`): Windows SEH catches exception, logs code + address, calls `process::exit(42)` for fast controlled exit
+2. **Watchdog thread** (`token_loop.rs`): 10s heartbeat timeout, kills worker if sample() deadlocks
+3. **Bridge auto-restart** (`worker_bridge.rs`): Detects worker death → clears generation → restarts worker → reconnects IO on new thread runtime
+4. **User experience**: Generation stops, "[Worker crashed — restarting]" appears, model unloads, user reloads model and retries
 
 ## Key Files
 
-- `crates/llama-chat-engine/src/token_loop.rs` — Watchdog thread, heartbeat, sample()/decode() calls
-- `crates/llama-chat-engine/src/command_executor.rs` — `inject_output_tokens()`, `synchronize()` call, dump logging
-- `crates/llama-chat-engine/src/generation.rs` — Prompt dump to `last_prompt_dump.txt`
-- `crates/llama-chat-worker/src/worker/worker_bridge.rs` — Bridge death detection, auto-restart, IO reconnection
-- `crates/tests/src/main.rs` — Reproduction test (currently passes)
-- `crates/tests/test_data_prompt.txt` — Real prompt from crash
-- `crates/tests/test_data_inject.txt` — Real injection tokens from crash (12 entries)
+- `crates/llama-chat-engine/src/command_executor.rs` — `inject_output_tokens()`, crash dump logging
+- `crates/llama-chat-engine/src/token_loop.rs` — Watchdog thread, heartbeat, logits check
+- `crates/llama-chat-engine/src/generation.rs` — Prompt dump, context creation
+- `crates/llama-chat-worker/src/worker/worker_main.rs` — Crash handler (SEH), run_worker
+- `crates/llama-chat-worker/src/worker/worker_bridge.rs` — Auto-restart, IO reconnection
+- `crates/tests/src/main.rs` — Reproduction test (always passes)
 
-## Dump Files (for reproduction)
+## Dump Files
 
-After each crash, the app writes:
-- `{LLAMA_CHAT_DATA_DIR}/logs/last_prompt_dump.txt` — Full formatted prompt
-- `{LLAMA_CHAT_DATA_DIR}/logs/last_inject_dump.txt` — All injection entries with `[INJECT pos=N count=M] [token_ids...]`
-- `{LLAMA_CHAT_DATA_DIR}/logs/last_gen_tokens.txt` — Every generated token ID (one per line), for exact replay
+After each crash, written to `{LLAMA_CHAT_DATA_DIR}/logs/`:
+- `last_prompt_dump.txt` — Full formatted prompt
+- `last_inject_dump.txt` — Injection entries: `[INJECT pos=N count=M] [token_ids...]`
+- `last_gen_tokens.txt` — Every generated token ID (one per line)
 
-Default data dir: `C:\Users\agus_\AppData\Roaming\com.llamachat.desktop`
+Default: `C:\Users\agus_\AppData\Roaming\com.llamachat.desktop`
 
-## To Investigate
+## Next Steps to Investigate
 
-1. **C++ debugger**: Attach to worker process, set breakpoint on `llama_sampler_sample`, reproduce crash, get stack trace
-2. **CUDA memcheck**: Run with `compute-sanitizer --tool memcheck` to detect illegal memory access
-3. **Reduce to minimal case**: Find the specific token sequence that triggers the crash (generate deterministically with temp=0, fixed seed)
-4. **Test with different models**: Try a non-MoE model (e.g. Gemma-4-31B) to see if it's architecture-specific
-5. **Test without TurboQuant**: Use f16 KV cache to rule out TURBO type corruption
-6. **Update llama.cpp**: Check if newer llama.cpp versions fix the issue (related issues: #18310, #19219, #22320)
-
-## Related llama.cpp Issues
-
-- [#18310](https://github.com/ggml-org/llama.cpp/issues/18310) — Race condition in decode(): missing synchronize() after async tensor copy
-- [#19219](https://github.com/ggml-org/llama.cpp/issues/19219) — MoE model inference hang on NVIDIA
-- [#22320](https://github.com/ggml-org/llama.cpp/issues/22320) — Low GPU utilization with Qwen3.6-35B-A3B MoE+SSM hybrid
+1. **Run with `compute-sanitizer --tool memcheck`** — NVIDIA's CUDA memory checker will show illegal memory accesses
+2. **Add C++ try/catch wrapper** — Create a `llama_decode_safe()` C++ function that wraps `llama_decode` in try/catch, returning error string instead of throwing
+3. **Test with a different model** — Try Gemma-4-31B or Devstral to see if it's Qwen3.6-specific
+4. **Test single-threaded** — Run generation on the main worker thread (not `thread::spawn`) to eliminate threading as a variable
+5. **Update llama.cpp** — Check if newer versions fix the underlying throw
 
 ## Build Notes
 
 - Fast release profile: `lto=false`, `codegen-units=4`, `incremental=true` (~16s rebuilds)
 - Test crate: `npm run cargo -- run --release --features cuda,vision -p llama-chat-tests`
-- CDP debugging on port 9222 (auto-enabled in dev builds)
+- CDP debugging on port 9222 (auto-enabled)
+- Crash handler outputs to stderr (visible in Tauri dev console)
