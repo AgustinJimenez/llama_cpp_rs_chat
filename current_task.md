@@ -1,176 +1,84 @@
-# Current Tasks — App Improvements
+# Current Task: CUDA sample() crash after tool injection
 
-## Status: 4 of 6 tasks completed
+## Status: IN PROGRESS — Safety net implemented, root cause unresolved
 
-### ~~1. Conversation Search~~ ✅ DONE
-Implemented: search input in sidebar, instant client-side title filtering.
+## The Bug
 
-### ~~3. Faster Streaming Cancel~~ ✅ DONE  
-Fixed: cancel check every token instead of every 4 (4x faster).
+`sampler.sample(context, -1)` crashes (segfault) or deadlocks after injecting tool response tokens into the context mid-generation. This happens non-deterministically — the same prompt + injection data passes in isolated tests but crashes in the live app.
 
-### ~~4. Mobile Responsive UI~~ ✅ ALREADY DONE
-Already implemented: sidebar overlay, hamburger menu, responsive layout.
+## Symptoms
 
-### ~~7. File Drag-and-Drop~~ ✅ ALREADY DONE
-Already implemented: images, text/code, PDFs/DOCX, drag overlay UI.
+- Model generates tokens normally, calls a tool (browser_search, browser_get_text, etc.)
+- Tool executes successfully, response tokens are injected into the context via `inject_output_tokens()`
+- Next call to `sampler.sample()` either:
+  - **Segfaults** (worker process dies instantly, no logs)
+  - **Deadlocks** (sample() never returns, watchdog kills worker after 10s)
+- Happens after 1-12 tool injections per conversation, non-deterministic
+- More likely with longer conversations / more tool calls
 
----
+## What We Know
 
-## Remaining Tasks
+1. **Not reproducible in isolation (yet)**: Test binary (`crates/tests/`) replays exact prompt + 12 injection token sequences from a real crash — all pass. BUT the test was using a **different sampler config** (missing penalties, top_k, tool_grammar). The generated tokens between injections are also different each run.
+2. **Not related to KV cache reuse**: Happens with both fresh context (drop cache each turn) and reused cache
+3. **Not related to TurboQuant KV types**: Test with TURBO2_0/TURBO3_0 KV cache passes
+4. **Not a race condition**: `context.synchronize()` after injection doesn't help
+5. **Non-deterministic**: Depends on actual tokens generated between injections (different each run)
+6. **Model-specific?**: Only tested with Qwen3.6-35B-A3B (hybrid MoE+SSM). Might affect other models too.
 
-### 2. Message Editing & Conversation Forking (Priority: HIGH, Effort: Large)
+## Likely Root Cause
 
-### 1. Conversation Search (Priority: HIGH, Effort: Small)
-**Goal:** Add a search input to the sidebar that filters conversations by title and content.
+Memory corruption in llama.cpp's CUDA code that accumulates over multiple `decode()` → `sample()` cycles with injected tokens. Possibly related to:
+- KV cache state corruption with TurboQuant (TURBO2_0=43, TURBO3_0=41) types
+- CUDA graph caching issues (warmup/reset during mid-generation injection)
+- Flash attention buffer management with hybrid MoE+SSM architecture
 
-**Implementation:**
-- Add a search input at the top of the sidebar (below "Conversations" header)
-- Filter conversations client-side by title match (instant)
-- For content search: add a `/api/conversations/search?q=term` endpoint that searches message content in SQLite (`SELECT DISTINCT conversation_id FROM messages WHERE content LIKE '%term%'`)
-- Show matching conversations highlighted, with snippet of matching text
-- Debounce input (300ms) to avoid excessive API calls
+## Safety Net (Implemented)
 
-**Files to modify:**
-- `src/components/organisms/Sidebar.tsx` — add search input, filter logic
-- `src/web/routes/conversation.rs` — add search endpoint
-- `src/web/database/conversation.rs` — add search query
+1. **Watchdog thread** (`token_loop.rs`): Monitors heartbeat timestamp updated after each successful `sample()`/`decode()`. If no heartbeat for 10s, calls `process::exit(42)` to kill the worker.
+2. **Bridge auto-restart** (`worker_bridge.rs`): When the bridge detects worker death (stdout reader exits), it:
+   - Clears active generation (stops spinner)
+   - Sends error message to UI
+   - Fails pending requests
+   - Restarts worker process via `ProcessManager::restart()`
+   - Reconnects stdin/stdout IO on a new thread runtime
+3. **User experience**: Generation stops, "[Worker crashed — restarting]" appears, model unloads, user reloads model and retries.
 
----
+## Key Files
 
-### 2. Message Editing & Conversation Forking (Priority: HIGH, Effort: Large)
-**Goal:** Edit a previous message and regenerate the conversation from that point forward.
+- `crates/llama-chat-engine/src/token_loop.rs` — Watchdog thread, heartbeat, sample()/decode() calls
+- `crates/llama-chat-engine/src/command_executor.rs` — `inject_output_tokens()`, `synchronize()` call, dump logging
+- `crates/llama-chat-engine/src/generation.rs` — Prompt dump to `last_prompt_dump.txt`
+- `crates/llama-chat-worker/src/worker/worker_bridge.rs` — Bridge death detection, auto-restart, IO reconnection
+- `crates/tests/src/main.rs` — Reproduction test (currently passes)
+- `crates/tests/test_data_prompt.txt` — Real prompt from crash
+- `crates/tests/test_data_inject.txt` — Real injection tokens from crash (12 entries)
 
-**Current state:** Basic edit exists (`onEditMessage` in MessageBubble) but doesn't truncate/regenerate.
+## Dump Files (for reproduction)
 
-**Implementation:**
-- When user edits a message, truncate all messages after the edited one
-- Delete truncated messages from DB
-- Re-send the edited message as the new prompt
-- The model regenerates from the edited point
-- Optional: keep a "branch history" so users can switch between branches
+After each crash, the app writes:
+- `{LLAMA_CHAT_DATA_DIR}/logs/last_prompt_dump.txt` — Full formatted prompt
+- `{LLAMA_CHAT_DATA_DIR}/logs/last_inject_dump.txt` — All injection entries with `[INJECT pos=N count=M] [token_ids...]`
+- `{LLAMA_CHAT_DATA_DIR}/logs/last_gen_tokens.txt` — Every generated token ID (one per line), for exact replay
 
-**Files to modify:**
-- `src/hooks/useChat.ts` — add `editAndRegenerate(messageIndex, newContent)` function
-- `src/web/routes/conversation.rs` — add `/api/conversations/:id/truncate-after` endpoint
-- `src/web/database/conversation.rs` — add `delete_messages_after(conversation_id, sequence_order)`
-- `src/components/organisms/MessageBubble.tsx` — update edit handler to call regenerate
+Default data dir: `C:\Users\agus_\AppData\Roaming\com.llamachat.desktop`
 
-**Edge cases:**
-- What if the edited message is a tool call response? Skip it.
-- What about compacted conversations? Can't edit before compaction point.
-- System prompt changes between original and edit? Use current config.
+## To Investigate
 
----
+1. **C++ debugger**: Attach to worker process, set breakpoint on `llama_sampler_sample`, reproduce crash, get stack trace
+2. **CUDA memcheck**: Run with `compute-sanitizer --tool memcheck` to detect illegal memory access
+3. **Reduce to minimal case**: Find the specific token sequence that triggers the crash (generate deterministically with temp=0, fixed seed)
+4. **Test with different models**: Try a non-MoE model (e.g. Gemma-4-31B) to see if it's architecture-specific
+5. **Test without TurboQuant**: Use f16 KV cache to rule out TURBO type corruption
+6. **Update llama.cpp**: Check if newer llama.cpp versions fix the issue (related issues: #18310, #19219, #22320)
 
-### 3. Faster Streaming Cancel (Priority: HIGH, Effort: Investigation)
-**Goal:** Cancel generation should stop output within <200ms, not seconds.
+## Related llama.cpp Issues
 
-**Current state:** Cancel sets a flag, but the model keeps generating until the next token check. The worker process might buffer tokens.
+- [#18310](https://github.com/ggml-org/llama.cpp/issues/18310) — Race condition in decode(): missing synchronize() after async tensor copy
+- [#19219](https://github.com/ggml-org/llama.cpp/issues/19219) — MoE model inference hang on NVIDIA
+- [#22320](https://github.com/ggml-org/llama.cpp/issues/22320) — Low GPU utilization with Qwen3.6-35B-A3B MoE+SSM hybrid
 
-**Investigation needed:**
-- Check `src/web/chat/generation.rs` — where is the cancel flag checked in the decode loop?
-- Check `src/web/worker/worker_bridge.rs` — how does cancel propagate from HTTP to worker process?
-- Check if `llama_decode()` blocks for long periods (large batch size = slow cancel)
-- Possible fix: reduce batch size during generation, check cancel flag every N tokens
-- Possible fix: use `llama_abort()` C API if available (interrupts decode mid-batch)
+## Build Notes
 
-**Files to investigate:**
-- `src/web/chat/generation.rs` — main generation loop, cancel flag check
-- `src/web/worker/worker_bridge.rs` — cancel IPC
-- `src/web/worker/worker_main.rs` — worker-side cancel handling
-- `src/web/routes/chat.rs` — `/api/chat/cancel` endpoint
-
----
-
-### 4. Mobile Responsive UI (Priority: MEDIUM, Effort: Medium)
-**Goal:** App should be usable on phones/tablets. Sidebar should collapse, input should be full-width.
-
-**Implementation:**
-- Sidebar: hide by default on mobile (< 768px), show as overlay when toggled
-- Header: hamburger menu to toggle sidebar on mobile
-- Message bubbles: full-width on mobile (no max-width constraint)
-- Input: full-width, larger touch targets
-- Model config modal: stack vertically on mobile instead of grid
-- Tool call widgets: collapse by default on mobile (save space)
-
-**Files to modify:**
-- `src/App.tsx` — responsive sidebar toggle state
-- `src/components/organisms/Sidebar.tsx` — mobile overlay mode
-- `src/components/organisms/ChatHeader.tsx` — hamburger menu
-- `src/components/organisms/MessageBubble.tsx` — responsive widths
-- `src/components/molecules/MessageInput.tsx` — mobile sizing
-- `src/index.css` — media queries, mobile-specific styles
-
-**Breakpoints:**
-- `< 640px` (sm): phone — sidebar hidden, full-width everything
-- `640-1024px` (md): tablet — sidebar overlay, adjusted spacing
-- `> 1024px` (lg): desktop — current layout
-
----
-
-### 7. File Drag-and-Drop for Context (Priority: MEDIUM, Effort: Medium)
-**Goal:** Drop any file into the chat and the agent reads it automatically.
-
-**Current state:** Image paste/drop works (base64 → vision pipeline). Need to extend for text files, code, PDFs, etc.
-
-**Implementation:**
-- Extend the drop zone in MessageInput to accept all file types
-- For text files (.txt, .md, .rs, .py, .js, etc.): read content, inject as user message
-- For code files: syntax-detect language, wrap in code block
-- For PDFs: use existing `/api/file/extract-text` endpoint
-- For images: existing flow (base64 → vision pipeline)
-- Show file preview chip in the input area before sending
-
-**Files to modify:**
-- `src/components/molecules/MessageInput.tsx` — extend drop handler, file type detection
-- `src/hooks/useChat.ts` — handle file content in message
-- Already have: `/api/file/extract-text` for PDF/DOCX/XLSX
-
-**Supported formats:**
-- Text: .txt, .md, .csv, .json, .xml, .yaml, .toml, .log
-- Code: .rs, .py, .js, .ts, .tsx, .html, .css, .java, .c, .cpp, .go, .rb, .php, .sql, .sh
-- Documents: .pdf, .docx, .pptx, .xlsx (via extract-text API)
-- Images: .png, .jpg, .gif, .webp (existing vision pipeline)
-
----
-
-### 9. Auto-Update (Priority: LOW, Effort: Large)
-**Goal:** App checks for updates and offers to install them. Tauri updater plugin is already configured.
-
-**Prerequisites:**
-- GitHub Releases with proper tauri update manifest
-- Code signing (optional but recommended for Windows)
-- Update server URL in tauri.conf.json
-
-**Implementation:**
-- Set up GitHub Actions CI/CD for building + releasing
-- Configure `tauri.conf.json` updater section with GitHub endpoint
-- Add "Check for Updates" button in Settings
-- Show notification when update is available
-
-**Files to modify:**
-- `tauri.conf.json` — updater endpoint configuration
-- `.github/workflows/release.yml` (new) — CI/CD build pipeline
-- `src/components/organisms/AppSettingsModal.tsx` — update check button
-
----
-
-## Completed This Session
-
-- ✅ Gemma 4 model support (tool calling, presets, llama.cpp update)
-- ✅ Screenshots displayed in chat (persisted as files, served via API)
-- ✅ Mermaid diagrams + Chart.js charts in chat (with 3-dot menu, expand, export)
-- ✅ Image lightbox with download
-- ✅ Light/dark theme toggle with semantic tokens (all hardcoded colors fixed)
-- ✅ Config sidebar fix (shows actual loaded model values)
-- ✅ Polling re-render fix (no more menu/scroll reset every 5s)
-- ✅ Web search image results (Brave thumbnails + DDG icons)
-- ✅ OCR engine stack: Tesseract (~95%) → ocrs (~70%) → native (WinRT/Vision)
-- ✅ ensure-tesseract auto-download tool (npm postinstall)
-- ✅ ocrs Rust-native OCR bundled (BeamSearch + 2x upscale)
-- ✅ PaddleOCR-VL + GLM-OCR VLM OCR testing (not suitable for UI screenshots)
-- ✅ VLM OCR subprocess mode (--vlm-ocr flag)
-- ✅ GLM (Zhipu AI) + Kimi (Moonshot) cloud providers added
-- ✅ Windows installer built (Tauri NSIS 550MB + MSI 570MB)
-- ✅ AGENTS.md: documented 3 tool systems, OCR engines, macOS specifics
-- ✅ ocr_screen added to core tools (always in system prompt)
+- Fast release profile: `lto=false`, `codegen-units=4`, `incremental=true` (~16s rebuilds)
+- Test crate: `npm run cargo -- run --release --features cuda,vision -p llama-chat-tests`
+- CDP debugging on port 9222 (auto-enabled in dev builds)

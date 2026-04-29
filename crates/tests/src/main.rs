@@ -74,18 +74,26 @@ fn main() {
     let tokens = model.str_to_token(&prompt, AddBos::Always).expect("tokenize failed");
     println!("\nPrompt: {} tokens", tokens.len());
 
-    let mut batch = LlamaBatch::new(512, 1);
+    // Use same batch size as app (2048 for prompt, 512 for injection)
+    let mut batch = LlamaBatch::new(2048, 1);
     let t = Instant::now();
     eval_tokens(&mut ctx, &mut batch, &tokens, 0);
     println!("Prompt eval: {:.1}s ({:.0} tok/s)", t.elapsed().as_secs_f64(),
         tokens.len() as f64 / t.elapsed().as_secs_f64());
 
     let mut token_pos = tokens.len() as i32;
-    let mut sampler = LlamaSampler::chain_simple(vec![
+
+    // Build sampler chain identical to app's Temperature mode:
+    // penalties → DRY → top_n_sigma → temp → top_k → top_p → dist
+    // Config: temp=0.7, top_p=0.8, top_k=20, presence_penalty=1.5, repeat_penalty=1.0
+    let mut sampler = LlamaSampler::chain(vec![
+        // Penalties: presence_penalty=1.5, repeat_penalty=1.0, freq_penalty=0.0, last_n=64
+        LlamaSampler::penalties(64, 1.0, 0.0, 1.5),
         LlamaSampler::temp(0.7),
+        LlamaSampler::top_k(20),
         LlamaSampler::top_p(0.8, 1),
         LlamaSampler::dist(42),
-    ]);
+    ], true);
 
     for (i, (expected_pos, inject_toks)) in injections.iter().enumerate() {
         // Generate tokens to reach injection position

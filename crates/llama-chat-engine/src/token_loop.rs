@@ -340,6 +340,14 @@ pub(crate) fn run_generation_loop(
                 Ordering::Relaxed,
             );
 
+            // Log generated token for crash reproduction
+            if let Ok(dump_dir) = std::env::var("LLAMA_CHAT_DATA_DIR") {
+                let dump_path = format!("{}/logs/last_gen_tokens.txt", dump_dir);
+                let entry = format!("{}\n", next_token.0);
+                let _ = std::fs::OpenOptions::new().create(true).append(true).open(&dump_path)
+                    .and_then(|mut f| std::io::Write::write_all(&mut f, entry.as_bytes()));
+            }
+
             gen.token_pos += 1;
             gen.total_tokens_generated += 1;
             gen.generated_token_ids.push(next_token);

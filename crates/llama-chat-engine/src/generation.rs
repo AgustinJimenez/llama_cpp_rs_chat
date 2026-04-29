@@ -410,11 +410,12 @@ pub async fn generate_llama_response(
             ));
         }
 
-        // Dump prompt for crash reproduction
+        // Dump prompt + clear injection/token logs for crash reproduction
         if let Ok(dump_dir) = std::env::var("LLAMA_CHAT_DATA_DIR") {
-            let dump_path = format!("{}/logs/last_prompt_dump.txt", dump_dir);
-            let _ = std::fs::write(&dump_path, &prompt);
-            eprintln!("[GEN] Prompt dumped to {} ({} tokens, {} chars)", dump_path, tokens.len(), prompt.len());
+            let _ = std::fs::write(format!("{dump_dir}/logs/last_prompt_dump.txt"), &prompt);
+            let _ = std::fs::write(format!("{dump_dir}/logs/last_inject_dump.txt"), "");
+            let _ = std::fs::write(format!("{dump_dir}/logs/last_gen_tokens.txt"), "");
+            eprintln!("[GEN] Dump files reset ({} tokens, {} chars)", tokens.len(), prompt.len());
         }
 
         let (ctx, _skip_tokens) = match evaluate_text_prompt(
