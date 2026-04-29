@@ -25,9 +25,22 @@
 5. **Non-deterministic**: Depends on actual tokens generated between injections (different each run)
 6. **Model-specific?**: Only tested with Qwen3.6-35B-A3B (hybrid MoE+SSM). Might affect other models too.
 
-## Likely Root Cause
+## Root Cause FOUND (2026-04-29)
 
-Memory corruption in llama.cpp's CUDA code that accumulates over multiple `decode()` → `sample()` cycles with injected tokens. Possibly related to:
+**Exception code 0xE06D7363 = C++ exception**, NOT a segfault!
+
+`llama-context.cpp:74` throws: `"the backend samplers must be of type llama_sampler_chain"`
+
+This means the sampler object passed to `sample()` is not a valid `llama_sampler_chain`. This could happen if:
+- The sampler is corrupted after many sample() calls
+- The Rust wrapper creates a sampler type that llama.cpp doesn't recognize as a chain
+- The sampler is freed/moved while still in use
+
+The crash is non-deterministic because the corruption accumulates over time.
+
+## Previous Theory (WRONG)
+
+~~Memory corruption in llama.cpp's CUDA code that accumulates over multiple `decode()` → `sample()` cycles with injected tokens.~~ Possibly related to:
 - KV cache state corruption with TurboQuant (TURBO2_0=43, TURBO3_0=41) types
 - CUDA graph caching issues (warmup/reset during mid-generation injection)
 - Flash attention buffer management with hybrid MoE+SSM architecture
