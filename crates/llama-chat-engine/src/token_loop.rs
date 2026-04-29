@@ -265,6 +265,26 @@ pub(crate) fn run_generation_loop(
             if i == 0 || gen.total_tokens_generated % 100 == 0 {
                 log_debug!(cfg.conversation_id, "Sampling token {} (i={}) ...", gen.total_tokens_generated, i);
             }
+            // Safety check: verify logits exist before sampling.
+            // Crash root cause: llama.cpp throws C++ exception (0xE06D7363) when
+            // n_outputs==0 (no logits computed), causing GGML_ASSERT(logits != nullptr)
+            // in llama_sampler_sample → abort() → terminate().
+            let logits = context.get_logits();
+            if logits.is_empty() {
+                eprintln!("[FATAL] No logits available before sample() at token {}! n_outputs=0. Aborting generation.", gen.total_tokens_generated);
+                log_event(cfg.conversation_id, "logits_empty", &format!("No logits at token {}", gen.total_tokens_generated));
+                gen.finish_reason = "error".to_string();
+                if let Some(ref sender) = token_sender {
+                    let _ = sender.send(TokenData {
+                        token: "\n\n[Error: No logits available — context may be corrupted. Please retry.]".to_string(),
+                        tokens_used: gen.total_tokens_generated,
+                        max_tokens: cfg.max_total_tokens, status: None,
+                        ..Default::default()
+                    });
+                }
+                hit_stop_condition = true;
+                break;
+            }
             let next_token = sampler.sample(context, -1);
             // Update watchdog heartbeat + stall timer after successful sample
             heartbeat.store(
