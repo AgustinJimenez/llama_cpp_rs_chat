@@ -153,19 +153,12 @@ pub async fn generate_llama_response(
     let conv_id_for_overhead = conversation_id.trim_end_matches(".txt");
     let cached_overhead = db.get_context_overhead_tokens(conv_id_for_overhead);
 
-    // Only drop inference cache if compaction actually needs to run.
-    // Compaction creates a temporary 4K context for summarization — on GPUs with tight
-    // VRAM (24GB), having two contexts simultaneously causes OOM and worker crash.
-    // For normal turns (no compaction), preserving the cache lets us skip re-evaluating
-    // the entire conversation, saving 10-90+ seconds on long conversations.
-    let needs_compaction = super::compaction::should_compact(
-        &raw_conversation_content,
-        context_size,
-        if cached_overhead > 0 { Some(cached_overhead) } else { None },
-    );
-    if needs_compaction {
-        state.inference_cache = None;
-    }
+    // Drop inference cache before each generation to create a fresh context.
+    // This avoids a CUDA deadlock in sample() that occurs when tool response
+    // tokens are injected into a reused context (see watchdog in token_loop.rs).
+    // The tradeoff: the full prompt is re-evaluated each turn (~2-5s on GPU).
+    // TODO: investigate the root cause of the CUDA deadlock with reused contexts.
+    state.inference_cache = None;
 
     let conversation_content = super::compaction::maybe_compact_conversation(
         &raw_conversation_content,

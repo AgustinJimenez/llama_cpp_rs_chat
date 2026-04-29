@@ -37,6 +37,7 @@ static RECOMPACT_DEPTH: std::sync::atomic::AtomicUsize = std::sync::atomic::Atom
 
 /// Cheap check: does the conversation likely need compaction?
 /// Uses chars/4 heuristic to avoid tokenizing. Returns true if compaction is likely needed.
+#[allow(dead_code)]
 pub fn should_compact(
     conversation_content: &str,
     context_size: u32,
