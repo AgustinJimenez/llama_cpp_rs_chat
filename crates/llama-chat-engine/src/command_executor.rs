@@ -785,6 +785,11 @@ pub fn inject_output_tokens(
         tokens.len()
     );
 
+    // Synchronize CUDA before injection — the GPU context may have been idle
+    // for seconds while the tool executed (browser, network I/O, etc.).
+    // On Windows WDDM, idle GPU contexts can be preempted/reclaimed.
+    context.synchronize();
+
     // Decode in chunks for performance (single-token decode is extremely slow for large outputs)
     const INJECT_CHUNK_SIZE: usize = 512;
     for chunk in tokens.chunks(INJECT_CHUNK_SIZE) {
