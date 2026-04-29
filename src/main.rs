@@ -11,7 +11,6 @@ mod commands;
 
 /// Enable Chrome DevTools Protocol on the WebView2 for remote debugging/automation.
 /// Connect via http://localhost:9222 with CDP-compatible tools.
-#[cfg(debug_assertions)]
 fn enable_cdp_debugging() {
     if std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").is_err() {
         std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--remote-debugging-port=9222");
@@ -744,8 +743,7 @@ fn setup_logging() -> Result<(), Box<dyn std::error::Error>> {
 
 
 fn main() {
-    // Enable CDP remote debugging in dev builds (port 9222)
-    #[cfg(debug_assertions)]
+    // Enable CDP remote debugging (port 9222) for automation tools
     enable_cdp_debugging();
 
     // Check for --worker flag BEFORE Tauri setup.
