@@ -769,6 +769,16 @@ pub fn inject_output_tokens(
     token_pos: &mut i32,
     conversation_id: &str,
 ) -> Result<(), String> {
+    // Dump state for crash reproduction
+    eprintln!("[INJECT] token_pos={}, injecting {} tokens, ctx_size={}, conv={}",
+        token_pos, tokens.len(), context.n_ctx(), conversation_id);
+    // Append injection tokens to dump file for reproduction
+    if let Ok(dump_dir) = std::env::var("LLAMA_CHAT_DATA_DIR") {
+        let dump_path = format!("{}/logs/last_inject_dump.txt", dump_dir);
+        let entry = format!("[INJECT pos={} count={}] {:?}\n", token_pos, tokens.len(), tokens);
+        let _ = std::fs::OpenOptions::new().create(true).append(true).open(&dump_path)
+            .and_then(|mut f| std::io::Write::write_all(&mut f, entry.as_bytes()));
+    }
     log_debug!(
         conversation_id,
         "Injecting {} output tokens into context",

@@ -1,0 +1,222 @@
+<|im_start|>system
+You are a helpful AI assistant with full system access.
+
+## Tool Calling Format
+
+To use a tool, output a JSON object inside tool tags:
+
+<tool_call>{"name": "tool_name", "arguments": {"param": "value"}}</tool_call>
+
+After execution, the system injects the result between <tool_response> and </tool_response> tags. Do NOT generate <tool_response> yourself — wait for the injected result.
+
+## Available Tools
+
+### read_file — Read a file's contents (supports PDF, DOCX, XLSX, PPTX, EPUB, ODT, RTF, CSV, EML, ZIP)
+<tool_call>{"name": "read_file", "arguments": {"path": "filename.txt"}}</tool_call>
+
+### write_file — Write content to a file (creates parent dirs)
+<tool_call>{"name": "write_file", "arguments": {"path": "output.txt", "content": "Hello world"}}</tool_call>
+
+### edit_file — Replace exact text in a file (old_string must appear exactly once)
+<tool_call>{"name": "edit_file", "arguments": {"path": "file.txt", "old_string": "old text", "new_string": "new text"}}</tool_call>
+
+### undo_edit — Revert the last edit_file on a file
+<tool_call>{"name": "undo_edit", "arguments": {"path": "file.txt"}}</tool_call>
+
+### insert_text — Insert text at a specific line number
+<tool_call>{"name": "insert_text", "arguments": {"path": "file.txt", "line": 5, "text": "new line here"}}</tool_call>
+
+### search_files — Search file contents by pattern (regex or literal) across a directory
+<tool_call>{"name": "search_files", "arguments": {"pattern": "TODO", "path": "src", "include": "*.rs"}}</tool_call>
+
+### find_files — Find files by name pattern recursively
+<tool_call>{"name": "find_files", "arguments": {"pattern": "*.py", "path": "."}}</tool_call>
+
+### list_directory — List files in a directory
+<tool_call>{"name": "list_directory", "arguments": {"path": "."}}</tool_call>
+
+### execute_command — Run a shell command (background flag REQUIRED)
+<tool_call>{"name": "execute_command", "arguments": {"command": "dir", "background": false}}</tool_call>
+For servers/daemons: <tool_call>{"name": "execute_command", "arguments": {"command": "php artisan serve", "background": true}}</tool_call>
+
+### git_status — Show working tree status
+<tool_call>{"name": "git_status", "arguments": {}}</tool_call>
+
+### git_diff — Show git diff (use staged: true for staged changes)
+<tool_call>{"name": "git_diff", "arguments": {"staged": false}}</tool_call>
+
+### git_commit — Commit staged changes (use all: true to auto-stage tracked files)
+<tool_call>{"name": "git_commit", "arguments": {"message": "Fix bug in parser"}}</tool_call>
+
+### check_background_process — Check a background process by PID
+<tool_call>{"name": "check_background_process", "arguments": {"pid": 12345, "wait_seconds": 15}}</tool_call>
+
+### list_background_processes — List all tracked background processes with status
+<tool_call>{"name": "list_background_processes", "arguments": {}}</tool_call>
+
+### send_telegram — Send a notification to the user via Telegram
+<tool_call>{"name": "send_telegram", "arguments": {"message": "Task completed successfully!"}}</tool_call>
+
+### spawn_agent — Spawn a sub-agent for an isolated sub-task (fresh context)
+<tool_call>{"name": "spawn_agent", "arguments": {"task": "Install Node.js and set up a React project", "context": "Target directory: E:/projects/myapp"}}</tool_call>
+
+### browser_search — Search the web (returns Google results with titles, URLs, snippets)
+<tool_call>{"name": "browser_search", "arguments": {"query": "rust async tutorial"}}</tool_call>
+
+### browser_navigate — Open a specific page
+<tool_call>{"name": "browser_navigate", "arguments": {"url": "https://example.com"}}</tool_call>
+
+### browser_get_text — Read page content (use summary param to save tokens)
+<tool_call>{"name": "browser_get_text", "arguments": {"summary": "extract the main article text"}}</tool_call>
+
+### browser_query — Extract structured data using CSS selectors
+<tool_call>{"name": "browser_query", "arguments": {"selector": "h2 a", "attributes": "text,href", "limit": 10}}</tool_call>
+
+### take_screenshot — Capture the user's screen (use monitor=-1 to list monitors)
+<tool_call>{"name": "take_screenshot", "arguments": {"monitor": 0}}</tool_call>
+
+### click_screen — Click at screen coordinates (auto-screenshots after)
+<tool_call>{"name": "click_screen", "arguments": {"x": 500, "y": 300}}</tool_call>
+
+### type_text — Type text via keyboard input
+<tool_call>{"name": "type_text", "arguments": {"text": "hello"}}</tool_call>
+
+### press_key — Press key or combo (e.g., "ctrl+c", "enter", "alt+tab")
+<tool_call>{"name": "press_key", "arguments": {"key": "enter"}}</tool_call>
+
+## Parallel Tool Calls
+
+To call multiple tools at once, use a JSON array:
+
+<tool_call>[
+  {"name": "browser_navigate", "arguments": {"url": "https://example.com"}},
+  {"name": "browser_get_text", "arguments": {}}
+]</tool_call>
+
+Independent tools execute concurrently. Use this for multiple independent lookups or file reads.
+
+## Behavior
+- Be autonomous and resourceful. Complete tasks fully without asking the user for help.
+- Before installing anything, CHECK if it's already installed (use `where`, `which`, or search common paths like `C:\Users\`, `C:\Program Files\`, `~/.local/bin`).
+- If a command fails, try a DIFFERENT approach. Do NOT retry the same failing command.
+- Do NOT tell the user to run commands manually — use your tools to solve problems yourself.
+- NEVER repeat the same failing command more than once. If it failed, change your approach.
+- NEVER output file contents as text in your response. ALWAYS use `write_file` to save code/config/HTML to disk. If you write code without using write_file, IT WILL NOT BE SAVED.
+- Use `edit_file` for small changes to existing files instead of rewriting with `write_file`.
+- When a task requires multiple steps, execute them one by one using your tools. Do not skip steps.
+- For complex tasks, briefly outline your plan before starting.
+- When you finish a task, ALWAYS write a brief summary of what you did. Never end on raw tool output.
+
+## Tool Usage Guidelines
+- Use `read_file` instead of cat/type. Use `write_file` for new files, `edit_file` for modifications.
+- Use `insert_text` to add lines at a specific position (imports, new functions).
+- Use `undo_edit` to revert a bad edit_file operation.
+- Use `search_files` instead of grep/findstr. Use `find_files` instead of find/dir.
+- Use `list_directory` instead of ls/dir.
+- Use `execute_python` for Python code (avoids shell quoting issues).
+- Use `execute_command` for shell tools (npm, git, etc.).
+- Use `git_status`, `git_diff`, `git_commit` for git operations instead of `execute_command`.
+- **Web browsing**: Use `browser_search` to search the web (returns Google results). Use `browser_navigate` to open pages, `browser_get_text` to read content, `browser_query` to extract structured data. Do NOT use curl, wget, execute_command, or urllib to fetch web pages — the browser tools use a real browser that bypasses bot detection.
+- **Browsing tips**: Avoid JS-heavy sites like Google News or Twitter — use `browser_search` or Google Search instead. If a page returns 404/paywall/empty, try a different source immediately. Use the `summary` parameter with a custom prompt to save tokens on large pages.
+- Use `open_url` ONLY when the user explicitly asks to open a page in their external/default browser outside the app. Never use `open_url` for normal browsing, search, page reading, or screenshots.
+- Use `take_screenshot` to see the user's screen. Use `click_screen`, `type_text`, `press_key` for desktop automation.
+- If a tool is not in PATH, use its full path (e.g., `C:\php\php.exe`) or download it and reference by full path.
+
+## Background Processes
+- The `"background"` flag is REQUIRED for execute_command. Set true for servers/daemons (php artisan serve, npm run dev, python -m http.server). Set false for everything else.
+- Package installs, builds, and one-shot commands run in FOREGROUND with streaming output.
+- Commands have a 5-minute wall-clock timeout to prevent indefinite hangs.
+- To poll: call `check_background_process` with `"wait_seconds": 15`. Repeat until "exited". Max 10 polls.
+- Use `list_background_processes` to see all tracked background processes and their status.
+
+## Research First
+- When working with a framework or library you're not fully confident about, search the web (browser_navigate to Google) to find docs, then `browser_get_text` to read them. Your training data may be outdated.
+- When you hit a blocker, search the web to investigate — never write Python/curl scripts to fetch web pages.
+- Prefer official docs over Stack Overflow or blog posts.
+
+## Sub-Agents
+- Use `spawn_agent` for complex sub-tasks that might use lots of context (installing software, large file operations, research).
+- The agent runs in isolation with a fresh context and returns a summary of what it did.
+- Use it when a sub-task would consume too many tokens in your current context window.
+- The agent has access to the same tools as you.
+
+## Notifications
+- Use send_telegram to notify the user about important events (task completion, errors requiring attention).
+
+## After calling a tool, the system injects the result automatically. Wait for it before continuing.
+
+## Current Environment
+- Date: 2026-04-29 07:00 (Wednesday)
+- OS: windows
+- Working Directory: E:\repo\llama_cpp_rs_chat
+- Shell: cmd/powershell
+<|im_end|>
+<|im_start|>user
+check online 5 news from the last 24 hours<|im_end|>
+<|im_start|>assistant
+I'll check the latest news from the past 24 hours by browsing several major news sources.
+<tool_call>
+<function=browser_navigate>
+<parameter=url>
+https://news.google.com
+</parameter>
+</function>
+<tool_response>
+Navigated to https://news.google.com.
+</tool_response>
+<think>
+</think>
+<tool_call>
+<function=browser_get_text>
+<parameter=summary>
+Extract the top 5 most important headlines with brief summaries from the last 24 hours
+</parameter>
+</function>
+<tool_response>
+Google News News Google News Advanced search Help Help Privacy Terms About Google Get the Android app Get the iOS app Send feedback Settings Settings Language & region English (United States) Sign in Home For you Following U.S. World Local Business Technology Entertainment Sports Science Health More News Google News Your briefing Today 24&deg; 14&deg; Thu 27&deg; 17&deg; Fri 31&deg; 23&deg; Sat 25&deg; 18&deg; Central Department 14&deg;C Google Weather Top stories King Charles III addresses joint session of Congress  chevron_right France 24 More 'You'd be speaking French': King Charles pokes fun at Trump during state dinner 4 hours ago CNN More King CharlesÃ¢ÂÂ subtle but striking warning to America 9 hours ago By Stephen Collinson The Guardian More Mission accomplished as kingÃ¢ÂÂs speech to Congress goes down a storm 13 hours ago By David Smith The New York Times More Beneath King CharlesÃ¢ÂÂs Jokes and Decorum, Some Subtle Rebuttals to Trump 7 hours ago By Michael D. Shear & Zolan Kanno-Youngs See more headlines & perspectives James Comey indicted again by Trump's Justice Department  chevron_right The Washington Post More James Comey indicted over 2025 social media post allegedly threatening Trump 4 hours ago By Perry Stein CNN More Exclusive: Former FBI Director James Comey indicted over alleged Ã¢ÂÂthreatÃ¢ÂÂ against Trump 9 hours ago By Holmes Lybrand, Hannah Rabinowitz & Kristen Holmes Time Magazine More Former FBI Director James Comey Indicted Over Alleged Trump Threat 14 minutes ago By Miranda Jeyaretnam The New York Times More DOJ Secures New James Comey Indictment Over Alleged Threat Against Trump 16 hours ago By Devlin Barrett & Tyler Pager See more headlines & perspectives NPR More With no radical footprint, what drove suspect to try and assassinate Trump? 12 hours ago By Odette Yousef See more WSJ More Trump Tells Aides to Prepare for Extended Blockade of Iran 8 hours ago By Summer Said, Laurence Norman & Alex Ward See more Local news Picks for you Sign in for personalized stories in your briefing & news feed Sign in Search Clear search Close search Google apps Main menu
+</tool_response>
+<think>
+</think>
+Let me also check another source for more diverse headlines.
+<tool_call>
+<function=browser_navigate>
+<parameter=url>
+https://www.reuters.com
+</parameter>
+</function>
+<tool_response>
+Navigated to https://www.reuters.com.
+</tool_response>
+<think>
+</think>
+<tool_call>
+<function=browser_get_text>
+<parameter=summary>
+Extract the top 5 most important headlines with brief summaries from the last 24 hours
+</parameter>
+</function>
+<tool_response>
+[browser_get_text -> OK Reuters | Breaking International News & Views Skip to main content Exclusive ...]
+Reuters | Breaking International News & Views Skip to main content Exclusive news, data and analytics for financial market professionals Learn more about Refinitiv World Browse World Africa Americas Asia Pacific China Europe India Iran War Israel and Hamas at War Japan Middle East Ukraine and Russia at War United Kingdom United States Reuters NEXT New York Business Browse Business Aerospace & Defense Autos & Transportation Davos Energy Environment Finance Healthcare & Pharmaceuticals Media & Telecom Retail & Consumer Future of Health Future of Money Take Five World at Work Markets Browse Markets On the Money Asian Markets Carbon Markets Commodities Currencies Deals Emerging Markets ETFs European Markets Funds Econ World Global Market Data Rates & Bonds Stocks U.S. Markets Wealth Sustainability Browse Sustainability Boards, Policy & Regulation Climate & Energy Land Use & Biodiversity Society & Equity Sustainable Finance & Reporting The Switch Reuters Impact COP30 More Legal Government Legal Industry Litigation Transactional US Supreme Court Commentary Breakingviews Predictions Breakingviews ROI: Reuters Open Interest Technology Artificial Intelligence Cybersecurity Space Disrupted Investigations Sports Athletics Baseball Basketball Cricket Cycling Formula 1 Golf NFL NHL Soccer Tennis Science Lifestyle Culture Current City Memo Graphics Chart of the Week Pictures Wider Image Podcasts Reuters World News Reuters Morning Bid Reuters Econ World On Assignment Viewsroom The Big View Live Fact Check Video Media Center Announcements Awards Inside the Newsroom People News Sponsored Content Reuters Plus Press Releases My News Sign In Subscribe trading lower Negative SPX 7,138.80 - 0.49% Negative trading lower Negative IXIC 24,663.80 - 0.90% Negative trading lower Negative DJI 49,141.93 - 0.05% Negative trading lower Negative STOXX 604.36 - 0.37% Negative trading lower Negative FTSE 10,266.20 - 0.64% Negative trading lower Negative N225 59,917.46 - 1.02% Negative Get real-time market data from LSEG 38 mins ago Iran's Guards seize wartime power, blunting Supreme Leader's role Two months into a war with the U.S. and Israel, Iran no longer has a single, undisputed clerical arbiter at the pinnacle of power Ã¢ÂÂ an abrupt break with the past that may be hardening TehranÃ¢ÂÂs stance as it weighs renewed talks with Ã¢ÂÂWashington. Tehran, Iran. Majid Asgaripour/West Asia News Agency 7 hours ago Trump, unhappy with latest peace proposal, says Iran 'figuring out its leadership' 13 hours ago Exclusive: US spy agencies examine how Iran would react to Trump declaring victory 20 hours ago Iran and US allowed Russian superyacht to cross Strait of Hormuz, source says More Top Stories 2 hours ago Former FBI chief Comey charged with threatening Trump in Instagram post 6 hours ago US companies project resilience even as Iran war risks mount 59 mins ago Kone and TKE strike $34 billion deal to create world's largest elevator maker 15 mins ago Women paid the highest price in Jakarta train tragedy Ukraine and Russia at War 4 hours ago Inside Ukraine's drive to defeat the dreaded Shahed drone The pioneering low-cost, long-range attack drones Ã¢ÂÂdesigned by Iran have indeed become the scourge of Ukraine, with Russia unleashing thousands of them on its enemy every month. A Shahed drone and other destroyed Russian weapons displayed in Kyiv. REUTERS/Valentyn Ogirenko 39 mins ago Private air defence takes off in Ukraine 4 hours ago Ukrainian teens are committing acts of betrayal. How should they be judged? 2 hours ago Exclusive: Russian 'shadow fleet' undeterred by Starmer's threat as nearly 100 ships cross UK waters 7 hours ago Russia to mark war anniversary with parade, but no equipment United States 17 mins ago Exclusive: Trump approval sinks to new low Trump's popularity has taken a beating Ã¢ÂÂsince the U.S. and Israel launched a war against Iran that has led to a surge in gasoline prices. 6 hours ago US Senate blocks bid to prevent Trump from military action against Cuba The Ã¢ÂÂSenate blocked a Democratic-led resolution that would have barred Ã¢ÂÂPresident Trump from military action against Cuba without congressional approval. 6 hours ago Trump push for state voter rolls rebuffed by courts as midterms near This deals a blow to the president's unprecedented effort to expand the federal government's role in elections. 14 mins ago In speech to Congress, King Charles praises NATO and urges 'resolve' on Ukraine Charles said the UK and the U.S. will always be staunch allies united in defending democracy, at a time of deep divisions between the two countries over Ã¢ÂÂthe war with Iran. 6 hours ago As Trump greets Charles, the White House calls them 'TWO KINGS' It Ã¢Â wasn't the first time Trump has flirted with monarchical imagery in his second term. Energy 13 hours ago UAE exit weakens OPEC+ power over oil market but group to stay together, sources say OPEC and its allies will lose some of their power over the oil market when the United Arab Emirates leaves the group on May 1, but the rest of the producer alliance is likely to stick together Ã¢ÂÂand continue to coordinate on oil supply policy, OPEC+ delegates and analysts said on Tuesday. 2 hours ago What is OPEC+ and how does it affect oil prices? The United Arab Emirates, one of OPEC+'s largest producers, will leave the oil producers' alliance on May 1, it said on Tuesday. 2 hours ago TotalEnergies raises dividend by 5.9% as earnings beat expectations TotalEnergies raised its dividend by 5.9% and exceeded market expectations with a 29% jump in first-quarter earnings on Wednesday, boosted by strong trading and high oil prices linked to the Iran war. Commentary UAE exit strips OPEC of clout, risks bitter price war The United Arab EmiratesÃ¢ÂÂ decision to leave OPEC will sharply diminish the 65-year-old producer groupÃ¢ÂÂs influence over the oil market, opening the door to an allÃ¢Â
+[...23 chars truncated — 8023 total. Key info may be at the end.]
+e Gulf producers rush to regain market share when the Iran war is over. Ron Bousso Elon Musk 5 hours ago Elon Musk says OpenAI was his idea, before executives looted it   Elon Musk took the stand at a high-stakes trial over the future of OpenAI, casting his lawsuit against the ChatGPT Ã¢ÂÂmaker as a defense of charitable giving. 1 hour ago SpaceX ties Musk compensation to Mars colonization goal The pay plan hinges on 1 million people living on the Red Planet. Markets 5 hours ago Morning Bid: Fed sails into unchartered waters as Powell bows out 1 hour ago Brent hits one-month high over concerns about prolonged Hormuz disruption 28 mins ago Wall Street futures mixed ahead of Big Tech earnings, Fed meeting 1 hour ago Investors reload yen shorts in intervention test Technology 53 mins ago Facebook and Instagram must do more to block under-13s, EU warns in Meta charges 2 hours ago Exclusive: Big Chinese tech firms scramble to secure Huawei AI chips after DeepSeek V4 launch Finance 49 mins ago Swiss bank UBS exceeds profit forecasts as Iran war stokes trading volatility 11 hours ago Visa beats quarterly profit estimates on resilient consumer spending Autos 13 mins ago Mercedes profit tumbles in Q1 on China competition, tariff pressures 48 mins ago Volvo Cars' first-quarter profit falls less than expected, says the US worse than expected Aviation 2 hours ago Iran war, jet fuel concerns cloud airlines' summer holiday plans 15 hours ago Airbus misses profit estimates as deliveries slow amid engine crunch Asia Pacific 52 mins ago Taiwan tops Beijing's agenda for Trump-Xi summit 1 hour ago Philippine vice president faces impeachment vote in Congress after panel find probable cause Europe 3 hours ago Most Swiss back initiative to cap population at 10 million, poll shows 4 hours ago Kosovo set for another snap election after failure to elect president United States 2 hours ago US to produce passports bearing Trump's image 2 hours ago US FCC reviewi
+... (output truncated)
+</tool_response>
+<think>
+</think>
+Here are **5 major news stories from the last 24 hours**:
+---
+###  Top 5 News (Last 24 Hours)
+**1. King Charles III Addresses Joint Session of Congress**  
+King Charles delivered his first major speech to a U.S. audience, praising NATO and urging "resolve" on Ukraine — while subtly pushing back on Trump's policies. He also joked about Trump's claim that people would "speak French" if they visited France.
+**2. James Comey Indicted Again Over Alleged Threat Against Trump**  
+Former FBI Director James Comey has been indicted by the Department of Justice over a 2025 social media post allegedly threatening President Trump. Multiple outlets are reporting this as a developing story with significant political implications.
+**3. Iran War Escalates — Iran's Guards Seize Wartime Power**  
+Two months into the war between the U.S./Israel and Iran, Iran's Revolutionary Guards have seized control from the Supreme Leader, blunting his role. The UAE is also exiting OPEC+, weakening the group's power over oil markets. Brent crude hit a one-month high over Hormuz Strait disruption fears.
+**4. Trump's Approval Rating Sinks to New Low**  
+Trump's popularity has dropped significantly since the Iran war began, with surging gasoline prices adding to public discontent. The Senate also blocked a Democratic-led resolution that would have barred military action against Cuba without congressional approval.
+**5. Elon Musk Testifies at OpenAI Trial; OPEC+ Faces Crisis**  
+Elon Musk took the stand at the high-stakes OpenAI trial, claiming he founded the company before executives "looted it." Meanwhile, the UAE's decision to leave OPEC+ on May 1st could trigger a price war and strip the group of its oil market influence.<|im_end|><|im_end|>
+<|im_start|>user
+what happened to the strait of hormuz and the iran/usa war?<|im_end|>
+<|im_start|>assistant

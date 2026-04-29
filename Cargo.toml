@@ -92,12 +92,22 @@ cognitive_complexity = "warn"
 debug = 0
 incremental = true
 
+# Fast release: optimized but no LTO, parallel codegen. For development.
+# Use `--profile fast-release` or set CARGO_PROFILE=fast-release
+[profile.fast-release]
+inherits = "release"
+lto = false
+codegen-units = 4
+incremental = true
+strip = false
+
 [profile.release]
-codegen-units = 1
-lto = true
-opt-level = 3
+codegen-units = 4
+lto = false
+opt-level = 2
 panic = "abort"
-strip = true
+strip = false
+incremental = true
 
 [dependencies]
 # Shared types crate (workspace member)

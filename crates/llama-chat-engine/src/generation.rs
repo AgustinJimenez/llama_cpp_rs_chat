@@ -410,6 +410,13 @@ pub async fn generate_llama_response(
             ));
         }
 
+        // Dump prompt for crash reproduction
+        if let Ok(dump_dir) = std::env::var("LLAMA_CHAT_DATA_DIR") {
+            let dump_path = format!("{}/logs/last_prompt_dump.txt", dump_dir);
+            let _ = std::fs::write(&dump_path, &prompt);
+            eprintln!("[GEN] Prompt dumped to {} ({} tokens, {} chars)", dump_path, tokens.len(), prompt.len());
+        }
+
         let (ctx, _skip_tokens) = match evaluate_text_prompt(
             &mut state.inference_cache, model, &state.backend,
             &tokens, &conversation_id, context_size,
