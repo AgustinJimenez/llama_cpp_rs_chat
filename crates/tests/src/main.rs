@@ -83,11 +83,18 @@ fn main() {
 
     let mut token_pos = tokens.len() as i32;
 
-    // Build sampler chain identical to app's Temperature mode:
-    // penalties → DRY → top_n_sigma → temp → top_k → top_p → dist
-    // Config: temp=0.7, top_p=0.8, top_k=20, presence_penalty=1.5, repeat_penalty=1.0
+    // Load recorded generated tokens for exact replay
+    let gen_tokens_path = test_dir.join("test_data_gen_tokens.txt");
+    let gen_tokens: Vec<i32> = std::fs::read_to_string(&gen_tokens_path)
+        .unwrap_or_default()
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| l.trim().parse().expect("bad token id"))
+        .collect();
+    println!("Recorded gen tokens: {}", gen_tokens.len());
+
+    // Build sampler chain identical to app's Temperature mode
     let mut sampler = LlamaSampler::chain(vec![
-        // Penalties: presence_penalty=1.5, repeat_penalty=1.0, freq_penalty=0.0, last_n=64
         LlamaSampler::penalties(64, 1.0, 0.0, 1.5),
         LlamaSampler::temp(0.7),
         LlamaSampler::top_k(20),
@@ -95,12 +102,25 @@ fn main() {
         LlamaSampler::dist(42),
     ], true);
 
+    let mut gen_idx = 0; // index into gen_tokens
+
     for (i, (expected_pos, inject_toks)) in injections.iter().enumerate() {
-        // Generate tokens to reach injection position
+        // Replay exact generated tokens to reach injection position
         let gap = (*expected_pos - token_pos).max(0) as usize;
-        if gap > 0 {
-            println!("\n  Generating {} tokens to pos {}...", gap.min(200), expected_pos);
-            token_pos = gen_tokens(&model, &mut ctx, &mut sampler, &mut batch, token_pos, gap.min(200));
+        if gap > 0 && gen_idx + gap <= gen_tokens.len() {
+            println!("\n  Replaying {} recorded tokens to pos {}...", gap, expected_pos);
+            for j in 0..gap {
+                let tok = LlamaToken(gen_tokens[gen_idx]);
+                batch.clear();
+                batch.add(tok, token_pos, &[0], true).unwrap();
+                ctx.decode(&mut batch).expect("replay decode failed");
+                token_pos += 1;
+                gen_idx += 1;
+            }
+        } else if gap > 0 {
+            // Not enough recorded tokens — generate instead
+            println!("\n  Generating {} tokens to pos {} (no recorded data)...", gap.min(200), expected_pos);
+            token_pos = gen_tokens_fn(&model, &mut ctx, &mut sampler, &mut batch, token_pos, gap.min(200));
         }
 
         println!("\n--- Inject #{} at pos {} ({} tokens) ---", i + 1, token_pos, inject_toks.len());
@@ -129,6 +149,8 @@ fn main() {
             std::process::exit(1);
         }
         token_pos += 1;
+        // The sample()'d token replaces the next recorded token
+        gen_idx += 1;
     }
 
     println!("\n=== PASSED — no crash after {} injections ===", injections.len());
@@ -147,7 +169,7 @@ fn eval_tokens(ctx: &mut llama_cpp_2::context::LlamaContext, batch: &mut LlamaBa
     ctx.synchronize();
 }
 
-fn gen_tokens(model: &LlamaModel, ctx: &mut llama_cpp_2::context::LlamaContext, sampler: &mut LlamaSampler, batch: &mut LlamaBatch, mut pos: i32, count: usize) -> i32 {
+fn gen_tokens_fn(model: &LlamaModel, ctx: &mut llama_cpp_2::context::LlamaContext, sampler: &mut LlamaSampler, batch: &mut LlamaBatch, mut pos: i32, count: usize) -> i32 {
     for _ in 0..count {
         let next = sampler.sample(ctx, -1);
         if next == model.token_eos() { pos += 1; break; }
