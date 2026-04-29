@@ -715,5 +715,27 @@ async fn stdout_reader_task(
         }
     }
 
+    // Worker died — clear active generation so the UI stops showing the spinner.
+    // Send an error token so the frontend knows the generation was interrupted.
+    {
+        let mut gen = active_generation.lock().await;
+        if let Some(ag) = gen.take() {
+            eprintln!("[BRIDGE] Worker died during generation — clearing active generation");
+            let _ = ag.token_tx.send(TokenData {
+                token: "\n\n[Worker process crashed — generation interrupted. Please retry.]".to_string(),
+                tokens_used: 0,
+                max_tokens: 0,
+                status: None,
+                ..Default::default()
+            });
+            // Send a final result so the pending request resolves
+            let mut pending_guard = pending.lock().await;
+            if let Some(req) = pending_guard.remove(&ag.request_id) {
+                let _ = req.tx.send(WorkerPayload::Error {
+                    message: "Worker process crashed during generation".to_string(),
+                });
+            }
+        }
+    }
     eprintln!("[BRIDGE] Stdout reader task exiting");
 }
