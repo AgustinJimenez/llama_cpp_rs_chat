@@ -646,7 +646,19 @@ fn install_crash_handler() {
                         }
                     }
                     eprintln!("[CRASH] Worker crashing. Check logs/last_prompt_dump.txt, last_inject_dump.txt, last_gen_tokens.txt");
-                    0 // EXCEPTION_CONTINUE_SEARCH
+                    // For C++ exceptions (0xE06D7363), do a controlled exit
+                    // instead of letting Windows terminate() run, which is slower.
+                    unsafe {
+                        let ptrs2 = info as *const ExceptionPointers;
+                        if !ptrs2.is_null() && !(*ptrs2).record.is_null() {
+                            let code = (*(*ptrs2).record).code;
+                            if code == 0xE06D7363 {
+                                eprintln!("[CRASH] C++ exception — doing controlled exit(42) for fast restart");
+                                std::process::exit(42);
+                            }
+                        }
+                    }
+                    0 // EXCEPTION_CONTINUE_SEARCH for other exceptions
                 }
 
                 // SetUnhandledExceptionFilter
