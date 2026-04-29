@@ -802,12 +802,24 @@ pub fn inject_output_tokens(
                 .map_err(|e| format!("Batch add failed for command output: {e}"))?;
         }
 
-        if let Err(e) = context.decode(batch) {
-            let err_str = format!("{e}");
-            if err_str.contains("NoKvCacheSlot") || err_str.contains("no kv cache slot") {
-                return Err("CONTEXT_EXHAUSTED".to_string());
+        // Wrap decode in catch_unwind to handle C++ exceptions (0xE06D7363)
+        // that propagate through FFI and would otherwise crash the worker.
+        let decode_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            context.decode(batch)
+        }));
+        match decode_result {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                let err_str = format!("{e}");
+                if err_str.contains("NoKvCacheSlot") || err_str.contains("no kv cache slot") {
+                    return Err("CONTEXT_EXHAUSTED".to_string());
+                }
+                return Err(format!("Decode failed for command output: {e}"));
             }
-            return Err(format!("Decode failed for command output: {e}"));
+            Err(_panic) => {
+                eprintln!("[INJECT] decode() panicked/threw C++ exception during injection at pos {}", token_pos);
+                return Err("Decode crashed during tool injection (C++ exception)".to_string());
+            }
         }
 
         *token_pos += chunk.len() as i32;
