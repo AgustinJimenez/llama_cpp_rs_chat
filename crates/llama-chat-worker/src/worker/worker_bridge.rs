@@ -754,8 +754,10 @@ async fn stdout_reader_task(
             }
         }
 
-        // Save model path for auto-reload after restart
-        let crashed_model = model_meta.lock().await.as_ref().map(|m| (m.model_path.clone(), m.gpu_layers));
+        // Note: auto-reload was attempted but model_meta doesn't propagate reliably
+        // between the recovery thread's tokio runtime and the main Tauri runtime.
+        // The user needs to manually reload the model after a crash.
+        let _crashed_model_path = model_meta.lock().await.as_ref().map(|m| m.model_path.clone());
         // Clear model metadata
         *model_meta.lock().await = None;
         loading_progress.store(0, Ordering::Relaxed);
@@ -786,7 +788,7 @@ async fn stdout_reader_task(
             let lp = loading_progress.clone();
             let pm = process_manager.clone();
             let ct = cmd_tx.clone();
-            let reload_model = crashed_model.clone();
+            let _reload_model = _crashed_model_path.clone();
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
@@ -800,22 +802,8 @@ async fn stdout_reader_task(
                         *ct.lock().await = new_cmd_tx;
                         eprintln!("[BRIDGE] Stdin writer reconnected");
                     }
-                    // Auto-reload the model that was loaded before the crash
-                    if let Some((model_path, gpu_layers)) = reload_model {
-                        eprintln!("[BRIDGE] Auto-reloading model: {} (gpu_layers={:?})", model_path, gpu_layers);
-                        let load_cmd = serde_json::json!({
-                            "id": 0,
-                            "command": {
-                                "LoadModel": {
-                                    "model_path": model_path,
-                                    "gpu_layers": gpu_layers,
-                                    "mmproj_path": null
-                                }
-                            }
-                        });
-                        let tx = ct.lock().await;
-                        let _ = tx.send(load_cmd.to_string());
-                    }
+                    // Auto-reload disabled: model_meta doesn't propagate between
+                    // recovery thread runtime and main Tauri runtime. User reloads manually.
                     // Reconnect stdout reader (blocks until next worker death)
                     if let Some(stdout) = stdout_opt {
                         eprintln!("[BRIDGE] Stdout reader reconnected");
