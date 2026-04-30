@@ -66,3 +66,8 @@ assets/images/
 gen/schemas/
 assets/yolo-model/ui-detect.onnx
 snapshot.txt
+
+# Downloaded installers (from agent tasks)
+nim-*.zip
+nim-*.exe
+nim-installer*
