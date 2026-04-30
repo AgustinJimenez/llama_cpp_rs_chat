@@ -82,6 +82,12 @@ const REPETITION_CHECK_MIN_TOKENS: i32 = 500;
 /// Check every N tokens for repetition loops.
 const REPETITION_CHECK_INTERVAL: i32 = 256;
 
+/// Temporary safety workaround: after a local tool returns, stop the current
+/// generation and let the frontend auto-continue on a fresh context instead of
+/// injecting tool-result tokens into the live context. This avoids the current
+/// non-deterministic C++ exception in `decode()` during tool injection.
+const RESTART_AFTER_TOOL_RESULT: bool = true;
+
 /// Detect repetition loops by measuring trigram diversity in the tail of the response.
 ///
 /// When a model enters a degenerate loop (e.g., "1a1b1c1d..." repeating), the
@@ -508,6 +514,27 @@ pub(crate) fn run_generation_loop(
                 gen.response.push_str(&exec_result.output_block);
                 gen.logger_synced_len = gen.response.len();
 
+                gen.tool_response_tokens += exec_result.model_tokens.len() as i32;
+                command_executed = true;
+
+                // Safety workaround: avoid in-place tool output injection and
+                // resume on a fresh context via the existing auto-continue path.
+                if RESTART_AFTER_TOOL_RESULT {
+                    if exec_result.output_block.contains("[INFINITE_LOOP_DETECTED]") {
+                        eprintln!("[LOOP] Infinite loop detected — force-stopping generation");
+                        log_event(cfg.conversation_id, "infinite_loop", "Force-stopped: model stuck in infinite tool call loop");
+                        gen.finish_reason = "infinite_loop".to_string();
+                    } else {
+                        log_event(cfg.conversation_id, "tool_continue", "Tool result persisted; restarting on fresh context");
+                        gen.finish_reason = "tool_continue".to_string();
+                    }
+                    hit_stop_condition = true;
+                    gen.last_exec_scan_pos = gen.response.len();
+                    gen.exec_tracker = ExecBlockTracker::new();
+                    stall_checkpoint = Instant::now();
+                    break;
+                }
+
                 // Choose injection path: vision (images + MtmdContext) or standard text tokens
                 #[cfg(feature = "vision")]
                 let used_vision = if !exec_result.response_images.is_empty() {
@@ -553,9 +580,12 @@ pub(crate) fn run_generation_loop(
                     }
                 }
 
-                gen.tool_response_tokens += exec_result.model_tokens.len() as i32;
-                gen.generated_token_ids.extend(exec_result.model_tokens.iter().map(|&id| LlamaToken(id)));
-                command_executed = true;
+                // Feed injected tokens to sampler so grammar/penalties stay in sync.
+                // Without this, the grammar sampler's internal state is desynchronized
+                // from the context, causing C++ exceptions on the next sample().
+                let injected_tokens: Vec<LlamaToken> = exec_result.model_tokens.iter().map(|&id| LlamaToken(id)).collect();
+                sampler.accept_many(&injected_tokens);
+                gen.generated_token_ids.extend(injected_tokens);
 
                 // Force-stop on infinite loop detection
                 if exec_result.output_block.contains("[INFINITE_LOOP_DETECTED]") {

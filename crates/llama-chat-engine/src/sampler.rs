@@ -1,7 +1,6 @@
 use llama_cpp_2::{model::LlamaModel, sampling::LlamaSampler};
 
 use llama_chat_types::SamplerConfig;
-use super::tool_grammar::create_tool_grammar_sampler;
 /// Common sequence breakers for the DRY anti-repetition sampler.
 const DRY_SEQ_BREAKERS: &[&[u8]] = &[b"\n", b".", b",", b"!", b"?", b";", b":", b" "];
 
@@ -83,7 +82,7 @@ pub(crate) fn create_sampler(
     }
 
     /// Push lazy grammar sampler for JSON tool call constraints.
-    fn push_tool_grammar(samplers: &mut Vec<LlamaSampler>, _model: Option<&LlamaModel>) {
+    fn push_tool_grammar(_samplers: &mut Vec<LlamaSampler>, _model: Option<&LlamaModel>) {
         // DISABLED: Tool grammar sampler crashes with C++ exception
         // "Unexpected empty grammar stack after accepting piece: <think>"
         // when Qwen3.6 produces <think> tokens. The grammar can't handle

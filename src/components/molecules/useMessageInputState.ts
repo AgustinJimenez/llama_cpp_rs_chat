@@ -23,19 +23,21 @@ export function useInputState() {
     currentConversationId != null &&
     status.active_conversation_id !== currentConversationId;
 
-  const disabled = isLoading || isModelBusy || isGeneratingElsewhere;
+  const disabled = isLoading || isModelBusy || isGeneratingElsewhere || !status.loaded;
   const estimatedConvTokens = useMemo(
     () =>
       Math.round(messages.reduce((sum, m) => sum + (m.content?.length || 0), 0) / CHARS_PER_TOKEN),
     [messages],
   );
   const modelContextSize = status.context_size;
+  const isModelLoaded = status.loaded;
   return {
     onSendMessage,
     isLoading,
     stopGeneration,
     hasVision,
     isModelBusy,
+    isModelLoaded,
     isGeneratingElsewhere,
     disabled,
     estimatedConvTokens,
@@ -49,10 +51,12 @@ export function getPlaceholder(
   loadingAction: string | null,
   disabled: boolean,
   isGeneratingElsewhere: boolean,
+  isModelLoaded: boolean,
   disabledReason?: string,
 ) {
   if (isModelBusy) return loadingAction === 'unloading' ? 'Unloading model...' : 'Loading model...';
   if (isGeneratingElsewhere) return 'Generation active on another conversation';
+  if (!isModelLoaded) return 'Load a model to start chatting';
   if (disabled && disabledReason) return disabledReason;
   return 'Ask anything';
 }

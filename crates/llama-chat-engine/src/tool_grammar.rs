@@ -3,6 +3,7 @@
 //! Uses llama.cpp's lazy grammar feature: grammar is only enforced after
 //! a trigger word is detected (e.g. `{"name"`), allowing free-form text
 //! before the tool call.
+#![allow(dead_code)]
 
 use llama_cpp_2::{model::LlamaModel, sampling::LlamaSampler};
 

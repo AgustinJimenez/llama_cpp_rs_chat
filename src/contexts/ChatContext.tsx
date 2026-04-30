@@ -11,6 +11,7 @@ interface ChatContextValue {
   sendMessage: (content: string, imageData?: string[], bypassLoadingCheck?: boolean) => void;
   editMessage: (messageIndex: number, newContent: string) => void;
   regenerateFrom: (messageIndex: number) => void;
+  continueFrom: (messageIndex: number) => void;
   stopGeneration: () => void;
   clearMessages: () => void;
   loadConversation: (filename: string) => void;
@@ -39,6 +40,7 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
       chat.sendMessage,
       chat.editMessage,
       chat.regenerateFrom,
+      chat.continueFrom,
       chat.stopGeneration,
       chat.clearMessages,
       chat.loadConversation,

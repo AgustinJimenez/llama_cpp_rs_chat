@@ -357,19 +357,22 @@ export function useChat() {
               );
             }
 
-            // Auto-continue: if generation was cut off by context or Y/N check, resume silently
+            // Auto-continue: if generation was cut off by context, Y/N, loop, or tool, resume
             const finishReason = timings?.finishReason;
-            const isYnContinue = finishReason === 'yn_continue';
-            const isLoopRecovery = finishReason === 'loop_recovery';
-            if (
-              (finishReason === 'length' || isYnContinue || isLoopRecovery) &&
-              autoContinueCountRef.current < MAX_AUTO_CONTINUES
-            ) {
+            const shouldAutoContinue =
+              finishReason === 'length' ||
+              finishReason === 'yn_continue' ||
+              finishReason === 'loop_recovery' ||
+              finishReason === 'tool_continue';
+            if (shouldAutoContinue && autoContinueCountRef.current < MAX_AUTO_CONTINUES) {
               autoContinueCountRef.current += 1;
               const continueNum = autoContinueCountRef.current;
-              let reason = 'context full';
-              if (isLoopRecovery) reason = 'loop recovery';
-              else if (isYnContinue) reason = 'task incomplete';
+              const reasonMap: Record<string, string> = {
+                loop_recovery: 'loop recovery',
+                tool_continue: 'tool continuation',
+                yn_continue: 'task incomplete',
+              };
+              const reason = (finishReason && reasonMap[finishReason]) || 'context full';
               console.log(
                 `[useChat] Auto-continue ${continueNum}/${MAX_AUTO_CONTINUES} (${reason})`,
               );
@@ -387,7 +390,7 @@ export function useChat() {
                 const msgs = messagesRef.current;
                 const firstUserMsg = msgs.find((m) => m.role === 'user');
                 let continueMsg: string;
-                if (isLoopRecovery) {
+                if (finishReason === 'loop_recovery') {
                   continueMsg =
                     'You got stuck in a repetition loop. STOP what you were doing and try a COMPLETELY DIFFERENT approach to solve the problem. Do NOT repeat the same commands.';
                 } else {
@@ -422,8 +425,7 @@ export function useChat() {
 
             // Check if we hit max auto-continues — override finish reason so UI shows it
             const hitMaxContinues =
-              (finishReason === 'length' || isYnContinue || isLoopRecovery) &&
-              autoContinueCountRef.current >= MAX_AUTO_CONTINUES;
+              shouldAutoContinue && autoContinueCountRef.current >= MAX_AUTO_CONTINUES;
             if (hitMaxContinues && timings) {
               timings.finishReason = 'max_continues';
             }
@@ -661,10 +663,161 @@ export function useChat() {
       // Truncate local messages (remove assistant message and everything after)
       setMessages((prev) => prev.slice(0, messageIndex));
 
-      // Re-send the original user message
-      await sendMessage(userContent, userImages, true);
+      // Re-run generation in place without adding a duplicate user bubble.
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = new AbortController();
+      setIsLoading(true);
+      setError(null);
+
+      const assistantMessageId = crypto.randomUUID();
+      const streamSeq = (streamSeqRef.current += 1);
+
+      flushSync(() => {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: assistantMessageId,
+            role: 'assistant' as const,
+            content: '',
+            timestamp: 0,
+          },
+        ]);
+      });
+
+      try {
+        if (providerRef.current.provider !== 'local') {
+          await streamCloudProvider({
+            provider: providerRef.current.provider,
+            model: providerRef.current.model,
+            prompt: userContent,
+            conversationId: currentConversationId,
+            sessionRef: providerSessionRef,
+            abortController: abortControllerRef.current,
+            assistantMessageId,
+            setMessages,
+            setError,
+            setIsLoading,
+            setLastTimings,
+            setCurrentConversationId,
+            isStreamingRef,
+          });
+          return;
+        }
+
+        isStreamingRef.current = true;
+        setLastTimings(undefined);
+        await runStream({
+          request: {
+            message: userContent,
+            conversation_id: currentConversationId || undefined,
+            image_data: userImages,
+            auto_continue: true,
+          },
+          assistantMessageId,
+          streamSeq,
+        });
+      } catch (err) {
+        handleStreamError(
+          err,
+          streamSeq,
+          streamSeqRef,
+          isStreamingRef,
+          setError,
+          setIsLoading,
+          setMessages,
+          assistantMessageId,
+        );
+      }
     },
-    [isLoading, currentConversationId, sendMessage],
+    [isLoading, currentConversationId, runStream],
+  );
+
+  // Continue: keep the existing partial assistant response and ask the model to
+  // resume on the same conversation without replaying the user message.
+  const continueFrom = useCallback(
+    async (messageIndex: number) => {
+      if (!connectedRef.current) {
+        toast.error('Server is unreachable — please wait for reconnection', {
+          duration: 3000,
+          id: 'server-down',
+        });
+        return;
+      }
+      if (isLoading) return;
+      if (!currentConversationId) return;
+
+      const msgs = messagesRef.current;
+      const target = msgs[messageIndex];
+      if (!target || target.role !== 'assistant') return;
+
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = new AbortController();
+      setIsLoading(true);
+      setError(null);
+
+      const assistantMessageId = crypto.randomUUID();
+      const streamSeq = (streamSeqRef.current += 1);
+
+      flushSync(() => {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: assistantMessageId,
+            role: 'assistant' as const,
+            content: '',
+            timestamp: 0,
+          },
+        ]);
+      });
+
+      const continuePrompt =
+        'Continue from your last response exactly where you left off. Do not repeat previous text unless necessary.';
+
+      try {
+        if (providerRef.current.provider !== 'local') {
+          await streamCloudProvider({
+            provider: providerRef.current.provider,
+            model: providerRef.current.model,
+            prompt: continuePrompt,
+            conversationId: currentConversationId,
+            sessionRef: providerSessionRef,
+            abortController: abortControllerRef.current,
+            assistantMessageId,
+            setMessages,
+            setError,
+            setIsLoading,
+            setLastTimings,
+            setCurrentConversationId,
+            isStreamingRef,
+          });
+          return;
+        }
+
+        isStreamingRef.current = true;
+        setLastTimings(undefined);
+        await runStream({
+          request: {
+            message: continuePrompt,
+            conversation_id: currentConversationId,
+            auto_continue: true,
+          },
+          assistantMessageId,
+          streamSeq,
+        });
+      } catch (err) {
+        handleStreamError(
+          err,
+          streamSeq,
+          streamSeqRef,
+          isStreamingRef,
+          setError,
+          setIsLoading,
+          setMessages,
+          assistantMessageId,
+        );
+      }
+    },
+    [isLoading, currentConversationId, runStream],
   );
 
   // Stop the current generation
@@ -704,10 +857,13 @@ export function useChat() {
           const finishReason = (status as Record<string, unknown>).last_finish_reason as
             | string
             | undefined;
-          if (finishReason === 'length' && autoContinueCountRef.current < MAX_AUTO_CONTINUES) {
+          if (
+            (finishReason === 'length' || finishReason === 'tool_continue') &&
+            autoContinueCountRef.current < MAX_AUTO_CONTINUES
+          ) {
             autoContinueCountRef.current += 1;
             console.log(
-              `[useChat] Auto-continue ${autoContinueCountRef.current}/${MAX_AUTO_CONTINUES} (context full, detected on load)`,
+              `[useChat] Auto-continue ${autoContinueCountRef.current}/${MAX_AUTO_CONTINUES} (${finishReason}, detected on load)`,
             );
             setIsLoading(true);
             setTimeout(() => {
@@ -787,10 +943,13 @@ export function useChat() {
               const finishReason = (s as Record<string, unknown>).last_finish_reason as
                 | string
                 | undefined;
-              if (finishReason === 'length' && autoContinueCountRef.current < MAX_AUTO_CONTINUES) {
+              if (
+                (finishReason === 'length' || finishReason === 'tool_continue') &&
+                autoContinueCountRef.current < MAX_AUTO_CONTINUES
+              ) {
                 autoContinueCountRef.current += 1;
                 console.log(
-                  `[useChat] Auto-continue ${autoContinueCountRef.current}/${MAX_AUTO_CONTINUES} (context full, detected via polling)`,
+                  `[useChat] Auto-continue ${autoContinueCountRef.current}/${MAX_AUTO_CONTINUES} (${finishReason}, detected via polling)`,
                 );
                 if (intervalId) clearInterval(intervalId);
                 setTimeout(() => {
@@ -836,6 +995,7 @@ export function useChat() {
     sendMessage,
     editMessage,
     regenerateFrom,
+    continueFrom,
     stopGeneration,
     clearMessages,
     loadConversation,

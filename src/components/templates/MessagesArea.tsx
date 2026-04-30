@@ -11,7 +11,7 @@ import { LoadingIndicator } from '../atoms';
 import { MessageBubble } from '../organisms';
 
 export const MessagesArea = () => {
-  const { messages, isLoading, editMessage, regenerateFrom } = useChatContext();
+  const { messages, isLoading, editMessage, regenerateFrom, continueFrom } = useChatContext();
   const { viewMode } = useUIContext();
   const containerRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
@@ -160,6 +160,7 @@ export const MessagesArea = () => {
                       messageIndex={virtualRow.index}
                       onEditMessage={editMessage}
                       onRegenerate={regenerateFrom}
+                      onContinue={continueFrom}
                       isGenerating={isLoading}
                       isLastMessage={virtualRow.index === messages.length - 1}
                     />

@@ -1,4 +1,4 @@
-import { Pencil, RefreshCw, ChevronDown, ChevronRight, Archive } from 'lucide-react';
+import { Pencil, RefreshCw, ChevronDown, ChevronRight, Archive, Play } from 'lucide-react';
 import React, { useState, useRef, useEffect } from 'react';
 
 import { useModelContext } from '../../contexts/ModelContext';
@@ -29,6 +29,7 @@ interface MessageBubbleProps {
   messageIndex?: number;
   onEditMessage?: (messageIndex: number, newContent: string) => void;
   onRegenerate?: (messageIndex: number) => void;
+  onContinue?: (messageIndex: number) => void;
   isGenerating?: boolean;
   isLastMessage?: boolean;
 }
@@ -296,6 +297,7 @@ const AssistantMessage: React.FC<{
   isGenerating?: boolean;
   isLastAssistant?: boolean;
   onRegenerate?: () => void;
+  onContinue?: () => void;
 }> = ({
   message,
   viewMode,
@@ -306,6 +308,7 @@ const AssistantMessage: React.FC<{
   isGenerating,
   isLastAssistant,
   onRegenerate,
+  onContinue,
 }) => (
   <div
     className="w-full flex justify-start"
@@ -371,6 +374,15 @@ const AssistantMessage: React.FC<{
       {!isStreaming && formatTimestamp(message.timestamp) ? (
         <div className="flex items-center gap-2 mt-0.5 pl-1">
           <span className="text-[10px] text-white/50">{formatTimestamp(message.timestamp)}</span>
+          {isLastAssistant && !isGenerating && onContinue ? (
+            <button
+              onClick={onContinue}
+              className="text-white/30 hover:text-white/70 transition-colors p-0.5"
+              title="Continue generation"
+            >
+              <Play className="h-3 w-3" />
+            </button>
+          ) : null}
           {isLastAssistant && !isGenerating && onRegenerate ? (
             <button
               onClick={onRegenerate}
@@ -397,6 +409,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = React.memo(
     messageIndex,
     onEditMessage,
     onRegenerate,
+    onContinue,
     isGenerating,
     isLastMessage,
   }) => {
@@ -442,6 +455,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = React.memo(
         isStreaming={isStreaming}
         isGenerating={isGenerating}
         isLastAssistant={isLastMessage}
+        onContinue={onContinue && messageIndex != null ? () => onContinue(messageIndex) : undefined}
         onRegenerate={
           onRegenerate && messageIndex != null ? () => onRegenerate(messageIndex) : undefined
         }

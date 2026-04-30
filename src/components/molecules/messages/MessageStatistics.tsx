@@ -36,6 +36,11 @@ const FINISH_REASON_BADGES: Record<string, { color: string; title: string; label
     title: 'Y/N check detected incomplete task — auto-continuing',
     label: 'task incomplete',
   },
+  tool_continue: {
+    color: 'text-sky-400',
+    title: 'Tool result was committed and generation resumed on a fresh context',
+    label: 'continuing after tool',
+  },
   error: {
     color: 'text-red-400',
     title: 'Generation stopped due to an error (repetition loop, stall, or decode failure)',

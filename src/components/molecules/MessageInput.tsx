@@ -123,6 +123,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     stopGeneration,
     hasVision,
     isModelBusy,
+    isModelLoaded,
     isGeneratingElsewhere,
     disabled,
     estimatedConvTokens,
@@ -197,6 +198,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     loadingAction,
     disabled,
     isGeneratingElsewhere,
+    isModelLoaded,
     disabledReason,
   );
 

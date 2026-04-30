@@ -61,6 +61,7 @@ struct ChatDoneEvent {
     gen_tokens: Option<i32>,
     prompt_eval_ms: Option<f64>,
     prompt_tokens: Option<i32>,
+    finish_reason: Option<String>,
 }
 
 // ─── Logging ──────────────────────────────────────────────────────────
@@ -208,8 +209,8 @@ async fn generate_stream(
     };
     let shared_logger = Arc::new(Mutex::new(conversation_logger));
 
-    // Log user message
-    {
+    // Log user message unless this is an auto-continue/regenerate request.
+    if !request.auto_continue {
         let mut logger = shared_logger.lock().unwrap();
         logger.log_message("USER", &request.message);
     }
@@ -259,6 +260,7 @@ async fn generate_stream(
                 gen_tokens,
                 prompt_eval_ms,
                 prompt_tokens,
+                finish_reason,
                 ..
             }) => {
                 let _ = app.emit(
@@ -275,6 +277,7 @@ async fn generate_stream(
                         gen_tokens,
                         prompt_eval_ms,
                         prompt_tokens,
+                        finish_reason,
                     },
                 );
 
@@ -353,6 +356,7 @@ async fn generate_stream(
                         gen_tokens: None,
                         prompt_eval_ms: None,
                         prompt_tokens: None,
+                        finish_reason: Some("cancelled".into()),
                     },
                 );
             }
@@ -371,6 +375,7 @@ async fn generate_stream(
                         gen_tokens: None,
                         prompt_eval_ms: None,
                         prompt_tokens: None,
+                        finish_reason: Some("error".into()),
                     },
                 );
             }
@@ -389,6 +394,7 @@ async fn generate_stream(
                         gen_tokens: None,
                         prompt_eval_ms: None,
                         prompt_tokens: None,
+                        finish_reason: Some("error".into()),
                     },
                 );
             }

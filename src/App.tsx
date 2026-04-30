@@ -264,11 +264,9 @@ const MainContent = ({
           }}
           currentProvider={activeProvider}
         />
-        {/* Header hidden during loading with no conversation — WelcomeMessage shows the loading progress instead (only one loading indicator at a time) */}
-        {messages.length > 0 || modelStatus.loaded || activeProvider !== 'local' ? (
-          <ChatHeader onModelUnload={handleModelUnload} onForceUnload={handleForceUnload} />
-        ) : (
-          /* Mobile hamburger when header is hidden */
+        <ChatHeader onModelUnload={handleModelUnload} onForceUnload={handleForceUnload} />
+        {/* Mobile hamburger when header is not visible on small screens */}
+        {!messages.length && !modelStatus.loaded && activeProvider === 'local' ? (
           <button
             onClick={toggleMobileSidebar}
             className="absolute top-3 left-3 z-30 p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors md:hidden"
@@ -277,7 +275,7 @@ const MainContent = ({
           >
             <Menu className="h-5 w-5" />
           </button>
-        )}
+        ) : null}
 
         {/* BrowserView stays mounted (hidden via CSS) so the Tauri native panel isn't destroyed on toggle */}
         <div className={isBrowserViewOpen ? 'flex flex-col flex-1 overflow-hidden' : 'hidden'}>

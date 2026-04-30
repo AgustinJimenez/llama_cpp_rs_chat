@@ -18,6 +18,11 @@ pub async fn get_model_status(
     let progress = if is_loading { Some(bridge.loading_progress()) } else { None };
     let is_generating = bridge.is_generating().await;
     let active_conv_id = if is_generating { bridge.active_conversation_id().await } else { None };
+    let last_finish_reason = if !is_generating {
+        bridge.last_finish_reason().await
+    } else {
+        None
+    };
 
     Ok(match bridge.model_status().await {
         Some(meta) => {
@@ -46,7 +51,7 @@ pub async fn get_model_status(
                 system_prompt_tokens: None,
                 tool_definitions_tokens: None,
                 context_size,
-                last_finish_reason: None,
+                last_finish_reason: last_finish_reason.clone(),
             }
         }
         None => ModelStatus {
@@ -66,7 +71,7 @@ pub async fn get_model_status(
             system_prompt_tokens: None,
             tool_definitions_tokens: None,
             context_size: None,
-            last_finish_reason: None,
+            last_finish_reason,
         },
     })
 }
