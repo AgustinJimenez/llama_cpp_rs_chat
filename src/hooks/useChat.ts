@@ -94,6 +94,15 @@ function handleStreamError(
  * - useConversationUrl: URL param persistence
  * - useConversationWatcher: WebSocket updates
  */
+// Auto-continue: finish reasons that trigger automatic re-generation
+const AUTO_CONTINUE_REASONS = new Set([
+  'length',
+  'yn_continue',
+  'loop_recovery',
+  'tool_continue',
+  'infinite_loop',
+]);
+
 // eslint-disable-next-line max-lines-per-function
 export function useChat() {
   const { connected } = useConnection();
@@ -125,7 +134,6 @@ export function useChat() {
   // Track compaction state to reload messages after compaction completes
   const compactingRef = useRef(false);
 
-  // Auto-continue: when generation hits max_tokens (not EOS), re-send "Continue"
   const MAX_AUTO_CONTINUES = 3;
   const autoContinueCountRef = useRef(0);
 
@@ -359,11 +367,7 @@ export function useChat() {
 
             // Auto-continue: if generation was cut off by context, Y/N, loop, or tool, resume
             const finishReason = timings?.finishReason;
-            const shouldAutoContinue =
-              finishReason === 'length' ||
-              finishReason === 'yn_continue' ||
-              finishReason === 'loop_recovery' ||
-              finishReason === 'tool_continue';
+            const shouldAutoContinue = AUTO_CONTINUE_REASONS.has(finishReason ?? '');
             // tool_continue doesn't count toward the retry limit — it's expected behavior
             const isToolContinue = finishReason === 'tool_continue';
             if (
@@ -376,6 +380,7 @@ export function useChat() {
                 loop_recovery: 'loop recovery',
                 tool_continue: 'tool continuation',
                 yn_continue: 'task incomplete',
+                infinite_loop: 'infinite loop — forcing new approach',
               };
               const reason = (finishReason && reasonMap[finishReason]) || 'context full';
               console.log(
@@ -395,9 +400,9 @@ export function useChat() {
                 const msgs = messagesRef.current;
                 const firstUserMsg = msgs.find((m) => m.role === 'user');
                 let continueMsg: string;
-                if (finishReason === 'loop_recovery') {
+                if (finishReason === 'infinite_loop' || finishReason === 'loop_recovery') {
                   continueMsg =
-                    'You got stuck in a repetition loop. STOP what you were doing and try a COMPLETELY DIFFERENT approach to solve the problem. Do NOT repeat the same commands.';
+                    '[SYSTEM] Infinite loop detected — you have been repeating similar actions without progress. STOP your current approach entirely. Step back, analyze what went wrong, explain it to the user, and either try a COMPLETELY DIFFERENT strategy or ask the user for guidance. Do NOT repeat any of the previous commands.';
                 } else {
                   continueMsg = firstUserMsg
                     ? `Continue working on this task: "${firstUserMsg.content.slice(0, CONTINUE_TASK_PREVIEW_LENGTH)}". Pick up where you left off.`
@@ -863,7 +868,7 @@ export function useChat() {
             | string
             | undefined;
           if (
-            (finishReason === 'length' || finishReason === 'tool_continue') &&
+            AUTO_CONTINUE_REASONS.has(finishReason ?? '') &&
             autoContinueCountRef.current < MAX_AUTO_CONTINUES
           ) {
             autoContinueCountRef.current += 1;
@@ -949,7 +954,7 @@ export function useChat() {
                 | string
                 | undefined;
               if (
-                (finishReason === 'length' || finishReason === 'tool_continue') &&
+                AUTO_CONTINUE_REASONS.has(finishReason ?? '') &&
                 autoContinueCountRef.current < MAX_AUTO_CONTINUES
               ) {
                 autoContinueCountRef.current += 1;

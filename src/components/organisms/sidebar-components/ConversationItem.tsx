@@ -59,22 +59,6 @@ export const ConversationItem = React.memo(
         }}
         data-testid={`conversation-${flatIndex}`}
       >
-        {selectMode ? (
-          <button
-            className="p-0.5 mr-1 flex-shrink-0"
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleSelect(conversation.name);
-            }}
-          >
-            {isSelected ? (
-              <CheckSquare size={14} className="text-primary" />
-            ) : (
-              <Square size={14} className="text-muted-foreground" />
-            )}
-          </button>
-        ) : null}
-
         <div className="flex items-center gap-1 truncate flex-1 min-w-0">
           {isGenerating ? (
             <span className="relative flex h-2.5 w-2.5 flex-shrink-0">
@@ -86,6 +70,22 @@ export const ConversationItem = React.memo(
             {displayName}
           </span>
         </div>
+
+        {selectMode ? (
+          <button
+            className="p-0.5 ml-1 flex-shrink-0"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleSelect(conversation.name);
+            }}
+          >
+            {isSelected ? (
+              <CheckSquare size={14} className="text-white" />
+            ) : (
+              <Square size={14} className="text-white/40" />
+            )}
+          </button>
+        ) : null}
 
         <div className="flex items-center gap-1 flex-shrink-0 ml-2">
           <span className="text-xs text-foreground/50">{relativeTime(conversation.timestamp)}</span>

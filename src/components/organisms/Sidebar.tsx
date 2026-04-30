@@ -69,21 +69,16 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
     setSelectedConversations(new Set());
   }, []);
 
-  const deleteSelected = useCallback(async () => {
-    const toDelete = Array.from(selectedConversations);
-    for (const name of toDelete) {
-      try {
-        await deleteConversation(name);
-      } catch {
-        /* ignore individual failures */
-      }
-    }
-    setConversations((prev) => prev.filter((c) => !selectedConversations.has(c.name)));
-    if (currentConversationId && selectedConversations.has(currentConversationId)) {
-      onNewChat();
-    }
-    cancelSelectMode();
-  }, [selectedConversations, currentConversationId, onNewChat, cancelSelectMode]);
+  const deleteSelected = useCallback(() => {
+    if (selectedConversations.size === 0) return;
+    // Show confirmation dialog — reuse the same dialog with a fake conversation
+    setConversationToDelete({
+      name: '__bulk_delete__',
+      display_name: `${selectedConversations.size} conversations`,
+      timestamp: '',
+    } as ConversationFile);
+    setDeleteDialogOpen(true);
+  }, [selectedConversations]);
 
   const fetchConversations = async () => {
     setLoading(true);
@@ -155,13 +150,31 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
   const handleDeleteConfirm = async () => {
     if (!conversationToDelete) return;
     try {
-      await deleteConversation(conversationToDelete.name);
-      const deletingCurrent =
-        currentConversationId && conversationToDelete.name === currentConversationId;
-      setConversations((prev) => prev.filter((c) => c.name !== conversationToDelete.name));
+      if (conversationToDelete.name === '__bulk_delete__') {
+        // Bulk delete all selected conversations
+        const toDelete = Array.from(selectedConversations);
+        for (const name of toDelete) {
+          try {
+            await deleteConversation(name);
+          } catch {
+            /* ignore */
+          }
+        }
+        setConversations((prev) => prev.filter((c) => !selectedConversations.has(c.name)));
+        if (currentConversationId && selectedConversations.has(currentConversationId)) {
+          onNewChat();
+        }
+        cancelSelectMode();
+      } else {
+        // Single delete
+        await deleteConversation(conversationToDelete.name);
+        const deletingCurrent =
+          currentConversationId && conversationToDelete.name === currentConversationId;
+        setConversations((prev) => prev.filter((c) => c.name !== conversationToDelete.name));
+        if (deletingCurrent) onNewChat();
+      }
       setDeleteDialogOpen(false);
       setConversationToDelete(null);
-      if (deletingCurrent) onNewChat();
     } catch (error) {
       console.error('Error deleting conversation:', error);
     }
@@ -321,9 +334,14 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete Conversation</DialogTitle>
+            <DialogTitle>
+              Delete{' '}
+              {conversationToDelete?.name === '__bulk_delete__' ? 'Conversations' : 'Conversation'}
+            </DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete this conversation? This action cannot be undone.
+              {conversationToDelete?.name === '__bulk_delete__'
+                ? `Are you sure you want to delete ${selectedConversations.size} conversations? This action cannot be undone.`
+                : 'Are you sure you want to delete this conversation? This action cannot be undone.'}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

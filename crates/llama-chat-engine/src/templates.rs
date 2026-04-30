@@ -27,6 +27,7 @@ fn core_behavior_block() -> String {
 - Be autonomous and resourceful. Complete tasks fully without asking the user for help.
 - Before installing anything, CHECK if it's already installed (use `where`, `which`, or search common paths like `C:\Users\`, `C:\Program Files\`, `~/.local/bin`).
 - If a command fails, try a DIFFERENT approach. Do NOT retry the same failing command.
+- If you're stuck after 2-3 failed attempts, STOP and investigate: use browser_search to look up the error, read documentation, or check examples online before trying again.
 - Do NOT tell the user to run commands manually — use your tools to solve problems yourself.
 - NEVER repeat the same failing command more than once. If it failed, change your approach.
 - NEVER output file contents as text in your response. ALWAYS use `write_file` to save code/config/HTML to disk. If you write code without using write_file, IT WILL NOT BE SAVED.
