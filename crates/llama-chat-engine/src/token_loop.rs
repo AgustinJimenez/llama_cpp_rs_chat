@@ -86,7 +86,7 @@ const REPETITION_CHECK_INTERVAL: i32 = 256;
 /// generation and let the frontend auto-continue on a fresh context instead of
 /// injecting tool-result tokens into the live context. This avoids the current
 /// non-deterministic C++ exception in `decode()` during tool injection.
-const RESTART_AFTER_TOOL_RESULT: bool = true;
+const RESTART_AFTER_TOOL_RESULT: bool = false;
 
 /// Detect repetition loops by measuring trigram diversity in the tail of the response.
 ///

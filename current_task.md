@@ -54,16 +54,22 @@ Both happen non-deterministically after 1-12 tool injections per conversation.
 | 11 | Windows SEH crash handler | ✅ Catches exception code, controlled exit(42) |
 | 12 | Bridge auto-restart on worker death | ✅ Worker restarts, app stays open |
 | 13 | Exact token replay in test binary | ❌ Always passes (non-deterministic) |
-| 14 | RESTART_AFTER_TOOL_RESULT workaround | ✅ Avoids injection entirely, no crashes |
+| 14 | RESTART_AFTER_TOOL_RESULT workaround | ✅ Avoids injection crashes but causes stats flicker, message splitting, lost responses |
+| 15 | Different seeds with same conversation | ❌ Crash is random regardless of seed |
+| 16 | Crash during normal generation (no injection) | ❌ Also crashes with 0 injections — not injection-specific |
+
+## Key Finding (2026-04-30)
+
+The crash is **NOT specific to tool injection**. It also happens during normal token generation with zero injections. Same seed sometimes works, sometimes doesn't. This is a **non-deterministic CUDA/llama.cpp bug** — possibly in the TurboQuant fork, CUDA driver, or the hybrid MoE+SSM architecture.
 
 ## Investigation to continue later
 
-1. **Why does `sample()` deadlock?** — Not an exception, not caught by safe wrapper. Possibly CUDA stream issue specific to Qwen3.6 hybrid MoE+SSM + TurboQuant fork.
-2. **Can the grammar handle injected tokens?** — With `accept_many` the grammar is synced, but the deadlock persists. Try re-enabling grammar + accept_many without the restart workaround on a different model.
-3. **Is it model-specific?** — Only tested with Qwen3.6-35B-A3B. Test with Devstral, Gemma-4, or a dense model.
-4. **Is it TurboQuant-specific?** — Test with f16 KV cache (not just q8_0).
-5. **CUDA memory checker** — Run with `compute-sanitizer --tool memcheck` to detect illegal memory access during injection.
-6. **Update llama.cpp fork** — The TurboQuant fork may have fixes for this.
+1. **Test with upstream llama.cpp** — The TurboQuant fork may have introduced the bug. Try upstream + f16 KV cache.
+2. **Test with a different model** — Try Devstral, Gemma-4, or a dense (non-MoE) model to isolate if it's architecture-specific.
+3. **Test with a different GPU** — Could be an RTX 4090 driver bug.
+4. **CUDA memory checker** — Run with `compute-sanitizer --tool memcheck`.
+5. **Update CUDA drivers** — Newer drivers may fix the issue.
+6. **Update llama.cpp fork** — The TurboQuant fork may have fixes.
 
 ## Key Files
 

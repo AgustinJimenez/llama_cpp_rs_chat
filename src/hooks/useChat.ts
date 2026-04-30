@@ -364,8 +364,13 @@ export function useChat() {
               finishReason === 'yn_continue' ||
               finishReason === 'loop_recovery' ||
               finishReason === 'tool_continue';
-            if (shouldAutoContinue && autoContinueCountRef.current < MAX_AUTO_CONTINUES) {
-              autoContinueCountRef.current += 1;
+            // tool_continue doesn't count toward the retry limit — it's expected behavior
+            const isToolContinue = finishReason === 'tool_continue';
+            if (
+              shouldAutoContinue &&
+              (isToolContinue || autoContinueCountRef.current < MAX_AUTO_CONTINUES)
+            ) {
+              if (!isToolContinue) autoContinueCountRef.current += 1;
               const continueNum = autoContinueCountRef.current;
               const reasonMap: Record<string, string> = {
                 loop_recovery: 'loop recovery',

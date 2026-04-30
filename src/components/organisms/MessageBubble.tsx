@@ -207,7 +207,7 @@ const UserMessage: React.FC<{
               disabled={!editContent.trim()}
               className="px-3 py-1 text-xs rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
             >
-              Save & Submit
+              Submit
             </button>
           </div>
         </div>
@@ -309,94 +309,97 @@ const AssistantMessage: React.FC<{
   isLastAssistant,
   onRegenerate,
   onContinue,
-}) => (
-  <div
-    className="w-full flex justify-start"
-    data-testid={`message-${message.role}`}
-    data-message-id={message.id}
-    aria-live={isStreaming ? 'polite' : undefined}
-  >
-    <div className="w-full space-y-3 overflow-hidden">
-      {viewMode === 'raw' ? (
-        /* Raw mode: show unprocessed content with no parsing */
-        <pre
-          className="text-xs whitespace-pre-wrap leading-relaxed font-mono"
-          data-testid="message-content"
-        >
-          {message.content}
-        </pre>
-      ) : (
-        <>
-          {/* Thinking process (for reasoning models) */}
-          {thinkingContent ? (
-            <ThinkingBlock
-              content={thinkingContent}
-              isStreaming={isThinkingStreaming ? isStreaming : undefined}
-            />
-          ) : null}
+}) => {
+  const { status } = useModelContext();
+  return (
+    <div
+      className="w-full flex justify-start"
+      data-testid={`message-${message.role}`}
+      data-message-id={message.id}
+      aria-live={isStreaming ? 'polite' : undefined}
+    >
+      <div className="w-full space-y-3 overflow-hidden">
+        {viewMode === 'raw' ? (
+          /* Raw mode: show unprocessed content with no parsing */
+          <pre
+            className="text-xs whitespace-pre-wrap leading-relaxed font-mono"
+            data-testid="message-content"
+          >
+            {message.content}
+          </pre>
+        ) : (
+          <>
+            {/* Thinking process (for reasoning models) */}
+            {thinkingContent ? (
+              <ThinkingBlock
+                content={thinkingContent}
+                isStreaming={isThinkingStreaming ? isStreaming : undefined}
+              />
+            ) : null}
 
-          {/* Interleaved text, command blocks, tool calls, and thinking in chronological order */}
-          {/* eslint-disable react/no-array-index-key -- segments are positional with no stable ID */}
-          {segments.map((segment, index) => {
-            if (segment.type === 'thinking') {
-              return <ThinkingBlock key={`seg-think-${index}`} content={segment.content} />;
-            }
-            if (segment.type === 'tool_call') {
+            {/* Interleaved text, command blocks, tool calls, and thinking in chronological order */}
+            {/* eslint-disable react/no-array-index-key -- segments are positional with no stable ID */}
+            {segments.map((segment, index) => {
+              if (segment.type === 'thinking') {
+                return <ThinkingBlock key={`seg-think-${index}`} content={segment.content} />;
+              }
+              if (segment.type === 'tool_call') {
+                return (
+                  <ToolCallBlock
+                    key={`seg-tc-${index}`}
+                    toolCalls={[segment.toolCall]}
+                    isGenerating={isGenerating}
+                  />
+                );
+              }
+              // Text segment — no bubble, just text on background
+              const text = segment.content;
+              if (!text.trim()) return null;
               return (
-                <ToolCallBlock
-                  key={`seg-tc-${index}`}
-                  toolCalls={[segment.toolCall]}
-                  isGenerating={isGenerating}
-                />
+                <div key={`seg-txt-${index}`}>
+                  {viewMode === 'markdown' ? (
+                    <MarkdownContent content={text} testId="message-content" />
+                  ) : (
+                    <p
+                      className="text-sm whitespace-pre-wrap leading-relaxed"
+                      data-testid="message-content"
+                    >
+                      {text}
+                    </p>
+                  )}
+                </div>
               );
-            }
-            // Text segment — no bubble, just text on background
-            const text = segment.content;
-            if (!text.trim()) return null;
-            return (
-              <div key={`seg-txt-${index}`}>
-                {viewMode === 'markdown' ? (
-                  <MarkdownContent content={text} testId="message-content" />
-                ) : (
-                  <p
-                    className="text-sm whitespace-pre-wrap leading-relaxed"
-                    data-testid="message-content"
-                  >
-                    {text}
-                  </p>
-                )}
-              </div>
-            );
-          })}
-          {/* eslint-enable react/no-array-index-key */}
-        </>
-      )}
-      {!isStreaming && formatTimestamp(message.timestamp) ? (
-        <div className="flex items-center gap-2 mt-0.5 pl-1">
-          <span className="text-[10px] text-white/50">{formatTimestamp(message.timestamp)}</span>
-          {isLastAssistant && !isGenerating && onContinue ? (
-            <button
-              onClick={onContinue}
-              className="text-white/30 hover:text-white/70 transition-colors p-0.5"
-              title="Continue generation"
-            >
-              <Play className="h-3 w-3" />
-            </button>
-          ) : null}
-          {isLastAssistant && !isGenerating && onRegenerate ? (
-            <button
-              onClick={onRegenerate}
-              className="text-white/30 hover:text-white/70 transition-colors p-0.5"
-              title="Regenerate response"
-            >
-              <RefreshCw className="h-3 w-3" />
-            </button>
-          ) : null}
-        </div>
-      ) : null}
+            })}
+            {/* eslint-enable react/no-array-index-key */}
+          </>
+        )}
+        {!isStreaming && formatTimestamp(message.timestamp) ? (
+          <div className="flex items-center gap-2 mt-0.5 pl-1">
+            <span className="text-[10px] text-white/50">{formatTimestamp(message.timestamp)}</span>
+            {isLastAssistant && !isGenerating && status.loaded && onContinue ? (
+              <button
+                onClick={onContinue}
+                className="text-white/30 hover:text-white/70 transition-colors p-0.5"
+                title="Continue generation"
+              >
+                <Play className="h-3 w-3" />
+              </button>
+            ) : null}
+            {isLastAssistant && !isGenerating && status.loaded && onRegenerate ? (
+              <button
+                onClick={onRegenerate}
+                className="text-white/30 hover:text-white/70 transition-colors p-0.5"
+                title="Regenerate response"
+              >
+                <RefreshCw className="h-3 w-3" />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 /**
  * Message bubble component - renders user, assistant, or system messages.
