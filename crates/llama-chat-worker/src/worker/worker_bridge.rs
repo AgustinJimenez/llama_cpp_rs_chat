@@ -703,9 +703,20 @@ async fn stdout_reader_task(
             continue;
         }
 
-        // Handle model loaded — update cached metadata
-        if let WorkerPayload::ModelLoaded { .. } = &payload {
-            // Metadata is updated by the load_model method, not here
+        // Handle model loaded — always update cached metadata
+        // (needed for auto-reload after watchdog kill where there's no pending load_model request)
+        if let WorkerPayload::ModelLoaded { model_path, context_length, chat_template_type, general_name, has_vision, gpu_layers, block_count, .. } = &payload {
+            *model_meta.lock().await = Some(ModelMeta {
+                loaded: true,
+                model_path: model_path.clone(),
+                context_length: *context_length,
+                chat_template_type: chat_template_type.clone(),
+                general_name: general_name.clone(),
+                has_vision: has_vision.unwrap_or(false),
+                gpu_layers: *gpu_layers,
+                block_count: *block_count,
+            });
+            eprintln!("[BRIDGE] Model metadata cached: {}", model_path);
         }
 
         // Handle model unloaded — clear cached metadata
