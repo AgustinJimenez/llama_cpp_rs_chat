@@ -7,8 +7,14 @@ edition = "2021"
 name = "llama-chat-tests"
 path = "src/main.rs"
 
+[[bin]]
+name = "test-pdf"
+path = "src/test_pdf.rs"
+
 [dependencies]
 llama-cpp-2 = { path = "../../deps/llama-cpp-rs/llama-cpp-2" }
+pdf_oxide = "0.1"
+pdf-extract = "0.10"
 
 [features]
 default = []

@@ -35,6 +35,7 @@ dom_smoothie = "0.15"
 
 # PDF text extraction
 pdf-extract = "0.10"
+pdf_oxide = "0.1"
 
 # DOCX/PPTX extraction (ZIP + XML)
 zip = { version = "8.1", default-features = false, features = ["deflate"] }

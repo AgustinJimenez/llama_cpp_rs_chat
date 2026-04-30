@@ -1,13 +1,21 @@
 //! Document format extractors.
 use std::io::Read;
 pub fn extract_pdf_text(bytes: &[u8], max_chars: usize) -> String {
+    // Try pdf_oxide first (fast, handles more encodings) via temp file
+    let oxide_result: Result<String, String> = extract_pdf_with_oxide(bytes, max_chars);
+    if let Ok(text) = oxide_result {
+        if !text.is_empty() {
+            return text;
+        }
+    }
+    // Fallback to pdf-extract for edge cases
     match pdf_extract::extract_text_from_mem(bytes) {
         Ok(text) => {
             let text = text.trim().to_string();
             if text.is_empty() {
                 return "(PDF contains no extractable text — may be scanned/image-based)".to_string();
             }
-            eprintln!("[WEB_FETCH/PDF] Extracted {} chars from PDF", text.len());
+            eprintln!("[PDF] Fallback pdf-extract: {} chars", text.len());
             if text.len() > max_chars {
                 let mut end = max_chars;
                 while end > 0 && !text.is_char_boundary(end) {
@@ -19,6 +27,40 @@ pub fn extract_pdf_text(bytes: &[u8], max_chars: usize) -> String {
             }
         }
         Err(e) => format!("Error extracting PDF text: {e}"),
+    }
+}
+
+/// Extract PDF text using pdf_oxide (writes to temp file since it only supports file paths).
+fn extract_pdf_with_oxide(bytes: &[u8], max_chars: usize) -> Result<String, String> {
+    // Write bytes to temp file
+    let tmp = std::env::temp_dir().join(format!("llama_pdf_{}.pdf", std::process::id()));
+    std::fs::write(&tmp, bytes).map_err(|e| format!("temp write: {e}"))?;
+    let result: Result<String, String> = (|| -> Result<String, String> {
+        let mut doc = pdf_oxide::PdfDocument::open(&tmp).map_err(|e| format!("open: {e}"))?;
+        let page_count = doc.page_count().unwrap_or(0);
+        let mut text = String::new();
+        for i in 0..page_count {
+            match doc.extract_text(i) {
+                Ok(t) => text.push_str(&t),
+                Err(_) => continue,
+            }
+            if text.len() > max_chars { break; }
+        }
+        Ok(text)
+    })();
+    let _ = std::fs::remove_file(&tmp);
+    let text = result?;
+    let trimmed = text.trim().to_string();
+    if trimmed.is_empty() {
+        return Ok(String::new()); // Fall through to pdf-extract
+    }
+    eprintln!("[PDF] pdf_oxide: {} chars extracted", trimmed.len());
+    if trimmed.len() > max_chars {
+        let mut end = max_chars;
+        while end > 0 && !trimmed.is_char_boundary(end) { end -= 1; }
+        Ok(format!("{}\n\n[PDF truncated at {} chars]", &trimmed[..end], max_chars))
+    } else {
+        Ok(trimmed)
     }
 }
 
