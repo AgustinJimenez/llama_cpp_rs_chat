@@ -6,10 +6,11 @@ use super::generation::create_fresh_context;
 use llama_chat_types::*;
 // --- Tool output summarization via LLM sub-agent ---
 
-/// Minimum output size (chars) to trigger LLM summarization (CPU).
-/// Set high to avoid frequent slow CPU summarization with large models.
-/// Outputs below this are smart-truncated instead (instant, keeps head + tail).
-pub(crate) const SUMMARIZE_THRESHOLD: usize = 15000;
+/// Minimum output size (chars) to trigger LLM sub-agent summarization (GPU).
+/// Large tool outputs (browser_get_text, etc.) are summarized by a sub-agent
+/// on a separate 4K GPU context. This keeps injections small (~100-200 tokens)
+/// which avoids the sample() deadlock that occurs with 700+ token injections.
+pub(crate) const SUMMARIZE_THRESHOLD: usize = 1500;
 /// Context size for each summarization pass (tokens).
 const SUMMARY_CTX_SIZE: u32 = 4096;
 /// Maximum tokens to generate per summary.
@@ -57,10 +58,10 @@ fn run_summary_pass(
 
     let n_ctx = NonZeroU32::new(SUMMARY_CTX_SIZE).unwrap();
     let config = SamplerConfig::default();
-    // offload_kqv=false: summary context runs on CPU. GPU dual-context deadlocks
-    // with the main generation context (CUDA stream contention). CPU is slower but
-    // reliable. The 4K threshold ensures this only triggers on larger outputs.
-    let mut ctx = create_fresh_context(model, backend, n_ctx, false, &config)?;
+    // offload_kqv=true: summary sub-agent runs on GPU (4K context alongside main).
+    // Previous GPU deadlocks were from the main context's sample(), not the sub-agent.
+    // The safe C++ wrapper (safe_wrapper.cpp) catches any exceptions.
+    let mut ctx = create_fresh_context(model, backend, n_ctx, true, &config)?;
 
     // Eval prompt in batches
     let batch_cap = 512usize;
@@ -180,7 +181,7 @@ fn run_summary_pass_with_system(
 
     let n_ctx = NonZeroU32::new(SUMMARY_CTX_SIZE).unwrap();
     let config = SamplerConfig::default();
-    let mut ctx = create_fresh_context(model, backend, n_ctx, false, &config)?;
+    let mut ctx = create_fresh_context(model, backend, n_ctx, true, &config)?;
 
     let batch_cap = 512usize;
     let mut batch = LlamaBatch::new(batch_cap, 1);
@@ -629,7 +630,7 @@ pub fn maybe_summarize_tool_output(
 
     let n_ctx = NonZeroU32::new(MAP_REDUCE_CTX).unwrap();
     let config = SamplerConfig::default();
-    let mut ctx = match create_fresh_context(model, backend, n_ctx, false, &config) {
+    let mut ctx = match create_fresh_context(model, backend, n_ctx, true, &config) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("[TOOL_SUMMARY] Failed to create summary context: {}", e);

@@ -58,9 +58,12 @@ Both happen non-deterministically after 1-12 tool injections per conversation.
 | 15 | Different seeds with same conversation | ❌ Crash is random regardless of seed |
 | 16 | Crash during normal generation (no injection) | ❌ Also crashes with 0 injections — not injection-specific |
 
-## Key Finding (2026-04-30)
+## Key Findings (2026-04-30)
 
-The crash is **NOT specific to tool injection**. It also happens during normal token generation with zero injections. Same seed sometimes works, sometimes doesn't. This is a **non-deterministic CUDA/llama.cpp bug** — possibly in the TurboQuant fork, CUDA driver, or the hybrid MoE+SSM architecture.
+1. The crash is **NOT specific to tool injection** — also happens during normal generation.
+2. **NOT seed-dependent** — same seed crashes sometimes, works other times.
+3. **NOT TurboQuant-specific** — crashes with f16 KV cache too (confirmed `kv_cache=f16` in logs).
+4. This is a **llama.cpp + Qwen3.6 hybrid MoE+SSM + CUDA** issue. Next: test with a different model.
 
 ## Investigation to continue later
 
