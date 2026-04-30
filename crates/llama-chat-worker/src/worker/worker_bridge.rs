@@ -743,7 +743,9 @@ async fn stdout_reader_task(
             }
         }
 
-        // Clear model metadata (model needs to be reloaded)
+        // Save model path for auto-reload after restart
+        let crashed_model = model_meta.lock().await.as_ref().map(|m| (m.model_path.clone(), m.gpu_layers));
+        // Clear model metadata
         *model_meta.lock().await = None;
         loading_progress.store(0, Ordering::Relaxed);
 
@@ -773,6 +775,7 @@ async fn stdout_reader_task(
             let lp = loading_progress.clone();
             let pm = process_manager.clone();
             let ct = cmd_tx.clone();
+            let reload_model = crashed_model.clone();
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
@@ -785,6 +788,22 @@ async fn stdout_reader_task(
                         tokio::spawn(stdin_writer_task(new_cmd_rx, stdin));
                         *ct.lock().await = new_cmd_tx;
                         eprintln!("[BRIDGE] Stdin writer reconnected");
+                    }
+                    // Auto-reload the model that was loaded before the crash
+                    if let Some((model_path, gpu_layers)) = reload_model {
+                        eprintln!("[BRIDGE] Auto-reloading model: {} (gpu_layers={:?})", model_path, gpu_layers);
+                        let load_cmd = serde_json::json!({
+                            "id": 0,
+                            "command": {
+                                "LoadModel": {
+                                    "model_path": model_path,
+                                    "gpu_layers": gpu_layers,
+                                    "mmproj_path": null
+                                }
+                            }
+                        });
+                        let tx = ct.lock().await;
+                        let _ = tx.send(load_cmd.to_string());
                     }
                     // Reconnect stdout reader (blocks until next worker death)
                     if let Some(stdout) = stdout_opt {
