@@ -155,6 +155,7 @@ static ALL_TOOLS: &[ToolDef] = &[
             p("offset", "integer", "Line number to start reading from (1-based). Use with limit to read specific portions of large files."),
             p("limit", "integer", "Maximum number of lines to read. Defaults to all lines."),
             p("pages", "string", "Page range for PDF files (e.g. '1-5', '3', '10-20'). Only for PDF files."),
+            p("summary", "string", "'false' for raw content, 'true' (default) for automatic summary of large output, or a custom prompt (e.g. 'list all character names', 'summarize chapter 3'). Saves context tokens on large files."),
         ]),
         required: &["path"],
     },
