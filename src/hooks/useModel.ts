@@ -52,6 +52,9 @@ export const useModel = () => {
   const [loadingAction, setLoadingAction] = useState<LoadingAction>(null);
   const [error, setError] = useState<string | null>(null);
   const [hasStatusError, setHasStatusError] = useState(false);
+  // Track last known model path for auto-reload after crash
+  const lastModelPathRef = useRef<string | null>(null);
+  const wasLoadedRef = useRef(false);
 
   const hardUnload = useCallback(async () => {
     try {
@@ -78,12 +81,43 @@ export const useModel = () => {
         setIsLoading(true);
         setLoadingAction('loading');
       }
+      // Track loaded state for crash detection
+      if (data.loaded && data.model_path) {
+        lastModelPathRef.current = data.model_path;
+        wasLoadedRef.current = true;
+      }
+      // Auto-reload after worker crash: model was loaded but now isn't
+      if (
+        wasLoadedRef.current &&
+        !data.loaded &&
+        !data.loading &&
+        lastModelPathRef.current &&
+        !isLoading
+      ) {
+        const modelPath = lastModelPathRef.current;
+        wasLoadedRef.current = false;
+        console.log('[useModel] Model crashed — auto-reloading:', modelPath); // eslint-disable-line no-console
+        setIsLoading(true);
+        setLoadingAction('loading');
+        try {
+          const result: ModelResponse = await loadModelCmd(modelPath);
+          if (result.success && result.status) {
+            setStatus(result.status as ModelStatus);
+            console.log('[useModel] Auto-reload successful'); // eslint-disable-line no-console
+          }
+        } catch (reloadErr) {
+          console.error('[useModel] Auto-reload failed:', reloadErr);
+        } finally {
+          setIsLoading(false);
+          setLoadingAction(null);
+        }
+      }
     } catch (err) {
       setError('Network error while fetching model status');
       console.error('Model status fetch error:', err);
       setHasStatusError(true);
     }
-  }, []);
+  }, [isLoading]);
 
   const loadModel = useCallback(
     async (modelPath: string, config?: SamplerConfig) => {
