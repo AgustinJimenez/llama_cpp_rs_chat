@@ -69,6 +69,10 @@ fn steal_stdout_for_ipc() -> std::fs::File {
 
 /// Run the worker process. This function never returns normally.
 pub fn run_worker(db_path: &str) {
+    // Disable upstream attention rotation — causes CUDA sync deadlocks
+    // with Qwen3.5/3.6 models (llama.cpp issue #21383)
+    std::env::set_var("LLAMA_ATTN_ROT_DISABLE", "1");
+
     // Install crash handler to log info before process dies from segfault
     install_crash_handler();
 

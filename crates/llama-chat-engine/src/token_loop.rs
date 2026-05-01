@@ -1,4 +1,4 @@
-
+    
 use llama_cpp_2::{
     context::LlamaContext,
     llama_batch::LlamaBatch,
