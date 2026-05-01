@@ -76,10 +76,12 @@ Both happen non-deterministically after 1-12 tool injections per conversation.
 
 ### Call chain
 ```
-token_loop.rs → sampler.sample(context, -1)
-  → sampling.rs → llama_sampler_sample_safe() (safe_wrapper.cpp)
-    → llama_sampler_sample() in llama-sampler.cpp:806
-      → HANGS FOREVER (no exception, no return)
+crates/llama-chat-engine/src/token_loop.rs:294
+  → let next_token = sampler.sample(context, -1);
+    → deps/llama-cpp-rs/llama-cpp-2/src/sampling.rs:39
+      → llama_sampler_sample_safe() in deps/llama-cpp-rs/llama-cpp-sys-2/safe_wrapper.cpp
+        → llama_sampler_sample() in deps/llama-cpp-rs/llama-cpp-sys-2/llama.cpp/src/llama-sampler.cpp:806
+          → HANGS FOREVER (no exception, no return)
 ```
 
 ### Possible hang locations inside `llama_sampler_sample()` (llama-sampler.cpp:806-873)
@@ -88,7 +90,31 @@ token_loop.rs → sampler.sample(context, -1)
 - **Line 864**: `llama_sampler_apply(smpl, &cur_p)` — applies the sampler chain (penalties, temp, top_k, top_p, dist)
 - **Line 866**: `GGML_ASSERT(cur_p.selected >= 0)` — assert after apply
 
-A C++ debugger (Visual Studio) attached to the worker process would pinpoint the exact line.
+### How to debug the C++ hang
+
+**Option 1: Visual Studio (attach to process)**
+1. Build with debug symbols: set `strip = false` in `[profile.release]` (already set)
+2. Launch the app normally (`npm run tauri:dev:release`)
+3. Load the model, start a conversation that triggers tool calls
+4. Open Visual Studio → Debug → Attach to Process → select `llama_chat_app.exe` (the worker PID)
+5. When the hang occurs (watchdog hasn't killed it yet — increase `WATCHDOG_TIMEOUT_MS` to 60000 first)
+6. Click "Break All" in Visual Studio
+7. Check the call stack — it will show exactly where inside `llama_sampler_sample` the thread is stuck
+
+**Option 2: WinDbg**
+1. `windbg -p <worker_pid>` or attach via WinDbg UI
+2. When hung, press Ctrl+Break
+3. `!analyze -v` for crash analysis
+4. `~*k` to see all thread stacks
+
+**Option 3: CUDA compute-sanitizer**
+```
+compute-sanitizer --tool memcheck target/release/llama_chat_app.exe --worker --db-path ...
+```
+Detects illegal GPU memory access that could cause the hang.
+
+**Prep: increase watchdog timeout for debugging**
+In `token_loop.rs`, change `WATCHDOG_TIMEOUT_MS` from `10_000` to `60_000` or more so the debugger has time to break in before the watchdog kills the process.
 
 ## Crash instances (parameters at time of crash)
 
