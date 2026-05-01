@@ -81,8 +81,17 @@ crates/llama-chat-engine/src/token_loop.rs:294
     → deps/llama-cpp-rs/llama-cpp-2/src/sampling.rs:39
       → llama_sampler_sample_safe() in deps/llama-cpp-rs/llama-cpp-sys-2/safe_wrapper.cpp
         → llama_sampler_sample() in deps/llama-cpp-rs/llama-cpp-sys-2/llama.cpp/src/llama-sampler.cpp:806
-          → HANGS FOREVER (no exception, no return)
+          → llama_get_sampled_token_ith() at line 807
+            → ctx->synchronize() at llama-context.cpp:3139
+              → ggml_backend_sched_synchronize() → HANGS (CUDA never signals completion)
 ```
+
+### C++ instrumentation result (2026-05-01)
+Added `fprintf(stderr)` at each step inside `llama_sampler_sample()`:
+- Last successful log: `step=6_accept (token=13378)` — Nth call completed all 6 steps
+- The (N+1)th call **never logged step=1** — hangs at entry before `llama_get_sampled_token_ith()`
+- `llama_get_sampled_token_ith()` calls `ctx->synchronize()` internally
+- **Root cause: CUDA synchronization deadlock — GPU never signals completion**
 
 ### Possible hang locations inside `llama_sampler_sample()` (llama-sampler.cpp:806-873)
 - **Line 807-810**: `llama_get_sampled_token_ith()` etc. — calls `ctx->synchronize()` internally
