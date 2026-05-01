@@ -8,7 +8,7 @@ use std::sync::OnceLock;
 
 use crate::doc_extractors::{
     extract_csv_structured, extract_docx_text, extract_eml_text, extract_epub_text,
-    extract_odt_text, extract_pdf_text, extract_pptx_text, extract_rtf_text,
+    extract_odt_text, extract_pdf_with_pages, extract_pptx_text, extract_rtf_text,
     extract_xlsx_text, extract_zip_listing,
 };
 
@@ -204,12 +204,10 @@ pub fn tool_read_file(args: &Value) -> String {
         }
     }
 
-    // PDF files: extract text instead of returning binary garbage
+    // PDF files: extract text with optional page range
     if path_lower.ends_with(".pdf") {
-        return match std::fs::read(path) {
-            Ok(bytes) => extract_pdf_text(&bytes, MAX_READ_SIZE),
-            Err(e) => format!("Error reading '{path}': {e}"),
-        };
+        let pages_param = args.get("pages").and_then(|v| v.as_str()).unwrap_or("");
+        return extract_pdf_with_pages(path, pages_param, MAX_READ_SIZE);
     }
 
     // DOCX files: extract text from ZIP/XML structure
