@@ -139,6 +139,23 @@ In `token_loop.rs`, change `WATCHDOG_TIMEOUT_MS` from `10_000` to `60_000` or mo
 
 All crashes: `llama_sampler_sample()` hangs after successful `decode()`. Watchdog kills after 10s.
 
+## Upstream llama.cpp issues (2026-05-01)
+
+### [#21383](https://github.com/ggml-org/llama.cpp/issues/21383) — Qwen3.5-27B CUDA illegal memory access (OPEN)
+- Same pattern: agentic tool-call + CUDA sync hang
+- Caused by commit `744c0c731` (PR #21038) — Hadamard activation rotation
+- Workaround: `LLAMA_ATTN_ROT_DISABLE=1` — already disabled in our fork
+- **We still crash even with rotation disabled** → different root cause
+
+### [PR #22534](https://github.com/ggml-org/llama.cpp/pull/22534) — Hybrid model memory wipe (CLOSED, not merged)
+- `llama_memory_seq_rm()` fails on hybrid models (Qwen3.5/3.6)
+- Code then "destructively wipes ALL cached state" including valid checkpoints
+- This corrupted KV cache could cause CUDA sync deadlocks on next operation
+- PR was closed (AI content policy), fix not in upstream
+
+### Key insight
+**Hybrid/recurrent architectures (Qwen3.5/3.6 with Gated DeltaNet) have known memory management bugs in llama.cpp's CUDA backend.** The deadlock may be from internal seq_rm/memory operations corrupting the KV cache, not from our injection code.
+
 ## Investigation to continue
 
 1. **Attach C++ debugger** — Use Visual Studio to attach to the worker process, break when hung, get stack trace inside `llama_sampler_sample`
