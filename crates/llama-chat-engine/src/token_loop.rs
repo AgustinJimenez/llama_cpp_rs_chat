@@ -298,6 +298,31 @@ pub(crate) fn run_generation_loop(
                 Ordering::Relaxed,
             );
             stall_checkpoint = Instant::now();
+
+            // Check if sample() timed out (CUDA sync deadlock detected by safe wrapper)
+            if next_token == LlamaToken(-1) {
+                extern "C" { fn llama_decode_safe_get_error() -> *const std::ffi::c_char; }
+                let err = unsafe {
+                    let ptr = llama_decode_safe_get_error();
+                    if !ptr.is_null() { std::ffi::CStr::from_ptr(ptr).to_string_lossy().to_string() } else { String::new() }
+                };
+                if err.contains("timed out") {
+                    eprintln!("[SAMPLE] CUDA sync deadlock detected — stopping generation gracefully");
+                    log_event(cfg.conversation_id, "cuda_deadlock", &format!("sample() timeout at token {}", gen.total_tokens_generated));
+                    gen.finish_reason = "cuda_deadlock".to_string();
+                    if let Some(ref sender) = token_sender {
+                        let _ = sender.send(TokenData {
+                            token: "\n\n[CUDA sync issue — generation will continue automatically]".to_string(),
+                            tokens_used: gen.total_tokens_generated,
+                            max_tokens: cfg.max_total_tokens, status: None,
+                            ..Default::default()
+                        });
+                    }
+                    hit_stop_condition = true;
+                    break;
+                }
+            }
+
             // If watchdog triggered cancel during sample(), break out
             if cancel.load(Ordering::Relaxed) {
                 eprintln!("[WATCHDOG] Cancel detected after sample() returned — aborting generation");

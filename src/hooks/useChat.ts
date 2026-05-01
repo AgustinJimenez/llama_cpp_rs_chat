@@ -100,6 +100,7 @@ const AUTO_CONTINUE_REASONS = new Set([
   'yn_continue',
   'loop_recovery',
   'tool_continue',
+  'cuda_deadlock',
   'infinite_loop',
 ]);
 
