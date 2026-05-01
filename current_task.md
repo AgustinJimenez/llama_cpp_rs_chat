@@ -77,10 +77,18 @@ Both happen non-deterministically after 1-12 tool injections per conversation.
 ### Call chain
 ```
 token_loop.rs → sampler.sample(context, -1)
-  → sampling.rs → llama_sampler_sample_safe() (C++ wrapper)
-    → llama_sampler_sample() in llama-sampler.cpp
+  → sampling.rs → llama_sampler_sample_safe() (safe_wrapper.cpp)
+    → llama_sampler_sample() in llama-sampler.cpp:806
       → HANGS FOREVER (no exception, no return)
 ```
+
+### Possible hang locations inside `llama_sampler_sample()` (llama-sampler.cpp:806-873)
+- **Line 807-810**: `llama_get_sampled_token_ith()` etc. — calls `ctx->synchronize()` internally
+- **Line 849**: `llama_get_logits_ith(ctx, idx)` — logits retrieval
+- **Line 864**: `llama_sampler_apply(smpl, &cur_p)` — applies the sampler chain (penalties, temp, top_k, top_p, dist)
+- **Line 866**: `GGML_ASSERT(cur_p.selected >= 0)` — assert after apply
+
+A C++ debugger (Visual Studio) attached to the worker process would pinpoint the exact line.
 
 ## Crash instances (parameters at time of crash)
 
