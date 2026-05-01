@@ -58,21 +58,38 @@ Both happen non-deterministically after 1-12 tool injections per conversation.
 | 15 | Different seeds with same conversation | ❌ Crash is random regardless of seed |
 | 16 | Crash during normal generation (no injection) | ❌ Also crashes with 0 injections — not injection-specific |
 
-## Key Findings (2026-04-30)
+## Key Findings
 
+### 2026-04-30
 1. The crash is **NOT specific to tool injection** — also happens during normal generation.
 2. **NOT seed-dependent** — same seed crashes sometimes, works other times.
 3. **NOT TurboQuant-specific** — crashes with f16 KV cache too (confirmed `kv_cache=f16` in logs).
-4. This is a **llama.cpp + Qwen3.6 hybrid MoE+SSM + CUDA** issue. Next: test with a different model.
+4. **NOT model-specific** — crashes with both Qwen3.6-35B (MoE+SSM) and Qwen3.5-9B (dense).
+5. **NOT injection-size dependent** — crashes with 45-token, 101-token, and 1000+ token injections.
 
-## Investigation to continue later
+### Exact crash location
+- Always in `llama_sampler_sample()` — the C++ function inside llama.cpp
+- Last log: `Sampling token N (i=0) ...` — then function never returns
+- `decode()` before it completes successfully (no error, no exception)
+- Safe C++ wrapper catches nothing — it's NOT an exception, it's a true hang/deadlock
+- The watchdog detects it after 10s and kills the worker process
 
-1. **Test with upstream llama.cpp** — The TurboQuant fork may have introduced the bug. Try upstream + f16 KV cache.
-2. **Test with a different model** — Try Devstral, Gemma-4, or a dense (non-MoE) model to isolate if it's architecture-specific.
-3. **Test with a different GPU** — Could be an RTX 4090 driver bug.
-4. **CUDA memory checker** — Run with `compute-sanitizer --tool memcheck`.
-5. **Update CUDA drivers** — Newer drivers may fix the issue.
-6. **Update llama.cpp fork** — The TurboQuant fork may have fixes.
+### Call chain
+```
+token_loop.rs → sampler.sample(context, -1)
+  → sampling.rs → llama_sampler_sample_safe() (C++ wrapper)
+    → llama_sampler_sample() in llama-sampler.cpp
+      → HANGS FOREVER (no exception, no return)
+```
+
+## Investigation to continue
+
+1. **Attach C++ debugger** — Use Visual Studio to attach to the worker process, break when hung, get stack trace inside `llama_sampler_sample`
+2. **`compute-sanitizer --tool memcheck`** — NVIDIA CUDA memory checker
+3. **Test with upstream llama.cpp** — Rule out TurboQuant fork as cause
+4. **Test with Gemma-4 or Devstral** — Different model family (non-Qwen)
+5. **Update CUDA drivers** — Newer drivers may fix
+6. **Report to llama.cpp** — If reproducible on upstream, file an issue
 
 ## Key Files
 
