@@ -82,6 +82,20 @@ token_loop.rs → sampler.sample(context, -1)
       → HANGS FOREVER (no exception, no return)
 ```
 
+## Crash instances (parameters at time of crash)
+
+| # | Model | KV Cache | Context | Flash Attn | GPU Layers | Injection tokens | Seed |
+|---|-------|----------|---------|------------|------------|-----------------|------|
+| 1 | Qwen3.6-35B-A3B-UD-IQ4_XS | turbo2/turbo3 | 119040 | true | 40/40 | 1338, 729, 1046 | -1 |
+| 2 | Qwen3.6-35B-A3B-UD-IQ4_XS | q8_0/q8_0 | 103424 | true | 40/40 | 1264, 552 | -1 |
+| 3 | Qwen3.6-35B-A3B-UD-IQ4_XS | f16/f16 | 60416 | true | 40/40 | 729, 729 | -1 |
+| 4 | Qwen3.5-9B-Q8_0 | f16/f16 | 60416 | true | ? | ? | -1 |
+| 5 | Qwen3.6-35B-A3B-UD-IQ4_XS | turbo2/turbo3 | 118528 | true | 40/40 | 294, 248 | -1 |
+| 6 | Qwen3.6-35B-A3B-UD-IQ4_XS | turbo2/turbo3 | 137472 | true | 40/40 | 46, 297, 101 | -1 |
+| 7 | Qwen3.6-35B-A3B-UD-IQ4_XS | turbo2/turbo3 | 137472 | true | 40/40 | 0 (no injection) | -1 |
+
+All crashes: `llama_sampler_sample()` hangs after successful `decode()`. Watchdog kills after 10s.
+
 ## Investigation to continue
 
 1. **Attach C++ debugger** — Use Visual Studio to attach to the worker process, break when hung, get stack trace inside `llama_sampler_sample`
