@@ -50,10 +50,8 @@ fn provider_cost_per_million(provider_id: &str, model: &str) -> Option<(f64, f64
         "openrouter" => None,
         "together" => Some((0.20, 0.20)),
         "deepseek" => match model {
-            "deepseek-v4-pro" => Some((0.435, 0.87)),
-            "deepseek-v4-flash" => Some((0.14, 0.28)),
-            m if m.contains("reasoner") => Some((0.55, 2.19)),
-            _ => Some((0.14, 0.28)),
+            "deepseek-v4-pro" => Some((1.74, 3.48)),
+            "deepseek-v4-flash" | "deepseek-chat" | "deepseek-reasoner" | _ => Some((0.14, 0.28)),
         },
         "fireworks" => Some((0.20, 0.20)),
         "xai" => Some((2.0, 10.0)),

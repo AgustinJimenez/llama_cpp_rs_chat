@@ -7,10 +7,13 @@
 
 use serde::Serialize;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::sync::OnceLock;
 use tokio::sync::mpsc;
 
 pub mod claude_code;
 pub mod codex;
+pub mod gemini;
 pub mod openai_compat;
 
 /// Apply CREATE_NO_WINDOW on Windows to prevent terminal flashing for CLI providers.
@@ -33,6 +36,8 @@ pub struct ProviderInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
     pub models: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_base_url: Option<String>,
 }
 
 /// Token/event data sent from CLI-backed providers to the frontend.
@@ -51,6 +56,79 @@ pub struct CliTokenData {
 #[allow(dead_code)]
 fn remote_provider_tool_delta() -> &'static str {
     "You are running inside LLaMA Chat as a remote CLI-backed provider. Prefer your built-in native tools. Keep responses concise and action-oriented."
+}
+
+/// Resolve the full path to a CLI binary, falling back to a login shell on macOS
+/// so that binaries installed via nvm/npm are found when the app is launched from Finder.
+pub async fn resolve_bin_path(name: &str) -> Option<String> {
+    // Try direct lookup first (works in dev / when PATH is already set correctly)
+    let ok = tokio::process::Command::new(name)
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .stdin(Stdio::null())
+        .status()
+        .await
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if ok {
+        return Some(name.to_string());
+    }
+
+    // On macOS bundled apps the GUI PATH is minimal (/usr/bin:/bin:/usr/sbin:/sbin).
+    // Use a login shell to pick up nvm/npm/homebrew paths from .zshrc/.bash_profile.
+    #[cfg(target_os = "macos")]
+    {
+        let output = tokio::process::Command::new("/bin/zsh")
+            .args(["-l", "-c", &format!("which {name}")])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .stdin(Stdio::null())
+            .output()
+            .await
+            .ok()?;
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() {
+                return Some(path);
+            }
+        }
+    }
+
+    None
+}
+
+static CLAUDE_PATH: OnceLock<Option<String>> = OnceLock::new();
+static CODEX_PATH: OnceLock<Option<String>> = OnceLock::new();
+static GEMINI_PATH: OnceLock<Option<String>> = OnceLock::new();
+
+pub async fn claude_bin() -> Option<String> {
+    if let Some(cached) = CLAUDE_PATH.get() {
+        return cached.clone();
+    }
+    let name = if cfg!(target_os = "windows") { "claude.cmd" } else { "claude" };
+    let resolved = resolve_bin_path(name).await;
+    CLAUDE_PATH.get_or_init(|| resolved.clone());
+    resolved
+}
+
+pub async fn codex_bin() -> Option<String> {
+    if let Some(cached) = CODEX_PATH.get() {
+        return cached.clone();
+    }
+    let name = if cfg!(target_os = "windows") { "codex.cmd" } else { "codex" };
+    let resolved = resolve_bin_path(name).await;
+    CODEX_PATH.get_or_init(|| resolved.clone());
+    resolved
+}
+
+pub async fn gemini_bin() -> Option<String> {
+    if let Some(cached) = GEMINI_PATH.get() {
+        return cached.clone();
+    }
+    let resolved = resolve_bin_path("gemini").await;
+    GEMINI_PATH.get_or_init(|| resolved.clone());
+    resolved
 }
 
 pub fn resolve_cli_cwd(cwd: Option<&str>) -> Result<PathBuf, String> {
@@ -95,6 +173,7 @@ pub async fn list_providers_with_keys(api_keys_json: Option<&str>) -> Vec<Provid
             description: "Run models locally on your GPU".into(),
             version: None,
             models: Vec::new(),
+            default_base_url: None,
         },
         ProviderInfo {
             id: "claude_code".into(),
@@ -107,6 +186,7 @@ pub async fn list_providers_with_keys(api_keys_json: Option<&str>) -> Vec<Provid
                 None
             },
             models: vec!["opus".into(), "sonnet".into(), "haiku".into()],
+            default_base_url: None,
         },
         ProviderInfo {
             id: "codex".into(),
@@ -119,6 +199,7 @@ pub async fn list_providers_with_keys(api_keys_json: Option<&str>) -> Vec<Provid
                 None
             },
             models: vec!["gpt-5".into()],
+            default_base_url: None,
         },
     ];
 
@@ -133,6 +214,7 @@ pub async fn list_providers_with_keys(api_keys_json: Option<&str>) -> Vec<Provid
             description: preset.description.into(),
             version: None,
             models: preset.models.iter().map(|s| s.to_string()).collect(),
+            default_base_url: Some(preset.base_url.into()),
         });
     }
 
@@ -158,6 +240,7 @@ pub async fn list_providers_with_keys(api_keys_json: Option<&str>) -> Vec<Provid
                         description: format!("Custom: {}", base_url),
                         version: None,
                         models,
+                        default_base_url: if base_url.is_empty() { None } else { Some(base_url.to_string()) },
                     });
                 }
             }
@@ -178,6 +261,7 @@ pub fn list_configured_providers_with_keys(api_keys_json: Option<&str>) -> Vec<P
             description: "Run models locally on your GPU".into(),
             version: None,
             models: Vec::new(),
+            default_base_url: None,
         },
     ];
     // Add OpenAI-compatible providers from presets
@@ -190,38 +274,47 @@ pub fn list_configured_providers_with_keys(api_keys_json: Option<&str>) -> Vec<P
             description: preset.description.into(),
             version: None,
             models: preset.models.iter().map(|s| s.to_string()).collect(),
+            default_base_url: Some(preset.base_url.into()),
         });
     }
     providers
 }
 
-/// List CLI-based providers (Claude Code, Codex) with availability checks.
+/// List CLI-based providers (Claude Code, Codex, Gemini) always, with availability status.
 #[allow(dead_code)]
 pub async fn list_cli_providers() -> Vec<ProviderInfo> {
     let claude_available = claude_code::is_available().await;
     let codex_available = codex::is_available().await;
-    let mut providers = Vec::new();
-    if claude_available {
-        providers.push(ProviderInfo {
+    let gemini_available = gemini::is_available().await;
+    vec![
+        ProviderInfo {
             id: "claude_code".into(),
             name: "Claude Code".into(),
-            available: true,
+            available: claude_available,
             description: "Use your Claude Code subscription".into(),
-            version: claude_code::get_version().await,
+            version: if claude_available { claude_code::get_version().await } else { None },
             models: vec!["opus".into(), "sonnet".into(), "haiku".into()],
-        });
-    }
-    if codex_available {
-        providers.push(ProviderInfo {
+            default_base_url: None,
+        },
+        ProviderInfo {
             id: "codex".into(),
             name: "Codex CLI".into(),
-            available: true,
+            available: codex_available,
             description: "Use your local Codex CLI session".into(),
-            version: codex::get_version().await,
+            version: if codex_available { codex::get_version().await } else { None },
             models: vec!["gpt-5".into()],
-        });
-    }
-    providers
+            default_base_url: None,
+        },
+        ProviderInfo {
+            id: "gemini_cli".into(),
+            name: "Gemini CLI".into(),
+            available: gemini_available,
+            description: "Use your Google Gemini CLI session".into(),
+            version: if gemini_available { gemini::get_version().await } else { None },
+            models: vec!["gemini-2.5-pro".into(), "gemini-2.5-flash".into()],
+            default_base_url: None,
+        },
+    ]
 }
 
 pub async fn generate(
@@ -238,6 +331,7 @@ pub async fn generate(
     match provider_id {
         "claude_code" => claude_code::generate(prompt, model, max_turns, cwd, session_id).await,
         "codex" => codex::generate(prompt, model, max_turns, cwd, session_id).await,
+        "gemini_cli" => gemini::generate(prompt, model, max_turns, cwd, session_id).await,
         // TODO (#6): Hybrid Claude/Codex provider — route to Claude Code or Codex
         // with conversation history and tool dispatch. Too complex for this batch.
         id if openai_compat::is_openai_compat(id) => {
@@ -262,6 +356,7 @@ pub fn default_model(provider_id: &str) -> &'static str {
     match provider_id {
         "claude_code" => "sonnet",
         "codex" => "gpt-5",
+        "gemini_cli" => "gemini-2.5-flash",
         _ => {
             if let Some(preset) = openai_compat::get_preset(provider_id) {
                 preset.models.first().copied().unwrap_or("")

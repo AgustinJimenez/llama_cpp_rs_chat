@@ -29,6 +29,25 @@ pub async fn handle_list_providers(
     Ok(json_raw(StatusCode::OK, response_json))
 }
 
+/// GET /api/providers/configured — list configured (non-CLI) providers synchronously
+pub async fn handle_list_configured_providers(
+    db: llama_chat_db::SharedDatabase,
+) -> Result<Response<Body>, Infallible> {
+    let api_keys = load_api_keys_json(&db);
+    let configured = providers::list_configured_providers_with_keys(api_keys.as_deref());
+    let response = serde_json::json!({ "providers": configured });
+    let response_json = serialize_with_fallback(&response, "{}");
+    Ok(json_raw(StatusCode::OK, response_json))
+}
+
+/// GET /api/providers/cli-status — list CLI providers with availability
+pub async fn handle_list_cli_providers() -> Result<Response<Body>, Infallible> {
+    let cli = providers::list_cli_providers().await;
+    let response = serde_json::json!({ "providers": cli });
+    let response_json = serialize_with_fallback(&response, "{}");
+    Ok(json_raw(StatusCode::OK, response_json))
+}
+
 async fn parse_provider_request(req: hyper::Request<Body>) -> Result<ProviderRequest, Response<Body>> {
     let body = hyper::body::to_bytes(req.into_body())
         .await
@@ -176,7 +195,7 @@ pub async fn handle_provider_stream(
 
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs())
+                    .map(|d| d.as_millis() as u64)
                     .unwrap_or(0);
                 save_provider_turn(
                     &db_clone,

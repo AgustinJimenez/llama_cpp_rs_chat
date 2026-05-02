@@ -31,6 +31,7 @@ export default defineConfig({
         '**/results/**',
         '**/expected/**',
         '**/php-8.2.30/**',
+        '**/deps/**',
         '**/*.gguf',
         '**/*.db',
         '**/*.stackdump',
@@ -76,5 +77,8 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
+  },
+  optimizeDeps: {
+    exclude: ['deps'],
   },
 });

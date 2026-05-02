@@ -138,7 +138,8 @@ const UserMessage: React.FC<{
   onEditMessage?: (messageIndex: number, newContent: string) => void;
   isGenerating?: boolean;
 }> = ({ message, cleanContent, viewMode, messageIndex, onEditMessage, isGenerating }) => {
-  const { status } = useModelContext();
+  const { status, activeProvider } = useModelContext();
+  const modelReady = status.loaded || activeProvider !== 'local';
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -177,7 +178,7 @@ const UserMessage: React.FC<{
     }
   };
 
-  const canEdit = onEditMessage && messageIndex != null && !isGenerating && status.loaded;
+  const canEdit = onEditMessage && messageIndex != null && !isGenerating && modelReady;
 
   if (isEditing) {
     return (
@@ -310,7 +311,8 @@ const AssistantMessage: React.FC<{
   onRegenerate,
   onContinue,
 }) => {
-  const { status } = useModelContext();
+  const { status, activeProvider } = useModelContext();
+  const modelReady = status.loaded || activeProvider !== 'local';
   return (
     <div
       className="w-full flex justify-start"
@@ -376,7 +378,7 @@ const AssistantMessage: React.FC<{
         {!isStreaming && formatTimestamp(message.timestamp) ? (
           <div className="flex items-center gap-2 mt-0.5 pl-1">
             <span className="text-[10px] text-white/50">{formatTimestamp(message.timestamp)}</span>
-            {isLastAssistant && !isGenerating && status.loaded && onContinue ? (
+            {isLastAssistant && !isGenerating && modelReady && onContinue ? (
               <button
                 onClick={onContinue}
                 className="text-white/30 hover:text-white/70 transition-colors p-0.5"
@@ -385,7 +387,7 @@ const AssistantMessage: React.FC<{
                 <Play className="h-3 w-3" />
               </button>
             ) : null}
-            {isLastAssistant && !isGenerating && status.loaded && onRegenerate ? (
+            {isLastAssistant && !isGenerating && modelReady && onRegenerate ? (
               <button
                 onClick={onRegenerate}
                 className="text-white/30 hover:text-white/70 transition-colors p-0.5"

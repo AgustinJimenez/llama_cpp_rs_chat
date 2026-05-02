@@ -52,6 +52,7 @@ struct CodexUsage {
     output_tokens: Option<u64>,
 }
 
+#[cfg(target_os = "windows")]
 fn codex_cmd() -> &'static str {
     "codex"
 }
@@ -100,10 +101,7 @@ pub async fn is_available() -> bool {
             }
         }
     }
-    let mut cmd = Command::new(codex_cmd());
-    cmd.arg("--version").stdout(Stdio::piped()).stderr(Stdio::null()).stdin(Stdio::null());
-    hide_window(&mut cmd);
-    cmd.output().await.map(|o| o.status.success()).unwrap_or(false)
+    crate::providers::codex_bin().await.is_some()
 }
 
 pub async fn get_version() -> Option<String> {
@@ -122,7 +120,8 @@ pub async fn get_version() -> Option<String> {
             }
         }
     }
-    let mut cmd = Command::new(codex_cmd());
+    let bin = crate::providers::codex_bin().await?;
+    let mut cmd = Command::new(&bin);
     cmd.arg("--version").stdout(Stdio::piped()).stderr(Stdio::null()).stdin(Stdio::null());
     hide_window(&mut cmd);
     let output = cmd.output().await.ok()?;
@@ -150,7 +149,9 @@ pub async fn generate(
         Command::new(codex_cmd())
     };
     #[cfg(not(target_os = "windows"))]
-    let mut cmd = Command::new(codex_cmd());
+    let mut cmd = Command::new(
+        crate::providers::codex_bin().await.unwrap_or_else(|| "codex".to_string())
+    );
 
     if let Some(sid) = session_id {
         cmd.arg("exec").arg("resume").arg("--json");

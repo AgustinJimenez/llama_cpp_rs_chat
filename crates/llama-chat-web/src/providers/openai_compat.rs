@@ -50,8 +50,8 @@ fn provider_cost_per_million(provider_id: &str, model: &str) -> Option<(f64, f64
         "openrouter" => None,
         "together" => Some((0.20, 0.20)),
         "deepseek" => match model {
-            m if m.contains("reasoner") => Some((0.55, 2.19)),
-            _ => Some((0.27, 1.10)),
+            "deepseek-reasoner" => Some((0.55, 2.19)),
+            "deepseek-chat" | _ => Some((0.27, 1.10)),
         },
         "fireworks" => Some((0.20, 0.20)),
         "xai" => Some((2.0, 10.0)),
@@ -102,19 +102,6 @@ fn trim_old_tool_results(messages: &mut Vec<Value>) {
 
 /// The set of tool names we expose to cloud providers.
 /// Kept small to minimize request size — no desktop/screenshot/MCP tools.
-const AGENTIC_TOOL_NAMES: &[&str] = &[
-    "read_file",
-    "write_file",
-    "edit_file",
-    "execute_command",
-    "execute_python",
-    "list_directory",
-    "search_files",
-    "find_files",
-    "web_search",
-    "web_fetch",
-    "send_telegram",
-];
 
 // ── Streaming data structures ──────────────────────────────────────────────
 
@@ -136,6 +123,7 @@ struct ChunkChoice {
 #[derive(Debug, Deserialize)]
 struct Delta {
     content: Option<String>,
+    reasoning_content: Option<String>,
     tool_calls: Option<Vec<ToolCallDelta>>,
 }
 
@@ -171,6 +159,8 @@ struct AccumulatedToolCall {
 struct StreamResult {
     /// Text content produced by the model (may be empty if only tool calls).
     content: String,
+    /// Reasoning/thinking content from reasoning models (e.g. deepseek-reasoner).
+    reasoning_content: Option<String>,
     /// Accumulated tool calls (empty if the model produced only text).
     tool_calls: Vec<AccumulatedToolCall>,
     /// Model ID reported by the API.
@@ -248,7 +238,7 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
     ProviderPreset {
         id: "deepseek",
         name: "DeepSeek",
-        base_url: "https://api.deepseek.com/v1",
+        base_url: "https://api.deepseek.com",
         description: "DeepSeek AI models",
         models: &["deepseek-chat", "deepseek-reasoner"],
         env_key: "DEEPSEEK_API_KEY",
@@ -478,22 +468,7 @@ fn resolve_model(provider_id: &str, model: Option<&str>) -> String {
 /// Returns tools in OpenAI function-calling format.
 fn get_agentic_tools() -> Vec<Value> {
     use llama_chat_engine::jinja_templates::get_available_tools_openai;
-
-    let all_tools = get_available_tools_openai();
-    all_tools
-        .into_iter()
-        .filter(|tool| {
-            if let Some(name) = tool
-                .get("function")
-                .and_then(|f| f.get("name"))
-                .and_then(|n| n.as_str())
-            {
-                AGENTIC_TOOL_NAMES.contains(&name)
-            } else {
-                false
-            }
-        })
-        .collect()
+    get_available_tools_openai()
 }
 
 // ── Local tool execution ───────────────────────────────────────────────────
@@ -603,6 +578,7 @@ fn stream_sse_response(
     let mut output_tokens: Option<u64> = None;
     let mut finish_reason: Option<String> = None;
     let mut content = String::new();
+    let mut reasoning_content = String::new();
 
     // Track streaming tool calls — supports multiple parallel tool calls
     // Each tool call is identified by its index in the delta stream.
@@ -661,6 +637,13 @@ fn stream_sse_response(
             }
 
             if let Some(ref delta) = choice.delta {
+                // Accumulate reasoning content (not streamed to frontend)
+                if let Some(ref rc) = delta.reasoning_content {
+                    if !rc.is_empty() {
+                        reasoning_content.push_str(rc);
+                    }
+                }
+
                 // Stream text content to frontend
                 if let Some(ref text) = delta.content {
                     if !text.is_empty() {
@@ -711,6 +694,7 @@ fn stream_sse_response(
 
     Ok(StreamResult {
         content,
+        reasoning_content: if reasoning_content.is_empty() { None } else { Some(reasoning_content) },
         tool_calls,
         actual_model,
         finish_reason,
@@ -837,6 +821,37 @@ pub async fn generate(
                 Ok(r) => r,
                 Err(error_msg) => {
                     eprintln!("[OPENAI_COMPAT] Error on iteration {}: {error_msg}", iteration + 1);
+
+                    // DeepSeek reasoning models require reasoning_content from previous turns.
+                    // If we loaded history from DB without it, strip history and retry once.
+                    if iteration == 0 && error_msg.contains("reasoning_content") {
+                        eprintln!("[OPENAI_COMPAT] reasoning_content error — retrying without DB history");
+                        let mut body_retry = body.clone();
+                        body_retry["messages"] = json!([
+                            {"role": "system", "content": get_cloud_system_prompt()},
+                            {"role": "user", "content": prompt_owned.clone()}
+                        ]);
+                        match stream_sse_response(&url, &api_key_owned, &body_retry, &tx, &actual_model) {
+                            Ok(r) => {
+                                if let Some(m) = r.actual_model { actual_model = Some(m); }
+                                if let Some(it) = r.input_tokens { total_input_tokens += it; }
+                                if let Some(ot) = r.output_tokens { total_output_tokens += ot; }
+                                final_stop_reason = r.finish_reason.unwrap_or_else(|| "stop".to_string());
+                            }
+                            Err(retry_err) => {
+                                let _ = tx.send(CliTokenData {
+                                    token: format!("\n**Error:** {retry_err}"),
+                                    is_done: false, session_id: None, stop_reason: None,
+                                    cost_usd: None, duration_ms: None,
+                                    model_id: Some(model_name_clone.clone()),
+                                    input_tokens: None, output_tokens: None,
+                                });
+                                final_stop_reason = "error".to_string();
+                            }
+                        }
+                        break;
+                    }
+
                     let hint = if error_msg.contains("429") || error_msg.contains("rate_limit") {
                         "\nHint: Rate limit reached. Wait a moment and try again, or use a different provider."
                     } else if error_msg.contains("401") || error_msg.contains("403") {
@@ -922,8 +937,8 @@ pub async fn generate(
                 })
                 .collect();
 
-            // Add assistant message (with content if any, plus tool_calls)
-            let assistant_msg = if result.content.is_empty() {
+            // Add assistant message (with content if any, plus tool_calls, plus reasoning_content for thinking models)
+            let mut assistant_msg = if result.content.is_empty() {
                 json!({
                     "role": "assistant",
                     "content": null,
@@ -936,6 +951,10 @@ pub async fn generate(
                     "tool_calls": tc_json,
                 })
             };
+            // DeepSeek reasoning models require reasoning_content to be passed back in multi-turn
+            if let Some(ref rc) = result.reasoning_content {
+                assistant_msg["reasoning_content"] = json!(rc);
+            }
             messages.push(assistant_msg);
 
             // Execute tool calls — parallel if multiple, sequential if single
@@ -1114,15 +1133,9 @@ mod tests {
     fn test_get_agentic_tools() {
         let tools = get_agentic_tools();
         assert!(!tools.is_empty());
-        assert!(tools.len() <= AGENTIC_TOOL_NAMES.len());
-
-        // Verify all returned tools are in our allowlist
+        // All returned tools must have a valid function name
         for tool in &tools {
-            let name = tool["function"]["name"].as_str().unwrap();
-            assert!(
-                AGENTIC_TOOL_NAMES.contains(&name),
-                "Unexpected tool: {name}"
-            );
+            assert!(tool["function"]["name"].as_str().is_some());
         }
     }
 

@@ -94,28 +94,15 @@ pub fn display_model_name(model: Option<&str>) -> String {
     }
 }
 
-/// Get the claude CLI command name (handles Windows .cmd wrapper)
-fn claude_cmd() -> &'static str {
-    if cfg!(target_os = "windows") { "claude.cmd" } else { "claude" }
-}
-
 /// Check if the Claude CLI is available
 pub async fn is_available() -> bool {
-    let mut cmd = Command::new(claude_cmd());
-    cmd.arg("--version")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .stdin(Stdio::null());
-    crate::providers::hide_cli_window(&mut cmd);
-    cmd.output()
-        .await
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    crate::providers::claude_bin().await.is_some()
 }
 
 /// Get the Claude CLI version
 pub async fn get_version() -> Option<String> {
-    let mut cmd = Command::new(claude_cmd());
+    let bin = crate::providers::claude_bin().await?;
+    let mut cmd = Command::new(&bin);
     cmd.arg("--version")
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -155,11 +142,11 @@ pub async fn generate(
         if cli_js.exists() {
             cli_js.to_string_lossy().to_string()
         } else {
-            eprintln!("[CLAUDE_CODE] cli.js not found, falling back to claude_cmd()");
-            claude_cmd().to_string() // fallback to .cmd
+            eprintln!("[CLAUDE_CODE] cli.js not found, falling back to resolved path");
+            crate::providers::claude_bin().await.unwrap_or_else(|| "claude".to_string())
         }
     } else {
-        "claude".to_string()
+        crate::providers::claude_bin().await.unwrap_or_else(|| "claude".to_string())
     };
 
     eprintln!("[CLAUDE_CODE] Using binary: {}", claude_bin);

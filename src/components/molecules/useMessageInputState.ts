@@ -13,9 +13,10 @@ export function useInputState() {
     messages,
     currentConversationId,
   } = useChatContext();
-  const { status, isLoading: isModelLoading, loadingAction } = useModelContext();
+  const { status, isLoading: isModelLoading, loadingAction, activeProvider } = useModelContext();
   const hasVision = status.has_vision ?? false;
   const isModelBusy = isModelLoading && loadingAction !== null;
+  const isRemoteProvider = activeProvider !== 'local';
 
   const isGeneratingElsewhere =
     status.generating === true &&
@@ -23,14 +24,14 @@ export function useInputState() {
     currentConversationId != null &&
     status.active_conversation_id !== currentConversationId;
 
-  const disabled = isLoading || isModelBusy || isGeneratingElsewhere || !status.loaded;
+  const disabled = isLoading || isModelBusy || isGeneratingElsewhere || (!status.loaded && !isRemoteProvider);
   const estimatedConvTokens = useMemo(
     () =>
       Math.round(messages.reduce((sum, m) => sum + (m.content?.length || 0), 0) / CHARS_PER_TOKEN),
     [messages],
   );
   const modelContextSize = status.context_size;
-  const isModelLoaded = status.loaded;
+  const isModelLoaded = status.loaded || isRemoteProvider;
   return {
     onSendMessage,
     isLoading,

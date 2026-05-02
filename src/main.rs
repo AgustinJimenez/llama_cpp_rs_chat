@@ -64,6 +64,25 @@ struct ChatDoneEvent {
     finish_reason: Option<String>,
 }
 
+// ─── Provider streaming event payloads ────────────────────────────────
+
+#[derive(Serialize, Clone)]
+struct ProviderTokenEvent {
+    token: String,
+}
+
+#[derive(Serialize, Clone)]
+struct ProviderDoneEvent {
+    conversation_id: String,
+    session_id: Option<String>,
+    stop_reason: Option<String>,
+    cost_usd: Option<f64>,
+    duration_ms: Option<u64>,
+    input_tokens: Option<u64>,
+    output_tokens: Option<u64>,
+    model: Option<String>,
+}
+
 // ─── Logging ──────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -711,6 +730,136 @@ async fn list_cli_providers() -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({ "providers": providers }))
 }
 
+// ─── Cloud provider streaming (Tauri variant — saves to Tauri DB) ─────
+
+fn save_provider_turn_tauri(
+    db: &SharedDatabase,
+    conv_id: &str,
+    provider_id: &str,
+    provider_session_id: Option<&str>,
+    prompt: &str,
+    full_response: &str,
+    now: u64,
+) {
+    if full_response.is_empty() {
+        return;
+    }
+    {
+        let conn = db.connection();
+        let _ = conn.execute(
+            "INSERT OR IGNORE INTO conversations (id, created_at, updated_at, system_prompt, title, provider_id, provider_session_id) \
+             VALUES (?1, ?2, ?3, NULL, NULL, NULL, NULL)",
+            rusqlite::params![conv_id, now as i64, now as i64],
+        );
+    }
+    let next_seq = db
+        .get_messages(conv_id)
+        .map(|msgs| msgs.len() as i32 + 1)
+        .unwrap_or(1);
+    let _ = db.insert_message(conv_id, "user", prompt, now, next_seq);
+    let _ = db.insert_message(conv_id, "assistant", full_response, now, next_seq + 1);
+    let _ = db.set_conversation_provider_session_id(conv_id, Some(provider_id), provider_session_id);
+    {
+        let conn = db.connection();
+        let _ = conn.execute(
+            "UPDATE conversations SET updated_at = ?1 WHERE id = ?2",
+            rusqlite::params![now as i64, conv_id],
+        );
+    }
+}
+
+#[tauri::command]
+async fn stream_provider(
+    app: AppHandle,
+    db: tauri::State<'_, SharedDatabase>,
+    provider: String,
+    model: Option<String>,
+    prompt: String,
+    conversation_id: Option<String>,
+    session_id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let api_keys = load_provider_api_keys_json(&db);
+
+    let conv_id = conversation_id.clone().unwrap_or_else(|| {
+        format!("chat_{}", chrono::Local::now().format("%Y-%m-%d-%H-%M-%S-%3f"))
+    });
+
+    let provider_prompt = web::providers::compose_prompt(
+        &provider,
+        &prompt,
+        session_id.as_deref(),
+    );
+
+    let mut rx = web::providers::generate(
+        &provider,
+        &provider_prompt,
+        model.as_deref(),
+        Some(50),
+        None,
+        session_id.as_deref(),
+        api_keys.as_deref(),
+        Some(&conv_id),
+        Some(db.inner()),
+    )
+    .await
+    .map_err(|e| format!("Failed to start provider: {e}"))?;
+
+    let db_clone = db.inner().clone();
+    let conv_id_clone = conv_id.clone();
+    let prompt_clone = prompt.clone();
+    let provider_clone = provider.clone();
+
+    tokio::spawn(async move {
+        let mut full_response = String::new();
+
+        while let Some(token_data) = rx.recv().await {
+            if token_data.is_done {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0);
+
+                save_provider_turn_tauri(
+                    &db_clone,
+                    &conv_id_clone,
+                    &provider_clone,
+                    token_data.session_id.as_deref(),
+                    &prompt_clone,
+                    &full_response,
+                    now,
+                );
+
+                let _ = app.emit("provider-done", ProviderDoneEvent {
+                    conversation_id: conv_id_clone.clone(),
+                    session_id: token_data.session_id,
+                    stop_reason: token_data.stop_reason,
+                    cost_usd: token_data.cost_usd,
+                    duration_ms: token_data.duration_ms,
+                    input_tokens: token_data.input_tokens,
+                    output_tokens: token_data.output_tokens,
+                    model: token_data.model_id,
+                });
+
+                let _ = app.emit("conversation-title-updated", serde_json::json!({
+                    "conversation_id": &conv_id_clone,
+                }));
+                break;
+            }
+
+            if token_data.token.is_empty() {
+                continue;
+            }
+
+            full_response.push_str(&token_data.token);
+            let _ = app.emit("provider-token", ProviderTokenEvent {
+                token: token_data.token,
+            });
+        }
+    });
+
+    Ok(serde_json::json!({ "conversation_id": conv_id }))
+}
+
 // ─── Helper: Parse conversation text to messages ──────────────────────
 
 trait Pipe: Sized {
@@ -1027,6 +1176,7 @@ fn main() {
             list_providers,
             list_configured_providers,
             list_cli_providers,
+            stream_provider,
             // HuggingFace Hub
             commands::hub::search_hub_models,
             commands::hub::fetch_hub_tree,

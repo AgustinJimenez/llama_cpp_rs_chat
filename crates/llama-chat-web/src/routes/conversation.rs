@@ -72,26 +72,34 @@ pub async fn handle_get_conversations(
 
     // Fetch conversations from database
     let mut conversations = Vec::new();
+    let mut seen_ids = std::collections::HashSet::new();
 
     match db.list_conversations() {
         Ok(records) => {
             for record in records {
+                // Strip legacy .txt suffix from IDs that were imported from files
+                let clean_id = record.id.trim_end_matches(".txt").to_string();
+
+                // Skip duplicates (a clean ID and its .txt-suffixed variant)
+                if !seen_ids.insert(clean_id.clone()) {
+                    continue;
+                }
+
                 // Extract timestamp from conversation ID (chat_YYYY-MM-DD-HH-mm-ss-SSS)
-                let timestamp_part = record
-                    .id
+                let timestamp_part = clean_id
                     .strip_prefix("chat_")
-                    .unwrap_or(&record.id)
+                    .unwrap_or(&clean_id)
                     .to_string();
 
                 // Use DB title for display_name when available
-                let title = db.get_conversation_title(&record.id).ok().flatten();
+                let title = db.get_conversation_title(&clean_id).ok().flatten();
                 let display_name = title
                     .as_deref()
                     .map(|t| t.to_string())
                     .unwrap_or_else(|| format!("Chat {timestamp_part}"));
 
                 conversations.push(ConversationFile {
-                    name: format!("{}.txt", record.id),
+                    name: format!("{clean_id}.txt"),
                     display_name,
                     timestamp: timestamp_part,
                     title,

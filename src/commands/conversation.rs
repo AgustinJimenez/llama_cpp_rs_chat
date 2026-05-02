@@ -10,19 +10,25 @@ pub async fn get_conversations(
     db: tauri::State<'_, SharedDatabase>,
 ) -> Result<ConversationsResponse, String> {
     let records = db.list_conversations().unwrap_or_default();
-    let conversations = records
-        .into_iter()
-        .map(|r| {
-            let timestamp_part = r.id.strip_prefix("chat_").unwrap_or(&r.id).to_string();
-            ConversationFile {
-                name: format!("{}.txt", r.id),
-                display_name: format!("Chat {timestamp_part}"),
-                timestamp: timestamp_part,
-                title: if r.title.is_empty() { None } else { Some(r.title) },
-                provider_id: None,
-            }
-        })
-        .collect();
+    let mut seen_ids = std::collections::HashSet::new();
+    let mut conversations = Vec::new();
+    for r in records {
+        let clean_id = r.id.trim_end_matches(".txt").to_string();
+        if !seen_ids.insert(clean_id.clone()) {
+            continue;
+        }
+        let timestamp_part = clean_id.strip_prefix("chat_").unwrap_or(&clean_id).to_string();
+        let title_opt = db.get_conversation_title(&clean_id).ok().flatten();
+        let display_name = title_opt.clone()
+            .unwrap_or_else(|| format!("Chat {timestamp_part}"));
+        conversations.push(ConversationFile {
+            name: format!("{clean_id}.txt"),
+            display_name,
+            timestamp: timestamp_part,
+            title: title_opt,
+            provider_id: None,
+        });
+    }
     Ok(ConversationsResponse { conversations })
 }
 

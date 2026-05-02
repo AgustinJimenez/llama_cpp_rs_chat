@@ -133,6 +133,7 @@ pub fn tool_click_screen(args: &Value) -> NativeToolResult {
     // Stealth mode: save cursor → move → click → restore in <0.1ms
     // The user's cursor barely moves. Safe to use while user is working.
     // Stealth is ON by default — user's cursor is saved/restored in <0.1ms
+    #[cfg(windows)]
     let stealth = args.get("stealth").map(|v| parse_bool(v, true)).unwrap_or(true);
 
     #[cfg(windows)]

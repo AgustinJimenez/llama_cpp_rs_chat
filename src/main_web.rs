@@ -208,6 +208,12 @@ async fn handle_request_impl(
         (&Method::GET, "/api/providers") => {
             web::routes::providers::handle_list_providers(db.clone()).await?
         }
+        (&Method::GET, "/api/providers/configured") => {
+            web::routes::providers::handle_list_configured_providers(db.clone()).await?
+        }
+        (&Method::GET, "/api/providers/cli-status") => {
+            web::routes::providers::handle_list_cli_providers().await?
+        }
         (&Method::GET, path) if path.starts_with("/api/providers/") && path.ends_with("/models") => {
             let provider_id = path
                 .trim_start_matches("/api/providers/")
