@@ -1012,6 +1012,17 @@ fn main() {
             commands::browser_panel::browser_panel_go_forward,
             commands::browser_panel::browser_panel_resize,
             commands::browser_panel::browser_panel_close,
+            // Agent browser API (external control)
+            commands::browser_panel::agent_browser_navigate,
+            commands::browser_panel::agent_browser_get_text,
+            commands::browser_panel::agent_browser_get_links,
+            commands::browser_panel::agent_browser_get_html,
+            commands::browser_panel::agent_browser_click,
+            commands::browser_panel::agent_browser_type_text,
+            commands::browser_panel::agent_browser_eval,
+            commands::browser_panel::agent_browser_search,
+            commands::browser_panel::agent_browser_scroll,
+            commands::browser_panel::agent_browser_query,
             // Providers
             list_providers,
             list_configured_providers,

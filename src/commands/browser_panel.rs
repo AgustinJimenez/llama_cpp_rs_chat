@@ -152,6 +152,83 @@ pub async fn browser_panel_resize(
     Ok(())
 }
 
+// ─── Agent browser API ───────────────────────────────────────────────
+//
+// Exposes the agent's browser tools as Tauri commands for external control.
+use llama_chat_tools::browser_tools::handle_browser_tool;
+// These use the hidden "agent-browser" WebView (same one the LLM agent uses),
+// allowing Claude Code or other external tools to navigate, read, click, etc.
+
+#[tauri::command]
+pub async fn agent_browser_navigate(url: String) -> Result<String, String> {
+    let args = serde_json::json!({"url": url});
+    let result = handle_browser_tool("navigate", &args);
+    Ok(result.text)
+}
+
+#[tauri::command]
+pub async fn agent_browser_get_text(summary: Option<String>) -> Result<String, String> {
+    let args = serde_json::json!({"summary": summary.unwrap_or_else(|| "false".into())});
+    let result = handle_browser_tool("get_text", &args);
+    Ok(result.text)
+}
+
+#[tauri::command]
+pub async fn agent_browser_get_links() -> Result<String, String> {
+    let args = serde_json::json!({});
+    let result = handle_browser_tool("get_links", &args);
+    Ok(result.text)
+}
+
+#[tauri::command]
+pub async fn agent_browser_get_html() -> Result<String, String> {
+    let args = serde_json::json!({});
+    let result = handle_browser_tool("get_html", &args);
+    Ok(result.text)
+}
+
+#[tauri::command]
+pub async fn agent_browser_click(selector: String) -> Result<String, String> {
+    let args = serde_json::json!({"selector": selector});
+    let result = handle_browser_tool("click", &args);
+    Ok(result.text)
+}
+
+#[tauri::command]
+pub async fn agent_browser_type_text(selector: String, text: String) -> Result<String, String> {
+    let args = serde_json::json!({"selector": selector, "text": text});
+    let result = handle_browser_tool("type", &args);
+    Ok(result.text)
+}
+
+#[tauri::command]
+pub async fn agent_browser_eval(js: String) -> Result<String, String> {
+    let args = serde_json::json!({"js": js});
+    let result = handle_browser_tool("eval", &args);
+    Ok(result.text)
+}
+
+#[tauri::command]
+pub async fn agent_browser_search(query: String) -> Result<String, String> {
+    let args = serde_json::json!({"query": query});
+    let result = handle_browser_tool("search", &args);
+    Ok(result.text)
+}
+
+#[tauri::command]
+pub async fn agent_browser_scroll(direction: Option<String>, amount: Option<i32>) -> Result<String, String> {
+    let args = serde_json::json!({"direction": direction.unwrap_or_else(|| "down".into()), "amount": amount.unwrap_or(3)});
+    let result = handle_browser_tool("scroll", &args);
+    Ok(result.text)
+}
+
+#[tauri::command]
+pub async fn agent_browser_query(selector: String, extract: Option<String>) -> Result<String, String> {
+    let args = serde_json::json!({"selector": selector, "extract": extract});
+    let result = handle_browser_tool("query", &args);
+    Ok(result.text)
+}
+
 #[tauri::command]
 pub async fn browser_panel_close(app: AppHandle) -> Result<(), String> {
     if let Some(webview) = app.webviews().get(BROWSER_PANEL_LABEL).cloned() {
