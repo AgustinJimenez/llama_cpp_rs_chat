@@ -489,12 +489,38 @@ fn execute_openai_tool(name: &str, arguments_json: &str) -> String {
         Err(e) => return format!("Error parsing tool arguments: {e}"),
     };
 
+    // Map web_search → browser_search and web_fetch → browser_navigate + browser_get_text.
+    // These tools are handled by dispatch_native_tool under browser_* names,
+    // not as standalone tools (the engine layer handles them differently).
+    // web_fetch: navigate browser then read content
+    if name == "web_fetch" {
+        let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
+        if url.is_empty() {
+            return "Error: 'url' is required for web_fetch".to_string();
+        }
+        let nav_json = json!({"name": "browser_navigate", "arguments": {"url": url}}).to_string();
+        let ctx = crate::native_tools_bridge::make_dispatch_context();
+        let _ = llama_chat_tools::dispatch_native_tool(&nav_json, true, None, None, &ctx);
+        std::thread::sleep(std::time::Duration::from_millis(2000));
+        let read_json = json!({"name": "browser_get_text", "arguments": {}}).to_string();
+        return match llama_chat_tools::dispatch_native_tool(&read_json, true, None, None, &ctx) {
+            Some(r) => r.text,
+            None => "Failed to read page content".to_string(),
+        };
+    }
+
+    let effective_name = match name {
+        "web_search" => "browser_search",
+        _ => name,
+    };
+
     let tool_json = json!({
-        "name": name,
+        "name": effective_name,
         "arguments": args
     }).to_string();
 
     // Use dispatch_native_tool for full tool support
+    eprintln!("[OPENAI_TOOL] dispatch: name={name} effective={effective_name} json={}", &tool_json[..tool_json.len().min(200)]);
     let ctx = crate::native_tools_bridge::make_dispatch_context();
     match llama_chat_tools::dispatch_native_tool(
         &tool_json,

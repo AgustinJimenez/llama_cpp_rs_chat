@@ -1,4 +1,4 @@
-import { ChevronDown, FolderOpen, Loader2 } from 'lucide-react';
+import { ChevronDown, Loader2 } from 'lucide-react';
 import React from 'react';
 
 import type { LoadingAction } from '../../hooks/useModel';
@@ -30,7 +30,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       const fileName = currentModelPath.split(/[/\\]/).pop() || currentModelPath;
       return fileName.replace(/\.gguf$/i, '');
     }
-    return 'Select a model';
+    return 'Select a provider';
   };
 
   const showProgressBar =
@@ -48,9 +48,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
         >
           {isLoading ? (
             <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin text-muted-foreground" />
-          ) : (
-            <FolderOpen className="h-4 w-4 flex-shrink-0" />
-          )}
+          ) : null}
           <span className={`truncate max-w-[260px] ${isLoading ? 'text-muted-foreground' : ''}`}>
             {getDisplayText()}
           </span>
