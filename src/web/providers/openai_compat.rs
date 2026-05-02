@@ -50,8 +50,10 @@ fn provider_cost_per_million(provider_id: &str, model: &str) -> Option<(f64, f64
         "openrouter" => None,
         "together" => Some((0.20, 0.20)),
         "deepseek" => match model {
+            "deepseek-v4-pro" => Some((0.435, 0.87)),
+            "deepseek-v4-flash" => Some((0.14, 0.28)),
             m if m.contains("reasoner") => Some((0.55, 2.19)),
-            _ => Some((0.27, 1.10)),
+            _ => Some((0.14, 0.28)),
         },
         "fireworks" => Some((0.20, 0.20)),
         "xai" => Some((2.0, 10.0)),
@@ -248,9 +250,9 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
     ProviderPreset {
         id: "deepseek",
         name: "DeepSeek",
-        base_url: "https://api.deepseek.com/v1",
+        base_url: "https://api.deepseek.com",
         description: "DeepSeek AI models",
-        models: &["deepseek-chat", "deepseek-reasoner"],
+        models: &["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner"],
         env_key: "DEEPSEEK_API_KEY",
     },
     ProviderPreset {
