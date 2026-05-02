@@ -10,7 +10,6 @@ const CLOUD_POLL_INTERVAL_MS = 2000;
 
 import type { Message, ChatRequest } from '../types';
 import { createChatTransport, type ChatTransport, type TimingInfo } from '../utils/chatTransport';
-import { parseConversationFile } from '../utils/conversationParser';
 import { notifyIfUnfocused } from '../utils/tauri';
 import { getConversation, getModelStatus, truncateConversation } from '../utils/tauriCommands';
 import { logToastError } from '../utils/toastLogger';
@@ -184,10 +183,7 @@ export function useChat() {
       const data = await getConversation(filename);
       providerSessionRef.current =
         data.provider_id === providerRef.current.provider ? data.provider_session_id || null : null;
-      if (data.content) {
-        setMessages(parseConversationFile(data.content));
-        setCurrentConversationId(filename);
-      } else if (data.messages) {
+      if (data.messages && data.messages.length > 0) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const mapped = (data.messages as any[]).map((msg) => {
           const m: Message = {

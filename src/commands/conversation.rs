@@ -37,9 +37,29 @@ pub async fn get_conversation(
     filename: String,
     db: tauri::State<'_, SharedDatabase>,
 ) -> Result<ConversationContentResponse, String> {
-    let conversation_id = filename.trim_end_matches(".txt");
-    let content = db.get_conversation_as_text(conversation_id)?;
-    let messages = parse_conversation_to_messages(&content);
+    // Try both with and without .txt suffix — remote provider conversations
+    // may store the ID with .txt, local ones without.
+    let trimmed = filename.trim_end_matches(".txt");
+    let mut db_messages = db.get_messages(trimmed).unwrap_or_default();
+    if db_messages.is_empty() {
+        db_messages = db.get_messages(&filename).unwrap_or_default();
+    }
+    let conversation_id = trimmed;
+    let messages: Vec<crate::web::models::ChatMessage> = db_messages.iter().enumerate().map(|(i, m)| {
+        crate::web::models::ChatMessage {
+            id: format!("msg_{i}"),
+            role: m.role.clone(),
+            content: m.content.clone(),
+            timestamp: m.timestamp,
+            prompt_tok_per_sec: m.prompt_tok_per_sec,
+            gen_tok_per_sec: m.gen_tok_per_sec,
+            gen_eval_ms: m.gen_eval_ms,
+            gen_tokens: m.gen_tokens,
+            prompt_eval_ms: m.prompt_eval_ms,
+            prompt_tokens: m.prompt_tokens,
+        }
+    }).collect();
+    let content = db.get_conversation_as_text(conversation_id).unwrap_or_default();
     Ok(ConversationContentResponse { content, messages, provider_id: None, provider_session_id: None })
 }
 
@@ -80,6 +100,7 @@ pub async fn get_conversation_metrics(
     let metrics: Vec<_> = logs.into_iter().filter(|l| l.level == "metrics").collect();
     Ok(serde_json::to_value(&metrics).unwrap_or_default())
 }
+#[allow(dead_code)]
 pub fn parse_conversation_to_messages(content: &str) -> Vec<crate::web::models::ChatMessage> {
     let mut messages = Vec::new();
     let mut current_role = String::new();

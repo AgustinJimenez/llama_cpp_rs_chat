@@ -14,20 +14,34 @@ interface ConversationEvent {
 
 const TYPE_COLORS: Record<string, string> = {
   tool_call: 'text-blue-400',
+  tool_results: 'text-blue-300',
   stall: 'text-red-400',
   compaction: 'text-purple-400',
   loop_recovery: 'text-yellow-400',
   yn_check: 'text-cyan-400',
   context_guard: 'text-orange-400',
+  provider_start: 'text-green-400',
+  provider_iteration: 'text-green-300',
+  provider_done: 'text-green-400',
+  provider_complete: 'text-green-500',
+  provider_error: 'text-red-400',
+  provider_abort: 'text-red-300',
 };
 
 const TYPE_BG: Record<string, string> = {
   tool_call: 'bg-blue-400/20',
+  tool_results: 'bg-blue-300/20',
   stall: 'bg-red-400/20',
   compaction: 'bg-purple-400/20',
   loop_recovery: 'bg-yellow-400/20',
   yn_check: 'bg-cyan-400/20',
   context_guard: 'bg-orange-400/20',
+  provider_start: 'bg-green-400/20',
+  provider_iteration: 'bg-green-300/20',
+  provider_done: 'bg-green-400/20',
+  provider_complete: 'bg-green-500/20',
+  provider_error: 'bg-red-400/20',
+  provider_abort: 'bg-red-300/20',
 };
 
 function formatTime(ts: number): string {

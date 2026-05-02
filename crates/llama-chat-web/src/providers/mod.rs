@@ -62,12 +62,13 @@ fn remote_provider_tool_delta() -> &'static str {
 /// so that binaries installed via nvm/npm are found when the app is launched from Finder.
 pub async fn resolve_bin_path(name: &str) -> Option<String> {
     // Try direct lookup first (works in dev / when PATH is already set correctly)
-    let ok = tokio::process::Command::new(name)
-        .arg("--version")
+    let mut cmd = tokio::process::Command::new(name);
+    cmd.arg("--version")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .stdin(Stdio::null())
-        .status()
+        .stdin(Stdio::null());
+    hide_cli_window(&mut cmd);
+    let ok = cmd.status()
         .await
         .map(|s| s.success())
         .unwrap_or(false);

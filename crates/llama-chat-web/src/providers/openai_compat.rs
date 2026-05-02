@@ -15,6 +15,14 @@ use tokio::sync::mpsc;
 
 use super::CliTokenData;
 
+/// Log a provider event to the conversation event log (if conv_id is set).
+fn provider_log(conv_id: &Option<String>, event_type: &str, message: &str) {
+    eprintln!("[OPENAI_COMPAT] [{event_type}] {message}");
+    if let Some(cid) = conv_id {
+        llama_chat_db::event_log::log_event(cid, event_type, message);
+    }
+}
+
 /// Maximum agentic loop iterations to prevent runaway tool-call chains.
 const MAX_AGENTIC_ITERATIONS: usize = 20;
 
@@ -745,10 +753,8 @@ pub async fn generate(
         let tools = get_agentic_tools();
         let has_tools = !tools.is_empty();
 
-        eprintln!(
-            "[OPENAI_COMPAT] Including {} tool definitions in request",
-            tools.len()
-        );
+        provider_log(&conv_id_owned, "provider_start",
+            &format!("provider={} model={} url={} tools={}", provider_id_owned, model_name_clone, url, tools.len()));
 
         // Build initial messages array with system prompt
         let mut messages: Vec<Value> = vec![
@@ -775,12 +781,8 @@ pub async fn generate(
         let mut final_stop_reason = "end_turn".to_string();
 
         for iteration in 0..MAX_AGENTIC_ITERATIONS {
-            eprintln!(
-                "[OPENAI_COMPAT] Agentic iteration {}/{} with {} messages",
-                iteration + 1,
-                MAX_AGENTIC_ITERATIONS,
-                messages.len()
-            );
+            provider_log(&conv_id_owned, "provider_iteration",
+                &format!("iteration {}/{} messages={}", iteration + 1, MAX_AGENTIC_ITERATIONS, messages.len()));
 
             // Check if frontend disconnected (receiver dropped)
             if tx.is_closed() {
@@ -820,7 +822,8 @@ pub async fn generate(
             ) {
                 Ok(r) => r,
                 Err(error_msg) => {
-                    eprintln!("[OPENAI_COMPAT] Error on iteration {}: {error_msg}", iteration + 1);
+                    provider_log(&conv_id_owned, "provider_error",
+                        &format!("iteration {}: {error_msg}", iteration + 1));
 
                     // DeepSeek reasoning models require reasoning_content from previous turns.
                     // If we loaded history from DB without it, strip history and retry once.
@@ -908,18 +911,15 @@ pub async fn generate(
 
             // If no tool calls, we're done — the text was already streamed
             if result.tool_calls.is_empty() {
-                eprintln!(
-                    "[OPENAI_COMPAT] No tool calls, finishing after iteration {}",
-                    iteration + 1
-                );
+                provider_log(&conv_id_owned, "provider_done",
+                    &format!("no tool calls, finish_reason={:?} after iteration {}", result.finish_reason, iteration + 1));
                 break;
             }
 
             // --- Tool calls detected: execute them and loop ---
-            eprintln!(
-                "[OPENAI_COMPAT] {} tool call(s) to execute",
-                result.tool_calls.len()
-            );
+            let tc_names: Vec<&str> = result.tool_calls.iter().map(|tc| tc.name.as_str()).collect();
+            provider_log(&conv_id_owned, "tool_call",
+                &format!("{} tool call(s): {} finish_reason={:?}", result.tool_calls.len(), tc_names.join(", "), result.finish_reason));
 
             // Build the assistant message with tool_calls for the conversation
             let tc_json: Vec<Value> = result
@@ -1024,9 +1024,12 @@ pub async fn generate(
                 }));
             }
 
+            provider_log(&conv_id_owned, "tool_results",
+                &format!("{} tool result(s) added, continuing loop", tool_results.len()));
+
             // Check if frontend disconnected after tool execution
             if tx.is_closed() {
-                eprintln!("[OPENAI_COMPAT] Frontend disconnected after tool execution, stopping agentic loop");
+                provider_log(&conv_id_owned, "provider_abort", "frontend disconnected after tool execution");
                 break;
             }
 
@@ -1039,15 +1042,9 @@ pub async fn generate(
 
         let duration_ms = start.elapsed().as_millis() as u64;
 
-        eprintln!(
-            "[OPENAI_COMPAT] Done: provider={} model={:?} stop={} duration={}ms tokens={}in/{}out",
-            provider_id_owned,
-            actual_model,
-            final_stop_reason,
-            duration_ms,
-            total_input_tokens,
-            total_output_tokens,
-        );
+        provider_log(&conv_id_owned, "provider_complete",
+            &format!("model={:?} stop={} duration={}ms tokens={}in/{}out",
+                actual_model, final_stop_reason, duration_ms, total_input_tokens, total_output_tokens));
 
         // Compute cost estimate based on provider pricing
         let cost_usd = provider_cost_per_million(&provider_id_owned, &model_name_clone)
