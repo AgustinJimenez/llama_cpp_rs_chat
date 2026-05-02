@@ -226,6 +226,242 @@ impl AppUiServer {
     }
 }
 
+/// Call a Chrome DevTools Protocol method on a webview.
+/// Uses WebView2's CallDevToolsProtocolMethod COM API (vtable index 36).
+#[allow(unused_variables)]
+async fn cdp_call(app: &AppHandle, target: &str, method: &str, params: &Value) -> Result<String, String> {
+    let (tx, rx) = oneshot::channel::<String>();
+
+    let webviews = app.webviews();
+    let webview = webviews.get(target).cloned()
+        .ok_or_else(|| format!("Webview '{target}' not open"))?;
+
+    #[cfg(windows)]
+    {
+        let method_str = method.to_string();
+        let params_str = params.to_string();
+
+        webview.with_webview(move |platform_wv| {
+            let controller = platform_wv.controller();
+            let core_wv = unsafe { controller.CoreWebView2() };
+
+            match core_wv {
+                Ok(core) => {
+                    let handler = webview2_com::CallDevToolsProtocolMethodCompletedHandler::create(
+                        Box::new(move |_hr, result| {
+                            let _ = tx.send(result);
+                            Ok(())
+                        }),
+                    );
+                    let method_wide: Vec<u16> = method_str.encode_utf16()
+                        .chain(std::iter::once(0)).collect();
+                    let params_wide: Vec<u16> = params_str.encode_utf16()
+                        .chain(std::iter::once(0)).collect();
+
+                    // CallDevToolsProtocolMethod vtable index = 36
+                    unsafe {
+                        let this: *mut std::ffi::c_void = std::mem::transmute_copy(&core);
+                        let vtable = *(this as *const *const usize);
+                        type CdpFn = unsafe extern "system" fn(
+                            this: *mut std::ffi::c_void,
+                            method: *const u16,
+                            params: *const u16,
+                            handler: *mut std::ffi::c_void,
+                        ) -> i32;
+                        let func: CdpFn = std::mem::transmute(*vtable.add(36));
+                        let handler_ptr: *mut std::ffi::c_void = std::mem::transmute_copy(&handler);
+                        func(this, method_wide.as_ptr(), params_wide.as_ptr(), handler_ptr);
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(format!(r#"{{"error":"CoreWebView2 unavailable: {e}"}}"#));
+                }
+            }
+        }).map_err(|e| format!("with_webview failed: {e}"))?;
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = tx.send(r#"{"error":"CDP not available on this platform"}"#.to_string());
+    }
+
+    match tokio::time::timeout(std::time::Duration::from_secs(10), rx).await {
+        Ok(Ok(result)) => Ok(result),
+        Ok(Err(_)) => Err("CDP channel closed".into()),
+        Err(_) => Err("CDP call timed out (10s)".into()),
+    }
+}
+
+/// Click an element using CDP Input.dispatchMouseEvent.
+/// First finds element bounds via JS eval, then sends real mouse events via CDP.
+async fn cdp_click(app: &AppHandle, target: &str, selector: &str) -> Result<String, String> {
+    let server = AppUiServer::new(app.clone());
+    // Step 1: Find element bounds via JS
+    let js = format!(
+        r#"(() => {{
+            const el = document.querySelector({sel});
+            if (!el) return {{error: 'Element not found: ' + {sel}}};
+            const rect = el.getBoundingClientRect();
+            return {{
+                x: Math.round(rect.left + rect.width / 2),
+                y: Math.round(rect.top + rect.height / 2),
+                text: (el.textContent || '').trim().slice(0, 50),
+                tag: el.tagName
+            }};
+        }})()"#,
+        sel = serde_json::to_string(selector).unwrap()
+    );
+    let bounds_str = server.eval_js_in(&js, target).await?;
+    // eval_js_in wraps in JSON.stringify, so bounds_str is already valid JSON
+    let bounds: Value = serde_json::from_str(&bounds_str)
+        .map_err(|e| format!("Failed to parse bounds: {e} — raw: {bounds_str}"))?;
+
+    if let Some(err) = bounds.get("error").and_then(|e| e.as_str()) {
+        return Err(err.to_string());
+    }
+
+    let x = bounds["x"].as_f64().ok_or("Missing x coordinate")?;
+    let y = bounds["y"].as_f64().ok_or("Missing y coordinate")?;
+    let text = bounds["text"].as_str().unwrap_or("");
+    let tag = bounds["tag"].as_str().unwrap_or("?");
+
+    // Step 2: Send CDP mouse events (mousePressed + mouseReleased = full click)
+    let press_params = json!({
+        "type": "mousePressed",
+        "x": x,
+        "y": y,
+        "button": "left",
+        "clickCount": 1
+    });
+    cdp_call(app, target, "Input.dispatchMouseEvent", &press_params).await?;
+
+    // Small delay between press and release
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let release_params = json!({
+        "type": "mouseReleased",
+        "x": x,
+        "y": y,
+        "button": "left",
+        "clickCount": 1
+    });
+    cdp_call(app, target, "Input.dispatchMouseEvent", &release_params).await?;
+
+    Ok(format!("CDP clicked {tag}: {text} at ({x}, {y})"))
+}
+
+/// Capture a screenshot of a webview and save as PNG.
+/// Uses WebView2's CapturePreview COM API via raw vtable.
+#[allow(unused_variables)]
+async fn capture_webview_screenshot(app: &AppHandle, target: &str) -> Result<String, String> {
+    let webviews = app.webviews();
+    let webview = webviews.get(target).cloned()
+        .ok_or_else(|| format!("Webview '{target}' not open. Use browser_navigate first."))?;
+
+    let screenshot_dir = app.path().app_data_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join("screenshots");
+    let _ = std::fs::create_dir_all(&screenshot_dir);
+    let filename = format!("browser_{}.png", chrono::Utc::now().format("%Y%m%d_%H%M%S"));
+    let filepath = screenshot_dir.join(&filename);
+    let filepath_str = filepath.to_string_lossy().to_string();
+
+    #[cfg(windows)]
+    {
+        let (tx, rx) = oneshot::channel::<Result<Vec<u8>, String>>();
+        let filepath_clone = filepath.clone();
+
+        webview.with_webview(move |platform_wv| {
+            let controller = platform_wv.controller();
+            let core_wv = unsafe { controller.CoreWebView2() };
+
+            match core_wv {
+                Ok(core) => {
+                    // Create an IStream in memory to receive the PNG
+                    let stream = unsafe {
+                        windows::Win32::System::Com::StructuredStorage::CreateStreamOnHGlobal(
+                            windows::Win32::Foundation::HGLOBAL::default(),
+                            true,
+                        )
+                    };
+                    match stream {
+                        Ok(stream) => {
+                            let stream_clone = stream.clone();
+                            let handler = webview2_com::CapturePreviewCompletedHandler::create(
+                                Box::new(move |hr| {
+                                    if hr.is_err() {
+                                        let _ = tx.send(Err(format!("CapturePreview failed: {hr:?}")));
+                                        return Ok(());
+                                    }
+                                    // Read PNG bytes from stream
+                                    use windows::Win32::System::Com::STREAM_SEEK_SET;
+                                    unsafe {
+                                        let _ = stream_clone.Seek(0, STREAM_SEEK_SET, None);
+                                        // Read all bytes
+                                        let mut buf = vec![0u8; 16 * 1024 * 1024]; // 16MB max
+                                        let mut bytes_read = 0u32;
+                                        let _ = stream_clone.Read(
+                                            buf.as_mut_ptr() as *mut _,
+                                            buf.len() as u32,
+                                            Some(&mut bytes_read),
+                                        );
+                                        buf.truncate(bytes_read as usize);
+                                        let _ = tx.send(Ok(buf));
+                                    }
+                                    Ok(())
+                                }),
+                            );
+                            // CapturePreview vtable index:
+                            // ICoreWebView2 methods after IUnknown(3):
+                            // Index 37 = CapturePreview (COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT, IStream, handler)
+                            unsafe {
+                                let this: *mut std::ffi::c_void = std::mem::transmute_copy(&core);
+                                let vtable = *(this as *const *const usize);
+                                type CapturePreviewFn = unsafe extern "system" fn(
+                                    this: *mut std::ffi::c_void,
+                                    image_format: i32, // 0 = PNG
+                                    stream: *mut std::ffi::c_void,
+                                    handler: *mut std::ffi::c_void,
+                                ) -> i32;
+                                let func: CapturePreviewFn =
+                                    std::mem::transmute(*vtable.add(30));
+                                let stream_ptr: *mut std::ffi::c_void =
+                                    std::mem::transmute_copy(&stream);
+                                let handler_ptr: *mut std::ffi::c_void =
+                                    std::mem::transmute_copy(&handler);
+                                func(this, 0, stream_ptr, handler_ptr); // 0 = PNG format
+                            }
+                        }
+                        Err(e) => {
+                            let _ = tx.send(Err(format!("CreateStreamOnHGlobal failed: {e}")));
+                        }
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(Err(format!("CoreWebView2 unavailable: {e}")));
+                }
+            }
+        }).map_err(|e| format!("with_webview failed: {e}"))?;
+
+        match tokio::time::timeout(std::time::Duration::from_secs(10), rx).await {
+            Ok(Ok(Ok(png_bytes))) => {
+                if png_bytes.is_empty() {
+                    return Err("Screenshot capture returned empty data".into());
+                }
+                std::fs::write(&filepath, &png_bytes)
+                    .map_err(|e| format!("Failed to save screenshot: {e}"))?;
+                Ok(filepath_str)
+            }
+            Ok(Ok(Err(e))) => Err(e),
+            Ok(Err(_)) => Err("Screenshot channel closed".into()),
+            Err(_) => Err("Screenshot timed out (10s)".into()),
+        }
+    }
+
+    #[cfg(not(windows))]
+    Err("Screenshot not available on this platform".into())
+}
+
 async fn open_browser_view_js(app: &AppHandle, url: &str) -> Result<String, String> {
     let server = AppUiServer::new(app.clone());
     let js = format!(
@@ -539,6 +775,193 @@ async fn dispatch_tool(server: &AppUiServer, name: &str, args: &Value) -> Result
             open_browser_view_js(&server.app, url).await
         }
 
+        // ─── Browser panel tools (operate on the agent-browser webview) ───
+        //
+        // These use the "agent-browser" hidden webview created by the bridge.
+        // Unlike the user-visible "browser-panel", this one is always available
+        // and doesn't interfere with the UI.
+
+        "browser_navigate" => {
+            let url = args.get("url").and_then(|v| v.as_str())
+                .ok_or("'url' is required")?;
+            // Create/navigate the hidden agent-browser webview
+            let full_url = if url.starts_with("http://") || url.starts_with("https://") {
+                url.to_string()
+            } else {
+                format!("https://{url}")
+            };
+            let parsed = full_url.parse::<tauri::Url>()
+                .map_err(|e| format!("Invalid URL: {e}"))?;
+            if let Some(existing) = server.app.webviews().get("agent-browser").cloned() {
+                existing.navigate(parsed).map_err(|e| format!("Navigate failed: {e}"))?;
+            } else if let Some(window) = server.app.get_window("main") {
+                let builder = tauri::webview::WebviewBuilder::new(
+                    "agent-browser",
+                    tauri::WebviewUrl::External(parsed),
+                );
+                window.add_child(
+                    builder,
+                    tauri::LogicalPosition::new(0.0, 0.0),
+                    tauri::LogicalSize::new(800.0, 0.0),
+                ).map_err(|e| format!("Failed to create browser: {e}"))?;
+            } else {
+                return Err("Main window not found".into());
+            }
+            // Wait briefly for page to start loading
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            Ok(format!("Navigated to {full_url}"))
+        }
+
+        "browser_read" => {
+            let selector = args.get("selector").and_then(|v| v.as_str());
+            let max_len = args.get("max_length").and_then(|v| v.as_u64()).unwrap_or(30000);
+            let js = if let Some(sel) = selector {
+                format!(
+                    r#"(() => {{
+                        const el = document.querySelector({sel});
+                        if (!el) return 'Element not found: ' + {sel};
+                        return (el.innerText || el.textContent || '').trim().slice(0, {max_len});
+                    }})()"#,
+                    sel = serde_json::to_string(sel).unwrap(),
+                    max_len = max_len,
+                )
+            } else {
+                format!(
+                    r#"(() => {{
+                        const body = document.body;
+                        if (!body) return 'No body element';
+                        return body.innerText.slice(0, {max_len});
+                    }})()"#,
+                    max_len = max_len,
+                )
+            };
+            server.eval_js_in(&js, "agent-browser").await
+        }
+
+        "browser_click" => {
+            let sel = args.get("selector").and_then(|v| v.as_str())
+                .ok_or("'selector' is required")?;
+            // Use CDP Input.dispatchMouseEvent for real clicks (works on React SPAs)
+            cdp_click(&server.app, "agent-browser", sel).await
+        }
+
+        "browser_type" => {
+            let sel = args.get("selector").and_then(|v| v.as_str())
+                .ok_or("'selector' is required")?;
+            let text = args.get("text").and_then(|v| v.as_str())
+                .ok_or("'text' is required")?;
+            let submit = args.get("submit").and_then(|v| v.as_bool()).unwrap_or(false);
+            let js = format!(
+                r#"(() => {{
+                    const el = document.querySelector({sel});
+                    if (!el) return 'Element not found: ' + {sel};
+                    el.focus();
+                    el.value = {text};
+                    el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                    {submit_js}
+                    return 'Typed into ' + {sel};
+                }})()"#,
+                sel = serde_json::to_string(sel).unwrap(),
+                text = serde_json::to_string(text).unwrap(),
+                submit_js = if submit {
+                    r#"const form = el.closest('form');
+                    if (form) form.requestSubmit();
+                    else {
+                        const btn = document.querySelector('button[type="submit"], input[type="submit"]');
+                        if (btn) setTimeout(() => btn.click(), 100);
+                    }"#
+                } else { "" }
+            );
+            server.eval_js_in(&js, "agent-browser").await
+        }
+
+        "browser_eval" => {
+            let js = args.get("js").and_then(|v| v.as_str())
+                .ok_or("'js' is required")?;
+            server.eval_js_in(js, "agent-browser").await
+        }
+
+        "browser_get_url" => {
+            // Get URL from the agent-browser webview directly
+            let webviews = server.app.webviews();
+            if let Some(wv) = webviews.get("agent-browser").cloned() {
+                let url = wv.url().map(|u| u.to_string()).unwrap_or_default();
+                Ok(url)
+            } else {
+                Err("Browser panel not open. Use browser_navigate first.".into())
+            }
+        }
+
+        "browser_list_links" => {
+            let filter = args.get("filter").and_then(|v| v.as_str()).unwrap_or("");
+            let js = format!(
+                r#"(() => {{
+                    const links = Array.from(document.querySelectorAll('a[href]'));
+                    const filter = {filter}.toLowerCase();
+                    return JSON.stringify(links
+                        .map(a => ({{
+                            text: (a.textContent || '').trim().slice(0, 80),
+                            href: a.href,
+                        }}))
+                        .filter(l => l.text && (!filter || l.text.toLowerCase().includes(filter) || l.href.toLowerCase().includes(filter)))
+                        .slice(0, 100)
+                    );
+                }})()"#,
+                filter = serde_json::to_string(filter).unwrap()
+            );
+            server.eval_js_in(&js, "agent-browser").await
+        }
+
+        "browser_list_elements" => {
+            let filter = args.get("filter").and_then(|v| v.as_str()).unwrap_or("");
+            let js = format!(
+                r#"(() => {{
+                    const sels = 'button, input, textarea, select, a, [role=button], [role=link], [role=tab]';
+                    const els = Array.from(document.querySelectorAll(sels));
+                    const filter = {filter}.toLowerCase();
+                    return JSON.stringify(els
+                        .map((el, i) => ({{
+                            index: i,
+                            tag: el.tagName.toLowerCase(),
+                            type: el.type || null,
+                            text: (el.textContent || el.placeholder || el.title || el.ariaLabel || '').trim().slice(0, 80),
+                            href: el.href || null,
+                            selector: el.id ? '#' + el.id : (el.className ? el.tagName.toLowerCase() + '.' + el.className.trim().split(/\s+/).join('.') : null),
+                            visible: el.offsetParent !== null || el.offsetHeight > 0,
+                        }}))
+                        .filter(e => e.visible && (!filter || e.text.toLowerCase().includes(filter) || (e.selector && e.selector.toLowerCase().includes(filter))))
+                        .slice(0, 100)
+                    );
+                }})()"#,
+                filter = serde_json::to_string(filter).unwrap()
+            );
+            server.eval_js_in(&js, "agent-browser").await
+        }
+
+        "browser_scroll" => {
+            let direction = args.get("direction").and_then(|v| v.as_str()).unwrap_or("down");
+            let amount = args.get("amount").and_then(|v| v.as_u64()).unwrap_or(500);
+            let js = format!(
+                r#"(() => {{
+                    const dy = {dir} === 'up' ? -{amount} : {amount};
+                    window.scrollBy(0, dy);
+                    return 'Scrolled ' + {dir} + ' by ' + Math.abs(dy) + 'px. Page at y=' + window.scrollY + '/' + document.body.scrollHeight;
+                }})()"#,
+                dir = serde_json::to_string(direction).unwrap(),
+                amount = amount,
+            );
+            server.eval_js_in(&js, "agent-browser").await
+        }
+
+        "browser_screenshot" => {
+            capture_webview_screenshot(&server.app, "agent-browser").await
+        }
+
+        "browser_close" => {
+            close_browser_view_js(&server.app).await
+        }
+
         "app_screenshot" => {
             // Return DOM structure as text (no image dependency)
             let js = r#"(() => {
@@ -626,6 +1049,72 @@ fn build_tools() -> Vec<Tool> {
             "required": ["url"]
         })),
         ("app_screenshot", "Get the visible text content of the entire app page. Returns innerText of the body (no image).", json!({
+            "type": "object", "properties": {}
+        })),
+        // ─── Browser panel tools ───
+        ("browser_navigate", "Open a URL in the browser panel (user-visible embedded browser). Opens the browser panel if not already open.", json!({
+            "type": "object",
+            "properties": {
+                "url": { "type": "string", "description": "URL to navigate to" }
+            },
+            "required": ["url"]
+        })),
+        ("browser_read", "Read text content from the browser panel page. Optionally scope to a CSS selector.", json!({
+            "type": "object",
+            "properties": {
+                "selector": { "type": "string", "description": "CSS selector to read from (default: entire page)" },
+                "max_length": { "type": "integer", "description": "Max characters to return (default: 30000)" }
+            }
+        })),
+        ("browser_click", "Click an element in the browser panel by CSS selector.", json!({
+            "type": "object",
+            "properties": {
+                "selector": { "type": "string", "description": "CSS selector of the element to click" }
+            },
+            "required": ["selector"]
+        })),
+        ("browser_type", "Type text into an input field in the browser panel.", json!({
+            "type": "object",
+            "properties": {
+                "selector": { "type": "string", "description": "CSS selector of the input" },
+                "text": { "type": "string", "description": "Text to type" },
+                "submit": { "type": "boolean", "description": "Submit the form after typing (default: false)" }
+            },
+            "required": ["selector", "text"]
+        })),
+        ("browser_eval", "Execute JavaScript in the browser panel webview. Returns the result.", json!({
+            "type": "object",
+            "properties": {
+                "js": { "type": "string", "description": "JavaScript to evaluate in the browser panel" }
+            },
+            "required": ["js"]
+        })),
+        ("browser_get_url", "Get the current URL of the browser panel.", json!({
+            "type": "object", "properties": {}
+        })),
+        ("browser_list_links", "List all links on the browser panel page. Optionally filter by text or URL.", json!({
+            "type": "object",
+            "properties": {
+                "filter": { "type": "string", "description": "Filter links by text or URL substring" }
+            }
+        })),
+        ("browser_list_elements", "List interactive elements (buttons, inputs, links) in the browser panel.", json!({
+            "type": "object",
+            "properties": {
+                "filter": { "type": "string", "description": "Filter by element text or selector" }
+            }
+        })),
+        ("browser_scroll", "Scroll the browser panel page up or down.", json!({
+            "type": "object",
+            "properties": {
+                "direction": { "type": "string", "description": "Scroll direction: 'up' or 'down' (default: 'down')" },
+                "amount": { "type": "integer", "description": "Scroll amount in pixels (default: 500)" }
+            }
+        })),
+        ("browser_screenshot", "Take a screenshot of the browser panel. Returns the file path of the saved PNG.", json!({
+            "type": "object", "properties": {}
+        })),
+        ("browser_close", "Close the browser panel.", json!({
             "type": "object", "properties": {}
         })),
     ];
@@ -750,12 +1239,61 @@ pub async fn start(app: AppHandle, port: u16) {
             .unwrap()
     }
 
+    async fn rest_browser_click(State(app): State<AppHandle>, body: Bytes) -> axum::response::Response {
+        let data = serde_json::from_slice::<Value>(&body).ok();
+        let selector = data.as_ref().and_then(|v| v.get("selector").and_then(|s| s.as_str()));
+        let target = data.as_ref().and_then(|v| v.get("target").and_then(|t| t.as_str())).unwrap_or("agent-browser");
+        let result = match selector {
+            Some(sel) => cdp_click(&app, target, sel).await.unwrap_or_else(|e| e),
+            None => "\"selector required\"".into(),
+        };
+        axum::response::Response::builder()
+            .status(200)
+            .header("content-type", "application/json")
+            .header("access-control-allow-origin", "*")
+            .body(axum::body::Body::from(format!("\"{}\"", result.replace('"', "\\\""))))
+            .unwrap()
+    }
+
+    async fn rest_browser_screenshot(State(app): State<AppHandle>) -> axum::response::Response {
+        // Try browser-panel first (user-visible), fall back to agent-browser
+        let target = if app.webviews().get("browser-panel").is_some() {
+            "browser-panel"
+        } else {
+            "agent-browser"
+        };
+        match capture_webview_screenshot(&app, target).await {
+            Ok(path) => {
+                // Return the PNG file directly
+                match std::fs::read(&path) {
+                    Ok(bytes) => axum::response::Response::builder()
+                        .status(200)
+                        .header("content-type", "image/png")
+                        .header("access-control-allow-origin", "*")
+                        .body(axum::body::Body::from(bytes))
+                        .unwrap(),
+                    Err(e) => axum::response::Response::builder()
+                        .status(500)
+                        .body(axum::body::Body::from(format!("Read failed: {e}")))
+                        .unwrap(),
+                }
+            }
+            Err(e) => axum::response::Response::builder()
+                .status(500)
+                .header("content-type", "text/plain")
+                .body(axum::body::Body::from(e))
+                .unwrap(),
+        }
+    }
+
     let router = axum::Router::new()
         // Plain REST (fast, no MCP overhead)
         .route("/api/state", axum::routing::get(rest_get_state))
         .route("/api/load-model", post(rest_load_model))
         .route("/api/eval", post(rest_eval))
         .route("/api/screenshot", axum::routing::get(rest_screenshot))
+        .route("/api/browser/screenshot", axum::routing::get(rest_browser_screenshot))
+        .route("/api/browser/click", post(rest_browser_click))
         // Bridge endpoints
         .route("/bridge/browser/navigate", post(bridge_browser_navigate))
         .route("/bridge/browser/close", post(bridge_browser_close))

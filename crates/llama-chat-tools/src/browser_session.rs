@@ -269,19 +269,26 @@ impl BrowserSession for TauriHttpSession {
     }
 
     fn click(&self, selector: &str) -> Result<(), String> {
-        let js = format!(
-            r#"(() => {{
-                const el = document.querySelector({sel});
-                if (!el) return 'Element not found: ' + {sel};
-                el.click();
-                return 'clicked';
-            }})()"#,
-            sel = serde_json::to_string(selector).unwrap_or_default()
-        );
-        match eval_in_browser_panel(&js) {
-            Ok(r) if r.contains("not found") => Err(r),
-            Ok(_) => Ok(()),
-            Err(e) => Err(format!("click failed: {e}")),
+        // Use CDP Input.dispatchMouseEvent for real clicks (works on React SPAs)
+        let url = format!("{TAURI_UI_BRIDGE_BASE}/api/browser/click");
+        let body = serde_json::json!({
+            "selector": selector,
+            "target": "browser-panel"
+        });
+        match ureq::post(&url)
+            .set("Content-Type", "application/json")
+            .timeout(std::time::Duration::from_secs(10))
+            .send_string(&body.to_string())
+        {
+            Ok(resp) => {
+                let text = resp.into_string().unwrap_or_default();
+                if text.contains("not found") || text.contains("not open") {
+                    Err(text)
+                } else {
+                    Ok(())
+                }
+            }
+            Err(e) => Err(format!("CDP click failed: {e}")),
         }
     }
 

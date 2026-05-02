@@ -5,7 +5,6 @@ import {
   ExternalLink,
   ChevronLeft,
   ChevronRight,
-  MessageSquare,
   ZoomIn,
   ZoomOut,
   Search,
@@ -33,7 +32,7 @@ async function tauriInvoke<T = unknown>(cmd: string, args?: Record<string, unkno
  */
 /* eslint-disable max-lines-per-function, no-nested-ternary */
 export const BrowserView = React.memo(() => {
-  const { browserViewUrl, openBrowserView, closeBrowserView, isBrowserViewOpen } = useUIContext();
+  const { browserViewUrl, openBrowserView, isBrowserViewOpen } = useUIContext();
   const [urlInput, setUrlInput] = useState(browserViewUrl ?? '');
   const [iframeKey, setIframeKey] = useState(0);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -410,15 +409,6 @@ export const BrowserView = React.memo(() => {
             </button>
           </>
         ) : null}
-        <button
-          onClick={() => {
-            closeBrowserView();
-          }}
-          className="p-1.5 rounded-md text-foreground hover:bg-muted transition-colors"
-          title="Back to chat"
-        >
-          <MessageSquare className="h-4 w-4" />
-        </button>
       </div>
       {/* Find bar */}
       {showFind ? (

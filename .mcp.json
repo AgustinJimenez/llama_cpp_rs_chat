@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "app-ui": {
+      "type": "http",
+      "url": "http://localhost:18091/mcp"
+    }
+  }
+}

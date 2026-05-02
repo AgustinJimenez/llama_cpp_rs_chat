@@ -137,47 +137,51 @@ export const ChatHeader = React.memo(({ onModelUnload, onForceUnload }: ChatHead
         ) : null}
       </div>
 
-      {/* Right: context + view toggle + monitor */}
-      {modelLoaded ? (
-        <div className="flex items-center gap-1.5 md:gap-3">
+      {/* Right: browser (always) + view toggle + monitor (when loaded) */}
+      <div className="flex items-center gap-1.5 md:gap-3">
+        {modelLoaded ? (
           <div className="hidden md:block">
             <ViewModeToggle viewMode={viewMode} onChange={handleSetViewMode} />
           </div>
+        ) : null}
 
-          <button
-            onClick={toggleBrowserView}
-            className={`btn-icon ${isBrowserViewOpen ? 'active' : ''} ${browserViewUrl && !isBrowserViewOpen ? 'animate-pulse text-foreground' : ''}`}
-            title="Toggle browser view"
-          >
-            <Globe className="h-3.5 w-3.5" />
-          </button>
+        <button
+          onClick={toggleBrowserView}
+          className={`btn-icon ${isBrowserViewOpen ? 'active' : ''} ${browserViewUrl && !isBrowserViewOpen ? 'animate-pulse text-foreground' : ''}`}
+          title="Toggle browser view"
+        >
+          <Globe className="h-3.5 w-3.5" />
+        </button>
 
-          <button
-            onClick={toggleEventLog}
-            className={`btn-icon ${isEventLogOpen ? 'active' : ''}`}
-            title="Event log"
-          >
-            <ScrollText className="h-3.5 w-3.5" />
-          </button>
+        {modelLoaded ? (
+          <>
+            <button
+              onClick={toggleEventLog}
+              className={`btn-icon ${isEventLogOpen ? 'active' : ''}`}
+              title="Event log"
+            >
+              <ScrollText className="h-3.5 w-3.5" />
+            </button>
 
-          <button
-            onClick={openModelConfig}
-            disabled={isModelLoading}
-            className={`btn-icon ${isModelConfigOpen ? 'active' : ''} ${isModelLoading ? 'opacity-30 cursor-not-allowed' : ''}`}
-            title="Model settings"
-          >
-            <SlidersHorizontal className="h-3.5 w-3.5" />
-          </button>
+            <button
+              onClick={openModelConfig}
+              disabled={isModelLoading}
+              className={`btn-icon ${isModelConfigOpen ? 'active' : ''} ${isModelLoading ? 'opacity-30 cursor-not-allowed' : ''}`}
+              title="Model settings"
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+            </button>
+          </>
+        ) : null}
 
-          <button
-            onClick={toggleRightSidebar}
-            className={`btn-icon ${isRightSidebarOpen ? 'active' : ''}`}
-            title="Toggle system monitor"
-          >
-            <Activity className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      ) : null}
+        <button
+          onClick={toggleRightSidebar}
+          className={`btn-icon ${isRightSidebarOpen ? 'active' : ''}`}
+          title="Toggle system monitor"
+        >
+          <Activity className="h-3.5 w-3.5" />
+        </button>
+      </div>
     </div>
   );
 });

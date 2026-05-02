@@ -197,7 +197,7 @@ libc = "0.2"
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
     "Media_Ocr", "Graphics_Imaging", "Foundation", "Storage_Streams", "Globalization",
-    "Win32_Foundation", "Win32_UI_Accessibility", "Win32_System_Com",
+    "Win32_Foundation", "Win32_UI_Accessibility", "Win32_System_Com", "Win32_System_Com_StructuredStorage",
 ] }
 # WebView2 COM bindings — direct access to ICoreWebView2::ExecuteScript with callback
 # (Tauri only exposes fire-and-forget eval, this lets us get JS return values)
