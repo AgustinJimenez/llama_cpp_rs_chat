@@ -156,14 +156,34 @@ All crashes: `llama_sampler_sample()` hangs after successful `decode()`. Watchdo
 ### Key insight
 **Hybrid/recurrent architectures (Qwen3.5/3.6 with Gated DeltaNet) have known memory management bugs in llama.cpp's CUDA backend.** The deadlock may be from internal seq_rm/memory operations corrupting the KV cache, not from our injection code.
 
+## Latest attempts (2026-05-01)
+
+| # | What | Result |
+|---|------|--------|
+| 17 | CUDA graphs disabled (GGML_CUDA_GRAPHS=OFF) | ❌ Still deadlocks |
+| 18 | Windows TDR timeout 60s (registry) | ❌ Still deadlocks |
+| 19 | Timed sample() on detached C++ thread (8s timeout) | ❌ CUDA deadlock freezes ALL threads including the polling thread |
+| 20 | Auto-reload model from frontend | ✅ Frontend detects loaded→unloaded, auto-reloads last model |
+| 21 | LLAMA_ATTN_ROT_DISABLE=1 env var | ❌ Already disabled in fork, still deadlocks |
+
+### Key discovery: CUDA deadlock freezes ALL process threads
+The timed sample approach (running `sample()` on a detached thread with polling timeout) failed because the CUDA deadlock blocks ALL threads in the process — not just the one calling CUDA. Only the watchdog works because it uses `process::exit(42)` which is handled by the OS, not CUDA.
+
+## Current safety net
+1. Watchdog detects deadlock after 10s → `process::exit(42)`
+2. Bridge auto-restarts worker process
+3. Frontend detects model unloaded → auto-reloads last known model (~30s)
+4. Generation can auto-continue after reload
+
 ## Investigation to continue
 
-1. **Attach C++ debugger** — Use Visual Studio to attach to the worker process, break when hung, get stack trace inside `llama_sampler_sample`
-2. **`compute-sanitizer --tool memcheck`** — NVIDIA CUDA memory checker
-3. **Test with upstream llama.cpp** — Rule out TurboQuant fork as cause
-4. **Test with Gemma-4 or Devstral** — Different model family (non-Qwen)
+1. **Test with Gemma-4 or Devstral** — Confirm if non-Qwen models have the same issue
+2. **Test with upstream llama.cpp** — Rule out TurboQuant fork
+3. **Attach C++ debugger** (Visual Studio) — Break when hung, get stack trace
+4. **`compute-sanitizer --tool memcheck`** — NVIDIA CUDA memory checker
 5. **Update CUDA drivers** — Newer drivers may fix
-6. **Report to llama.cpp** — If reproducible on upstream, file an issue
+6. **Report to llama.cpp** — File an issue with our reproduction data
+7. **Expose browser tools as Tauri commands** — Allow external control of in-app browser
 
 ## Key Files
 
