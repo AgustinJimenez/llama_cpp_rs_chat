@@ -236,6 +236,7 @@ const MainContent = ({
     openModelConfig,
     toggleMobileSidebar,
     isBrowserViewOpen,
+    sidebarWidth,
   } = useUIContext();
 
   // Poll for CAPTCHA status + agent browser view — auto-opens browser view when detected
@@ -246,7 +247,10 @@ const MainContent = ({
   }
 
   return (
-    <div className="flex-1 ml-0 md:ml-[240px]">
+    <div
+      className="flex-1 ml-0 md:ml-[var(--sidebar-w)]"
+      style={{ '--sidebar-w': `${sidebarWidth}px` } as React.CSSProperties}
+    >
       <div className="flex flex-col h-full">
         <ConnectionBanner />
         {/* Global provider selector — accessible from welcome screen and header */}

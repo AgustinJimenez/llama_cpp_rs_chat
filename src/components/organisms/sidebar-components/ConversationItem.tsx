@@ -6,7 +6,7 @@ import { relativeTime } from './utils';
 
 function getItemStyle(isSelected: boolean, isActive: boolean): string {
   if (isSelected) return 'bg-primary/10 text-foreground';
-  if (isActive) return 'bg-card text-foreground font-semibold';
+  if (isActive) return 'bg-muted text-foreground font-semibold';
   return 'text-foreground hover:bg-muted/30';
 }
 

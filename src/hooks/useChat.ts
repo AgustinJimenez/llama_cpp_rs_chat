@@ -535,6 +535,7 @@ export function useChat() {
             setIsLoading,
             setLastTimings,
             setCurrentConversationId,
+            setStreamStatus,
             isStreamingRef,
           });
           return;
@@ -706,6 +707,7 @@ export function useChat() {
             setIsLoading,
             setLastTimings,
             setCurrentConversationId,
+            setStreamStatus,
             isStreamingRef,
           });
           return;
@@ -795,6 +797,7 @@ export function useChat() {
             setIsLoading,
             setLastTimings,
             setCurrentConversationId,
+            setStreamStatus,
             isStreamingRef,
           });
           return;

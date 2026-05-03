@@ -18,6 +18,16 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
   const [browserViewUrl, setBrowserViewUrl] = useState<string | null>(null);
   const [browserViewTabId, setBrowserViewTabId] = useState<string | null>(null);
   const [isBrowserViewOpen, setIsBrowserViewOpen] = useState(false);
+  // eslint-disable-next-line react/hook-use-state
+  const [sidebarWidth, setSidebarWidthRaw] = useState<number>(() =>
+    parseInt(localStorage.getItem('sidebarWidth') || '240', 10),
+  );
+  const setSidebarWidth = useCallback((w: number) => {
+    // eslint-disable-next-line @typescript-eslint/no-magic-numbers
+    const clamped = Math.max(180, Math.min(500, w));
+    setSidebarWidthRaw(clamped);
+    localStorage.setItem('sidebarWidth', String(clamped));
+  }, []);
 
   const setViewMode = useCallback((mode: ViewMode) => {
     setViewModeRaw(mode);
@@ -81,6 +91,8 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
       closeBrowserView,
       clearBrowserView,
       toggleBrowserView,
+      sidebarWidth,
+      setSidebarWidth,
     }),
     [
       viewModeRaw,
@@ -110,6 +122,8 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
       closeBrowserView,
       toggleBrowserView,
       clearBrowserView,
+      sidebarWidth,
+      setSidebarWidth,
     ],
   );
 

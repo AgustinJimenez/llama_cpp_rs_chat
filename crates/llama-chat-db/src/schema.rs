@@ -554,6 +554,17 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         [],
     );
 
+    // Max tool calls per remote provider turn (safety limit)
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN max_tool_calls INTEGER DEFAULT 2000",
+        [],
+    );
+    // Loop detection: max consecutive identical tool calls before stopping
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN loop_detection_limit INTEGER DEFAULT 15",
+        [],
+    );
+
     // Active provider preference (persisted so API clients can query it)
     let _ = conn.execute(
         "ALTER TABLE config ADD COLUMN active_provider TEXT DEFAULT 'local'",

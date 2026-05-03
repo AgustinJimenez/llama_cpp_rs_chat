@@ -31,6 +31,8 @@ export interface UIContextValue {
   closeBrowserView: () => void;
   clearBrowserView: () => void;
   toggleBrowserView: () => void;
+  sidebarWidth: number;
+  setSidebarWidth: (w: number) => void;
 }
 
 export const UIContext = createContext<UIContextValue | null>(null);

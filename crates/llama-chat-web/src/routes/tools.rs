@@ -758,6 +758,18 @@ pub async fn handle_post_tools_execute(
                 }),
             }
         }
+        // Desktop tools — work without a model loaded
+        name if llama_chat_desktop_tools::is_desktop_tool(name) => {
+            let result = if name == "take_screenshot" {
+                llama_chat_desktop_tools::tool_take_screenshot_with_image(&tool_arguments)
+            } else {
+                llama_chat_desktop_tools::dispatch_desktop_tool(name, &tool_arguments)
+                    .unwrap_or_else(|| llama_chat_types::NativeToolResult::text_only(
+                        format!("Desktop tool '{name}' not found")
+                    ))
+            };
+            serde_json::json!({"success": true, "result": result.text})
+        }
         _ => {
             serde_json::json!({
                 "success": false,

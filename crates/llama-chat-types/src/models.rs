@@ -187,7 +187,15 @@ pub struct SamplerConfig {
     // Provider API keys (JSON blob for OpenAI-compatible providers)
     #[serde(default)]
     pub provider_api_keys: Option<String>,
+    // Max tool calls per remote provider turn (safety limit)
+    #[serde(default = "default_max_tool_calls")]
+    pub max_tool_calls: i32,
+    #[serde(default = "default_loop_detection_limit")]
+    pub loop_detection_limit: i32,
 }
+
+fn default_max_tool_calls() -> i32 { 2000 }
+fn default_loop_detection_limit() -> i32 { 15 }
 
 fn default_true() -> bool {
     true
@@ -318,6 +326,7 @@ impl Default for SamplerConfig {
             telegram_bot_token: None,
             telegram_chat_id: None,
             provider_api_keys: None,
+            max_tool_calls: 2000, loop_detection_limit: 15,
         }
     }
 }

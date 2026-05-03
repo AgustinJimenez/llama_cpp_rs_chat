@@ -24,7 +24,9 @@ fn provider_log(conv_id: &Option<String>, event_type: &str, message: &str) {
 }
 
 /// Maximum agentic loop iterations to prevent runaway tool-call chains.
-const MAX_AGENTIC_ITERATIONS: usize = 20;
+// Safety limit disabled — let the model run as many tool calls as needed.
+// The context budget check (MAX_INPUT_TOKENS) handles runaway conversations.
+const MAX_AGENTIC_ITERATIONS: usize = 2000;
 
 /// System prompt for cloud provider agentic loops.
 fn get_cloud_system_prompt() -> &'static str {
@@ -92,21 +94,91 @@ fn truncate_tool_output(output: &str, max_chars: usize) -> String {
 /// Keeps the first message (user prompt) and the last 6 messages, replaces
 /// older tool results with summaries.
 fn trim_old_tool_results(messages: &mut Vec<Value>) {
-    if messages.len() <= 8 {
+    if messages.len() <= 10 {
         return;
     }
+    // Preserve message ORDER to maximize DeepSeek prefix cache hits.
+    // Never remove or reorder messages — only truncate content in-place.
+    // Keep last 6 messages fully intact (recent context).
     let keep_end = 6;
-    let trim_end = messages.len() - keep_end;
+    let trim_end = messages.len().saturating_sub(keep_end);
+
     for i in 1..trim_end {
-        if messages[i].get("role").and_then(|r| r.as_str()) == Some("tool") {
+        let role = messages[i].get("role").and_then(|r| r.as_str()).unwrap_or("").to_string();
+
+        // Truncate tool result content
+        if role == "tool" {
             if let Some(content) = messages[i].get("content").and_then(|c| c.as_str()) {
-                if content.len() > 200 {
-                    messages[i]["content"] = json!(format!("[Previous tool output truncated — {} chars]", content.len()));
+                if content.len() > 100 {
+                    messages[i]["content"] = json!(format!("[Output: {} chars]", content.len()));
+                }
+            }
+        }
+
+        // Truncate assistant text content (but NEVER tool_call arguments — that breaks the model)
+        if role == "assistant" && messages[i].get("tool_calls").is_none() {
+            if let Some(content) = messages[i].get("content").and_then(|c| c.as_str()) {
+                if content.len() > 300 {
+                    let short: String = content.chars().take(200).collect();
+                    messages[i]["content"] = json!(format!("{}...", short));
                 }
             }
         }
     }
 }
+
+/// Summarize large tool output using the same provider API.
+/// Makes a quick non-streaming API call to condense the output.
+fn summarize_tool_output(output: &str, tool_name: &str, url: &str, api_key: &str, model: &str) -> String {
+    if output.len() <= TOOL_SUMMARIZE_THRESHOLD {
+        return output.to_string();
+    }
+    // Take first 3000 chars + last 1000 chars for the summarization input
+    let input = if output.len() > 4000 {
+        let head: String = output.chars().take(3000).collect();
+        let tail: String = output.chars().rev().take(1000).collect::<Vec<_>>().into_iter().rev().collect();
+        format!("{}\n[...{} chars omitted...]\n{}", head, output.len() - 4000, tail)
+    } else {
+        output.to_string()
+    };
+
+    let body = json!({
+        "model": model,
+        "messages": [
+            {"role": "system", "content": "Summarize the following tool output concisely. Keep all important information: errors, file paths, key results, numbers. Remove verbose/repetitive content. Output ONLY the summary, no preamble."},
+            {"role": "user", "content": format!("Tool: {}\nOutput:\n{}", tool_name, input)}
+        ],
+        "max_tokens": 300,
+        "temperature": 0.0,
+        "stream": false
+    });
+
+    match ureq::post(url)
+        .set("Authorization", &format!("Bearer {api_key}"))
+        .set("Content-Type", "application/json")
+        .timeout(std::time::Duration::from_secs(15))
+        .send_string(&body.to_string())
+    {
+        Ok(resp) => {
+            let text = resp.into_string().unwrap_or_default();
+            if let Ok(parsed) = serde_json::from_str::<Value>(&text) {
+                if let Some(content) = parsed["choices"][0]["message"]["content"].as_str() {
+                    eprintln!("[OPENAI_COMPAT] Summarized tool output: {} chars → {} chars", output.len(), content.len());
+                    return content.to_string();
+                }
+            }
+            // Fallback to truncation if summarization fails
+            truncate_tool_output(output, 2000)
+        }
+        Err(e) => {
+            eprintln!("[OPENAI_COMPAT] Summarization failed: {e}, falling back to truncation");
+            truncate_tool_output(output, 2000)
+        }
+    }
+}
+
+/// Threshold for tool output summarization (chars).
+const TOOL_SUMMARIZE_THRESHOLD: usize = 1500;
 
 /// The set of tool names we expose to cloud providers.
 /// Kept small to minimize request size — no desktop/screenshot/MCP tools.
@@ -764,6 +836,15 @@ pub async fn generate(
         provider_id, model_name, url
     );
 
+    // Read max_tool_calls from config (default 2000)
+    let config = db.map(|d| d.load_config());
+    let max_iterations = config.as_ref()
+        .map(|c| c.max_tool_calls as usize)
+        .unwrap_or(MAX_AGENTIC_ITERATIONS);
+    let loop_limit = config.as_ref()
+        .map(|c| c.loop_detection_limit as u32)
+        .unwrap_or(15);
+
     let api_key_owned = api_key.to_string();
     let provider_id_owned = provider_id.to_string();
     let model_name_clone = model_name.clone();
@@ -805,10 +886,12 @@ pub async fn generate(
         let mut total_output_tokens: u64 = 0;
         let mut actual_model: Option<String> = None;
         let mut final_stop_reason = "end_turn".to_string();
+        let mut last_tool_name = String::new();
+        let mut same_tool_count = 0u32;
 
-        for iteration in 0..MAX_AGENTIC_ITERATIONS {
+        for iteration in 0..max_iterations {
             provider_log(&conv_id_owned, "provider_iteration",
-                &format!("iteration {}/{} messages={}", iteration + 1, MAX_AGENTIC_ITERATIONS, messages.len()));
+                &format!("iteration {}/{} messages={}", iteration + 1, max_iterations, messages.len()));
 
             // Check if frontend disconnected (receiver dropped)
             if tx.is_closed() {
@@ -947,6 +1030,41 @@ pub async fn generate(
             provider_log(&conv_id_owned, "tool_call",
                 &format!("{} tool call(s): {} finish_reason={:?}", result.tool_calls.len(), tc_names.join(", "), result.finish_reason));
 
+            // Loop detection: if same tool+args called 3+ times in a row, stop
+            let current_tool = result.tool_calls.iter()
+                .map(|tc| {
+                    let args_short: String = tc.arguments.chars().take(100).collect();
+                    format!("{}({})", tc.name, args_short)
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            if current_tool == last_tool_name {
+                same_tool_count += 1;
+                // Warning at n-1: inject system message so model knows
+                if same_tool_count == loop_limit.saturating_sub(1) && loop_limit > 2 {
+                    messages.push(json!({
+                        "role": "system",
+                        "content": format!("WARNING: You have called the same tool ({}) {} times in a row. You will be stopped after one more identical call. Try a completely different approach.",
+                            result.tool_calls.iter().map(|tc| tc.name.as_str()).collect::<Vec<_>>().join(", "),
+                            same_tool_count)
+                    }));
+                }
+                if same_tool_count >= loop_limit {
+                    provider_log(&conv_id_owned, "provider_error",
+                        &format!("Loop detected: {} called {} times in a row, stopping", current_tool, same_tool_count));
+                    let _ = tx.send(CliTokenData {
+                        token: format!("\n\n*Loop detected: tool called {} times in a row. Send a message to continue with a different approach.*", same_tool_count),
+                        is_done: false, session_id: None, stop_reason: None, cost_usd: None,
+                        duration_ms: None, model_id: actual_model.clone(), input_tokens: None, output_tokens: None,
+                    });
+                    final_stop_reason = "infinite_loop".to_string();
+                    break;
+                }
+            } else {
+                last_tool_name = current_tool;
+                same_tool_count = 1;
+            }
+
             // Build the assistant message with tool_calls for the conversation
             let tc_json: Vec<Value> = result
                 .tool_calls
@@ -995,7 +1113,7 @@ pub async fn generate(
                     eprintln!(
                         "[OPENAI_COMPAT] Executing tool: {} args={}",
                         tc.name,
-                        &tc.arguments[..tc.arguments.len().min(200)]
+                        &tc.arguments.chars().take(200).collect::<String>()
                     );
                     let result_text = execute_openai_tool(&tc.name, &tc.arguments);
                     // Smart truncation: keep head + tail for large outputs, 50KB safety net
@@ -1004,8 +1122,8 @@ pub async fn generate(
                     } else {
                         result_text
                     };
-                    let truncated = truncate_tool_output(&safe, 8000);
-                    (tc.id.clone(), tc.name.clone(), truncated)
+                    let summarized = summarize_tool_output(&safe, &tc.name, &url, &api_key_owned, &model_name_clone);
+                    (tc.id.clone(), tc.name.clone(), summarized)
                 }).collect()
             } else {
                 result.tool_calls.iter().map(|tc| {
@@ -1018,7 +1136,7 @@ pub async fn generate(
                     eprintln!(
                         "[OPENAI_COMPAT] Executing tool: {} args={}",
                         tc.name,
-                        &tc.arguments[..tc.arguments.len().min(200)]
+                        &tc.arguments.chars().take(200).collect::<String>()
                     );
                     let result_text = execute_openai_tool(&tc.name, &tc.arguments);
                     // Smart truncation: keep head + tail for large outputs, 50KB safety net
@@ -1027,8 +1145,8 @@ pub async fn generate(
                     } else {
                         result_text
                     };
-                    let truncated = truncate_tool_output(&safe, 8000);
-                    (tc.id.clone(), tc.name.clone(), truncated)
+                    let summarized = summarize_tool_output(&safe, &tc.name, &url, &api_key_owned, &model_name_clone);
+                    (tc.id.clone(), tc.name.clone(), summarized)
                 }).collect()
             };
 
@@ -1064,6 +1182,15 @@ pub async fn generate(
                 eprintln!("[OPENAI_COMPAT] Input tokens ({}) approaching limit, trimming older tool results", total_input_tokens);
                 trim_old_tool_results(&mut messages);
             }
+        }
+
+        // Notify user if iteration limit was hit
+        if final_stop_reason == "tool_calls" {
+            let _ = tx.send(CliTokenData {
+                token: "\n\n*Tool call safe limit reached. Send another message to continue.*".to_string(),
+                is_done: false, session_id: None, stop_reason: None, cost_usd: None,
+                duration_ms: None, model_id: actual_model.clone(), input_tokens: None, output_tokens: None,
+            });
         }
 
         let duration_ms = start.elapsed().as_millis() as u64;

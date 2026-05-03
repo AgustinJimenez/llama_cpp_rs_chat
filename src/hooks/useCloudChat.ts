@@ -19,6 +19,7 @@ export interface StreamCloudProviderParams {
   setIsLoading: (v: boolean) => void;
   setLastTimings: (t: TimingInfo | undefined) => void;
   setCurrentConversationId: (id: string | null) => void;
+  setStreamStatus?: (s: string | undefined) => void;
   isStreamingRef: React.MutableRefObject<boolean>;
 }
 
@@ -39,6 +40,7 @@ async function streamCloudProviderTauri(params: StreamCloudProviderParams): Prom
     setIsLoading,
     setLastTimings,
     setCurrentConversationId,
+    setStreamStatus,
     isStreamingRef,
   } = params;
 
@@ -65,7 +67,7 @@ async function streamCloudProviderTauri(params: StreamCloudProviderParams): Prom
 
       // Abort support: stop listening if the controller fires
       if (params.abortController?.signal) {
-        const signal = params.abortController.signal;
+        const { signal } = params.abortController;
         if (signal.aborted) {
           settle(() => resolve());
           return;
@@ -101,7 +103,7 @@ async function streamCloudProviderTauri(params: StreamCloudProviderParams): Prom
         }
         setTimeout(() => {
           window.dispatchEvent(new CustomEvent('conversation-title-updated'));
-        }, 500);
+        }, 500); // eslint-disable-line @typescript-eslint/no-magic-numbers
 
         const outTokens = d.output_tokens ?? Math.round(accumulated.length / 4);
         const durationMs = d.duration_ms ?? 0;
@@ -130,18 +132,23 @@ async function streamCloudProviderTauri(params: StreamCloudProviderParams): Prom
         conversationId: conversationId || null,
         sessionId: sessionRef.current || null,
       }).catch((err: unknown) => {
-        settle(() =>
-          reject(err instanceof Error ? err : new Error(String(err)))
-        );
+        settle(() => reject(err instanceof Error ? err : new Error(String(err))));
       });
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Provider request failed';
-    setError(msg);
-    toast.error(msg, { duration: 5000 });
+    // Don't show error toast when user aborts the stream
+    const isAbort =
+      (err instanceof DOMException && err.name === 'AbortError') ||
+      (err instanceof Error && err.message.includes('aborted'));
+    if (!isAbort) {
+      const msg = err instanceof Error ? err.message : 'Provider request failed';
+      setError(msg);
+      toast.error(msg, { duration: 5000 });
+    }
   } finally {
     isStreamingRef.current = false;
     setIsLoading(false);
+    setStreamStatus?.(undefined);
   }
 }
 
@@ -149,6 +156,7 @@ async function streamCloudProviderTauri(params: StreamCloudProviderParams): Prom
  * Handles SSE streaming for cloud/CLI-backed providers (web browser).
  * Extracted from useChat's sendMessage to separate concerns.
  */
+// eslint-disable-next-line complexity
 export async function streamCloudProvider(params: StreamCloudProviderParams): Promise<void> {
   if (isTauriEnv()) {
     return streamCloudProviderTauri(params);
@@ -167,6 +175,7 @@ export async function streamCloudProvider(params: StreamCloudProviderParams): Pr
     setIsLoading,
     setLastTimings,
     setCurrentConversationId,
+    setStreamStatus,
     isStreamingRef,
   } = params;
 
@@ -190,6 +199,7 @@ export async function streamCloudProvider(params: StreamCloudProviderParams): Pr
     const reader = resp.body?.getReader();
     const decoder = new TextDecoder();
     let accumulated = '';
+    let _tokenCount = 0;
 
     if (reader) {
       for (;;) {
@@ -206,11 +216,24 @@ export async function streamCloudProvider(params: StreamCloudProviderParams): Pr
             const event = JSON.parse(jsonStr);
             if (event.type === 'token') {
               accumulated += event.token;
+              _tokenCount++;
               setMessages((prev) =>
                 prev.map((msg) =>
                   msg.id === assistantMessageId ? { ...msg, content: accumulated } : msg,
                 ),
               );
+            } else if (event.type === 'status') {
+              // API-reported token counts and timing (accurate, excludes tool execution time)
+              const outTok = event.output_tokens || 0;
+              const dur = event.duration_ms || 0;
+              const tokPerSec = dur > 0 ? outTok / (dur / 1000) : 0;
+              setStreamStatus?.(`${outTok} tokens · ${tokPerSec.toFixed(1)} tok/s`);
+              setLastTimings({
+                genTokPerSec: tokPerSec,
+                genTokens: outTok,
+                genEvalMs: dur,
+                costUsd: event.cost_usd,
+              });
             } else if (event.type === 'done') {
               if (event.session_id) sessionRef.current = event.session_id;
               if (event.conversation_id && !conversationId) {
@@ -219,13 +242,15 @@ export async function streamCloudProvider(params: StreamCloudProviderParams): Pr
               // Trigger sidebar refresh so the new conversation appears in the list
               setTimeout(() => {
                 window.dispatchEvent(new CustomEvent('conversation-title-updated'));
-              }, 500);
+              }, 500); // eslint-disable-line @typescript-eslint/no-magic-numbers
               const outTokens = event.output_tokens || Math.round(accumulated.length / 4);
+              const inTokens = event.input_tokens || 0;
               const durationMs = event.duration_ms || 0;
               const timings: TimingInfo = {
                 genTokPerSec: durationMs > 0 ? outTokens / (durationMs / 1000) : undefined,
                 genEvalMs: durationMs,
                 genTokens: outTokens,
+                promptTokens: inTokens,
                 finishReason: event.stop_reason === 'end_turn' ? 'stop' : event.stop_reason,
                 costUsd: event.cost_usd,
               };
@@ -243,11 +268,18 @@ export async function streamCloudProvider(params: StreamCloudProviderParams): Pr
       }
     }
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Provider request failed';
-    setError(msg);
-    toast.error(msg, { duration: 5000 });
+    // Don't show error toast when user aborts the stream
+    const isAbort =
+      (err instanceof DOMException && err.name === 'AbortError') ||
+      (err instanceof Error && err.message.includes('aborted'));
+    if (!isAbort) {
+      const msg = err instanceof Error ? err.message : 'Provider request failed';
+      setError(msg);
+      toast.error(msg, { duration: 5000 });
+    }
   } finally {
     isStreamingRef.current = false;
     setIsLoading(false);
+    setStreamStatus?.(undefined);
   }
 }

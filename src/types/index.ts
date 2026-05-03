@@ -106,6 +106,10 @@ export interface SamplerConfig {
   telegram_chat_id?: string;
   // Provider API keys (JSON blob for OpenAI-compatible providers)
   provider_api_keys?: string;
+  // Max tool calls per remote provider turn (safety limit)
+  max_tool_calls?: number;
+  // Loop detection: max consecutive identical tool calls before stopping
+  loop_detection_limit?: number;
 }
 
 export type SamplerType =

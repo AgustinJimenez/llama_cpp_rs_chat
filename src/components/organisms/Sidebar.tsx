@@ -1,5 +1,5 @@
 import { Plus, RotateCcw, Settings, Search } from 'lucide-react';
-import React, { useState, useEffect, useMemo, useCallback, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, Suspense } from 'react';
 
 import { useChatContext } from '../../contexts/ChatContext';
 import { useDownloadContext } from '../../contexts/DownloadContext';
@@ -35,10 +35,18 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
     loadConversation: onLoadConversation,
     currentConversationId,
     messages,
+    streamStatus,
   } = useChatContext();
   const { status: modelStatus } = useModelContext();
   const isModelGenerating = modelStatus.generating === true;
-  const activeGeneratingId = isModelGenerating ? modelStatus.active_conversation_id : undefined;
+  // Show generating indicator for both local models and remote providers.
+  // Use streamStatus (only set during actual generation, not conversation loading).
+  // eslint-disable-next-line no-nested-ternary
+  const activeGeneratingId = isModelGenerating
+    ? modelStatus.active_conversation_id
+    : streamStatus
+      ? currentConversationId
+      : undefined;
   const { openAppSettings: onOpenAppSettings } = useUIContext();
   const { activeCount: downloadActiveCount } = useDownloadContext();
   const { connected } = useConnection();
@@ -185,7 +193,27 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
     setConversationToDelete(null);
   };
 
-  const { isMobileSidebarOpen, closeMobileSidebar } = useUIContext();
+  const { isMobileSidebarOpen, closeMobileSidebar, sidebarWidth, setSidebarWidth } = useUIContext();
+  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (!dragRef.current) return;
+      const newWidth = dragRef.current.startWidth + (e.clientX - dragRef.current.startX);
+      setSidebarWidth(newWidth);
+    };
+    const onMouseUp = () => {
+      dragRef.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+  }, [setSidebarWidth]);
 
   const handleNewChat = useCallback(() => {
     onNewChat();
@@ -215,9 +243,10 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
       ) : null}
 
       <div
-        className={`fixed top-0 left-0 h-screen w-[240px] bg-card border-r border-border z-50 flex flex-col transition-transform duration-200 md:translate-x-0 md:z-40 ${
+        className={`fixed top-0 left-0 h-screen bg-card border-r border-border z-50 flex flex-col transition-transform duration-200 md:translate-x-0 md:z-40 ${
           isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
+        style={{ width: `${sidebarWidth}px` }}
         data-testid="sidebar"
       >
         <div className="px-3 pt-3 pb-2 space-y-0.5">
@@ -329,6 +358,18 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
             Settings
           </button>
         </div>
+
+        {/* Resize handle */}
+        {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions */}
+        <div
+          className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-primary/30 active:bg-primary/50 hidden md:block"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            dragRef.current = { startX: e.clientX, startWidth: sidebarWidth };
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+          }}
+        />
       </div>
 
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

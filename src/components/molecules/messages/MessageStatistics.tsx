@@ -18,7 +18,11 @@ interface MessageStatisticsProps {
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
+  const secs = ms / 1000;
+  if (secs < 60) return `${secs.toFixed(1)}s`;
+  const mins = Math.floor(secs / 60);
+  const remainSecs = Math.round(secs % 60);
+  return `${mins}m ${remainSecs}s`;
 }
 
 function formatNumber(n: number): string {
@@ -71,7 +75,7 @@ const FinishReasonBadge: React.FC<{ finishReason?: string }> = ({ finishReason }
 };
 
 export const MessageStatistics = ({ timings, tokensUsed, maxTokens }: MessageStatisticsProps) => {
-  const { genTokPerSec, genTokens, genEvalMs, promptEvalMs } = timings;
+  const { genTokPerSec, genTokens, genEvalMs, promptEvalMs, promptTokens } = timings;
   const [bgProcesses, setBgProcesses] = useState<BackgroundProcessInfo[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -97,9 +101,18 @@ export const MessageStatistics = ({ timings, tokensUsed, maxTokens }: MessageSta
   return (
     <div className="flex items-center gap-3 text-xs text-foreground font-mono">
       {genTokens ? (
-        <span className="inline-flex items-center gap-1" title="Tokens generated">
+        <span
+          className="inline-flex items-center gap-1"
+          title={
+            promptTokens
+              ? `Input: ${formatNumber(promptTokens)}, Output: ${formatNumber(genTokens)}`
+              : 'Tokens generated'
+          }
+        >
           <Hash className="h-3 w-3" />
-          {formatNumber(genTokens)} tokens
+          {promptTokens
+            ? `${formatNumber(promptTokens)} / ${formatNumber(genTokens)}`
+            : `${formatNumber(genTokens)} tokens`}
         </span>
       ) : null}
       {totalMs ? (
@@ -115,14 +128,6 @@ export const MessageStatistics = ({ timings, tokensUsed, maxTokens }: MessageSta
         <Gauge className="h-3 w-3" />
         {genTokPerSec.toFixed(1)} tok/s
       </span>
-      {timings.costUsd ? (
-        <span
-          className="inline-flex items-center gap-1 text-emerald-400"
-          title="Cost (from subscription)"
-        >
-          ${timings.costUsd.toFixed(3)}
-        </span>
-      ) : null}
       {tokensUsed !== undefined && maxTokens !== undefined && timings.tokenBreakdown ? (
         <TokenBreakdownPopover
           breakdown={timings.tokenBreakdown}

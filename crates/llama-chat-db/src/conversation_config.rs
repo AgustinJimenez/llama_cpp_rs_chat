@@ -187,7 +187,7 @@ impl Database {
                     proactive_compaction: false,
                     telegram_bot_token: None,
                     telegram_chat_id: None,
-                    provider_api_keys: None,
+                    provider_api_keys: None, max_tool_calls: 2000, loop_detection_limit: 15,
                 })
             },
         )

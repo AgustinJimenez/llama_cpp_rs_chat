@@ -69,6 +69,9 @@ pub struct DbSamplerConfig {
     pub telegram_chat_id: Option<String>,
     // Provider API keys (JSON blob for OpenAI-compatible providers)
     pub provider_api_keys: Option<String>,
+    // Max tool calls per remote provider turn (safety limit)
+    pub max_tool_calls: i32,
+    pub loop_detection_limit: i32,
 }
 
 impl Default for DbSamplerConfig {
@@ -126,6 +129,8 @@ impl Default for DbSamplerConfig {
             telegram_bot_token: None,
             telegram_chat_id: None,
             provider_api_keys: None,
+            max_tool_calls: 2000,
+            loop_detection_limit: 15,
         }
     }
 }
@@ -169,7 +174,9 @@ impl Database {
                         proactive_compaction,
                         telegram_bot_token,
                         telegram_chat_id,
-                        provider_api_keys
+                        provider_api_keys,
+                        max_tool_calls,
+                        loop_detection_limit
                  FROM config WHERE id = 1",
                 [],
                 |row| {
@@ -232,6 +239,8 @@ impl Database {
                         telegram_bot_token: row.get(49)?,
                         telegram_chat_id: row.get(50)?,
                         provider_api_keys: row.get(51)?,
+                        max_tool_calls: row.get::<_, Option<i32>>(52)?.unwrap_or(2000),
+                        loop_detection_limit: row.get::<_, Option<i32>>(53)?.unwrap_or(15),
                     })
                 },
             )
@@ -282,10 +291,12 @@ impl Database {
               telegram_bot_token,
               telegram_chat_id,
               provider_api_keys,
+              max_tool_calls,
+              loop_detection_limit,
               updated_at)
              VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
                      ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34,
-                     ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50, ?51, ?52, ?53)",
+                     ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50, ?51, ?52, ?53, ?54, ?55)",
             params![
                 config.sampler_type,
                 config.temperature,
@@ -339,6 +350,8 @@ impl Database {
                 config.telegram_bot_token,
                 config.telegram_chat_id,
                 config.provider_api_keys,
+                config.max_tool_calls,
+                config.loop_detection_limit,
                 current_timestamp_millis(),
             ],
         )
@@ -385,7 +398,9 @@ impl Database {
              telegram_bot_token = ?50,
              telegram_chat_id = ?51,
              provider_api_keys = ?52,
-             updated_at = ?53
+             max_tool_calls = ?53,
+             loop_detection_limit = ?54,
+             updated_at = ?55
              WHERE id = 1",
             params![
                 config.sampler_type,
@@ -440,6 +455,8 @@ impl Database {
                 config.telegram_bot_token,
                 config.telegram_chat_id,
                 config.provider_api_keys,
+                config.max_tool_calls,
+                config.loop_detection_limit,
                 current_timestamp_millis(),
             ],
         )
@@ -628,6 +645,8 @@ mod tests {
             telegram_bot_token: None,
             telegram_chat_id: None,
             provider_api_keys: None,
+            max_tool_calls: 2000,
+            loop_detection_limit: 15,
         };
 
         db.save_config(&config).unwrap();
