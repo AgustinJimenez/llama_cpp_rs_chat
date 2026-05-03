@@ -18,11 +18,17 @@ pub async fn handle_get_conversation(
     // Extract filename from path: /api/conversation/{filename}
     let filename = &path[18..]; // Remove "/api/conversation/"
 
-    // Remove .txt extension if present for database lookup
-    let conversation_id = filename.trim_end_matches(".txt");
+    // Try both with and without .txt suffix — remote provider conversations
+    // may store the ID with .txt, local ones without.
+    let trimmed = filename.trim_end_matches(".txt");
+    let conversation_id = trimmed;
+    let records_result = match db.get_messages(trimmed) {
+        Ok(msgs) if !msgs.is_empty() => Ok(msgs),
+        _ => db.get_messages(filename),
+    };
 
     // Load messages directly from DB to preserve timing metadata
-    match db.get_messages(conversation_id) {
+    match records_result {
         Ok(records) => {
             let mut messages = Vec::new();
             for (i, rec) in records.iter().enumerate() {
