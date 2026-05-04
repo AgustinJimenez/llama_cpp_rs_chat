@@ -227,7 +227,11 @@ export async function streamCloudProvider(params: StreamCloudProviderParams): Pr
               const outTok = event.output_tokens || 0;
               const dur = event.duration_ms || 0;
               const tokPerSec = dur > 0 ? outTok / (dur / 1000) : 0;
-              setStreamStatus?.(`${outTok} tokens · ${tokPerSec.toFixed(1)} tok/s`);
+              const inTok = event.input_tokens || 0;
+              const inLabel = inTok > 0 ? `in: ${inTok.toLocaleString()}  ` : '';
+              setStreamStatus?.(
+                `${inLabel}out: ${outTok.toLocaleString()} · ${tokPerSec.toFixed(1)} tok/s`,
+              );
               setLastTimings({
                 genTokPerSec: tokPerSec,
                 genTokens: outTok,

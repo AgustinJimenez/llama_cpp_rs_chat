@@ -97,6 +97,14 @@ export const ModelProvider = ({ children }: { children: ReactNode }) => {
   );
 
   const unloadModel = useCallback(async () => {
+    // For remote providers, just clear the provider state (no local model to unload)
+    const currentProvider = localStorage.getItem('activeProvider') || 'local';
+    if (currentProvider !== 'local') {
+      setActiveProvider('local');
+      localStorage.setItem('activeProvider', 'local');
+      toast.success('Provider disconnected');
+      return;
+    }
     const result = await unloadModelRaw();
     if (result.success) {
       toast.success('Model unloaded successfully');

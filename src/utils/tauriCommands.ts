@@ -321,6 +321,20 @@ export async function getConversationMetrics(
   return fetchJson<ConversationMetric[]>(`/api/conversations/${id}/metrics`);
 }
 
+export async function queueMessage(conversationId: string, content: string): Promise<void> {
+  const id = conversationId.replace('.txt', '');
+  if (isTauriEnv()) {
+    await invokeCmd('queue_message', { conversationId: id, content });
+    return;
+  }
+  const response = await fetch(`/api/conversation/${id}/queue`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  });
+  if (!response.ok) throw new Error('Failed to queue message');
+}
+
 // ─── Chat ─────────────────────────────────────────────────────────────
 
 export async function cancelGeneration(): Promise<void> {

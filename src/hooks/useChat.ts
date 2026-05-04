@@ -481,8 +481,35 @@ export function useChat() {
       }
       const hasImages = imageData && imageData.length > 0;
       const trimmed = content.trim();
-      if (!bypassLoadingCheck && (isLoading || (!trimmed && !hasImages))) return;
       if (!trimmed && !hasImages) return;
+
+      // If already generating with a remote provider, queue the message for injection
+      if (
+        !bypassLoadingCheck &&
+        isLoading &&
+        currentConversationId &&
+        providerRef?.current?.provider &&
+        providerRef.current.provider !== 'local'
+      ) {
+        const { queueMessage } = await import('../utils/tauriCommands');
+        try {
+          await queueMessage(currentConversationId, trimmed);
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              role: 'user' as const,
+              content: trimmed,
+              timestamp: Date.now(),
+            },
+          ]);
+          toast.success('Message queued — will be injected on next iteration', { duration: 2000 });
+        } catch {
+          toast.error('Failed to queue message');
+        }
+        return;
+      }
+      if (!bypassLoadingCheck && isLoading) return;
 
       // Reset auto-continue counter on new user message
       autoContinueCountRef.current = 0;

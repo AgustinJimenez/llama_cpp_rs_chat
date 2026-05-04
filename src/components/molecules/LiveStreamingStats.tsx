@@ -90,8 +90,7 @@ export const LiveStreamingStats = ({
   const hasContext = tokensUsed !== undefined && maxTokens !== undefined;
   // Use generation-only tok/s (excludes tool execution time)
   const tokPerSec = liveTokPerSec > 0 ? liveTokPerSec.toFixed(1) : null;
-  const genSecs = Math.round(genTimeRef.current / 1000);
-  const totalSecs = Math.floor(elapsed / 1000);
+  void elapsed; // elapsed time display moved to LoadingIndicator
 
   if (!hasContext && !displayStatus) return null;
   return (
@@ -115,14 +114,7 @@ export const LiveStreamingStats = ({
           {tokPerSec} tok/s
         </span>
       ) : null}
-      {totalSecs > 0 ? (
-        <span
-          className="inline-flex items-center gap-1"
-          title={`Generation: ${genSecs}s, Total: ${totalSecs}s`}
-        >
-          {genSecs > 0 && genSecs < totalSecs ? `${genSecs}s / ${totalSecs}s` : `${totalSecs}s`}
-        </span>
-      ) : null}
+      {/* Elapsed time removed — shown by LoadingIndicator below the chat bubble */}
       {hasContext ? (
         <span
           className={`inline-flex items-center gap-1 ${pct > CONTEXT_WARNING_THRESHOLD_PCT ? 'text-yellow-400' : ''}`}

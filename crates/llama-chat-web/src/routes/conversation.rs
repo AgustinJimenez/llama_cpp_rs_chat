@@ -30,26 +30,86 @@ pub async fn handle_get_conversation(
     // Load messages directly from DB to preserve timing metadata
     match records_result {
         Ok(records) => {
+            // Rebuild messages: merge consecutive assistant tool_call + tool results
+            // into a single assistant message with <tool_call>/<tool_response> tags
+            // so the frontend renders the same widget UI as during live streaming.
             let mut messages = Vec::new();
-            for (i, rec) in records.iter().enumerate() {
-                messages.push(ChatMessage {
-                    id: format!("msg_{i}"),
-                    role: rec.role.to_lowercase(),
-                    content: rec.content.clone(),
-                    timestamp: rec.timestamp * 1000,
-                    prompt_tok_per_sec: rec.prompt_tok_per_sec,
-                    gen_tok_per_sec: rec.gen_tok_per_sec,
-                    gen_eval_ms: rec.gen_eval_ms,
-                    gen_tokens: rec.gen_tokens,
-                    prompt_eval_ms: rec.prompt_eval_ms,
-                    prompt_tokens: rec.prompt_tokens,
-                });
+            let mut i = 0;
+            let mut msg_idx = 0;
+            while i < records.len() {
+                let rec = &records[i];
+                if rec.role == "assistant" && rec.content.contains("\"tool_calls\":") && rec.content.starts_with("{") {
+                    // Reconstruct streamed format: content + tool_call tags + tool_response tags
+                    let mut combined = String::new();
+                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&rec.content) {
+                        if let Some(text) = parsed.get("content").and_then(|c| c.as_str()) {
+                            if !text.is_empty() { combined.push_str(text); }
+                        }
+                        if let Some(tcs) = parsed.get("tool_calls").and_then(|t| t.as_array()) {
+                            for tc in tcs {
+                                let name = tc.pointer("/function/name").and_then(|n| n.as_str()).unwrap_or("unknown");
+                                let args = tc.pointer("/function/arguments").and_then(|a| a.as_str()).unwrap_or("{}");
+                                combined.push_str(&format!("\n<tool_call>{{\"name\": \"{name}\", \"arguments\": {args}}}</tool_call>\n"));
+                            }
+                        }
+                    }
+                    // Consume following tool result messages
+                    let mut j = i + 1;
+                    while j < records.len() && records[j].role == "tool" {
+                        let tool_content = records[j].content.split_once("\n\n")
+                            .map(|(_, c)| c)
+                            .unwrap_or(&records[j].content);
+                        let display = &tool_content[..tool_content.len().min(2000)];
+                        combined.push_str(&format!("\n<tool_response>{display}</tool_response>\n"));
+                        j += 1;
+                    }
+                    if !combined.trim().is_empty() {
+                        messages.push(ChatMessage {
+                            id: format!("msg_{msg_idx}"),
+                            role: "assistant".to_string(),
+                            content: combined,
+                            timestamp: rec.timestamp * 1000,
+                            prompt_tok_per_sec: rec.prompt_tok_per_sec,
+                            gen_tok_per_sec: rec.gen_tok_per_sec,
+                            gen_eval_ms: rec.gen_eval_ms,
+                            gen_tokens: rec.gen_tokens,
+                            prompt_eval_ms: rec.prompt_eval_ms,
+                            prompt_tokens: rec.prompt_tokens,
+                        });
+                        msg_idx += 1;
+                    }
+                    i = j;
+                } else if rec.role == "tool" {
+                    // Orphan tool message (no preceding assistant) — skip
+                    i += 1;
+                } else {
+                    messages.push(ChatMessage {
+                        id: format!("msg_{msg_idx}"),
+                        role: rec.role.to_lowercase(),
+                        content: rec.content.clone(),
+                        timestamp: rec.timestamp * 1000,
+                        prompt_tok_per_sec: rec.prompt_tok_per_sec,
+                        gen_tok_per_sec: rec.gen_tok_per_sec,
+                        gen_eval_ms: rec.gen_eval_ms,
+                        gen_tokens: rec.gen_tokens,
+                        prompt_eval_ms: rec.prompt_eval_ms,
+                        prompt_tokens: rec.prompt_tokens,
+                    });
+                    msg_idx += 1;
+                    i += 1;
+                }
             }
-            // Also provide text content for backward compatibility
-            let content = db.get_conversation_as_text(conversation_id).unwrap_or_default();
             let (provider_id, provider_session_id) = db
                 .get_conversation_provider_session(conversation_id)
                 .unwrap_or((None, None));
+            // For remote provider conversations, don't return raw text content
+            // (it contains JSON blobs that break markdown rendering).
+            // The structured `messages` array has properly reconstructed tool_call widgets.
+            let content = if provider_id.is_some() {
+                String::new()
+            } else {
+                db.get_conversation_as_text(conversation_id).unwrap_or_default()
+            };
             let response = ConversationContentResponse {
                 content,
                 messages,

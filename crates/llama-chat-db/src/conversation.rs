@@ -244,6 +244,46 @@ impl Database {
         }
     }
 
+    // ─── Message Queue (for injecting user messages during remote provider generation) ───
+
+    /// Push a message onto the queue for a conversation.
+    pub fn queue_message(&self, conversation_id: &str, content: &str) -> Result<(), String> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        let conn = self.connection();
+        conn.execute(
+            "INSERT INTO message_queue (conversation_id, content, created_at) VALUES (?1, ?2, ?3)",
+            params![conversation_id, content, now],
+        ).map_err(db_error("queue message"))?;
+        Ok(())
+    }
+
+    /// Pop all queued messages for a conversation (returns and deletes them).
+    pub fn pop_queued_messages(&self, conversation_id: &str) -> Vec<String> {
+        let conn = self.connection();
+        let mut stmt = match conn.prepare(
+            "SELECT id, content FROM message_queue WHERE conversation_id = ?1 ORDER BY id ASC"
+        ) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        let rows: Vec<(i64, String)> = stmt
+            .query_map([conversation_id], |row| Ok((row.get(0)?, row.get(1)?)))
+            .ok()
+            .map(|iter| iter.filter_map(|r| r.ok()).collect())
+            .unwrap_or_default();
+        if !rows.is_empty() {
+            let ids: Vec<String> = rows.iter().map(|(id, _)| id.to_string()).collect();
+            let _ = conn.execute(
+                &format!("DELETE FROM message_queue WHERE id IN ({})", ids.join(",")),
+                [],
+            );
+        }
+        rows.into_iter().map(|(_, content)| content).collect()
+    }
+
     /// Insert a complete message
     pub fn insert_message(
         &self,

@@ -160,9 +160,24 @@ function handleWsUpdate(
 
   handleContextWarnings(content);
 
-  const parsedMessages = parseConversationFile(content);
-  setMessages(parsedMessages);
-  console.warn('[ConversationWatcher] Updated messages, count:', parsedMessages.length);
+  // Prefer structured messages from the update if available,
+  // otherwise fall back to parsing the raw text content.
+  // This prevents raw JSON blobs from incremental saves overwriting clean messages.
+  const wsMessages = (message as Record<string, unknown>).messages as unknown[] | undefined;
+  if (wsMessages && wsMessages.length > 0) {
+    setMessages(wsMessages as Parameters<typeof setMessages>[0]);
+    console.warn(
+      '[ConversationWatcher] Updated messages from structured data, count:',
+      wsMessages.length,
+    );
+  } else {
+    const parsedMessages = parseConversationFile(content);
+    setMessages(parsedMessages);
+    console.warn(
+      '[ConversationWatcher] Updated messages from parsed content, count:',
+      parsedMessages.length,
+    );
+  }
 
   if (content.includes('\u26a0\ufe0f Generation Error:')) {
     console.error('[ConversationWatcher] Generation error detected');
@@ -225,10 +240,12 @@ export function useConversationWatcher({
       try {
         const data = await getConversation(currentConversationId);
         let parsedMessages: Message[] | null = null;
-        if (data.content) {
-          parsedMessages = parseConversationFile(data.content);
-        } else if (data.messages) {
+        // Prefer structured messages (handles remote provider tool_call reconstruction)
+        // over raw text content (which may contain JSON blobs from incremental saves)
+        if (data.messages && data.messages.length > 0) {
           parsedMessages = data.messages as unknown as Message[];
+        } else if (data.content) {
+          parsedMessages = parseConversationFile(data.content);
         }
 
         if (!parsedMessages) return;

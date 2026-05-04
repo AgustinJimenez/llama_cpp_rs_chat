@@ -183,6 +183,11 @@ async fn handle_request_impl(
         }
 
         // Conversation endpoints
+        (&Method::POST, path) if path.starts_with("/api/conversation/") && path.ends_with("/queue") => {
+            let id = &path["/api/conversation/".len()..path.len()-"/queue".len()];
+            web::routes::providers::handle_queue_message(req, db.clone(), id).await?
+        }
+
         (&Method::GET, path) if path.starts_with("/api/conversation/") => {
             web::routes::conversation::handle_get_conversation(path, bridge.clone(), db.clone()).await?
         }
@@ -527,6 +532,10 @@ async fn server_main() -> std::io::Result<()> {
         Database::new("assets/llama_chat.db").expect("Failed to initialize SQLite database"),
     );
     println!("📦 SQLite database initialized at assets/llama_chat.db");
+
+    // Initialize background process tracking so remote provider tool calls can register processes
+    let bg_session_id = format!("web_{}", std::process::id());
+    llama_chat_command::background::init_background_tracking(db.clone(), bg_session_id);
 
     // Run migrations for existing file-based data
     match web::database::migration::migrate_existing_conversations(&db) {

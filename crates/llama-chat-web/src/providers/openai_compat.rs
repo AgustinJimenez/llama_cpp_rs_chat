@@ -14,6 +14,67 @@ use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
 use super::CliTokenData;
+use llama_chat_db::SharedDatabase;
+
+// ─── Incremental DB persistence ─────────────────────────────────────────
+
+/// Ensure a conversation row exists in the DB.
+fn ensure_conversation_row(db: &SharedDatabase, conv_id: &str, provider_id: &str) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let conn = db.connection();
+    let _ = conn.execute(
+        "INSERT OR IGNORE INTO conversations (id, created_at, updated_at, provider_id) VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![conv_id, now, now, provider_id],
+    );
+}
+
+/// Get the next sequence_order for a conversation.
+fn next_sequence(db: &SharedDatabase, conv_id: &str) -> i32 {
+    db.get_messages(conv_id)
+        .map(|msgs| msgs.len() as i32 + 1)
+        .unwrap_or(1)
+}
+
+/// Save a single message to the DB immediately.
+fn save_message_now(db: &SharedDatabase, conv_id: &str, role: &str, content: &str) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let seq = next_sequence(db, conv_id);
+    let _ = db.insert_message(conv_id, role, content, now, seq);
+}
+
+/// Generate a conversation title using the remote provider (non-streaming, cheap).
+fn generate_title_via_provider(base_url: &str, api_key: &str, model: &str, user_message: &str, assistant_snippet: &str) -> Option<String> {
+    let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+    let snippet = if assistant_snippet.len() > 500 { &assistant_snippet[..500] } else { assistant_snippet };
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [
+            {"role": "system", "content": "Generate a concise title (3-6 words) for this conversation. Respond with ONLY the title, no quotes, no punctuation, no explanation."},
+            {"role": "user", "content": format!("User: {}\nAssistant: {}", &user_message[..user_message.len().min(300)], snippet)},
+        ],
+        "max_tokens": 20,
+        "temperature": 0.3,
+        "stream": false,
+    });
+    let resp = ureq::post(&url)
+        .set("Authorization", &format!("Bearer {api_key}"))
+        .set("Content-Type", "application/json")
+        .send_string(&body.to_string())
+        .ok()?;
+    let json: Value = serde_json::from_str(&resp.into_string().ok()?).ok()?;
+    let title = json["choices"][0]["message"]["content"].as_str()?
+        .trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .to_string();
+    if title.is_empty() || title.len() > 100 { None } else { Some(title) }
+}
 
 /// Log a provider event to the conversation event log (if conv_id is set).
 fn provider_log(conv_id: &Option<String>, event_type: &str, message: &str) {
@@ -46,25 +107,27 @@ const MAX_INPUT_TOKENS: u64 = 100_000;
 
 /// Approximate cost per 1M tokens (input, output) for known providers.
 /// Returns (input_cost_per_1m, output_cost_per_1m) or None for free/unknown.
-fn provider_cost_per_million(provider_id: &str, model: &str) -> Option<(f64, f64)> {
+/// Returns (input_cost_per_million, output_cost_per_million, cache_discount).
+/// cache_discount is the fraction of input cost for cached tokens (e.g. 0.1 = 90% off).
+fn provider_cost_per_million(provider_id: &str, model: &str) -> Option<(f64, f64, f64)> {
     match provider_id {
-        "groq" => Some((0.05, 0.10)),
+        "groq" => Some((0.05, 0.10, 1.0)),
         "gemini" => None,
         "sambanova" => None,
         "cerebras" => None,
         "mistral" => match model {
-            m if m.contains("large") => Some((2.0, 6.0)),
-            m if m.contains("small") => Some((0.2, 0.6)),
-            _ => Some((0.2, 0.6)),
+            m if m.contains("large") => Some((2.0, 6.0, 1.0)),
+            m if m.contains("small") => Some((0.2, 0.6, 1.0)),
+            _ => Some((0.2, 0.6, 1.0)),
         },
         "openrouter" => None,
-        "together" => Some((0.20, 0.20)),
+        "together" => Some((0.20, 0.20, 1.0)),
         "deepseek" => match model {
-            "deepseek-reasoner" => Some((0.55, 2.19)),
-            "deepseek-chat" | _ => Some((0.27, 1.10)),
+            "deepseek-v4-pro" => Some((1.74, 3.48, 0.1)),   // 75% launch discount applied
+            _ => Some((0.14, 0.28, 0.1)),                    // v4-flash (cache hits 90% off)
         },
-        "fireworks" => Some((0.20, 0.20)),
-        "xai" => Some((2.0, 10.0)),
+        "fireworks" => Some((0.20, 0.20, 1.0)),
+        "xai" => Some((2.0, 10.0, 0.25)),  // Grok cache 75% off
         "nvidia" => None,
         "huggingface" => None,
         "cloudflare" => None,
@@ -93,38 +156,41 @@ fn truncate_tool_output(output: &str, max_chars: usize) -> String {
 /// Trim older tool result messages to reduce context usage.
 /// Keeps the first message (user prompt) and the last 6 messages, replaces
 /// older tool results with summaries.
-fn trim_old_tool_results(messages: &mut Vec<Value>) {
+/// Create a budget-trimmed COPY of the messages array for the API request.
+/// The original array is never modified — this preserves prompt cache continuity.
+fn budget_trimmed_messages(messages: &[Value]) -> Vec<Value> {
     if messages.len() <= 10 {
-        return;
+        return messages.to_vec();
     }
-    // Preserve message ORDER to maximize DeepSeek prefix cache hits.
-    // Never remove or reorder messages — only truncate content in-place.
-    // Keep last 6 messages fully intact (recent context).
     let keep_end = 6;
     let trim_end = messages.len().saturating_sub(keep_end);
 
-    for i in 1..trim_end {
-        let role = messages[i].get("role").and_then(|r| r.as_str()).unwrap_or("").to_string();
-
-        // Truncate tool result content
+    messages.iter().enumerate().map(|(i, msg)| {
+        if i == 0 || i >= trim_end {
+            return msg.clone(); // system prompt + recent messages untouched
+        }
+        let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("");
         if role == "tool" {
-            if let Some(content) = messages[i].get("content").and_then(|c| c.as_str()) {
+            if let Some(content) = msg.get("content").and_then(|c| c.as_str()) {
                 if content.len() > 100 {
-                    messages[i]["content"] = json!(format!("[Output: {} chars]", content.len()));
+                    let mut m = msg.clone();
+                    m["content"] = json!(format!("[Output: {} chars]", content.len()));
+                    return m;
                 }
             }
         }
-
-        // Truncate assistant text content (but NEVER tool_call arguments — that breaks the model)
-        if role == "assistant" && messages[i].get("tool_calls").is_none() {
-            if let Some(content) = messages[i].get("content").and_then(|c| c.as_str()) {
+        if role == "assistant" && msg.get("tool_calls").is_none() {
+            if let Some(content) = msg.get("content").and_then(|c| c.as_str()) {
                 if content.len() > 300 {
                     let short: String = content.chars().take(200).collect();
-                    messages[i]["content"] = json!(format!("{}...", short));
+                    let mut m = msg.clone();
+                    m["content"] = json!(format!("{}...", short));
+                    return m;
                 }
             }
         }
-    }
+        msg.clone()
+    }).collect()
 }
 
 /// Summarize large tool output using the same provider API.
@@ -222,9 +288,24 @@ struct FunctionDelta {
 }
 
 #[derive(Debug, Deserialize)]
+struct CompletionTokensDetails {
+    reasoning_tokens: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
 struct UsageInfo {
     prompt_tokens: Option<u64>,
     completion_tokens: Option<u64>,
+    /// DeepSeek: cached input tokens (90% cheaper)
+    prompt_cache_hit_tokens: Option<u64>,
+    /// DeepSeek: non-cached input tokens (used for logging, not costing)
+    #[allow(dead_code)]
+    prompt_cache_miss_tokens: Option<u64>,
+    /// OpenAI-style cached tokens (nested in prompt_tokens_details)
+    #[serde(default)]
+    prompt_tokens_details: Option<serde_json::Value>,
+    /// Reasoning/thinking token breakdown
+    completion_tokens_details: Option<CompletionTokensDetails>,
 }
 
 /// A fully-accumulated tool call from streaming deltas.
@@ -250,6 +331,10 @@ struct StreamResult {
     /// Token usage from this iteration.
     input_tokens: Option<u64>,
     output_tokens: Option<u64>,
+    /// Cached input tokens (DeepSeek prompt_cache_hit_tokens or OpenAI cached_tokens)
+    cached_tokens: Option<u64>,
+    /// Reasoning/thinking tokens (separate from content tokens)
+    reasoning_tokens: Option<u64>,
 }
 
 // ── Provider presets ───────────────────────────────────────────────────────
@@ -320,7 +405,7 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
         name: "DeepSeek",
         base_url: "https://api.deepseek.com",
         description: "DeepSeek AI models",
-        models: &["deepseek-chat", "deepseek-reasoner"],
+        models: &["deepseek-v4-flash", "deepseek-v4-pro"],
         env_key: "DEEPSEEK_API_KEY",
     },
     ProviderPreset {
@@ -617,7 +702,7 @@ fn provider_default_params(provider_id: &str) -> Value {
         "sambanova" => json!({"temperature": 0.6, "max_tokens": 4096}),
         "cerebras" => json!({"temperature": 0.6, "max_tokens": 4096}),
         "mistral" => json!({"temperature": 0.7, "max_tokens": 4096}),
-        "deepseek" => json!({"temperature": 0.6, "max_tokens": 8192}),
+        "deepseek" => json!({"temperature": 0.6, "max_tokens": 32768}),  // thinking mode uses CoT tokens from this budget
         "openrouter" => json!({"temperature": 0.7, "max_tokens": 4096}),
         _ => json!({"temperature": 0.7, "max_tokens": 4096}),
     }
@@ -682,6 +767,8 @@ fn stream_sse_response(
     let mut actual_model: Option<String> = model_hint.clone();
     let mut input_tokens: Option<u64> = None;
     let mut output_tokens: Option<u64> = None;
+    let mut cached_tokens: Option<u64> = None;
+    let mut reasoning_tokens: Option<u64> = None;
     let mut finish_reason: Option<String> = None;
     let mut content = String::new();
     let mut reasoning_content = String::new();
@@ -734,6 +821,24 @@ fn stream_sse_response(
             }
             if let Some(ct) = usage.completion_tokens {
                 output_tokens = Some(ct);
+            }
+            // DeepSeek cache tokens
+            if let Some(ch) = usage.prompt_cache_hit_tokens {
+                cached_tokens = Some(ch);
+            }
+            // OpenAI-style cached tokens (nested)
+            if cached_tokens.is_none() {
+                if let Some(ref details) = usage.prompt_tokens_details {
+                    if let Some(ct) = details.get("cached_tokens").and_then(|v| v.as_u64()) {
+                        cached_tokens = Some(ct);
+                    }
+                }
+            }
+            // Reasoning tokens
+            if let Some(ref details) = usage.completion_tokens_details {
+                if let Some(rt) = details.reasoning_tokens {
+                    reasoning_tokens = Some(rt);
+                }
             }
         }
 
@@ -806,6 +911,8 @@ fn stream_sse_response(
         finish_reason,
         input_tokens,
         output_tokens,
+        cached_tokens,
+        reasoning_tokens,
     })
 }
 
@@ -868,14 +975,38 @@ pub async fn generate(
             json!({"role": "system", "content": get_cloud_system_prompt()}),
         ];
 
-        // Add prior conversation turns from DB
+        // Add prior conversation turns from DB (reconstruct tool messages)
         if let (Some(conv_id), Some(ref db)) = (&conv_id_owned, &db_owned) {
             if let Ok(msgs) = db.get_messages(conv_id) {
                 for m in &msgs {
                     if m.compacted || m.role == "system" { continue; }
-                    messages.push(json!({"role": m.role, "content": m.content}));
+                    if m.role == "tool" {
+                        let (tc_id, content) = m.content.split_once("\n\n")
+                            .unwrap_or(("unknown", &m.content));
+                        messages.push(json!({"role": "tool", "tool_call_id": tc_id, "content": content}));
+                    } else if m.role == "assistant" && m.content.contains("\"tool_calls\":") && m.content.starts_with("{") {
+                        if let Ok(parsed) = serde_json::from_str::<Value>(&m.content) {
+                            let mut msg = json!({"role": "assistant"});
+                            if let Some(tc) = parsed.get("tool_calls") { msg["tool_calls"] = tc.clone(); }
+                            if let Some(c) = parsed.get("content") { msg["content"] = c.clone(); }
+                            else { msg["content"] = Value::Null; }
+                            // Preserve reasoning_content for DeepSeek cache
+                            if let Some(rc) = parsed.get("reasoning_content") { msg["reasoning_content"] = rc.clone(); }
+                            messages.push(msg);
+                        } else {
+                            messages.push(json!({"role": m.role, "content": m.content}));
+                        }
+                    } else {
+                        messages.push(json!({"role": m.role, "content": m.content}));
+                    }
                 }
             }
+        }
+
+        // Ensure conversation exists in DB and save user message immediately
+        if let (Some(conv_id), Some(ref db)) = (&conv_id_owned, &db_owned) {
+            ensure_conversation_row(db, conv_id, &provider_id_owned);
+            save_message_now(db, conv_id, "user", &prompt_owned);
         }
 
         // Add current user message
@@ -884,6 +1015,8 @@ pub async fn generate(
         // Track total tokens across all iterations
         let mut total_input_tokens: u64 = 0;
         let mut total_output_tokens: u64 = 0;
+        let mut total_cached_tokens: u64 = 0;
+        let mut total_reasoning_tokens: u64 = 0;
         let mut actual_model: Option<String> = None;
         let mut final_stop_reason = "end_turn".to_string();
         let mut last_tool_name = String::new();
@@ -899,10 +1032,31 @@ pub async fn generate(
                 break;
             }
 
-            // Build request body
+            // Check for queued user messages (injected mid-generation via UI)
+            if let (Some(conv_id), Some(ref db)) = (&conv_id_owned, &db_owned) {
+                let queued = db.pop_queued_messages(conv_id);
+                for msg in &queued {
+                    provider_log(&conv_id_owned, "queued_message", &format!("injecting user message: {}...", &msg[..msg.len().min(80)]));
+                    messages.push(json!({"role": "user", "content": msg}));
+                    save_message_now(db, conv_id, "user", msg);
+                    let _ = tx.send(CliTokenData {
+                        token: format!("\n\n**[User message injected]**: {msg}\n\n"),
+                        is_done: false, session_id: None, stop_reason: None, cost_usd: None,
+                        duration_ms: None, model_id: actual_model.clone(), input_tokens: None, output_tokens: None,
+                    });
+                }
+            }
+
+            // Build request body — use budget-trimmed copy if approaching token limit
+            // to avoid mutating the original messages array (preserves prompt cache)
+            let api_messages = if total_input_tokens > MAX_INPUT_TOKENS * 80 / 100 {
+                budget_trimmed_messages(&messages)
+            } else {
+                messages.clone()
+            };
             let mut body = json!({
                 "model": model_name_clone,
-                "messages": messages,
+                "messages": api_messages,
                 "stream": true,
                 "stream_options": {"include_usage": true},
             });
@@ -935,14 +1089,17 @@ pub async fn generate(
                         &format!("iteration {}: {error_msg}", iteration + 1));
 
                     // DeepSeek reasoning models require reasoning_content from previous turns.
-                    // If we loaded history from DB without it, strip history and retry once.
+                    // Strip only reasoning_content fields (not entire history) to preserve cache.
                     if iteration == 0 && error_msg.contains("reasoning_content") {
-                        eprintln!("[OPENAI_COMPAT] reasoning_content error — retrying without DB history");
+                        eprintln!("[OPENAI_COMPAT] reasoning_content error — retrying with fields stripped");
                         let mut body_retry = body.clone();
-                        body_retry["messages"] = json!([
-                            {"role": "system", "content": get_cloud_system_prompt()},
-                            {"role": "user", "content": prompt_owned.clone()}
-                        ]);
+                        if let Some(msgs) = body_retry["messages"].as_array_mut() {
+                            for m in msgs.iter_mut() {
+                                if m.get("reasoning_content").is_some() {
+                                    m.as_object_mut().map(|o| o.remove("reasoning_content"));
+                                }
+                            }
+                        }
                         match stream_sse_response(&url, &api_key_owned, &body_retry, &tx, &actual_model) {
                             Ok(r) => {
                                 if let Some(m) = r.actual_model { actual_model = Some(m); }
@@ -1001,8 +1158,31 @@ pub async fn generate(
             if let Some(ot) = result.output_tokens {
                 total_output_tokens += ot;
             }
+            if let Some(ct) = result.cached_tokens {
+                total_cached_tokens = ct; // Last value (cumulative from API)
+            }
+            if let Some(rt) = result.reasoning_tokens {
+                total_reasoning_tokens += rt;
+            }
             if let Some(ref reason) = result.finish_reason {
                 final_stop_reason = reason.clone();
+                // Handle provider-specific finish reasons
+                if reason == "insufficient_system_resource" {
+                    let _ = tx.send(CliTokenData {
+                        token: "\n\n**[Provider ran out of resources. Try again later or use a smaller model.]**".to_string(),
+                        is_done: false, session_id: None, stop_reason: None, cost_usd: None,
+                        duration_ms: None, model_id: actual_model.clone(), input_tokens: None, output_tokens: None,
+                    });
+                    break;
+                }
+                if reason == "content_filter" {
+                    let _ = tx.send(CliTokenData {
+                        token: "\n\n**[Response filtered by provider's content policy.]**".to_string(),
+                        is_done: false, session_id: None, stop_reason: None, cost_usd: None,
+                        duration_ms: None, model_id: actual_model.clone(), input_tokens: None, output_tokens: None,
+                    });
+                    break;
+                }
             }
 
             // Send cumulative token tracking status after each iteration
@@ -1018,8 +1198,13 @@ pub async fn generate(
                 output_tokens: Some(total_output_tokens),
             });
 
-            // If no tool calls, we're done — the text was already streamed
+            // If no tool calls, we're done — save final assistant response and exit
             if result.tool_calls.is_empty() {
+                if !result.content.is_empty() {
+                    if let (Some(conv_id), Some(ref db)) = (&conv_id_owned, &db_owned) {
+                        save_message_now(db, conv_id, "assistant", &result.content);
+                    }
+                }
                 provider_log(&conv_id_owned, "provider_done",
                     &format!("no tool calls, finish_reason={:?} after iteration {}", result.finish_reason, iteration + 1));
                 break;
@@ -1099,7 +1284,19 @@ pub async fn generate(
             if let Some(ref rc) = result.reasoning_content {
                 assistant_msg["reasoning_content"] = json!(rc);
             }
-            messages.push(assistant_msg);
+            messages.push(assistant_msg.clone());
+
+            // Save assistant tool_call message to DB (preserve reasoning_content for cache)
+            if let (Some(conv_id), Some(ref db)) = (&conv_id_owned, &db_owned) {
+                let mut stored = json!({
+                    "tool_calls": assistant_msg.get("tool_calls"),
+                    "content": assistant_msg.get("content"),
+                });
+                if let Some(rc) = assistant_msg.get("reasoning_content") {
+                    stored["reasoning_content"] = rc.clone();
+                }
+                save_message_now(db, conv_id, "assistant", &stored.to_string());
+            }
 
             // Execute tool calls — parallel if multiple, sequential if single
             let tool_results: Vec<(String, String, String)> = if result.tool_calls.len() > 1 {
@@ -1150,7 +1347,7 @@ pub async fn generate(
                 }).collect()
             };
 
-            // Display results and add to messages
+            // Display results, save to DB, and add to messages
             for (id, _name, truncated) in &tool_results {
                 let response_display = format!(
                     "\n<tool_response>{}</tool_response>\n",
@@ -1166,6 +1363,10 @@ pub async fn generate(
                     "tool_call_id": id,
                     "content": truncated,
                 }));
+                // Save tool result to DB
+                if let (Some(conv_id), Some(ref db)) = (&conv_id_owned, &db_owned) {
+                    save_message_now(db, conv_id, "tool", &format!("{id}\n\n{truncated}"));
+                }
             }
 
             provider_log(&conv_id_owned, "tool_results",
@@ -1177,11 +1378,8 @@ pub async fn generate(
                 break;
             }
 
-            // Context budget check — trim older tool results if approaching limit
-            if total_input_tokens > MAX_INPUT_TOKENS * 80 / 100 {
-                eprintln!("[OPENAI_COMPAT] Input tokens ({}) approaching limit, trimming older tool results", total_input_tokens);
-                trim_old_tool_results(&mut messages);
-            }
+            // Note: budget trimming is applied at request time (line above),
+            // never mutating the original messages array (preserves prompt cache).
         }
 
         // Notify user if iteration limit was hit
@@ -1199,11 +1397,20 @@ pub async fn generate(
             &format!("model={:?} stop={} duration={}ms tokens={}in/{}out",
                 actual_model, final_stop_reason, duration_ms, total_input_tokens, total_output_tokens));
 
-        // Compute cost estimate based on provider pricing
+        // Compute cost estimate (cache-aware: cached tokens are discounted)
         let cost_usd = provider_cost_per_million(&provider_id_owned, &model_name_clone)
-            .map(|(ic, oc)| {
-                (total_input_tokens as f64 * ic / 1_000_000.0) + (total_output_tokens as f64 * oc / 1_000_000.0)
+            .map(|(ic, oc, cache_discount)| {
+                let uncached = total_input_tokens.saturating_sub(total_cached_tokens) as f64;
+                let cached = total_cached_tokens as f64;
+                let input_cost = (uncached * ic + cached * ic * cache_discount) / 1_000_000.0;
+                let output_cost = total_output_tokens as f64 * oc / 1_000_000.0;
+                input_cost + output_cost
             });
+        if total_cached_tokens > 0 {
+            provider_log(&conv_id_owned, "cache_stats",
+                &format!("cached={} uncached={} reasoning={}", total_cached_tokens,
+                    total_input_tokens.saturating_sub(total_cached_tokens), total_reasoning_tokens));
+        }
 
         // Send done event
         let _ = tx.send(CliTokenData {
@@ -1225,6 +1432,25 @@ pub async fn generate(
                 None
             },
         });
+
+        // Generate title after response is done (non-blocking, cheap API call)
+        if let (Some(conv_id), Some(ref db)) = (&conv_id_owned, &db_owned) {
+            if db.get_conversation_title(conv_id).ok().flatten().is_none() {
+                let assistant_text: String = messages.iter().rev()
+                    .find(|m| m["role"] == "assistant" && m["content"].is_string())
+                    .and_then(|m| m["content"].as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let base_url_clean = url.trim_end_matches("/chat/completions").to_string();
+                if let Some(title) = generate_title_via_provider(
+                    &base_url_clean, &api_key_owned, &model_name_clone,
+                    &prompt_owned, &assistant_text,
+                ) {
+                    provider_log(&conv_id_owned, "title_generated", &title);
+                    let _ = db.update_conversation_title(conv_id, &title);
+                }
+            }
+        }
     });
 
     Ok(rx)

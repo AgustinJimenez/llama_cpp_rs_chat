@@ -732,32 +732,17 @@ async fn list_cli_providers() -> Result<serde_json::Value, String> {
 
 // ─── Cloud provider streaming (Tauri variant — saves to Tauri DB) ─────
 
+/// Finalize a provider conversation — messages are already saved incrementally
+/// by the agentic loop in openai_compat.rs. This just updates metadata.
 fn save_provider_turn_tauri(
     db: &SharedDatabase,
     conv_id: &str,
     provider_id: &str,
     provider_session_id: Option<&str>,
-    prompt: &str,
-    full_response: &str,
+    _prompt: &str,
+    _full_response: &str,
     now: u64,
 ) {
-    if full_response.is_empty() {
-        return;
-    }
-    {
-        let conn = db.connection();
-        let _ = conn.execute(
-            "INSERT OR IGNORE INTO conversations (id, created_at, updated_at, system_prompt, title, provider_id, provider_session_id) \
-             VALUES (?1, ?2, ?3, NULL, NULL, NULL, NULL)",
-            rusqlite::params![conv_id, now as i64, now as i64],
-        );
-    }
-    let next_seq = db
-        .get_messages(conv_id)
-        .map(|msgs| msgs.len() as i32 + 1)
-        .unwrap_or(1);
-    let _ = db.insert_message(conv_id, "user", prompt, now, next_seq);
-    let _ = db.insert_message(conv_id, "assistant", full_response, now, next_seq + 1);
     let _ = db.set_conversation_provider_session_id(conv_id, Some(provider_id), provider_session_id);
     {
         let conn = db.connection();
@@ -811,6 +796,11 @@ async fn stream_provider(
 
     tokio::spawn(async move {
         let mut full_response = String::new();
+        let mut tokens_since_save = 0u32;
+        let mut last_save = std::time::Instant::now();
+        let msg_id = uuid::Uuid::new_v4().to_string();
+
+        // User message is now saved incrementally by openai_compat.rs agentic loop
 
         while let Some(token_data) = rx.recv().await {
             if token_data.is_done {
@@ -829,6 +819,12 @@ async fn stream_provider(
                     now,
                 );
 
+                // Clear streaming buffer after successful save
+                let _ = db_clone.connection().execute(
+                    "DELETE FROM streaming_buffer WHERE conversation_id = ?1",
+                    rusqlite::params![&conv_id_clone],
+                );
+
                 let _ = app.emit("provider-done", ProviderDoneEvent {
                     conversation_id: conv_id_clone.clone(),
                     session_id: token_data.session_id,
@@ -843,6 +839,16 @@ async fn stream_provider(
                 let _ = app.emit("conversation-title-updated", serde_json::json!({
                     "conversation_id": &conv_id_clone,
                 }));
+                // Emit again after a delay — title is generated asynchronously
+                // in openai_compat after the done event
+                let app2 = app.clone();
+                let cid2 = conv_id_clone.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    let _ = app2.emit("conversation-title-updated", serde_json::json!({
+                        "conversation_id": &cid2,
+                    }));
+                });
                 break;
             }
 
@@ -851,6 +857,24 @@ async fn stream_provider(
             }
 
             full_response.push_str(&token_data.token);
+            tokens_since_save += 1;
+
+            // Incrementally save to streaming_buffer every 50 tokens or 5 seconds
+            // so partial responses survive crashes
+            if tokens_since_save >= 50 || last_save.elapsed().as_secs() >= 5 {
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as i64)
+                    .unwrap_or(0);
+                let _ = db_clone.connection().execute(
+                    "INSERT OR REPLACE INTO streaming_buffer (conversation_id, message_id, partial_content, tokens_used, max_tokens, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, 0, ?5)",
+                    rusqlite::params![&conv_id_clone, &msg_id, &full_response, tokens_since_save as i32, now_ms],
+                );
+                tokens_since_save = 0;
+                last_save = std::time::Instant::now();
+            }
+
             let _ = app.emit("provider-token", ProviderTokenEvent {
                 token: token_data.token,
             });
@@ -858,6 +882,17 @@ async fn stream_provider(
     });
 
     Ok(serde_json::json!({ "conversation_id": conv_id }))
+}
+
+#[tauri::command]
+async fn queue_message(
+    db: tauri::State<'_, SharedDatabase>,
+    conversation_id: String,
+    content: String,
+) -> Result<serde_json::Value, String> {
+    let id = conversation_id.trim_end_matches(".txt");
+    db.queue_message(id, &content)?;
+    Ok(serde_json::json!({"success": true}))
 }
 
 // ─── Helper: Parse conversation text to messages ──────────────────────
@@ -968,6 +1003,10 @@ fn main() {
                     .expect("Failed to initialize SQLite database"),
             );
             eprintln!("[TAURI] Database initialized at {db_path_str}");
+
+            // Initialize background process tracking for remote provider tool calls
+            let bg_session_id = format!("tauri_{}", std::process::id());
+            llama_chat_command::background::init_background_tracking(db.clone(), bg_session_id);
 
             // Run migrations
             match web::database::migration::migrate_existing_conversations(&db) {
@@ -1177,6 +1216,7 @@ fn main() {
             list_configured_providers,
             list_cli_providers,
             stream_provider,
+            queue_message,
             // HuggingFace Hub
             commands::hub::search_hub_models,
             commands::hub::fetch_hub_tree,

@@ -432,7 +432,17 @@ pub async fn handle_conversation_watch(
     sys_debug!("[WS_WATCH] Subscribed to streaming updates via broadcast channel");
 
     // Read initial content from database (now safe - we won't miss broadcasts)
-    let initial_content = db.get_conversation_as_text(&conv_id).unwrap_or_default();
+    // For remote provider conversations, skip raw text content — the frontend
+    // already loaded structured messages via the HTTP API with proper tool_call widgets.
+    let is_remote_provider = db
+        .get_conversation_provider_session(&conv_id)
+        .map(|(pid, _)| pid.is_some())
+        .unwrap_or(false);
+    let initial_content = if is_remote_provider {
+        String::new()
+    } else {
+        db.get_conversation_as_text(&conv_id).unwrap_or_default()
+    };
     sys_debug!(
         "[WS_WATCH] Initial content length: {}",
         initial_content.len()

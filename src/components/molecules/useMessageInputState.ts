@@ -24,7 +24,13 @@ export function useInputState() {
     currentConversationId != null &&
     status.active_conversation_id !== currentConversationId;
 
-  const disabled = isLoading || isModelBusy || isGeneratingElsewhere || (!status.loaded && !isRemoteProvider);
+  // For remote providers, allow typing during generation (messages get queued)
+  const isRemoteStreaming = isLoading && isRemoteProvider;
+  const disabled =
+    (isLoading && !isRemoteStreaming) ||
+    isModelBusy ||
+    isGeneratingElsewhere ||
+    (!status.loaded && !isRemoteProvider);
   const estimatedConvTokens = useMemo(
     () =>
       Math.round(messages.reduce((sum, m) => sum + (m.content?.length || 0), 0) / CHARS_PER_TOKEN),

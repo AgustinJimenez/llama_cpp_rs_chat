@@ -1,4 +1,4 @@
-import { Gauge, Hash, Clock, Database, Terminal } from 'lucide-react';
+import { Gauge, Hash, Database, Terminal } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 
 const PROCESS_POLL_INTERVAL_MS = 5000;
@@ -14,15 +14,6 @@ interface MessageStatisticsProps {
   timings: TimingInfo;
   tokensUsed?: number;
   maxTokens?: number;
-}
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  const secs = ms / 1000;
-  if (secs < 60) return `${secs.toFixed(1)}s`;
-  const mins = Math.floor(secs / 60);
-  const remainSecs = Math.round(secs % 60);
-  return `${mins}m ${remainSecs}s`;
 }
 
 function formatNumber(n: number): string {
@@ -75,7 +66,7 @@ const FinishReasonBadge: React.FC<{ finishReason?: string }> = ({ finishReason }
 };
 
 export const MessageStatistics = ({ timings, tokensUsed, maxTokens }: MessageStatisticsProps) => {
-  const { genTokPerSec, genTokens, genEvalMs, promptEvalMs, promptTokens } = timings;
+  const { genTokPerSec, genTokens, promptTokens } = timings;
   const [bgProcesses, setBgProcesses] = useState<BackgroundProcessInfo[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -96,8 +87,6 @@ export const MessageStatistics = ({ timings, tokensUsed, maxTokens }: MessageSta
 
   if (!genTokPerSec) return null;
 
-  const totalMs = (promptEvalMs || 0) + (genEvalMs || 0);
-
   return (
     <div className="flex items-center gap-3 text-xs text-foreground font-mono">
       {genTokens ? (
@@ -111,19 +100,11 @@ export const MessageStatistics = ({ timings, tokensUsed, maxTokens }: MessageSta
         >
           <Hash className="h-3 w-3" />
           {promptTokens
-            ? `${formatNumber(promptTokens)} / ${formatNumber(genTokens)}`
+            ? `in: ${formatNumber(promptTokens)}  out: ${formatNumber(genTokens)}`
             : `${formatNumber(genTokens)} tokens`}
         </span>
       ) : null}
-      {totalMs ? (
-        <span
-          className="inline-flex items-center gap-1"
-          title={`Total: ${formatDuration(totalMs)} (prompt: ${formatDuration(promptEvalMs || 0)}, gen: ${formatDuration(genEvalMs || 0)})`}
-        >
-          <Clock className="h-3 w-3" />
-          {formatDuration(totalMs)}
-        </span>
-      ) : null}
+      {/* Elapsed time removed — shown by LoadingIndicator below the chat bubble */}
       <span className="inline-flex items-center gap-1" title="Generation speed">
         <Gauge className="h-3 w-3" />
         {genTokPerSec.toFixed(1)} tok/s

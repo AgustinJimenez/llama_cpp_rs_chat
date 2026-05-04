@@ -78,26 +78,18 @@ fn ensure_conversation(
     );
 }
 
+/// Finalize a provider conversation — messages are already saved incrementally
+/// by the agentic loop in openai_compat.rs. This just updates metadata.
 fn save_provider_turn(
     db: &crate::web::database::SharedDatabase,
     conv_id: &str,
     provider_id: &str,
     provider_session_id: Option<&str>,
-    prompt: &str,
-    full_response: &str,
+    _prompt: &str,
+    _full_response: &str,
     now: u64,
 ) {
-    if full_response.is_empty() {
-        return;
-    }
-
     ensure_conversation(db, conv_id, now);
-    let next_seq = db
-        .get_messages(conv_id)
-        .map(|msgs| msgs.len() as i32 + 1)
-        .unwrap_or(1);
-    let _ = db.insert_message(conv_id, "user", prompt, now, next_seq);
-    let _ = db.insert_message(conv_id, "assistant", full_response, now, next_seq + 1);
     let _ = db.set_conversation_provider_session_id(conv_id, Some(provider_id), provider_session_id);
     let conn = db.connection();
     let _ = conn.execute(

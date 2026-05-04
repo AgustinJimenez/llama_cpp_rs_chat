@@ -14,9 +14,42 @@ use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
 use super::CliTokenData;
+use crate::web::database::SharedDatabase;
 
 /// Maximum agentic loop iterations to prevent runaway tool-call chains.
 const MAX_AGENTIC_ITERATIONS: usize = 20;
+
+// ─── Incremental DB persistence ─────────────────────────────────────────
+
+/// Ensure a conversation row exists in the DB.
+fn ensure_conversation(db: &SharedDatabase, conv_id: &str, provider_id: &str) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let conn = db.connection();
+    let _ = conn.execute(
+        "INSERT OR IGNORE INTO conversations (id, created_at, updated_at, provider_id) VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![conv_id, now, now, provider_id],
+    );
+}
+
+/// Get the next sequence_order for a conversation.
+fn next_sequence(db: &SharedDatabase, conv_id: &str) -> i32 {
+    db.get_messages(conv_id)
+        .map(|msgs| msgs.len() as i32 + 1)
+        .unwrap_or(1)
+}
+
+/// Save a single message to the DB immediately.
+fn save_message_now(db: &SharedDatabase, conv_id: &str, role: &str, content: &str) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let seq = next_sequence(db, conv_id);
+    let _ = db.insert_message(conv_id, role, content, now, seq);
+}
 
 /// System prompt for cloud provider agentic loops.
 fn get_cloud_system_prompt() -> &'static str {
@@ -51,7 +84,7 @@ fn provider_cost_per_million(provider_id: &str, model: &str) -> Option<(f64, f64
         "together" => Some((0.20, 0.20)),
         "deepseek" => match model {
             "deepseek-v4-pro" => Some((1.74, 3.48)),
-            "deepseek-v4-flash" | "deepseek-chat" | "deepseek-reasoner" | _ => Some((0.14, 0.28)),
+            _ => Some((0.14, 0.28)),
         },
         "fireworks" => Some((0.20, 0.20)),
         "xai" => Some((2.0, 10.0)),
@@ -250,7 +283,7 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
         name: "DeepSeek",
         base_url: "https://api.deepseek.com",
         description: "DeepSeek AI models",
-        models: &["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner"],
+        models: &["deepseek-v4-flash", "deepseek-v4-pro"],
         env_key: "DEEPSEEK_API_KEY",
     },
     ProviderPreset {
@@ -528,6 +561,34 @@ fn execute_openai_tool(name: &str, arguments_json: &str) -> String {
     }
 }
 
+/// Generate a conversation title using the remote provider (non-streaming, cheap).
+fn generate_title_via_provider(base_url: &str, api_key: &str, model: &str, user_message: &str, assistant_snippet: &str) -> Option<String> {
+    let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+    let snippet = if assistant_snippet.len() > 500 { &assistant_snippet[..500] } else { assistant_snippet };
+    let body = json!({
+        "model": model,
+        "messages": [
+            {"role": "system", "content": "Generate a concise title (3-6 words) for this conversation. Respond with ONLY the title, no quotes, no punctuation, no explanation."},
+            {"role": "user", "content": format!("User: {}\nAssistant: {}", &user_message[..user_message.len().min(300)], snippet)},
+        ],
+        "max_tokens": 20,
+        "temperature": 0.3,
+        "stream": false,
+    });
+    let resp = ureq::post(&url)
+        .header("Authorization", &format!("Bearer {api_key}"))
+        .header("Content-Type", "application/json")
+        .send_json(&body)
+        .ok()?;
+    let json: Value = resp.into_json().ok()?;
+    let title = json["choices"][0]["message"]["content"].as_str()?
+        .trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .to_string();
+    if title.is_empty() || title.len() > 100 { None } else { Some(title) }
+}
+
 /// Get provider-specific default parameters.
 fn provider_default_params(provider_id: &str) -> Value {
     match provider_id {
@@ -776,9 +837,39 @@ pub async fn generate(
             if let Ok(msgs) = db.get_messages(conv_id) {
                 for m in &msgs {
                     if m.compacted || m.role == "system" { continue; }
-                    messages.push(json!({"role": m.role, "content": m.content}));
+                    // Reconstruct tool_calls messages from stored format
+                    if m.role == "tool" {
+                        // Tool results stored as "tool_call_id\n\ncontent"
+                        let (tc_id, content) = m.content.split_once("\n\n")
+                            .unwrap_or(("unknown", &m.content));
+                        messages.push(json!({"role": "tool", "tool_call_id": tc_id, "content": content}));
+                    } else if m.role == "assistant" && m.content.contains("\"tool_calls\":") && m.content.starts_with("{") {
+                        // Assistant message with tool_calls stored as JSON
+                        if let Ok(parsed) = serde_json::from_str::<Value>(&m.content) {
+                            let mut msg = json!({"role": "assistant"});
+                            if let Some(tc) = parsed.get("tool_calls") {
+                                msg["tool_calls"] = tc.clone();
+                            }
+                            if let Some(c) = parsed.get("content") {
+                                msg["content"] = c.clone();
+                            } else {
+                                msg["content"] = Value::Null;
+                            }
+                            messages.push(msg);
+                        } else {
+                            messages.push(json!({"role": m.role, "content": m.content}));
+                        }
+                    } else {
+                        messages.push(json!({"role": m.role, "content": m.content}));
+                    }
                 }
             }
+        }
+
+        // Ensure conversation exists in DB and save user message immediately
+        if let (Some(conv_id), Some(ref db)) = (&conv_id_owned, &db_owned) {
+            ensure_conversation(db, conv_id, &provider_id_owned);
+            save_message_now(db, conv_id, "user", &prompt_owned);
         }
 
         // Add current user message
@@ -789,6 +880,10 @@ pub async fn generate(
         let mut total_output_tokens: u64 = 0;
         let mut actual_model: Option<String> = None;
         let mut final_stop_reason = "end_turn".to_string();
+
+        // Loop detection: track recent tool calls to detect repetition
+        let mut recent_tool_calls: Vec<String> = Vec::new();
+        const MAX_REPEAT_COUNT: usize = 3;
 
         for iteration in 0..MAX_AGENTIC_ITERATIONS {
             eprintln!(
@@ -891,8 +986,13 @@ pub async fn generate(
                 output_tokens: Some(total_output_tokens),
             });
 
-            // If no tool calls, we're done — the text was already streamed
+            // If no tool calls, we're done — save final assistant response and exit
             if result.tool_calls.is_empty() {
+                if !result.content.is_empty() {
+                    if let (Some(conv_id), Some(ref db)) = (&conv_id_owned, &db_owned) {
+                        save_message_now(db, conv_id, "assistant", &result.content);
+                    }
+                }
                 eprintln!(
                     "[OPENAI_COMPAT] No tool calls, finishing after iteration {}",
                     iteration + 1
@@ -901,6 +1001,29 @@ pub async fn generate(
             }
 
             // --- Tool calls detected: execute them and loop ---
+
+            // Loop detection: check if the same tool calls are repeating
+            let call_signature: String = result.tool_calls.iter()
+                .map(|tc| format!("{}:{}", tc.name, &tc.arguments[..tc.arguments.len().min(200)]))
+                .collect::<Vec<_>>()
+                .join("|");
+            let repeat_count = recent_tool_calls.iter().filter(|s| *s == &call_signature).count();
+            recent_tool_calls.push(call_signature);
+            if repeat_count >= MAX_REPEAT_COUNT {
+                eprintln!("[OPENAI_COMPAT] Loop detected: same tool call repeated {} times, stopping", repeat_count + 1);
+                let loop_msg = "\n\n[Generation stopped — detected repeated tool calls (possible infinite loop)]";
+                let _ = tx.send(CliTokenData {
+                    token: loop_msg.to_string(),
+                    is_done: false, session_id: None, stop_reason: None, cost_usd: None,
+                    duration_ms: None, model_id: actual_model.clone(), input_tokens: None, output_tokens: None,
+                });
+                if let (Some(conv_id), Some(ref db)) = (&conv_id_owned, &db_owned) {
+                    save_message_now(db, conv_id, "assistant", loop_msg);
+                }
+                final_stop_reason = "infinite_loop".to_string();
+                break;
+            }
+
             eprintln!(
                 "[OPENAI_COMPAT] {} tool call(s) to execute",
                 result.tool_calls.len()
@@ -936,7 +1059,16 @@ pub async fn generate(
                     "tool_calls": tc_json,
                 })
             };
-            messages.push(assistant_msg);
+            messages.push(assistant_msg.clone());
+
+            // Save assistant tool_call message to DB (store as JSON so we can reconstruct)
+            if let (Some(conv_id), Some(ref db)) = (&conv_id_owned, &db_owned) {
+                let stored = json!({
+                    "tool_calls": assistant_msg.get("tool_calls"),
+                    "content": assistant_msg.get("content"),
+                });
+                save_message_now(db, conv_id, "assistant", &stored.to_string());
+            }
 
             // Execute tool calls — parallel if multiple, sequential if single
             let tool_results: Vec<(String, String, String)> = if result.tool_calls.len() > 1 {
@@ -987,8 +1119,8 @@ pub async fn generate(
                 }).collect()
             };
 
-            // Display results and add to messages
-            for (id, _name, truncated) in &tool_results {
+            // Display results, save to DB, and add to messages
+            for (id, name, truncated) in &tool_results {
                 let response_display = format!(
                     "\n<tool_response>{}</tool_response>\n",
                     &truncated[..truncated.len().min(2000)]
@@ -1003,6 +1135,11 @@ pub async fn generate(
                     "tool_call_id": id,
                     "content": truncated,
                 }));
+                // Save tool result to DB — store tool_call_id with content for reconstruction
+                if let (Some(conv_id), Some(ref db)) = (&conv_id_owned, &db_owned) {
+                    save_message_now(db, conv_id, "tool", &format!("{id}\n\n{truncated}"));
+                }
+                let _ = name; // suppress unused warning
             }
 
             // Check if frontend disconnected after tool execution
@@ -1056,6 +1193,25 @@ pub async fn generate(
                 None
             },
         });
+
+        // Generate title after response is done (non-blocking, cheap API call)
+        if let (Some(conv_id), Some(ref db)) = (&conv_id_owned, &db_owned) {
+            if db.get_conversation_title(conv_id).ok().flatten().is_none() {
+                let assistant_text: String = messages.iter().rev()
+                    .find(|m| m["role"] == "assistant" && m["content"].is_string())
+                    .and_then(|m| m["content"].as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let base_url_clean = url.trim_end_matches("/chat/completions").to_string();
+                if let Some(title) = generate_title_via_provider(
+                    &base_url_clean, &api_key_owned, &model_name_clone,
+                    &prompt_owned, &assistant_text,
+                ) {
+                    eprintln!("[OPENAI_COMPAT] Generated title: {title}");
+                    let _ = db.set_conversation_title(conv_id, &title);
+                }
+            }
+        }
     });
 
     Ok(rx)

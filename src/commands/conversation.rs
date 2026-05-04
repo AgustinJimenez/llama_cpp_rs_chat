@@ -1,5 +1,6 @@
 //! Conversation Tauri commands — list, load, delete, truncate, rename.
 
+use crate::web;
 use crate::web::database::SharedDatabase;
 use crate::web::models::*;
 
@@ -45,22 +46,96 @@ pub async fn get_conversation(
         db_messages = db.get_messages(&filename).unwrap_or_default();
     }
     let conversation_id = trimmed;
-    let messages: Vec<crate::web::models::ChatMessage> = db_messages.iter().enumerate().map(|(i, m)| {
-        crate::web::models::ChatMessage {
-            id: format!("msg_{i}"),
-            role: m.role.clone(),
-            content: m.content.clone(),
-            timestamp: m.timestamp,
-            prompt_tok_per_sec: m.prompt_tok_per_sec,
-            gen_tok_per_sec: m.gen_tok_per_sec,
-            gen_eval_ms: m.gen_eval_ms,
-            gen_tokens: m.gen_tokens,
-            prompt_eval_ms: m.prompt_eval_ms,
-            prompt_tokens: m.prompt_tokens,
+    // Rebuild messages: merge consecutive assistant tool_call + tool results
+    // into a single message with <tool_call>/<tool_response> tags for widget rendering
+    let mut messages: Vec<crate::web::models::ChatMessage> = Vec::new();
+    let mut idx = 0;
+    let mut msg_idx = 0u64;
+    while idx < db_messages.len() {
+        let m = &db_messages[idx];
+        if m.role == "assistant" && m.content.contains("\"tool_calls\":") && m.content.starts_with("{") {
+            let mut combined = String::new();
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&m.content) {
+                if let Some(text) = parsed.get("content").and_then(|c| c.as_str()) {
+                    if !text.is_empty() { combined.push_str(text); }
+                }
+                if let Some(tcs) = parsed.get("tool_calls").and_then(|t| t.as_array()) {
+                    for tc in tcs {
+                        let name = tc.pointer("/function/name").and_then(|n| n.as_str()).unwrap_or("unknown");
+                        let args = tc.pointer("/function/arguments").and_then(|a| a.as_str()).unwrap_or("{}");
+                        combined.push_str(&format!("\n<tool_call>{{\"name\": \"{name}\", \"arguments\": {args}}}</tool_call>\n"));
+                    }
+                }
+            }
+            let mut j = idx + 1;
+            while j < db_messages.len() && db_messages[j].role == "tool" {
+                let tool_content = db_messages[j].content.split_once("\n\n")
+                    .map(|(_, c)| c).unwrap_or(&db_messages[j].content);
+                let display = &tool_content[..tool_content.len().min(2000)];
+                combined.push_str(&format!("\n<tool_response>{display}</tool_response>\n"));
+                j += 1;
+            }
+            if !combined.trim().is_empty() {
+                messages.push(crate::web::models::ChatMessage {
+                    id: format!("msg_{msg_idx}"), role: "assistant".to_string(), content: combined,
+                    timestamp: m.timestamp, prompt_tok_per_sec: m.prompt_tok_per_sec,
+                    gen_tok_per_sec: m.gen_tok_per_sec, gen_eval_ms: m.gen_eval_ms,
+                    gen_tokens: m.gen_tokens, prompt_eval_ms: m.prompt_eval_ms, prompt_tokens: m.prompt_tokens,
+                });
+                msg_idx += 1;
+            }
+            idx = j;
+        } else if m.role == "tool" {
+            idx += 1; // orphan tool message, skip
+        } else {
+            messages.push(crate::web::models::ChatMessage {
+                id: format!("msg_{msg_idx}"), role: m.role.clone(), content: m.content.clone(),
+                timestamp: m.timestamp, prompt_tok_per_sec: m.prompt_tok_per_sec,
+                gen_tok_per_sec: m.gen_tok_per_sec, gen_eval_ms: m.gen_eval_ms,
+                gen_tokens: m.gen_tokens, prompt_eval_ms: m.prompt_eval_ms, prompt_tokens: m.prompt_tokens,
+            });
+            msg_idx += 1;
+            idx += 1;
         }
-    }).collect();
+    }
     let content = db.get_conversation_as_text(conversation_id).unwrap_or_default();
-    Ok(ConversationContentResponse { content, messages, provider_id: None, provider_session_id: None })
+
+    // Check streaming buffer for partial response from a crashed session
+    let partial = db.connection().query_row(
+        "SELECT partial_content FROM streaming_buffer WHERE conversation_id = ?1",
+        rusqlite::params![conversation_id],
+        |row| row.get::<_, String>(0),
+    ).ok();
+    // If there's a partial response not yet saved as a message, append it
+    let mut final_messages = messages;
+    if let Some(partial_content) = partial {
+        if !partial_content.trim().is_empty() {
+            final_messages.push(crate::web::models::ChatMessage {
+                id: "msg_partial_recovery".to_string(),
+                role: "assistant".to_string(),
+                content: format!("{partial_content}\n\n[Response was interrupted — partial recovery from crash]"),
+                timestamp: 0,
+                prompt_tok_per_sec: None,
+                gen_tok_per_sec: None,
+                gen_eval_ms: None,
+                gen_tokens: None,
+                prompt_eval_ms: None,
+                prompt_tokens: None,
+            });
+            // Save recovered content as a real message and clear buffer
+            if let Ok(mut logger) = web::database::conversation::ConversationLogger::from_existing(
+                db.inner().clone(), conversation_id,
+            ) {
+                logger.log_message("ASSISTANT", &format!("{partial_content}\n\n[Response interrupted — recovered from crash]"));
+            }
+            let _ = db.connection().execute(
+                "DELETE FROM streaming_buffer WHERE conversation_id = ?1",
+                rusqlite::params![conversation_id],
+            );
+        }
+    }
+
+    Ok(ConversationContentResponse { content, messages: final_messages, provider_id: None, provider_session_id: None })
 }
 
 #[tauri::command]
