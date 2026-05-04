@@ -1,6 +1,7 @@
 import { X, Cpu, Cloud, Zap, Loader2, Search, ChevronDown, ChevronUp, Check, PlayCircle, RefreshCw } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 
+import { ProviderConfigSection } from '@/components/molecules/ProviderConfigSection';
 import { isTauriEnv } from '@/utils/tauri';
 
 interface Provider {
@@ -531,6 +532,7 @@ export const ProviderSelector = ({
                             </div>
                           </div>
                         )}
+                        <ProviderConfigSection providerId={provider.id} />
                       </div>
                     )}
                   </div>
