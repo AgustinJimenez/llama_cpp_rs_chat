@@ -14,6 +14,8 @@ struct ProviderRequest {
     cwd: Option<String>,
     session_id: Option<String>,
     conversation_id: Option<String>,
+    /// User-configured provider parameters (temperature, thinking, etc.)
+    params: Option<serde_json::Value>,
 }
 
 /// GET /api/providers — list available providers and their status
@@ -146,6 +148,7 @@ pub async fn handle_provider_stream(
         api_keys.as_deref(),
         Some(&conv_id),
         Some(&db),
+        request.params.as_ref(),
     )
     .await
     {
@@ -270,6 +273,7 @@ pub async fn handle_provider_generate(
         api_keys.as_deref(),
         if conv_id_for_history.is_empty() { None } else { Some(conv_id_for_history) },
         Some(&db),
+        request.params.as_ref(),
     )
     .await
     {

@@ -14,6 +14,8 @@ export interface StreamCloudProviderParams {
   sessionRef: React.MutableRefObject<string | null>;
   abortController: AbortController | null;
   assistantMessageId: string;
+  /** Provider-specific parameter overrides (temperature, thinking, etc.) */
+  providerParams?: Record<string, unknown>;
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   setError: (e: string | null) => void;
   setIsLoading: (v: boolean) => void;
@@ -21,6 +23,8 @@ export interface StreamCloudProviderParams {
   setCurrentConversationId: (id: string | null) => void;
   setStreamStatus?: (s: string | undefined) => void;
   isStreamingRef: React.MutableRefObject<boolean>;
+  /** Called when a new conversation is created (for system prompt fetch, etc.) */
+  onNewConversation?: (conversationId: string) => void;
 }
 
 /**
@@ -100,6 +104,7 @@ async function streamCloudProviderTauri(params: StreamCloudProviderParams): Prom
         if (d.session_id) sessionRef.current = d.session_id;
         if (d.conversation_id && !conversationId) {
           setCurrentConversationId(d.conversation_id);
+          params.onNewConversation?.(d.conversation_id);
         }
         setTimeout(() => {
           window.dispatchEvent(new CustomEvent('conversation-title-updated'));
@@ -131,6 +136,10 @@ async function streamCloudProviderTauri(params: StreamCloudProviderParams): Prom
         prompt,
         conversationId: conversationId || null,
         sessionId: sessionRef.current || null,
+        params:
+          params.providerParams && Object.keys(params.providerParams).length > 0
+            ? params.providerParams
+            : null,
       }).catch((err: unknown) => {
         settle(() => reject(err instanceof Error ? err : new Error(String(err))));
       });
@@ -193,6 +202,9 @@ export async function streamCloudProvider(params: StreamCloudProviderParams): Pr
         max_turns: 50,
         session_id: sessionRef.current || undefined,
         conversation_id: conversationId || undefined,
+        ...(params.providerParams && Object.keys(params.providerParams).length > 0
+          ? { params: params.providerParams }
+          : {}),
       }),
     });
 
@@ -242,6 +254,7 @@ export async function streamCloudProvider(params: StreamCloudProviderParams): Pr
               if (event.session_id) sessionRef.current = event.session_id;
               if (event.conversation_id && !conversationId) {
                 setCurrentConversationId(event.conversation_id);
+                params.onNewConversation?.(event.conversation_id);
               }
               // Trigger sidebar refresh so the new conversation appears in the list
               setTimeout(() => {

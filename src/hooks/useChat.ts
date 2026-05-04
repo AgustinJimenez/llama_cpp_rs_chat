@@ -111,6 +111,8 @@ export function useChat() {
 
   // Provider override (set from ModelContext via setProviderRef)
   const providerRef = useRef<{ provider: string; model: string }>({ provider: 'local', model: '' });
+  // Provider-specific parameter overrides (temperature, thinking, etc.)
+  const providerParamsRef = useRef<Record<string, unknown>>({});
   // CLI-provider session ID for conversation continuity
   const providerSessionRef = useRef<string | null>(null);
 
@@ -146,6 +148,30 @@ export function useChat() {
     setMaxTokens(undefined);
     setLastTimings(undefined);
     providerSessionRef.current = null; // Reset provider session for new conversation
+  }, []);
+
+  // Fetch system prompt from backend and prepend to messages (used by both local and remote paths)
+  const fetchSystemPrompt = useCallback((conversationId: string) => {
+    getConversation(conversationId)
+      .then((data) => {
+        const firstMsg = data.messages?.[0];
+        if (firstMsg?.role === 'system' && firstMsg.content) {
+          setMessages((prev) => {
+            if (prev.some((m) => m.role === 'system')) return prev;
+            return [
+              {
+                id: `sys_${conversationId}`,
+                role: 'system' as const,
+                content: firstMsg.content,
+                timestamp: Date.now(),
+                isSystemPrompt: true,
+              },
+              ...prev,
+            ];
+          });
+        }
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -323,29 +349,7 @@ export function useChat() {
 
             if (!currentConversationId) {
               setCurrentConversationId(conversationId);
-              // New conversation — fetch system prompt from backend to show widget
-              getConversation(conversationId)
-                .then((data) => {
-                  const firstMsg = data.messages?.[0];
-                  if (firstMsg?.role === 'system' && firstMsg.content) {
-                    setMessages((prev) => {
-                      // Guard: don't prepend if a system message already exists
-                      // (the conversation watcher may have already set it)
-                      if (prev.some((m) => m.role === 'system')) return prev;
-                      return [
-                        {
-                          id: `sys_${conversationId}`,
-                          role: 'system' as const,
-                          content: firstMsg.content,
-                          timestamp: Date.now(),
-                          isSystemPrompt: true,
-                        },
-                        ...prev,
-                      ];
-                    });
-                  }
-                })
-                .catch(() => {});
+              fetchSystemPrompt(conversationId);
             }
             // Trigger delayed sidebar refresh to pick up auto-generated/updated title
             setTimeout(() => {
@@ -466,7 +470,7 @@ export function useChat() {
         abortControllerRef.current?.signal,
       );
     },
-    [currentConversationId, setMessages],
+    [currentConversationId, setMessages, fetchSystemPrompt],
   );
 
   // Send message (with optional image attachments)
@@ -557,6 +561,7 @@ export function useChat() {
             sessionRef: providerSessionRef,
             abortController: abortControllerRef.current,
             assistantMessageId,
+            providerParams: providerParamsRef.current,
             setMessages,
             setError,
             setIsLoading,
@@ -564,6 +569,7 @@ export function useChat() {
             setCurrentConversationId,
             setStreamStatus,
             isStreamingRef,
+            onNewConversation: fetchSystemPrompt,
           });
           return;
         }
@@ -593,7 +599,7 @@ export function useChat() {
         );
       }
     },
-    [isLoading, currentConversationId, runStream],
+    [isLoading, currentConversationId, runStream, fetchSystemPrompt],
   );
 
   // URL persistence hook
@@ -729,6 +735,7 @@ export function useChat() {
             sessionRef: providerSessionRef,
             abortController: abortControllerRef.current,
             assistantMessageId,
+            providerParams: providerParamsRef.current,
             setMessages,
             setError,
             setIsLoading,
@@ -736,6 +743,7 @@ export function useChat() {
             setCurrentConversationId,
             setStreamStatus,
             isStreamingRef,
+            onNewConversation: fetchSystemPrompt,
           });
           return;
         }
@@ -765,7 +773,7 @@ export function useChat() {
         );
       }
     },
-    [isLoading, currentConversationId, runStream],
+    [isLoading, currentConversationId, runStream, fetchSystemPrompt],
   );
 
   // Continue: keep the existing partial assistant response and ask the model to
@@ -819,6 +827,7 @@ export function useChat() {
             sessionRef: providerSessionRef,
             abortController: abortControllerRef.current,
             assistantMessageId,
+            providerParams: providerParamsRef.current,
             setMessages,
             setError,
             setIsLoading,
@@ -826,6 +835,7 @@ export function useChat() {
             setCurrentConversationId,
             setStreamStatus,
             isStreamingRef,
+            onNewConversation: fetchSystemPrompt,
           });
           return;
         }
@@ -854,7 +864,7 @@ export function useChat() {
         );
       }
     },
-    [isLoading, currentConversationId, runStream],
+    [isLoading, currentConversationId, runStream, fetchSystemPrompt],
   );
 
   // Stop the current generation
@@ -1042,5 +1052,6 @@ export function useChat() {
     lastTimings,
     streamStatus,
     providerRef,
+    providerParamsRef,
   };
 }

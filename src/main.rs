@@ -762,6 +762,7 @@ async fn stream_provider(
     prompt: String,
     conversation_id: Option<String>,
     session_id: Option<String>,
+    params: Option<serde_json::Value>,
 ) -> Result<serde_json::Value, String> {
     let api_keys = load_provider_api_keys_json(&db);
 
@@ -785,6 +786,7 @@ async fn stream_provider(
         api_keys.as_deref(),
         Some(&conv_id),
         Some(db.inner()),
+        params.as_ref(),
     )
     .await
     .map_err(|e| format!("Failed to start provider: {e}"))?;

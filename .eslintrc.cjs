@@ -12,7 +12,7 @@ module.exports = {
       jsx: true,
     },
   },
-  plugins: ['@typescript-eslint', 'react', 'react-hooks', 'react-refresh', 'jsx-a11y', 'import'],
+  plugins: ['@typescript-eslint', 'react', 'react-hooks', 'react-refresh', 'jsx-a11y', 'import', 'i18next'],
   extends: [
     'eslint:recommended',
     'plugin:@typescript-eslint/recommended',
@@ -77,6 +77,30 @@ module.exports = {
     'react/jsx-handler-names': ['warn', {
       eventHandlerPrefix: 'handle',
       eventHandlerPropPrefix: 'on',
+    }],
+
+    // i18n — enforce translated strings (warn during migration, switch to error later)
+    'i18next/no-literal-string': ['warn', {
+      markupOnly: true,
+      ignoreAttribute: [
+        'className', 'style', 'type', 'key', 'id', 'name', 'htmlFor', 'role',
+        'aria-label', 'aria-labelledby', 'aria-describedby',
+        'data-testid', 'data-state', 'tabIndex', 'href', 'src', 'alt',
+        'target', 'rel', 'method', 'action', 'value', 'defaultValue',
+        'autoComplete', 'inputMode', 'pattern', 'accept',
+      ],
+      ignore: [
+        // Patterns to ignore (regex)
+        '^[A-Z_]+$',     // Constants like API_KEY
+        '^\\d+$',         // Pure numbers
+        '^[\\s·|/→←•—]+$', // Symbols & whitespace
+        '^https?://',      // URLs
+        '^\\.',            // File extensions
+      ],
+      ignoreCallee: [
+        'console.log', 'console.warn', 'console.error', 'console.info',
+        'require', 'import',
+      ],
     }],
 
     // Code quality

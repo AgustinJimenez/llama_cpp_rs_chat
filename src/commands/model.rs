@@ -1,5 +1,6 @@
 //! Model Tauri commands — load, unload, status, info, history.
 
+use crate::web;
 use crate::web::worker::worker_bridge::SharedWorkerBridge;
 use crate::web::database::SharedDatabase;
 use crate::web::chat::tool_tags::get_tool_tags_for_model;
@@ -24,14 +25,13 @@ pub async fn get_model_status(
         None
     };
 
-    Ok(match bridge.model_status().await {
+    let mut status = match bridge.model_status().await {
         Some(meta) => {
             let tags = if meta.loaded {
                 Some(get_tool_tags_for_model(meta.general_name.as_deref()))
             } else {
                 None
             };
-            // Get effective context size: config override or model's native context length
             let config = load_config(&db);
             let context_size = config.context_size.or(meta.context_length);
             ModelStatus {
@@ -73,7 +73,18 @@ pub async fn get_model_status(
             context_size: None,
             last_finish_reason,
         },
-    })
+    };
+
+    // Merge remote provider generation state if local model isn't generating
+    if !is_generating {
+        if let Some(remote) = web::providers::get_remote_generation() {
+            status.generating = Some(true);
+            status.active_conversation_id = Some(remote.conversation_id);
+            status.status_message = remote.status_message;
+        }
+    }
+
+    Ok(status)
 }
 
 #[tauri::command]

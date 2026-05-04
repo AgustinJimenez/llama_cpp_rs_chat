@@ -21,6 +21,7 @@ interface ChatContextValue {
   lastTimings?: TimingInfo;
   streamStatus?: string;
   providerRef: MutableRefObject<{ provider: string; model: string }>;
+  providerParamsRef: MutableRefObject<Record<string, unknown>>;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -50,6 +51,7 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
       chat.lastTimings,
       chat.streamStatus,
       chat.providerRef,
+      chat.providerParamsRef,
     ],
   );
 

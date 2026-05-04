@@ -118,6 +118,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   streamStatus,
 }) => {
   const {
+    t,
     onSendMessage,
     isLoading,
     stopGeneration,
@@ -194,6 +195,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     (textareaRef.current?.scrollHeight ?? 0) > MULTILINE_SCROLL_THRESHOLD_PX;
   const hasContent = message.trim() || attachedImages.length > 0 || attachedFiles.length > 0;
   const placeholder = getPlaceholder(
+    t,
     isModelBusy,
     loadingAction,
     disabled,

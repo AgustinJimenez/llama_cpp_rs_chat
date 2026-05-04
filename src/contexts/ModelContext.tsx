@@ -1,11 +1,15 @@
 import { createContext, useContext, useCallback, useMemo, useState, type ReactNode } from 'react';
 import { toast } from 'react-hot-toast';
+import { useTranslation } from 'react-i18next';
 
 const TOAST_DELAY_MS = 1500;
 
 import { useModel, type LoadingAction } from '../hooks/useModel';
 import type { SamplerConfig, ToolTags } from '../types';
 import { logToastError } from '../utils/toastLogger';
+
+/** Per-provider parameter values stored as JSON in localStorage */
+export type ProviderParamsMap = Record<string, Record<string, unknown>>;
 
 interface ModelStatus {
   loaded: boolean;
@@ -50,11 +54,18 @@ interface ModelContextValue {
   setRemoteProvider: (provider: string, model: string) => void;
   /** Switch back to local provider */
   setLocalProvider: () => void;
+  /** Per-provider parameter overrides (temperature, thinking, etc.) */
+  providerParams: ProviderParamsMap;
+  /** Update params for a specific provider */
+  setProviderParamsFor: (providerId: string, params: Record<string, unknown>) => void;
+  /** Get params for the currently active provider */
+  activeProviderParams: Record<string, unknown>;
 }
 
 const ModelContext = createContext<ModelContextValue | null>(null);
 
 export const ModelProvider = ({ children }: { children: ReactNode }) => {
+  const { t } = useTranslation();
   const {
     status,
     isLoading,
@@ -74,26 +85,20 @@ export const ModelProvider = ({ children }: { children: ReactNode }) => {
     async (modelPath: string, config?: SamplerConfig) => {
       const result = await loadModelRaw(modelPath, config);
       if (result.success) {
-        toast.success('Model loaded successfully!');
+        toast.success(t('toast.modelLoaded'));
         if (result.visionFailed) {
           setTimeout(() => {
-            toast(
-              'Vision projector failed to initialize. The model may not support vision, or the mmproj file is incompatible.',
-              {
-                icon: '\u26A0\uFE0F',
-                duration: 6000,
-              },
-            );
+            toast(t('toast.visionFailed'), { icon: '\u26A0\uFE0F', duration: 6000 });
           }, TOAST_DELAY_MS);
         }
       } else {
-        const display = `Failed to load model: ${result.message}`;
+        const display = t('toast.modelLoadFailed', { message: result.message });
         logToastError('ModelContext.loadModel', display);
         toast.error(display, { duration: 5000 });
       }
       return result;
     },
-    [loadModelRaw],
+    [loadModelRaw, t],
   );
 
   const unloadModel = useCallback(async () => {
@@ -102,23 +107,23 @@ export const ModelProvider = ({ children }: { children: ReactNode }) => {
     if (currentProvider !== 'local') {
       setActiveProvider('local');
       localStorage.setItem('activeProvider', 'local');
-      toast.success('Provider disconnected');
+      toast.success(t('toast.providerDisconnected'));
       return;
     }
     const result = await unloadModelRaw();
     if (result.success) {
-      toast.success('Model unloaded successfully');
+      toast.success(t('toast.modelUnloaded'));
     } else {
-      const display = `Failed to unload model: ${result.message}`;
+      const display = t('toast.modelUnloadFailed', { message: result.message });
       logToastError('ModelContext.unloadModel', display);
       toast.error(display, { duration: 5000 });
     }
-  }, [unloadModelRaw]);
+  }, [unloadModelRaw, t]);
 
   const forceUnload = useCallback(async () => {
     await hardUnload();
-    toast('Force-unloaded backend to free memory', { icon: '🧹' });
-  }, [hardUnload]);
+    toast(t('toast.forceUnloaded'), { icon: '🧹' });
+  }, [hardUnload, t]);
 
   // Provider state — persisted in localStorage
   const [activeProvider, setActiveProvider] = useState<ActiveProvider>(
@@ -132,32 +137,61 @@ export const ModelProvider = ({ children }: { children: ReactNode }) => {
     return provider === 'codex' ? 'gpt-5' : 'sonnet';
   });
 
-  const setRemoteProvider = useCallback((provider: string, model: string) => {
-    setActiveProvider(provider as ActiveProvider);
-    setActiveProviderModel(model);
-    localStorage.setItem('activeProvider', provider);
-    localStorage.setItem('activeProviderModel', model);
-    const providerNames: Record<string, string> = {
-      claude_code: 'Claude Code',
-      codex: 'Codex CLI',
-      groq: 'Groq',
-      gemini: 'Gemini',
-      sambanova: 'SambaNova',
-      cerebras: 'Cerebras',
-      openrouter: 'OpenRouter',
-      together: 'Together AI',
-      deepseek: 'DeepSeek',
-      custom_openai: 'Custom OpenAI',
-    };
-    const providerName = providerNames[provider] || provider;
-    toast.success(`Switched to ${providerName} (${model})`);
-  }, []);
+  // Provider params — persisted in localStorage per provider
+  const [providerParams, setProviderParams] = useState<ProviderParamsMap>(() => {
+    try {
+      const raw = localStorage.getItem('providerParams');
+      return raw ? (JSON.parse(raw) as ProviderParamsMap) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const setProviderParamsFor = useCallback(
+    (providerId: string, params: Record<string, unknown>) => {
+      setProviderParams((prev) => {
+        const next = { ...prev, [providerId]: params };
+        localStorage.setItem('providerParams', JSON.stringify(next));
+        return next;
+      });
+    },
+    [],
+  );
+
+  const activeProviderParams = useMemo(
+    () => providerParams[activeProvider] ?? {},
+    [providerParams, activeProvider],
+  );
+
+  const setRemoteProvider = useCallback(
+    (provider: string, model: string) => {
+      setActiveProvider(provider as ActiveProvider);
+      setActiveProviderModel(model);
+      localStorage.setItem('activeProvider', provider);
+      localStorage.setItem('activeProviderModel', model);
+      const providerNames: Record<string, string> = {
+        claude_code: 'Claude Code',
+        codex: 'Codex CLI',
+        groq: 'Groq',
+        gemini: 'Gemini',
+        sambanova: 'SambaNova',
+        cerebras: 'Cerebras',
+        openrouter: 'OpenRouter',
+        together: 'Together AI',
+        deepseek: 'DeepSeek',
+        custom_openai: 'Custom OpenAI',
+      };
+      const providerName = providerNames[provider] || provider;
+      toast.success(t('toast.switchedToProvider', { provider: providerName, model }));
+    },
+    [t],
+  );
 
   const setLocalProvider = useCallback(() => {
     setActiveProvider('local');
     localStorage.setItem('activeProvider', 'local');
-    toast.success('Switched to Local Model');
-  }, []);
+    toast.success(t('toast.switchedToLocal'));
+  }, [t]);
 
   const value = useMemo<ModelContextValue>(
     () => ({
@@ -174,6 +208,9 @@ export const ModelProvider = ({ children }: { children: ReactNode }) => {
       activeProviderModel,
       setRemoteProvider,
       setLocalProvider,
+      providerParams,
+      setProviderParamsFor,
+      activeProviderParams,
     }),
     [
       status,
@@ -189,6 +226,9 @@ export const ModelProvider = ({ children }: { children: ReactNode }) => {
       activeProviderModel,
       setRemoteProvider,
       setLocalProvider,
+      providerParams,
+      setProviderParamsFor,
+      activeProviderParams,
     ],
   );
 

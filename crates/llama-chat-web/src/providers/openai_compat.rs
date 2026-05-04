@@ -694,6 +694,67 @@ fn execute_openai_tool(name: &str, arguments_json: &str) -> String {
     }
 }
 
+/// Apply a single user-configured parameter to the request body.
+///
+/// Handles provider-specific translation: e.g. "thinking" → DeepSeek/Anthropic
+/// thinking format, "reasoning_effort" → top-level field, etc.
+fn apply_user_param(provider_id: &str, body: &mut Value, key: &str, val: &Value) {
+    match key {
+        "thinking" => {
+            let mode = val.as_str().unwrap_or("disabled");
+            match provider_id {
+                "deepseek" => {
+                    // DeepSeek: remove temperature when thinking is enabled
+                    if mode == "enabled" {
+                        body.as_object_mut().map(|o| o.remove("temperature"));
+                    }
+                }
+                "anthropic" => {
+                    // Anthropic: set thinking.type based on mode
+                    match mode {
+                        "enabled" => {
+                            let budget = body.get("budget_tokens")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(10000);
+                            body["thinking"] = json!({"type": "enabled", "budget_tokens": budget});
+                        }
+                        "adaptive" => {
+                            let budget = body.get("budget_tokens")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(10000);
+                            body["thinking"] = json!({"type": "enabled", "budget_tokens": budget});
+                        }
+                        _ => {} // disabled — don't send thinking field
+                    }
+                }
+                _ => {}
+            }
+        }
+        "budget_tokens" => {
+            // Handled by "thinking" param above — store for reference
+            body["budget_tokens"] = val.clone();
+        }
+        "reasoning_effort" => {
+            body["reasoning_effort"] = val.clone();
+        }
+        "response_format" => {
+            let fmt = val.as_str().unwrap_or("text");
+            if fmt != "text" {
+                body["response_format"] = json!({"type": fmt});
+            }
+        }
+        "max_completion_tokens" => {
+            // OpenAI reasoning models use this instead of max_tokens
+            body["max_completion_tokens"] = val.clone();
+            body.as_object_mut().map(|o| o.remove("max_tokens"));
+        }
+        // Standard params: temperature, top_p, max_tokens, frequency_penalty, presence_penalty
+        _ => {
+            body[key] = val.clone();
+        }
+    }
+}
+
 /// Get provider-specific default parameters.
 fn provider_default_params(provider_id: &str) -> Value {
     match provider_id {
@@ -933,6 +994,7 @@ pub async fn generate(
     api_key: &str,
     conversation_id: Option<&str>,
     db: Option<&llama_chat_db::SharedDatabase>,
+    user_params: Option<&serde_json::Value>,
 ) -> Result<mpsc::UnboundedReceiver<CliTokenData>, String> {
     let (tx, rx) = mpsc::unbounded_channel();
     let model_name = resolve_model(provider_id, model);
@@ -958,10 +1020,16 @@ pub async fn generate(
     let prompt_owned = prompt.to_string();
     let conv_id_owned = conversation_id.map(|s| s.to_string());
     let db_owned = db.cloned();
+    let user_params_owned = user_params.cloned();
 
     // Use ureq in a blocking task for the streaming HTTP request + agentic loop
     tokio::task::spawn_blocking(move || {
         let start = std::time::Instant::now();
+
+        // Track this generation so frontend can reconnect after refresh
+        if let Some(ref cid) = conv_id_owned {
+            super::set_remote_generating(cid, &provider_id_owned);
+        }
 
         // Get tool definitions for the agentic loop
         let tools = get_agentic_tools();
@@ -1026,11 +1094,18 @@ pub async fn generate(
             provider_log(&conv_id_owned, "provider_iteration",
                 &format!("iteration {}/{} messages={}", iteration + 1, max_iterations, messages.len()));
 
-            // Check if frontend disconnected (receiver dropped)
-            if tx.is_closed() {
-                eprintln!("[OPENAI_COMPAT] Frontend disconnected, stopping agentic loop");
-                break;
+            // Update status for frontend polling (after reconnect)
+            if iteration > 0 {
+                super::set_remote_status(Some(format!(
+                    "Agent loop #{} · {}in/{}out tokens",
+                    iteration + 1, total_input_tokens, total_output_tokens
+                )));
             }
+
+            // Note: we intentionally do NOT break when tx.is_closed().
+            // The frontend may have disconnected (page refresh, conversation switch)
+            // but the agentic loop should continue — messages are saved to DB
+            // incrementally, so the user can reconnect and see the results.
 
             // Check for queued user messages (injected mid-generation via UI)
             if let (Some(conv_id), Some(ref db)) = (&conv_id_owned, &db_owned) {
@@ -1061,13 +1136,22 @@ pub async fn generate(
                 "stream_options": {"include_usage": true},
             });
 
-            // Apply provider-specific default parameters
+            // Apply provider-specific default parameters, then user overrides
             let defaults = provider_default_params(&provider_id_owned);
             if let Some(temp) = defaults.get("temperature") {
                 body["temperature"] = temp.clone();
             }
             if let Some(max) = defaults.get("max_tokens") {
                 body["max_tokens"] = max.clone();
+            }
+
+            // Apply user-configured parameters (override defaults)
+            if let Some(ref params) = user_params_owned {
+                if let Some(obj) = params.as_object() {
+                    for (key, val) in obj {
+                        apply_user_param(&provider_id_owned, &mut body, key, val);
+                    }
+                }
             }
 
             // Include tools only if we have them
@@ -1432,6 +1516,9 @@ pub async fn generate(
                 None
             },
         });
+
+        // Clear remote generation tracker
+        super::clear_remote_generating();
 
         // Generate title after response is done (non-blocking, cheap API call)
         if let (Some(conv_id), Some(ref db)) = (&conv_id_owned, &db_owned) {

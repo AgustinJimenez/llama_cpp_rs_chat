@@ -225,11 +225,19 @@ const MainContent = ({
     status: modelStatus,
     activeProvider,
     activeProviderModel,
+    activeProviderParams,
     setRemoteProvider,
     setLocalProvider,
   } = useModelContext();
-  const { messages, lastTimings, tokensUsed, maxTokens, streamStatus, providerRef } =
-    useChatContext();
+  const {
+    messages,
+    lastTimings,
+    tokensUsed,
+    maxTokens,
+    streamStatus,
+    providerRef,
+    providerParamsRef,
+  } = useChatContext();
   const {
     isProviderSelectorOpen,
     closeProviderSelector,
@@ -244,6 +252,9 @@ const MainContent = ({
   // Sync provider ref with model context
   if (providerRef) {
     providerRef.current = { provider: activeProvider, model: activeProviderModel };
+  }
+  if (providerParamsRef) {
+    providerParamsRef.current = activeProviderParams;
   }
 
   return (

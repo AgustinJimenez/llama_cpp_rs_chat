@@ -8,8 +8,47 @@
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use tokio::sync::mpsc;
+
+// ─── Remote generation tracker ───────────────────────────────────────────
+
+/// Tracks active remote provider generations so the status endpoint can
+/// report them (enabling frontend reconnection after page refresh).
+static REMOTE_GENERATION: Mutex<Option<RemoteGeneration>> = Mutex::new(None);
+
+#[derive(Debug, Clone)]
+pub struct RemoteGeneration {
+    pub conversation_id: String,
+    pub provider_id: String,
+    pub status_message: Option<String>,
+}
+
+/// Mark a remote generation as active.
+pub fn set_remote_generating(conversation_id: &str, provider_id: &str) {
+    *REMOTE_GENERATION.lock().unwrap() = Some(RemoteGeneration {
+        conversation_id: conversation_id.to_string(),
+        provider_id: provider_id.to_string(),
+        status_message: None,
+    });
+}
+
+/// Update the status message for the active remote generation.
+pub fn set_remote_status(message: Option<String>) {
+    if let Some(ref mut gen) = *REMOTE_GENERATION.lock().unwrap() {
+        gen.status_message = message;
+    }
+}
+
+/// Clear the active remote generation (finished or cancelled).
+pub fn clear_remote_generating() {
+    *REMOTE_GENERATION.lock().unwrap() = None;
+}
+
+/// Get the current active remote generation, if any.
+pub fn get_remote_generation() -> Option<RemoteGeneration> {
+    REMOTE_GENERATION.lock().unwrap().clone()
+}
 
 pub mod claude_code;
 pub mod codex;
@@ -328,26 +367,24 @@ pub async fn generate(
     api_keys_json: Option<&str>,
     conversation_id: Option<&str>,
     db: Option<&llama_chat_db::SharedDatabase>,
+    user_params: Option<&serde_json::Value>,
 ) -> Result<mpsc::UnboundedReceiver<CliTokenData>, String> {
     match provider_id {
         "claude_code" => claude_code::generate(prompt, model, max_turns, cwd, session_id).await,
         "codex" => codex::generate(prompt, model, max_turns, cwd, session_id).await,
         "gemini_cli" => gemini::generate(prompt, model, max_turns, cwd, session_id).await,
-        // TODO (#6): Hybrid Claude/Codex provider — route to Claude Code or Codex
-        // with conversation history and tool dispatch. Too complex for this batch.
         id if openai_compat::is_openai_compat(id) => {
             let api_key = openai_compat::resolve_api_key(id, api_keys_json)
                 .ok_or_else(|| format!("No API key configured for provider '{id}'. Set it in Settings or via environment variable."))?;
             let base_url = openai_compat::resolve_base_url(id, api_keys_json)
                 .ok_or_else(|| format!("No base URL configured for provider '{id}'."))?;
-            openai_compat::generate(id, prompt, model, &base_url, &api_key, conversation_id, db).await
+            openai_compat::generate(id, prompt, model, &base_url, &api_key, conversation_id, db, user_params).await
         }
         id if id.starts_with("custom_") => {
-            // User-defined custom provider — resolve key/url from api_keys_json
             let api_key = openai_compat::resolve_custom_field(id, "api_key", api_keys_json).unwrap_or_default();
             let base_url = openai_compat::resolve_custom_field(id, "base_url", api_keys_json)
                 .ok_or_else(|| format!("No base URL configured for custom provider '{id}'."))?;
-            openai_compat::generate(id, prompt, model, &base_url, &api_key, conversation_id, db).await
+            openai_compat::generate(id, prompt, model, &base_url, &api_key, conversation_id, db, user_params).await
         }
         _ => Err(format!("Unknown provider: {provider_id}")),
     }

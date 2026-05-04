@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useChatContext } from '../../contexts/ChatContext';
 import { useModelContext } from '../../contexts/ModelContext';
@@ -6,6 +7,7 @@ import { useModelContext } from '../../contexts/ModelContext';
 const CHARS_PER_TOKEN = 4;
 
 export function useInputState() {
+  const { t } = useTranslation();
   const {
     sendMessage: onSendMessage,
     isLoading,
@@ -39,6 +41,7 @@ export function useInputState() {
   const modelContextSize = status.context_size;
   const isModelLoaded = status.loaded || isRemoteProvider;
   return {
+    t,
     onSendMessage,
     isLoading,
     stopGeneration,
@@ -54,6 +57,7 @@ export function useInputState() {
 }
 
 export function getPlaceholder(
+  t: (key: string) => string,
   isModelBusy: boolean,
   loadingAction: string | null,
   disabled: boolean,
@@ -61,9 +65,19 @@ export function getPlaceholder(
   isModelLoaded: boolean,
   disabledReason?: string,
 ) {
-  if (isModelBusy) return loadingAction === 'unloading' ? 'Unloading model...' : 'Loading model...';
-  if (isGeneratingElsewhere) return 'Generation active on another conversation';
-  if (!isModelLoaded) return 'Load a model to start chatting';
-  if (disabled && disabledReason) return disabledReason;
-  return 'Ask anything';
+  if (isModelBusy) {
+    return loadingAction === 'unloading'
+      ? t('chat.placeholderUnloading')
+      : t('chat.placeholderLoading');
+  }
+  if (isGeneratingElsewhere) {
+    return t('chat.placeholderGeneratingElsewhere');
+  }
+  if (!isModelLoaded) {
+    return t('chat.placeholderNoModel');
+  }
+  if (disabled && disabledReason) {
+    return disabledReason;
+  }
+  return t('chat.placeholder');
 }

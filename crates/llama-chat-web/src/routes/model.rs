@@ -513,6 +513,21 @@ pub async fn handle_get_model_status(
             },
         };
 
+        // Merge remote provider generation state if local model isn't generating
+        let status = if !is_generating {
+            if let Some(remote) = crate::providers::get_remote_generation() {
+                let mut s = status;
+                s.generating = Some(true);
+                s.active_conversation_id = Some(remote.conversation_id);
+                s.status_message = remote.status_message;
+                s
+            } else {
+                status
+            }
+        } else {
+            status
+        };
+
         let response_json = serialize_with_fallback(&status, &default_model_status_json());
         Ok(json_raw(StatusCode::OK, response_json))
     }
