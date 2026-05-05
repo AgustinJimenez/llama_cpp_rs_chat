@@ -65,7 +65,7 @@ export const ConversationLog = () => {
 
     const fetchEvents = async () => {
       try {
-        const id = currentConversationId.replace('.txt', '');
+        const id = currentConversationId;
         const resp = await fetch(`/api/conversations/${id}/events`);
         if (resp.ok) {
           const data = await resp.json();

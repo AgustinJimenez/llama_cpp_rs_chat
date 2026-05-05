@@ -85,7 +85,7 @@ export const MessageStatistics = ({ timings, tokensUsed, maxTokens }: MessageSta
     return () => clearInterval(id);
   }, [refreshProcesses]);
 
-  if (!genTokPerSec) return null;
+  if (!genTokPerSec && bgProcesses.length === 0) return null;
 
   return (
     <div className="flex items-center gap-3 text-xs text-foreground font-mono">
@@ -104,11 +104,12 @@ export const MessageStatistics = ({ timings, tokensUsed, maxTokens }: MessageSta
             : `${formatNumber(genTokens)} tokens`}
         </span>
       ) : null}
-      {/* Elapsed time removed — shown by LoadingIndicator below the chat bubble */}
-      <span className="inline-flex items-center gap-1" title="Generation speed">
-        <Gauge className="h-3 w-3" />
-        {genTokPerSec.toFixed(1)} tok/s
-      </span>
+      {genTokPerSec ? (
+        <span className="inline-flex items-center gap-1" title="Generation speed">
+          <Gauge className="h-3 w-3" />
+          {genTokPerSec.toFixed(1)} tok/s
+        </span>
+      ) : null}
       {tokensUsed !== undefined && maxTokens !== undefined && timings.tokenBreakdown ? (
         <TokenBreakdownPopover
           breakdown={timings.tokenBreakdown}
@@ -134,7 +135,7 @@ export const MessageStatistics = ({ timings, tokensUsed, maxTokens }: MessageSta
             <Terminal className="h-3 w-3" />
             {bgProcesses.length} {bgProcesses.length === 1 ? 'process' : 'processes'}
           </button>
-          <BackgroundProcessesModal isOpen={modalOpen} onClose={() => setModalOpen(false)} />
+          <BackgroundProcessesModal isOpen={modalOpen} onClose={() => { setModalOpen(false); refreshProcesses(); }} />
         </>
       ) : null}
     </div>

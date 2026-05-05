@@ -1,99 +1,21 @@
-/* eslint-disable no-console, max-lines -- chat hook with extensive debug logging and streaming logic */
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import { toast } from 'react-hot-toast';
 
-const TITLE_REFRESH_DELAY_MS = 4000;
-const CONTINUE_TASK_PREVIEW_LENGTH = 200;
-const CONTINUE_DELAY_MS = 150;
 const CLOUD_POLL_INTERVAL_MS = 2000;
 
-import type { Message, ChatRequest } from '../types';
-import { createChatTransport, type ChatTransport, type TimingInfo } from '../utils/chatTransport';
-import { notifyIfUnfocused } from '../utils/tauri';
+import type { Message } from '../types';
+import { createChatTransport } from '../utils/chatTransport';
+import type { TimingInfo } from '../utils/chatTransport';
 import { getConversation, getModelStatus, truncateConversation } from '../utils/tauriCommands';
 import { logToastError } from '../utils/toastLogger';
 
-import { streamCloudProvider } from './useCloudChat';
 import { useConnection } from './useConnection';
 import { useConversationUrl } from './useConversationUrl';
 import { useConversationWatcher } from './useConversationWatcher';
+import { useGenerationStream } from './useGenerationStream';
 
-function isAbortErrorMessage(message: string): boolean {
-  return /aborted/i.test(message);
-}
-
-function removeEmptyAssistantMessage(
-  setMessages: React.Dispatch<React.SetStateAction<Message[]>>,
-  assistantMessageId: string,
-) {
-  setMessages((prev) =>
-    prev.filter(
-      (m) => !(m.id === assistantMessageId && m.role === 'assistant' && m.content.length === 0),
-    ),
-  );
-}
-
-/** Map raw backend errors to user-friendly messages */
-function friendlyError(msg: string): string {
-  if (/generation already in progress/i.test(msg)) {
-    return 'The model is busy. Click Stop first, then try again.';
-  }
-  if (/generation still cancelling/i.test(msg)) {
-    return 'Still cancelling the previous request. Please wait a moment.';
-  }
-  if (/worker stdin closed/i.test(msg)) {
-    return 'Connection to the model worker was lost. Try reloading the model.';
-  }
-  if (/context.*full|context.*exceeded/i.test(msg)) {
-    return 'The conversation is too long. Start a new conversation or reduce context size.';
-  }
-  if (/model.*not.*loaded|no model/i.test(msg)) {
-    return 'No model is loaded. Please load a model first.';
-  }
-  if (/failed to load conversation/i.test(msg)) {
-    return 'Could not load this conversation. It may have been deleted.';
-  }
-  return msg;
-}
-
-function handleStreamError(
-  err: unknown,
-  streamSeq: number,
-  streamSeqRef: React.MutableRefObject<number>,
-  isStreamingRef: React.MutableRefObject<boolean>,
-  setError: (e: string | null) => void,
-  setIsLoading: (v: boolean) => void,
-  setMessages: React.Dispatch<React.SetStateAction<Message[]>>,
-  assistantMessageId: string,
-) {
-  if (streamSeqRef.current !== streamSeq) return;
-  isStreamingRef.current = false;
-  const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
-  const isAbort = isAbortErrorMessage(errorMessage);
-  setError(errorMessage);
-  if (!isAbort) {
-    const display = friendlyError(errorMessage);
-    toast.error(display, { duration: 5000 });
-    logToastError('useChat.sendMessage', `Chat error: ${errorMessage}`, err);
-  }
-  setIsLoading(false);
-  if (isAbort) {
-    removeEmptyAssistantMessage(setMessages, assistantMessageId);
-  }
-}
-
-/**
- * Main chat hook - orchestrates messaging and streaming.
- *
- * Tool execution is handled entirely by the backend inline during generation.
- * The frontend only handles token display and conversation management.
- *
- * Delegates to specialized hooks:
- * - useConversationUrl: URL param persistence
- * - useConversationWatcher: WebSocket updates
- */
-// Auto-continue: finish reasons that trigger automatic re-generation
+// Auto-continue reasons (used by the polling reconnect effect)
 const AUTO_CONTINUE_REASONS = new Set([
   'length',
   'yn_continue',
@@ -103,17 +25,14 @@ const AUTO_CONTINUE_REASONS = new Set([
   'infinite_loop',
 ]);
 
-// eslint-disable-next-line max-lines-per-function
 export function useChat() {
   const { connected } = useConnection();
   const connectedRef = useRef(connected);
   connectedRef.current = connected;
 
-  // Provider override (set from ModelContext via setProviderRef)
+  // Provider state (synced from ModelContext via App.tsx)
   const providerRef = useRef<{ provider: string; model: string }>({ provider: 'local', model: '' });
-  // Provider-specific parameter overrides (temperature, thinking, etc.)
   const providerParamsRef = useRef<Record<string, unknown>>({});
-  // CLI-provider session ID for conversation continuity
   const providerSessionRef = useRef<string | null>(null);
 
   // Core state
@@ -126,20 +45,42 @@ export function useChat() {
   const [lastTimings, setLastTimings] = useState<TimingInfo | undefined>(undefined);
   const [streamStatus, setStreamStatus] = useState<string | undefined>(undefined);
   const messagesRef = useRef<Message[]>([]);
+  const currentConversationIdRef = useRef<string | null>(null);
 
-  // Refs for streaming state
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const isStreamingRef = useRef(false);
-  const streamSeqRef = useRef(0);
-  const transportRef = useRef<ChatTransport>(createChatTransport());
+  const transportRef = useRef(createChatTransport());
 
-  // Track compaction state to reload messages after compaction completes
-  const compactingRef = useRef(false);
+  // Sync refs
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  useEffect(() => { currentConversationIdRef.current = currentConversationId; }, [currentConversationId]);
 
-  const MAX_AUTO_CONTINUES = 3;
-  const autoContinueCountRef = useRef(0);
+  // ─── Unified generation stream ─────────────────────────────────────────
 
-  // Clear all messages and reset state
+  const {
+    startGeneration,
+    abortGeneration,
+    resetAutoContinue,
+    isStreamingRef,
+    abortControllerRef,
+    autoContinueCountRef,
+  } = useGenerationStream({
+    setMessages,
+    setIsLoading,
+    setError,
+    setLastTimings,
+    setTokensUsed,
+    setMaxTokens,
+    setStreamStatus,
+    setCurrentConversationId,
+    currentConversationIdRef,
+    messagesRef,
+    providerRef,
+    providerParamsRef,
+    providerSessionRef,
+    transportRef,
+  });
+
+  // ─── Clear ─────────────────────────────────────────────────────────────
+
   const clearMessages = useCallback(() => {
     setMessages([]);
     setCurrentConversationId(null);
@@ -147,40 +88,10 @@ export function useChat() {
     setTokensUsed(undefined);
     setMaxTokens(undefined);
     setLastTimings(undefined);
-    providerSessionRef.current = null; // Reset provider session for new conversation
+    providerSessionRef.current = null;
   }, []);
 
-  // Fetch system prompt from backend and prepend to messages (used by both local and remote paths)
-  const fetchSystemPrompt = useCallback((conversationId: string) => {
-    getConversation(conversationId)
-      .then((data) => {
-        const firstMsg = data.messages?.[0];
-        if (firstMsg?.role === 'system' && firstMsg.content) {
-          setMessages((prev) => {
-            if (prev.some((m) => m.role === 'system')) return prev;
-            return [
-              {
-                id: `sys_${conversationId}`,
-                role: 'system' as const,
-                content: firstMsg.content,
-                timestamp: Date.now(),
-                isSystemPrompt: true,
-              },
-              ...prev,
-            ];
-          });
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    messagesRef.current = messages;
-  }, [messages]);
-
-  // Derive lastTimings from the last assistant message so stats persist
-  // across conversation loads and page refreshes. Skip during streaming
-  // so live stats show instead of stale completion stats.
+  // Derive lastTimings from last assistant message (persists across loads)
   useEffect(() => {
     if (isStreamingRef.current) return;
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -189,9 +100,10 @@ export function useChat() {
         return;
       }
     }
-  }, [messages]);
+  }, [messages, isStreamingRef]);
 
-  // Load a conversation from the backend
+  // ─── Load conversation ─────────────────────────────────────────────────
+
   const loadConversation = useCallback(async (filename: string) => {
     if (!connectedRef.current) {
       toast.error('Server is unreachable — please wait for reconnection', {
@@ -210,31 +122,27 @@ export function useChat() {
       providerSessionRef.current =
         data.provider_id === providerRef.current.provider ? data.provider_session_id || null : null;
       if (data.messages && data.messages.length > 0) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const mapped = (data.messages as any[]).map((msg) => {
+        const mapped = (data.messages as Array<Record<string, unknown>>).map((msg) => {
           const m: Message = {
-            id: msg.id,
-            role: msg.role,
-            content: msg.content,
-            timestamp: msg.timestamp,
+            id: String(msg.id),
+            role: String(msg.role) as Message['role'],
+            content: String(msg.content),
+            timestamp: Number(msg.timestamp),
           };
-          // Map flat backend timing fields into nested timings object
           if (msg.gen_tok_per_sec != null) {
             m.timings = {
-              promptTokPerSec: msg.prompt_tok_per_sec,
-              genTokPerSec: msg.gen_tok_per_sec,
-              genEvalMs: msg.gen_eval_ms,
-              genTokens: msg.gen_tokens,
-              promptEvalMs: msg.prompt_eval_ms,
-              promptTokens: msg.prompt_tokens,
+              promptTokPerSec: msg.prompt_tok_per_sec as number,
+              genTokPerSec: msg.gen_tok_per_sec as number,
+              genEvalMs: msg.gen_eval_ms as number,
+              genTokens: msg.gen_tokens as number,
+              promptEvalMs: msg.prompt_eval_ms as number,
+              promptTokens: msg.prompt_tokens as number,
             };
           }
           return m;
         });
-        // Keep the first system message (the system prompt) for the UI widget,
-        // filter out subsequent system messages (tool results, etc.)
         let systemPromptSeen = false;
-        const filtered = mapped.filter((msg) => {
+        const filtered = mapped.filter((msg: Message) => {
           if (msg.role === 'system') {
             if (!systemPromptSeen) {
               systemPromptSeen = true;
@@ -259,221 +167,8 @@ export function useChat() {
     }
   }, []);
 
-  const hasLoggedFirstTokenRef = useRef(false);
+  // ─── Send message ──────────────────────────────────────────────────────
 
-  const runStream = useCallback(
-    // eslint-disable-next-line max-lines-per-function -- streaming handler with many event callbacks
-    async (params: { request: ChatRequest; assistantMessageId: string; streamSeq: number }) => {
-      const { request, assistantMessageId, streamSeq } = params;
-      hasLoggedFirstTokenRef.current = false;
-
-      await transportRef.current.streamMessage(
-        request,
-        {
-          onToken: (token, tokenCount, maxTokenCount, genTokPerSec, genTokens) => {
-            if (streamSeqRef.current !== streamSeq) return;
-            if (!hasLoggedFirstTokenRef.current) {
-              hasLoggedFirstTokenRef.current = true;
-              console.log('[useChat] First token received');
-            }
-            setMessages((prev) => {
-              const lastMsg = prev[prev.length - 1];
-              if (lastMsg && lastMsg.id === assistantMessageId) {
-                return [...prev.slice(0, -1), { ...lastMsg, content: lastMsg.content + token }];
-              }
-              return prev.map((msg) =>
-                msg.id === assistantMessageId ? { ...msg, content: msg.content + token } : msg,
-              );
-            });
-            if (tokenCount !== undefined) setTokensUsed(tokenCount);
-            if (maxTokenCount !== undefined) setMaxTokens(maxTokenCount);
-            // Update live timing stats during generation
-            if (genTokPerSec !== undefined || genTokens !== undefined) {
-              setLastTimings((prev) => ({
-                ...prev,
-                genTokPerSec: genTokPerSec ?? prev?.genTokPerSec,
-                genTokens: genTokens ?? prev?.genTokens,
-              }));
-            }
-          },
-          onStatus: (message) => {
-            if (streamSeqRef.current !== streamSeq) return;
-            setStreamStatus(message);
-            // After compaction completes, reload messages from DB
-            // so the frontend reflects the compacted state (summary replaces old messages)
-            if (compactingRef.current && (!message || !message.includes('Compacting'))) {
-              compactingRef.current = false;
-              const convId = currentConversationId;
-              if (convId) {
-                getConversation(convId)
-                  .then((data) => {
-                    if (data.messages) {
-                      const mapped: Message[] = (
-                        data.messages as Array<Record<string, unknown>>
-                      ).map((msg: Record<string, unknown>) => ({
-                        id: msg.id as string,
-                        role: msg.role as Message['role'],
-                        content: msg.content as string,
-                        timestamp: msg.timestamp as number,
-                      }));
-                      // Keep only non-system, non-tool-result messages + first system
-                      let systemSeen = false;
-                      const filtered = mapped.filter((m: { role: string; content: string }) => {
-                        if (m.role === 'system') {
-                          if (!systemSeen) {
-                            systemSeen = true;
-                            return true;
-                          }
-                          return false;
-                        }
-                        return !m.content.startsWith('[TOOL_RESULTS]');
-                      });
-                      setMessages(filtered);
-                    }
-                  })
-                  .catch(() => {});
-              }
-            }
-            if (message?.includes('Compacting')) {
-              compactingRef.current = true;
-            }
-          },
-          onComplete: (_messageId, conversationId, tokenCount, maxTokenCount, timings) => {
-            if (streamSeqRef.current !== streamSeq) return;
-            console.log(
-              '[useChat] Streaming complete',
-              timings
-                ? `gen=${timings.genTokPerSec?.toFixed(1)} tok/s finish=${timings.finishReason ?? '?'}`
-                : '',
-            );
-
-            if (!currentConversationId) {
-              setCurrentConversationId(conversationId);
-              fetchSystemPrompt(conversationId);
-            }
-            // Trigger delayed sidebar refresh to pick up auto-generated/updated title
-            setTimeout(() => {
-              window.dispatchEvent(new CustomEvent('conversation-title-updated'));
-            }, TITLE_REFRESH_DELAY_MS);
-            if (tokenCount !== undefined) setTokensUsed(tokenCount);
-            if (maxTokenCount !== undefined) setMaxTokens(maxTokenCount);
-            if (timings) {
-              setLastTimings(timings);
-              setMessages((prev) =>
-                prev.map((msg) =>
-                  msg.id === assistantMessageId ? { ...msg, timings, timestamp: Date.now() } : msg,
-                ),
-              );
-            }
-
-            // Auto-continue: if generation was cut off by context, Y/N, loop, or tool, resume
-            const finishReason = timings?.finishReason;
-            const shouldAutoContinue = AUTO_CONTINUE_REASONS.has(finishReason ?? '');
-            // tool_continue doesn't count toward the retry limit — it's expected behavior
-            const isToolContinue = finishReason === 'tool_continue';
-            if (
-              shouldAutoContinue &&
-              (isToolContinue || autoContinueCountRef.current < MAX_AUTO_CONTINUES)
-            ) {
-              if (!isToolContinue) autoContinueCountRef.current += 1;
-              const continueNum = autoContinueCountRef.current;
-              const reasonMap: Record<string, string> = {
-                loop_recovery: 'loop recovery',
-                tool_continue: 'tool continuation',
-                yn_continue: 'task incomplete',
-                infinite_loop: 'infinite loop — forcing new approach',
-              };
-              const reason = (finishReason && reasonMap[finishReason]) || 'context full';
-              console.log(
-                `[useChat] Auto-continue ${continueNum}/${MAX_AUTO_CONTINUES} (${reason})`,
-              );
-
-              // Brief delay then resume — auto_continue flag skips logging a user message
-              setIsLoading(true); // Keep loading state so stats bar renders during compaction
-              setTimeout(() => {
-                const convId = conversationId || currentConversationId;
-                const newStreamSeq = (streamSeqRef.current += 1);
-                isStreamingRef.current = true;
-                setLastTimings(undefined); // Clear old stats so live stats + compaction indicator show
-                abortControllerRef.current = new AbortController();
-
-                // Include the original user request so the model knows what to continue after compaction
-                const msgs = messagesRef.current;
-                const firstUserMsg = msgs.find((m) => m.role === 'user');
-                let continueMsg: string;
-                if (finishReason === 'infinite_loop' || finishReason === 'loop_recovery') {
-                  continueMsg =
-                    '[SYSTEM] Infinite loop detected — you have been repeating similar actions without progress. STOP your current approach entirely. Step back, analyze what went wrong, explain it to the user, and either try a COMPLETELY DIFFERENT strategy or ask the user for guidance. Do NOT repeat any of the previous commands.';
-                } else {
-                  continueMsg = firstUserMsg
-                    ? `Continue working on this task: "${firstUserMsg.content.slice(0, CONTINUE_TASK_PREVIEW_LENGTH)}". Pick up where you left off.`
-                    : 'Continue';
-                }
-
-                runStream({
-                  request: {
-                    message: continueMsg,
-                    conversation_id: convId || undefined,
-                    auto_continue: true,
-                  },
-                  assistantMessageId,
-                  streamSeq: newStreamSeq,
-                }).catch((err) => {
-                  handleStreamError(
-                    err,
-                    newStreamSeq,
-                    streamSeqRef,
-                    isStreamingRef,
-                    setError,
-                    setIsLoading,
-                    setMessages,
-                    assistantMessageId,
-                  );
-                });
-              }, CONTINUE_DELAY_MS);
-              return; // Don't set isLoading=false — we're continuing
-            }
-
-            // Check if we hit max auto-continues — override finish reason so UI shows it
-            const hitMaxContinues =
-              shouldAutoContinue && autoContinueCountRef.current >= MAX_AUTO_CONTINUES;
-            if (hitMaxContinues && timings) {
-              timings.finishReason = 'max_continues';
-            }
-
-            // Normal completion — now safe to clear streaming state
-            isStreamingRef.current = false;
-            setStreamStatus(undefined);
-            autoContinueCountRef.current = 0;
-            notifyIfUnfocused('Generation complete', 'Your AI response is ready.');
-            setIsLoading(false);
-          },
-          onError: (errorMsg) => {
-            if (streamSeqRef.current !== streamSeq) return;
-            isStreamingRef.current = false;
-            console.log('[useChat] Streaming error');
-            setError(errorMsg);
-
-            const isAbort = isAbortErrorMessage(errorMsg);
-            if (!isAbort) {
-              const display = friendlyError(errorMsg);
-              toast.error(display, { duration: 5000 });
-              logToastError('useChat.streamMessage', `Chat error: ${errorMsg}`);
-            }
-
-            setIsLoading(false);
-            if (isAbort) {
-              removeEmptyAssistantMessage(setMessages, assistantMessageId);
-            }
-          },
-        },
-        abortControllerRef.current?.signal,
-      );
-    },
-    [currentConversationId, setMessages, fetchSystemPrompt],
-  );
-
-  // Send message (with optional image attachments)
   const sendMessage = useCallback(
     async (content: string, imageData?: string[], bypassLoadingCheck = false) => {
       if (!connectedRef.current) {
@@ -487,12 +182,11 @@ export function useChat() {
       const trimmed = content.trim();
       if (!trimmed && !hasImages) return;
 
-      // If already generating with a remote provider, queue the message for injection
+      // Queue message if remote provider is already generating
       if (
         !bypassLoadingCheck &&
         isLoading &&
         currentConversationId &&
-        providerRef?.current?.provider &&
         providerRef.current.provider !== 'local'
       ) {
         const { queueMessage } = await import('../utils/tauriCommands');
@@ -500,12 +194,7 @@ export function useChat() {
           await queueMessage(currentConversationId, trimmed);
           setMessages((prev) => [
             ...prev,
-            {
-              id: crypto.randomUUID(),
-              role: 'user' as const,
-              content: trimmed,
-              timestamp: Date.now(),
-            },
+            { id: crypto.randomUUID(), role: 'user' as const, content: trimmed, timestamp: Date.now() },
           ]);
           toast.success('Message queued — will be injected on next iteration', { duration: 2000 });
         } catch {
@@ -515,10 +204,7 @@ export function useChat() {
       }
       if (!bypassLoadingCheck && isLoading) return;
 
-      // Reset auto-continue counter on new user message
-      autoContinueCountRef.current = 0;
-
-      // Abort any previous request
+      resetAutoContinue();
       abortControllerRef.current?.abort();
       abortControllerRef.current = new AbortController();
 
@@ -536,79 +222,29 @@ export function useChat() {
       setError(null);
 
       const assistantMessageId = crypto.randomUUID();
-      const streamSeq = (streamSeqRef.current += 1);
 
       flushSync(() => {
         setMessages((prev) => [
           ...prev,
-          {
-            id: assistantMessageId,
-            role: 'assistant' as const,
-            content: '',
-            timestamp: 0, // set when response completes
-          },
+          { id: assistantMessageId, role: 'assistant' as const, content: '', timestamp: 0 },
         ]);
       });
 
-      try {
-        // Route to CLI-backed provider if active — uses SSE streaming
-        if (providerRef.current.provider !== 'local') {
-          await streamCloudProvider({
-            provider: providerRef.current.provider,
-            model: providerRef.current.model,
-            prompt: trimmed,
-            conversationId: currentConversationId,
-            sessionRef: providerSessionRef,
-            abortController: abortControllerRef.current,
-            assistantMessageId,
-            providerParams: providerParamsRef.current,
-            setMessages,
-            setError,
-            setIsLoading,
-            setLastTimings,
-            setCurrentConversationId,
-            setStreamStatus,
-            isStreamingRef,
-            onNewConversation: fetchSystemPrompt,
-          });
-          return;
-        }
-
-        isStreamingRef.current = true;
-        setLastTimings(undefined); // Clear old stats so live stats show during streaming
-        console.log('[useChat] Streaming started');
-        await runStream({
-          request: {
-            message: trimmed,
-            conversation_id: currentConversationId || undefined,
-            image_data: hasImages ? imageData : undefined,
-          },
-          assistantMessageId,
-          streamSeq,
-        });
-      } catch (err) {
-        handleStreamError(
-          err,
-          streamSeq,
-          streamSeqRef,
-          isStreamingRef,
-          setError,
-          setIsLoading,
-          setMessages,
-          assistantMessageId,
-        );
-      }
+      await startGeneration(
+        {
+          prompt: trimmed,
+          conversationId: currentConversationId,
+          imageData: hasImages ? imageData : undefined,
+        },
+        assistantMessageId,
+      );
     },
-    [isLoading, currentConversationId, runStream, fetchSystemPrompt],
+    [isLoading, currentConversationId, startGeneration, resetAutoContinue, abortControllerRef],
   );
 
-  // URL persistence hook
-  useConversationUrl({
-    currentConversationId,
-    loadConversation,
-  });
+  // ─── URL persistence + watcher ─────────────────────────────────────────
 
-  // Conversation watcher hook (WebSocket updates)
+  useConversationUrl({ currentConversationId, loadConversation });
   useConversationWatcher({
     currentConversationId,
     isStreamingRef,
@@ -619,28 +255,21 @@ export function useChat() {
     setIsLoading,
   });
 
-  // Edit a user message: truncate from that point and re-send
+  // ─── Edit message ──────────────────────────────────────────────────────
+
   const editMessage = useCallback(
     async (messageIndex: number, newContent: string) => {
       if (!connectedRef.current) {
-        toast.error('Server is unreachable — please wait for reconnection', {
-          duration: 3000,
-          id: 'server-down',
-        });
+        toast.error('Server is unreachable — please wait for reconnection', { duration: 3000, id: 'server-down' });
         return;
       }
       if (isLoading) return;
 
-      // DB sequence: system prompt at 0, user/assistant messages start at 1.
-      // The messages array may or may not include system messages (depends on
-      // whether the conversation was loaded from backend or built locally).
-      // Count system messages before the target to compute the correct DB offset.
       const systemMsgsBefore = messagesRef.current
         .slice(0, messageIndex)
         .filter((m) => m.role === 'system').length;
       const fromSequence = messageIndex - systemMsgsBefore + 1;
 
-      // Truncate backend DB from the edited message onward
       if (currentConversationId) {
         try {
           await truncateConversation(currentConversationId, fromSequence);
@@ -652,39 +281,30 @@ export function useChat() {
         }
       }
 
-      // Truncate local messages array (remove from editedIndex onward)
       setMessages((prev) => prev.slice(0, messageIndex));
-
-      // Re-send the edited content
       await sendMessage(newContent, undefined, true);
     },
     [isLoading, currentConversationId, sendMessage],
   );
 
-  // Regenerate: truncate from the assistant message and re-send the preceding user message
+  // ─── Regenerate ────────────────────────────────────────────────────────
+
   const regenerateFrom = useCallback(
     async (messageIndex: number) => {
       if (!connectedRef.current) {
-        toast.error('Server is unreachable — please wait for reconnection', {
-          duration: 3000,
-          id: 'server-down',
-        });
+        toast.error('Server is unreachable — please wait for reconnection', { duration: 3000, id: 'server-down' });
         return;
       }
       if (isLoading) return;
 
-      // Find the user message just before this assistant message
       const msgs = messagesRef.current;
       let userMsgIndex = messageIndex - 1;
-      while (userMsgIndex >= 0 && msgs[userMsgIndex]?.role !== 'user') {
-        userMsgIndex--;
-      }
-      if (userMsgIndex < 0) return; // no user message found
+      while (userMsgIndex >= 0 && msgs[userMsgIndex]?.role !== 'user') { userMsgIndex--; }
+      if (userMsgIndex < 0) return;
 
       const userContent = msgs[userMsgIndex].content;
       const userImages = msgs[userMsgIndex].image_data;
 
-      // Compute DB sequence for the assistant message (truncate from here)
       const systemMsgsBefore = msgs
         .slice(0, messageIndex)
         .filter((m) => m.role === 'system').length;
@@ -701,90 +321,40 @@ export function useChat() {
         }
       }
 
-      // Truncate local messages (remove assistant message and everything after)
       setMessages((prev) => prev.slice(0, messageIndex));
-
-      // Re-run generation in place without adding a duplicate user bubble.
       abortControllerRef.current?.abort();
       abortControllerRef.current = new AbortController();
       setIsLoading(true);
       setError(null);
 
       const assistantMessageId = crypto.randomUUID();
-      const streamSeq = (streamSeqRef.current += 1);
 
       flushSync(() => {
         setMessages((prev) => [
           ...prev,
-          {
-            id: assistantMessageId,
-            role: 'assistant' as const,
-            content: '',
-            timestamp: 0,
-          },
+          { id: assistantMessageId, role: 'assistant' as const, content: '', timestamp: 0 },
         ]);
       });
 
-      try {
-        if (providerRef.current.provider !== 'local') {
-          await streamCloudProvider({
-            provider: providerRef.current.provider,
-            model: providerRef.current.model,
-            prompt: userContent,
-            conversationId: currentConversationId,
-            sessionRef: providerSessionRef,
-            abortController: abortControllerRef.current,
-            assistantMessageId,
-            providerParams: providerParamsRef.current,
-            setMessages,
-            setError,
-            setIsLoading,
-            setLastTimings,
-            setCurrentConversationId,
-            setStreamStatus,
-            isStreamingRef,
-            onNewConversation: fetchSystemPrompt,
-          });
-          return;
-        }
-
-        isStreamingRef.current = true;
-        setLastTimings(undefined);
-        await runStream({
-          request: {
-            message: userContent,
-            conversation_id: currentConversationId || undefined,
-            image_data: userImages,
-            auto_continue: true,
-          },
-          assistantMessageId,
-          streamSeq,
-        });
-      } catch (err) {
-        handleStreamError(
-          err,
-          streamSeq,
-          streamSeqRef,
-          isStreamingRef,
-          setError,
-          setIsLoading,
-          setMessages,
-          assistantMessageId,
-        );
-      }
+      await startGeneration(
+        {
+          prompt: userContent,
+          conversationId: currentConversationId,
+          imageData: userImages,
+          autoContinue: true,
+        },
+        assistantMessageId,
+      );
     },
-    [isLoading, currentConversationId, runStream, fetchSystemPrompt],
+    [isLoading, currentConversationId, startGeneration, abortControllerRef],
   );
 
-  // Continue: keep the existing partial assistant response and ask the model to
-  // resume on the same conversation without replaying the user message.
+  // ─── Continue ──────────────────────────────────────────────────────────
+
   const continueFrom = useCallback(
     async (messageIndex: number) => {
       if (!connectedRef.current) {
-        toast.error('Server is unreachable — please wait for reconnection', {
-          duration: 3000,
-          id: 'server-down',
-        });
+        toast.error('Server is unreachable — please wait for reconnection', { duration: 3000, id: 'server-down' });
         return;
       }
       if (isLoading) return;
@@ -800,87 +370,34 @@ export function useChat() {
       setError(null);
 
       const assistantMessageId = crypto.randomUUID();
-      const streamSeq = (streamSeqRef.current += 1);
 
       flushSync(() => {
         setMessages((prev) => [
           ...prev,
-          {
-            id: assistantMessageId,
-            role: 'assistant' as const,
-            content: '',
-            timestamp: 0,
-          },
+          { id: assistantMessageId, role: 'assistant' as const, content: '', timestamp: 0 },
         ]);
       });
 
-      const continuePrompt =
-        'Continue from your last response exactly where you left off. Do not repeat previous text unless necessary.';
-
-      try {
-        if (providerRef.current.provider !== 'local') {
-          await streamCloudProvider({
-            provider: providerRef.current.provider,
-            model: providerRef.current.model,
-            prompt: continuePrompt,
-            conversationId: currentConversationId,
-            sessionRef: providerSessionRef,
-            abortController: abortControllerRef.current,
-            assistantMessageId,
-            providerParams: providerParamsRef.current,
-            setMessages,
-            setError,
-            setIsLoading,
-            setLastTimings,
-            setCurrentConversationId,
-            setStreamStatus,
-            isStreamingRef,
-            onNewConversation: fetchSystemPrompt,
-          });
-          return;
-        }
-
-        isStreamingRef.current = true;
-        setLastTimings(undefined);
-        await runStream({
-          request: {
-            message: continuePrompt,
-            conversation_id: currentConversationId,
-            auto_continue: true,
-          },
-          assistantMessageId,
-          streamSeq,
-        });
-      } catch (err) {
-        handleStreamError(
-          err,
-          streamSeq,
-          streamSeqRef,
-          isStreamingRef,
-          setError,
-          setIsLoading,
-          setMessages,
-          assistantMessageId,
-        );
-      }
+      await startGeneration(
+        {
+          prompt: 'Continue from your last response exactly where you left off. Do not repeat previous text unless necessary.',
+          conversationId: currentConversationId,
+          autoContinue: true,
+        },
+        assistantMessageId,
+      );
     },
-    [isLoading, currentConversationId, runStream, fetchSystemPrompt],
+    [isLoading, currentConversationId, startGeneration, abortControllerRef],
   );
 
-  // Stop the current generation
-  const stopGeneration = useCallback(() => {
-    // Always tell the backend to cancel, even if WS is already closed
-    fetch('/api/chat/cancel', { method: 'POST' }).catch(() => {});
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-    }
-    isStreamingRef.current = false;
-    setIsLoading(false);
-  }, []);
+  // ─── Stop ──────────────────────────────────────────────────────────────
 
-  // Poll conversation content when viewing an actively generating conversation
-  // that we're not streaming (e.g. after browser refresh).
+  const stopGeneration = useCallback(() => {
+    abortGeneration();
+  }, [abortGeneration]);
+
+  // ─── Polling reconnect (after page refresh / conversation switch) ──────
+
   useEffect(() => {
     if (!currentConversationId || isStreamingRef.current) return;
 
@@ -893,80 +410,80 @@ export function useChat() {
           generating?: boolean;
           active_conversation_id?: string;
           status_message?: string;
+          last_finish_reason?: string;
         };
         if (!active) return;
 
-        const convIdClean = currentConversationId.replace(/\.txt$/, '');
-        const activeClean = status.active_conversation_id?.replace(/\.txt$/, '');
+        const convIdClean = currentConversationId;
+        const activeClean = status.active_conversation_id;
 
         if (!status.generating || activeClean !== convIdClean) {
-          // Generation not active — but check if it just finished with length (needs auto-continue)
-          const finishReason = (status as Record<string, unknown>).last_finish_reason as
-            | string
-            | undefined;
+          const finishReason = status.last_finish_reason;
           if (
             AUTO_CONTINUE_REASONS.has(finishReason ?? '') &&
-            autoContinueCountRef.current < MAX_AUTO_CONTINUES
+            autoContinueCountRef.current < 3
           ) {
             autoContinueCountRef.current += 1;
-            console.log(
-              `[useChat] Auto-continue ${autoContinueCountRef.current}/${MAX_AUTO_CONTINUES} (${finishReason}, detected on load)`,
+            console.warn(
+              `[useChat] Auto-continue ${autoContinueCountRef.current}/3 (${finishReason}, detected on load)`,
             );
             setIsLoading(true);
             setTimeout(() => {
-              const convId = currentConversationId;
-              if (!convId) return;
-              runStream({
-                request: { message: 'Continue', conversation_id: convId, auto_continue: true },
-                assistantMessageId: crypto.randomUUID(),
-                streamSeq: streamSeqRef.current + 1,
-              }).catch(() => setIsLoading(false));
+              if (!currentConversationId) return;
+              abortControllerRef.current = new AbortController();
+              const aid = crypto.randomUUID();
+              flushSync(() => {
+                setMessages((prev) => [
+                  ...prev,
+                  { id: aid, role: 'assistant' as const, content: '', timestamp: 0 },
+                ]);
+              });
+              startGeneration(
+                { prompt: 'Continue', conversationId: currentConversationId, autoContinue: true },
+                aid,
+              ).catch(() => setIsLoading(false));
             }, 1000);
           } else {
-            // Generation finished (cancelled, completed, or errored) — clear loading
-            // in case the WebSocket died before delivering the done/abort message
             setIsLoading(false);
             setStreamStatus(undefined);
           }
           return;
         }
 
-        // This conversation is actively generating — start polling
-        console.log('[useChat] Reconnecting to active generation via polling');
+        // Active generation — start polling DB for updates
+        console.warn('[useChat] Reconnecting to active generation via polling');
         setIsLoading(true);
 
         intervalId = setInterval(async () => {
           if (!active) return;
           try {
-            // Check if still generating + get status message
             const s = (await getModelStatus()) as {
               generating?: boolean;
               active_conversation_id?: string;
               status_message?: string;
+              last_finish_reason?: string;
             };
             const stillActive =
-              s.generating && s.active_conversation_id?.replace(/\.txt$/, '') === convIdClean;
+              s.generating && s.active_conversation_id === convIdClean;
             setStreamStatus(s.status_message || undefined);
 
-            // Reload messages from DB
             const data = await getConversation(currentConversationId);
             if (!active) return;
             if (data.messages) {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const mapped = (data.messages as any[]).map((msg: any) => ({
-                id: msg.id,
-                role: msg.role,
-                content: msg.content,
-                timestamp: msg.timestamp,
+              const mapped = (data.messages as Array<Record<string, unknown>>).map((msg) => ({
+                id: String(msg.id),
+                role: String(msg.role) as Message['role'],
+                content: String(msg.content),
+                timestamp: Number(msg.timestamp),
                 ...(msg.gen_tok_per_sec != null
                   ? {
                       timings: {
-                        promptTokPerSec: msg.prompt_tok_per_sec,
-                        genTokPerSec: msg.gen_tok_per_sec,
-                        genEvalMs: msg.gen_eval_ms,
-                        genTokens: msg.gen_tokens,
-                        promptEvalMs: msg.prompt_eval_ms,
-                        promptTokens: msg.prompt_tokens,
+                        promptTokPerSec: msg.prompt_tok_per_sec as number,
+                        genTokPerSec: msg.gen_tok_per_sec as number,
+                        genEvalMs: msg.gen_eval_ms as number,
+                        genTokens: msg.gen_tokens as number,
+                        promptEvalMs: msg.prompt_eval_ms as number,
+                        promptTokens: msg.prompt_tokens as number,
                       },
                     }
                   : {}),
@@ -986,31 +503,31 @@ export function useChat() {
             }
 
             if (!stillActive) {
-              // Check if generation stopped due to context exhaustion — trigger auto-continue
-              const finishReason = (s as Record<string, unknown>).last_finish_reason as
-                | string
-                | undefined;
+              const finishReason = s.last_finish_reason;
               if (
                 AUTO_CONTINUE_REASONS.has(finishReason ?? '') &&
-                autoContinueCountRef.current < MAX_AUTO_CONTINUES
+                autoContinueCountRef.current < 3
               ) {
                 autoContinueCountRef.current += 1;
-                console.log(
-                  `[useChat] Auto-continue ${autoContinueCountRef.current}/${MAX_AUTO_CONTINUES} (${finishReason}, detected via polling)`,
-                );
                 if (intervalId) clearInterval(intervalId);
                 setTimeout(() => {
-                  const convId = currentConversationId;
-                  if (!convId) return;
-                  runStream({
-                    request: { message: 'Continue', conversation_id: convId, auto_continue: true },
-                    assistantMessageId: crypto.randomUUID(),
-                    streamSeq: streamSeqRef.current + 1,
-                  }).catch(() => setIsLoading(false));
+                  if (!currentConversationId) return;
+                  abortControllerRef.current = new AbortController();
+                  const aid = crypto.randomUUID();
+                  flushSync(() => {
+                    setMessages((prev) => [
+                      ...prev,
+                      { id: aid, role: 'assistant' as const, content: '', timestamp: 0 },
+                    ]);
+                  });
+                  startGeneration(
+                    { prompt: 'Continue', conversationId: currentConversationId, autoContinue: true },
+                    aid,
+                  ).catch(() => setIsLoading(false));
                 }, 1000);
                 return;
               }
-              console.log('[useChat] Generation completed (detected via polling)');
+              console.warn('[useChat] Generation completed (detected via polling)');
               setIsLoading(false);
               setStreamStatus(undefined);
               if (intervalId) clearInterval(intervalId);
@@ -1024,16 +541,16 @@ export function useChat() {
       }
     };
 
-    // Small delay to let the initial load finish
     const timeout = setTimeout(startPolling, 1000);
-
     return () => {
       active = false;
       clearTimeout(timeout);
       if (intervalId) clearInterval(intervalId);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- runStream is stable via useCallback, adding it causes infinite re-renders
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentConversationId]);
+
+  // ─── Return ────────────────────────────────────────────────────────────
 
   return {
     messages,

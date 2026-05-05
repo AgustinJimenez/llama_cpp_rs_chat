@@ -98,11 +98,6 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
           <DialogTitle className="flex items-center gap-2">
             <Terminal className="h-5 w-5" />
             Background Processes
-            {aliveCount > 0 ? (
-              <span className="ml-auto text-xs font-normal text-muted-foreground">
-                {aliveCount} running
-              </span>
-            ) : null}
           </DialogTitle>
           <DialogDescription className="sr-only">
             View and manage background processes

@@ -71,17 +71,18 @@ export const MessagesArea = () => {
 
   // Auto-scroll to bottom when messages change (streaming tokens or new messages).
   // Uses rAF so we run after the browser has committed the DOM update.
-  // Track message count to avoid scrolling on layout changes (browser toggle).
   const prevMessageCountRef = useRef(messages.length);
+  const prevLastContentLenRef = useRef(0);
   useEffect(() => {
     const el = containerRef.current;
     if (!el || !autoScrollRef.current) return;
-    // Only scroll if messages actually changed (not just layout reflow)
-    const countChanged = messages.length !== prevMessageCountRef.current;
     const lastMsg = messages[messages.length - 1];
-    const contentChanged = countChanged || (lastMsg && isLoading);
+    const lastContentLen = lastMsg?.content?.length ?? 0;
+    const countChanged = messages.length !== prevMessageCountRef.current;
+    const contentGrew = lastContentLen > prevLastContentLenRef.current;
     prevMessageCountRef.current = messages.length;
-    if (!contentChanged) return;
+    prevLastContentLenRef.current = lastContentLen;
+    if (!countChanged && !contentGrew && !isLoading) return;
     requestAnimationFrame(() => {
       if (autoScrollRef.current) {
         programmaticScrollRef.current = true;

@@ -1071,9 +1071,13 @@ pub async fn generate(
             }
         }
 
-        // Ensure conversation exists in DB and save user message immediately
+        // Ensure conversation exists in DB and save system prompt + user message
         if let (Some(conv_id), Some(ref db)) = (&conv_id_owned, &db_owned) {
             ensure_conversation_row(db, conv_id, &provider_id_owned);
+            // Save system prompt on first turn so frontend can display it
+            if db.get_messages(conv_id).map(|m| m.is_empty()).unwrap_or(true) {
+                save_message_now(db, conv_id, "system", get_cloud_system_prompt());
+            }
             save_message_now(db, conv_id, "user", &prompt_owned);
         }
 
@@ -1523,15 +1527,23 @@ pub async fn generate(
         // Generate title after response is done (non-blocking, cheap API call)
         if let (Some(conv_id), Some(ref db)) = (&conv_id_owned, &db_owned) {
             if db.get_conversation_title(conv_id).ok().flatten().is_none() {
-                let assistant_text: String = messages.iter().rev()
-                    .find(|m| m["role"] == "assistant" && m["content"].is_string())
+                // Use first user message (not current prompt which may be "Continue...")
+                let first_user = messages.iter()
+                    .find(|m| m["role"] == "user")
                     .and_then(|m| m["content"].as_str())
-                    .unwrap_or("")
-                    .to_string();
+                    .unwrap_or(&prompt_owned);
+                // Find first readable assistant text (skip tool_calls JSON)
+                let assistant_text = messages.iter()
+                    .filter(|m| m["role"] == "assistant")
+                    .find_map(|m| {
+                        let c = m["content"].as_str().unwrap_or("");
+                        if !c.is_empty() && !c.starts_with('{') { Some(c) } else { None }
+                    })
+                    .unwrap_or("");
                 let base_url_clean = url.trim_end_matches("/chat/completions").to_string();
                 if let Some(title) = generate_title_via_provider(
                     &base_url_clean, &api_key_owned, &model_name_clone,
-                    &prompt_owned, &assistant_text,
+                    first_user, assistant_text,
                 ) {
                     provider_log(&conv_id_owned, "title_generated", &title);
                     let _ = db.update_conversation_title(conv_id, &title);

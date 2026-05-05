@@ -766,7 +766,7 @@ async fn stream_provider(
 ) -> Result<serde_json::Value, String> {
     let api_keys = load_provider_api_keys_json(&db);
 
-    let conv_id = conversation_id.clone().unwrap_or_else(|| {
+    let conv_id = conversation_id.unwrap_or_else(|| {
         format!("chat_{}", chrono::Local::now().format("%Y-%m-%d-%H-%M-%S-%3f"))
     });
 

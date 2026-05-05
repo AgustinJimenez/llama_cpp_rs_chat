@@ -14,20 +14,11 @@ export function getConversationFromUrl(): string | null {
 export function updateUrlWithConversation(conversationId: string | null) {
   const url = new URL(window.location.href);
   if (conversationId) {
-    // Strip .txt for cleaner URLs
-    const cleanId = conversationId.replace(/\.txt$/, '');
-    url.searchParams.set('conversation', cleanId);
+    url.searchParams.set('conversation', conversationId);
   } else {
     url.searchParams.delete('conversation');
   }
   window.history.replaceState({}, '', url.toString());
-}
-
-/**
- * Normalize conversation ID to ensure .txt extension
- */
-export function normalizeConversationId(id: string): string {
-  return id.endsWith('.txt') ? id : `${id}.txt`;
 }
 
 interface UseConversationUrlOptions {
@@ -61,8 +52,7 @@ export function useConversationUrl({
     const conversationFromUrl = getConversationFromUrl();
     if (conversationFromUrl) {
       console.warn('[useConversationUrl] Loading conversation from URL:', conversationFromUrl);
-      const normalizedId = normalizeConversationId(conversationFromUrl);
-      loadConversation(normalizedId);
+      loadConversation(conversationFromUrl);
     }
   }, [loadConversation]);
 }

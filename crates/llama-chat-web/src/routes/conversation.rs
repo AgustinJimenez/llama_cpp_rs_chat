@@ -18,14 +18,8 @@ pub async fn handle_get_conversation(
     // Extract filename from path: /api/conversation/{filename}
     let filename = &path[18..]; // Remove "/api/conversation/"
 
-    // Try both with and without .txt suffix — remote provider conversations
-    // may store the ID with .txt, local ones without.
-    let trimmed = filename.trim_end_matches(".txt");
-    let conversation_id = trimmed;
-    let records_result = match db.get_messages(trimmed) {
-        Ok(msgs) if !msgs.is_empty() => Ok(msgs),
-        _ => db.get_messages(filename),
-    };
+    let conversation_id = filename;
+    let records_result = db.get_messages(filename);
 
     // Load messages directly from DB to preserve timing metadata
     match records_result {
@@ -68,7 +62,7 @@ pub async fn handle_get_conversation(
                             id: format!("msg_{msg_idx}"),
                             role: "assistant".to_string(),
                             content: combined,
-                            timestamp: rec.timestamp * 1000,
+                            timestamp: rec.timestamp,
                             prompt_tok_per_sec: rec.prompt_tok_per_sec,
                             gen_tok_per_sec: rec.gen_tok_per_sec,
                             gen_eval_ms: rec.gen_eval_ms,
@@ -87,7 +81,7 @@ pub async fn handle_get_conversation(
                         id: format!("msg_{msg_idx}"),
                         role: rec.role.to_lowercase(),
                         content: rec.content.clone(),
-                        timestamp: rec.timestamp * 1000,
+                        timestamp: rec.timestamp,
                         prompt_tok_per_sec: rec.prompt_tok_per_sec,
                         gen_tok_per_sec: rec.gen_tok_per_sec,
                         gen_eval_ms: rec.gen_eval_ms,
@@ -143,10 +137,10 @@ pub async fn handle_get_conversations(
     match db.list_conversations() {
         Ok(records) => {
             for record in records {
-                // Strip legacy .txt suffix from IDs that were imported from files
-                let clean_id = record.id.trim_end_matches(".txt").to_string();
+                // Deduplicate conversation IDs
+                let clean_id = record.id.to_string();
 
-                // Skip duplicates (a clean ID and its .txt-suffixed variant)
+                // Skip duplicates
                 if !seen_ids.insert(clean_id.clone()) {
                     continue;
                 }
@@ -165,7 +159,7 @@ pub async fn handle_get_conversations(
                     .unwrap_or_else(|| format!("Chat {timestamp_part}"));
 
                 conversations.push(ConversationFile {
-                    name: format!("{clean_id}.txt"),
+                    name: clean_id.clone(),
                     display_name,
                     timestamp: timestamp_part,
                     title,
@@ -204,7 +198,7 @@ pub async fn handle_get_conversation_events(
         None => return Ok(json_error(StatusCode::BAD_REQUEST, "Invalid path")),
     };
     let conv_id = match stripped.strip_suffix("/events") {
-        Some(s) => s.trim_end_matches(".txt"),
+        Some(s) => s,
         None => return Ok(json_error(StatusCode::BAD_REQUEST, "Invalid path")),
     };
 
@@ -231,7 +225,7 @@ pub async fn handle_get_conversation_metrics(
         None => return Ok(json_error(StatusCode::BAD_REQUEST, "Invalid path")),
     };
     let conv_id = match stripped.strip_suffix("/metrics") {
-        Some(s) => s.trim_end_matches(".txt"),
+        Some(s) => s,
         None => return Ok(json_error(StatusCode::BAD_REQUEST, "Invalid path")),
     };
 
@@ -263,7 +257,7 @@ pub async fn handle_truncate_conversation(
         None => return Ok(json_error(StatusCode::BAD_REQUEST, "Invalid path")),
     };
     let conv_id = match stripped.strip_suffix("/truncate") {
-        Some(s) => s.trim_end_matches(".txt"),
+        Some(s) => s,
         None => return Ok(json_error(StatusCode::BAD_REQUEST, "Invalid path")),
     };
 
@@ -331,7 +325,7 @@ pub async fn handle_rename_conversation(
     let conn = db.connection();
     match conn.execute(
         "UPDATE conversations SET title = ?1, updated_at = ?2 WHERE id = ?3",
-        rusqlite::params![title, chrono::Utc::now().timestamp(), conversation_id.trim_end_matches(".txt")],
+        rusqlite::params![title, chrono::Utc::now().timestamp(), conversation_id],
     ) {
         Ok(0) => Ok(json_error(StatusCode::NOT_FOUND, "Conversation not found")),
         Ok(_) => Ok(json_raw(
@@ -392,8 +386,8 @@ pub async fn handle_delete_conversation(
         ));
     }
 
-    // Remove .txt extension if present for database lookup
-    let conversation_id = filename.trim_end_matches(".txt");
+    // Extract conversation ID from path
+    let conversation_id = filename;
 
     match db.delete_conversation(conversation_id) {
         Ok(_) => {
@@ -428,7 +422,7 @@ pub async fn handle_export_conversation(
     let format = crate::request_parsing::get_query_param(req.uri(), "format")
         .unwrap_or_else(|| "md".to_string());
 
-    let conv_id = conversation_id.trim_end_matches(".txt");
+    let conv_id = conversation_id;
     let messages = match db.get_messages(conv_id) {
         Ok(msgs) => msgs,
         Err(e) => return Ok(json_error(StatusCode::NOT_FOUND, &format!("Conversation not found: {e}"))),
@@ -497,7 +491,7 @@ pub async fn handle_batch_delete_conversations(
     let mut deleted = 0;
     let mut failed = 0;
     for id in &ids {
-        match db.delete_conversation(id.trim_end_matches(".txt")) {
+        match db.delete_conversation(id) {
             Ok(_) => deleted += 1,
             Err(_) => failed += 1,
         }
@@ -514,7 +508,7 @@ pub async fn handle_conversation_token_analysis(
     conversation_id: &str,
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
-    let conv_id = conversation_id.trim_end_matches(".txt");
+    let conv_id = conversation_id;
     let messages = match db.get_messages(conv_id) {
         Ok(m) => m,
         Err(e) => return Ok(json_error(StatusCode::NOT_FOUND, &format!("{e}"))),

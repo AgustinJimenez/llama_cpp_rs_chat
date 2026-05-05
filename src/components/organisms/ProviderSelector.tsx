@@ -65,6 +65,7 @@ export const ProviderSelector = ({
   const [openaiSectionOpen, setOpenaiSectionOpen] = useState(false);
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
   const [customModels, setCustomModels] = useState<Record<string, string>>({});
+  const [selectedModels, setSelectedModels] = useState<Record<string, string>>({});
   const [apiKeyInputs, setApiKeyInputs] = useState<ApiKeyMap>({});
   const [savingProvider, setSavingProvider] = useState<string | null>(null);
   const [savedProvider, setSavedProvider] = useState<string | null>(null);
@@ -253,7 +254,7 @@ export const ProviderSelector = ({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-          <h3 className="text-base font-medium text-foreground">Choose Provider</h3>
+          <h3 className="text-base font-medium text-foreground">Select Provider</h3>
           <button
             onClick={onClose}
             className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
@@ -465,7 +466,7 @@ export const ProviderSelector = ({
                       <div className="flex items-center gap-1 pr-3 flex-shrink-0">
                         <button
                           disabled={!provider.available}
-                          onClick={() => provider.available && onSelectRemote(provider.id, provider.models?.[0] || 'default')}
+                          onClick={() => provider.available && onSelectRemote(provider.id, selectedModels[provider.id] || provider.models?.[0] || 'default')}
                           title={provider.available ? `Use ${provider.name}` : 'Set API key first'}
                           className={`p-1.5 rounded-md transition-colors ${
                             provider.available
@@ -519,17 +520,38 @@ export const ProviderSelector = ({
                         {provider.available && (provider.models || []).length > 0 && (
                           <div className="pt-1 border-t border-border/40">
                             <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-2">Select Model</p>
-                            <div className="flex flex-wrap gap-2">
+                            <select
+                              value={selectedModels[provider.id] || provider.models?.[0] || ''}
+                              onChange={(e) => setSelectedModels((prev) => ({ ...prev, [provider.id]: e.target.value }))}
+                              className="w-full px-3 py-1.5 text-xs bg-muted border border-border rounded-md text-foreground focus:outline-none focus:border-primary font-mono"
+                            >
                               {(provider.models || []).map((model) => (
-                                <button
-                                  key={`${provider.id}:${model}`}
-                                  onClick={() => onSelectRemote(provider.id, model)}
-                                  className="py-1.5 px-3 rounded-md text-xs font-medium transition-colors bg-muted hover:bg-accent text-foreground/80 hover:text-foreground border border-border hover:border-primary"
-                                >
-                                  {model}
-                                </button>
+                                <option key={model} value={model}>{model}</option>
                               ))}
-                            </div>
+                            </select>
+                            <form
+                              onSubmit={(e) => {
+                                e.preventDefault();
+                                const m = customModels[provider.id]?.trim();
+                                if (m) onSelectRemote(provider.id, m);
+                              }}
+                              className="flex gap-2 mt-1"
+                            >
+                              <input
+                                type="text"
+                                placeholder="Or type a model name..."
+                                value={customModels[provider.id] || ''}
+                                onChange={(e) => setCustomModels((prev) => ({ ...prev, [provider.id]: e.target.value }))}
+                                className="flex-1 py-1.5 px-3 rounded-md text-xs border bg-muted font-mono placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary text-foreground border-border"
+                              />
+                              <button
+                                type="submit"
+                                disabled={!customModels[provider.id]?.trim()}
+                                className="p-1.5 rounded-md border border-border bg-muted hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                              >
+                                <PlayCircle className="h-4 w-4 text-emerald-400" />
+                              </button>
+                            </form>
                           </div>
                         )}
                         <ProviderConfigSection providerId={provider.id} />

@@ -29,11 +29,9 @@ const ChatContext = createContext<ChatContextValue | null>(null);
 export const ChatProvider = ({ children }: { children: ReactNode }) => {
   const chat = useChat();
 
-  // Individual field deps are intentional — useChat() returns a new object every render,
-  // so using `chat` directly would defeat memoization.
   const value = useMemo(
     () => chat,
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- individual field deps intentional, see comment above
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- individual field deps intentional
     [
       chat.messages,
       chat.isLoading,

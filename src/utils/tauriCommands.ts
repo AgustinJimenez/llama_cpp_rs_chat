@@ -289,7 +289,7 @@ export async function truncateConversation(
   conversationId: string,
   fromSequence: number,
 ): Promise<{ success: boolean; deleted: number }> {
-  const id = conversationId.replace('.txt', '');
+  const id = conversationId;
   if (isTauriEnv()) {
     return invokeCmd<{ success: boolean; deleted: number }>('truncate_conversation', {
       conversationId: id,
@@ -314,7 +314,7 @@ export interface ConversationMetric {
 export async function getConversationMetrics(
   conversationId: string,
 ): Promise<ConversationMetric[]> {
-  const id = conversationId.replace('.txt', '');
+  const id = conversationId;
   if (isTauriEnv()) {
     return invokeCmd<ConversationMetric[]>('get_conversation_metrics', { conversationId: id });
   }
@@ -322,7 +322,7 @@ export async function getConversationMetrics(
 }
 
 export async function queueMessage(conversationId: string, content: string): Promise<void> {
-  const id = conversationId.replace('.txt', '');
+  const id = conversationId;
   if (isTauriEnv()) {
     await invokeCmd('queue_message', { conversationId: id, content });
     return;

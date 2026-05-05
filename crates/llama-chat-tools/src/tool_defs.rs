@@ -396,7 +396,7 @@ static ALL_TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "browser_search",
-        description: "Search the web using Google. Returns a list of results with titles, URLs, and snippets. Faster and more reliable than manually navigating to Google.",
+        description: "Search the web. Returns a list of results with titles, URLs, and snippets. Use this for web searches instead of navigating to search engines manually.",
         params: Params::Simple(&[
             p("query", "string", "The search query"),
             p("max_results", "integer", "Max results to return (default: 8)"),

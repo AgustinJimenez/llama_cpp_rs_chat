@@ -22,6 +22,7 @@ pub mod browser_session;
 pub mod mcp_tools;
 pub mod screenshot_tool;
 pub mod telegram;
+pub mod web_search;
 pub mod tool_parser;
 pub mod tool_defs;
 mod utils;
@@ -636,7 +637,7 @@ pub fn dispatch_native_tool(
         ));
     }
 
-    // browser_search: navigate to Google, extract results
+    // browser_search: server-side web search (DuckDuckGo API + HTML fallback)
     if name == "browser_search" {
         let query = match args.get("query").and_then(|v| v.as_str()) {
             Some(q) if !q.trim().is_empty() => q.trim(),
@@ -650,53 +651,7 @@ pub fn dispatch_native_tool(
             .get("max_results")
             .and_then(|v| v.as_u64())
             .unwrap_or(8) as usize;
-        let encoded = urlencoding::encode(query);
-        let search_url =
-            format!("https://www.google.com/search?q={encoded}&num={max_results}&hl=en");
-
-        let _ = browser_session::notify_tauri_browser_navigate(&search_url);
-        std::thread::sleep(std::time::Duration::from_millis(2500));
-
-        let js = format!(
-            r#"Array.from(document.querySelectorAll('a')).filter(a => a.querySelector('h3')).slice(0, {max}).map(a => {{
-                const title = a.querySelector('h3')?.textContent || '';
-                const url = a.href || '';
-                const parent = a.closest('[data-sokoban-container], [data-hveid], [jscontroller]');
-                const snippet = parent?.querySelector('[data-sncf], .VwiC3b, [style*="-webkit-line-clamp"], span:not(:has(*))')?.textContent || '';
-                return {{ title, url, snippet }};
-            }}).filter(r => r.url && !r.url.includes('google.com/search'))"#,
-            max = max_results,
-        );
-        match browser_session::eval_in_browser_panel(&js) {
-            Ok(text) => {
-                if let Ok(results) = serde_json::from_str::<Vec<serde_json::Value>>(&text) {
-                    if results.is_empty() {
-                        return Some(NativeToolResult::text_only(format!(
-                            "No results found for '{query}'. Try a different query."
-                        )));
-                    }
-                    let mut output = format!("Search results for '{query}':\n\n");
-                    for (i, r) in results.iter().enumerate() {
-                        let title = r.get("title").and_then(|v| v.as_str()).unwrap_or("");
-                        let url = r.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                        let snippet = r.get("snippet").and_then(|v| v.as_str()).unwrap_or("");
-                        output.push_str(&format!(
-                            "{}. {}\n   URL: {}\n   {}\n\n",
-                            i + 1,
-                            title,
-                            url,
-                            snippet
-                        ));
-                    }
-                    return Some(NativeToolResult::text_only(output));
-                }
-                NativeToolResult::text_only(text)
-            }
-            Err(e) => NativeToolResult::text_only(format!("Search failed: {e}")),
-        };
-        return Some(NativeToolResult::text_only(format!(
-            "Search for '{query}' completed."
-        )));
+        return Some(NativeToolResult::text_only(web_search::search(query, max_results)));
     }
 
     // Browser view tools (open/close the in-app browser panel via Tauri)

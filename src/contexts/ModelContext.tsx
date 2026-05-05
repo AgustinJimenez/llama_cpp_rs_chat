@@ -163,35 +163,17 @@ export const ModelProvider = ({ children }: { children: ReactNode }) => {
     [providerParams, activeProvider],
   );
 
-  const setRemoteProvider = useCallback(
-    (provider: string, model: string) => {
-      setActiveProvider(provider as ActiveProvider);
-      setActiveProviderModel(model);
-      localStorage.setItem('activeProvider', provider);
-      localStorage.setItem('activeProviderModel', model);
-      const providerNames: Record<string, string> = {
-        claude_code: 'Claude Code',
-        codex: 'Codex CLI',
-        groq: 'Groq',
-        gemini: 'Gemini',
-        sambanova: 'SambaNova',
-        cerebras: 'Cerebras',
-        openrouter: 'OpenRouter',
-        together: 'Together AI',
-        deepseek: 'DeepSeek',
-        custom_openai: 'Custom OpenAI',
-      };
-      const providerName = providerNames[provider] || provider;
-      toast.success(t('toast.switchedToProvider', { provider: providerName, model }));
-    },
-    [t],
-  );
+  const setRemoteProvider = useCallback((provider: string, model: string) => {
+    setActiveProvider(provider as ActiveProvider);
+    setActiveProviderModel(model);
+    localStorage.setItem('activeProvider', provider);
+    localStorage.setItem('activeProviderModel', model);
+  }, []);
 
   const setLocalProvider = useCallback(() => {
     setActiveProvider('local');
     localStorage.setItem('activeProvider', 'local');
-    toast.success(t('toast.switchedToLocal'));
-  }, [t]);
+  }, []);
 
   const value = useMemo<ModelContextValue>(
     () => ({

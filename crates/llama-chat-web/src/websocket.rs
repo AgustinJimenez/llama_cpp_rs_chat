@@ -252,7 +252,7 @@ pub async fn handle_websocket(
                                             // Background: auto-generate/update title after each response
                                             // Brief delay to let the worker's generation thread fully join
                                             {
-                                                let conv_id_clean = conversation_id.trim_end_matches(".txt").to_string();
+                                                let conv_id_clean = conversation_id.clone();
                                                 let db_bg = db.clone();
                                                 let bridge_bg = bridge.clone();
                                                 tokio::spawn(async move {
@@ -421,8 +421,7 @@ pub async fn handle_conversation_watch(
 
     let _ = ACTIVE_WS_CONNECTIONS.fetch_add(1, Ordering::SeqCst);
 
-    // Remove .txt extension if present for database lookup
-    let conv_id = conversation_id.trim_end_matches(".txt").to_string();
+    let conv_id = conversation_id;
 
     sys_info!("[WS_WATCH] Watching conversation: {}", conv_id);
 

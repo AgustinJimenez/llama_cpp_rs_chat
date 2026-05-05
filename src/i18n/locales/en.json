@@ -13,7 +13,7 @@
     "remove": "Remove"
   },
   "provider": {
-    "title": "Choose Provider",
+    "title": "Select Provider",
     "searchPlaceholder": "Search providers...",
     "localModelName": "Local Model (llama.cpp)",
     "localModelDescription": "Run models locally on your GPU",
@@ -156,8 +156,8 @@
     "modelUnloadFailed": "Failed to unload model: {{message}}",
     "forceUnloaded": "Force-unloaded backend to free memory",
     "providerDisconnected": "Provider disconnected",
-    "switchedToProvider": "Switched to {{provider}} ({{model}})",
-    "switchedToLocal": "Switched to Local Model",
+    "switchedToProvider": "Selected {{provider}} ({{model}})",
+    "switchedToLocal": "Selected Local Model",
     "visionFailed": "Vision projector failed to initialize. The model may not support vision, or the mmproj file is incompatible.",
     "settingsSaved": "Settings saved",
     "serverUnreachable": "Server is unreachable \u2014 please wait for reconnection",

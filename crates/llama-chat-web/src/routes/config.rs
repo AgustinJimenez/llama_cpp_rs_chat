@@ -83,7 +83,6 @@ pub async fn handle_post_config(
 fn extract_conversation_id_from_config_path(path: &str) -> Option<String> {
     let stripped = path.strip_prefix("/api/conversations/")?;
     let id = stripped.strip_suffix("/config")?;
-    let id = id.trim_end_matches(".txt");
     if id.is_empty() {
         return None;
     }
