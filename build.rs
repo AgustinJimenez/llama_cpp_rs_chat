@@ -79,7 +79,7 @@ fn write_nsis_installer_hooks() {
 
 !macro NSIS_HOOK_POSTINSTALL
   SetOutPath "$INSTDIR"
-{files}
+{file_lines}
   ; --- GPU info: notify user about optional CUDA acceleration ---
   IfFileExists "$SYSDIR\nvcuda.dll" 0 gpu_done
     ; NVIDIA GPU detected — show info about GPU acceleration
@@ -95,15 +95,13 @@ fn write_nsis_installer_hooks() {
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
-{deletes}  ; Clean up GPU acceleration DLLs if user installed them
+{delete_lines}  ; Clean up GPU acceleration DLLs if user installed them
   Delete "$INSTDIR\ggml-cuda.dll"
   Delete "$INSTDIR\cudart64_12.dll"
   Delete "$INSTDIR\cublas64_12.dll"
   Delete "$INSTDIR\cublasLt64_12.dll"
 !macroend
 "#,
-        files = file_lines,
-        deletes = delete_lines,
     );
 
     let _ = fs::write(hooks_dir.join("installer-hooks.nsh"), nsh);

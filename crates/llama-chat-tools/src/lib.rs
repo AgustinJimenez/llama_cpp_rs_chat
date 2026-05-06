@@ -702,16 +702,25 @@ pub fn dispatch_native_tool(
                     "Error: 'command' argument is required".to_string(),
                 ));
             }
+            // Apply RTK prefix for output compression if enabled in config
+            let use_rtk = db
+                .map(|d| d.load_config().use_rtk)
+                .unwrap_or(false);
+            let command = if use_rtk {
+                format!("rtk {}", command)
+            } else {
+                command.to_string()
+            };
             let is_background = args
                 .get("background")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
             if is_background {
-                llama_chat_command::background::execute_command_background(command, |_| {})
+                llama_chat_command::background::execute_command_background(&command, |_| {})
             } else {
                 let timeout = args.get("timeout").and_then(|v| v.as_u64());
                 llama_chat_command::execute_command_streaming_with_timeout(
-                    command,
+                    &command,
                     None,
                     timeout,
                     &mut |_| {},

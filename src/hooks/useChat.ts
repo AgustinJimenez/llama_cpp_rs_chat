@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import { toast } from 'react-hot-toast';
@@ -25,6 +26,7 @@ const AUTO_CONTINUE_REASONS = new Set([
   'infinite_loop',
 ]);
 
+// eslint-disable-next-line max-lines-per-function
 export function useChat() {
   const { connected } = useConnection();
   const connectedRef = useRef(connected);
@@ -50,8 +52,12 @@ export function useChat() {
   const transportRef = useRef(createChatTransport());
 
   // Sync refs
-  useEffect(() => { messagesRef.current = messages; }, [messages]);
-  useEffect(() => { currentConversationIdRef.current = currentConversationId; }, [currentConversationId]);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+  useEffect(() => {
+    currentConversationIdRef.current = currentConversationId;
+  }, [currentConversationId]);
 
   // ─── Unified generation stream ─────────────────────────────────────────
 
@@ -139,11 +145,14 @@ export function useChat() {
               promptTokens: msg.prompt_tokens as number,
             };
           }
+          if (msg.compacted) m.compacted = true;
           return m;
         });
         let systemPromptSeen = false;
         const filtered = mapped.filter((msg: Message) => {
           if (msg.role === 'system') {
+            // Always show compaction summaries
+            if (msg.content.startsWith('[Conversation summary')) return true;
             if (!systemPromptSeen) {
               systemPromptSeen = true;
               msg.isSystemPrompt = true;
@@ -194,7 +203,12 @@ export function useChat() {
           await queueMessage(currentConversationId, trimmed);
           setMessages((prev) => [
             ...prev,
-            { id: crypto.randomUUID(), role: 'user' as const, content: trimmed, timestamp: Date.now() },
+            {
+              id: crypto.randomUUID(),
+              role: 'user' as const,
+              content: trimmed,
+              timestamp: Date.now(),
+            },
           ]);
           toast.success('Message queued — will be injected on next iteration', { duration: 2000 });
         } catch {
@@ -260,7 +274,10 @@ export function useChat() {
   const editMessage = useCallback(
     async (messageIndex: number, newContent: string) => {
       if (!connectedRef.current) {
-        toast.error('Server is unreachable — please wait for reconnection', { duration: 3000, id: 'server-down' });
+        toast.error('Server is unreachable — please wait for reconnection', {
+          duration: 3000,
+          id: 'server-down',
+        });
         return;
       }
       if (isLoading) return;
@@ -292,14 +309,19 @@ export function useChat() {
   const regenerateFrom = useCallback(
     async (messageIndex: number) => {
       if (!connectedRef.current) {
-        toast.error('Server is unreachable — please wait for reconnection', { duration: 3000, id: 'server-down' });
+        toast.error('Server is unreachable — please wait for reconnection', {
+          duration: 3000,
+          id: 'server-down',
+        });
         return;
       }
       if (isLoading) return;
 
       const msgs = messagesRef.current;
       let userMsgIndex = messageIndex - 1;
-      while (userMsgIndex >= 0 && msgs[userMsgIndex]?.role !== 'user') { userMsgIndex--; }
+      while (userMsgIndex >= 0 && msgs[userMsgIndex]?.role !== 'user') {
+        userMsgIndex--;
+      }
       if (userMsgIndex < 0) return;
 
       const userContent = msgs[userMsgIndex].content;
@@ -354,7 +376,10 @@ export function useChat() {
   const continueFrom = useCallback(
     async (messageIndex: number) => {
       if (!connectedRef.current) {
-        toast.error('Server is unreachable — please wait for reconnection', { duration: 3000, id: 'server-down' });
+        toast.error('Server is unreachable — please wait for reconnection', {
+          duration: 3000,
+          id: 'server-down',
+        });
         return;
       }
       if (isLoading) return;
@@ -380,7 +405,8 @@ export function useChat() {
 
       await startGeneration(
         {
-          prompt: 'Continue from your last response exactly where you left off. Do not repeat previous text unless necessary.',
+          prompt:
+            'Continue from your last response exactly where you left off. Do not repeat previous text unless necessary.',
           conversationId: currentConversationId,
           autoContinue: true,
         },
@@ -419,10 +445,7 @@ export function useChat() {
 
         if (!status.generating || activeClean !== convIdClean) {
           const finishReason = status.last_finish_reason;
-          if (
-            AUTO_CONTINUE_REASONS.has(finishReason ?? '') &&
-            autoContinueCountRef.current < 3
-          ) {
+          if (AUTO_CONTINUE_REASONS.has(finishReason ?? '') && autoContinueCountRef.current < 3) {
             autoContinueCountRef.current += 1;
             console.warn(
               `[useChat] Auto-continue ${autoContinueCountRef.current}/3 (${finishReason}, detected on load)`,
@@ -463,8 +486,7 @@ export function useChat() {
               status_message?: string;
               last_finish_reason?: string;
             };
-            const stillActive =
-              s.generating && s.active_conversation_id === convIdClean;
+            const stillActive = s.generating && s.active_conversation_id === convIdClean;
             setStreamStatus(s.status_message || undefined);
 
             const data = await getConversation(currentConversationId);
@@ -475,6 +497,7 @@ export function useChat() {
                 role: String(msg.role) as Message['role'],
                 content: String(msg.content),
                 timestamp: Number(msg.timestamp),
+                ...(msg.compacted ? { compacted: true } : {}),
                 ...(msg.gen_tok_per_sec != null
                   ? {
                       timings: {
@@ -491,6 +514,8 @@ export function useChat() {
               let systemPromptSeen = false;
               const filtered = mapped.filter((msg: Message) => {
                 if (msg.role === 'system') {
+                  // Always show compaction summaries
+                  if (msg.content.startsWith('[Conversation summary')) return true;
                   if (!systemPromptSeen) {
                     systemPromptSeen = true;
                     return true;
@@ -521,7 +546,11 @@ export function useChat() {
                     ]);
                   });
                   startGeneration(
-                    { prompt: 'Continue', conversationId: currentConversationId, autoContinue: true },
+                    {
+                      prompt: 'Continue',
+                      conversationId: currentConversationId,
+                      autoContinue: true,
+                    },
                     aid,
                   ).catch(() => setIsLoading(false));
                 }, 1000);

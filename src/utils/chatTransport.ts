@@ -17,6 +17,7 @@ export interface TimingInfo {
   genTokens?: number;
   promptEvalMs?: number;
   promptTokens?: number;
+  cachedTokens?: number;
   finishReason?: string;
   tokenBreakdown?: TokenBreakdown;
   costUsd?: number;

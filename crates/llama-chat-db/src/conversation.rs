@@ -60,31 +60,6 @@ impl Database {
         Ok(id)
     }
 
-    /// Create a conversation with a specific ID (for migration).
-    /// Also snapshots the current global config into conversation_config.
-    pub fn create_conversation_with_id(
-        &self,
-        id: &str,
-        system_prompt: Option<&str>,
-        created_at: i64,
-    ) -> Result<(), String> {
-        {
-            let conn = self.connection();
-            conn.execute(
-                "INSERT INTO conversations (id, created_at, updated_at, system_prompt, title, provider_id, provider_session_id)
-                 VALUES (?1, ?2, ?3, ?4, NULL, NULL, NULL)",
-                params![id, created_at, created_at, system_prompt],
-            )
-            .map_err(db_error("create conversation"))?;
-        } // Release lock before loading config
-
-        // Snapshot current global config for this conversation
-        let global_config = self.load_config();
-        let _ = self.save_conversation_config(id, &global_config);
-
-        Ok(())
-    }
-
     /// Check if a conversation exists
     pub fn conversation_exists(&self, id: &str) -> Result<bool, String> {
         let conn = self.connection();
@@ -624,8 +599,7 @@ impl ConversationLogger {
 
     /// Load an existing conversation
     pub fn from_existing(db: Arc<Database>, conversation_id: &str) -> Result<Self, String> {
-        // Remove .txt extension if present (for backward compatibility)
-        let id = conversation_id.trim_end_matches(".txt");
+        let id = conversation_id;
 
         if !db.conversation_exists(id)? {
             return Err(format!("Conversation {id} not found"));
@@ -881,8 +855,7 @@ impl ConversationLogger {
 
     /// Get the conversation ID
     pub fn get_conversation_id(&self) -> String {
-        // Return with .txt extension for backward compatibility
-        format!("{}.txt", self.conversation_id)
+        self.conversation_id.clone()
     }
 
     /// Get full conversation content as text (backward compatibility)

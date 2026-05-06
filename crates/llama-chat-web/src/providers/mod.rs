@@ -90,6 +90,7 @@ pub struct CliTokenData {
     pub model_id: Option<String>,
     pub input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
+    pub cached_tokens: Option<u64>,
 }
 
 #[allow(dead_code)]

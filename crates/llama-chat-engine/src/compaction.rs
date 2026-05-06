@@ -94,9 +94,6 @@ pub fn maybe_compact_conversation(
     let available_context = (context_size as usize).saturating_sub(overhead);
     let threshold = (available_context as f64 * COMPACTION_THRESHOLD) as usize;
 
-    // Strip .txt suffix from conversation_id (logger adds it for backward compat)
-    let conversation_id = conversation_id.trim_end_matches(".txt");
-
     eprintln!("[COMPACTION] Check: ~{} tokens, threshold={} (ctx={}, overhead={}{}), conv={}",
         estimated_tokens, threshold, context_size, overhead,
         if overhead_tokens.is_some() { " real" } else { " est" }, conversation_id);
@@ -266,7 +263,10 @@ fn get_sequence_for_compaction(
         .filter(|m| !m.compacted && m.role != "system")
         .collect();
 
-    if old_count >= non_compacted_non_system.len() {
+    // Clamp old_count to available messages (after a previous compaction pass,
+    // some messages may already be marked compacted, reducing the count)
+    let old_count = old_count.min(non_compacted_non_system.len().saturating_sub(1));
+    if old_count == 0 {
         return None;
     }
 
@@ -405,9 +405,6 @@ pub fn maybe_compact_mid_task(
     context_size: u32,
     overhead_tokens: i32,
 ) -> Option<String> {
-    // Strip .txt suffix
-    let conversation_id = conversation_id.trim_end_matches(".txt");
-
     // Need at least N tool calls before considering mid-task compaction
     if tool_call_count < MIN_TOOL_CALLS_FOR_MID_TASK {
         return None;

@@ -17,15 +17,13 @@ import { toast } from 'react-hot-toast';
 
 import type { Message } from '../types';
 import type { ChatTransport, TimingInfo } from '../utils/chatTransport';
-import {
-  createGenerationStream,
-  type GenerationRequest,
-} from '../utils/generationStream';
+import { createGenerationStream, type GenerationRequest } from '../utils/generationStream';
 import { notifyIfUnfocused } from '../utils/tauri';
 import { getConversation } from '../utils/tauriCommands';
 import { logToastError } from '../utils/toastLogger';
 
 const TITLE_REFRESH_DELAY_MS = 4000;
+const TITLE_REFRESH_RETRY_MS = 10000;
 const CONTINUE_TASK_PREVIEW_LENGTH = 200;
 const CONTINUE_DELAY_MS = 150;
 const MAX_AUTO_CONTINUES = 3;
@@ -84,6 +82,7 @@ export interface UseGenerationStreamDeps {
   transportRef: React.MutableRefObject<ChatTransport>;
 }
 
+// eslint-disable-next-line max-lines-per-function
 export function useGenerationStream(deps: UseGenerationStreamDeps) {
   const {
     setMessages,
@@ -110,31 +109,35 @@ export function useGenerationStream(deps: UseGenerationStreamDeps) {
   const lastTimingsRef = useRef<Partial<TimingInfo>>({});
 
   // Fetch system prompt from backend and prepend to messages
-  const fetchSystemPrompt = useCallback((conversationId: string) => {
-    getConversation(conversationId)
-      .then((data) => {
-        const firstMsg = data.messages?.[0];
-        if (firstMsg?.role === 'system' && firstMsg.content) {
-          setMessages((prev) => {
-            if (prev.some((m) => m.role === 'system')) return prev;
-            return [
-              {
-                id: `sys_${conversationId}`,
-                role: 'system' as const,
-                content: firstMsg.content,
-                timestamp: Date.now(),
-                isSystemPrompt: true,
-              },
-              ...prev,
-            ];
-          });
-        }
-      })
-      .catch(() => {});
-  }, [setMessages]);
+  const fetchSystemPrompt = useCallback(
+    (conversationId: string) => {
+      getConversation(conversationId)
+        .then((data) => {
+          const firstMsg = data.messages?.[0];
+          if (firstMsg?.role === 'system' && firstMsg.content) {
+            setMessages((prev) => {
+              if (prev.some((m) => m.role === 'system')) return prev;
+              return [
+                {
+                  id: `sys_${conversationId}`,
+                  role: 'system' as const,
+                  content: firstMsg.content,
+                  timestamp: Date.now(),
+                  isSystemPrompt: true,
+                },
+                ...prev,
+              ];
+            });
+          }
+        })
+        .catch(() => {});
+    },
+    [setMessages],
+  );
 
   // Core: start a generation stream (works for both local and remote)
   const startGeneration = useCallback(
+    // eslint-disable-next-line max-lines-per-function
     async (request: GenerationRequest, assistantMessageId: string) => {
       const streamSeq = (streamSeqRef.current += 1);
       isStreamingRef.current = true;
@@ -189,7 +192,9 @@ export function useGenerationStream(deps: UseGenerationStreamDeps) {
                   getConversation(convId)
                     .then((data) => {
                       if (data.messages) {
-                        const mapped: Message[] = (data.messages as Array<Record<string, unknown>>).map((msg) => ({
+                        const mapped: Message[] = (
+                          data.messages as Array<Record<string, unknown>>
+                        ).map((msg) => ({
                           id: String(msg.id),
                           role: String(msg.role) as Message['role'],
                           content: String(msg.content),
@@ -198,7 +203,10 @@ export function useGenerationStream(deps: UseGenerationStreamDeps) {
                         let systemSeen = false;
                         const filtered = mapped.filter((m) => {
                           if (m.role === 'system') {
-                            if (!systemSeen) { systemSeen = true; return true; }
+                            if (!systemSeen) {
+                              systemSeen = true;
+                              return true;
+                            }
                             return false;
                           }
                           return !m.content.startsWith('[TOOL_RESULTS]');
@@ -231,10 +239,13 @@ export function useGenerationStream(deps: UseGenerationStreamDeps) {
                 fetchSystemPrompt(conversationId);
               }
 
-              // Refresh sidebar title
+              // Refresh sidebar title (retry in case title generation takes longer)
               setTimeout(() => {
                 window.dispatchEvent(new CustomEvent('conversation-title-updated'));
               }, TITLE_REFRESH_DELAY_MS);
+              setTimeout(() => {
+                window.dispatchEvent(new CustomEvent('conversation-title-updated'));
+              }, TITLE_REFRESH_RETRY_MS);
 
               if (tokensUsed !== undefined) setTokensUsed(tokensUsed);
               if (maxTokens !== undefined) setMaxTokens(maxTokens);
@@ -298,9 +309,13 @@ export function useGenerationStream(deps: UseGenerationStreamDeps) {
                     assistantMessageId,
                   ).catch((err) => {
                     isStreamingRef.current = false;
-                    const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
+                    const errorMessage =
+                      err instanceof Error ? err.message : 'An unknown error occurred';
                     if (!isAbortError(errorMessage)) {
-                      toast.error(friendlyError(errorMessage), { duration: TOAST_DURATION_MS });
+                      toast.error(friendlyError(errorMessage), {
+                        id: 'stream-error',
+                        duration: TOAST_DURATION_MS,
+                      });
                       logToastError('useChat.autoContinue', errorMessage, err);
                     }
                     setIsLoading(false);
@@ -332,7 +347,7 @@ export function useGenerationStream(deps: UseGenerationStreamDeps) {
 
               if (!isAbortError(errorMsg)) {
                 const display = friendlyError(errorMsg);
-                toast.error(display, { duration: TOAST_DURATION_MS });
+                toast.error(display, { id: 'stream-error', duration: TOAST_DURATION_MS });
                 logToastError('useChat.streamMessage', `Chat error: ${errorMsg}`);
               }
 
@@ -340,7 +355,12 @@ export function useGenerationStream(deps: UseGenerationStreamDeps) {
               if (isAbortError(errorMsg)) {
                 setMessages((prev) =>
                   prev.filter(
-                    (m) => !(m.id === assistantMessageId && m.role === 'assistant' && m.content.length === 0),
+                    (m) =>
+                      !(
+                        m.id === assistantMessageId &&
+                        m.role === 'assistant' &&
+                        m.content.length === 0
+                      ),
                   ),
                 );
               }
@@ -354,7 +374,10 @@ export function useGenerationStream(deps: UseGenerationStreamDeps) {
         const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
         if (!isAbortError(errorMessage)) {
           setError(errorMessage);
-          toast.error(friendlyError(errorMessage), { duration: TOAST_DURATION_MS });
+          toast.error(friendlyError(errorMessage), {
+            id: 'stream-error',
+            duration: TOAST_DURATION_MS,
+          });
           logToastError('useChat.startGeneration', errorMessage, err);
         }
         setIsLoading(false);
@@ -362,16 +385,29 @@ export function useGenerationStream(deps: UseGenerationStreamDeps) {
         if (isAbortError(errorMessage)) {
           setMessages((prev) =>
             prev.filter(
-              (m) => !(m.id === assistantMessageId && m.role === 'assistant' && m.content.length === 0),
+              (m) =>
+                !(m.id === assistantMessageId && m.role === 'assistant' && m.content.length === 0),
             ),
           );
         }
       }
     },
     [
-      setMessages, setIsLoading, setError, setLastTimings, setTokensUsed, setMaxTokens,
-      setStreamStatus, setCurrentConversationId, currentConversationIdRef, messagesRef,
-      providerRef, providerParamsRef, providerSessionRef, transportRef, fetchSystemPrompt,
+      setMessages,
+      setIsLoading,
+      setError,
+      setLastTimings,
+      setTokensUsed,
+      setMaxTokens,
+      setStreamStatus,
+      setCurrentConversationId,
+      currentConversationIdRef,
+      messagesRef,
+      providerRef,
+      providerParamsRef,
+      providerSessionRef,
+      transportRef,
+      fetchSystemPrompt,
     ],
   );
 

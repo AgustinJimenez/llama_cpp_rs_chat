@@ -70,7 +70,7 @@ pub async fn generate(
                 duration_ms: None,
                 model_id: None,
                 input_tokens: None,
-                output_tokens: None,
+                output_tokens: None, cached_tokens: None,
             });
         }
         let _ = tx.send(CliTokenData {
@@ -82,7 +82,7 @@ pub async fn generate(
             duration_ms: None,
             model_id: None,
             input_tokens: None,
-            output_tokens: None,
+            output_tokens: None, cached_tokens: None,
         });
         let _ = child.wait().await;
     });

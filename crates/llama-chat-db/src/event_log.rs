@@ -88,7 +88,7 @@ fn now_ms() -> i64 {
 /// Log an event. This is lock-free on the DB path (channel send).
 /// Only takes a brief mutex for the in-memory store.
 pub fn log_event(conversation_id: &str, event_type: &str, message: &str) {
-    let conv_id = conversation_id.trim_end_matches(".txt").to_string();
+    let conv_id = conversation_id.to_string();
     let event = ConversationEvent {
         timestamp: now_ms(),
         event_type: event_type.to_string(),
@@ -134,7 +134,7 @@ pub fn get_global_status() -> Option<String> {
 }
 
 pub fn get_events(conversation_id: &str) -> Vec<ConversationEvent> {
-    let conv_id = conversation_id.trim_end_matches(".txt");
+    let conv_id = conversation_id;
 
     // Try in-memory first (current session)
     let mem_events = store()

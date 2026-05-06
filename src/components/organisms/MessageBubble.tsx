@@ -44,7 +44,6 @@ const CompactionSummary: React.FC<{ message: Message; cleanContent: string }> = 
   const [expanded, setExpanded] = useState(false);
   // Extract the summary text (after the header line)
   const lines = cleanContent.split('\n');
-  const header = lines[0] || 'Conversation summarized';
   const summaryBody = lines.slice(1).join('\n').trim();
 
   return (
@@ -59,7 +58,7 @@ const CompactionSummary: React.FC<{ message: Message; cleanContent: string }> = 
           className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-white/40 hover:text-white/60 transition-colors border-t border-b border-white/10 hover:border-white/20"
         >
           <Archive className="h-3 w-3 shrink-0" />
-          <span className="truncate">{header}</span>
+          <span className="truncate">Earlier messages summarized</span>
           {expanded ? (
             <ChevronDown className="h-3 w-3 shrink-0 ml-auto" />
           ) : (

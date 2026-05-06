@@ -172,7 +172,13 @@ function handleWsUpdate(
     );
   } else {
     const parsedMessages = parseConversationFile(content);
-    setMessages(parsedMessages);
+    // Only overwrite if parsed messages have more content than existing ones.
+    // loadConversation provides structured messages with metadata (compacted, timings)
+    // that the raw text parser can't preserve, so prefer existing when counts match.
+    setMessages((prev) => {
+      if (prev.length > 0 && parsedMessages.length <= prev.length) return prev;
+      return parsedMessages;
+    });
     console.warn(
       '[ConversationWatcher] Updated messages from parsed content, count:',
       parsedMessages.length,

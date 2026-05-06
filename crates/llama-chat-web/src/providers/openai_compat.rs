@@ -639,7 +639,7 @@ fn get_agentic_tools() -> Vec<Value> {
 // ── Local tool execution ───────────────────────────────────────────────────
 
 /// Execute a tool call using the full native tool dispatch system.
-fn execute_openai_tool(name: &str, arguments_json: &str) -> String {
+fn execute_openai_tool(name: &str, arguments_json: &str, db: Option<&llama_chat_db::SharedDatabase>) -> String {
     // Build the JSON format that dispatch_native_tool expects
     let args: Value = match serde_json::from_str(arguments_json) {
         Ok(v) => v,
@@ -657,10 +657,10 @@ fn execute_openai_tool(name: &str, arguments_json: &str) -> String {
         }
         let nav_json = json!({"name": "browser_navigate", "arguments": {"url": url}}).to_string();
         let ctx = crate::native_tools_bridge::make_dispatch_context();
-        let _ = llama_chat_tools::dispatch_native_tool(&nav_json, true, None, None, &ctx);
+        let _ = llama_chat_tools::dispatch_native_tool(&nav_json, true, None, db, &ctx);
         std::thread::sleep(std::time::Duration::from_millis(2000));
         let read_json = json!({"name": "browser_get_text", "arguments": {}}).to_string();
-        return match llama_chat_tools::dispatch_native_tool(&read_json, true, None, None, &ctx) {
+        return match llama_chat_tools::dispatch_native_tool(&read_json, true, None, db, &ctx) {
             Some(r) => r.text,
             None => "Failed to read page content".to_string(),
         };
@@ -683,7 +683,7 @@ fn execute_openai_tool(name: &str, arguments_json: &str) -> String {
         &tool_json,
         true,
         None, // mcp_manager
-        None, // db
+        db,
         &ctx,
     ) {
         Some(result) => result.text,
@@ -929,7 +929,7 @@ fn stream_sse_response(
                             duration_ms: None,
                             model_id: actual_model.clone(),
                             input_tokens: None,
-                            output_tokens: None,
+                            output_tokens: None, cached_tokens: None,
                         });
                     }
                 }
@@ -1121,7 +1121,7 @@ pub async fn generate(
                     let _ = tx.send(CliTokenData {
                         token: format!("\n\n**[User message injected]**: {msg}\n\n"),
                         is_done: false, session_id: None, stop_reason: None, cost_usd: None,
-                        duration_ms: None, model_id: actual_model.clone(), input_tokens: None, output_tokens: None,
+                        duration_ms: None, model_id: actual_model.clone(), input_tokens: None, output_tokens: None, cached_tokens: None,
                     });
                 }
             }
@@ -1201,7 +1201,7 @@ pub async fn generate(
                                     is_done: false, session_id: None, stop_reason: None,
                                     cost_usd: None, duration_ms: None,
                                     model_id: Some(model_name_clone.clone()),
-                                    input_tokens: None, output_tokens: None,
+                                    input_tokens: None, output_tokens: None, cached_tokens: None,
                                 });
                                 final_stop_reason = "error".to_string();
                             }
@@ -1229,7 +1229,7 @@ pub async fn generate(
                         duration_ms: None,
                         model_id: Some(model_name_clone.clone()),
                         input_tokens: None,
-                        output_tokens: None,
+                        output_tokens: None, cached_tokens: None,
                     });
                     final_stop_reason = "error".to_string();
                     break;
@@ -1259,7 +1259,7 @@ pub async fn generate(
                     let _ = tx.send(CliTokenData {
                         token: "\n\n**[Provider ran out of resources. Try again later or use a smaller model.]**".to_string(),
                         is_done: false, session_id: None, stop_reason: None, cost_usd: None,
-                        duration_ms: None, model_id: actual_model.clone(), input_tokens: None, output_tokens: None,
+                        duration_ms: None, model_id: actual_model.clone(), input_tokens: None, output_tokens: None, cached_tokens: None,
                     });
                     break;
                 }
@@ -1267,7 +1267,7 @@ pub async fn generate(
                     let _ = tx.send(CliTokenData {
                         token: "\n\n**[Response filtered by provider's content policy.]**".to_string(),
                         is_done: false, session_id: None, stop_reason: None, cost_usd: None,
-                        duration_ms: None, model_id: actual_model.clone(), input_tokens: None, output_tokens: None,
+                        duration_ms: None, model_id: actual_model.clone(), input_tokens: None, output_tokens: None, cached_tokens: None,
                     });
                     break;
                 }
@@ -1284,6 +1284,7 @@ pub async fn generate(
                 model_id: actual_model.clone(),
                 input_tokens: Some(total_input_tokens),
                 output_tokens: Some(total_output_tokens),
+                cached_tokens: if total_cached_tokens > 0 { Some(total_cached_tokens) } else { None },
             });
 
             // If no tool calls, we're done — save final assistant response and exit
@@ -1328,7 +1329,7 @@ pub async fn generate(
                     let _ = tx.send(CliTokenData {
                         token: format!("\n\n*Loop detected: tool called {} times in a row. Send a message to continue with a different approach.*", same_tool_count),
                         is_done: false, session_id: None, stop_reason: None, cost_usd: None,
-                        duration_ms: None, model_id: actual_model.clone(), input_tokens: None, output_tokens: None,
+                        duration_ms: None, model_id: actual_model.clone(), input_tokens: None, output_tokens: None, cached_tokens: None,
                     });
                     final_stop_reason = "infinite_loop".to_string();
                     break;
@@ -1393,14 +1394,14 @@ pub async fn generate(
                     let _ = tx.send(CliTokenData {
                         token: format!("\n<tool_call>{{\"name\": \"{}\", \"arguments\": {}}}</tool_call>\n", tc.name, args_display),
                         is_done: false, session_id: None, stop_reason: None, cost_usd: None,
-                        duration_ms: None, model_id: actual_model.clone(), input_tokens: None, output_tokens: None,
+                        duration_ms: None, model_id: actual_model.clone(), input_tokens: None, output_tokens: None, cached_tokens: None,
                     });
                     eprintln!(
                         "[OPENAI_COMPAT] Executing tool: {} args={}",
                         tc.name,
                         &tc.arguments.chars().take(200).collect::<String>()
                     );
-                    let result_text = execute_openai_tool(&tc.name, &tc.arguments);
+                    let result_text = execute_openai_tool(&tc.name, &tc.arguments, db_owned.as_ref());
                     // Smart truncation: keep head + tail for large outputs, 50KB safety net
                     let safe = if result_text.len() > 50_000 {
                         format!("{}\n\n[... truncated at 50KB, total {} bytes]", &result_text[..50_000], result_text.len())
@@ -1416,14 +1417,14 @@ pub async fn generate(
                     let _ = tx.send(CliTokenData {
                         token: format!("\n<tool_call>{{\"name\": \"{}\", \"arguments\": {}}}</tool_call>\n", tc.name, args_display),
                         is_done: false, session_id: None, stop_reason: None, cost_usd: None,
-                        duration_ms: None, model_id: actual_model.clone(), input_tokens: None, output_tokens: None,
+                        duration_ms: None, model_id: actual_model.clone(), input_tokens: None, output_tokens: None, cached_tokens: None,
                     });
                     eprintln!(
                         "[OPENAI_COMPAT] Executing tool: {} args={}",
                         tc.name,
                         &tc.arguments.chars().take(200).collect::<String>()
                     );
-                    let result_text = execute_openai_tool(&tc.name, &tc.arguments);
+                    let result_text = execute_openai_tool(&tc.name, &tc.arguments, db_owned.as_ref());
                     // Smart truncation: keep head + tail for large outputs, 50KB safety net
                     let safe = if result_text.len() > 50_000 {
                         format!("{}\n\n[... truncated at 50KB, total {} bytes]", &result_text[..50_000], result_text.len())
@@ -1444,7 +1445,7 @@ pub async fn generate(
                 let _ = tx.send(CliTokenData {
                     token: response_display,
                     is_done: false, session_id: None, stop_reason: None, cost_usd: None,
-                    duration_ms: None, model_id: actual_model.clone(), input_tokens: None, output_tokens: None,
+                    duration_ms: None, model_id: actual_model.clone(), input_tokens: None, output_tokens: None, cached_tokens: None,
                 });
                 messages.push(json!({
                     "role": "tool",
@@ -1475,7 +1476,7 @@ pub async fn generate(
             let _ = tx.send(CliTokenData {
                 token: "\n\n*Tool call safe limit reached. Send another message to continue.*".to_string(),
                 is_done: false, session_id: None, stop_reason: None, cost_usd: None,
-                duration_ms: None, model_id: actual_model.clone(), input_tokens: None, output_tokens: None,
+                duration_ms: None, model_id: actual_model.clone(), input_tokens: None, output_tokens: None, cached_tokens: None,
             });
         }
 
@@ -1500,6 +1501,32 @@ pub async fn generate(
                     total_input_tokens.saturating_sub(total_cached_tokens), total_reasoning_tokens));
         }
 
+        // Save timings on the last assistant message so stats persist after refresh
+        if let (Some(conv_id), Some(ref db)) = (&conv_id_owned, &db_owned) {
+            let conn = db.connection();
+            let last_asst_id: Option<String> = conn.query_row(
+                "SELECT id FROM messages WHERE conversation_id = ?1 AND role = 'assistant' ORDER BY sequence_order DESC LIMIT 1",
+                [conv_id],
+                |row| row.get(0),
+            ).ok();
+            if let Some(msg_id) = last_asst_id {
+                let gen_tok_per_sec = if duration_ms > 0 {
+                    Some(total_output_tokens as f64 / (duration_ms as f64 / 1000.0))
+                } else {
+                    None
+                };
+                let _ = db.update_message_timings(
+                    &msg_id,
+                    None,
+                    gen_tok_per_sec,
+                    Some(duration_ms as f64),
+                    Some(total_output_tokens as i32),
+                    None,
+                    Some(total_input_tokens as i32),
+                );
+            }
+        }
+
         // Send done event
         let _ = tx.send(CliTokenData {
             token: String::new(),
@@ -1519,6 +1546,7 @@ pub async fn generate(
             } else {
                 None
             },
+            cached_tokens: if total_cached_tokens > 0 { Some(total_cached_tokens) } else { None },
         });
 
         // Clear remote generation tracker
@@ -1621,7 +1649,7 @@ mod tests {
         std::fs::write(&path, "hello from test").unwrap();
 
         let args = json!({"path": path.to_string_lossy()}).to_string();
-        let result = execute_openai_tool("read_file", &args);
+        let result = execute_openai_tool("read_file", &args, None);
         assert!(result.contains("hello from test"));
 
         std::fs::remove_file(&path).ok();
@@ -1633,7 +1661,7 @@ mod tests {
         let path = dir.join("openai_compat_test_write.txt");
 
         let args = json!({"path": path.to_string_lossy(), "content": "written by test"}).to_string();
-        let result = execute_openai_tool("write_file", &args);
+        let result = execute_openai_tool("write_file", &args, None);
         assert!(result.contains("Successfully wrote"));
 
         let content = std::fs::read_to_string(&path).unwrap();
@@ -1651,7 +1679,7 @@ mod tests {
         let args =
             json!({"path": path.to_string_lossy(), "old_string": "bar", "new_string": "qux"})
                 .to_string();
-        let result = execute_openai_tool("edit_file", &args);
+        let result = execute_openai_tool("edit_file", &args, None);
         assert!(result.contains("Successfully edited"));
 
         let content = std::fs::read_to_string(&path).unwrap();
@@ -1663,14 +1691,14 @@ mod tests {
     #[test]
     fn test_execute_openai_tool_list_directory() {
         let args = json!({"path": "."}).to_string();
-        let result = execute_openai_tool("list_directory", &args);
+        let result = execute_openai_tool("list_directory", &args, None);
         // Should return something (at least Cargo.toml or src/)
         assert!(!result.is_empty());
     }
 
     #[test]
     fn test_execute_openai_tool_unknown() {
-        let result = execute_openai_tool("nonexistent_tool", "{}");
+        let result = execute_openai_tool("nonexistent_tool", "{}", None);
         assert!(result.contains("Unknown tool"));
     }
 

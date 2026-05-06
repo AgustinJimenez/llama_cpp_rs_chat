@@ -306,7 +306,7 @@ async fn generate_stream(
                 let conv_id_for_title = conversation_id.clone();
                 tokio::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                    let conv_clean = conv_id_for_title.trim_end_matches(".txt");
+                    let conv_clean = conv_id_for_title.as_str();
                     let messages = match db_bg.get_messages(conv_clean) {
                         Ok(m) => m,
                         Err(_) => return,
@@ -892,8 +892,7 @@ async fn queue_message(
     conversation_id: String,
     content: String,
 ) -> Result<serde_json::Value, String> {
-    let id = conversation_id.trim_end_matches(".txt");
-    db.queue_message(id, &content)?;
+    db.queue_message(&conversation_id, &content)?;
     Ok(serde_json::json!({"success": true}))
 }
 
@@ -1009,20 +1008,6 @@ fn main() {
             // Initialize background process tracking for remote provider tool calls
             let bg_session_id = format!("tauri_{}", std::process::id());
             llama_chat_command::background::init_background_tracking(db.clone(), bg_session_id);
-
-            // Run migrations
-            match web::database::migration::migrate_existing_conversations(&db) {
-                Ok(count) if count > 0 => {
-                    eprintln!("[TAURI] Migrated {count} existing conversations to SQLite");
-                }
-                Ok(_) => {}
-                Err(e) => eprintln!("[TAURI] Warning: Conversation migration failed: {e}"),
-            }
-            match web::database::migration::migrate_config(&db) {
-                Ok(true) => eprintln!("[TAURI] Migrated config.json to SQLite"),
-                Ok(false) => {}
-                Err(e) => eprintln!("[TAURI] Warning: Config migration failed: {e}"),
-            }
 
             // Spawn worker process
             let pm = Arc::new(

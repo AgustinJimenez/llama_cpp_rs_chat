@@ -207,7 +207,7 @@ pub async fn generate(
                                     stop_reason: None,
                                     cost_usd: None,
                                     duration_ms: None,
-                                    model_id: actual_model_id.clone(), input_tokens: None, output_tokens: None,
+                                    model_id: actual_model_id.clone(), input_tokens: None, output_tokens: None, cached_tokens: None,
                                 });
                             }
                             ContentBlock::ToolUse { name, input, .. } => {
@@ -224,7 +224,7 @@ pub async fn generate(
                                     stop_reason: None,
                                     cost_usd: None,
                                     duration_ms: None,
-                                    model_id: actual_model_id.clone(), input_tokens: None, output_tokens: None,
+                                    model_id: actual_model_id.clone(), input_tokens: None, output_tokens: None, cached_tokens: None,
                                 });
                             }
                             _ => {}
@@ -258,7 +258,7 @@ pub async fn generate(
                                     stop_reason: None,
                                     cost_usd: None,
                                     duration_ms: None,
-                                    model_id: actual_model_id.clone(), input_tokens: None, output_tokens: None,
+                                    model_id: actual_model_id.clone(), input_tokens: None, output_tokens: None, cached_tokens: None,
                                 });
                             }
                         }
@@ -280,7 +280,7 @@ pub async fn generate(
                         duration_ms,
                         model_id: actual_model_id.clone(),
                         input_tokens: Some(input_tokens),
-                        output_tokens: Some(output_tokens),
+                        output_tokens: Some(output_tokens), cached_tokens: None,
                     });
                 }
                 Ok(ClaudeEvent::RateLimit { rate_limit_info }) => {
@@ -304,7 +304,7 @@ pub async fn generate(
             stop_reason: Some("cli_exit".to_string()),
             cost_usd: None,
             duration_ms: None,
-            model_id: actual_model_id, input_tokens: None, output_tokens: None,
+            model_id: actual_model_id, input_tokens: None, output_tokens: None, cached_tokens: None,
         });
 
         let _ = child.wait().await;

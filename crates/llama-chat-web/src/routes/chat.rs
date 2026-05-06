@@ -89,6 +89,7 @@ pub async fn handle_post_chat(
                     gen_tokens: None,
                     prompt_eval_ms: None,
                     prompt_tokens: None,
+                    compacted: false,
                 },
                 conversation_id: chat_request
                     .conversation_id
@@ -186,6 +187,7 @@ pub async fn handle_post_chat(
                 gen_tokens: None,
                 prompt_eval_ms: None,
                 prompt_tokens: None,
+                compacted: false,
             },
             conversation_id,
             tokens_used: None, // Will be updated via WebSocket
@@ -209,6 +211,7 @@ pub async fn handle_post_chat(
                 gen_tokens: None,
                 prompt_eval_ms: None,
                 prompt_tokens: None,
+                compacted: false,
             },
             conversation_id: "test-conversation".to_string(),
             tokens_used: None,

@@ -26,9 +26,9 @@ pub(crate) fn parse_kv_cache_type(s: &str) -> KvCacheType {
         "q5_0" => KvCacheType::Q5_0,
         "q5_1" => KvCacheType::Q5_1,
         // TurboQuant KV cache types (distinct from TQ weight types)
-        "turbo2" | "turbo2_0" => KvCacheType::Unknown(43), // GGML_TYPE_TURBO2_0 = 43 (2-bit KV)
-        "turbo3" | "turbo3_0" => KvCacheType::Unknown(41), // GGML_TYPE_TURBO3_0 = 41 (3-bit KV)
-        "turbo4" | "turbo4_0" => KvCacheType::Unknown(42), // GGML_TYPE_TURBO4_0 = 42 (4-bit KV)
+        "turbo2" | "turbo2_0" => KvCacheType::Unknown(44), // GGML_TYPE_TURBO2_0 = 44 (2-bit KV)
+        "turbo3" | "turbo3_0" => KvCacheType::Unknown(42), // GGML_TYPE_TURBO3_0 = 42 (3-bit KV)
+        "turbo4" | "turbo4_0" => KvCacheType::Unknown(43), // GGML_TYPE_TURBO4_0 = 43 (4-bit KV)
         _ => KvCacheType::F16, // default
     }
 }

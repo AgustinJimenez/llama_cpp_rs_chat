@@ -85,7 +85,7 @@ export const ModelProvider = ({ children }: { children: ReactNode }) => {
     async (modelPath: string, config?: SamplerConfig) => {
       const result = await loadModelRaw(modelPath, config);
       if (result.success) {
-        toast.success(t('toast.modelLoaded'));
+        // Toast removed — UI already shows model loaded in header
         if (result.visionFailed) {
           setTimeout(() => {
             toast(t('toast.visionFailed'), { icon: '\u26A0\uFE0F', duration: 6000 });

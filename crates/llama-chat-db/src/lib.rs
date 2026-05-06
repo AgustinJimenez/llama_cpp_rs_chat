@@ -13,7 +13,6 @@ pub mod hub_downloads;
 pub mod app_errors;
 #[allow(dead_code)]
 pub mod mcp;
-pub mod migration;
 pub mod schema;
 pub mod event_log;
 

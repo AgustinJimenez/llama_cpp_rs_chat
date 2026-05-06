@@ -14,16 +14,15 @@ pub async fn get_conversations(
     let mut seen_ids = std::collections::HashSet::new();
     let mut conversations = Vec::new();
     for r in records {
-        let clean_id = r.id.trim_end_matches(".txt").to_string();
-        if !seen_ids.insert(clean_id.clone()) {
+        if !seen_ids.insert(r.id.clone()) {
             continue;
         }
-        let timestamp_part = clean_id.strip_prefix("chat_").unwrap_or(&clean_id).to_string();
-        let title_opt = db.get_conversation_title(&clean_id).ok().flatten();
+        let timestamp_part = r.id.strip_prefix("chat_").unwrap_or(&r.id).to_string();
+        let title_opt = db.get_conversation_title(&r.id).ok().flatten();
         let display_name = title_opt.clone()
             .unwrap_or_else(|| format!("Chat {timestamp_part}"));
         conversations.push(ConversationFile {
-            name: format!("{clean_id}.txt"),
+            name: r.id.clone(),
             display_name,
             timestamp: timestamp_part,
             title: title_opt,
@@ -38,14 +37,8 @@ pub async fn get_conversation(
     filename: String,
     db: tauri::State<'_, SharedDatabase>,
 ) -> Result<ConversationContentResponse, String> {
-    // Try both with and without .txt suffix — remote provider conversations
-    // may store the ID with .txt, local ones without.
-    let trimmed = filename.trim_end_matches(".txt");
-    let mut db_messages = db.get_messages(trimmed).unwrap_or_default();
-    if db_messages.is_empty() {
-        db_messages = db.get_messages(&filename).unwrap_or_default();
-    }
-    let conversation_id = trimmed;
+    let conversation_id = &filename;
+    let db_messages = db.get_messages(conversation_id).unwrap_or_default();
     // Rebuild messages: merge consecutive assistant tool_call + tool results
     // into a single message with <tool_call>/<tool_response> tags for widget rendering
     let mut messages: Vec<crate::web::models::ChatMessage> = Vec::new();
@@ -149,8 +142,7 @@ pub async fn delete_conversation(
     if !filename.starts_with("chat_") {
         return Err("Invalid conversation file".into());
     }
-    let conversation_id = filename.trim_end_matches(".txt");
-    db.delete_conversation(conversation_id)?;
+    db.delete_conversation(&filename)?;
     Ok(serde_json::json!({"success": true}))
 }
 
@@ -160,8 +152,7 @@ pub async fn truncate_conversation(
     from_sequence: i32,
     db: tauri::State<'_, SharedDatabase>,
 ) -> Result<serde_json::Value, String> {
-    let id = conversation_id.trim_end_matches(".txt");
-    let deleted = db.truncate_messages(id, from_sequence)?;
+    let deleted = db.truncate_messages(&conversation_id, from_sequence)?;
     Ok(serde_json::json!({"success": true, "deleted": deleted}))
 }
 
@@ -170,8 +161,7 @@ pub async fn get_conversation_metrics(
     conversation_id: String,
     db: tauri::State<'_, SharedDatabase>,
 ) -> Result<serde_json::Value, String> {
-    let conv_id = conversation_id.trim_end_matches(".txt");
-    let logs = db.get_logs_for_conversation(conv_id)?;
+    let logs = db.get_logs_for_conversation(&conversation_id)?;
     let metrics: Vec<_> = logs.into_iter().filter(|l| l.level == "metrics").collect();
     Ok(serde_json::to_value(&metrics).unwrap_or_default())
 }

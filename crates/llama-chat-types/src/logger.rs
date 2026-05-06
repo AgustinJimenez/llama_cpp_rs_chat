@@ -32,7 +32,7 @@ impl Logger {
             std::fs::create_dir_all(&log_dir)?;
 
             // Create log file path based on conversation ID
-            let log_path = format!("{}/{}.log", log_dir, conversation_id.replace(".txt", ""));
+            let log_path = format!("{}/{}.log", log_dir, conversation_id);
 
             let file = OpenOptions::new()
                 .create(true)

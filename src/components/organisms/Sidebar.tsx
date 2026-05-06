@@ -34,6 +34,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
   const {
     loadConversation: onLoadConversation,
     currentConversationId,
+    messages,
     streamStatus,
   } = useChatContext();
   const { status: modelStatus } = useModelContext();
@@ -336,7 +337,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
           })()}
         </div>
 
-        <BackgroundProcesses />
+        {messages.length === 0 ? <BackgroundProcesses /> : null}
 
         {selectMode ? (
           <SelectBar

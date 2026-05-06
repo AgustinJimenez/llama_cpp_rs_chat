@@ -150,8 +150,7 @@ pub async fn generate_llama_response(
 
     // Auto-compact conversation if it's approaching context window limit
     // Use real overhead from conversation_context if available (from previous generation)
-    let conv_id_for_overhead = conversation_id.trim_end_matches(".txt");
-    let cached_overhead = db.get_context_overhead_tokens(conv_id_for_overhead);
+    let cached_overhead = db.get_context_overhead_tokens(&conversation_id);
 
     // Drop inference cache before each generation to create a fresh context.
     // This avoids a CUDA deadlock in sample() that occurs when tool response
@@ -247,9 +246,8 @@ pub async fn generate_llama_response(
         &get_available_tools_openai_with_mcp(mcp_tools_ref)
     ).unwrap_or_default();
 
-    let conv_id_clean = conversation_id.trim_end_matches(".txt");
     let (system_prompt_token_count, tool_def_token_count) = snapshot_context_overhead(
-        &db, conv_id_clean, model, &system_prompt_text, &tools_json, &conversation_id,
+        &db, &conversation_id, model, &system_prompt_text, &tools_json, &conversation_id,
     );
     log_info!(
         &conversation_id,

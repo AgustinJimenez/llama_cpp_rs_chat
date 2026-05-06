@@ -537,26 +537,7 @@ async fn server_main() -> std::io::Result<()> {
     let bg_session_id = format!("web_{}", std::process::id());
     llama_chat_command::background::init_background_tracking(db.clone(), bg_session_id);
 
-    // Run migrations for existing file-based data
-    match web::database::migration::migrate_existing_conversations(&db) {
-        Ok(count) if count > 0 => {
-            println!("📂 Migrated {count} existing conversations to SQLite");
-        }
-        Ok(_) => {}
-        Err(e) => {
-            eprintln!("⚠️  Warning: Conversation migration failed: {e}");
-        }
-    }
 
-    match web::database::migration::migrate_config(&db) {
-        Ok(true) => {
-            println!("⚙️  Migrated config.json to SQLite");
-        }
-        Ok(false) => {}
-        Err(e) => {
-            eprintln!("⚠️  Warning: Config migration failed: {e}");
-        }
-    }
 
     // Apply file logging setting from config
     {

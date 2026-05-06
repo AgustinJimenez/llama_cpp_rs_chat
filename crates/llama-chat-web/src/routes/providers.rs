@@ -181,6 +181,7 @@ pub async fn handle_provider_stream(
                     "duration_ms": token_data.duration_ms,
                     "input_tokens": token_data.input_tokens,
                     "output_tokens": token_data.output_tokens,
+                    "cached_tokens": token_data.cached_tokens,
                     "model": token_data.model_id,
                     "conversation_id": conv_id_clone,
                 });
@@ -210,6 +211,7 @@ pub async fn handle_provider_stream(
                     "type": "status",
                     "input_tokens": token_data.input_tokens,
                     "output_tokens": token_data.output_tokens,
+                    "cached_tokens": token_data.cached_tokens,
                     "duration_ms": token_data.duration_ms,
                 });
                 let _ = sse_tx

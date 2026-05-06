@@ -623,7 +623,7 @@ pub(crate) fn run_generation_loop(
 
                 // Mid-task compaction: if tool outputs are eating too much context,
                 // summarize older tool results in DB for the next turn.
-                let conv_id_clean = cfg.conversation_id.trim_end_matches(".txt");
+                let conv_id_clean = cfg.conversation_id;
                 let cached_overhead = cfg.db.get_context_overhead_tokens(conv_id_clean);
                 if let Some(_summary) = super::compaction::maybe_compact_mid_task(
                     cfg.conversation_id,

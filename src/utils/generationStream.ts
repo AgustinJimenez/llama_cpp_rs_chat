@@ -186,10 +186,13 @@ export class RemoteGenerationStream implements GenerationStream {
           duration_ms: number | null;
           input_tokens: number | null;
           output_tokens: number | null;
+          cached_tokens: number | null;
           model: string | null;
         }>('provider-done', (event) => {
           const d = event.payload;
-          if (d.session_id) { sessionRef.current = d.session_id; }
+          if (d.session_id) {
+            sessionRef.current = d.session_id;
+          }
 
           const outTokens = d.output_tokens ?? Math.round(accumulated.length / 4);
           const durationMs = d.duration_ms ?? 0;
@@ -198,6 +201,7 @@ export class RemoteGenerationStream implements GenerationStream {
             genEvalMs: durationMs,
             genTokens: outTokens,
             promptTokens: d.input_tokens ?? undefined,
+            cachedTokens: d.cached_tokens ?? undefined,
             finishReason: d.stop_reason === 'end_turn' ? 'stop' : (d.stop_reason ?? undefined),
             costUsd: d.cost_usd ?? undefined,
           };
@@ -217,8 +221,7 @@ export class RemoteGenerationStream implements GenerationStream {
           prompt: request.prompt,
           conversationId: request.conversationId || null,
           sessionId: sessionRef.current || null,
-          params: providerParams && Object.keys(providerParams).length > 0
-            ? providerParams : null,
+          params: providerParams && Object.keys(providerParams).length > 0 ? providerParams : null,
         }).catch((err: unknown) => {
           settle(() => reject(err instanceof Error ? err : new Error(String(err))));
         });
@@ -235,6 +238,7 @@ export class RemoteGenerationStream implements GenerationStream {
     }
   }
 
+  // eslint-disable-next-line complexity
   private async startSSE(
     request: GenerationRequest,
     callbacks: GenerationCallbacks,
@@ -254,7 +258,8 @@ export class RemoteGenerationStream implements GenerationStream {
           session_id: sessionRef.current || undefined,
           conversation_id: request.conversationId || undefined,
           ...(providerParams && Object.keys(providerParams).length > 0
-            ? { params: providerParams } : {}),
+            ? { params: providerParams }
+            : {}),
         }),
       });
 
@@ -294,18 +299,26 @@ export class RemoteGenerationStream implements GenerationStream {
                 const dur = event.duration_ms || 0;
                 const tokPerSec = dur > 0 ? outTok / (dur / 1000) : 0;
                 const inTok = event.input_tokens || 0;
+                const cachedTok = event.cached_tokens || 0;
                 const inLabel = inTok > 0 ? `in: ${inTok.toLocaleString()}  ` : '';
+                const cacheLabel =
+                  cachedTok > 0 && inTok > 0
+                    ? `  cache: ${Math.round((cachedTok / inTok) * 100)}%`
+                    : '';
                 callbacks.onStatus(
-                  `${inLabel}out: ${outTok.toLocaleString()} · ${tokPerSec.toFixed(1)} tok/s`,
+                  `${inLabel}out: ${outTok.toLocaleString()} · ${tokPerSec.toFixed(1)} tok/s${cacheLabel}`,
                 );
                 callbacks.onTimingsUpdate({
                   genTokPerSec: tokPerSec,
                   genTokens: outTok,
                   genEvalMs: dur,
+                  cachedTokens: cachedTok || undefined,
                   costUsd: event.cost_usd,
                 });
               } else if (event.type === 'done') {
-                if (event.session_id) { sessionRef.current = event.session_id; }
+                if (event.session_id) {
+                  sessionRef.current = event.session_id;
+                }
 
                 const outTokens = event.output_tokens || Math.round(accumulated.length / 4);
                 const inTokens = event.input_tokens || 0;
@@ -315,6 +328,7 @@ export class RemoteGenerationStream implements GenerationStream {
                   genEvalMs: durationMs,
                   genTokens: outTokens,
                   promptTokens: inTokens,
+                  cachedTokens: event.cached_tokens || undefined,
                   finishReason: event.stop_reason === 'end_turn' ? 'stop' : event.stop_reason,
                   costUsd: event.cost_usd,
                 };

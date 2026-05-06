@@ -221,7 +221,7 @@ pub async fn generate(
                             duration_ms: None,
                             model_id: requested_model.clone(),
                             input_tokens: None,
-                            output_tokens: None,
+                            output_tokens: None, cached_tokens: None,
                         });
                     }
                 }
@@ -248,7 +248,7 @@ pub async fn generate(
                         duration_ms: None,
                         model_id: requested_model.take(),
                         input_tokens: Some(input_tokens + cached_input_tokens),
-                        output_tokens: Some(output_tokens),
+                        output_tokens: Some(output_tokens), cached_tokens: None,
                     });
                 }
                 Ok(CodexEvent::Unknown) => {}
@@ -268,7 +268,7 @@ pub async fn generate(
             duration_ms: None,
             model_id: requested_model,
             input_tokens: None,
-            output_tokens: None,
+            output_tokens: None, cached_tokens: None,
         });
 
         let _ = child.wait().await;

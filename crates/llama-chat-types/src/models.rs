@@ -291,8 +291,8 @@ impl Default for SamplerConfig {
             dry_penalty_last_n: -1,
             top_n_sigma: -1.0,
             flash_attention: true,
-            cache_type_k: "turbo2".to_string(),
-            cache_type_v: "turbo3".to_string(),
+            cache_type_k: "f16".to_string(),
+            cache_type_v: "f16".to_string(),
             n_batch: 2048,
             model_path: Some("/app/models/lmstudio-community/granite-4.0-h-tiny-GGUF/granite-4.0-h-tiny-Q4_K_M.gguf".to_string()),
             system_prompt: None,
@@ -534,6 +534,9 @@ pub struct ChatMessage {
     pub prompt_eval_ms: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_tokens: Option<i32>,
+    /// True if this message has been compacted (summarized for the model).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub compacted: bool,
 }
 
 #[derive(Serialize)]

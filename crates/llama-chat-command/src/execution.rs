@@ -74,7 +74,13 @@ fn track_cwd_change(cmd: &str) {
         if target.is_empty() {
             return;
         }
+        // Strip Windows cd flags like /d, /D before extracting the path
         let target = target.trim_matches('"').trim_matches('\'');
+        let target = if target.starts_with("/d ") || target.starts_with("/D ") {
+            target[3..].trim().trim_matches('"').trim_matches('\'')
+        } else {
+            target
+        };
         match std::env::set_current_dir(target) {
             Ok(()) => {
                 if let Ok(new_dir) = std::env::current_dir() {

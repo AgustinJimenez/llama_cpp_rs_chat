@@ -69,6 +69,7 @@ pub async fn handle_get_conversation(
                             gen_tokens: rec.gen_tokens,
                             prompt_eval_ms: rec.prompt_eval_ms,
                             prompt_tokens: rec.prompt_tokens,
+                            compacted: rec.compacted,
                         });
                         msg_idx += 1;
                     }
@@ -88,6 +89,7 @@ pub async fn handle_get_conversation(
                         gen_tokens: rec.gen_tokens,
                         prompt_eval_ms: rec.prompt_eval_ms,
                         prompt_tokens: rec.prompt_tokens,
+                        compacted: rec.compacted,
                     });
                     msg_idx += 1;
                     i += 1;

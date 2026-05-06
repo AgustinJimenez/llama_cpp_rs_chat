@@ -66,7 +66,7 @@ const FinishReasonBadge: React.FC<{ finishReason?: string }> = ({ finishReason }
 };
 
 export const MessageStatistics = ({ timings, tokensUsed, maxTokens }: MessageStatisticsProps) => {
-  const { genTokPerSec, genTokens, promptTokens } = timings;
+  const { genTokPerSec, genTokens, promptTokens, cachedTokens } = timings;
   const [bgProcesses, setBgProcesses] = useState<BackgroundProcessInfo[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -110,6 +110,14 @@ export const MessageStatistics = ({ timings, tokensUsed, maxTokens }: MessageSta
           {genTokPerSec.toFixed(1)} tok/s
         </span>
       ) : null}
+      {cachedTokens && promptTokens ? (
+        <span
+          className="inline-flex items-center gap-1 text-cyan-400"
+          title={`${formatNumber(cachedTokens)} of ${formatNumber(promptTokens)} input tokens served from cache`}
+        >
+          cache: {Math.round((cachedTokens / promptTokens) * 100)}%
+        </span>
+      ) : null}
       {tokensUsed !== undefined && maxTokens !== undefined && timings.tokenBreakdown ? (
         <TokenBreakdownPopover
           breakdown={timings.tokenBreakdown}
@@ -135,7 +143,13 @@ export const MessageStatistics = ({ timings, tokensUsed, maxTokens }: MessageSta
             <Terminal className="h-3 w-3" />
             {bgProcesses.length} {bgProcesses.length === 1 ? 'process' : 'processes'}
           </button>
-          <BackgroundProcessesModal isOpen={modalOpen} onClose={() => { setModalOpen(false); refreshProcesses(); }} />
+          <BackgroundProcessesModal
+            isOpen={modalOpen}
+            onClose={() => {
+              setModalOpen(false);
+              refreshProcesses();
+            }}
+          />
         </>
       ) : null}
     </div>

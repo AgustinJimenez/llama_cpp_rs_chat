@@ -10,6 +10,8 @@ export interface Message {
   image_data?: string[];
   /** Generation timing metrics (assistant messages only, set after completion). */
   timings?: TimingInfo;
+  /** True if this message has been compacted (summarized for the model). */
+  compacted?: boolean;
 }
 
 /** Dynamic tag pair for per-model tag configuration. */
