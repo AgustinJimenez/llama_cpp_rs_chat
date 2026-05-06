@@ -3733,7 +3733,7 @@ dependencies = [
 
 [[package]]
 name = "llama-cpp-2"
-version = "0.1.142"
+version = "0.1.147"
 dependencies = [
  "encoding_rs",
  "enumflags2",
@@ -3750,7 +3750,7 @@ dependencies = [
 
 [[package]]
 name = "llama-cpp-sys-2"
-version = "0.1.142"
+version = "0.1.147"
 dependencies = [
  "bindgen",
  "cc",

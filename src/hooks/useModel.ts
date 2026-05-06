@@ -55,6 +55,7 @@ export const useModel = () => {
   // Track last known model path for auto-reload after crash
   const lastModelPathRef = useRef<string | null>(null);
   const wasLoadedRef = useRef(false);
+  const lastStatusJson = useRef('');
 
   const hardUnload = useCallback(async () => {
     try {
@@ -70,16 +71,31 @@ export const useModel = () => {
     }
   }, []);
 
+  // Use a ref to avoid stale closure issues with isLoading in fetchStatus
+  const isLoadingRef = useRef(false);
+  const autoReloadingRef = useRef(false);
+
   const fetchStatus = useCallback(async () => {
     try {
       const data = (await getModelStatus()) as ModelStatus;
-      setStatus(data);
+      // Only update state when data actually changed to avoid unnecessary re-renders
+      const json = JSON.stringify(data);
+      if (json !== lastStatusJson.current) {
+        lastStatusJson.current = json;
+        setStatus(data);
+      }
       setError(null);
       setHasStatusError(false);
       // Sync loading state from server (e.g. after browser refresh during load)
       if (data.loading && !data.loaded) {
         setIsLoading(true);
+        isLoadingRef.current = true;
         setLoadingAction('loading');
+      } else if (!data.loading && !data.loaded && isLoadingRef.current) {
+        // Backend finished loading (or crashed) — clear frontend loading state
+        setIsLoading(false);
+        isLoadingRef.current = false;
+        setLoadingAction(null);
       }
       // Track loaded state for crash detection
       if (data.loaded && data.model_path) {
@@ -92,12 +108,15 @@ export const useModel = () => {
         !data.loaded &&
         !data.loading &&
         lastModelPathRef.current &&
-        !isLoading
+        !isLoadingRef.current &&
+        !autoReloadingRef.current
       ) {
         const modelPath = lastModelPathRef.current;
         wasLoadedRef.current = false;
+        autoReloadingRef.current = true;
         console.log('[useModel] Model crashed — auto-reloading:', modelPath); // eslint-disable-line no-console
         setIsLoading(true);
+        isLoadingRef.current = true;
         setLoadingAction('loading');
         try {
           const result: ModelResponse = await loadModelCmd(modelPath);
@@ -109,7 +128,9 @@ export const useModel = () => {
           console.error('[useModel] Auto-reload failed:', reloadErr);
         } finally {
           setIsLoading(false);
+          isLoadingRef.current = false;
           setLoadingAction(null);
+          autoReloadingRef.current = false;
         }
       }
     } catch (err) {
@@ -117,11 +138,12 @@ export const useModel = () => {
       console.error('Model status fetch error:', err);
       setHasStatusError(true);
     }
-  }, [isLoading]);
+  }, []);
 
   const loadModel = useCallback(
     async (modelPath: string, config?: SamplerConfig) => {
       setIsLoading(true);
+      isLoadingRef.current = true;
       setLoadingAction('loading');
       setError(null);
 
@@ -190,6 +212,7 @@ export const useModel = () => {
         return { success: false, message: errorMessage };
       } finally {
         setIsLoading(false);
+        isLoadingRef.current = false;
         setLoadingAction(null);
       }
     },
@@ -198,6 +221,7 @@ export const useModel = () => {
 
   const unloadModel = useCallback(async () => {
     setIsLoading(true);
+    isLoadingRef.current = true;
     setLoadingAction('unloading');
     setError(null);
 
@@ -222,6 +246,7 @@ export const useModel = () => {
       return { success: false, message: errorMessage };
     } finally {
       setIsLoading(false);
+      isLoadingRef.current = false;
       setLoadingAction(null);
     }
   }, [fetchStatus]);
@@ -240,6 +265,7 @@ export const useModel = () => {
         setStatus(data);
         if (data.loaded || (!data.loading && !isLoading)) {
           setIsLoading(false);
+          isLoadingRef.current = false;
           setLoadingAction(null);
         }
       } catch {
@@ -249,26 +275,15 @@ export const useModel = () => {
     return () => clearInterval(interval);
   }, [isLoading, loadingAction]);
 
-  // Poll status periodically to detect active generation (for sidebar indicator).
+  // Poll status periodically to detect active generation (for sidebar indicator)
+  // and trigger auto-reload after crashes.
   // Slower interval (5s) to avoid hammering the API.
-  // Only update state when something actually changed to avoid unnecessary re-renders
-  // that close menus, reset scroll, etc.
-  const lastStatusJson = useRef('');
   useEffect(() => {
-    const interval = setInterval(async () => {
-      try {
-        const data = (await getModelStatus()) as ModelStatus;
-        const json = JSON.stringify(data);
-        if (json !== lastStatusJson.current) {
-          lastStatusJson.current = json;
-          setStatus(data);
-        }
-      } catch {
-        // ignore
-      }
+    const interval = setInterval(() => {
+      fetchStatus();
     }, STATUS_POLL_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchStatus]);
 
   return {
     status,
