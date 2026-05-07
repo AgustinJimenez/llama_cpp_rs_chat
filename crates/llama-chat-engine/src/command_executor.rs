@@ -787,8 +787,10 @@ pub fn inject_output_tokens(
     // On Windows WDDM, idle GPU contexts can be preempted/reclaimed.
     context.synchronize();
 
-    // Decode in chunks for performance (single-token decode is extremely slow for large outputs)
-    const INJECT_CHUNK_SIZE: usize = 512;
+    // Decode in smaller chunks with sync between each to mitigate CUDA deadlock.
+    // Large batches (512) sometimes leave the GPU in a state where the next sample() hangs.
+    // Smaller chunks (128) + sync reduce throughput but improve stability.
+    const INJECT_CHUNK_SIZE: usize = 128;
     for chunk in tokens.chunks(INJECT_CHUNK_SIZE) {
         batch.clear();
 
@@ -825,11 +827,10 @@ pub fn inject_output_tokens(
         }
 
         *token_pos += chunk.len() as i32;
-    }
 
-    // Synchronize CUDA to ensure all async tensor operations from decode() are complete
-    // before the caller calls sample(). Prevents race condition (llama.cpp issue #18310).
-    context.synchronize();
+        // Sync after each chunk to prevent CUDA async state accumulation
+        context.synchronize();
+    }
 
     // Check if we've consumed too much context after injection
     // (catches recurrent/hybrid models where decode succeeds but context is full)
