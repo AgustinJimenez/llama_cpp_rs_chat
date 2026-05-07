@@ -17,14 +17,7 @@ import { useConversationWatcher } from './useConversationWatcher';
 import { useGenerationStream } from './useGenerationStream';
 
 // Auto-continue reasons (used by the polling reconnect effect)
-const AUTO_CONTINUE_REASONS = new Set([
-  'length',
-  'yn_continue',
-  'loop_recovery',
-  'tool_continue',
-  'cuda_deadlock',
-  'infinite_loop',
-]);
+const AUTO_CONTINUE_REASONS = new Set(['length', 'yn_continue', 'loop_recovery', 'infinite_loop']);
 
 // eslint-disable-next-line max-lines-per-function
 export function useChat() {

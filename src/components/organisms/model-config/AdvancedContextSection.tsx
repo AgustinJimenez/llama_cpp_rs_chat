@@ -155,11 +155,6 @@ const KvCacheGroup = ({
       checked={config.flash_attention ?? true}
       onChange={(v) => onConfigChange('flash_attention', v)}
     />
-    <Toggle
-      label="Safe Tool Inject"
-      checked={config.safe_tool_injection ?? false}
-      onChange={(v) => onConfigChange('safe_tool_injection', v)}
-    />
   </ParamGroup>
 );
 

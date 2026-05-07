@@ -1,6 +1,6 @@
-# Current Task: C++ exception / deadlock during tool token injection
+# Current Task: CUDA deadlock during tool token injection
 
-## Status: WORKAROUND ACTIVE — `RESTART_AFTER_TOOL_RESULT = true`
+## Status: LIKELY FIXED — needs more testing to confirm
 
 ## The Bug
 
@@ -11,13 +11,43 @@ via `decode()` causes either:
 
 Both happen non-deterministically after 1-12 tool injections per conversation.
 
-## Active Workaround
+## Current Status
 
-`RESTART_AFTER_TOOL_RESULT = true` in `token_loop.rs`:
-- After each tool call, stop generation with `finish_reason = "tool_continue"`
-- Tool result is saved to DB as part of the conversation
-- Frontend auto-continues on a **fresh context** (full prompt re-evaluation)
-- Tradeoff: ~2-5s pause per tool call (prompt re-eval), but zero crashes
+Three bugs were fixed simultaneously on 2026-05-06, and the deadlock appears resolved:
+1. **CUDA graphs disabled** (`GGML_CUDA_GRAPHS=OFF` in build.rs)
+2. **KV cache type enum values corrected** (turbo2→44, turbo3→42, turbo4→43 — were off by one)
+3. **Default KV cache types fixed** (`SamplerConfig::Default` was turbo2/turbo3, now f16)
+
+### Test results after all 3 fixes:
+- **9B dense**: 102+ injections, 0 deadlocks (nimlang CRUD + PDF summaries)
+- **35B MoE**: 61+ injections, 0 deadlocks (nimlang CRUD, direct injection, NO safe mode)
+
+### Uncertainty: which fix actually matters?
+
+The earlier "CUDA graphs OFF" test (documented as ❌ in the table below) was done **before** the KV cache enum fix. At that time, the KV cache was using `Q1_0` (type 41) instead of `TURBO3_0` (type 42) due to the off-by-one bug. So the previous test was tainted.
+
+We cannot isolate which fix resolved the 35B deadlock without further testing:
+- **Hypothesis A**: CUDA graphs OFF is the fix (graph caching becomes stale after injection)
+- **Hypothesis B**: Correct KV cache types is the fix (Q1_0 type caused CUDA backend confusion)
+- **Hypothesis C**: Both were needed together
+
+To confirm, would need to re-enable CUDA graphs with correct KV types and test (~30 min CUDA rebuild).
+
+### `safe_tool_injection` setting added
+
+A user-facing toggle was added as a fallback: Settings → KV Cache → "Safe Tool Inject". When ON, stops and restarts context after each tool call (slower but guarantees no deadlock). Tested: 90+ tool_continues on 35B with zero deadlocks. Default: OFF.
+
+### Safety nets (still active regardless)
+- Watchdog (10s timeout) detects hang and kills worker
+- Bridge auto-restarts worker process  
+- Frontend auto-reloads model after crash
+- `cuda_deadlock` is in AUTO_CONTINUE_REASONS (frontend auto-continues)
+
+### System prompt display bug (minor)
+After compaction, the system prompt renders as a full yellow warning box instead of the collapsible `▸ System prompt` widget. Cause: ConversationWatcher overwrites messages and loses the `isSystemPrompt` flag. Not fixed yet.
+
+### Stop button on empty conversation (minor)
+The Stop button shows on a new empty conversation while another conversation is generating. Cause: `isLoading` is global, not per-conversation. Not fixed yet.
 
 ## Root Causes Found
 
@@ -60,12 +90,22 @@ Both happen non-deterministically after 1-12 tool injections per conversation.
 
 ## Key Findings
 
-### 2026-04-30
+### 2026-05-06 — Architecture-specific deadlock confirmed
+1. **Qwen3.5-9B (dense)**: 102+ tool injections across 3 heavy tasks (nimlang CRUD, PDF chapter summaries), 20+ minutes continuous generation, **ZERO deadlocks**.
+2. **Qwen3.6-35B-A3B (hybrid MoE+recurrent)**: deadlocks after **3 injections** consistently.
+3. **CUDA graphs disabled** (`GGML_CUDA_GRAPHS=OFF`): no effect on 35B deadlock, but eliminates some instability.
+4. **Root cause narrowed**: the deadlock is specific to the **hybrid MoE architecture** (attention + Gated Delta Net recurrent layers). The `ggml_backend_sched_synchronize()` hangs when switching between attention and recurrent layer backends after token injection.
+
+### Bugs fixed (2026-05-06)
+- **SamplerConfig default KV cache types**: was `turbo2`/`turbo3`, now `f16`. The wrong defaults caused `SET_ROWS` CUDA crash on model load because turbo enum values in `context_eval.rs` were off by one (41/42/43 → 42/43/44).
+- **Build fix**: upstream llama.cpp renamed `common` library to `llama-common`.
+- **CUDA graphs disabled**: `GGML_CUDA_GRAPHS=OFF` in build.rs. Doesn't fix the MoE deadlock but eliminates a source of graph caching issues after token injection.
+
+### 2026-04-30 — Initial findings (some now CORRECTED)
 1. The crash is **NOT specific to tool injection** — also happens during normal generation.
 2. **NOT seed-dependent** — same seed crashes sometimes, works other times.
-3. **NOT TurboQuant-specific** — crashes with f16 KV cache too (confirmed `kv_cache=f16` in logs).
-4. **NOT model-specific** — crashes with both Qwen3.6-35B (MoE+SSM) and Qwen3.5-9B (dense).
-5. **NOT injection-size dependent** — crashes with 45-token, 101-token, and 1000+ token injections.
+3. ~~NOT model-specific — crashes with both 35B and 9B~~ **CORRECTED 2026-05-06**: 9B (dense) does NOT deadlock. Only 35B (hybrid MoE) deadlocks. Earlier 9B crashes were caused by wrong KV cache types (turbo enum off-by-one), not the deadlock.
+4. **NOT injection-size dependent** — crashes with 45-token, 101-token, and 1000+ token injections.
 
 ### Exact crash location
 - Always in `llama_sampler_sample()` — the C++ function inside llama.cpp
