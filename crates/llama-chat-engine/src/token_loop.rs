@@ -587,25 +587,11 @@ pub(crate) fn run_generation_loop(
                 sampler.accept_many(&injected_tokens);
                 gen.generated_token_ids.extend(injected_tokens);
 
-                // CUDA deadlock mitigation: after injecting a large batch of tokens,
-                // the GPU may have stale state that causes sample() to hang forever
-                // (llama.cpp issue #21383). A brief sleep lets the GPU driver fully
-                // flush async operations before we call sample() on the next loop iteration.
-                // Also do an empty single-token decode to "warm" the compute pipeline.
-                {
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                    context.synchronize();
-
-                    // Warm decode: decode the last injected token again with logits enabled.
-                    // This forces CUDA to re-sync the compute graph before sample().
-                    let last_token = exec_result.model_tokens.last().copied().unwrap_or(0);
-                    batch.clear();
-                    let _ = batch.add(LlamaToken(last_token), gen.token_pos - 1, &[0], true);
-                    if let Err(e) = context.decode(batch) {
-                        eprintln!("[INJECT] Warm decode failed: {e} — continuing anyway");
-                    }
-                    context.synchronize();
-                }
+                // Brief pause after injection to let CUDA driver settle.
+                // With single-token injection this may not be needed, but
+                // it's cheap insurance against the CUDA deadlock (#21383).
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                context.synchronize();
 
                 // Force-stop on infinite loop detection
                 if exec_result.output_block.contains("[INFINITE_LOOP_DETECTED]") {

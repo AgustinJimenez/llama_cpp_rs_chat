@@ -787,27 +787,26 @@ pub fn inject_output_tokens(
     // On Windows WDDM, idle GPU contexts can be preempted/reclaimed.
     context.synchronize();
 
-    // Decode in smaller chunks with sync between each to mitigate CUDA deadlock.
-    // Large batches (512) sometimes leave the GPU in a state where the next sample() hangs.
-    // Smaller chunks (128) + sync reduce throughput but improve stability.
-    const INJECT_CHUNK_SIZE: usize = 128;
-    for chunk in tokens.chunks(INJECT_CHUNK_SIZE) {
+    // Single-token injection: decode each token individually, exactly like normal generation.
+    // Normal generation (1 token at a time) NEVER triggers the CUDA deadlock.
+    // Batch decode (many tokens at once) somehow leaves the GPU in a bad state.
+    // Single-token is slower (~1ms/token vs ~0.05ms/token batched) but should be
+    // immune to the deadlock since it matches the normal generation path exactly.
+    //
+    // Only the last token needs logits (for the subsequent sample() call).
+    let total = tokens.len();
+    for (i, &token) in tokens.iter().enumerate() {
         batch.clear();
+        let is_last = i == total - 1;
+        batch
+            .add(
+                llama_cpp_2::token::LlamaToken(token),
+                *token_pos,
+                &[0],
+                is_last, // only compute logits for last token
+            )
+            .map_err(|e| format!("Batch add failed for command output: {e}"))?;
 
-        for (idx, &token) in chunk.iter().enumerate() {
-            let is_last = idx == chunk.len() - 1;
-            batch
-                .add(
-                    llama_cpp_2::token::LlamaToken(token),
-                    *token_pos + (idx as i32),
-                    &[0],
-                    is_last,
-                )
-                .map_err(|e| format!("Batch add failed for command output: {e}"))?;
-        }
-
-        // Wrap decode in catch_unwind to handle C++ exceptions (0xE06D7363)
-        // that propagate through FFI and would otherwise crash the worker.
         let decode_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             context.decode(batch)
         }));
@@ -826,10 +825,7 @@ pub fn inject_output_tokens(
             }
         }
 
-        *token_pos += chunk.len() as i32;
-
-        // Sync after each chunk to prevent CUDA async state accumulation
-        context.synchronize();
+        *token_pos += 1;
     }
 
     // Check if we've consumed too much context after injection
