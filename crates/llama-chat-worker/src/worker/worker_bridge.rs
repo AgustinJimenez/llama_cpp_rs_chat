@@ -92,6 +92,7 @@ impl WorkerBridge {
 
         // Stdout reader task
         let cmd_tx_arc = Arc::new(TokioMutex::new(cmd_tx));
+        let recovery_ctx = Arc::new(TokioMutex::new(CrashRecoveryCtx::default()));
         tokio::spawn(stdout_reader_task(
             stdout_handle,
             pending.clone(),
@@ -100,6 +101,7 @@ impl WorkerBridge {
             loading_progress.clone(),
             process_manager.clone(),
             cmd_tx_arc.clone(),
+            recovery_ctx,
         ));
 
         Self {
@@ -302,6 +304,7 @@ impl WorkerBridge {
                 self.loading_progress.clone(),
                 self.process_manager.clone(),
                 self.cmd_tx.clone(),
+                Arc::new(TokioMutex::new(CrashRecoveryCtx::default())),
             ));
         }
     }
@@ -617,6 +620,17 @@ async fn stdin_writer_task(
 }
 
 /// Task that reads responses from the worker's stdout and dispatches them.
+/// Persists across crash-recovery cycles so auto-continue works on repeated crashes.
+#[derive(Clone, Default)]
+struct CrashRecoveryCtx {
+    model_path: Option<String>,
+    gpu_layers: Option<u32>,
+    conversation_id: Option<String>,
+    crash_count: u32,
+}
+
+const MAX_AUTO_RECOVERY_CRASHES: u32 = 5;
+
 async fn stdout_reader_task(
     stdout: std::process::ChildStdout,
     pending: Arc<TokioMutex<HashMap<u64, PendingRequest>>>,
@@ -625,6 +639,7 @@ async fn stdout_reader_task(
     loading_progress: Arc<AtomicU8>,
     process_manager: Arc<super::process_manager::ProcessManager>,
     cmd_tx: Arc<TokioMutex<mpsc::UnboundedSender<String>>>,
+    recovery_ctx: Arc<TokioMutex<CrashRecoveryCtx>>,
 ) {
     // Read stdout on a blocking thread (pipe reads are blocking on Windows)
     let (line_tx, mut line_rx) = mpsc::unbounded_channel::<String>();
@@ -735,30 +750,37 @@ async fn stdout_reader_task(
 
     // Worker died — save crash context, clear state, auto-restart + reload + continue.
     {
-        // Save crash context before clearing
-        let crashed_conversation_id = {
-            let gen = active_generation.lock().await;
-            gen.as_ref().and_then(|ag| ag.conversation_id.clone())
-        };
-        let crashed_model_path = model_meta.lock().await.as_ref().map(|m| m.model_path.clone());
-        let crashed_gpu_layers = model_meta.lock().await.as_ref().and_then(|m| m.gpu_layers);
+        // Update recovery context: save model/conversation info on first crash,
+        // reuse existing context on subsequent crashes (persists across cycles).
+        {
+            let mut ctx = recovery_ctx.lock().await;
+            // Save model info from meta (only if we have it — first crash)
+            if let Some(meta) = model_meta.lock().await.as_ref() {
+                ctx.model_path = Some(meta.model_path.clone());
+                ctx.gpu_layers = meta.gpu_layers;
+            }
+            // Save conversation ID from active generation (if any)
+            if let Some(conv_id) = active_generation.lock().await.as_ref().and_then(|ag| ag.conversation_id.clone()) {
+                ctx.conversation_id = Some(conv_id);
+            }
+            ctx.crash_count += 1;
+            eprintln!("[BRIDGE] Crash #{} — model={:?} conv={:?}",
+                ctx.crash_count, ctx.model_path.as_deref(), ctx.conversation_id.as_deref());
+        }
 
         // Clear active generation so the UI stops showing the spinner
-        let mut gen = active_generation.lock().await;
-        if let Some(ag) = gen.take() {
-            eprintln!("[BRIDGE] Worker died during generation — clearing active generation");
-            let _ = ag.token_tx.send(TokenData {
-                token: "\n\n[Worker process crashed — restarting automatically.]".to_string(),
-                tokens_used: 0,
-                max_tokens: 0,
-                status: None,
-                ..Default::default()
-            });
-            let mut pending_guard = pending.lock().await;
-            if let Some(req) = pending_guard.remove(&ag.request_id) {
-                let _ = req.tx.send(WorkerPayload::Error {
-                    message: "Worker process crashed during generation".to_string(),
+        {
+            let mut gen = active_generation.lock().await;
+            if let Some(ag) = gen.take() {
+                let _ = ag.token_tx.send(TokenData {
+                    token: "\n\n[Worker process crashed — restarting automatically.]".to_string(),
+                    tokens_used: 0, max_tokens: 0, status: None, ..Default::default()
                 });
+                if let Some(req) = pending.lock().await.remove(&ag.request_id) {
+                    let _ = req.tx.send(WorkerPayload::Error {
+                        message: "Worker process crashed during generation".to_string(),
+                    });
+                }
             }
         }
 
@@ -767,125 +789,138 @@ async fn stdout_reader_task(
         loading_progress.store(0, Ordering::Relaxed);
 
         // Fail any other pending requests
-        {
-            let mut pending_guard = pending.lock().await;
-            for (_, req) in pending_guard.drain() {
-                let _ = req.tx.send(WorkerPayload::Error {
-                    message: "Worker process crashed".to_string(),
-                });
-            }
+        for (_, req) in pending.lock().await.drain() {
+            let _ = req.tx.send(WorkerPayload::Error {
+                message: "Worker process crashed".to_string(),
+            });
         }
 
-        // Auto-restart the worker process, reconnect IO, reload model, continue generation.
-        eprintln!("[BRIDGE] Auto-restarting worker process...");
-        if let Err(e) = process_manager.restart() {
-            eprintln!("[BRIDGE] Failed to restart worker: {e}");
-        } else {
-            eprintln!("[BRIDGE] Worker restarted successfully");
+        // Check crash limit
+        let ctx = recovery_ctx.lock().await.clone();
+        if ctx.crash_count > MAX_AUTO_RECOVERY_CRASHES {
+            eprintln!("[BRIDGE] Max auto-recovery crashes ({MAX_AUTO_RECOVERY_CRASHES}) exceeded — giving up");
+            // Still restart worker but don't auto-continue
+            let _ = process_manager.restart();
             let stdin_opt = process_manager.take_stdin();
             let stdout_opt = process_manager.take_stdout();
-            let p = pending.clone();
-            let ag = active_generation.clone();
-            let mm = model_meta.clone();
-            let lp = loading_progress.clone();
-            let pm = process_manager.clone();
             let ct = cmd_tx.clone();
-            let reload_path = crashed_model_path.clone();
-            let reload_gpu = crashed_gpu_layers;
-            let continue_conv = crashed_conversation_id.clone();
             std::thread::spawn(move || {
-                let rt = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .expect("Failed to build recovery runtime");
+                let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
                 let local = tokio::task::LocalSet::new();
                 local.block_on(&rt, async move {
-                    // Reconnect stdin writer
                     if let Some(stdin) = stdin_opt {
                         let (new_cmd_tx, new_cmd_rx) = mpsc::unbounded_channel::<String>();
                         tokio::task::spawn_local(stdin_writer_task(new_cmd_rx, stdin));
                         *ct.lock().await = new_cmd_tx;
-                        eprintln!("[BRIDGE] Stdin writer reconnected");
                     }
-
-                    // Auto-reload: send LoadModel command through the new stdin
-                    if let Some(model_path) = reload_path {
-                        eprintln!("[BRIDGE] Auto-reloading model: {model_path}");
-                        let load_id: u64 = 900_000;
-                        let load_req = WorkerRequest {
-                            id: load_id,
-                            command: WorkerCommand::LoadModel {
-                                model_path: model_path.clone(),
-                                gpu_layers: reload_gpu,
-                                mmproj_path: None,
-                            },
-                        };
-                        if let Ok(json) = serde_json::to_string(&load_req) {
-                            // Register a pending request so stdout_reader can route the response
-                            let (load_tx, load_rx) = oneshot::channel::<WorkerPayload>();
-                            p.lock().await.insert(load_id, PendingRequest { tx: load_tx });
-                            let _ = ct.lock().await.send(json);
-
-                            // Spawn stdout reader on local set (ChildStdout isn't Send)
-                            if let Some(stdout) = stdout_opt {
-                                let p2 = p.clone();
-                                let ag2 = ag.clone();
-                                let mm2 = mm.clone();
-                                let lp2 = lp.clone();
-                                let pm2 = pm.clone();
-                                let ct2 = ct.clone();
-                                tokio::task::spawn_local(async move {
-                                    stdout_reader_task(stdout, p2, ag2, mm2, lp2, pm2, ct2).await;
-                                });
-                            }
-
-                            // Wait for model load response (up to 120s)
-                            match tokio::time::timeout(
-                                std::time::Duration::from_secs(120),
-                                load_rx,
-                            ).await {
-                                Ok(Ok(WorkerPayload::ModelLoaded { .. })) => {
-                                    eprintln!("[BRIDGE] Model auto-reloaded successfully");
-
-                                    // Auto-continue: send a continue message to the crashed conversation
-                                    if let Some(conv_id) = continue_conv {
-                                        eprintln!("[BRIDGE] Auto-continuing generation for {conv_id}");
-                                        let gen_id: u64 = 900_001;
-                                        let gen_req = WorkerRequest {
-                                            id: gen_id,
-                                            command: WorkerCommand::Generate {
-                                                user_message: "[System: Generation was interrupted due to a temporary issue. The model has been reloaded.] Continue from where you left off.".to_string(),
-                                                conversation_id: Some(conv_id),
-                                                skip_user_logging: false,
-                                                image_data: None,
-                                            },
-                                        };
-                                        if let Ok(json) = serde_json::to_string(&gen_req) {
-                                            let _ = ct.lock().await.send(json);
-                                            eprintln!("[BRIDGE] Auto-continue command sent");
-                                        }
-                                    }
-                                }
-                                Ok(Ok(WorkerPayload::Error { message })) => {
-                                    eprintln!("[BRIDGE] Auto-reload failed: {message}");
-                                }
-                                Ok(Err(_)) | Err(_) => {
-                                    eprintln!("[BRIDGE] Auto-reload: timeout or channel closed");
-                                }
-                                _ => {
-                                    eprintln!("[BRIDGE] Auto-reload: unexpected response");
-                                }
-                            }
-                        }
-                    } else {
-                        // No model was loaded — just reconnect stdout reader
-                        if let Some(stdout) = stdout_opt {
-                            eprintln!("[BRIDGE] Stdout reader reconnected (no model to reload)");
-                            stdout_reader_task(stdout, p, ag, mm, lp, pm, ct).await;
-                        }
+                    if let Some(stdout) = stdout_opt {
+                        let rc = Arc::new(TokioMutex::new(CrashRecoveryCtx::default()));
+                        stdout_reader_task(stdout, pending, active_generation, model_meta, loading_progress, process_manager, ct, rc).await;
                     }
                 });
             });
+        } else {
+            // Auto-restart the worker process, reconnect IO, reload model, continue generation.
+            eprintln!("[BRIDGE] Auto-restarting worker process...");
+            if let Err(e) = process_manager.restart() {
+                eprintln!("[BRIDGE] Failed to restart worker: {e}");
+            } else {
+                eprintln!("[BRIDGE] Worker restarted successfully");
+                let stdin_opt = process_manager.take_stdin();
+                let stdout_opt = process_manager.take_stdout();
+                let p = pending.clone();
+                let ag = active_generation.clone();
+                let mm = model_meta.clone();
+                let lp = loading_progress.clone();
+                let pm = process_manager.clone();
+                let ct = cmd_tx.clone();
+                let rc = recovery_ctx.clone();
+                std::thread::spawn(move || {
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .expect("Failed to build recovery runtime");
+                    let local = tokio::task::LocalSet::new();
+                    local.block_on(&rt, async move {
+                        // Reconnect stdin writer
+                        if let Some(stdin) = stdin_opt {
+                            let (new_cmd_tx, new_cmd_rx) = mpsc::unbounded_channel::<String>();
+                            tokio::task::spawn_local(stdin_writer_task(new_cmd_rx, stdin));
+                            *ct.lock().await = new_cmd_tx;
+                            eprintln!("[BRIDGE] Stdin writer reconnected");
+                        }
+
+                        // Auto-reload + auto-continue using persistent recovery context
+                        if let Some(ref model_path) = ctx.model_path {
+                            eprintln!("[BRIDGE] Auto-reloading model: {model_path} (crash #{})", ctx.crash_count);
+                            let load_id: u64 = 900_000 + ctx.crash_count as u64;
+                            let load_req = WorkerRequest {
+                                id: load_id,
+                                command: WorkerCommand::LoadModel {
+                                    model_path: model_path.clone(),
+                                    gpu_layers: ctx.gpu_layers,
+                                    mmproj_path: None,
+                                },
+                            };
+                            if let Ok(json) = serde_json::to_string(&load_req) {
+                                let (load_tx, load_rx) = oneshot::channel::<WorkerPayload>();
+                                p.lock().await.insert(load_id, PendingRequest { tx: load_tx });
+                                let _ = ct.lock().await.send(json);
+
+                                // Spawn stdout reader (ChildStdout isn't Send — use spawn_local)
+                                if let Some(stdout) = stdout_opt {
+                                    let p2 = p.clone();
+                                    let ag2 = ag.clone();
+                                    let mm2 = mm.clone();
+                                    let lp2 = lp.clone();
+                                    let pm2 = pm.clone();
+                                    let ct2 = ct.clone();
+                                    let rc2 = rc.clone();
+                                    tokio::task::spawn_local(async move {
+                                        stdout_reader_task(stdout, p2, ag2, mm2, lp2, pm2, ct2, rc2).await;
+                                    });
+                                }
+
+                                // Wait for model load
+                                match tokio::time::timeout(std::time::Duration::from_secs(120), load_rx).await {
+                                    Ok(Ok(WorkerPayload::ModelLoaded { .. })) => {
+                                        eprintln!("[BRIDGE] Model auto-reloaded successfully");
+                                        if let Some(ref conv_id) = ctx.conversation_id {
+                                            eprintln!("[BRIDGE] Auto-continuing generation for {conv_id} (crash #{})", ctx.crash_count);
+                                            let gen_id: u64 = 910_000 + ctx.crash_count as u64;
+                                            let gen_req = WorkerRequest {
+                                                id: gen_id,
+                                                command: WorkerCommand::Generate {
+                                                    user_message: "[System: Generation was interrupted due to a temporary issue. The model has been reloaded.] Continue from where you left off.".to_string(),
+                                                    conversation_id: Some(conv_id.clone()),
+                                                    skip_user_logging: false,
+                                                    image_data: None,
+                                                },
+                                            };
+                                            if let Ok(json) = serde_json::to_string(&gen_req) {
+                                                let _ = ct.lock().await.send(json);
+                                                eprintln!("[BRIDGE] Auto-continue command sent");
+                                            }
+                                        }
+                                    }
+                                    Ok(Ok(WorkerPayload::Error { message })) => {
+                                        eprintln!("[BRIDGE] Auto-reload failed: {message}");
+                                    }
+                                    _ => {
+                                        eprintln!("[BRIDGE] Auto-reload: timeout or unexpected response");
+                                    }
+                                }
+                            }
+                        } else {
+                            // No model to reload — just reconnect stdout reader
+                            if let Some(stdout) = stdout_opt {
+                                eprintln!("[BRIDGE] Stdout reader reconnected (no model to reload)");
+                                stdout_reader_task(stdout, p, ag, mm, lp, pm, ct, rc).await;
+                            }
+                        }
+                    });
+                });
+            }
         }
     }
     eprintln!("[BRIDGE] Stdout reader task exiting (old worker)");
