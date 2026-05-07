@@ -1,17 +1,34 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ArrowDown } from 'lucide-react';
-import { useRef, useCallback, useEffect, useState } from 'react';
+import React, { useRef, useCallback, useEffect, useState } from 'react';
 
 const ESTIMATED_ROW_HEIGHT_PX = 120;
 const SCROLL_BOTTOM_THRESHOLD_PX = 80;
 
 import { useChatContext } from '../../contexts/ChatContext';
+import { useModelContext } from '../../contexts/ModelContext';
 import { useUIContext } from '../../hooks/useUIContext';
 import { LoadingIndicator } from '../atoms';
 import { MessageBubble } from '../organisms';
 
+const RecoveryOrLoading: React.FC<{ isCrashRecovery: boolean; isModelLoading: boolean }> = ({
+  isCrashRecovery,
+  isModelLoading,
+}) => {
+  if (!isCrashRecovery) return <LoadingIndicator />;
+  const label = isModelLoading ? 'Reloading model...' : 'Resuming generation...';
+  return (
+    <div className="py-4 flex items-center gap-3 text-sm text-muted-foreground">
+      <span className="inline-block w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      {label}
+    </div>
+  );
+};
+
+// eslint-disable-next-line max-lines-per-function
 export const MessagesArea = () => {
   const { messages, isLoading, editMessage, regenerateFrom, continueFrom } = useChatContext();
+  const { status: modelStatus, isLoading: isModelLoading } = useModelContext();
   const { viewMode } = useUIContext();
   const containerRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
@@ -19,7 +36,14 @@ export const MessagesArea = () => {
   const programmaticScrollRef = useRef(false);
   const [showScrollDown, setShowScrollDown] = useState(false);
 
-  const showLoadingRow = isLoading;
+  // Show recovery indicator when backend is reloading after crash or auto-continuing
+  const tailMsg = messages[messages.length - 1];
+  const isCrashRecovery =
+    !isLoading &&
+    tailMsg?.role === 'system' &&
+    tailMsg.content.includes('[System:') &&
+    (isModelLoading || modelStatus.generating === true);
+  const showLoadingRow = isLoading || isCrashRecovery;
   const itemCount = messages.length + (showLoadingRow ? 1 : 0);
 
   const virtualizer = useVirtualizer({
@@ -29,15 +53,11 @@ export const MessagesArea = () => {
     overscan: 5,
   });
 
-  // Prevent virtualizer from fighting our auto-scroll during streaming.
-  // When auto-scroll is active, we handle scroll position ourselves via rAF.
-  // When user scrolled up, let the virtualizer adjust position on item resize
-  // (e.g. expand/collapse blocks above viewport).
+  // Let virtualizer adjust scroll only when user scrolled up (not during auto-scroll).
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (_item, _delta) =>
     !autoScrollRef.current;
 
-  // Preserve scroll position across viewMode toggles (raw/rendered).
-  // Save scrollTop ratio before re-render, restore after virtualizer re-measures.
+  // Preserve scroll position across viewMode toggles.
   const prevViewModeRef = useRef(viewMode);
   const savedScrollRatioRef = useRef<number | null>(null);
   useEffect(() => {
@@ -64,13 +84,11 @@ export const MessagesArea = () => {
     });
   });
 
-  // Engage auto-scroll when streaming starts
   useEffect(() => {
     if (isLoading) autoScrollRef.current = true;
-  }, [isLoading]);
+  }, [isLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-scroll to bottom when messages change (streaming tokens or new messages).
-  // Uses rAF so we run after the browser has committed the DOM update.
+  // Auto-scroll to bottom on new messages / streaming tokens.
   const prevMessageCountRef = useRef(messages.length);
   const prevLastContentLenRef = useRef(0);
   useEffect(() => {
@@ -91,13 +109,9 @@ export const MessagesArea = () => {
     });
   }, [messages, isLoading]);
 
-  // Detect user scroll to disengage/re-engage auto-scroll.
-  // Works for ALL scroll methods: wheel, scrollbar drag, trackpad, touch, keyboard.
   const handleScroll = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
-
-    // Ignore scroll events caused by our own programmatic scrollTop assignment
     if (programmaticScrollRef.current) {
       programmaticScrollRef.current = false;
       return;
@@ -108,7 +122,6 @@ export const MessagesArea = () => {
       autoScrollRef.current = true;
       setShowScrollDown(false);
     } else {
-      // User scrolled away from bottom — disengage auto-scroll
       autoScrollRef.current = false;
       setShowScrollDown(true);
     }
@@ -166,7 +179,10 @@ export const MessagesArea = () => {
                       isLastMessage={virtualRow.index === messages.length - 1}
                     />
                   ) : (
-                    <LoadingIndicator />
+                    <RecoveryOrLoading
+                      isCrashRecovery={isCrashRecovery}
+                      isModelLoading={isModelLoading}
+                    />
                   )}
                 </div>
               </div>
