@@ -1,6 +1,6 @@
 # Current Task: CUDA deadlock during tool token injection
 
-## Status: LIKELY FIXED — needs more testing to confirm
+## Status: MITIGATED — injection delay + headless crash recovery (upstream bug, llama.cpp #21383)
 
 ## The Bug
 
@@ -214,6 +214,56 @@ The timed sample approach (running `sample()` on a detached thread with polling 
 2. Bridge auto-restarts worker process
 3. Frontend detects model unloaded → auto-reloads last known model (~30s)
 4. Generation can auto-continue after reload
+
+## 2026-05-07 — Injection mitigation + headless crash recovery
+
+### Pattern confirmed
+The crash happens specifically at `sample()` **right after** `decode()` processes injected tool output tokens. Normal generation (no injection) never crashes. The crash is 100% reproducible with the PDF task (crashes on first `read_file` injection at 100K context).
+
+### Injection mitigation (partial fix)
+Three changes together improved stability significantly:
+
+| Change | File | Purpose |
+|--------|------|---------|
+| Smaller injection chunks (512→128) + sync after each | `command_executor.rs` | Prevents CUDA async state accumulation |
+| 100ms sleep after injection | `token_loop.rs` | Lets GPU driver flush operations |
+| Warm decode (re-decode last token) before sample() | `token_loop.rs` | Forces CUDA compute graph re-sync |
+
+**Results**: PDF task went from crashing in <30s to surviving 4+ minutes. NimLang CRUD task ran 10 min uninterrupted. Not a fix but dramatically reduces crash frequency.
+
+### Headless crash recovery (backend)
+Moved crash recovery from frontend React hooks to Rust backend:
+- `CrashRecoveryCtx` persists `model_path`, `gpu_layers`, `conversation_id` across crash cycles
+- After worker death: auto-restart → auto-reload model → auto-continue conversation
+- Up to `MAX_AUTO_RECOVERY_CRASHES=5` retries before giving up
+- Each cycle produces more output (conversation grows in DB)
+- PDF task: 31 chars (before) → 12,925 chars (after persistent recovery)
+
+### RTK always-on
+Removed `use_rtk` config toggle. RTK prefix always applied to commands.
+Pipeline: RTK (instant CPU filter, 60-90% reduction) → GPU summarizer (if >1500 chars).
+
+### Test results (Qwen3.6-35B-A3B at 100K context)
+
+| Task | Before mitigations | After mitigations |
+|------|-------------------|-------------------|
+| NimLang CRUD | 9 min, 75K chars, crash at end | 10 min, 75K chars, crash at end |
+| PDF Summary | <30s, 31 chars, immediate crash | 4+ min, 13K chars, crash after progress |
+| Simple generation (no tools) | Never crashes | Never crashes |
+
+### Files changed
+- `crates/llama-chat-worker/src/worker/worker_bridge.rs` — `CrashRecoveryCtx`, headless auto-reload/continue
+- `crates/llama-chat-engine/src/command_executor.rs` — Smaller chunks (128), sync per chunk
+- `crates/llama-chat-engine/src/token_loop.rs` — 100ms sleep + warm decode after injection
+- `src/hooks/useChat.ts` — Frontend crash message + auto-continue (still useful for browser)
+- `src/hooks/useModel.ts` — Frontend crash recovery events
+
+### Ideas to try next
+1. **Even smaller chunks (32 or 16)** — More sync points, slower but might eliminate crash
+2. **Single-token injection** — Decode each token individually like normal generation (very slow but guaranteed safe)
+3. **Inject into a fresh batch context** — Instead of continuing the existing context, save KV cache state, create fresh context, inject, then restore
+4. **`llama_kv_self_clear()` before injection** — Reset KV cache state that might be corrupted
+5. **Reduce context to 32K** — The crash may be worse at 100K due to memory pressure
 
 ## Investigation to continue
 
