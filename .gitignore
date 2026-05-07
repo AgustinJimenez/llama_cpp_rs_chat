@@ -71,3 +71,7 @@ snapshot.txt
 nim-*.zip
 nim-*.exe
 nim-installer*
+*.txt
+nemesis_*
+cookies.txt
+post_data.txt
