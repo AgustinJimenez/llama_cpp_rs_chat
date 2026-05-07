@@ -331,7 +331,7 @@ const AssistantMessage: React.FC<{
         ) : (
           <>
             {/* Thinking process (for reasoning models) */}
-            {thinkingContent ? (
+            {thinkingContent != null ? (
               <ThinkingBlock
                 content={thinkingContent}
                 isStreaming={isThinkingStreaming ? isStreaming : undefined}

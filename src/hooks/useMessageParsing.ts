@@ -115,11 +115,13 @@ export function useMessageParsing(message: Message, toolTags?: ToolTags): Parsed
     const thinkMatch = preprocessed.match(/<think>([\s\S]*?)<\/think>/);
     if (thinkMatch) return thinkMatch[1].trim();
     const unclosedMatch = preprocessed.match(THINKING_UNCLOSED_REGEX);
-    return unclosedMatch ? unclosedMatch[1].trim() || null : null;
+    // Return empty string (not null) for unclosed thinking — this allows the
+    // ThinkingBlock to render immediately when <think> opens, even before content arrives.
+    return unclosedMatch ? unclosedMatch[1].trim() || '' : null;
   }, [message.content, harmony]);
 
   const isThinkingStreaming = useMemo(() => {
-    if (harmony || !thinkingContent) return false;
+    if (harmony || thinkingContent == null) return false;
     return !/<think>[\s\S]*?<\/think>/.test(message.content);
   }, [message.content, harmony, thinkingContent]);
 
