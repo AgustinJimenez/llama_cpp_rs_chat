@@ -549,6 +549,12 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         [],
     );
 
+    // Add safe_tool_injection column if missing
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN safe_tool_injection INTEGER DEFAULT 0",
+        [],
+    );
+
     // Add Telegram notification settings columns if missing
     let _ = conn.execute(
         "ALTER TABLE config ADD COLUMN telegram_bot_token TEXT",

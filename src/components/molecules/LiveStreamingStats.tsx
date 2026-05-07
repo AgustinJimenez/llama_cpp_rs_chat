@@ -183,10 +183,10 @@ export const StatsBar = ({
           </div>
         ) : null}
       </div>
-      {disabled ? (
+      {isLoading && stopGeneration ? (
         <button
           type="button"
-          onClick={stopGeneration ?? undefined}
+          onClick={stopGeneration}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-muted hover:bg-accent text-foreground transition-colors"
           data-testid="stop-button"
           title="Stop generation"

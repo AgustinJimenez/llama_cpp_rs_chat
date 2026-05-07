@@ -183,7 +183,12 @@ function collectToolCallMatches(content: string): QwenTcMatch[] {
     const llama3Open = tryParseLlama3Open(body);
     if (llama3Open) {
       tcMatches.push({ start: matchStart, end: matchEnd, json: llama3Open });
+      continue;
     }
+    // Fallback 5: malformed JSON — still render as a widget with raw content
+    const nameGuess = body.match(/name[=:]\s*"?(\w+)"?/)?.[1] || 'unknown';
+    const fallback = JSON.stringify({ name: nameGuess, arguments: { _raw: body } });
+    tcMatches.push({ start: matchStart, end: matchEnd, json: fallback });
   }
   return tcMatches;
 }

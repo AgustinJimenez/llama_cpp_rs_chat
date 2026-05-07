@@ -59,6 +59,7 @@ pub(crate) struct TokenGenConfig<'a> {
     pub backend: &'a llama_cpp_2::llama_backend::LlamaBackend,
     pub chat_template_string: Option<&'a str>,
     pub proactive_compaction: bool,
+    pub safe_tool_injection: bool,
 }
 
 /// Vision context reference for tool response image injection.
@@ -82,11 +83,7 @@ const REPETITION_CHECK_MIN_TOKENS: i32 = 500;
 /// Check every N tokens for repetition loops.
 const REPETITION_CHECK_INTERVAL: i32 = 256;
 
-/// Temporary safety workaround: after a local tool returns, stop the current
-/// generation and let the frontend auto-continue on a fresh context instead of
-/// injecting tool-result tokens into the live context. This avoids the current
-/// non-deterministic C++ exception in `decode()` during tool injection.
-const RESTART_AFTER_TOOL_RESULT: bool = false;
+// RESTART_AFTER_TOOL_RESULT removed — now controlled by config.safe_tool_injection
 
 /// Detect repetition loops by measuring trigram diversity in the tail of the response.
 ///
@@ -544,7 +541,7 @@ pub(crate) fn run_generation_loop(
 
                 // Safety workaround: avoid in-place tool output injection and
                 // resume on a fresh context via the existing auto-continue path.
-                if RESTART_AFTER_TOOL_RESULT {
+                if cfg.safe_tool_injection {
                     if exec_result.output_block.contains("[INFINITE_LOOP_DETECTED]") {
                         eprintln!("[LOOP] Infinite loop detected — force-stopping generation");
                         log_event(cfg.conversation_id, "infinite_loop", "Force-stopped: model stuck in infinite tool call loop");

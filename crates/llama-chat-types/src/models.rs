@@ -129,6 +129,10 @@ pub struct SamplerConfig {
     pub model_history: Vec<String>,
     #[serde(default = "default_true")]
     pub disable_file_logging: bool,
+    /// Safe tool injection: restart context after each tool call instead of direct injection.
+    /// Slower (~2-5s pause per tool) but avoids CUDA deadlock on hybrid MoE models.
+    #[serde(default)]
+    pub safe_tool_injection: bool,
     // Tool tag overrides (None = use auto-detected)
     #[serde(default)]
     pub tool_tag_exec_open: Option<String>,
@@ -323,6 +327,7 @@ impl Default for SamplerConfig {
             use_htmd: false,
             tag_pairs: None,
             proactive_compaction: false,
+            safe_tool_injection: false,
             telegram_bot_token: None,
             telegram_chat_id: None,
             provider_api_keys: None,

@@ -70,6 +70,7 @@ export const MODEL_TOOL_TAGS: Record<string, ToolTags> = {
   'Qwen3.5-35B-A3B': TOOL_TAG_FAMILIES.qwen,
   'Qwen_Qwen3.5 35B A3B': TOOL_TAG_FAMILIES.qwen,
   'Qwen3.6-35B-A3B': TOOL_TAG_FAMILIES.qwen,
+  'Carnice-V2-27B': TOOL_TAG_FAMILIES.qwen,
   // Mistral models - strong tool calling with native tags
   'mistralai_Devstral Small 2507': TOOL_TAG_FAMILIES.mistral,
   'mistralai_Devstral Small 2 24B Instruct 2512': TOOL_TAG_FAMILIES.mistral,
@@ -165,6 +166,20 @@ export const MODEL_PRESETS: Record<string, ModelPreset> = {
     cache_type_k: 'turbo2',
     cache_type_v: 'turbo3',
     gpu_layers: 40,
+  },
+  // Carnice-V2-27B (Qwen3.6-27B dense finetune, Hermes-style agent, Q4_K_M)
+  // Thinking mode: temp=1.0, top_p=0.95, presence_penalty=0.0 (dense, NOT MoE)
+  'Carnice-V2-27B': {
+    sampler_type: 'Temperature',
+    temperature: 0.6,
+    top_p: 0.95,
+    top_k: 20,
+    min_p: 0.0,
+    presence_penalty: 0.0,
+    repeat_penalty: 1.0,
+    context_size: 32768,
+    flash_attention: true,
+    gpu_layers: 64,
   },
   // Qwen3.5-9B (dense, 9.5GB Q8)
   'Qwen3.5-9B': {
