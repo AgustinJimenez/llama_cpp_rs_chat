@@ -888,6 +888,16 @@ async fn stdout_reader_task(
                                         if let Some(ref conv_id) = ctx.conversation_id {
                                             eprintln!("[BRIDGE] Auto-continuing generation for {conv_id} (crash #{})", ctx.crash_count);
                                             let gen_id: u64 = 910_000 + ctx.crash_count as u64;
+
+                                            // Register as active generation so status API reports
+                                            // active_conversation_id (sidebar green dot, frontend reconnect)
+                                            let (token_tx, _token_rx) = mpsc::unbounded_channel::<TokenData>();
+                                            *ag.lock().await = Some(ActiveGeneration {
+                                                request_id: gen_id,
+                                                token_tx,
+                                                conversation_id: Some(conv_id.clone()),
+                                            });
+
                                             let gen_req = WorkerRequest {
                                                 id: gen_id,
                                                 command: WorkerCommand::Generate {
