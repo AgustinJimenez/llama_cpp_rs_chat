@@ -4,6 +4,7 @@ import { flushSync } from 'react-dom';
 import { toast } from 'react-hot-toast';
 
 const CLOUD_POLL_INTERVAL_MS = 2000;
+const CONTINUE_DELAY_AFTER_RECOVERY_MS = 1500;
 
 import type { Message } from '../types';
 import { createChatTransport } from '../utils/chatTransport';
@@ -144,8 +145,9 @@ export function useChat() {
         let systemPromptSeen = false;
         const filtered = mapped.filter((msg: Message) => {
           if (msg.role === 'system') {
-            // Always show compaction summaries
+            // Always show compaction summaries and crash recovery messages
             if (msg.content.startsWith('[Conversation summary')) return true;
+            if (msg.content.startsWith('[System:')) return true;
             if (!systemPromptSeen) {
               systemPromptSeen = true;
               msg.isSystemPrompt = true;
@@ -415,6 +417,57 @@ export function useChat() {
     abortGeneration();
   }, [abortGeneration]);
 
+  // ─── Crash recovery message ─────────────────────────────────────────────
+
+  useEffect(() => {
+    const handler = () => {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: 'system' as const,
+          content:
+            '[System: Generation was interrupted due to a temporary issue. The model is being reloaded and will continue automatically.]',
+          timestamp: Date.now(),
+        },
+      ]);
+    };
+    window.addEventListener('model-crash-recovery', handler);
+    return () => window.removeEventListener('model-crash-recovery', handler);
+  }, []);
+
+  // Auto-continue after model crash recovery
+  useEffect(() => {
+    const handler = () => {
+      const convId = currentConversationIdRef.current;
+      if (!convId) return;
+      console.log('[useChat] Model recovered — auto-continuing generation'); // eslint-disable-line no-console
+      // Small delay to let model fully initialize
+      setTimeout(() => {
+        abortControllerRef.current = new AbortController();
+        const aid = crypto.randomUUID();
+        flushSync(() => {
+          setMessages((prev) => [
+            ...prev,
+            { id: aid, role: 'assistant' as const, content: '', timestamp: 0 },
+          ]);
+        });
+        setIsLoading(true);
+        startGeneration(
+          {
+            prompt:
+              'Continue from where you left off. The system recovered from a temporary interruption.',
+            conversationId: convId,
+            autoContinue: true,
+          },
+          aid,
+        ).catch(() => setIsLoading(false));
+      }, CONTINUE_DELAY_AFTER_RECOVERY_MS);
+    };
+    window.addEventListener('model-crash-recovered', handler);
+    return () => window.removeEventListener('model-crash-recovered', handler);
+  }, [startGeneration, abortControllerRef]);
+
   // ─── Polling reconnect (after page refresh / conversation switch) ──────
 
   useEffect(() => {
@@ -507,8 +560,9 @@ export function useChat() {
               let systemPromptSeen = false;
               const filtered = mapped.filter((msg: Message) => {
                 if (msg.role === 'system') {
-                  // Always show compaction summaries
+                  // Always show compaction summaries and crash recovery messages
                   if (msg.content.startsWith('[Conversation summary')) return true;
+                  if (msg.content.startsWith('[System:')) return true;
                   if (!systemPromptSeen) {
                     systemPromptSeen = true;
                     return true;

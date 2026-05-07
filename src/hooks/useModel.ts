@@ -115,6 +115,8 @@ export const useModel = () => {
         wasLoadedRef.current = false;
         autoReloadingRef.current = true;
         console.log('[useModel] Model crashed — auto-reloading:', modelPath); // eslint-disable-line no-console
+        // Notify chat hook to inject a recovery message
+        window.dispatchEvent(new CustomEvent('model-crash-recovery', { detail: { modelPath } }));
         setIsLoading(true);
         isLoadingRef.current = true;
         setLoadingAction('loading');
@@ -122,7 +124,9 @@ export const useModel = () => {
           const result: ModelResponse = await loadModelCmd(modelPath);
           if (result.success && result.status) {
             setStatus(result.status as ModelStatus);
-            console.log('[useModel] Auto-reload successful'); // eslint-disable-line no-console
+            console.log('[useModel] Auto-reload successful — triggering auto-continue'); // eslint-disable-line no-console
+            // Trigger auto-continue in chat after model is back
+            window.dispatchEvent(new CustomEvent('model-crash-recovered'));
           }
         } catch (reloadErr) {
           console.error('[useModel] Auto-reload failed:', reloadErr);

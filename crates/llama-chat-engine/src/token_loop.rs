@@ -50,7 +50,6 @@ pub(crate) struct TokenGenConfig<'a> {
     pub max_total_tokens: i32,
     pub web_search_provider: Option<&'a str>,
     pub web_search_api_key: Option<&'a str>,
-    pub use_rtk: bool,
     pub use_htmd: bool,
     pub browser_backend: &'a crate::browser::BrowserBackend,
     pub n_batch: u32,
@@ -514,7 +513,7 @@ pub(crate) fn run_generation_loop(
                 &gen.response, gen.last_exec_scan_pos, cfg.conversation_id, model, cfg.tags,
                 cfg.template_type, cfg.web_search_provider, cfg.web_search_api_key,
                 &mut gen.recent_commands, &mut gen.consecutive_loop_blocks, token_sender, gen.token_pos, cfg.context_size,
-                Some(cancel.clone()), cfg.use_rtk, cfg.use_htmd, cfg.browser_backend,
+                Some(cancel.clone()), cfg.use_htmd, cfg.browser_backend,
                 cfg.mcp_manager.clone(), cfg.db.clone(),
                 cfg.backend, cfg.chat_template_string,
             )? {

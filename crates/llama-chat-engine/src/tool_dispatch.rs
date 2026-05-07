@@ -8,13 +8,9 @@ use llama_chat_types::*;
 use llama_chat_tools;
 use super::sub_agent::{run_sub_agent};
 use super::tool_tags::ToolTags;
-/// Prefix a command with `rtk` for output compression, if RTK mode is enabled.
-pub(crate) fn maybe_rtk_prefix(cmd: &str, use_rtk: bool) -> String {
-    if use_rtk {
-        format!("rtk {}", cmd)
-    } else {
-        cmd.to_string()
-    }
+/// Prefix a command with `rtk` for output compression (always enabled).
+pub(crate) fn rtk_prefix(cmd: &str) -> String {
+    format!("rtk {}", cmd)
 }
 
 /// Check if a command is potentially destructive and return a warning.
@@ -204,7 +200,6 @@ pub(crate) fn execute_single_tool(
     token_pos: i32,
     context_size: u32,
     cancel: Option<Arc<AtomicBool>>,
-    use_rtk: bool,
     use_htmd: bool,
     browser_backend: &crate::browser::BrowserBackend,
     mcp_manager: Option<Arc<dyn llama_chat_tools::McpManagerOps>>,
@@ -224,7 +219,7 @@ pub(crate) fn execute_single_tool(
         match run_sub_agent(
             model, backend, task, extra_context, chat_template_string,
             conversation_id, tags, web_search_provider, web_search_api_key,
-            use_rtk, use_htmd, browser_backend, mcp_manager.clone(), db.clone(),
+            use_htmd, browser_backend, mcp_manager.clone(), db.clone(),
             token_sender,
         ) {
             Ok(result) => return (result, Vec::new()),
@@ -253,7 +248,7 @@ pub(crate) fn execute_single_tool(
                 let timeout_secs = args.get("timeout").and_then(|v| {
                     v.as_u64().or_else(|| v.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
                 });
-                let rtk_cmd = maybe_rtk_prefix(cmd, use_rtk);
+                let rtk_cmd = rtk_prefix(cmd);
                 if is_background {
                     log_info!(conversation_id, "🐚 Batch: background execute_command: {}", rtk_cmd);
                     let sender_clone = token_sender.clone();

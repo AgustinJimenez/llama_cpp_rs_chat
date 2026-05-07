@@ -173,8 +173,6 @@ pub struct SamplerConfig {
     #[serde(default = "default_split_mode")]
     pub split_mode: String,
     #[serde(default)]
-    pub use_rtk: bool,
-    #[serde(default)]
     pub use_htmd: bool,
     #[serde(default)]
     pub tag_pairs: Option<Vec<TagPair>>,
@@ -323,7 +321,6 @@ impl Default for SamplerConfig {
             use_mmap: true,
             main_gpu: 0,
             split_mode: "layer".to_string(),
-            use_rtk: false,
             use_htmd: false,
             tag_pairs: None,
             proactive_compaction: false,

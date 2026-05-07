@@ -430,7 +430,7 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
 
     // RTK (Rust Token Killer) output compression
     let _ = conn.execute(
-        "ALTER TABLE config ADD COLUMN use_rtk INTEGER DEFAULT 0",
+        "ALTER TABLE config ADD COLUMN use_rtk INTEGER DEFAULT 1",
         [],
     );
 

@@ -61,7 +61,6 @@ pub fn db_config_to_sampler_config(db_config: &DbSamplerConfig) -> SamplerConfig
         use_mmap: db_config.use_mmap,
         main_gpu: db_config.main_gpu,
         split_mode: db_config.split_mode.clone(),
-        use_rtk: db_config.use_rtk,
         use_htmd: db_config.use_htmd,
         tag_pairs,
         proactive_compaction: db_config.proactive_compaction,
@@ -126,7 +125,7 @@ pub fn sampler_config_to_db(config: &SamplerConfig) -> DbSamplerConfig {
         use_mmap: config.use_mmap,
         main_gpu: config.main_gpu,
         split_mode: config.split_mode.clone(),
-        use_rtk: config.use_rtk,
+        use_rtk: true, // Always enabled — RTK output compression
         use_htmd: config.use_htmd,
         tag_pairs: tag_pairs_json,
         proactive_compaction: config.proactive_compaction,

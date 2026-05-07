@@ -27,7 +27,7 @@ use super::tool_output::{
 };
 
 use super::tool_dispatch::{
-    maybe_rtk_prefix,
+    rtk_prefix,
     detect_destructive_command,
     detect_command_injection,
     run_native_tool_with_timeout,
@@ -107,7 +107,6 @@ pub fn check_and_execute_command_with_tags(
     token_pos: i32,
     context_size: u32,
     cancel: Option<Arc<AtomicBool>>,
-    use_rtk: bool,
     use_htmd: bool,
     browser_backend: &crate::browser::BrowserBackend,
     mcp_manager: Option<Arc<dyn llama_chat_tools::McpManagerOps>>,
@@ -339,7 +338,6 @@ pub fn check_and_execute_command_with_tags(
                                 token_pos,
                                 context_size,
                                 cancel.clone(),
-                                use_rtk,
                                 use_htmd,
                                 browser_backend,
                                 mcp_manager.clone(),
@@ -362,7 +360,6 @@ pub fn check_and_execute_command_with_tags(
                                 token_pos,
                                 context_size,
                                 cancel.clone(),
-                                use_rtk,
                                 use_htmd,
                                 browser_backend,
                                 mcp_manager.clone(),
@@ -446,7 +443,7 @@ pub fn check_and_execute_command_with_tags(
                         match run_sub_agent(
                             model, backend, &task, extra_context.as_deref(), chat_template_string,
                             conversation_id, tags, web_search_provider, web_search_api_key,
-                            use_rtk, use_htmd, browser_backend, mcp_manager.clone(), db.clone(),
+                            use_htmd, browser_backend, mcp_manager.clone(), db.clone(),
                             token_sender,
                         ) {
                             Ok(result) => result,
@@ -466,7 +463,7 @@ pub fn check_and_execute_command_with_tags(
                         llama_chat_db::event_log::log_event(conversation_id, "security_warning", &format!("{}: {}", warning, &cmd[..cmd.len().min(80)]));
                     }
 
-                    let rtk_cmd = maybe_rtk_prefix(&cmd, use_rtk);
+                    let rtk_cmd = rtk_prefix(&cmd);
                     if is_background {
                         log_info!(conversation_id, "🐚 Background execute_command: {}", rtk_cmd);
                         let sender_clone = token_sender.clone();
@@ -576,7 +573,7 @@ pub fn check_and_execute_command_with_tags(
                     } else {
                         log_info!(conversation_id, "🐚 Falling back to streaming shell execution");
                         // Use streaming execution — each line is sent to frontend as it arrives
-                        let rtk_cmd = maybe_rtk_prefix(&command_text, use_rtk);
+                        let rtk_cmd = rtk_prefix(&command_text);
                         let sender_clone = token_sender.clone();
                         execute_command_streaming(&rtk_cmd, cancel.clone(), |line| {
                             if let Some(ref sender) = sender_clone {

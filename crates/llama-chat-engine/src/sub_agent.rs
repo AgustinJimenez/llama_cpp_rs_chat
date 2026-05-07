@@ -35,7 +35,6 @@ pub fn run_sub_agent(
     tags: &ToolTags,
     web_search_provider: Option<&str>,
     web_search_api_key: Option<&str>,
-    use_rtk: bool,
     use_htmd: bool,
     browser_backend: &crate::browser::BrowserBackend,
     mcp_manager: Option<Arc<dyn llama_chat_tools::McpManagerOps>>,
@@ -205,7 +204,7 @@ pub fn run_sub_agent(
                 web_search_provider, web_search_api_key,
                 &mut recent_commands, &mut consecutive_loop_blocks, token_sender, token_pos,
                 AGENT_CTX_SIZE, Some(cancel.clone()),
-                use_rtk, use_htmd, browser_backend,
+                use_htmd, browser_backend,
                 mcp_manager.clone(), db.clone(),
                 backend, chat_template_string,
             ) {

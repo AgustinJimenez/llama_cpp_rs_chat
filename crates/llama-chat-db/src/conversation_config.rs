@@ -182,7 +182,7 @@ impl Database {
                     web_search_api_key: None,
                     web_browser_backend: None,
                     models_directory: None,
-                    use_rtk: false,
+                    use_rtk: true,
                     use_htmd: false,
                     proactive_compaction: false,
                     safe_tool_injection: false,

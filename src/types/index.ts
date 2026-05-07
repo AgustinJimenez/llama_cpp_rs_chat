@@ -97,7 +97,6 @@ export interface SamplerConfig {
   use_mmap?: boolean; // true
   main_gpu?: number; // 0
   split_mode?: string; // "layer" | "row" | "none"
-  use_rtk?: boolean; // RTK output compression for tool commands
   use_htmd?: boolean; // htmd web fetch (better markdown extraction)
   // Vision projector override (auto-detected if not specified)
   mmproj_path?: string;
