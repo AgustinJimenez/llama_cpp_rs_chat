@@ -75,3 +75,7 @@ nim-installer*
 nemesis_*
 cookies.txt
 post_data.txt
+
+# Temp images
+*.png
+temp_ocr/
