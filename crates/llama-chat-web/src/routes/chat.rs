@@ -121,7 +121,6 @@ pub async fn handle_post_chat(
             }
         } else {
             // Create new conversation with resolved system prompt
-            llama_chat_tools::clear_web_fetch_cache();
             let system_prompt = resolve_system_prompt(&db, general_name.as_deref());
             match ConversationLogger::new(db.clone(), system_prompt.as_deref()) {
                 Ok(logger) => Arc::new(Mutex::new(logger)),

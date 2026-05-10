@@ -22,7 +22,7 @@ pub mod browser_session;
 pub mod mcp_tools;
 pub mod screenshot_tool;
 pub mod telegram;
-pub mod web_search;
+pub(crate) mod web_search;
 pub mod tool_parser;
 pub mod tool_defs;
 mod utils;
@@ -1033,9 +1033,6 @@ pub fn dispatch_native_tool(
         }
     }))
 }
-
-/// No-op stub — web_fetch cache was removed.
-pub fn clear_web_fetch_cache() {}
 
 #[cfg(test)]
 mod tests {

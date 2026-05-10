@@ -423,9 +423,9 @@ fn try_infer_tool_from_bare_args(trimmed: &str) -> Option<(String, Value)> {
     } else if obj.contains_key("path") && obj.contains_key("content") {
         "write_file"
     } else if obj.contains_key("query") {
-        "web_search"
+        "browser_search"
     } else if obj.contains_key("url") {
-        "web_fetch"
+        "browser_navigate"
     } else if obj.contains_key("path") {
         // Could be read_file or list_directory — default to read_file
         "read_file"

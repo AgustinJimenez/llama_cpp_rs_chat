@@ -164,7 +164,7 @@ pub(crate) fn detect_http_error_hint(model_text: &str) -> Option<&'static str> {
         || lower.contains("cloudflare") || lower.contains("enable cookies") || lower.contains("access denied")
         || (lower.contains("ssl") && lower.contains("error"))
     {
-        Some("TIP: This URL appears to be dead or inaccessible. Use web_search to find the correct/current URL instead of guessing.")
+        Some("TIP: This URL appears to be dead or inaccessible. Use browser_search to find the correct/current URL instead of guessing.")
     } else {
         None
     }

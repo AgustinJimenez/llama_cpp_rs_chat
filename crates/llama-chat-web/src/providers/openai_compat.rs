@@ -689,7 +689,7 @@ fn execute_openai_tool(name: &str, arguments_json: &str, db: Option<&llama_chat_
         Some(result) => result.text,
         None => {
             // dispatch_native_tool returns None for unknown tools
-            format!("Unknown tool: {name}. Available tools: read_file, write_file, edit_file, execute_command, execute_python, list_directory, search_files, find_files, web_search, web_fetch, send_telegram")
+            format!("Unknown tool: {name}. Available tools: read_file, write_file, edit_file, execute_command, execute_python, list_directory, search_files, find_files, browser_search, browser_navigate, send_telegram")
         }
     }
 }

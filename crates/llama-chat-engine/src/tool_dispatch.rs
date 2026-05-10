@@ -93,7 +93,7 @@ pub(crate) fn detect_command_injection(cmd: &str) -> Option<String> {
 /// `execute_command` is always serial since it's hard to detect read-only shell commands reliably.
 pub(crate) const READ_ONLY_TOOLS: &[&str] = &[
     "read_file", "search_files", "find_files", "list_directory",
-    "web_search", "web_fetch", "lsp_query", "git_status", "git_diff",
+    "browser_search", "lsp_query", "git_status", "git_diff",
     "check_background_process", "list_background_processes",
     "todo_read", "list_tools", "get_tool_details", "list_skills",
     "take_screenshot", "list_windows", "get_cursor_position",

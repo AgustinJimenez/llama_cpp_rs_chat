@@ -466,12 +466,9 @@ pub fn tool_use_one_liner(tool_name: &str, args_hint: &str, output: &str, durati
             let lines = output.lines().count();
             format!("{} lines", lines)
         }
-        "web_search" => {
+        "browser_search" => {
             let results = output.matches("URL:").count().max(output.matches("http").count().min(10));
             format!("{} results", results)
-        }
-        "web_fetch" => {
-            format!("{} chars fetched", output.len())
         }
         _ => {
             let first_line = output.lines().next().unwrap_or("done");
@@ -582,7 +579,7 @@ pub fn maybe_summarize_tool_output(
     let extra_instructions = if lower_name.contains("browser_get_links") || lower_name.contains("browser_get_html") {
         "\nCRITICAL: Preserve ALL URLs/href values and their associated text. \
          The user needs the actual links to navigate. Never omit or paraphrase URLs."
-    } else if lower_name.contains("browser_get_text") || lower_name.contains("web_fetch") {
+    } else if lower_name.contains("browser_get_text") {
         "\nPreserve key facts, names, dates, and quotes from the page content. \
          Keep article structure (headings, main points)."
     } else if lower_name.contains("browser_eval") {
