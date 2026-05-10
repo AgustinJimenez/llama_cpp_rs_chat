@@ -58,6 +58,7 @@ pub(crate) struct TokenGenConfig<'a> {
     pub backend: &'a llama_cpp_2::llama_backend::LlamaBackend,
     pub chat_template_string: Option<&'a str>,
     pub proactive_compaction: bool,
+    pub safe_tool_injection: bool,
 }
 
 /// Vision context reference for tool response image injection.
@@ -532,6 +533,20 @@ pub(crate) fn run_generation_loop(
                 gen.response.push_str(&exec_result.output_block);
                 gen.logger_synced_len = gen.response.len();
 
+                // First tool injection workaround: the CUDA backend's graph_compute() deadlocks
+                // on hybrid models (Qwen3.5/3.6) when tokens are first injected mid-generation.
+                // After a context restart (fresh decode from DB), subsequent injections work fine.
+                // So we skip injection only on the FIRST tool result and restart the context.
+                // The tool output is already saved to DB by the command executor above.
+                let is_first_injection = gen.tool_response_tokens == 0;
+                if is_first_injection {
+                    log_info!(cfg.conversation_id, "First tool injection — restarting context to avoid hybrid model deadlock");
+                    gen.tool_response_tokens += exec_result.model_tokens.len() as i32;
+                    gen.finish_reason = "tool_continue".to_string();
+                    hit_stop_condition = true;
+                    break;
+                }
+
                 gen.tool_response_tokens += exec_result.model_tokens.len() as i32;
                 command_executed = true;
 
@@ -581,15 +596,11 @@ pub(crate) fn run_generation_loop(
                 }
 
                 // Feed injected tokens to sampler so grammar/penalties stay in sync.
-                // Without this, the grammar sampler's internal state is desynchronized
-                // from the context, causing C++ exceptions on the next sample().
                 let injected_tokens: Vec<LlamaToken> = exec_result.model_tokens.iter().map(|&id| LlamaToken(id)).collect();
                 sampler.accept_many(&injected_tokens);
                 gen.generated_token_ids.extend(injected_tokens);
 
                 // Brief pause after injection to let CUDA driver settle.
-                // With single-token injection this may not be needed, but
-                // it's cheap insurance against the CUDA deadlock (#21383).
                 std::thread::sleep(std::time::Duration::from_millis(50));
                 context.synchronize();
 

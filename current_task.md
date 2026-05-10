@@ -265,15 +265,233 @@ Pipeline: RTK (instant CPU filter, 60-90% reduction) → GPU summarizer (if >150
 4. **`llama_kv_self_clear()` before injection** — Reset KV cache state that might be corrupted
 5. **Reduce context to 32K** — The crash may be worse at 100K due to memory pressure
 
+## 2026-05-09 — Silent crash recovery + upstream research
+
+### Recovery pipeline bugs fixed (3 bugs)
+
+The crash recovery was broken — the model would crash, auto-restart, but fail to actually continue:
+
+| Bug | Cause | Fix |
+|-----|-------|-----|
+| Stdout reader dying | Recovery thread's `block_on` returned → `LocalSet` dropped → `spawn_local` stdout reader killed | Await the stdout reader handle to keep the recovery thread alive |
+| Frontend race | Both bridge (Rust) and frontend (JS) detected crash, both sent `LoadModel` → second load destroyed first's context → 120s timeout → another kill | Added `auto_recovering: Arc<AtomicBool>` flag; `is_loading()` returns true during recovery so frontend skips its own reload; `load_model()` rejects external requests during recovery |
+| Missing pending request | Auto-continue Generate sent without registering a `PendingRequest` → stdout reader couldn't match the response → "No pending request for id=910001" | Register `PendingRequest` before sending auto-continue command |
+
+### Silent recovery (no chat messages)
+
+Changed recovery to be invisible to the user:
+- `skip_user_logging: true` on auto-continue Generate — no "[System: interrupted]" message in DB
+- Don't inject crash token into stream when `will_auto_recover` is true — no "[Worker process crashed]" text
+- Don't clear `ActiveGeneration` during recovery — UI keeps showing spinner
+- Frontend polling reconnect picks up the resumed generation via `active_conversation_id`
+- Only visible artifact: brief "Connection closed unexpectedly" toast (from SSE stream dying)
+
+### Test results (2026-05-09)
+- **PDF summary (9B)**: Crash after read_file injection → silent recovery → auto-continue → deadlocks again at same point → repeats until MAX_AUTO_RECOVERY_CRASHES (2) exceeded
+- **Nim CRUD (9B)**: Crash after tool injection → silent recovery → auto-continue → **successfully generated more tokens, wrote files, made tool calls** → deadlocked again → recovered again → deadlocked at 3rd crash → gave up
+- **Key finding**: The deadlock is **deterministic per conversation state** — replaying the same conversation from DB hits the same deadlock at the same point. Auto-continue only helps when the new generation changes the conversation enough to avoid the same token positions.
+
+### `MAX_AUTO_RECOVERY_CRASHES` reduced to 2
+
+Was 5 — but since the deadlock is deterministic per conversation, retrying 5 times on a poisoned conversation just wastes time. Now gives up after 3 total crashes (crash_count > 2).
+
+### Upstream issues found (2026-05-09)
+
+| Issue | Description | Status |
+|-------|-------------|--------|
+| [#21383](https://github.com/ggml-org/llama.cpp/issues/21383) | Qwen3.5-27B CUDA illegal memory access in agentic tool-call pattern | OPEN |
+| [#22450](https://github.com/ggml-org/llama.cpp/issues/22450) | Qwen3.6-35B-A3B slot hangs in TG after cache invalidation — `llama_decode` doesn't return | OPEN |
+| [#22160](https://github.com/ggml-org/llama.cpp/issues/22160) | "Deadlock by Design" — client timeout + no prompt cache reuse = infinite retry loop | OPEN |
+| [#20545](https://github.com/ggml-org/llama.cpp/issues/20545) | Infinite wait on ROCm with Qwen3.5-35B-A3B, same `ggml_backend_sched_synchronize` hang | OPEN |
+
+All issues confirm: **hybrid MoE + recurrent models (Qwen3.5/3.6) have known CUDA/ROCm synchronization bugs in llama.cpp during agentic workflows**. No upstream fix exists.
+
+### Understanding the deadlock
+
+The deadlock is NOT in `sample()` itself. `sample()` is trivial — it just picks a token from probability distribution. But internally it first calls `ctx->synchronize()` to wait for the GPU to finish the previous `decode()`. The GPU never signals completion because the **hybrid architecture's backend scheduler** (`ggml_backend_sched`) gets into a broken state after mid-generation token injection.
+
+Why it's specific to hybrid models: Qwen3.5/3.6 use both **attention layers** (CUDA backend) and **Gated Delta Net recurrent layers** (different CUDA kernels). The backend scheduler must synchronize between these two compute paths. After token injection mid-generation, the scheduler's internal state becomes inconsistent, and `synchronize()` waits forever for a CUDA event that will never fire.
+
+Why `safe_tool_injection` (restart after tool) works: instead of calling `sample()` right after mid-generation `decode(injected_tokens)`, we stop and restart. The new generation cycle does `decode(full_prompt_from_DB)` from scratch, which rebuilds the scheduler state cleanly. `sample()` then works because the GPU state is consistent.
+
+### Workaround options to explore
+
+1. **`safe_tool_injection` flag** (implemented, disabled by default): Stop generation after each tool injection, auto-continue with fresh context. Avoids the deadlock entirely but adds ~2-5s pause per tool call. Already in config DB, just needs wiring in token_loop.rs.
+
+2. **Warm decode before sample**: After injection, decode a dummy/repeat token to force the backend scheduler to re-sync before calling sample(). Already partially implemented (100ms sleep + synchronize). Could try a full re-decode of the last few tokens.
+
+3. **KV cache checkpoint/restore**: Before injection, save KV cache state. After injection, if sample() would deadlock, restore and retry with a different approach. Requires llama.cpp API support (`llama_state_save`/`llama_state_load`).
+
+4. **Reduce injection size**: Instead of injecting full tool output (1000+ tokens), always use GPU summarization to keep injections under 100 tokens. Smaller injections may not trigger the scheduler bug.
+
+5. **Force backend re-initialization**: After injection, call `llama_kv_self_clear()` or equivalent to reset the backend scheduler state. Destructive (loses KV cache) but might avoid the deadlock.
+
+6. **Wait for upstream fix**: Monitor #22450 and #21383. The llama.cpp team is aware of hybrid model issues.
+
+### 2026-05-09 — Isolated test results (16 levels, all passed)
+
+Created `crates/tests/src/threaded_injection.rs` with 16 levels of increasing complexity:
+
+| Level | What | Result |
+|-------|------|--------|
+| 0 | Single-threaded baseline | ✅ PASSED |
+| 1 | Tokio multi-thread runtime | ✅ PASSED |
+| 2 | + Background async tasks (timers, channels) | ✅ PASSED |
+| 3 | + Background std::threads (CPU work) | ✅ PASSED |
+| 4 | + Periodic model metadata reads | ✅ PASSED |
+| 5 | + Simulated IPC pipe readers | ✅ PASSED |
+| 6 | Large prompt (~1K tokens with tool definitions) | ✅ PASSED |
+| 7 | + Real subprocess spawning (cmd.exe) | ✅ PASSED |
+| 8 | + Real pipe I/O (BufReader on ChildStdout) | ✅ PASSED |
+| 9 | + SQLite DB writes during generation | ✅ PASSED |
+| 10 | High token count (2000+ gen tokens, pos ~4K) | ✅ PASSED |
+| 11 | Large injection (1000+ tokens per inject) | ✅ PASSED |
+| 12 | Real tool pattern: gen→large_inject→gen loop (pos ~13K) | ✅ PASSED |
+| 13 | + Blocking cmd.exe between inject cycles | ✅ PASSED |
+| 14 | Real OS pipe blocking reads (persistent BufReader) | ✅ PASSED |
+| 15 | CUDA runs in child process context (subprocess) | ✅ PASSED |
+| 16 | Multiple simultaneous child processes | ✅ PASSED |
+| 17 | Native Jinja chat template from GGUF + OpenAI tool defs | ✅ PASSED |
+| 18 | Warmup context create/destroy before main context | ✅ PASSED |
+| 19 | Multiple context create/destroy cycles (sub-agent) | ✅ PASSED |
+| 20 | Full app sequence: warmup + sub-agent mid-generation | ✅ PASSED |
+| 21 | Stdout pipe writes after every sample() (JSON IPC) | ✅ PASSED |
+| 22 | Worker IPC pattern: stdin reader + stdout writer + CUDA | ✅ PASSED |
+| 23 | VRAM pressure: 2GB system RAM allocation | ✅ PASSED |
+| 24 | Kitchen sink: everything combined | ✅ PASSED |
+| 25 | Abort callback registered during CUDA compute | ✅ PASSED |
+| 26 | Long delays (3-7s) between gen and injection | ✅ PASSED |
+
+**Conclusion**: The deadlock CANNOT be reproduced in an isolated test. All 26 levels pass with 0-4ms `sample()` latency at positions up to 13,553 with 1000+ token injections. The test exhaustively covers every individual app component: tokio runtime, background threads, real OS pipes, real subprocess spawning, blocking I/O, SQLite writes, child process CUDA context, multiple concurrent child processes, Jinja template rendering with full OpenAI tool definitions, context create/destroy cycles, sub-agent contexts mid-generation, abort callbacks, per-token pipe writes, memory pressure, and long idle delays.
+
+**The deadlock is an emergent behavior of the full app** — it only occurs when ALL components run together in the specific sequence the app performs. No individual component or combination of components reproduces it.
+
+### 2026-05-09 — BREAKTHROUGH: Deadlock is in decode(), not sample()
+
+C++ instrumentation at every level revealed the actual hang point:
+
+**The deadlock is in `llama_decode()` during single-token injection, NOT in `llama_sampler_sample()`.**
+
+```
+[INJECT_DECODE] 551/649 pos=6583 ok     ← decode #551 succeeded
+[WATCHDOG] deadlock after 10664ms        ← decode #552 never returned
+```
+
+Key findings:
+1. **`ggml_backend_sched_synchronize` completes successfully** — both CUDA0 and CPU backends sync fine before the hang
+2. **The hang is inside `llama_decode()`** for a single token at context position ~6583
+3. **It's deterministic**: both crashes hung at exactly token #551 of 649 in the injection loop
+4. **Position ~6600 is the trigger**: the KV cache position where decode hangs is consistent
+5. **Previous assumption was wrong**: we thought sample() hung, but sample() was never reached — decode() in the injection loop hung first
+
+The injection does single-token decode (one token at a time, like normal generation). Token #1-551 decode fine. Token #552 hangs forever. This suggests a **KV cache position-dependent bug** in the hybrid architecture — something about position ~6600 causes the CUDA backend to deadlock.
+
+Possible causes:
+- **Recurrent state overflow**: Qwen3.5's Gated Delta Net recurrent layers have fixed-size state buffers. Position ~6500 might exceed an internal limit.
+- **Attention window boundary**: `full_attention_interval=4` means attention layers process every 4th layer. A specific position might hit a boundary condition.
+- **KV cache memory layout**: The hybrid KV cache has filtered (recurrent) and non-filtered (attention) layers. Position ~6600 might cause a memory allocation/mapping issue.
+
+### 2026-05-09 — Isolated test results (pure generation + position sweep)
+
+- **Pure generation (10K tokens, no injection)**: PASSED at 18 tok/s, positions up to 10,044
+- **Position sweep (4000-6000)**: PASSED — inject 600 tokens at each position, all OK
+- **Position sweep 6200**: appeared to hang but was caused by verbose SCHED logging overhead (15x slowdown from `fflush(stderr)`)
+- **26-level threaded test**: all passed (tokio, pipes, subprocesses, DB, abort callback, etc.)
+
+**Conclusion**: The deadlock CANNOT be reproduced in any isolated test. It requires the full app's runtime — specifically the interaction between the worker's IPC loop, the generation loop, and tool execution. The `fflush(stderr)` timing perturbation can make it appear in tests but is a false positive.
+
+### What we know for certain:
+1. **`decode()` is the hang point**, not `sample()` — confirmed by instrumentation
+2. **`cudaStreamSynchronize` completes OK** — the hang is AFTER CUDA sync
+3. **It happens at a consistent injection token index** (#551 of 649 in two crashes)
+4. **It's timing-sensitive** — adding micro-delays (fflush) can prevent or trigger it
+5. **It only happens in the full app** — not reproducible in isolation despite 26 levels of testing
+
+### Exact hang location inside llama_decode():
+
+```
+llama_context::decode()
+  → sched_reserve()          ✅ OK
+  → memory_update()          ✅ OK  
+  → memory->init_batch()     ✅ OK
+  → process_ubatch()         💀 HANGS
+    → mctx->apply()          ✅ OK
+    → graph reuse/build      ✅ OK
+    → set_inputs()           ✅ OK
+    → graph_compute()        💀 ← HERE (CUDA graph execution)
+```
+
+The hang is in `graph_compute()` — the function that actually executes the CUDA computation graph. This is the ggml backend's `ggml_backend_graph_compute()` call.
+
+**Critical observation**: Adding `fflush(stderr)` logging at each step PREVENTS the deadlock from occurring. The microsecond delays from fprintf/fflush change CUDA kernel scheduling enough to avoid the race condition. This confirms the deadlock is an extremely narrow timing-dependent race in the CUDA backend's graph execution for hybrid (attention + recurrent) models.
+
+### Attempted fixes at C++ level:
+- `fflush(stderr)` before graph_compute: prevents deadlock ONLY when combined with many other fflush calls (timing perturbation). Single fflush insufficient.
+- `ggml_backend_sched_synchronize()` before graph_compute: **no effect** — sync completes but graph_compute still hangs
+- The deadlock is inside `ggml_backend_sched_graph_compute_async()` — too deep to fix without modifying ggml internals
+
+### Next steps:
+1. **Implement `safe_tool_injection`** — stop generation after tool injection, auto-continue with fresh decode. The only guaranteed fix without upstream patch.
+2. **Report to llama.cpp** with exact hang location (`graph_compute_async` on hybrid models during tool injection in multi-threaded IPC app)
+3. **Test with upstream llama.cpp server** — does `llama-server` also deadlock with Qwen3.5 tool injection?
+
+## 2026-05-10 — BREAKTHROUGH: Deadlock is NOT in the generation pipeline
+
+### Real pipeline test (`real_pipeline_test.rs`)
+Created a test that calls `generate_llama_response()` directly — the exact same function
+the worker process uses. This includes:
+- Real tool parsing and execution (read_file, execute_command, etc.)
+- Real token injection via `command_executor::inject_output_tokens()`
+- Real conversation logging to SQLite
+- Real sampler chain, Jinja templates, prompt building
+- Auto-continue loop (tool_continue → Continue → tool_continue → ...)
+- Watchdog thread, first-injection workaround, GPU summarizer sub-agent
+
+**Result (9B model):**
+- **24 rounds, 78 tool injections, 19,365 tokens generated — ZERO deadlocks**
+- Round 24 had **15 sequential tool calls** in one conversation
+- Round 16 had **8 tool calls** (177 seconds continuous)
+- All with single-token injection matching real app path exactly
+
+### What this proves
+**The deadlock is NOT in the generation pipeline.** The generation code (token_loop,
+command_executor, sampler, tool injection, sub-agent) works perfectly when called directly.
+
+The deadlock only occurs in the **full worker process** — the IPC/threading layer. The key
+differences between the passing test and the failing app:
+
+1. **`steal_stdout_for_ipc()`** — `_dup2(2, 1)` redirects C stdout → stderr at OS level
+2. **3-thread architecture** — stdin reader, main crossbeam event loop, generation thread
+3. **tokio mpsc → crossbeam bridge** — `blocking_recv()` thread between channel types
+4. **Pipe I/O to parent** — JSON Lines serialized and written to OS pipe every token
+5. **Parent `BufReader::lines()`** — constant pipe reads from worker stdout
+6. **`SetUnhandledExceptionFilter`** — Windows SEH crash handler
+
+### Implication for fix
+The fix should target the worker's IPC architecture, not the generation code. Options:
+1. **Reduce pipe write frequency** — buffer tokens, write every N tokens instead of every token
+2. **Decouple CUDA from pipe I/O** — ensure pipe writes never block on same OS thread as CUDA
+3. **Remove crossbeam bridge** — use pure tokio channels end-to-end
+4. **Async pipe writes** — use non-blocking I/O for stdout writes
+5. **Move pipe writes to dedicated thread** — isolate from generation thread entirely
+
+### Also tested: threaded injection test (27 levels)
+Updated the `threaded_injection.rs` test with two critical fixes:
+- **Single-token injection** (was 512-token chunks) — matches real app's `inject_output_tokens()`
+- **Level 27: stdout fd hijack** — `_dup2(2, 1)` like worker's `steal_stdout_for_ipc()`
+
+All 27 levels pass with 9B model. But a previous background run DID hang (11GB stuck process),
+suggesting the deadlock is possible even in isolation, just extremely rare without the full
+worker IPC pipe pressure.
+
 ## Investigation to continue
 
 1. **Test with Gemma-4 or Devstral** — Confirm if non-Qwen models have the same issue
 2. **Test with upstream llama.cpp** — Rule out TurboQuant fork
-3. **Attach C++ debugger** (Visual Studio) — Break when hung, get stack trace
-4. **`compute-sanitizer --tool memcheck`** — NVIDIA CUDA memory checker
-5. **Update CUDA drivers** — Newer drivers may fix
-6. **Report to llama.cpp** — File an issue with our reproduction data
-7. **Expose browser tools as Tauri commands** — Allow external control of in-app browser
+3. **Profile pipe I/O during CUDA** — measure if pipe writes block during graph_compute
+4. **Reduce pipe write frequency** — buffer tokens, test if reducing I/O eliminates deadlock
+5. **Test with stdio unbuffered** — `setvbuf(stdout, NULL, _IONBF, 0)` to see if buffering matters
+6. **Implement `safe_tool_injection` in token_loop.rs** — Wire existing config flag as guaranteed fix
 
 ## Key Files
 

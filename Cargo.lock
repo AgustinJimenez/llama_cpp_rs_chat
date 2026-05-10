@@ -3630,9 +3630,19 @@ dependencies = [
 name = "llama-chat-tests"
 version = "0.1.0"
 dependencies = [
+ "llama-chat-config",
+ "llama-chat-db",
+ "llama-chat-engine",
+ "llama-chat-tools",
+ "llama-chat-types",
  "llama-cpp-2",
+ "minijinja",
  "pdf-extract",
  "pdf_oxide",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

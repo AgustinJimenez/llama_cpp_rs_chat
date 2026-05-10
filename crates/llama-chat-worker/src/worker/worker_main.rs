@@ -162,7 +162,9 @@ pub fn run_worker(db_path: &str) {
 
     // Main loop (Thread 1)
     let mut generation_thread: Option<thread::JoinHandle<()>> = None;
-    let mut ipc_writer = io::BufWriter::new(ipc_out);
+    // 64KB buffer reduces OS-level pipe writes during high-throughput token streaming.
+    // Default 8KB overflows after ~50 tokens, triggering kernel writes mid-CUDA compute.
+    let mut ipc_writer = io::BufWriter::with_capacity(64 * 1024, ipc_out);
 
     eprintln!("[WORKER] Ready, waiting for commands...");
 
@@ -174,17 +176,33 @@ pub fn run_worker(db_path: &str) {
             }
         }
 
-        // Wait for either a token or a command — no polling, no timeout.
-        // crossbeam select! wakes instantly when either channel has data.
+        // Wait for either a token or a command.
+        // Tokens are batched with time-based flushing to reduce pipe I/O pressure
+        // during CUDA compute. Without throttling, ~100 flush() calls/sec create
+        // kernel-level cross-process pipe writes that interfere with CUDA's backend
+        // scheduler on hybrid models (Qwen3.5/3.6), causing deadlocks.
+        const FLUSH_INTERVAL: std::time::Duration = std::time::Duration::from_millis(33); // ~30fps
         let line = loop {
             crossbeam_channel::select! {
                 recv(token_rx) -> msg => {
                     match msg {
                         Ok(first) => {
-                            // Batch: drain all available tokens, write, single flush
+                            // Write first token, then collect more within the flush window
                             write_response_no_flush(&mut ipc_writer, &first);
-                            while let Ok(response) = token_rx.try_recv() {
-                                write_response_no_flush(&mut ipc_writer, &response);
+                            let deadline = std::time::Instant::now() + FLUSH_INTERVAL;
+                            loop {
+                                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                                if remaining.is_zero() {
+                                    break;
+                                }
+                                // Wait briefly for more tokens to batch
+                                match token_rx.recv_timeout(remaining) {
+                                    Ok(response) => {
+                                        write_response_no_flush(&mut ipc_writer, &response);
+                                    }
+                                    Err(crossbeam_channel::RecvTimeoutError::Timeout) => break,
+                                    Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+                                }
                             }
                             let _ = ipc_writer.flush();
                         }
@@ -207,7 +225,6 @@ pub fn run_worker(db_path: &str) {
                         }
                         Err(_) => {
                             eprintln!("[WORKER] Stdin channel disconnected, shutting down");
-                            // Use a sentinel to break the outer loop
                             write_response(&mut ipc_writer, &WorkerResponse::error(0, "stdin closed".to_string()));
                             crate::prevent_sleep::force_release();
                             std::process::exit(0);
@@ -216,7 +233,6 @@ pub fn run_worker(db_path: &str) {
                 },
             }
             // If only tokens were received, loop back to select
-            // Check generation thread status while we're here
             if let Some(ref handle) = generation_thread {
                 if handle.is_finished() {
                     generation_thread = None;

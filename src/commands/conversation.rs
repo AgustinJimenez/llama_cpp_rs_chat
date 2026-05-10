@@ -74,6 +74,7 @@ pub async fn get_conversation(
                     timestamp: m.timestamp, prompt_tok_per_sec: m.prompt_tok_per_sec,
                     gen_tok_per_sec: m.gen_tok_per_sec, gen_eval_ms: m.gen_eval_ms,
                     gen_tokens: m.gen_tokens, prompt_eval_ms: m.prompt_eval_ms, prompt_tokens: m.prompt_tokens,
+                    compacted: false,
                 });
                 msg_idx += 1;
             }
@@ -86,6 +87,7 @@ pub async fn get_conversation(
                 timestamp: m.timestamp, prompt_tok_per_sec: m.prompt_tok_per_sec,
                 gen_tok_per_sec: m.gen_tok_per_sec, gen_eval_ms: m.gen_eval_ms,
                 gen_tokens: m.gen_tokens, prompt_eval_ms: m.prompt_eval_ms, prompt_tokens: m.prompt_tokens,
+                compacted: m.compacted,
             });
             msg_idx += 1;
             idx += 1;
@@ -114,6 +116,7 @@ pub async fn get_conversation(
                 gen_tokens: None,
                 prompt_eval_ms: None,
                 prompt_tokens: None,
+                compacted: false,
             });
             // Save recovered content as a real message and clear buffer
             if let Ok(mut logger) = web::database::conversation::ConversationLogger::from_existing(
@@ -186,6 +189,7 @@ pub fn parse_conversation_to_messages(content: &str) -> Vec<crate::web::models::
                     gen_tokens: None,
                     prompt_eval_ms: None,
                     prompt_tokens: None,
+                    compacted: false,
                 });
                 sequence += 1;
             }
@@ -209,6 +213,7 @@ pub fn parse_conversation_to_messages(content: &str) -> Vec<crate::web::models::
             gen_tokens: None,
             prompt_eval_ms: None,
             prompt_tokens: None,
+            compacted: false,
         });
     }
 

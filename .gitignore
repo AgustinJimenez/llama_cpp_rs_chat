@@ -79,3 +79,4 @@ post_data.txt
 # Temp images
 *.png
 temp_ocr/
+bash.exe.stackdump

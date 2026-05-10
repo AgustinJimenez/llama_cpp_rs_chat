@@ -52,9 +52,6 @@ export const useModel = () => {
   const [loadingAction, setLoadingAction] = useState<LoadingAction>(null);
   const [error, setError] = useState<string | null>(null);
   const [hasStatusError, setHasStatusError] = useState(false);
-  // Track last known model path for auto-reload after crash
-  const lastModelPathRef = useRef<string | null>(null);
-  const wasLoadedRef = useRef(false);
   const lastStatusJson = useRef('');
 
   const hardUnload = useCallback(async () => {
@@ -73,7 +70,6 @@ export const useModel = () => {
 
   // Use a ref to avoid stale closure issues with isLoading in fetchStatus
   const isLoadingRef = useRef(false);
-  const autoReloadingRef = useRef(false);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -97,46 +93,9 @@ export const useModel = () => {
         isLoadingRef.current = false;
         setLoadingAction(null);
       }
-      // Track loaded state for crash detection
-      if (data.loaded && data.model_path) {
-        lastModelPathRef.current = data.model_path;
-        wasLoadedRef.current = true;
-      }
-      // Auto-reload after worker crash: model was loaded but now isn't
-      if (
-        wasLoadedRef.current &&
-        !data.loaded &&
-        !data.loading &&
-        lastModelPathRef.current &&
-        !isLoadingRef.current &&
-        !autoReloadingRef.current
-      ) {
-        const modelPath = lastModelPathRef.current;
-        wasLoadedRef.current = false;
-        autoReloadingRef.current = true;
-        console.log('[useModel] Model crashed — auto-reloading:', modelPath); // eslint-disable-line no-console
-        // Notify chat hook to inject a recovery message
-        window.dispatchEvent(new CustomEvent('model-crash-recovery', { detail: { modelPath } }));
-        setIsLoading(true);
-        isLoadingRef.current = true;
-        setLoadingAction('loading');
-        try {
-          const result: ModelResponse = await loadModelCmd(modelPath);
-          if (result.success && result.status) {
-            setStatus(result.status as ModelStatus);
-            console.log('[useModel] Auto-reload successful — triggering auto-continue'); // eslint-disable-line no-console
-            // Trigger auto-continue in chat after model is back
-            window.dispatchEvent(new CustomEvent('model-crash-recovered'));
-          }
-        } catch (reloadErr) {
-          console.error('[useModel] Auto-reload failed:', reloadErr);
-        } finally {
-          setIsLoading(false);
-          isLoadingRef.current = false;
-          setLoadingAction(null);
-          autoReloadingRef.current = false;
-        }
-      }
+      // Backend handles crash recovery (worker_bridge.rs: CrashRecoveryCtx)
+      // — auto-restarts worker, reloads model, continues generation.
+      // Frontend just needs to reflect the status it polls from the server.
     } catch (err) {
       setError('Network error while fetching model status');
       console.error('Model status fetch error:', err);

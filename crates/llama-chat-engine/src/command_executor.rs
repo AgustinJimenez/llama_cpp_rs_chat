@@ -807,6 +807,11 @@ pub fn inject_output_tokens(
             )
             .map_err(|e| format!("Batch add failed for command output: {e}"))?;
 
+        // Yield between each single-token decode — minor scheduling improvement
+        // for CUDA backend on hybrid models. Not sufficient alone to prevent deadlock
+        // (handled by first-injection restart in token_loop.rs), but reduces risk.
+        std::thread::yield_now();
+
         let decode_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             context.decode(batch)
         }));

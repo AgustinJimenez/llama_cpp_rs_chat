@@ -502,6 +502,7 @@ pub async fn generate_llama_response(
         backend: &state.backend,
         chat_template_string: chat_template_string.as_deref(),
         proactive_compaction: config.proactive_compaction,
+        safe_tool_injection: config.safe_tool_injection,
     };
 
     // Build vision context reference for tool response image injection
