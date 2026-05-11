@@ -178,8 +178,6 @@ impl Database {
                     model_path: None,
                     model_history: Vec::new(),
                     disable_file_logging: true,
-                    web_search_provider: None,
-                    web_search_api_key: None,
                     web_browser_backend: None,
                     models_directory: None,
                     use_rtk: true,

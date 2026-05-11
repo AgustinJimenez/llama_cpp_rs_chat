@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "identifier": "com.llamachat.desktop",
   "build": {
-    "beforeDevCommand": "vite --host --port 14000",
+    "beforeDevCommand": "npx vite --host --port 14000",
     "beforeBuildCommand": "npm run build",
     "devUrl": "http://localhost:14000",
     "frontendDist": "./dist",

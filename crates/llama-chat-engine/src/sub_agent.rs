@@ -33,8 +33,6 @@ pub fn run_sub_agent(
     chat_template_string: Option<&str>,
     conversation_id: &str,
     tags: &ToolTags,
-    web_search_provider: Option<&str>,
-    web_search_api_key: Option<&str>,
     use_htmd: bool,
     browser_backend: &crate::browser::BrowserBackend,
     mcp_manager: Option<Arc<dyn llama_chat_tools::McpManagerOps>>,
@@ -201,7 +199,6 @@ pub fn run_sub_agent(
             if let Ok(Some(exec_result)) = check_and_execute_command_with_tags(
                 &response, last_exec_scan_pos, conversation_id, model, tags,
                 None, // template_type
-                web_search_provider, web_search_api_key,
                 &mut recent_commands, &mut consecutive_loop_blocks, token_sender, token_pos,
                 AGENT_CTX_SIZE, Some(cancel.clone()),
                 use_htmd, browser_backend,

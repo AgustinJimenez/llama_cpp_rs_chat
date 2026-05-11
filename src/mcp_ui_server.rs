@@ -499,33 +499,49 @@ async fn bridge_browser_navigate(
         .and_then(|v| v.as_str())
         .ok_or(axum::http::StatusCode::BAD_REQUEST)?;
 
-    // Create/navigate the hidden agent webview (separate from user's browser-panel).
-    // Uses label "agent-browser" to avoid conflicting with the user's browser panel.
+    // Navigate the browser-panel WebView (shared between agent and user).
+    // If it doesn't exist yet, create it hidden (0 height) — the agent can
+    // still eval JS on it. When the user clicks the globe icon, the frontend
+    // resizes it to the correct position.
     let parsed = url.parse::<tauri::Url>()
         .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
-    let webview_count = app.webviews().len();
-    eprintln!("[MCP_BROWSER] navigate to {url}, webviews: {webview_count}");
-    if let Some(existing) = app.webviews().get("agent-browser").cloned() {
-        eprintln!("[MCP_BROWSER] reusing existing agent-browser webview");
+    eprintln!("[MCP_BROWSER] navigate to {url}");
+
+    if let Some(existing) = app.webviews().get("browser-panel").cloned() {
+        eprintln!("[MCP_BROWSER] navigating existing browser-panel");
         let _ = existing.navigate(parsed);
     } else if let Some(window) = app.get_window("main") {
+        // Create browser-panel hidden (0 height) — agent can use it via eval,
+        // user sees it when they open the globe icon (frontend resizes it).
+        let data_dir = app.path().app_data_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .join("browser_data");
         let builder = tauri::webview::WebviewBuilder::new(
-            "agent-browser",
+            "browser-panel",
             tauri::WebviewUrl::External(parsed),
-        );
-        // Hidden child webview — zero height so it's invisible, but
-        // still functional for COM ExecuteScript calls.
+        )
+        .data_directory(data_dir)
+        .zoom_hotkeys_enabled(true);
         match window.add_child(
             builder,
             tauri::LogicalPosition::new(0.0, 0.0),
-            tauri::LogicalSize::new(800.0, 0.0),
+            tauri::LogicalSize::new(0.0, 0.0), // hidden until user opens globe
         ) {
-            Ok(wv) => eprintln!("[MCP_BROWSER] created child webview: {:?}", wv.label()),
-            Err(e) => eprintln!("[MCP_BROWSER] add_child FAILED: {e}"),
+            Ok(wv) => eprintln!("[MCP_BROWSER] created hidden browser-panel: {:?}", wv.label()),
+            Err(e) => eprintln!("[MCP_BROWSER] browser-panel creation FAILED: {e}"),
         }
     }
 
-    Ok(format!("Browser view opened: {url}"))
+    // Tell frontend the URL so the globe icon knows what page is loaded
+    if let Some(main_wv) = app.webviews().get("main").cloned() {
+        let js = format!(
+            "if (window.__openBrowserView) {{ window.__openBrowserView('{}'); }}",
+            url.replace('\'', "\\'").replace('\\', "\\\\")
+        );
+        let _ = main_wv.eval(&js);
+    }
+
+    Ok(format!("Browser navigated: {url}"))
 }
 
 async fn bridge_browser_close(

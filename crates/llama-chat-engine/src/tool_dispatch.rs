@@ -118,8 +118,6 @@ const BROWSER_TOOL_TIMEOUT_SECS: u64 = 90;
 /// Run a native tool with a timeout to prevent blocking the generation thread indefinitely.
 pub(crate) fn run_native_tool_with_timeout(
     command_text: &str,
-    web_search_provider: Option<&str>,
-    web_search_api_key: Option<&str>,
     conversation_id: &str,
     use_htmd: bool,
     _browser_backend: crate::browser::BrowserBackend,
@@ -127,8 +125,6 @@ pub(crate) fn run_native_tool_with_timeout(
     db: llama_chat_db::SharedDatabase,
 ) -> Option<llama_chat_tools::NativeToolResult> {
     let cmd = command_text.to_string();
-    let _provider = web_search_provider.map(|s| s.to_string());
-    let _api_key = web_search_api_key.map(|s| s.to_string());
     let mcp = mcp_manager.clone();
     let db = db.clone();
 
@@ -194,8 +190,6 @@ pub(crate) fn execute_single_tool(
     args: &serde_json::Value,
     tool_json: &str,
     conversation_id: &str,
-    web_search_provider: Option<&str>,
-    web_search_api_key: Option<&str>,
     token_sender: &Option<mpsc::UnboundedSender<TokenData>>,
     token_pos: i32,
     context_size: u32,
@@ -218,7 +212,7 @@ pub(crate) fn execute_single_tool(
         let extra_context = args.get("context").and_then(|v| v.as_str());
         match run_sub_agent(
             model, backend, task, extra_context, chat_template_string,
-            conversation_id, tags, web_search_provider, web_search_api_key,
+            conversation_id, tags,
             use_htmd, browser_backend, mcp_manager.clone(), db.clone(),
             token_sender,
         ) {
@@ -285,8 +279,6 @@ pub(crate) fn execute_single_tool(
     // Try native tool dispatch (may return images for vision)
     if let Some(native_result) = run_native_tool_with_timeout(
         tool_json,
-        web_search_provider,
-        web_search_api_key,
         conversation_id,
         use_htmd,
         browser_backend.clone(),

@@ -48,8 +48,6 @@ pub(crate) struct TokenGenConfig<'a> {
     pub stop_tokens: &'a [String],
     pub context_size: u32,
     pub max_total_tokens: i32,
-    pub web_search_provider: Option<&'a str>,
-    pub web_search_api_key: Option<&'a str>,
     pub use_htmd: bool,
     pub browser_backend: &'a crate::browser::BrowserBackend,
     pub n_batch: u32,
@@ -155,15 +153,21 @@ pub(crate) fn run_generation_loop(
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64
     ));
     let watchdog_done = Arc::new(AtomicBool::new(false));
+    let watchdog_paused = Arc::new(AtomicBool::new(false));
     let _watchdog_cancel = cancel.clone();
     let watchdog_heartbeat = heartbeat.clone();
     let watchdog_done_flag = watchdog_done.clone();
+    let watchdog_paused_flag = watchdog_paused.clone();
     let watchdog_conv_id = cfg.conversation_id.to_string();
     let watchdog_handle = std::thread::spawn(move || {
         loop {
             std::thread::sleep(std::time::Duration::from_secs(2));
             if watchdog_done_flag.load(Ordering::Relaxed) {
                 break; // Generation finished normally
+            }
+            // Skip deadlock check while tools are executing (browser fetch can take 20+ seconds)
+            if watchdog_paused_flag.load(Ordering::Relaxed) {
+                continue;
             }
             let last = watchdog_heartbeat.load(Ordering::Relaxed);
             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
@@ -510,14 +514,24 @@ pub(crate) fn run_generation_loop(
             // This skips ~90% of tokens (no '>', ']', or '}').
             let token_has_close_char = token_str.as_bytes().iter().any(|&b| b == b'>' || b == b']' || b == b'}');
             if token_has_close_char {
-            if let Some(exec_result) = check_and_execute_command_with_tags(
+            // Pause watchdog during tool execution — tools (browser fetch, HTTP requests)
+            // can take 20+ seconds, which would trigger the deadlock detector otherwise.
+            watchdog_paused.store(true, Ordering::Relaxed);
+            let tool_check_result = check_and_execute_command_with_tags(
                 &gen.response, gen.last_exec_scan_pos, cfg.conversation_id, model, cfg.tags,
-                cfg.template_type, cfg.web_search_provider, cfg.web_search_api_key,
+                cfg.template_type,
                 &mut gen.recent_commands, &mut gen.consecutive_loop_blocks, token_sender, gen.token_pos, cfg.context_size,
                 Some(cancel.clone()), cfg.use_htmd, cfg.browser_backend,
                 cfg.mcp_manager.clone(), cfg.db.clone(),
                 cfg.backend, cfg.chat_template_string,
-            )? {
+            );
+            watchdog_paused.store(false, Ordering::Relaxed);
+            // Reset heartbeat after tool execution so watchdog has a fresh baseline
+            heartbeat.store(
+                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64,
+                Ordering::Relaxed,
+            );
+            if let Some(exec_result) = tool_check_result? {
                 // Sync accumulated content + command output to logger
                 {
                     let mut logger = conversation_logger.lock()
@@ -533,19 +547,19 @@ pub(crate) fn run_generation_loop(
                 gen.response.push_str(&exec_result.output_block);
                 gen.logger_synced_len = gen.response.len();
 
-                // First tool injection workaround: the CUDA backend's graph_compute() deadlocks
-                // on hybrid models (Qwen3.5/3.6) when tokens are first injected mid-generation.
-                // After a context restart (fresh decode from DB), subsequent injections work fine.
-                // So we skip injection only on the FIRST tool result and restart the context.
-                // The tool output is already saved to DB by the command executor above.
-                let is_first_injection = gen.tool_response_tokens == 0;
-                if is_first_injection {
-                    log_info!(cfg.conversation_id, "First tool injection — restarting context to avoid hybrid model deadlock");
-                    gen.tool_response_tokens += exec_result.model_tokens.len() as i32;
-                    gen.finish_reason = "tool_continue".to_string();
-                    hit_stop_condition = true;
-                    break;
-                }
+                // DISABLED: First tool injection workaround. This used to restart the entire
+                // context on the first tool call to avoid a CUDA graph_compute() deadlock on
+                // hybrid models (Qwen3.5/3.6). The single-token injection fix (4b013d6) and
+                // watchdog pause fix should have resolved the root cause. Commenting out to
+                // test direct injection on first tool call — re-enable if deadlocks return.
+                // let is_first_injection = gen.tool_response_tokens == 0;
+                // if is_first_injection {
+                //     log_info!(cfg.conversation_id, "First tool injection — restarting context to avoid hybrid model deadlock");
+                //     gen.tool_response_tokens += exec_result.model_tokens.len() as i32;
+                //     gen.finish_reason = "tool_continue".to_string();
+                //     hit_stop_condition = true;
+                //     break;
+                // }
 
                 gen.tool_response_tokens += exec_result.model_tokens.len() as i32;
                 command_executed = true;
@@ -579,10 +593,19 @@ pub(crate) fn run_generation_loop(
 
                 if !used_vision {
                     log_info!(cfg.conversation_id, "Injecting {} output tokens into context...", exec_result.model_tokens.len());
-                    match inject_output_tokens(
+                    // Pause watchdog during injection — large tool responses (e.g. browser pages)
+                    // can take 10+ seconds to decode one-by-one, triggering the deadlock detector.
+                    watchdog_paused.store(true, Ordering::Relaxed);
+                    let inject_result = inject_output_tokens(
                         &exec_result.model_tokens, batch, context,
                         &mut gen.token_pos, cfg.conversation_id,
-                    ) {
+                    );
+                    watchdog_paused.store(false, Ordering::Relaxed);
+                    heartbeat.store(
+                        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64,
+                        Ordering::Relaxed,
+                    );
+                    match inject_result {
                         Ok(()) => {},
                         Err(e) if e == "CONTEXT_EXHAUSTED" => {
                             eprintln!("[CTX_GUARD] Context exhausted during tool output injection — setting finish_reason=length");

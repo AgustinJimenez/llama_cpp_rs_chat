@@ -144,10 +144,6 @@ pub struct SamplerConfig {
     pub tool_tag_output_close: Option<String>,
     // App settings
     #[serde(default)]
-    pub web_search_provider: Option<String>,
-    #[serde(default)]
-    pub web_search_api_key: Option<String>,
-    #[serde(default)]
     pub web_browser_backend: Option<String>,
     #[serde(default)]
     pub models_directory: Option<String>,
@@ -307,8 +303,6 @@ impl Default for SamplerConfig {
             tool_tag_exec_close: None,
             tool_tag_output_open: None,
             tool_tag_output_close: None,
-            web_search_provider: None,
-            web_search_api_key: None,
             web_browser_backend: None,
             models_directory: None,
             seed: -1,

@@ -492,8 +492,6 @@ pub async fn generate_llama_response(
         stop_tokens: &stop_tokens,
         context_size,
         max_total_tokens,
-        web_search_provider: config.web_search_provider.as_deref(),
-        web_search_api_key: config.web_search_api_key.as_deref(),
         use_htmd: config.use_htmd,
         browser_backend: &crate::browser::BrowserBackend::from_config(config.web_browser_backend.as_deref()),
         n_batch,

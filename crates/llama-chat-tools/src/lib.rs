@@ -19,10 +19,11 @@ pub mod parsing;
 pub mod doc_extractors;
 pub mod browser_tools;
 pub mod browser_session;
+#[cfg(feature = "wry-browser")]
+pub mod wry_browser;
 pub mod mcp_tools;
 pub mod screenshot_tool;
 pub mod telegram;
-pub(crate) mod web_search;
 pub mod tool_parser;
 pub mod tool_defs;
 mod utils;
@@ -637,7 +638,9 @@ pub fn dispatch_native_tool(
         ));
     }
 
-    // browser_search: server-side web search (DuckDuckGo API + HTML fallback)
+    // browser_search: navigate the in-app WebView to Google and read rendered results.
+    // Uses the real browser engine (WebView2) — not HTTP fetch — so it bypasses
+    // bot detection, handles JS-rendered pages, and CAPTCHAs show in the browser panel.
     if name == "browser_search" {
         let query = match args.get("query").and_then(|v| v.as_str()) {
             Some(q) if !q.trim().is_empty() => q.trim(),
@@ -647,11 +650,39 @@ pub fn dispatch_native_tool(
                 ))
             }
         };
-        let max_results = args
-            .get("max_results")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(8) as usize;
-        return Some(NativeToolResult::text_only(web_search::search(query, max_results)));
+        let encoded = urlencoding::encode(query);
+        let search_url = format!("https://www.google.com/search?q={encoded}");
+
+        // Navigate the WebView to the search URL
+        if let Err(e) = browser_session::notify_tauri_browser_navigate(&search_url) {
+            return Some(NativeToolResult::text_only(format!(
+                "Failed to open browser: {e}"
+            )));
+        }
+
+        // Wait for page to render in the WebView
+        std::thread::sleep(std::time::Duration::from_millis(3000));
+
+        // Read rendered text from the WebView via JavaScript eval
+        match browser_session::eval_in_browser_panel("document.body.innerText") {
+            Ok(text) => {
+                let trimmed = if text.len() > 8000 {
+                    let mut end = 8000;
+                    while end > 0 && !text.is_char_boundary(end) { end -= 1; }
+                    format!("{}...\n[Truncated]", &text[..end])
+                } else {
+                    text
+                };
+                return Some(NativeToolResult::text_only(
+                    format!("Search results for '{query}':\n\n{trimmed}")
+                ));
+            }
+            Err(e) => {
+                return Some(NativeToolResult::text_only(format!(
+                    "Failed to read search results from browser: {e}"
+                )));
+            }
+        }
     }
 
     // Browser view tools (open/close the in-app browser panel via Tauri)

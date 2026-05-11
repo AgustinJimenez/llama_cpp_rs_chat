@@ -82,8 +82,6 @@ export interface SamplerConfig {
   tool_tag_output_open?: string;
   tool_tag_output_close?: string;
   // App settings
-  web_search_provider?: string;
-  web_search_api_key?: string;
   web_browser_backend?: string; // "chrome" | "chrome-headless-shell" | "agent-browser" | "none"
   models_directory?: string;
   // Hardware / context / sampler params

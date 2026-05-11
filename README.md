@@ -1,5 +1,7 @@
 # LLaMA Chat
 
+> **Note:** This project is under active development. Expect bugs, breaking changes, and incomplete features. Contributions and bug reports are welcome!
+
 A multi-provider AI chat application built with Rust and React. Run local GGUF models via llama.cpp, or connect to 15+ cloud providers (Groq, Gemini, Claude, Mistral, etc.) — all with agentic tool execution. Available as a web app, desktop app (Tauri), or CLI.
 
 ## Features
@@ -11,7 +13,7 @@ A multi-provider AI chat application built with Rust and React. Run local GGUF m
 - **Desktop automation (computer use)** — click, type, press keys, scroll, OCR, UI tree inspection via `enigo` crate
 - **Vision support** — paste/drop images in chat, screenshot tool for screen capture (always compiled)
 - **MCP (Model Context Protocol)** — connect external tool servers, auto-connect on startup
-- **Web search and fetch** — Brave Search API, Google via headless Chrome, DuckDuckGo fallback
+- **Web search and fetch** — Google via in-app Tauri WebView (bypasses bot detection, no API keys needed)
 - **Custom providers** — add any OpenAI-compatible endpoint (vLLM, Ollama, LM Studio)
 - **Jinja2 prompt templates** — renders native chat templates from GGUF metadata via minijinja
 - **Auto-configuration** — extracts optimal sampling parameters from GGUF metadata

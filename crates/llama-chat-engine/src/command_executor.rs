@@ -99,8 +99,6 @@ pub fn check_and_execute_command_with_tags(
     model: &llama_cpp_2::model::LlamaModel,
     tags: &ToolTags,
     template_type: Option<&str>,
-    web_search_provider: Option<&str>,
-    web_search_api_key: Option<&str>,
     recent_commands: &mut Vec<String>,
     consecutive_loop_blocks: &mut usize,
     token_sender: &Option<mpsc::UnboundedSender<TokenData>>,
@@ -275,23 +273,21 @@ pub fn check_and_execute_command_with_tags(
                         );
 
                         // Prepare owned data for threads
-                        let thread_data: Vec<(usize, String, Option<String>, Option<String>, String)> = indices
+                        let thread_data: Vec<(usize, String, String)> = indices
                             .iter()
                             .take(MAX_PARALLEL_TOOLS)
                             .map(|&i| {
                                 let (name, args) = &all_calls[i];
                                 let single_json = serde_json::json!({"name": name, "arguments": args}).to_string();
-                                let provider = web_search_provider.map(|s| s.to_string());
-                                let api_key = web_search_api_key.map(|s| s.to_string());
                                 let conv_id = conversation_id.to_string();
-                                (i, single_json, provider, api_key, conv_id)
+                                (i, single_json, conv_id)
                             })
                             .collect();
 
                         std::thread::scope(|s| {
                             let handles: Vec<_> = thread_data
                                 .iter()
-                                .map(|(idx, json, provider, api_key, conv_id)| {
+                                .map(|(idx, json, conv_id)| {
                                     let idx = *idx;
                                     let tool_name = all_calls[idx].0.clone();
                                     let mcp_clone = mcp_manager.clone();
@@ -300,8 +296,6 @@ pub fn check_and_execute_command_with_tags(
                                     s.spawn(move || {
                                         let result = run_native_tool_with_timeout(
                                             json,
-                                            provider.as_deref(),
-                                            api_key.as_deref(),
                                             conv_id,
                                             use_htmd,
                                             backend_clone,
@@ -332,8 +326,6 @@ pub fn check_and_execute_command_with_tags(
                             let (tool_output, tool_images) = execute_single_tool(
                                 name, args, &single_json,
                                 conversation_id,
-                                web_search_provider,
-                                web_search_api_key,
                                 token_sender,
                                 token_pos,
                                 context_size,
@@ -354,8 +346,6 @@ pub fn check_and_execute_command_with_tags(
                             let (tool_output, tool_images) = execute_single_tool(
                                 name, args, &single_json,
                                 conversation_id,
-                                web_search_provider,
-                                web_search_api_key,
                                 token_sender,
                                 token_pos,
                                 context_size,
@@ -442,7 +432,7 @@ pub fn check_and_execute_command_with_tags(
                     } else {
                         match run_sub_agent(
                             model, backend, &task, extra_context.as_deref(), chat_template_string,
-                            conversation_id, tags, web_search_provider, web_search_api_key,
+                            conversation_id, tags,
                             use_htmd, browser_backend, mcp_manager.clone(), db.clone(),
                             token_sender,
                         ) {
@@ -500,8 +490,6 @@ pub fn check_and_execute_command_with_tags(
                     } // end security injection check else block
                 } else if let Some(native_result) = run_native_tool_with_timeout(
                     &command_text,
-                    web_search_provider,
-                    web_search_api_key,
                     conversation_id,
                     use_htmd,
                     browser_backend.clone(),

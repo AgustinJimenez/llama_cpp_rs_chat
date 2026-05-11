@@ -1,6 +1,99 @@
-//! Browser session abstraction — Tauri WebView-based browsing.
+//! Browser session abstraction — Tauri WebView with Chrome CDP fallback.
 
 use serde_json::Value;
+use std::sync::Mutex;
+
+// ─── Chrome CDP fallback (visible browser for web mode) ────────
+
+#[cfg(feature = "cdp")]
+mod cdp {
+    use std::sync::Mutex;
+    use headless_chrome::{Browser, LaunchOptions, Tab};
+    use std::sync::Arc;
+
+    static CDP: Mutex<Option<(Browser, Arc<Tab>)>> = Mutex::new(None);
+
+    /// Get or launch the visible Chrome browser. Returns the active tab.
+    pub fn get_or_launch() -> Result<Arc<Tab>, String> {
+        let mut guard = CDP.lock().map_err(|e| format!("CDP lock: {e}"))?;
+        if let Some((_, ref tab)) = *guard {
+            // Check tab is still alive by trying a trivial eval
+            if tab.evaluate("1", false).is_ok() {
+                return Ok(Arc::clone(tab));
+            }
+            eprintln!("[BROWSER_CDP] Existing tab is dead, relaunching...");
+        }
+        eprintln!("[BROWSER_CDP] Launching visible Chrome window...");
+        let options = LaunchOptions {
+            headless: false,
+            window_size: Some((1280, 900)),
+            sandbox: false,
+            enable_logging: false,
+            ..LaunchOptions::default()
+        };
+        let browser = Browser::new(options)
+            .map_err(|e| format!("Chrome launch failed (is Chrome/Edge installed?): {e}"))?;
+        let tab = browser.new_tab()
+            .map_err(|e| format!("Chrome new tab: {e}"))?;
+        let tab_clone = Arc::clone(&tab);
+        *guard = Some((browser, tab));
+        eprintln!("[BROWSER_CDP] Chrome launched successfully");
+        Ok(tab_clone)
+    }
+
+    pub fn navigate(url: &str) -> Result<(), String> {
+        let tab = get_or_launch()?;
+        tab.navigate_to(url)
+            .map_err(|e| format!("CDP navigate: {e}"))?;
+        tab.wait_until_navigated()
+            .map_err(|e| format!("CDP wait: {e}"))?;
+        Ok(())
+    }
+
+    pub fn evaluate(js: &str) -> Result<String, String> {
+        let tab = get_or_launch()?;
+        let result = tab.evaluate(js, false)
+            .map_err(|e| format!("CDP eval: {e}"))?;
+        match result.value {
+            Some(serde_json::Value::String(s)) => Ok(s),
+            Some(v) => Ok(v.to_string()),
+            None => Ok(String::new()),
+        }
+    }
+
+    pub fn close() -> Result<(), String> {
+        let mut guard = CDP.lock().map_err(|e| format!("CDP lock: {e}"))?;
+        if guard.is_some() {
+            eprintln!("[BROWSER_CDP] Closing Chrome");
+        }
+        *guard = None; // Drop kills Chrome process
+        Ok(())
+    }
+}
+
+/// Check if the Tauri UI bridge is available (desktop mode).
+/// Caches result for 30 seconds to avoid constant probing.
+fn is_tauri_available() -> bool {
+    static LAST_CHECK: Mutex<Option<(std::time::Instant, bool)>> = Mutex::new(None);
+    if let Ok(guard) = LAST_CHECK.lock() {
+        if let Some((when, result)) = *guard {
+            if when.elapsed() < std::time::Duration::from_secs(30) {
+                return result;
+            }
+        }
+    }
+    let available = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_millis(500))
+        .build()
+        .post(&format!("{TAURI_UI_BRIDGE_BASE}/api/eval"))
+        .set("Content-Type", "application/json")
+        .send_string(&serde_json::json!({"js": "1", "target": "browser-panel"}).to_string())
+        .is_ok();
+    if let Ok(mut guard) = LAST_CHECK.lock() {
+        *guard = Some((std::time::Instant::now(), available));
+    }
+    available
+}
 
 /// A controllable browser session.
 pub trait BrowserSession: Send + Sync {
@@ -120,11 +213,49 @@ impl TauriHttpSession {
         let start = std::time::Instant::now();
 
         // Wait for page to fully load by polling document.readyState.
-        // Much more reliable than a fixed sleep — handles slow sites like Reuters.
-        let max_wait = std::time::Duration::from_secs(10);
-        let poll_interval = std::time::Duration::from_millis(300);
+        // IMPORTANT: wry's load_url() is fire-and-forget — it returns before the browser
+        // has started navigating. We must first wait for window.location.href to reflect
+        // the new URL, otherwise we'd read content from the *previous* page still cached
+        // in the WebView (which has readyState="complete" and content > 50 chars).
+        let max_wait = std::time::Duration::from_secs(15);
+        let poll_interval = std::time::Duration::from_millis(400);
         let mut ready = false;
+
+        // Normalize expected URL for comparison (strip trailing slash, lowercase scheme+host)
+        let expected = self.current_url.trim_end_matches('/').to_lowercase();
+        // Extract just the host+path portion for flexible matching (handles http↔https, www differences)
+        let expected_path = expected
+            .find("//")
+            .map(|i| &expected[i + 2..])
+            .unwrap_or(&expected);
+
         while start.elapsed() < max_wait {
+            // Phase 1: ensure browser has navigated to the right URL.
+            // Skip this check for Tauri (Tauri bridge handles this synchronously).
+            #[cfg(feature = "wry-browser")]
+            if !is_tauri_available() {
+                match eval_in_browser_panel("window.location.href") {
+                    Ok(href) => {
+                        let href_norm = href.trim().trim_end_matches('/').to_lowercase();
+                        let href_path = href_norm
+                            .find("//")
+                            .map(|i| &href_norm[i + 2..])
+                            .unwrap_or(&href_norm);
+                        // Accept if path portion matches or if browser is on about:blank (initial)
+                        if href_path != expected_path && !href_norm.starts_with("about:") {
+                            eprintln!("[BROWSER_HTTP] waiting for URL: expected={expected_path}, got={href_path}");
+                            std::thread::sleep(poll_interval);
+                            continue;
+                        }
+                    }
+                    Err(_) => {
+                        std::thread::sleep(poll_interval);
+                        continue;
+                    }
+                }
+            }
+
+            // Phase 2: wait for readyState + content
             match eval_in_browser_panel("document.readyState") {
                 Ok(state) if state == "complete" || state == "interactive" => {
                     // Also check we have actual content (not just empty shell)
@@ -148,53 +279,26 @@ impl TauriHttpSession {
                 start.elapsed().as_secs_f64());
         }
 
-        // Read the page HTML from the browser panel webview via eval REST endpoint
-        // Timeout is short — if eval fails, we fall back to curl quickly
-        let eval_result = ureq::AgentBuilder::new()
-            .timeout(std::time::Duration::from_secs(12))
-            .build()
-            .post(&format!("{TAURI_UI_BRIDGE_BASE}/api/eval"))
-            .set("Content-Type", "application/json")
-            .send_string(&serde_json::json!({
-                "js": "document.documentElement ? document.documentElement.outerHTML : ''",
-                "target": "agent-browser"
-            }).to_string());
-
-        let body = match eval_result {
-            Ok(resp) => resp.into_string().unwrap_or_default(),
-            Err(e) => {
-                eprintln!("[BROWSER_HTTP] webview eval HTTP error: {e}, falling back to curl");
-                return Self::curl_fetch(&self.current_url);
+        // Read the page HTML via eval_in_browser_panel (uses Tauri → wry → CDP fallback chain)
+        match eval_in_browser_panel("document.documentElement ? document.documentElement.outerHTML : ''") {
+            Ok(html) if html.len() >= 50 || html.contains('<') => {
+                eprintln!("[BROWSER_HTTP] eval OK: {} bytes ({:.1}s)",
+                    html.len(), start.elapsed().as_secs_f64());
+                let max = 500_000;
+                if html.len() > max {
+                    return Ok(html[..max].to_string());
+                }
+                return Ok(html);
             }
-        };
-
-        // Check for eval failures (timeout, panel not open, etc.)
-        if body.contains("timed out") || body.contains("not open") || body.contains("not found") || body.contains("eval failed") {
-            eprintln!("[BROWSER_HTTP] webview eval returned error: {body}, falling back to curl");
-            return Self::curl_fetch(&self.current_url);
+            Ok(html) => {
+                eprintln!("[BROWSER_HTTP] eval returned non-HTML ({} bytes), falling back to curl", html.len());
+            }
+            Err(e) => {
+                eprintln!("[BROWSER_HTTP] eval failed: {e}, falling back to curl");
+            }
         }
 
-        // Unwrap the JSON string wrapper from eval result
-        let html = if body.starts_with('"') && body.ends_with('"') {
-            serde_json::from_str::<String>(&body).unwrap_or(body)
-        } else {
-            body
-        };
-
-        // Sanity check: result should look like HTML (not a short error message)
-        if html.len() < 50 && !html.contains('<') {
-            eprintln!("[BROWSER_HTTP] webview eval returned non-HTML: {html}, falling back to curl");
-            return Self::curl_fetch(&self.current_url);
-        }
-
-        eprintln!("[BROWSER_HTTP] webview eval OK: {}bytes ({}ms)",
-            html.len(), start.elapsed().as_millis());
-        let max = 500_000;
-        if html.len() > max {
-            Ok(html[..max].to_string())
-        } else {
-            Ok(html)
-        }
+        Self::curl_fetch(&self.current_url)
     }
 
     /// Fallback: fetch via curl (for web mode where Tauri webview isn't available).
@@ -269,27 +373,44 @@ impl BrowserSession for TauriHttpSession {
     }
 
     fn click(&self, selector: &str) -> Result<(), String> {
-        // Use CDP Input.dispatchMouseEvent for real clicks (works on React SPAs)
-        let url = format!("{TAURI_UI_BRIDGE_BASE}/api/browser/click");
-        let body = serde_json::json!({
-            "selector": selector,
-            "target": "browser-panel"
-        });
-        match ureq::post(&url)
-            .set("Content-Type", "application/json")
-            .timeout(std::time::Duration::from_secs(10))
-            .send_string(&body.to_string())
-        {
-            Ok(resp) => {
-                let text = resp.into_string().unwrap_or_default();
-                if text.contains("not found") || text.contains("not open") {
-                    Err(text)
-                } else {
-                    Ok(())
+        // Try Tauri CDP Input.dispatchMouseEvent first (works on React SPAs)
+        if is_tauri_available() {
+            let url = format!("{TAURI_UI_BRIDGE_BASE}/api/browser/click");
+            let body = serde_json::json!({
+                "selector": selector,
+                "target": "browser-panel"
+            });
+            match ureq::post(&url)
+                .set("Content-Type", "application/json")
+                .timeout(std::time::Duration::from_secs(10))
+                .send_string(&body.to_string())
+            {
+                Ok(resp) => {
+                    let text = resp.into_string().unwrap_or_default();
+                    if !text.contains("not found") && !text.contains("not open") {
+                        return Ok(());
+                    }
                 }
+                Err(_) => {} // Fall through to CDP
             }
-            Err(e) => Err(format!("CDP click failed: {e}")),
         }
+
+        // Chrome CDP fallback: use JS click
+        #[cfg(feature = "cdp")]
+        {
+            let sel_json = serde_json::to_string(selector).unwrap_or_default();
+            let js = format!(
+                "(() => {{ const el = document.querySelector({sel_json}); if (!el) return 'not found'; el.click(); return 'clicked'; }})()"
+            );
+            match cdp::evaluate(&js) {
+                Ok(r) if !r.contains("not found") => return Ok(()),
+                Ok(r) => return Err(format!("Element not found: {r}")),
+                Err(e) => return Err(format!("CDP click failed: {e}")),
+            }
+        }
+
+        #[cfg(not(feature = "cdp"))]
+        Err("No browser backend available for click".into())
     }
 
     fn type_text(&self, selector: &str, text: &str, press_enter: bool) -> Result<(), String> {
@@ -399,8 +520,6 @@ impl BrowserSession for TauriHttpSession {
 
 // ─── Active session tracking ─────────────────────────────────────
 
-use std::sync::Mutex;
-
 /// The active session state — shared between calls.
 static ACTIVE_URL: Mutex<Option<String>> = Mutex::new(None);
 static CACHED_HTML: Mutex<Option<String>> = Mutex::new(None);
@@ -452,59 +571,121 @@ pub fn open_session(url: &str) -> Result<TauriHttpSession, String> {
     Ok(session)
 }
 
-/// Execute JavaScript in the browser-panel webview via the MCP bridge REST endpoint.
+/// Execute JavaScript in the browser panel — Tauri WebView or Chrome CDP fallback.
 pub fn eval_in_browser_panel(js: &str) -> Result<String, String> {
-    // Retry up to 3 times — COM callback can fail during heavy generation
-    for attempt in 0..3 {
-        let resp = ureq::AgentBuilder::new()
-            .timeout(std::time::Duration::from_secs(15))
-            .build()
-            .post(&format!("{TAURI_UI_BRIDGE_BASE}/api/eval"))
-            .set("Content-Type", "application/json")
-            .send_string(&serde_json::json!({
-                "js": js,
-                "target": "agent-browser"
-            }).to_string())
-            .map_err(|e| format!("eval bridge failed: {e}"))?;
-        let body = resp.into_string().unwrap_or_default();
+    // Try Tauri WebView first
+    if is_tauri_available() {
+        for attempt in 0..3 {
+            let resp = ureq::AgentBuilder::new()
+                .timeout(std::time::Duration::from_secs(15))
+                .build()
+                .post(&format!("{TAURI_UI_BRIDGE_BASE}/api/eval"))
+                .set("Content-Type", "application/json")
+                .send_string(&serde_json::json!({
+                    "js": js,
+                    "target": "browser-panel"
+                }).to_string());
 
-        // Retry on COM channel failures (webview busy during generation)
-        if body.contains("Result channel closed") || body.contains("eval timed out") {
-            if attempt < 2 {
-                eprintln!("[BROWSER_EVAL] attempt {}: {}, retrying...", attempt + 1, body.trim());
-                std::thread::sleep(std::time::Duration::from_millis(1000));
-                continue;
+            match resp {
+                Ok(resp) => {
+                    let body = resp.into_string().unwrap_or_default();
+                    if body.contains("Result channel closed") || body.contains("eval timed out") {
+                        if attempt < 2 {
+                            eprintln!("[BROWSER_EVAL] attempt {}: {}, retrying...", attempt + 1, body.trim());
+                            std::thread::sleep(std::time::Duration::from_millis(1000));
+                            continue;
+                        }
+                        break; // Fall through to CDP
+                    }
+                    if body.starts_with('"') && body.ends_with('"') {
+                        return Ok(serde_json::from_str::<String>(&body).unwrap_or(body));
+                    }
+                    return Ok(body);
+                }
+                Err(_) => break, // Fall through to CDP
             }
-            return Err(body);
         }
-
-        // Unwrap JSON string wrapper
-        if body.starts_with('"') && body.ends_with('"') {
-            return Ok(serde_json::from_str::<String>(&body).unwrap_or(body));
-        }
-        return Ok(body);
     }
-    Err("eval_in_browser_panel: all retries failed".into())
+
+    // Try wry native WebView
+    #[cfg(feature = "wry-browser")]
+    {
+        match crate::wry_browser::evaluate(js) {
+            Ok(result) => return Ok(result),
+            Err(e) => eprintln!("[BROWSER_WRY] eval failed: {e}"),
+        }
+    }
+
+    // Try Chrome CDP
+    #[cfg(feature = "cdp")]
+    {
+        match cdp::evaluate(js) {
+            Ok(result) => return Ok(result),
+            Err(e) => eprintln!("[BROWSER_CDP] eval failed: {e}"),
+        }
+    }
+
+    Err("eval_in_browser_panel: no backend available".into())
 }
 
-/// Best-effort: ask the Tauri app process to open/navigate the visible native browser panel.
-/// This bridge is only available in desktop mode; callers should ignore failures and continue.
+/// Navigate the visible browser panel — Tauri WebView or Chrome CDP fallback.
 pub fn notify_tauri_browser_navigate(url: &str) -> Result<(), String> {
     eprintln!("[BROWSER_HTTP] notify_tauri_browser_navigate: {url}");
-    let body = serde_json::json!({ "url": url });
-    ureq::post(&format!("{TAURI_UI_BRIDGE_BASE}/bridge/browser/navigate"))
-        .set("Content-Type", "application/json")
-        .timeout(std::time::Duration::from_secs(3))
-        .send_string(&body.to_string())
-        .map_err(|e| format!("Tauri browser bridge navigate failed: {e}"))?;
-    Ok(())
+
+    // Try Tauri WebView first
+    if is_tauri_available() {
+        let body = serde_json::json!({ "url": url });
+        if ureq::post(&format!("{TAURI_UI_BRIDGE_BASE}/bridge/browser/navigate"))
+            .set("Content-Type", "application/json")
+            .timeout(std::time::Duration::from_secs(3))
+            .send_string(&body.to_string())
+            .is_ok()
+        {
+            return Ok(());
+        }
+    }
+
+    // Try wry native WebView
+    #[cfg(feature = "wry-browser")]
+    {
+        match crate::wry_browser::navigate(url) {
+            Ok(()) => {
+                eprintln!("[BROWSER_WRY] navigated to {url}");
+                return Ok(());
+            }
+            Err(e) => eprintln!("[BROWSER_WRY] navigate failed: {e}"),
+        }
+    }
+
+    // Try Chrome CDP
+    #[cfg(feature = "cdp")]
+    {
+        match cdp::navigate(url) {
+            Ok(()) => {
+                eprintln!("[BROWSER_CDP] navigated to {url}");
+                return Ok(());
+            }
+            Err(e) => eprintln!("[BROWSER_CDP] navigate failed: {e}"),
+        }
+    }
+
+    Err("No browser backend available (Tauri WebView not running, Chrome not found)".into())
 }
 
-/// Best-effort: ask the Tauri app process to close the visible native browser panel.
+/// Close the visible browser panel — Tauri WebView and/or Chrome CDP.
 pub fn notify_tauri_browser_close() -> Result<(), String> {
-    ureq::post(&format!("{TAURI_UI_BRIDGE_BASE}/bridge/browser/close"))
+    // Try Tauri
+    let _ = ureq::post(&format!("{TAURI_UI_BRIDGE_BASE}/bridge/browser/close"))
         .timeout(std::time::Duration::from_secs(3))
-        .call()
-        .map_err(|e| format!("Tauri browser bridge close failed: {e}"))?;
+        .call();
+
+    // Also close wry if active
+    #[cfg(feature = "wry-browser")]
+    { let _ = crate::wry_browser::close(); }
+
+    // Also close CDP if active
+    #[cfg(feature = "cdp")]
+    { let _ = cdp::close(); }
+
     Ok(())
 }

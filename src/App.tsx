@@ -76,8 +76,8 @@ const App = () => {
         __closeBrowserView?: () => void;
       }
     ).__openBrowserView = (url: string) => {
-      // Only set the URL (for agent background navigation).
-      // Does NOT auto-open the panel — user toggles it manually.
+      // Set the URL silently — agent browses in background.
+      // User can open the globe icon to see what the agent is browsing.
       setBrowserViewUrlOnly(url);
     };
     (
