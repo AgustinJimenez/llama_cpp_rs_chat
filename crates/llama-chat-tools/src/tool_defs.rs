@@ -439,31 +439,27 @@ static ALL_TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "browser_get_text",
-        description: "Get the visible text of the current page. Strips HTML tags. Large output is summarized by default — pass a custom summary prompt to extract exactly what you need and save tokens.",
+        description: "Get the visible text of the current page (HTML stripped). Returns up to 30,000 chars. If the page is longer, the result ends with '[N chars remaining — call browser_get_text(offset=M) to continue]'. Use offset to paginate through long articles.",
         params: Params::Simple(&[
-            p("summary", "string", "'false' for raw text, 'true' (default) for generic summary, or a custom prompt (e.g. 'summarize the main article in 3 sentences', 'extract the pricing table'). Custom prompts save tokens."),
+            p("offset", "integer", "Character offset to start reading from (default 0). Use the offset shown in the '[N chars remaining]' footer to read the next page."),
         ]),
         required: &[],
     },
     ToolDef {
         name: "browser_get_links",
-        description: "Get all links on the current page as {text, href} pairs. Large output is summarized by default — pass a custom prompt to filter (e.g. 'only article links, skip navigation').",
-        params: Params::Simple(&[
-            p("summary", "string", "'false' for all links raw, 'true' (default) for summary, or a custom prompt to filter/extract specific links."),
-        ]),
+        description: "Get all links on the current page as [{text, href}] pairs (up to 200 links).",
+        params: Params::Simple(&[]),
         required: &[],
     },
     ToolDef {
         name: "browser_snapshot",
-        description: "Get the accessibility snapshot — interactable elements (buttons, links, inputs) with labels. Compact view of what can be clicked/typed.",
-        params: Params::Simple(&[
-            p("summary", "string", "'false' for raw data, 'true' (default) for summary, or a custom prompt."),
-        ]),
+        description: "Get the list of interactable elements on the page: buttons, links, inputs, selects. Each entry has {tag, text, href, sel} where 'sel' is a CSS selector you can pass to browser_click or browser_type. Use this to find cookie banners, form fields, navigation links, or any clickable element.",
+        params: Params::Simple(&[]),
         required: &[],
     },
     ToolDef {
         name: "browser_scroll",
-        description: "Scroll the page. Use 'amount' for relative scroll in pixels (positive=down, negative=up), or 'selector' to scroll an element into view.",
+        description: "Scroll the page visually. Use 'selector' to bring a specific element into view, or 'amount' for pixel offset. NOTE: page text content is not viewport-dependent — use browser_get_text(offset=N) to read beyond the first 30K chars instead of scrolling.",
         params: Params::Simple(&[
             p("amount", "integer", "Pixels to scroll (positive=down). Optional if selector given."),
             p("selector", "string", "CSS selector of element to scroll into view. Optional if amount given."),

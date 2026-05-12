@@ -184,20 +184,14 @@ pub fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
                 Err(e) => NativeToolResult::text_only(format!("wait failed: {e}")),
             }
         }
-        "get_text" => match session.snapshot() {
-            Ok(text) => {
-                const MAX: usize = 30_000;
-                let mut s = text;
-                if s.len() > MAX {
-                    let mut end = MAX;
-                    while end > 0 && !s.is_char_boundary(end) { end -= 1; }
-                    s.truncate(end);
-                    s.push_str("\n... [truncated]");
-                }
-                NativeToolResult::text_only(s)
+        "get_text" => {
+            let offset = args.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+            const PAGE: usize = 30_000;
+            match session.get_full_text(offset, PAGE) {
+                Ok(text) => NativeToolResult::text_only(text),
+                Err(e) => NativeToolResult::text_only(format!("get_text failed: {e}")),
             }
-            Err(e) => NativeToolResult::text_only(format!("get_text failed: {e}")),
-        },
+        }
         "get_links" => match session.html() {
             Ok(html) => {
                 let mut links = Vec::new();
@@ -218,20 +212,53 @@ pub fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
             }
             Err(e) => NativeToolResult::text_only(format!("get_links failed: {e}")),
         }
-        "snapshot" => match session.snapshot() {
-            Ok(s) => {
-                const MAX: usize = 20_000;
-                let mut text = s;
-                if text.len() > MAX {
-                    let mut end = MAX;
-                    while end > 0 && !text.is_char_boundary(end) { end -= 1; }
-                    text.truncate(end);
-                    text.push_str("\n... [truncated]");
+        "snapshot" => {
+            // Return a compact list of interactable elements (links, buttons, inputs)
+            // so the model can identify clickable targets, cookie banners, forms, etc.
+            let js = r#"
+                (() => {
+                    const seen = new Set();
+                    return Array.from(document.querySelectorAll(
+                        'a[href], button, input:not([type="hidden"]), select, textarea, [role="button"], [role="link"], label[for]'
+                    ))
+                    .slice(0, 150)
+                    .map(el => {
+                        const text = (el.innerText || el.value || el.placeholder ||
+                            el.getAttribute('aria-label') || el.getAttribute('title') || '').trim().slice(0, 100);
+                        if (!text || seen.has(text)) return null;
+                        seen.add(text);
+                        const tag = el.tagName.toLowerCase();
+                        const href = el.href || '';
+                        const id = el.id ? '#'+el.id : '';
+                        const cls = (typeof el.className === 'string' ? el.className : '')
+                            .split(' ').filter(Boolean).slice(0,3).map(c=>'.'+c).join('');
+                        const type_ = el.type ? '[type='+el.type+']' : '';
+                        return { tag, text, href: href.slice(0, 120), sel: (id || cls || tag)+type_ };
+                    })
+                    .filter(Boolean);
+                })()
+            "#;
+            match session.eval(js) {
+                Ok(v) => {
+                    let s = serde_json::to_string_pretty(&v).unwrap_or_else(|_| v.to_string());
+                    const MAX: usize = 20_000;
+                    if s.len() > MAX {
+                        let mut end = MAX;
+                        while end > 0 && !s.is_char_boundary(end) { end -= 1; }
+                        NativeToolResult::text_only(format!("{}...\n[truncated]", &s[..end]))
+                    } else {
+                        NativeToolResult::text_only(s)
+                    }
                 }
-                NativeToolResult::text_only(text)
+                Err(_) => {
+                    // Fallback to text if JS eval isn't available
+                    match session.get_full_text(0, 20_000) {
+                        Ok(t) => NativeToolResult::text_only(t),
+                        Err(e) => NativeToolResult::text_only(format!("snapshot failed: {e}")),
+                    }
+                }
             }
-            Err(e) => NativeToolResult::text_only(format!("snapshot failed: {e}")),
-        },
+        }
         "scroll" => {
             let sel = args.get("selector").and_then(|v| v.as_str()).unwrap_or("");
             let amount = args.get("amount").and_then(|v| v.as_i64()).unwrap_or(0);
@@ -245,10 +272,13 @@ pub fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
             };
             match session.eval(&js) {
                 Ok(v) => {
-                    let msg = v.get("result").and_then(|r| r.as_str()).unwrap_or("done");
-                    NativeToolResult::text_only(msg.to_string())
+                    let msg = match &v {
+                        Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    };
+                    NativeToolResult::text_only(msg)
                 }
-                Err(_) => NativeToolResult::text_only("Scroll not available in HTTP mode (content is fetched statically).".into()),
+                Err(_) => NativeToolResult::text_only("Scrolled (content is fetched statically — use browser_get_text(offset=N) to read beyond the first page).".into()),
             }
         }
         "press_key" => {

@@ -106,6 +106,9 @@ pub trait BrowserSession: Send + Sync {
     fn wait_for(&self, selector: &str, timeout_ms: u64) -> Result<bool, String>;
     fn press_key(&self, key: &str) -> Result<(), String>;
     fn snapshot(&self) -> Result<String, String>;
+    /// Get a slice of the page text starting at `offset` chars, up to `max_chars`.
+    /// Returns the slice + a "[Page N of M]" footer when there's more content.
+    fn get_full_text(&self, offset: usize, max_chars: usize) -> Result<String, String>;
     fn close(&mut self) -> Result<(), String>;
     fn url(&self) -> &str;
 }
@@ -278,6 +281,29 @@ impl TauriHttpSession {
             eprintln!("[BROWSER_HTTP] page not ready after {:.1}s, proceeding anyway",
                 start.elapsed().as_secs_f64());
         }
+
+        // Auto-dismiss common cookie/consent banners so they don't pollute page text
+        let cookie_js = r#"
+            (() => {
+                const patterns = [
+                    'button[id*="accept" i]', 'button[class*="accept" i]',
+                    'button[id*="agree" i]', 'button[class*="agree" i]',
+                    'button[id*="consent" i]', 'button[class*="consent" i]',
+                    'button[data-testid*="accept" i]', 'button[data-testid*="agree" i]',
+                    '[aria-label*="Accept" i]', '[aria-label*="Agree" i]',
+                    'button[id*="cookie" i]', '.cookie-accept', '.js-accept-cookies',
+                    '#accept-cookies', '#cookie-accept', '.accept-cookies'
+                ];
+                for (const sel of patterns) {
+                    try {
+                        const el = document.querySelector(sel);
+                        if (el && el.offsetParent !== null) { el.click(); return 'dismissed: '+sel; }
+                    } catch(_) {}
+                }
+                return 'no banner found';
+            })()
+        "#;
+        let _ = eval_in_browser_panel(cookie_js);
 
         // Read the page HTML via eval_in_browser_panel (uses Tauri → wry → CDP fallback chain)
         match eval_in_browser_panel("document.documentElement ? document.documentElement.outerHTML : ''") {
@@ -505,6 +531,42 @@ impl BrowserSession for TauriHttpSession {
                 }
             }
             _ => self.get_text(20_000),
+        }
+    }
+
+    fn get_full_text(&self, offset: usize, max_chars: usize) -> Result<String, String> {
+        // Get full text (from cache or live webview eval — no pre-truncation)
+        let full = if let Some(ref t) = self.cached_text {
+            t.clone()
+        } else {
+            match eval_in_browser_panel("document.body.innerText") {
+                Ok(t) if t.len() > 50 => t,
+                _ => {
+                    let html = self.do_fetch()?;
+                    Self::strip_html(&html)
+                }
+            }
+        };
+
+        let total = full.len();
+        if offset >= total {
+            return Ok(format!("[offset {offset} is past end of page ({total} chars total)]"));
+        }
+
+        // Align to char boundary
+        let mut start = offset;
+        while start > 0 && !full.is_char_boundary(start) { start -= 1; }
+
+        let mut end = (start + max_chars).min(total);
+        while end < total && !full.is_char_boundary(end) { end += 1; }
+
+        let slice = &full[start..end];
+        if end < total {
+            let remaining = total - end;
+            let next_offset = end;
+            Ok(format!("{slice}\n\n[{remaining} chars remaining — call browser_get_text(offset={next_offset}) to continue]"))
+        } else {
+            Ok(slice.to_string())
         }
     }
 
