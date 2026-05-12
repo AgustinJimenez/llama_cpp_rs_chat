@@ -337,6 +337,30 @@ export function useGenerationStream(deps: UseGenerationStreamDeps) {
               autoContinueCountRef.current = 0;
               notifyIfUnfocused('Generation complete', 'Your AI response is ready.');
               setIsLoading(false);
+
+              // Reload message content from DB to fix truncation caused by
+              // streamSeq mismatch (e.g. yn_continue fired mid-stream and
+              // discarded tokens that the backend already wrote to DB).
+              const convId = conversationId || currentConversationIdRef.current;
+              if (convId) {
+                getConversation(convId)
+                  .then((data) => {
+                    if (!data.messages) return;
+                    const dbMsg = (data.messages as Array<Record<string, unknown>>).find(
+                      (m) => String(m.id) === assistantMessageId,
+                    );
+                    if (!dbMsg) return;
+                    const dbContent = String(dbMsg.content ?? '');
+                    setMessages((prev) =>
+                      prev.map((msg) =>
+                        msg.id === assistantMessageId && msg.content !== dbContent
+                          ? { ...msg, content: dbContent }
+                          : msg,
+                      ),
+                    );
+                  })
+                  .catch(() => {});
+              }
             },
 
             onError: (errorMsg) => {
