@@ -286,18 +286,32 @@ impl TauriHttpSession {
         let cookie_js = r#"
             (() => {
                 const patterns = [
+                    // By ID/class containing accept/agree/consent
                     'button[id*="accept" i]', 'button[class*="accept" i]',
                     'button[id*="agree" i]', 'button[class*="agree" i]',
                     'button[id*="consent" i]', 'button[class*="consent" i]',
+                    // Data attributes
                     'button[data-testid*="accept" i]', 'button[data-testid*="agree" i]',
+                    '[data-gdpr*="accept" i]', '[data-consent*="accept" i]',
+                    // Aria labels
                     '[aria-label*="Accept" i]', '[aria-label*="Agree" i]',
+                    '[aria-label*="Allow all" i]', '[aria-label*="Allow cookies" i]',
+                    // Common class names
                     'button[id*="cookie" i]', '.cookie-accept', '.js-accept-cookies',
-                    '#accept-cookies', '#cookie-accept', '.accept-cookies'
+                    '#accept-cookies', '#cookie-accept', '.accept-cookies',
+                    '.accept-all', '.acceptAll', '#acceptAll',
+                    // Text-based: buttons whose visible text matches
+                    ...Array.from(document.querySelectorAll('button, [role="button"]'))
+                        .filter(el => /^(accept|agree|allow|got it|ok|i agree|accept all|allow all|accept cookies)/i.test((el.innerText||'').trim()))
+                        .slice(0, 5)
                 ];
-                for (const sel of patterns) {
+                for (const el of patterns) {
                     try {
-                        const el = document.querySelector(sel);
-                        if (el && el.offsetParent !== null) { el.click(); return 'dismissed: '+sel; }
+                        const target = typeof el === 'string' ? document.querySelector(el) : el;
+                        if (target && target.offsetParent !== null) {
+                            target.click();
+                            return 'dismissed: ' + (typeof el === 'string' ? el : target.innerText?.trim());
+                        }
                     } catch(_) {}
                 }
                 return 'no banner found';

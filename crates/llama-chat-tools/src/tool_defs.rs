@@ -413,10 +413,8 @@ static ALL_TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "browser_get_html",
-        description: "Get the full HTML of the current page. Large output is summarized by default — pass a custom summary prompt to extract exactly what you need and save tokens.",
-        params: Params::Simple(&[
-            p("summary", "string", "'false' for raw HTML, 'true' (default) for generic summary, or a custom prompt to extract specific data (e.g. 'extract all article titles, URLs, and dates'). Custom prompts save tokens by returning only what you need."),
-        ]),
+        description: "Get the raw HTML of the current page (up to 50,000 chars). Use browser_get_text for readable content — only use this when you need to inspect HTML structure, find specific attributes, or extract data that browser_query can't handle.",
+        params: Params::Simple(&[]),
         required: &[],
     },
     // browser_screenshot: not exposed — browser_get_text is better for content reading,
