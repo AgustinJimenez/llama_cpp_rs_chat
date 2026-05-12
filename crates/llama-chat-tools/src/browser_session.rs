@@ -448,22 +448,18 @@ impl BrowserSession for TauriHttpSession {
             }
         }
 
-        // Chrome CDP fallback: use JS click
-        #[cfg(feature = "cdp")]
+        // JS click fallback via the existing browser panel (wry/CDP — whatever is open)
         {
             let sel_json = serde_json::to_string(selector).unwrap_or_default();
             let js = format!(
                 "(() => {{ const el = document.querySelector({sel_json}); if (!el) return 'not found'; el.click(); return 'clicked'; }})()"
             );
-            match cdp::evaluate(&js) {
+            match eval_in_browser_panel(&js) {
                 Ok(r) if !r.contains("not found") => return Ok(()),
                 Ok(r) => return Err(format!("Element not found: {r}")),
-                Err(e) => return Err(format!("CDP click failed: {e}")),
+                Err(e) => return Err(format!("click failed: {e}")),
             }
         }
-
-        #[cfg(not(feature = "cdp"))]
-        Err("No browser backend available for click".into())
     }
 
     fn type_text(&self, selector: &str, text: &str, press_enter: bool) -> Result<(), String> {
