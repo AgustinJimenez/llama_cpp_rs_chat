@@ -282,10 +282,21 @@ impl TauriHttpSession {
                 start.elapsed().as_secs_f64());
         }
 
-        // Auto-dismiss common cookie/consent banners so they don't pollute page text
+        // Auto-dismiss common cookie/consent banners so they don't pollute page text.
+        // Run twice with a delay — CMPs (OneTrust, Cookiebot, etc.) load asynchronously
+        // after readyState=complete, so the first pass may fire before the button exists.
         let cookie_js = r#"
             (() => {
                 const patterns = [
+                    // OneTrust (used by insidehighered, many news sites)
+                    '#onetrust-accept-btn-handler', '.onetrust-accept-btn-handler',
+                    '.ot-sdk-btn-handler', '#accept-recommended-btn-handler',
+                    // Cookiebot
+                    '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
+                    '#CybotCookiebotDialogBodyButtonAccept',
+                    // TrustArc / Evidon / other CMPs
+                    '.truste_popframe', '#truste-consent-button', '.evidon-accept-button',
+                    '#gdpr-consent-tool-wrapper button',
                     // By ID/class containing accept/agree/consent
                     'button[id*="accept" i]', 'button[class*="accept" i]',
                     'button[id*="agree" i]', 'button[class*="agree" i]',
@@ -297,12 +308,11 @@ impl TauriHttpSession {
                     '[aria-label*="Accept" i]', '[aria-label*="Agree" i]',
                     '[aria-label*="Allow all" i]', '[aria-label*="Allow cookies" i]',
                     // Common class names
-                    'button[id*="cookie" i]', '.cookie-accept', '.js-accept-cookies',
-                    '#accept-cookies', '#cookie-accept', '.accept-cookies',
-                    '.accept-all', '.acceptAll', '#acceptAll',
-                    // Text-based: buttons whose visible text matches
-                    ...Array.from(document.querySelectorAll('button, [role="button"]'))
-                        .filter(el => /^(accept|agree|allow|got it|ok|i agree|accept all|allow all|accept cookies)/i.test((el.innerText||'').trim()))
+                    '#accept-cookies', '#cookie-accept', '.cookie-accept',
+                    '.js-accept-cookies', '.accept-cookies', '.accept-all', '#acceptAll',
+                    // Text-based: buttons whose visible text matches common patterns
+                    ...Array.from(document.querySelectorAll('button, [role="button"], a.btn'))
+                        .filter(el => /^(accept|agree|allow|got it|ok|i agree|accept all|allow all|accept cookies|accept & continue|accept and continue)/i.test((el.innerText||'').trim()))
                         .slice(0, 5)
                 ];
                 for (const el of patterns) {
@@ -317,6 +327,9 @@ impl TauriHttpSession {
                 return 'no banner found';
             })()
         "#;
+        let _ = eval_in_browser_panel(cookie_js);
+        // Second pass after 1.5s — CMPs often render after initial page load
+        std::thread::sleep(std::time::Duration::from_millis(1500));
         let _ = eval_in_browser_panel(cookie_js);
 
         // Read the page HTML via eval_in_browser_panel (uses Tauri → wry → CDP fallback chain)

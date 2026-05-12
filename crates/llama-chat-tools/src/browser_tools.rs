@@ -193,7 +193,10 @@ pub fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
             }
         }
         "get_text" => {
-            let offset = args.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+            // Coerce string "8000" → 8000 in case model passes offset as a string
+            let offset = args.get("offset").and_then(|v| {
+                v.as_u64().or_else(|| v.as_str()?.parse::<u64>().ok())
+            }).unwrap_or(0) as usize;
             const PAGE: usize = 30_000;
             match session.get_full_text(offset, PAGE) {
                 Ok(text) => NativeToolResult::text_only(text),
