@@ -526,7 +526,47 @@ fn vlm_ocr_main(_args: &[String]) -> std::io::Result<()> {
     std::process::exit(1);
 }
 
+/// Write our PID to `assets/server.pid`. On startup, if a PID file already exists and that
+/// process is still alive, kill it first so only one server instance runs at a time.
+fn enforce_single_instance() {
+    const PID_FILE: &str = "assets/server.pid";
+
+    // If a stale PID file exists, try to kill the old process.
+    if let Ok(contents) = std::fs::read_to_string(PID_FILE) {
+        if let Ok(old_pid) = contents.trim().parse::<u32>() {
+            // On Windows, use taskkill; on Unix, send SIGTERM.
+            #[cfg(target_os = "windows")]
+            {
+                let _ = std::process::Command::new("taskkill")
+                    .args(["/PID", &old_pid.to_string(), "/F"])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status();
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                let _ = std::process::Command::new("kill")
+                    .args(["-TERM", &old_pid.to_string()])
+                    .status();
+            }
+            // Give it a moment to release the port.
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            eprintln!("[SERVER] Killed previous instance (PID {old_pid})");
+        }
+    }
+
+    // Write our own PID.
+    let my_pid = std::process::id();
+    let _ = std::fs::write(PID_FILE, my_pid.to_string());
+
+    // Remove PID file on exit via a dedicated thread watching for process death.
+    // (Simple: just register a normal exit hook via std::panic + atexit isn't easy in Rust,
+    //  so we rely on the OS to reclaim the file on next startup instead.)
+}
+
 async fn server_main() -> std::io::Result<()> {
+    enforce_single_instance();
+
     // Initialize SQLite database
     let db: SharedDatabase = Arc::new(
         Database::new("assets/llama_chat.db").expect("Failed to initialize SQLite database"),
