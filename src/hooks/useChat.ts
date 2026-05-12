@@ -238,6 +238,15 @@ export function useChat() {
         ]);
       });
 
+      // If this is a new conversation (no ID yet), notify sidebar immediately
+      // so it shows the new entry without waiting for generation to finish.
+      if (!currentConversationId) {
+        const NEW_CONV_SIDEBAR_DELAY_MS = 600; // enough for the DB record to be created
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('conversation-started'));
+        }, NEW_CONV_SIDEBAR_DELAY_MS);
+      }
+
       await startGeneration(
         {
           prompt: trimmed,
