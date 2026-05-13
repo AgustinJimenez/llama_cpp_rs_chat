@@ -500,6 +500,13 @@ pub fn check_and_execute_command_with_tags(
                     log_info!(conversation_id, "📦 Native tool result: {}", one_liner);
                     llama_chat_db::event_log::log_event(conversation_id, "tool_done", &one_liner);
 
+                    // After a successful file write or edit, clear compile/execute entries from
+                    // the loop-detection window. The file changed, so the next compile is a new
+                    // attempt on updated code — not a repeat of the previous ones.
+                    if matches!(tool_name_for_log.as_str(), "write_file" | "edit_file") {
+                        loop_detection::reset_after_write(recent_commands);
+                    }
+
                     // Check if tool result is successful using sub-agent.
                     // Skip check for action tools that always succeed (navigate, scroll, etc.)
                     let skip_check = matches!(tool_name_for_log.as_str(),

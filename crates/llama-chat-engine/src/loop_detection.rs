@@ -85,10 +85,13 @@ pub(crate) fn check_loop(
         }
     };
 
-    // Fuzzy loop: warn at 3+, block at 6+
+    // Fuzzy loop: warn at 3+, block at 10+
+    // Threshold is intentionally higher than the exact-repeat limit because similar-but-different
+    // commands are often valid (e.g. recompiling after each file edit). Exact repeats are caught
+    // earlier by MAX_COMMAND_REPEATS.
     let fuzzy_warning = if !is_wait_or_poll && similar_count >= 3 && repeat_count < MAX_COMMAND_REPEATS {
         eprintln!("[FUZZY_LOOP] {} similar commands detected", similar_count);
-        if similar_count >= 6 {
+        if similar_count >= 10 {
             // Escalate: block execution like exact match loop
             let output = format!(
                 "LOOP BLOCKED: You have run {} very similar commands. Execution REFUSED. \
@@ -153,6 +156,27 @@ pub(crate) fn check_loop(
     // Successful execution — reset consecutive block counter
     *consecutive_blocks = 0;
     Ok(LoopCheckResult::Continue(fuzzy_warning))
+}
+
+/// Reset compile-like commands from the recent-commands window after a file write or edit.
+///
+/// When the model writes or edits a file, any subsequent compile/execute attempt is a
+/// genuinely new operation on updated code. Clearing old compile entries prevents the
+/// fuzzy-similarity counter from falsely triggering on the recompile after a fix.
+/// Write/read/edit entries are retained so exact-repeat detection still works on those.
+pub(crate) fn reset_after_write(recent_commands: &mut Vec<String>) {
+    let before = recent_commands.len();
+    recent_commands.retain(|cmd| {
+        let lower = cmd.to_lowercase();
+        // Keep file-operation commands; remove execute/compile commands
+        lower.contains("write_file")
+            || lower.contains("edit_file")
+            || lower.contains("read_file")
+    });
+    let removed = before - recent_commands.len();
+    if removed > 0 {
+        eprintln!("[LOOP] reset_after_write: cleared {} compile/execute entries from recent_commands", removed);
+    }
 }
 
 /// Detect dead links / HTTP errors and return a hint for the model to search online.
