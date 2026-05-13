@@ -29,15 +29,12 @@ const CONTINUE_DELAY_MS = 150;
 const MAX_AUTO_CONTINUES = 3;
 const TOAST_DURATION_MS = 5000;
 
-// Auto-continue: finish reasons that trigger automatic re-generation
-const AUTO_CONTINUE_REASONS = new Set([
-  'length',
-  'yn_continue',
-  'loop_recovery',
-  'tool_continue',
-  'cuda_deadlock',
-  'infinite_loop',
-]);
+// Auto-continue: finish reasons that trigger automatic re-generation.
+// NOTE: 'length', 'cuda_deadlock', 'loop_recovery', 'infinite_loop' are now handled
+// server-side in websocket.rs and will never reach the frontend with those values.
+// 'yn_continue' is disabled server-side (see generation.rs, AGENTIC_LOOP_IMPROVEMENTS.md).
+// Only 'tool_continue' remains as a frontend-triggered continuation path.
+const AUTO_CONTINUE_REASONS = new Set(['tool_continue']);
 
 function isAbortError(msg: string): boolean {
   return /aborted/i.test(msg);
