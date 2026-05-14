@@ -12,6 +12,8 @@ export interface Message {
   timings?: TimingInfo;
   /** True if this message has been compacted (summarized for the model). */
   compacted?: boolean;
+  /** duration_ms for each tool call in this message, in order (loaded from persisted event log). */
+  toolCallTimings?: number[];
 }
 
 /** Dynamic tag pair for per-model tag configuration. */
@@ -109,6 +111,8 @@ export interface SamplerConfig {
   max_tool_calls?: number;
   // Loop detection: max consecutive identical tool calls before stopping
   loop_detection_limit?: number;
+  // Thinking mode: undefined/null = use model default (enabled when supported), false = disabled
+  thinking_mode?: boolean | null;
 }
 
 export type SamplerType =
@@ -245,6 +249,13 @@ export interface ToolCall {
   isStreaming?: boolean;
   /** True when this tool call has no output yet and may still be executing. */
   isPending?: boolean;
+  /** Persisted execution time in ms (only set when loaded from a completed conversation). */
+  duration_ms?: number;
+}
+
+export interface ToolTiming {
+  name: string;
+  duration_ms: number;
 }
 
 export interface ToolResult {

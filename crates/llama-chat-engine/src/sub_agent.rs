@@ -99,7 +99,7 @@ pub fn run_sub_agent(
             ChatMessage { role: "system".into(), content: system_prompt.clone(), tool_calls: None },
             ChatMessage { role: "user".into(), content: user_message, tool_calls: None },
         ];
-        apply_native_chat_template(template_str, messages, Some(tools), None, true, &bos, &eos)
+        apply_native_chat_template(template_str, messages, Some(tools), None, true, &bos, &eos, false)
             .unwrap_or_else(|_| format!("SYSTEM:\n{}\n\nUSER:\n{}\n\nASSISTANT:\n", system_prompt, task))
     } else {
         format!("SYSTEM:\n{}\n\nUSER:\n{}\n\nASSISTANT:\n", system_prompt, task)

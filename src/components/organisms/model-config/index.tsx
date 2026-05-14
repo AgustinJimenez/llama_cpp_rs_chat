@@ -305,7 +305,10 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     }
   }, [optimized, modelPath]);
 
-  const handleInputChange = (field: keyof SamplerConfig, value: string | number | boolean) => {
+  const handleInputChange = (
+    field: keyof SamplerConfig,
+    value: string | number | boolean | null,
+  ) => {
     setConfig((prev) => ({
       ...prev,
       [field]: value,
@@ -592,7 +595,11 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                     setCustomSystemPrompt={setCustomSystemPrompt}
                   />
 
-                  <AdvancedContextSection config={config} onConfigChange={handleInputChange} />
+                  <AdvancedContextSection
+                    config={config}
+                    onConfigChange={handleInputChange}
+                    supportsThinking={modelStatus.supports_thinking}
+                  />
 
                   <SamplingParametersSection config={config} onConfigChange={handleInputChange} />
 

@@ -1388,7 +1388,7 @@ pub async fn generate(
             }
 
             // Execute tool calls — parallel if multiple, sequential if single
-            let tool_results: Vec<(String, String, String)> = if result.tool_calls.len() > 1 {
+            let tool_results: Vec<(String, String, String, u64)> = if result.tool_calls.len() > 1 {
                 result.tool_calls.iter().map(|tc| {
                     let args_display = if tc.arguments.is_empty() { "{}".to_string() } else { tc.arguments.clone() };
                     let _ = tx.send(CliTokenData {
@@ -1401,7 +1401,9 @@ pub async fn generate(
                         tc.name,
                         &tc.arguments.chars().take(200).collect::<String>()
                     );
+                    let tool_start = std::time::Instant::now();
                     let result_text = execute_openai_tool(&tc.name, &tc.arguments, db_owned.as_ref());
+                    let tool_duration_ms = tool_start.elapsed().as_millis() as u64;
                     // Smart truncation: keep head + tail for large outputs, 50KB safety net
                     let safe = if result_text.len() > 50_000 {
                         format!("{}\n\n[... truncated at 50KB, total {} bytes]", &result_text[..50_000], result_text.len())
@@ -1409,7 +1411,7 @@ pub async fn generate(
                         result_text
                     };
                     let summarized = summarize_tool_output(&safe, &tc.name, &url, &api_key_owned, &model_name_clone);
-                    (tc.id.clone(), tc.name.clone(), summarized)
+                    (tc.id.clone(), tc.name.clone(), summarized, tool_duration_ms)
                 }).collect()
             } else {
                 result.tool_calls.iter().map(|tc| {
@@ -1424,7 +1426,9 @@ pub async fn generate(
                         tc.name,
                         &tc.arguments.chars().take(200).collect::<String>()
                     );
+                    let tool_start = std::time::Instant::now();
                     let result_text = execute_openai_tool(&tc.name, &tc.arguments, db_owned.as_ref());
+                    let tool_duration_ms = tool_start.elapsed().as_millis() as u64;
                     // Smart truncation: keep head + tail for large outputs, 50KB safety net
                     let safe = if result_text.len() > 50_000 {
                         format!("{}\n\n[... truncated at 50KB, total {} bytes]", &result_text[..50_000], result_text.len())
@@ -1432,12 +1436,12 @@ pub async fn generate(
                         result_text
                     };
                     let summarized = summarize_tool_output(&safe, &tc.name, &url, &api_key_owned, &model_name_clone);
-                    (tc.id.clone(), tc.name.clone(), summarized)
+                    (tc.id.clone(), tc.name.clone(), summarized, tool_duration_ms)
                 }).collect()
             };
 
             // Display results, save to DB, and add to messages
-            for (id, _name, truncated) in &tool_results {
+            for (id, name, truncated, duration_ms) in &tool_results {
                 let response_display = format!(
                     "\n<tool_response>{}</tool_response>\n",
                     &truncated[..truncated.len().min(2000)]
@@ -1452,9 +1456,14 @@ pub async fn generate(
                     "tool_call_id": id,
                     "content": truncated,
                 }));
-                // Save tool result to DB
-                if let (Some(conv_id), Some(ref db)) = (&conv_id_owned, &db_owned) {
-                    save_message_now(db, conv_id, "tool", &format!("{id}\n\n{truncated}"));
+                // Save tool result and timing to DB
+                if let (Some(conv_id), Some(ref _db)) = (&conv_id_owned, &db_owned) {
+                    save_message_now(_db, conv_id, "tool", &format!("{id}\n\n{truncated}"));
+                    llama_chat_db::event_log::log_event(
+                        conv_id,
+                        "tool_timing",
+                        &format!("{{\"name\":\"{}\",\"duration_ms\":{}}}", name, duration_ms),
+                    );
                 }
             }
 

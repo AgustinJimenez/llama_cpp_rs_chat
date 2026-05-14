@@ -51,6 +51,7 @@ interface ConversationContentResponse {
   }>;
   provider_id?: string;
   provider_session_id?: string;
+  tool_timings?: Array<{ name: string; duration_ms: number }>;
 }
 
 interface FileItem {

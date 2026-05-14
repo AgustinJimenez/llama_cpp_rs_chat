@@ -220,6 +220,15 @@ pub async fn handle_websocket(
                                             let _ = ws_sender.send(WsMessage::Text(status_json.to_string())).await;
                                             bridge.set_status_message(Some(status.clone())).await;
                                         }
+                                        // Tool timing events: send immediately so frontend can annotate live
+                                        if let Some(ref timing) = token_data.tool_timing {
+                                            let timing_json = serde_json::json!({
+                                                "type": "tool_timing",
+                                                "name": timing.name,
+                                                "duration_ms": timing.duration_ms
+                                            });
+                                            let _ = ws_sender.send(WsMessage::Text(timing_json.to_string())).await;
+                                        }
                                         pending_tokens.push_str(&token_data.token);
                                         pending_tokens_used = Some(token_data.tokens_used);
                                         pending_max_tokens = Some(token_data.max_tokens);

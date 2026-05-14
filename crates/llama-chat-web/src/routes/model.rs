@@ -487,6 +487,7 @@ pub async fn handle_get_model_status(
                     tool_definitions_tokens: if tool_tokens > 0 { Some(tool_tokens) } else { None },
                     context_size,
                     last_finish_reason: last_finish_reason.clone(),
+                    supports_thinking: if meta.loaded { Some(meta.supports_thinking) } else { None },
                 }
             }
             None => {
@@ -509,6 +510,7 @@ pub async fn handle_get_model_status(
                     tool_definitions_tokens: if tool_tokens > 0 { Some(tool_tokens) } else { None },
                     context_size: None,
                     last_finish_reason: last_finish_reason.clone(),
+                    supports_thinking: None,
                 }
             },
         };
@@ -643,6 +645,7 @@ pub async fn handle_post_model_load(
                     tool_definitions_tokens: None,
                     context_size: None,
                     last_finish_reason: None,
+                    supports_thinking: Some(meta.supports_thinking),
                 };
                 let response = ModelResponse {
                     success: true,
@@ -714,6 +717,7 @@ pub async fn handle_post_model_unload(
                     tool_definitions_tokens: None,
                     context_size: None,
                     last_finish_reason: None,
+                    supports_thinking: None,
                 };
                 let response = ModelResponse {
                     success: true,

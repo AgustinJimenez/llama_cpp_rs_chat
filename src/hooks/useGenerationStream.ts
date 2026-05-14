@@ -360,6 +360,23 @@ export function useGenerationStream(deps: UseGenerationStreamDeps) {
               }
             },
 
+            onToolTiming: (_name, durationMs) => {
+              if (streamSeqRef.current !== streamSeq) return;
+              // Append to existing timings — works across auto-continue cycles
+              // since the same assistantMessageId accumulates all tool calls.
+              setMessages((prev) => {
+                const idx = prev.findIndex((m) => m.id === assistantMessageId);
+                if (idx === -1) return prev;
+                const msg = prev[idx];
+                const newTimings = [...(msg.toolCallTimings ?? []), durationMs];
+                return [
+                  ...prev.slice(0, idx),
+                  { ...msg, toolCallTimings: newTimings },
+                  ...prev.slice(idx + 1),
+                ];
+              });
+            },
+
             onError: (errorMsg) => {
               if (streamSeqRef.current !== streamSeq) return;
               isStreamingRef.current = false;

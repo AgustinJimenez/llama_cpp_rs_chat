@@ -41,6 +41,12 @@ fn preprocess_template(template: &str) -> String {
 ///
 /// This function takes the raw Jinja2 template from the model's tokenizer.chat_template
 /// and applies it with the provided messages, tools, and documents.
+/// Detect whether a Jinja2 chat template supports thinking mode.
+/// Returns true if the template uses `enable_thinking` or `clear_thinking` variables.
+pub fn detect_thinking_support(template: &str) -> bool {
+    template.contains("enable_thinking") || template.contains("clear_thinking")
+}
+
 pub fn apply_native_chat_template(
     template_string: &str,
     messages: Vec<ChatMessage>,
@@ -49,6 +55,7 @@ pub fn apply_native_chat_template(
     add_generation_prompt: bool,
     bos_token: &str,
     eos_token: &str,
+    enable_thinking: bool,
 ) -> Result<String, String> {
     // Preprocess template for minijinja compatibility
     let processed_template = preprocess_template(template_string);
@@ -100,9 +107,10 @@ pub fn apply_native_chat_template(
         available_tools => &tools_vec,
         bos_token => bos_token,
         eos_token => eos_token,
-        // Disable thinking/reasoning mode — models like GLM-4 check this variable
-        // and enter <think> mode if it's undefined, causing immediate EOS
-        enable_thinking => false,
+        // Thinking/reasoning mode — models like Qwen3, DeepSeek-R1, GLM-4, Gemma-4 use this.
+        // clear_thinking is GLM-4's inverse flag (true when thinking is disabled).
+        enable_thinking => enable_thinking,
+        clear_thinking => !enable_thinking,
     };
 
     // Render the template
@@ -561,6 +569,7 @@ Hi there!"#;
             true,
             "<s>",
             "</s>",
+            false,
         );
         assert!(result.is_ok());
         let prompt = result.unwrap();
@@ -575,7 +584,7 @@ Hi there!"#;
     fn test_raise_exception_works() {
         let template = r#"{% if true %}{{ raise_exception("test error") }}{% endif %}"#;
         let messages = vec![];
-        let result = apply_native_chat_template(template, messages, None, None, false, "", "");
+        let result = apply_native_chat_template(template, messages, None, None, false, "", "", false);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("test error"));
     }
@@ -584,7 +593,7 @@ Hi there!"#;
     fn test_strftime_now_works() {
         let template = r#"{{ strftime_now("%Y-%m-%d") }}"#;
         let messages = vec![];
-        let result = apply_native_chat_template(template, messages, None, None, false, "", "");
+        let result = apply_native_chat_template(template, messages, None, None, false, "", "", false);
         assert!(result.is_ok());
         let date = result.unwrap();
         // Should be a valid YYYY-MM-DD format

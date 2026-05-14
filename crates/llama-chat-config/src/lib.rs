@@ -66,7 +66,9 @@ pub fn db_config_to_sampler_config(db_config: &DbSamplerConfig) -> SamplerConfig
         telegram_bot_token: db_config.telegram_bot_token.clone(),
         telegram_chat_id: db_config.telegram_chat_id.clone(),
         provider_api_keys: db_config.provider_api_keys.clone(),
-        max_tool_calls: db_config.max_tool_calls, loop_detection_limit: db_config.loop_detection_limit,
+        max_tool_calls: db_config.max_tool_calls,
+        loop_detection_limit: db_config.loop_detection_limit,
+        thinking_mode: db_config.thinking_mode,
     }
 }
 
@@ -129,7 +131,9 @@ pub fn sampler_config_to_db(config: &SamplerConfig) -> DbSamplerConfig {
         telegram_bot_token: config.telegram_bot_token.clone(),
         telegram_chat_id: config.telegram_chat_id.clone(),
         provider_api_keys: config.provider_api_keys.clone(),
-        max_tool_calls: config.max_tool_calls, loop_detection_limit: config.loop_detection_limit,
+        max_tool_calls: config.max_tool_calls,
+        loop_detection_limit: config.loop_detection_limit,
+        thinking_mode: config.thinking_mode,
     }
 }
 

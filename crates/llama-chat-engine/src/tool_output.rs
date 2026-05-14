@@ -41,7 +41,7 @@ fn run_summary_pass(
             ChatMessage { role: "system".into(), content: system_msg.into(), tool_calls: None },
             ChatMessage { role: "user".into(), content: text.into(), tool_calls: None },
         ];
-        apply_native_chat_template(template_str, messages, None, None, true, &bos, &eos)
+        apply_native_chat_template(template_str, messages, None, None, true, &bos, &eos, false)
             .unwrap_or_else(|_| format!("SYSTEM:\n{system_msg}\n\nUSER:\n{text}\n\nASSISTANT:\n"))
     } else {
         format!("SYSTEM:\n{system_msg}\n\nUSER:\n{text}\n\nASSISTANT:\n")
@@ -158,7 +158,7 @@ fn run_summary_pass_with_system(
             super::jinja_templates::ChatMessage { role: "system".into(), content: system_msg.into(), tool_calls: None },
             super::jinja_templates::ChatMessage { role: "user".into(), content: text.into(), tool_calls: None },
         ];
-        apply_native_chat_template(template_str, messages, None, None, true, &bos, &eos)
+        apply_native_chat_template(template_str, messages, None, None, true, &bos, &eos, false)
             .unwrap_or_else(|_| format!("SYSTEM:\n{system_msg}\n\nUSER:\n{text}\n\nASSISTANT:\n"))
     } else {
         format!("SYSTEM:\n{system_msg}\n\nUSER:\n{text}\n\nASSISTANT:\n")
@@ -274,7 +274,7 @@ pub fn run_summary_reusing_ctx_with_system(
             super::jinja_templates::ChatMessage { role: "system".into(), content: system_msg.into(), tool_calls: None },
             super::jinja_templates::ChatMessage { role: "user".into(), content: text.into(), tool_calls: None },
         ];
-        apply_native_chat_template(template_str, messages, None, None, true, &bos, &eos)
+        apply_native_chat_template(template_str, messages, None, None, true, &bos, &eos, false)
             .unwrap_or_else(|_| format!("SYSTEM:\n{system_msg}\n\nUSER:\n{text}\n\nASSISTANT:\n"))
     } else {
         format!("SYSTEM:\n{system_msg}\n\nUSER:\n{text}\n\nASSISTANT:\n")

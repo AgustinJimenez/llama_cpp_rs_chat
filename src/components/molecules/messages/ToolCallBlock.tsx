@@ -270,28 +270,40 @@ const CompletedHeader: React.FC<{
   isExpanded: boolean;
   onToggle: () => void;
   resultStatus?: 'success' | 'error';
-}> = ({ name, summary, isExpanded, onToggle, resultStatus }) => (
-  <button
-    onClick={onToggle}
-    className={`w-full px-3 py-2 flex items-center gap-2 text-left hover:bg-accent transition-colors ${
-      resultStatus === 'error' ? 'bg-red-500/10 border-l-2 border-red-500' : 'bg-muted'
-    }`}
-  >
-    {resultStatus ? (
-      <span
-        className={`w-2 h-2 rounded-full flex-shrink-0 ${resultStatus === 'error' ? 'bg-red-500' : 'bg-green-500'}`}
-        title={resultStatus === 'error' ? 'Tool call returned an error' : 'Tool call succeeded'}
-      />
-    ) : null}
-    <span className="text-xs font-medium text-foreground">{formatToolName(name)}</span>
-    <span className="text-xs text-foreground truncate flex-1">{summary}</span>
-    {isExpanded ? (
-      <ChevronDown className="h-3.5 w-3.5 text-foreground flex-shrink-0" />
-    ) : (
-      <ChevronRight className="h-3.5 w-3.5 text-foreground flex-shrink-0" />
-    )}
-  </button>
-);
+  durationMs?: number;
+}> = ({ name, summary, isExpanded, onToggle, resultStatus, durationMs }) => {
+  let durationStr: string | null = null;
+  if (durationMs != null && durationMs > 0) {
+    durationStr = durationMs < 1000 ? `${durationMs}ms` : `${(durationMs / 1000).toFixed(1)}s`;
+  }
+  return (
+    <button
+      onClick={onToggle}
+      className={`w-full px-3 py-2 flex items-center gap-2 text-left hover:bg-accent transition-colors ${
+        resultStatus === 'error' ? 'bg-red-500/10 border-l-2 border-red-500' : 'bg-muted'
+      }`}
+    >
+      {resultStatus ? (
+        <span
+          className={`w-2 h-2 rounded-full flex-shrink-0 ${resultStatus === 'error' ? 'bg-red-500' : 'bg-green-500'}`}
+          title={resultStatus === 'error' ? 'Tool call returned an error' : 'Tool call succeeded'}
+        />
+      ) : null}
+      <span className="text-xs font-medium text-foreground">
+        {formatToolName(name)}
+        {durationStr ? (
+          <span className="text-foreground/50 font-normal"> ({durationStr})</span>
+        ) : null}
+      </span>
+      <span className="text-xs text-foreground truncate flex-1">{summary}</span>
+      {isExpanded ? (
+        <ChevronDown className="h-3.5 w-3.5 text-foreground flex-shrink-0" />
+      ) : (
+        <ChevronRight className="h-3.5 w-3.5 text-foreground flex-shrink-0" />
+      )}
+    </button>
+  );
+};
 
 /** Scrollable output container with overscroll containment and streaming auto-scroll. */
 const ScrollableOutput: React.FC<{
@@ -490,6 +502,7 @@ const SingleToolCall: React.FC<{ toolCall: ToolCall; isGenerating?: boolean }> =
           isExpanded={isExpanded}
           onToggle={() => setIsExpanded(!isExpanded)}
           resultStatus={toolResultStatus}
+          durationMs={toolCall.duration_ms}
         />
       )}
       {isExpanded ? expandedContent : null}

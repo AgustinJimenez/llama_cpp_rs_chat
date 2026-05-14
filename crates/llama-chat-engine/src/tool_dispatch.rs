@@ -1,5 +1,6 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::mpsc;
 
 use llama_chat_command::background::execute_command_background;
@@ -260,6 +261,7 @@ pub(crate) fn execute_single_tool(
                 } else {
                     log_info!(conversation_id, "🐚 Batch: streaming execute_command (timeout={}s): {}", timeout_secs.unwrap_or(300), rtk_cmd);
                     let sender_clone = token_sender.clone();
+                    let exec_start = Instant::now();
                     let text = execute_command_streaming_with_timeout(&rtk_cmd, cancel, timeout_secs, &mut |line| {
                         if let Some(ref sender) = sender_clone {
                             let _ = sender.send(TokenData {
@@ -270,6 +272,13 @@ pub(crate) fn execute_single_tool(
                             });
                         }
                     });
+                    let elapsed_ms = exec_start.elapsed().as_millis() as u64;
+                    if let Some(ref sender) = token_sender {
+                        let _ = sender.send(TokenData {
+                            tool_timing: Some(ToolTimingLive { name: "execute_command".to_string(), duration_ms: elapsed_ms }),
+                            ..Default::default()
+                        });
+                    }
                     return (text, Vec::new());
                 }
             }
@@ -277,6 +286,7 @@ pub(crate) fn execute_single_tool(
     }
 
     // Try native tool dispatch (may return images for vision)
+    let native_start = Instant::now();
     if let Some(native_result) = run_native_tool_with_timeout(
         tool_json,
         conversation_id,
@@ -285,8 +295,13 @@ pub(crate) fn execute_single_tool(
         mcp_manager.clone(),
         db.clone(),
     ) {
+        let native_duration_ms = native_start.elapsed().as_millis() as u64;
         log_info!(conversation_id, "📦 Batch: native tool '{}' dispatched (images={})", name, native_result.images.len());
         if let Some(ref sender) = token_sender {
+            let _ = sender.send(TokenData {
+                tool_timing: Some(ToolTimingLive { name: name.to_string(), duration_ms: native_duration_ms }),
+                ..Default::default()
+            });
             let _ = sender.send(TokenData {
                 token: native_result.text.trim().to_string(),
                 tokens_used: token_pos,

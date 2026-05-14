@@ -190,6 +190,10 @@ pub struct SamplerConfig {
     pub max_tool_calls: i32,
     #[serde(default = "default_loop_detection_limit")]
     pub loop_detection_limit: i32,
+    /// Enable thinking/reasoning mode (Qwen3, DeepSeek-R1, GLM-4, Gemma-4).
+    /// None = use model default (true when supported). Some(false) = disable.
+    #[serde(default)]
+    pub thinking_mode: Option<bool>,
 }
 
 fn default_max_tool_calls() -> i32 { 2000 }
@@ -322,7 +326,9 @@ impl Default for SamplerConfig {
             telegram_bot_token: None,
             telegram_chat_id: None,
             provider_api_keys: None,
-            max_tool_calls: 2000, loop_detection_limit: 15,
+            max_tool_calls: 2000,
+            loop_detection_limit: 15,
+            thinking_mode: None,
         }
     }
 }
@@ -472,6 +478,14 @@ pub fn translate_tool_for_model(
     }
 }
 
+/// Live tool timing event emitted after each tool call completes during streaming.
+/// Allows the frontend to show "(87ms)" or "(3.2s)" next to each tool name in real time.
+#[derive(Serialize, Clone, Default)]
+pub struct ToolTimingLive {
+    pub name: String,
+    pub duration_ms: u64,
+}
+
 // Token data with metadata for streaming
 #[derive(Serialize, Clone, Default)]
 pub struct TokenData {
@@ -487,6 +501,10 @@ pub struct TokenData {
     /// Tokens generated so far in this generation pass.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gen_tokens: Option<i32>,
+    /// Tool timing event: emitted once per tool call after execution completes.
+    /// Carries name + duration so the frontend can annotate tool calls live.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_timing: Option<ToolTimingLive>,
 }
 
 // Request/Response structures
@@ -552,6 +570,12 @@ pub struct ConversationsResponse {
 }
 
 #[derive(Serialize)]
+pub struct ToolTiming {
+    pub name: String,
+    pub duration_ms: u64,
+}
+
+#[derive(Serialize)]
 pub struct ConversationContentResponse {
     pub content: String,
     pub messages: Vec<ChatMessage>,
@@ -559,6 +583,7 @@ pub struct ConversationContentResponse {
     pub provider_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_session_id: Option<String>,
+    pub tool_timings: Vec<ToolTiming>,
 }
 
 #[derive(Serialize)]
@@ -615,6 +640,9 @@ pub struct ModelStatus {
     /// Last generation finish reason (consumed once by polling for auto-continue).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_finish_reason: Option<String>,
+    /// True when the loaded model's chat template uses enable_thinking/clear_thinking variables.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub supports_thinking: Option<bool>,
 }
 
 #[derive(Deserialize)]

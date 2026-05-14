@@ -159,6 +159,12 @@ pub async fn generate_llama_response(
     // context_eval.rs will fall back to a fresh context if tokens diverge.
     // NOTE: vision path explicitly drops the cache below (image embeddings can't be cached).
 
+    // Get actual token_pos from the last generation — this is what the model truly consumed.
+    // Tool outputs are truncated before feeding to the model, so raw DB content is much larger.
+    // Using token_pos prevents false compaction triggers when verbose tool output fills the DB
+    // but the model only sees a small fraction of it.
+    let last_token_pos = db.get_last_generation_token_pos(&conversation_id);
+
     let conversation_content = super::compaction::maybe_compact_conversation(
         &raw_conversation_content,
         context_size,
@@ -168,6 +174,7 @@ pub async fn generate_llama_response(
         &state.backend,
         state.chat_template_string.as_deref(),
         if cached_overhead > 0 { Some(cached_overhead) } else { None },
+        last_token_pos,
         token_sender.as_ref(),
     );
 
@@ -222,6 +229,11 @@ pub async fn generate_llama_response(
     let mcp_tools_ref = if mcp_tool_defs.is_empty() { None } else { Some(mcp_tool_defs.as_slice()) };
 
     // Use the 3-system prompt dispatcher with model-specific tool tags
+    // Thinking mode: use config value if set; default to true when model supports it.
+    let supports_thinking = chat_template_string.as_deref()
+        .map(|t| super::jinja_templates::detect_thinking_support(t))
+        .unwrap_or(false);
+    let enable_thinking = config.thinking_mode.unwrap_or(supports_thinking);
     let prompt = apply_system_prompt_by_type_with_tags(
         &conversation_content,
         template_type.as_deref(),
@@ -230,6 +242,7 @@ pub async fn generate_llama_response(
         &bos_text,
         &eos_text,
         mcp_tools_ref,
+        enable_thinking,
     )?;
     log_info!(&conversation_id, "=== FINAL PROMPT BEING SENT TO MODEL ===");
     log_info!(&conversation_id, "{}", prompt);

@@ -86,9 +86,18 @@ export function useMessageParsing(message: Message, toolTags?: ToolTags): Parsed
     .replace(INTERNAL_SIGNALS_CLEANUP, '');
 
   const toolCalls = useMemo(() => {
-    if (message.role === 'assistant') return autoParseToolCalls(effectiveContent);
+    if (message.role === 'assistant') {
+      const calls = autoParseToolCalls(effectiveContent);
+      if (message.toolCallTimings && message.toolCallTimings.length > 0) {
+        return calls.map((call, i) => ({
+          ...call,
+          duration_ms: message.toolCallTimings?.[i],
+        }));
+      }
+      return calls;
+    }
     return [];
-  }, [effectiveContent, message.role]);
+  }, [effectiveContent, message.role, message.toolCallTimings]);
 
   const cleanContent = useMemo(() => {
     let content = stripUnclosedToolCallTail(effectiveContent, toolTags);
@@ -126,9 +135,20 @@ export function useMessageParsing(message: Message, toolTags?: ToolTags): Parsed
   }, [message.content, harmony, thinkingContent]);
 
   const segments = useMemo(() => {
-    if (harmony) return harmony.segments;
-    return buildSegments(effectiveContent, toolTags);
-  }, [effectiveContent, harmony, toolTags]);
+    const raw = harmony ? harmony.segments : buildSegments(effectiveContent, toolTags);
+    if (!message.toolCallTimings?.length) return raw;
+    // Inject duration_ms into tool_call segments so ToolCallBlock can render timing labels
+    let toolCallIdx = 0;
+    return raw.map((segment) => {
+      if (segment.type === 'tool_call') {
+        const timing = message.toolCallTimings?.[toolCallIdx++];
+        if (timing != null) {
+          return { ...segment, toolCall: { ...segment.toolCall, duration_ms: timing } };
+        }
+      }
+      return segment;
+    });
+  }, [effectiveContent, harmony, toolTags, message.toolCallTimings]);
 
   const contentWithoutThinking = useMemo(() => {
     let result = cleanContent

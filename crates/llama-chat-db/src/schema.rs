@@ -582,6 +582,12 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         [],
     );
 
+    // Thinking mode: NULL=use model default, 0=disabled, 1=enabled
+    let _ = conn.execute(
+        "ALTER TABLE config ADD COLUMN thinking_mode INTEGER DEFAULT NULL",
+        [],
+    );
+
     // Active provider preference (persisted so API clients can query it)
     let _ = conn.execute(
         "ALTER TABLE config ADD COLUMN active_provider TEXT DEFAULT 'local'",
