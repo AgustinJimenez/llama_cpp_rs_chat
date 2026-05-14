@@ -315,10 +315,10 @@ class BrowserChatTransport implements ChatTransport {
 
   async streamMessage(
     request: ChatRequest,
-    { onToken, onComplete, onError }: StreamingCallbacks,
+    callbacks: StreamingCallbacks,
     abortSignal?: AbortSignal,
   ): Promise<void> {
-    return streamViaWebSocket(request, { onToken, onComplete, onError }, abortSignal);
+    return streamViaWebSocket(request, callbacks, abortSignal);
   }
 }
 

@@ -480,7 +480,7 @@ pub fn translate_tool_for_model(
 
 /// Live tool timing event emitted after each tool call completes during streaming.
 /// Allows the frontend to show "(87ms)" or "(3.2s)" next to each tool name in real time.
-#[derive(Serialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Default, Debug)]
 pub struct ToolTimingLive {
     pub name: String,
     pub duration_ms: u64,

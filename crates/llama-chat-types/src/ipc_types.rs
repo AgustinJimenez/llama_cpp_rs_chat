@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::event_log::ConversationEvent;
-use crate::models::TokenBreakdown;
+use crate::models::{TokenBreakdown, ToolTimingLive};
 
 /// Request sent from server to worker via stdin.
 #[derive(Serialize, Deserialize, Debug)]
@@ -113,6 +113,8 @@ pub enum WorkerPayload {
         max_tokens: i32,
         #[serde(skip_serializing_if = "Option::is_none")]
         status: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tool_timing: Option<ToolTimingLive>,
     },
     /// Generation completed successfully.
     GenerationComplete {

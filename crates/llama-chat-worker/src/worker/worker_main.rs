@@ -812,6 +812,7 @@ fn run_generation(params: GenerationParams) {
                                 tokens_used: token_data.tokens_used,
                                 max_tokens: token_data.max_tokens,
                                 status: token_data.status,
+                                tool_timing: token_data.tool_timing,
                             },
                         );
                         if tx_clone.send(response).is_err() {
