@@ -2,6 +2,18 @@
 
 > **Note:** This project is under active development. Expect bugs, breaking changes, and incomplete features. Contributions and bug reports are welcome!
 
+## Download
+
+[![GitHub Release](https://img.shields.io/github/v/release/AgustinJimenez/llama_cpp_rs_chat?style=flat-square&label=Latest%20Release)](https://github.com/AgustinJimenez/llama_cpp_rs_chat/releases/latest)
+
+| Platform | Installer | Notes |
+|---|---|---|
+| **Windows** | [`.msi` / `-setup.exe`](https://github.com/AgustinJimenez/llama_cpp_rs_chat/releases/latest) | CUDA auto-detected at runtime |
+| **macOS** | [`.dmg`](https://github.com/AgustinJimenez/llama_cpp_rs_chat/releases/latest) | Metal GPU built-in |
+| **Linux** | [`.deb` / `.AppImage`](https://github.com/AgustinJimenez/llama_cpp_rs_chat/releases/latest) | CPU inference |
+
+> All releases are on the [Releases page](https://github.com/AgustinJimenez/llama_cpp_rs_chat/releases). Or build from source below.
+
 A multi-provider AI chat application built with Rust and React. Run local GGUF models via llama.cpp, or connect to 15+ cloud providers (Groq, Gemini, Claude, Mistral, etc.) — all with agentic tool execution. Available as a web app, desktop app (Tauri), or CLI.
 
 ## Features
