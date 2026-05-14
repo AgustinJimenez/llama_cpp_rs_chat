@@ -19,6 +19,9 @@ jobs:
           - platform: macos-latest
             args: --features metal,vision
             label: macos-metal
+          - platform: ubuntu-22.04
+            args: --features vision
+            label: linux
 
     runs-on: ${{ matrix.platform }}
 
@@ -39,6 +42,21 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
+
+      # Linux: install system dependencies required by Tauri + llama.cpp
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            pkg-config \
+            cmake \
+            build-essential
 
       # Windows: install CUDA toolkit
       - name: Install CUDA (Windows)
@@ -79,10 +97,12 @@ jobs:
             ## Downloads
             - **Windows**: `.msi` or `-setup.exe` (auto-detects CUDA/CPU)
             - **macOS (Metal)**: `.dmg`
+            - **Linux**: `.deb` or `.AppImage` (CPU inference)
 
             ## Requirements
             - **Windows GPU**: Download CUDA acceleration files from the [backends release](https://github.com/AgustinJimenez/llama_cpp_rs_chat/releases/tag/backends)
             - **macOS**: macOS 11+ (Big Sur), Metal GPU acceleration built-in
+            - **Linux**: Ubuntu 22.04+ or compatible (CPU only for now)
 
             ## Auto-Update
             Existing installations will be notified of this update automatically.
