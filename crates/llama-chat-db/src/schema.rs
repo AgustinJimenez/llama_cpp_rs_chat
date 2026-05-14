@@ -62,8 +62,6 @@ CREATE TABLE IF NOT EXISTS config (
     system_prompt_type TEXT DEFAULT 'Default',
     context_size INTEGER DEFAULT 32768,
     stop_tokens TEXT,
-    web_search_provider TEXT DEFAULT 'DuckDuckGo',
-    web_search_api_key TEXT,
     updated_at INTEGER NOT NULL
 )
 "#;
@@ -352,12 +350,6 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         [],
     );
 
-    // Add web search provider column if missing
-    let _ = conn.execute(
-        "ALTER TABLE config ADD COLUMN web_search_provider TEXT DEFAULT 'DuckDuckGo'",
-        [],
-    );
-
     // Persist provider-side conversation/session handles (e.g. Claude Code --resume)
     let _ = conn.execute(
         "ALTER TABLE conversations ADD COLUMN provider_session_id TEXT",
@@ -365,10 +357,6 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
     );
     let _ = conn.execute(
         "ALTER TABLE conversations ADD COLUMN provider_id TEXT",
-        [],
-    );
-    let _ = conn.execute(
-        "ALTER TABLE config ADD COLUMN web_search_api_key TEXT",
         [],
     );
 
@@ -597,6 +585,11 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         "ALTER TABLE config ADD COLUMN active_provider_model TEXT",
         [],
     );
+
+    // Drop deprecated columns (web search was never implemented; requires SQLite 3.35+)
+    // Errors are ignored — column may already be absent on fresh DBs
+    let _ = conn.execute("ALTER TABLE config DROP COLUMN web_search_provider", []);
+    let _ = conn.execute("ALTER TABLE config DROP COLUMN web_search_api_key", []);
 
     conn.execute(
         "INSERT OR IGNORE INTO config (id, updated_at) VALUES (1, ?1)",
