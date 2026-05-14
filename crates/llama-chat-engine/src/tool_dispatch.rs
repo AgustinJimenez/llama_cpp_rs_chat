@@ -186,6 +186,11 @@ pub(crate) fn run_native_tool_with_timeout(
 
 /// Execute a single tool call given its parsed name and arguments.
 /// Returns (text_output, image_bytes). Used by the batch execution path.
+/// Execute a single tool call as part of a batch.
+/// Returns (output_text, images, duration_ms).
+/// The caller (batch outer merge loop) is responsible for sending timing WS messages and
+/// logging to DB — this function intentionally does NOT emit tool_timing WS messages to
+/// avoid duplicate sends (the outer loop emits once for every tool, in order).
 pub(crate) fn execute_single_tool(
     name: &str,
     args: &serde_json::Value,
@@ -203,22 +208,23 @@ pub(crate) fn execute_single_tool(
     backend: &llama_cpp_2::llama_backend::LlamaBackend,
     chat_template_string: Option<&str>,
     tags: &ToolTags,
-) -> (String, Vec<Vec<u8>>) {
+) -> (String, Vec<Vec<u8>>, u64) {
     // spawn_agent: run a sub-agent with fresh context
     if name == "spawn_agent" {
         let task = args.get("task").and_then(|v| v.as_str()).unwrap_or("");
         if task.is_empty() {
-            return ("Error: 'task' argument is required for spawn_agent".to_string(), Vec::new());
+            return ("Error: 'task' argument is required for spawn_agent".to_string(), Vec::new(), 0);
         }
         let extra_context = args.get("context").and_then(|v| v.as_str());
+        let t = Instant::now();
         match run_sub_agent(
             model, backend, task, extra_context, chat_template_string,
             conversation_id, tags,
             use_htmd, browser_backend, mcp_manager.clone(), db.clone(),
             token_sender,
         ) {
-            Ok(result) => return (result, Vec::new()),
-            Err(e) => return (format!("Sub-agent error: {}", e), Vec::new()),
+            Ok(result) => return (result, Vec::new(), t.elapsed().as_millis() as u64),
+            Err(e) => return (format!("Sub-agent error: {}", e), Vec::new(), t.elapsed().as_millis() as u64),
         }
     }
 
@@ -228,7 +234,7 @@ pub(crate) fn execute_single_tool(
             if !cmd.is_empty() {
                 // Security checks
                 if let Some(injection_msg) = detect_command_injection(cmd) {
-                    return (injection_msg, Vec::new());
+                    return (injection_msg, Vec::new(), 0);
                 }
                 if let Some(warning) = detect_destructive_command(cmd) {
                     eprintln!("[SECURITY] {}: {}", warning, &cmd[..cmd.len().min(100)]);
@@ -257,7 +263,7 @@ pub(crate) fn execute_single_tool(
                             });
                         }
                     });
-                    return (text, Vec::new());
+                    return (text, Vec::new(), 0);
                 } else {
                     log_info!(conversation_id, "🐚 Batch: streaming execute_command (timeout={}s): {}", timeout_secs.unwrap_or(300), rtk_cmd);
                     let sender_clone = token_sender.clone();
@@ -272,20 +278,13 @@ pub(crate) fn execute_single_tool(
                             });
                         }
                     });
-                    let elapsed_ms = exec_start.elapsed().as_millis() as u64;
-                    if let Some(ref sender) = token_sender {
-                        let _ = sender.send(TokenData {
-                            tool_timing: Some(ToolTimingLive { name: "execute_command".to_string(), duration_ms: elapsed_ms }),
-                            ..Default::default()
-                        });
-                    }
-                    return (text, Vec::new());
+                    return (text, Vec::new(), exec_start.elapsed().as_millis() as u64);
                 }
             }
         }
     }
 
-    // Try native tool dispatch (may return images for vision)
+    // Try native tool dispatch (includes MCP tools via mcp_manager)
     let native_start = Instant::now();
     if let Some(native_result) = run_native_tool_with_timeout(
         tool_json,
@@ -297,30 +296,9 @@ pub(crate) fn execute_single_tool(
     ) {
         let native_duration_ms = native_start.elapsed().as_millis() as u64;
         log_info!(conversation_id, "📦 Batch: native tool '{}' dispatched (images={})", name, native_result.images.len());
-        if let Some(ref sender) = token_sender {
-            let _ = sender.send(TokenData {
-                tool_timing: Some(ToolTimingLive { name: name.to_string(), duration_ms: native_duration_ms }),
-                ..Default::default()
-            });
-            let _ = sender.send(TokenData {
-                token: native_result.text.trim().to_string(),
-                tokens_used: token_pos,
-                max_tokens: context_size as i32, status: None,
-                ..Default::default()
-            });
-        }
-        return (native_result.text, native_result.images);
+        return (native_result.text, native_result.images, native_duration_ms);
     }
 
     // Fallback: unknown tool
-    let err = format!("Error: Unknown or unsupported tool '{}'", name);
-    if let Some(ref sender) = token_sender {
-        let _ = sender.send(TokenData {
-            token: err.clone(),
-            tokens_used: token_pos,
-            max_tokens: context_size as i32, status: None,
-            ..Default::default()
-        });
-    }
-    (err, Vec::new())
+    (format!("Error: Unknown or unsupported tool '{}'", name), Vec::new(), 0)
 }

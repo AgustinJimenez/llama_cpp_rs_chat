@@ -327,7 +327,7 @@ pub fn check_and_execute_command_with_tags(
                         for &i in indices.iter().skip(MAX_PARALLEL_TOOLS) {
                             let (name, args) = &all_calls[i];
                             let single_json = serde_json::json!({"name": name, "arguments": args}).to_string();
-                            let (tool_output, tool_images) = execute_single_tool(
+                            let (tool_output, tool_images, dur) = execute_single_tool(
                                 name, args, &single_json,
                                 conversation_id,
                                 token_sender,
@@ -340,6 +340,7 @@ pub fn check_and_execute_command_with_tags(
                                 db.clone(),
                                 model, backend, chat_template_string, tags,
                             );
+                            all_durations[i] = dur;
                             results[i] = Some((tool_output, tool_images));
                         }
                     } else {
@@ -347,7 +348,7 @@ pub fn check_and_execute_command_with_tags(
                         for &i in indices {
                             let (name, args) = &all_calls[i];
                             let single_json = serde_json::json!({"name": name, "arguments": args}).to_string();
-                            let (tool_output, tool_images) = execute_single_tool(
+                            let (tool_output, tool_images, dur) = execute_single_tool(
                                 name, args, &single_json,
                                 conversation_id,
                                 token_sender,
@@ -360,6 +361,7 @@ pub fn check_and_execute_command_with_tags(
                                 db.clone(),
                                 model, backend, chat_template_string, tags,
                             );
+                            all_durations[i] = dur;
                             results[i] = Some((tool_output, tool_images));
                         }
                     }
@@ -367,10 +369,17 @@ pub fn check_and_execute_command_with_tags(
 
                 // Merge results in original order, streaming to frontend
                 for (i, (name, _args)) in all_calls.iter().enumerate() {
-                    // Emit tool timing before the header so the label appears immediately
+                    // Emit tool timing before the header so the label appears immediately.
+                    // Also log to DB so timing survives page reload.
+                    let dur = all_durations[i];
+                    llama_chat_db::event_log::log_event(
+                        conversation_id,
+                        "tool_timing",
+                        &format!("{{\"name\":\"{}\",\"duration_ms\":{}}}", name, dur),
+                    );
                     if let Some(ref sender) = token_sender {
                         let _ = sender.send(TokenData {
-                            tool_timing: Some(ToolTimingLive { name: name.clone(), duration_ms: all_durations[i] }),
+                            tool_timing: Some(ToolTimingLive { name: name.clone(), duration_ms: dur }),
                             ..Default::default()
                         });
                     }
