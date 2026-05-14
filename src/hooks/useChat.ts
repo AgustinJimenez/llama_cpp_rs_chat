@@ -141,6 +141,25 @@ export function useChat() {
           if (msg.compacted) m.compacted = true;
           return m;
         });
+        // Assign persisted tool timings to messages by sequential index.
+        // The API returns tool_timings in the order they were executed;
+        // each assistant message may contain multiple tool calls (counted by <tool_call> tags).
+        const timings =
+          (data.tool_timings as Array<{ name: string; duration_ms: number }> | undefined) ?? [];
+        if (timings.length > 0) {
+          let timingIdx = 0;
+          for (const m of mapped) {
+            if (m.role === 'assistant' && timingIdx < timings.length) {
+              const callCount = (m.content.match(/<tool_call>/g) ?? []).length;
+              if (callCount > 0) {
+                m.toolCallTimings = timings
+                  .slice(timingIdx, timingIdx + callCount)
+                  .map((t) => t.duration_ms);
+                timingIdx += callCount;
+              }
+            }
+          }
+        }
         let systemPromptSeen = false;
         const filtered = mapped.filter((msg: Message) => {
           if (msg.role === 'system') {

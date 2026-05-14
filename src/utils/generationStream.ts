@@ -31,6 +31,8 @@ export interface GenerationCallbacks {
   onComplete: (result: GenerationResult) => void;
   /** Generation failed */
   onError: (error: string) => void;
+  /** A tool call completed — name + how long it took (live, not just on load) */
+  onToolTiming?: (name: string, durationMs: number) => void;
 }
 
 export interface GenerationResult {
@@ -100,6 +102,9 @@ export class LocalGenerationStream implements GenerationStream {
         },
         onStatus: (message) => {
           callbacks.onStatus(message);
+        },
+        onToolTiming: (name, durationMs) => {
+          callbacks.onToolTiming?.(name, durationMs);
         },
       },
       signal,

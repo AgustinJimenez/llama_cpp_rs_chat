@@ -282,27 +282,54 @@ impl TauriHttpSession {
                 start.elapsed().as_secs_f64());
         }
 
-        // Auto-dismiss common cookie/consent banners so they don't pollute page text
+        // Auto-dismiss common cookie/consent banners so they don't pollute page text.
+        // Run twice with a delay — CMPs (OneTrust, Cookiebot, etc.) load asynchronously
+        // after readyState=complete, so the first pass may fire before the button exists.
         let cookie_js = r#"
             (() => {
                 const patterns = [
+                    // OneTrust (used by insidehighered, many news sites)
+                    '#onetrust-accept-btn-handler', '.onetrust-accept-btn-handler',
+                    '.ot-sdk-btn-handler', '#accept-recommended-btn-handler',
+                    // Cookiebot
+                    '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
+                    '#CybotCookiebotDialogBodyButtonAccept',
+                    // TrustArc / Evidon / other CMPs
+                    '.truste_popframe', '#truste-consent-button', '.evidon-accept-button',
+                    '#gdpr-consent-tool-wrapper button',
+                    // By ID/class containing accept/agree/consent
                     'button[id*="accept" i]', 'button[class*="accept" i]',
                     'button[id*="agree" i]', 'button[class*="agree" i]',
                     'button[id*="consent" i]', 'button[class*="consent" i]',
+                    // Data attributes
                     'button[data-testid*="accept" i]', 'button[data-testid*="agree" i]',
+                    '[data-gdpr*="accept" i]', '[data-consent*="accept" i]',
+                    // Aria labels
                     '[aria-label*="Accept" i]', '[aria-label*="Agree" i]',
-                    'button[id*="cookie" i]', '.cookie-accept', '.js-accept-cookies',
-                    '#accept-cookies', '#cookie-accept', '.accept-cookies'
+                    '[aria-label*="Allow all" i]', '[aria-label*="Allow cookies" i]',
+                    // Common class names
+                    '#accept-cookies', '#cookie-accept', '.cookie-accept',
+                    '.js-accept-cookies', '.accept-cookies', '.accept-all', '#acceptAll',
+                    // Text-based: buttons whose visible text matches common patterns
+                    ...Array.from(document.querySelectorAll('button, [role="button"], a.btn'))
+                        .filter(el => /^(accept|agree|allow|got it|ok|i agree|accept all|allow all|accept cookies|accept & continue|accept and continue)/i.test((el.innerText||'').trim()))
+                        .slice(0, 5)
                 ];
-                for (const sel of patterns) {
+                for (const el of patterns) {
                     try {
-                        const el = document.querySelector(sel);
-                        if (el && el.offsetParent !== null) { el.click(); return 'dismissed: '+sel; }
+                        const target = typeof el === 'string' ? document.querySelector(el) : el;
+                        if (target && target.offsetParent !== null) {
+                            target.click();
+                            return 'dismissed: ' + (typeof el === 'string' ? el : target.innerText?.trim());
+                        }
                     } catch(_) {}
                 }
                 return 'no banner found';
             })()
         "#;
+        let _ = eval_in_browser_panel(cookie_js);
+        // Second pass after 1.5s — CMPs often render after initial page load
+        std::thread::sleep(std::time::Duration::from_millis(1500));
         let _ = eval_in_browser_panel(cookie_js);
 
         // Read the page HTML via eval_in_browser_panel (uses Tauri → wry → CDP fallback chain)
@@ -421,22 +448,18 @@ impl BrowserSession for TauriHttpSession {
             }
         }
 
-        // Chrome CDP fallback: use JS click
-        #[cfg(feature = "cdp")]
+        // JS click fallback via the existing browser panel (wry/CDP — whatever is open)
         {
             let sel_json = serde_json::to_string(selector).unwrap_or_default();
             let js = format!(
                 "(() => {{ const el = document.querySelector({sel_json}); if (!el) return 'not found'; el.click(); return 'clicked'; }})()"
             );
-            match cdp::evaluate(&js) {
+            match eval_in_browser_panel(&js) {
                 Ok(r) if !r.contains("not found") => return Ok(()),
                 Ok(r) => return Err(format!("Element not found: {r}")),
-                Err(e) => return Err(format!("CDP click failed: {e}")),
+                Err(e) => return Err(format!("click failed: {e}")),
             }
         }
-
-        #[cfg(not(feature = "cdp"))]
-        Err("No browser backend available for click".into())
     }
 
     fn type_text(&self, selector: &str, text: &str, press_enter: bool) -> Result<(), String> {

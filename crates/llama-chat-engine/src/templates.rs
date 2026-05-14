@@ -109,6 +109,7 @@ fn try_jinja_render(
     bos_token: &str,
     eos_token: &str,
     mcp_tools: Option<&[McpToolDef]>,
+    enable_thinking: bool,
 ) -> Result<String, String> {
     let system_prompt = get_behavioral_system_prompt();
     let messages = parse_conversation_for_jinja(conversation, &system_prompt);
@@ -122,6 +123,7 @@ fn try_jinja_render(
         true,
         bos_token,
         eos_token,
+        enable_thinking,
     )
 }
 
@@ -346,11 +348,12 @@ pub fn apply_system_prompt_by_type_with_tags(
     bos_token: &str,
     eos_token: &str,
     mcp_tools: Option<&[McpToolDef]>,
+    enable_thinking: bool,
 ) -> Result<String, String> {
     // Try Jinja template first (primary path), fall back to hardcoded templates
     if let Some(template_str) = chat_template_string {
         sys_info!("Trying Jinja template rendering (primary path, template len={})", template_str.len());
-        match try_jinja_render(template_str, conversation, bos_token, eos_token, mcp_tools) {
+        match try_jinja_render(template_str, conversation, bos_token, eos_token, mcp_tools, enable_thinking) {
             Ok(prompt) => {
                 sys_info!("Jinja template rendered successfully ({} chars)", prompt.len());
                 return Ok(prompt);

@@ -61,6 +61,22 @@ impl Database {
         Ok(())
     }
 
+    /// Get the actual token_pos from the most recent generation for a conversation.
+    /// This is the real KV cache position — what the model actually had in context.
+    /// Returns None if no generation has completed yet.
+    pub fn get_last_generation_token_pos(&self, conversation_id: &str) -> Option<usize> {
+        let conn = self.connection();
+        let message: Option<String> = conn.query_row(
+            "SELECT message FROM logs WHERE conversation_id = ?1 AND level = 'metrics' ORDER BY timestamp DESC LIMIT 1",
+            [conversation_id],
+            |row| row.get(0),
+        )
+        .ok()?;
+        let v: serde_json::Value = serde_json::from_str(&message?).ok()?;
+        let tokens_used = v["tokens_used"].as_i64()?;
+        if tokens_used > 0 { Some(tokens_used as usize) } else { None }
+    }
+
     /// Get total overhead tokens (system prompt + tool definitions) for a conversation.
     /// Returns 0 if no context has been cached yet.
     pub fn get_context_overhead_tokens(&self, conversation_id: &str) -> i32 {

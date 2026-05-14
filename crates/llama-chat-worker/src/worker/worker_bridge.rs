@@ -26,6 +26,7 @@ pub struct ModelMeta {
     pub has_vision: bool,
     pub gpu_layers: Option<u32>,
     pub block_count: Option<u32>,
+    pub supports_thinking: bool,
 }
 
 /// Shared reference to the WorkerBridge.
@@ -203,12 +204,15 @@ impl WorkerBridge {
                 model_path,
                 context_length,
                 chat_template_type,
+                chat_template_string,
                 general_name,
                 has_vision,
                 gpu_layers,
                 block_count,
-                ..
             } => {
+                let supports_thinking = chat_template_string.as_deref()
+                    .map(llama_chat_engine::jinja_templates::detect_thinking_support)
+                    .unwrap_or(false);
                 let meta = ModelMeta {
                     loaded: true,
                     model_path,
@@ -218,6 +222,7 @@ impl WorkerBridge {
                     has_vision: has_vision.unwrap_or(false),
                     gpu_layers,
                     block_count,
+                    supports_thinking,
                 };
                 *self.model_meta.lock().await = Some(meta.clone());
                 Ok(meta)
@@ -737,7 +742,10 @@ async fn stdout_reader_task(
 
         // Handle model loaded — always update cached metadata
         // (needed for auto-reload after watchdog kill where there's no pending load_model request)
-        if let WorkerPayload::ModelLoaded { model_path, context_length, chat_template_type, general_name, has_vision, gpu_layers, block_count, .. } = &payload {
+        if let WorkerPayload::ModelLoaded { model_path, context_length, chat_template_type, chat_template_string, general_name, has_vision, gpu_layers, block_count } = &payload {
+            let supports_thinking = chat_template_string.as_deref()
+                .map(llama_chat_engine::jinja_templates::detect_thinking_support)
+                .unwrap_or(false);
             *model_meta.lock().await = Some(ModelMeta {
                 loaded: true,
                 model_path: model_path.clone(),
@@ -747,6 +755,7 @@ async fn stdout_reader_task(
                 has_vision: has_vision.unwrap_or(false),
                 gpu_layers: *gpu_layers,
                 block_count: *block_count,
+                supports_thinking,
             });
             eprintln!("[BRIDGE] Model metadata cached: {}", model_path);
         }

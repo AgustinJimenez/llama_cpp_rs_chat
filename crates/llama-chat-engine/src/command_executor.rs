@@ -261,6 +261,7 @@ pub fn check_and_execute_command_with_tags(
 
                 // Pre-allocate result slots: (text, images)
                 let mut results: Vec<Option<(String, Vec<Vec<u8>>)>> = vec![None; all_calls.len()];
+                let mut all_durations: Vec<u64> = vec![0u64; all_calls.len()];
 
                 for (is_read_only, indices) in &groups {
                     if *is_read_only && indices.len() > 1 {
@@ -294,6 +295,7 @@ pub fn check_and_execute_command_with_tags(
                                     let backend_clone = browser_backend.clone();
                                     let db_clone = db.clone();
                                     s.spawn(move || {
+                                        let tool_start = std::time::Instant::now();
                                         let result = run_native_tool_with_timeout(
                                             json,
                                             conv_id,
@@ -302,18 +304,20 @@ pub fn check_and_execute_command_with_tags(
                                             mcp_clone,
                                             db_clone,
                                         );
+                                        let duration_ms = tool_start.elapsed().as_millis() as u64;
                                         let native_result = result.unwrap_or_else(|| {
                                             llama_chat_tools::NativeToolResult::text_only(
                                                 format!("Error: Tool '{}' returned no output", tool_name)
                                             )
                                         });
-                                        (idx, native_result.text, native_result.images)
+                                        (idx, native_result.text, native_result.images, duration_ms)
                                     })
                                 })
                                 .collect();
 
                             for handle in handles {
-                                if let Ok((idx, text, images)) = handle.join() {
+                                if let Ok((idx, text, images, duration_ms)) = handle.join() {
+                                    all_durations[idx] = duration_ms;
                                     results[idx] = Some((text, images));
                                 }
                             }
@@ -363,6 +367,13 @@ pub fn check_and_execute_command_with_tags(
 
                 // Merge results in original order, streaming to frontend
                 for (i, (name, _args)) in all_calls.iter().enumerate() {
+                    // Emit tool timing before the header so the label appears immediately
+                    if let Some(ref sender) = token_sender {
+                        let _ = sender.send(TokenData {
+                            tool_timing: Some(ToolTimingLive { name: name.clone(), duration_ms: all_durations[i] }),
+                            ..Default::default()
+                        });
+                    }
                     let header = format!("[Tool {}: {}]\n", i + 1, name);
                     if let Some(ref sender) = token_sender {
                         let _ = sender.send(TokenData {
@@ -485,94 +496,134 @@ pub fn check_and_execute_command_with_tags(
                         let elapsed_ms = exec_start.elapsed().as_millis();
                         let one_liner = tool_use_one_liner("execute_command", &cmd[..cmd.len().min(60)], &result, elapsed_ms as u64);
                         llama_chat_db::event_log::log_event(conversation_id, "tool_done", &one_liner);
+                        llama_chat_db::event_log::log_event(
+                            conversation_id,
+                            "tool_timing",
+                            &format!("{{\"name\":\"execute_command\",\"duration_ms\":{}}}", elapsed_ms),
+                        );
+                        if let Some(ref sender) = token_sender {
+                            let _ = sender.send(TokenData {
+                                tool_timing: Some(ToolTimingLive {
+                                    name: "execute_command".to_string(),
+                                    duration_ms: elapsed_ms as u64,
+                                }),
+                                ..Default::default()
+                            });
+                        }
                         result
                     }
                     } // end security injection check else block
-                } else if let Some(native_result) = run_native_tool_with_timeout(
-                    &command_text,
-                    conversation_id,
-                    use_htmd,
-                    browser_backend.clone(),
-                    mcp_manager.clone(),
-                    db.clone(),
-                ) {
-                    let one_liner = tool_use_one_liner(&tool_name_for_log, "", &native_result.text, 0);
-                    log_info!(conversation_id, "📦 Native tool result: {}", one_liner);
-                    llama_chat_db::event_log::log_event(conversation_id, "tool_done", &one_liner);
-
-                    // Check if tool result is successful using sub-agent.
-                    // Skip check for action tools that always succeed (navigate, scroll, etc.)
-                    let skip_check = matches!(tool_name_for_log.as_str(),
-                        "browser_scroll" | "browser_close" | "browser_press_key" | "open_url"
-                    );
-                    let result_status = if skip_check || native_result.text.len() < 20 {
-                        "" // No indicator for action tools or very short output
-                    } else {
-                        let check_text = if native_result.text.len() > 500 {
-                            let mut end = 500;
-                            while end < native_result.text.len() && !native_result.text.is_char_boundary(end) { end += 1; }
-                            &native_result.text[..end]
-                        } else {
-                            &native_result.text
-                        };
-                        let is_ok = super::sub_checks::quick_tool_result_check(
-                            model, backend, chat_template_string, conversation_id,
-                            &tool_name_for_log, check_text,
-                        );
-                        if is_ok { "success" } else { "error" }
-                    };
-
-                    // Stream output with optional TOOL_RESULT status tag for frontend
-                    if let Some(ref sender) = token_sender {
-                        let prefix = if result_status.is_empty() {
-                            String::new()
-                        } else {
-                            format!("[TOOL_RESULT:{}]", result_status)
-                        };
-                        let _ = sender.send(TokenData {
-                            token: format!("{}{}", prefix, native_result.text.trim()),
-                            tokens_used: token_pos,
-                            max_tokens: context_size as i32, status: None,
-                            ..Default::default()
-                        });
-                    }
-                    all_response_images.extend(native_result.images);
-                    // Prepend status tag so it persists in DB for reloaded conversations
-                    if result_status.is_empty() {
-                        native_result.text
-                    } else {
-                        format!("[TOOL_RESULT:{}]{}", result_status, native_result.text)
-                    }
                 } else {
-                    let trimmed_cmd = command_text.trim();
-                    if trimmed_cmd.starts_with('{') || trimmed_cmd.starts_with('[') {
-                        // Looks like a JSON tool call that failed to parse — don't execute as shell.
-                        log_info!(conversation_id, "⚠️ JSON-like tool call failed to parse, returning error to model");
-                        let err_msg = "Error: Failed to parse tool call JSON. The JSON may be malformed (check for unescaped backslashes, missing braces, or literal newlines in strings). Please try the execute_command tool to write files instead.".to_string();
+                    let native_start = std::time::Instant::now();
+                    let native_option = run_native_tool_with_timeout(
+                        &command_text,
+                        conversation_id,
+                        use_htmd,
+                        browser_backend.clone(),
+                        mcp_manager.clone(),
+                        db.clone(),
+                    );
+                    let native_duration_ms = native_start.elapsed().as_millis() as u64;
+                    if let Some(native_result) = native_option {
+                        let one_liner = tool_use_one_liner(&tool_name_for_log, "", &native_result.text, native_duration_ms);
+                        log_info!(conversation_id, "📦 Native tool result: {}", one_liner);
+                        llama_chat_db::event_log::log_event(conversation_id, "tool_done", &one_liner);
+                        llama_chat_db::event_log::log_event(
+                            conversation_id,
+                            "tool_timing",
+                            &format!("{{\"name\":\"{}\",\"duration_ms\":{}}}", tool_name_for_log, native_duration_ms),
+                        );
                         if let Some(ref sender) = token_sender {
                             let _ = sender.send(TokenData {
-                                token: err_msg.clone(),
+                                tool_timing: Some(ToolTimingLive {
+                                    name: tool_name_for_log.clone(),
+                                    duration_ms: native_duration_ms,
+                                }),
+                                ..Default::default()
+                            });
+                        }
+
+                        // After a successful file write or edit, clear compile/execute entries from
+                        // the loop-detection window. The file changed, so the next compile is a new
+                        // attempt on updated code — not a repeat of the previous ones.
+                        if matches!(tool_name_for_log.as_str(), "write_file" | "edit_file") {
+                            loop_detection::reset_after_write(recent_commands);
+                        }
+
+                        // Check if tool result is successful using sub-agent.
+                        // Skip check for action tools that always succeed (navigate, scroll, etc.)
+                        let skip_check = matches!(tool_name_for_log.as_str(),
+                            "browser_scroll" | "browser_close" | "browser_press_key" | "open_url"
+                        );
+                        let result_status = if skip_check || native_result.text.len() < 20 {
+                            "" // No indicator for action tools or very short output
+                        } else {
+                            let check_text = if native_result.text.len() > 500 {
+                                let mut end = 500;
+                                while end < native_result.text.len() && !native_result.text.is_char_boundary(end) { end += 1; }
+                                &native_result.text[..end]
+                            } else {
+                                &native_result.text
+                            };
+                            let is_ok = super::sub_checks::quick_tool_result_check(
+                                model, backend, chat_template_string, conversation_id,
+                                &tool_name_for_log, check_text,
+                            );
+                            if is_ok { "success" } else { "error" }
+                        };
+
+                        // Stream output with optional TOOL_RESULT status tag for frontend
+                        if let Some(ref sender) = token_sender {
+                            let prefix = if result_status.is_empty() {
+                                String::new()
+                            } else {
+                                format!("[TOOL_RESULT:{}]", result_status)
+                            };
+                            let _ = sender.send(TokenData {
+                                token: format!("{}{}", prefix, native_result.text.trim()),
                                 tokens_used: token_pos,
                                 max_tokens: context_size as i32, status: None,
                                 ..Default::default()
                             });
                         }
-                        err_msg
+                        all_response_images.extend(native_result.images);
+                        // Prepend status tag so it persists in DB for reloaded conversations
+                        if result_status.is_empty() {
+                            native_result.text
+                        } else {
+                            format!("[TOOL_RESULT:{}]{}", result_status, native_result.text)
+                        }
                     } else {
-                        log_info!(conversation_id, "🐚 Falling back to streaming shell execution");
-                        // Use streaming execution — each line is sent to frontend as it arrives
-                        let rtk_cmd = rtk_prefix(&command_text);
-                        let sender_clone = token_sender.clone();
-                        execute_command_streaming(&rtk_cmd, cancel.clone(), |line| {
-                            if let Some(ref sender) = sender_clone {
+                        let trimmed_cmd = command_text.trim();
+                        if trimmed_cmd.starts_with('{') || trimmed_cmd.starts_with('[') {
+                            // Looks like a JSON tool call that failed to parse — don't execute as shell.
+                            log_info!(conversation_id, "⚠️ JSON-like tool call failed to parse, returning error to model");
+                            let err_msg = "Error: Failed to parse tool call JSON. The JSON may be malformed (check for unescaped backslashes, missing braces, or literal newlines in strings). Please try the execute_command tool to write files instead.".to_string();
+                            if let Some(ref sender) = token_sender {
                                 let _ = sender.send(TokenData {
-                                    token: format!("{}\n", strip_ansi_codes(line)),
+                                    token: err_msg.clone(),
                                     tokens_used: token_pos,
                                     max_tokens: context_size as i32, status: None,
                                     ..Default::default()
                                 });
                             }
-                        })
+                            err_msg
+                        } else {
+                            log_info!(conversation_id, "🐚 Falling back to streaming shell execution");
+                            // Use streaming execution — each line is sent to frontend as it arrives
+                            let rtk_cmd = rtk_prefix(&command_text);
+                            let sender_clone = token_sender.clone();
+                            execute_command_streaming(&rtk_cmd, cancel.clone(), |line| {
+                                if let Some(ref sender) = sender_clone {
+                                    let _ = sender.send(TokenData {
+                                        token: format!("{}\n", strip_ansi_codes(line)),
+                                        tokens_used: token_pos,
+                                        max_tokens: context_size as i32, status: None,
+                                        ..Default::default()
+                                    });
+                                }
+                            })
+                        }
                     }
                 }
             };

@@ -6,8 +6,24 @@ use std::collections::HashMap;
 use std::convert::Infallible;
 
 use llama_chat_db::SharedDatabase;
-use llama_chat_types::models::{ChatMessage, ConversationContentResponse, ConversationFile, ConversationsResponse};
+use llama_chat_types::models::{ChatMessage, ConversationContentResponse, ConversationFile, ConversationsResponse, ToolTiming};
 use crate::response_helpers::{json_error, json_raw, serialize_with_fallback};
+
+/// Load tool timing events from the event log for a conversation.
+/// Returns timings in chronological order (1st = 1st tool call, etc.).
+fn load_tool_timings(conversation_id: &str) -> Vec<ToolTiming> {
+    llama_chat_db::event_log::get_events_fresh(conversation_id)
+        .into_iter()
+        .filter(|e| e.event_type == "tool_timing")
+        .filter_map(|e| {
+            let v: serde_json::Value = serde_json::from_str(&e.message).ok()?;
+            Some(ToolTiming {
+                name: v["name"].as_str()?.to_string(),
+                duration_ms: v["duration_ms"].as_u64()?,
+            })
+        })
+        .collect()
+}
 
 pub async fn handle_get_conversation(
     path: &str,
@@ -106,11 +122,14 @@ pub async fn handle_get_conversation(
             } else {
                 db.get_conversation_as_text(conversation_id).unwrap_or_default()
             };
+            // Load tool timings from event log (persisted by both local and remote tool execution)
+            let tool_timings = load_tool_timings(conversation_id);
             let response = ConversationContentResponse {
                 content,
                 messages,
                 provider_id,
                 provider_session_id,
+                tool_timings,
             };
 
             let response_json =

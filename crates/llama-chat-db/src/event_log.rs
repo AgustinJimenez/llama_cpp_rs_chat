@@ -160,6 +160,12 @@ pub fn get_events(conversation_id: &str) -> Vec<ConversationEvent> {
     Vec::new()
 }
 
+/// Read events directly from DB, bypassing the in-memory cache.
+/// Use this in the web server process where the cache is stale (worker writes, web reads).
+pub fn get_events_fresh(conv_id: &str) -> Vec<ConversationEvent> {
+    load_events_from_db(conv_id)
+}
+
 fn load_events_from_db(conv_id: &str) -> Vec<ConversationEvent> {
     // We need the DB ref — get it from LOG_SENDER's paired DB
     // Actually we store events in the same DB, so use a direct connection approach

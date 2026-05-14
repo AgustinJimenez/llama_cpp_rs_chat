@@ -29,15 +29,12 @@ const CONTINUE_DELAY_MS = 150;
 const MAX_AUTO_CONTINUES = 3;
 const TOAST_DURATION_MS = 5000;
 
-// Auto-continue: finish reasons that trigger automatic re-generation
-const AUTO_CONTINUE_REASONS = new Set([
-  'length',
-  'yn_continue',
-  'loop_recovery',
-  'tool_continue',
-  'cuda_deadlock',
-  'infinite_loop',
-]);
+// Auto-continue: finish reasons that trigger automatic re-generation.
+// NOTE: 'length', 'cuda_deadlock', 'loop_recovery', 'infinite_loop' are now handled
+// server-side in websocket.rs and will never reach the frontend with those values.
+// 'yn_continue' is disabled server-side (see generation.rs, AGENTIC_LOOP_IMPROVEMENTS.md).
+// Only 'tool_continue' remains as a frontend-triggered continuation path.
+const AUTO_CONTINUE_REASONS = new Set(['tool_continue']);
 
 function isAbortError(msg: string): boolean {
   return /aborted/i.test(msg);
@@ -337,6 +334,47 @@ export function useGenerationStream(deps: UseGenerationStreamDeps) {
               autoContinueCountRef.current = 0;
               notifyIfUnfocused('Generation complete', 'Your AI response is ready.');
               setIsLoading(false);
+
+              // Reload message content from DB to fix truncation caused by
+              // streamSeq mismatch (e.g. yn_continue fired mid-stream and
+              // discarded tokens that the backend already wrote to DB).
+              const convId = conversationId || currentConversationIdRef.current;
+              if (convId) {
+                getConversation(convId)
+                  .then((data) => {
+                    if (!data.messages) return;
+                    const dbMsg = (data.messages as Array<Record<string, unknown>>).find(
+                      (m) => String(m.id) === assistantMessageId,
+                    );
+                    if (!dbMsg) return;
+                    const dbContent = String(dbMsg.content ?? '');
+                    setMessages((prev) =>
+                      prev.map((msg) =>
+                        msg.id === assistantMessageId && msg.content !== dbContent
+                          ? { ...msg, content: dbContent }
+                          : msg,
+                      ),
+                    );
+                  })
+                  .catch(() => {});
+              }
+            },
+
+            onToolTiming: (_name, durationMs) => {
+              if (streamSeqRef.current !== streamSeq) return;
+              // Append to existing timings — works across auto-continue cycles
+              // since the same assistantMessageId accumulates all tool calls.
+              setMessages((prev) => {
+                const idx = prev.findIndex((m) => m.id === assistantMessageId);
+                if (idx === -1) return prev;
+                const msg = prev[idx];
+                const newTimings = [...(msg.toolCallTimings ?? []), durationMs];
+                return [
+                  ...prev.slice(0, idx),
+                  { ...msg, toolCallTimings: newTimings },
+                  ...prev.slice(idx + 1),
+                ];
+              });
             },
 
             onError: (errorMsg) => {

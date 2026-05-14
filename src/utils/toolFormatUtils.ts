@@ -170,6 +170,22 @@ function isMistralToolCallComplete(content: string, openIdx: number): boolean {
   return extractBalancedJson(content, braceIdx) !== null;
 }
 
+/** Return the cutoff for an unclosed Llama3 <function=...> block, or Infinity if none. */
+function llama3FuncCutoff(content: string): number {
+  const lastFuncOpen = content.lastIndexOf('<function=');
+  if (lastFuncOpen === -1) return Infinity;
+  const lastFuncClose = content.lastIndexOf('</function>');
+  if (lastFuncClose >= lastFuncOpen) return Infinity;
+  // Also accept </tool_call> or <|end_of_box|> as implicit closers, and don't
+  // strip if a <tool_response> follows (function executed via yn_continue continuation).
+  const lastToolClose = Math.max(
+    content.lastIndexOf('</tool_call>'),
+    content.lastIndexOf('<|end_of_box|>'),
+  );
+  const hasResponse = content.indexOf('<tool_response>', lastFuncOpen) !== -1;
+  return lastToolClose < lastFuncOpen && !hasResponse ? lastFuncOpen : Infinity;
+}
+
 /**
  * Remove trailing, unclosed tool-call markup so raw tags don't flash in the UI
  * during streaming. This only trims the incomplete tail; completed tool calls
@@ -251,11 +267,7 @@ export function stripUnclosedToolCallTail(content: string, toolTags?: ToolTags):
   }
 
   // Llama 3: <function=...> ... (no closing tag yet) — always check, not covered by toolTags
-  const lastFuncOpen = content.lastIndexOf('<function=');
-  if (lastFuncOpen !== -1) {
-    const lastFuncClose = content.lastIndexOf('</function>');
-    if (lastFuncClose < lastFuncOpen) cutoff = Math.min(cutoff, lastFuncOpen);
-  }
+  cutoff = Math.min(cutoff, llama3FuncCutoff(content));
 
   return cutoff < content.length ? content.slice(0, cutoff).trimEnd() : content;
 }

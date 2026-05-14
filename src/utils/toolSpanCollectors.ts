@@ -469,28 +469,49 @@ export function moveToolsOutOfThinking(content: string): string {
 
 /** Select the best format-specific tool spans for the given content. */
 function selectToolSpans(pruned: string, toolTags?: ToolTags): Span[] {
+  const execOpen = toolTags?.exec_open;
+
   // Try Gemma 4 format first (detected by exec_open tag)
-  if (toolTags?.exec_open === '<|tool_call>') {
+  if (execOpen === '<|tool_call>') {
     const gemma4 = collectGemma4Spans(pruned);
     if (gemma4.length > 0) return gemma4;
+    // Fall through: old conversations may use other formats
   }
 
   // Try LFM2 format
-  if (toolTags?.exec_open === '<|tool_call_start|>') {
+  if (execOpen === '<|tool_call_start|>') {
     const lfm2 = collectLfm2Spans(pruned, toolTags);
     if (lfm2.length > 0) return lfm2;
+    // Fall through: old conversations may use other formats
   }
 
-  // Try Qwen/GLM format
-  const qwen = collectQwenSpans(pruned, toolTags);
-  if (qwen.length > 0) return qwen;
+  // When toolTags is set, skip formats that don't match to avoid cross-format false positives.
+  // E.g. a Qwen model generating "[TOOL_CALLS]" in prose shouldn't trigger Mistral parsing.
+  const skipQwen = execOpen === '[TOOL_CALLS]';
+  const skipMistral = execOpen === '<tool_call>';
+  // Llama3 <function=...> has no entry in toolTags; skip only when a native-tag model is loaded
+  // and not the default SYSTEM.EXEC fallback (which serves unknown/Llama3-format models).
+  const skipLlama3 =
+    execOpen !== undefined &&
+    execOpen !== '<||SYSTEM.EXEC>' &&
+    execOpen !== '<|tool_call>' &&
+    execOpen !== '<|tool_call_start|>';
 
-  // Try Mistral format
-  const mistral = collectMistralSpans(pruned, toolTags);
-  if (mistral.length > 0) return mistral;
+  if (!skipQwen) {
+    const qwen = collectQwenSpans(pruned, toolTags);
+    if (qwen.length > 0) return qwen;
+  }
 
-  // Fall back to Llama3 format
-  return collectLlama3Spans(pruned, toolTags);
+  if (!skipMistral) {
+    const mistral = collectMistralSpans(pruned, toolTags);
+    if (mistral.length > 0) return mistral;
+  }
+
+  if (!skipLlama3) {
+    return collectLlama3Spans(pruned, toolTags);
+  }
+
+  return [];
 }
 
 /** Strip channel/turn tags from text content (for text segments only) */

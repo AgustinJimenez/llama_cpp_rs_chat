@@ -40,7 +40,7 @@ pub fn quick_tool_result_check(
             ChatMessage { role: "system".into(), content: "Answer YES or NO only.".into(), tool_calls: None },
             ChatMessage { role: "user".into(), content: prompt_text.clone().into(), tool_calls: None },
         ];
-        apply_native_chat_template(template_str, messages, None, None, true, &bos, &eos)
+        apply_native_chat_template(template_str, messages, None, None, true, &bos, &eos, false)
             .unwrap_or_else(|_| format!("SYSTEM:\nAnswer YES or NO only.\n\nUSER:\n{prompt_text}\n\nASSISTANT:\n"))
     } else {
         format!("SYSTEM:\nAnswer YES or NO only.\n\nUSER:\n{prompt_text}\n\nASSISTANT:\n")
@@ -140,7 +140,7 @@ pub fn quick_task_completion_check(
             ChatMessage { role: "system".into(), content: "Answer YES or NO only.".into(), tool_calls: None },
             ChatMessage { role: "user".into(), content: prompt_text.clone().into(), tool_calls: None },
         ];
-        apply_native_chat_template(template_str, messages, None, None, true, &bos, &eos)
+        apply_native_chat_template(template_str, messages, None, None, true, &bos, &eos, false)
             .unwrap_or_else(|_| format!("SYSTEM:\nAnswer YES or NO only.\n\nUSER:\n{prompt_text}\n\nASSISTANT:\n"))
     } else {
         format!("SYSTEM:\nAnswer YES or NO only.\n\nUSER:\n{prompt_text}\n\nASSISTANT:\n")
@@ -246,7 +246,7 @@ pub fn generate_title_text(
             ChatMessage { role: "system".into(), content: system_msg.into(), tool_calls: None },
             ChatMessage { role: "user".into(), content: prompt.into(), tool_calls: None },
         ];
-        apply_native_chat_template(template_str, messages, None, None, true, &bos_text, &eos_text)
+        apply_native_chat_template(template_str, messages, None, None, true, &bos_text, &eos_text, false)
             .unwrap_or_else(|_| format!("SYSTEM:\n{system_msg}\n\nUSER:\n{prompt}\n\nASSISTANT:\n"))
     } else {
         // Simple fallback format

@@ -45,6 +45,7 @@ pub fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
                         tool_definitions_tokens: None,
                         context_size: None,
                         last_finish_reason: None,
+                        supports_thinking: None,
                     }
                 }
                 None => ModelStatus {
@@ -64,6 +65,7 @@ pub fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
             tool_definitions_tokens: None,
             context_size: None,
             last_finish_reason: None,
+            supports_thinking: None,
                 },
             }
         }
@@ -84,6 +86,7 @@ pub fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
             tool_definitions_tokens: None,
             context_size: None,
             last_finish_reason: None,
+            supports_thinking: None,
         },
     }
 }

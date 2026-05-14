@@ -19,7 +19,7 @@ use super::templates::{apply_system_prompt_by_type_with_tags, get_behavioral_sys
 use super::jinja_templates::get_available_tools_openai_with_mcp;
 use super::sampler::create_sampler;
 use llama_chat_db::event_log::log_event;
-use super::sub_checks::quick_task_completion_check;
+// use super::sub_checks::quick_task_completion_check; // disabled 2026-05-12 — see AGENTIC_LOOP_IMPROVEMENTS.md
 
 // Re-export submodule items used by sibling modules
 pub(crate) use super::context_eval::create_fresh_context;
@@ -152,12 +152,18 @@ pub async fn generate_llama_response(
     // Use real overhead from conversation_context if available (from previous generation)
     let cached_overhead = db.get_context_overhead_tokens(&conversation_id);
 
-    // Drop inference cache before each generation to create a fresh context.
-    // This avoids a CUDA deadlock in sample() that occurs when tool response
-    // tokens are injected into a reused context (see watchdog in token_loop.rs).
-    // The tradeoff: the full prompt is re-evaluated each turn (~2-5s on GPU).
-    // TODO: investigate the root cause of the CUDA deadlock with reused contexts.
-    state.inference_cache = None;
+    // KV cache reuse is now enabled (re-enabled 2026-05-13).
+    // The CUDA deadlock that originally forced this to None was traced to
+    // per-token IPC pipe flushes (b8fed73) and watchdog killing the worker
+    // during large inject_output_tokens calls (469c67c). Both are fixed.
+    // context_eval.rs will fall back to a fresh context if tokens diverge.
+    // NOTE: vision path explicitly drops the cache below (image embeddings can't be cached).
+
+    // Get actual token_pos from the last generation — this is what the model truly consumed.
+    // Tool outputs are truncated before feeding to the model, so raw DB content is much larger.
+    // Using token_pos prevents false compaction triggers when verbose tool output fills the DB
+    // but the model only sees a small fraction of it.
+    let last_token_pos = db.get_last_generation_token_pos(&conversation_id);
 
     let conversation_content = super::compaction::maybe_compact_conversation(
         &raw_conversation_content,
@@ -168,6 +174,7 @@ pub async fn generate_llama_response(
         &state.backend,
         state.chat_template_string.as_deref(),
         if cached_overhead > 0 { Some(cached_overhead) } else { None },
+        last_token_pos,
         token_sender.as_ref(),
     );
 
@@ -222,6 +229,11 @@ pub async fn generate_llama_response(
     let mcp_tools_ref = if mcp_tool_defs.is_empty() { None } else { Some(mcp_tool_defs.as_slice()) };
 
     // Use the 3-system prompt dispatcher with model-specific tool tags
+    // Thinking mode: use config value if set; default to true when model supports it.
+    let supports_thinking = chat_template_string.as_deref()
+        .map(|t| super::jinja_templates::detect_thinking_support(t))
+        .unwrap_or(false);
+    let enable_thinking = config.thinking_mode.unwrap_or(supports_thinking);
     let prompt = apply_system_prompt_by_type_with_tags(
         &conversation_content,
         template_type.as_deref(),
@@ -230,6 +242,7 @@ pub async fn generate_llama_response(
         &bos_text,
         &eos_text,
         mcp_tools_ref,
+        enable_thinking,
     )?;
     log_info!(&conversation_id, "=== FINAL PROMPT BEING SENT TO MODEL ===");
     log_info!(&conversation_id, "{}", prompt);
@@ -644,44 +657,16 @@ pub async fn generate_llama_response(
         gen_count
     );
 
-    // If the model stopped naturally (EOS) but was in an agentic task (tool calls made),
-    // do a quick Y/N check to see if the task is actually complete.
-    // This catches cases where the model emits EOS mid-task.
+    // Y/N task completion check — DISABLED (2026-05-12)
+    // Industry standard: "no tool call = done". The ~50ms inference per stop is wasteful
+    // and the check fires false-positives (e.g. model writes a summary after tool use).
+    // Replaced by: if model stops with tool_response_tokens > 0 but no tool call in
+    // the final response, trust it as done. Re-enable if models regress.
+    // if gen.finish_reason == "stop" && gen.tool_response_tokens > 0 { ... }
     log_event(&conversation_id, "task_check", &format!(
-        "finish_reason={}, tool_response_tokens={}, commands={}",
+        "finish_reason={}, tool_response_tokens={}, commands={} (yn_check disabled)",
         gen.finish_reason, gen.tool_response_tokens, gen.recent_commands.len()
     ));
-    eprintln!("[TASK_CHECK] finish_reason={}, tool_response_tokens={}, recent_commands={}", gen.finish_reason, gen.tool_response_tokens, gen.recent_commands.len());
-    if gen.finish_reason == "stop" && gen.tool_response_tokens > 0 {
-        // Include the user's request + last ~800 chars of response for context.
-        // More context helps the checker see partial task completion.
-        let user_prefix = if user_message.len() > 300 {
-            let mut end = 300;
-            while end < user_message.len() && !user_message.is_char_boundary(end) { end += 1; }
-            format!("{}...", &user_message[..end])
-        } else {
-            user_message.to_string()
-        };
-        let response_tail = if gen.response.len() > 800 {
-            let mut start = gen.response.len() - 800;
-            while start > 0 && !gen.response.is_char_boundary(start) { start += 1; }
-            &gen.response[start..]
-        } else {
-            &gen.response
-        };
-        let check_text = format!("USER REQUEST: {user_prefix}\n\nASSISTANT RESPONSE TAIL:\n{response_tail}");
-        let is_complete = quick_task_completion_check(
-            model, &state.backend, state.chat_template_string.as_deref(), &conversation_id,
-            &check_text,
-        );
-        if !is_complete {
-            eprintln!("[TASK_CHECK] Y/N check said NO → setting finish_reason=yn_continue for auto-continue");
-            log_event(&conversation_id, "yn_check", "NO → auto-continue");
-            gen.finish_reason = "yn_continue".to_string();
-        } else {
-            log_event(&conversation_id, "yn_check", "YES → task complete");
-        }
-    }
 
     // Clear global status on generation end
     llama_chat_db::event_log::clear_global_status();

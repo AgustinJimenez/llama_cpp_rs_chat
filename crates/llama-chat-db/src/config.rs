@@ -72,6 +72,8 @@ pub struct DbSamplerConfig {
     // Max tool calls per remote provider turn (safety limit)
     pub max_tool_calls: i32,
     pub loop_detection_limit: i32,
+    // Thinking mode: None = use model default, Some(true/false) = explicit override
+    pub thinking_mode: Option<bool>,
 }
 
 impl Default for DbSamplerConfig {
@@ -129,6 +131,7 @@ impl Default for DbSamplerConfig {
             provider_api_keys: None,
             max_tool_calls: 2000,
             loop_detection_limit: 15,
+            thinking_mode: None,
         }
     }
 }
@@ -173,7 +176,8 @@ impl Database {
                         telegram_chat_id,
                         provider_api_keys,
                         max_tool_calls,
-                        loop_detection_limit
+                        loop_detection_limit,
+                        thinking_mode
                  FROM config WHERE id = 1",
                 [],
                 |row| {
@@ -237,6 +241,7 @@ impl Database {
                         provider_api_keys: row.get(50)?,
                         max_tool_calls: row.get::<_, Option<i32>>(51)?.unwrap_or(2000),
                         loop_detection_limit: row.get::<_, Option<i32>>(52)?.unwrap_or(15),
+                        thinking_mode: row.get::<_, Option<i32>>(53)?.map(|v| v != 0),
                     })
                 },
             )
@@ -288,10 +293,11 @@ impl Database {
               provider_api_keys,
               max_tool_calls,
               loop_detection_limit,
+              thinking_mode,
               updated_at)
              VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
                      ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34,
-                     ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50, ?51, ?52, ?53, ?54)",
+                     ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50, ?51, ?52, ?53, ?54, ?55)",
             params![
                 config.sampler_type,
                 config.temperature,
@@ -346,6 +352,7 @@ impl Database {
                 config.provider_api_keys,
                 config.max_tool_calls,
                 config.loop_detection_limit,
+                config.thinking_mode.map(|v| v as i32),
                 current_timestamp_millis(),
             ],
         )
@@ -393,7 +400,8 @@ impl Database {
              provider_api_keys = ?51,
              max_tool_calls = ?52,
              loop_detection_limit = ?53,
-             updated_at = ?54
+             thinking_mode = ?54,
+             updated_at = ?55
              WHERE id = 1",
             params![
                 config.sampler_type,
@@ -449,6 +457,7 @@ impl Database {
                 config.provider_api_keys,
                 config.max_tool_calls,
                 config.loop_detection_limit,
+                config.thinking_mode.map(|v| v as i32),
                 current_timestamp_millis(),
             ],
         )
@@ -637,6 +646,7 @@ mod tests {
             provider_api_keys: None,
             max_tool_calls: 2000,
             loop_detection_limit: 15,
+            thinking_mode: None,
         };
 
         db.save_config(&config).unwrap();

@@ -40,6 +40,7 @@ export interface StreamingCallbacks {
   ) => void;
   onError: (error: string) => void;
   onStatus?: (message: string) => void;
+  onToolTiming?: (name: string, durationMs: number) => void;
 }
 
 export interface ChatTransport {
@@ -87,6 +88,7 @@ function handleStreamMessage(
     ) => void;
     onError: (error: string) => void;
     onStatus?: (message: string) => void;
+    onToolTiming?: (name: string, durationMs: number) => void;
   },
   settle: (error?: Error) => void,
   markAborted: () => void,
@@ -96,6 +98,11 @@ function handleStreamMessage(
 
     if (message.type === 'status') {
       callbacks.onStatus?.(message.message);
+      return;
+    }
+
+    if (message.type === 'tool_timing') {
+      callbacks.onToolTiming?.(message.name, message.duration_ms);
       return;
     }
 
@@ -160,7 +167,7 @@ function handleStreamMessage(
 
 function streamViaWebSocket(
   request: ChatRequest,
-  { onToken, onComplete, onError }: StreamingCallbacks,
+  { onToken, onComplete, onError, onStatus, onToolTiming }: StreamingCallbacks,
   abortSignal?: AbortSignal,
 ): Promise<void> {
   const safeOnToken = onToken ?? (() => {});
@@ -246,7 +253,13 @@ function streamViaWebSocket(
         event.data,
         request,
         state,
-        { onToken: safeOnToken, onComplete: safeOnComplete, onError: safeOnError },
+        {
+          onToken: safeOnToken,
+          onComplete: safeOnComplete,
+          onError: safeOnError,
+          onStatus,
+          onToolTiming,
+        },
         settle,
         markAborted,
       );

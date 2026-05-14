@@ -131,6 +131,14 @@ pub fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
             if js.is_empty() {
                 return NativeToolResult::text_only("Error: 'js' is required".into());
             }
+            // Auto-wrap in IIFE if the JS uses top-level `return` (illegal outside a function)
+            let wrapped;
+            let js = if js.contains("return ") && !js.trim_start().starts_with("(function") && !js.trim_start().starts_with("(() =>") {
+                wrapped = format!("(function(){{\n{js}\n}})()");
+                &wrapped as &str
+            } else {
+                js
+            };
             match session.eval(js) {
                 Ok(Value::String(s)) => NativeToolResult::text_only(s),
                 Ok(v) => NativeToolResult::text_only(v.to_string()),
@@ -185,7 +193,10 @@ pub fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
             }
         }
         "get_text" => {
-            let offset = args.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+            // Coerce string "8000" → 8000 in case model passes offset as a string
+            let offset = args.get("offset").and_then(|v| {
+                v.as_u64().or_else(|| v.as_str()?.parse::<u64>().ok())
+            }).unwrap_or(0) as usize;
             const PAGE: usize = 30_000;
             match session.get_full_text(offset, PAGE) {
                 Ok(text) => NativeToolResult::text_only(text),
@@ -261,7 +272,10 @@ pub fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
         }
         "scroll" => {
             let sel = args.get("selector").and_then(|v| v.as_str()).unwrap_or("");
-            let amount = args.get("amount").and_then(|v| v.as_i64()).unwrap_or(0);
+            // Coerce string "500" → 500 in case model passes amount as a string
+            let amount = args.get("amount").and_then(|v| {
+                v.as_i64().or_else(|| v.as_str()?.parse::<i64>().ok())
+            }).unwrap_or(0);
             let js = if !sel.is_empty() {
                 format!(
                     "(() => {{ const el = document.querySelector({sel_lit}); if (el) {{ el.scrollIntoView({{behavior:'smooth', block:'center'}}); return 'scrolled to '+{sel_lit}; }} return 'element not found'; }})()",

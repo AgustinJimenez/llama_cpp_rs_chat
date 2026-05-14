@@ -15,6 +15,28 @@ pub static ACTIVE_WS_CONNECTIONS: AtomicU32 = AtomicU32::new(0);
 
 const WS_TOKEN_FLUSH_INTERVAL: Duration = Duration::from_millis(40);
 const WS_TOKEN_FLUSH_MAX_CHARS: usize = 1024;
+const MAX_SERVER_AUTO_CONTINUES: u32 = 3;
+const SERVER_CONTINUE_PREVIEW_LEN: usize = 200;
+
+/// Finish reasons that the server handles internally via re-generation (no frontend round-trip).
+fn should_server_auto_continue(finish_reason: &str) -> bool {
+    matches!(finish_reason, "length" | "cuda_deadlock" | "loop_recovery" | "infinite_loop")
+}
+
+/// Build the continuation prompt the server sends for each auto-continue reason.
+fn make_server_continuation_message(finish_reason: &str, original_message: &str) -> String {
+    if matches!(finish_reason, "loop_recovery" | "infinite_loop") {
+        "[SYSTEM] Infinite loop detected — you have been repeating similar actions without \
+         progress. STOP your current approach entirely. Step back, analyze what went wrong, \
+         explain it to the user, and either try a COMPLETELY DIFFERENT strategy or ask the \
+         user for guidance. Do NOT repeat any of the previous commands."
+            .to_string()
+    } else {
+        let preview: String = original_message.chars().take(SERVER_CONTINUE_PREVIEW_LEN).collect();
+        let ellipsis = if original_message.len() > SERVER_CONTINUE_PREVIEW_LEN { "..." } else { "" };
+        format!("Continue working on this task: \"{}{}\". Pick up where you left off.", preview, ellipsis)
+    }
+}
 
 struct WsStreamDebug {
     enabled: bool,
@@ -126,32 +148,16 @@ pub async fn handle_websocket(
 
                 sys_debug!("[WS_CHAT] User message: {}", chat_request.message);
 
-                // Start generation via worker bridge
-                let skip_user_log = chat_request.auto_continue;
-                let (mut rx, done_rx) = match bridge
-                    .generate(
-                        chat_request.message.clone(),
-                        chat_request.conversation_id.clone(),
-                        skip_user_log, // auto_continue: don't log "Continue" as user message
-                        chat_request.image_data.clone(),
-                    )
-                    .await
-                {
-                    Ok(r) => r,
-                    Err(e) => {
-                        sys_error!("[WS_CHAT] Failed to start generation: {}", e);
-                        let error_msg = serde_json::json!({
-                            "type": "error",
-                            "error": format!("Failed to start generation: {}", e)
-                        });
-                        let _ = ws_sender.send(WsMessage::Text(error_msg.to_string())).await;
-                        break;
-                    }
-                };
+                // ── Server-side auto-continue setup ────────────────────────
+                // Handles length/cuda_deadlock/loop_recovery/infinite_loop without
+                // a frontend round-trip. The WebSocket stream stays open throughout.
+                let original_message = chat_request.message.clone();
+                let mut current_message = chat_request.message.clone();
+                let mut current_conv_id = chat_request.conversation_id.clone();
+                let mut server_auto_continue_count = 0u32;
+                let mut final_conv_id_for_title = String::new();
 
-                sys_debug!("[WS_CHAT] Generation started via worker bridge");
-
-                // Stream tokens through WebSocket with buffering
+                // Buffering state persists across continuation turns (stream is continuous)
                 let mut pending_tokens = String::new();
                 let mut pending_tokens_used: Option<i32> = None;
                 let mut pending_max_tokens: Option<i32> = None;
@@ -165,41 +171,95 @@ pub async fn handle_websocket(
                     chunks_sent: 0,
                     chars_sent: 0,
                 };
-
-                // Heartbeat: send a keepalive message every 15s when idle.
-                // Long-running commands (composer, npm install) can go silent for
-                // 30+ seconds during dependency resolution, which would otherwise
-                // trigger the frontend's generation timeout and close the WebSocket.
+                // Heartbeat: send a keepalive every 15s during long-running silent commands.
                 let mut heartbeat_deadline = Instant::now() + Duration::from_secs(15);
 
-                loop {
-                    tokio::select! {
-                        // Receive tokens from the worker via bridge
-                        token_result = rx.recv() => {
-                            match token_result {
-                                Some(token_data) => {
-                                    // Status messages: send via WebSocket AND update bridge for API polling
-                                    if let Some(status) = &token_data.status {
-                                        let status_json = serde_json::json!({
-                                            "type": "status",
-                                            "message": status
-                                        });
-                                        let _ = ws_sender.send(WsMessage::Text(status_json.to_string())).await;
-                                        bridge.set_status_message(Some(status.clone())).await;
-                                    }
-                                    pending_tokens.push_str(&token_data.token);
-                                    pending_tokens_used = Some(token_data.tokens_used);
-                                    pending_max_tokens = Some(token_data.max_tokens);
-                                    if token_data.gen_tok_per_sec.is_some() {
-                                        pending_gen_tok_per_sec = token_data.gen_tok_per_sec;
-                                    }
-                                    if token_data.gen_tokens.is_some() {
-                                        pending_gen_tokens = token_data.gen_tokens;
-                                    }
-                                    heartbeat_deadline = Instant::now() + Duration::from_secs(15);
+                'gen_loop: loop {
+                    let skip_user_log = server_auto_continue_count > 0 || chat_request.auto_continue;
+                    let image_data = if server_auto_continue_count == 0 { chat_request.image_data.clone() } else { None };
 
-                                    if pending_tokens.len() >= WS_TOKEN_FLUSH_MAX_CHARS
-                                        && flush_pending_tokens(
+                    let (mut rx, done_rx) = match bridge
+                        .generate(
+                            current_message.clone(),
+                            current_conv_id.clone(),
+                            skip_user_log,
+                            image_data,
+                        )
+                        .await
+                    {
+                        Ok(r) => r,
+                        Err(e) => {
+                            sys_error!("[WS_CHAT] Failed to start generation: {}", e);
+                            let error_msg = serde_json::json!({
+                                "type": "error",
+                                "error": format!("Failed to start generation: {}", e)
+                            });
+                            let _ = ws_sender.send(WsMessage::Text(error_msg.to_string())).await;
+                            break 'gen_loop;
+                        }
+                    };
+
+                    sys_debug!("[WS_CHAT] Generation started (server-continue #{})", server_auto_continue_count);
+
+                    // Per-generation completion state (reset each turn)
+                    let mut completed_conv_id: Option<String> = None;
+                    let mut completed_finish_reason: Option<String> = None;
+
+                    'stream_loop: loop {
+                        tokio::select! {
+                            // Receive tokens from the worker via bridge
+                            token_result = rx.recv() => {
+                                match token_result {
+                                    Some(token_data) => {
+                                        // Status messages: send via WebSocket AND update bridge for API polling
+                                        if let Some(status) = &token_data.status {
+                                            let status_json = serde_json::json!({
+                                                "type": "status",
+                                                "message": status
+                                            });
+                                            let _ = ws_sender.send(WsMessage::Text(status_json.to_string())).await;
+                                            bridge.set_status_message(Some(status.clone())).await;
+                                        }
+                                        // Tool timing events: send immediately so frontend can annotate live
+                                        if let Some(ref timing) = token_data.tool_timing {
+                                            let timing_json = serde_json::json!({
+                                                "type": "tool_timing",
+                                                "name": timing.name,
+                                                "duration_ms": timing.duration_ms
+                                            });
+                                            let _ = ws_sender.send(WsMessage::Text(timing_json.to_string())).await;
+                                        }
+                                        pending_tokens.push_str(&token_data.token);
+                                        pending_tokens_used = Some(token_data.tokens_used);
+                                        pending_max_tokens = Some(token_data.max_tokens);
+                                        if token_data.gen_tok_per_sec.is_some() {
+                                            pending_gen_tok_per_sec = token_data.gen_tok_per_sec;
+                                        }
+                                        if token_data.gen_tokens.is_some() {
+                                            pending_gen_tokens = token_data.gen_tokens;
+                                        }
+                                        heartbeat_deadline = Instant::now() + Duration::from_secs(15);
+
+                                        if pending_tokens.len() >= WS_TOKEN_FLUSH_MAX_CHARS
+                                            && flush_pending_tokens(
+                                                &mut ws_sender,
+                                                &mut pending_tokens,
+                                                &mut pending_tokens_used,
+                                                &mut pending_max_tokens,
+                                                &mut pending_gen_tok_per_sec,
+                                                &mut pending_gen_tokens,
+                                                &mut next_flush,
+                                                &mut debug,
+                                            ).await.is_err() {
+                                                eprintln!("[WS_CHAT] BREAK: flush_pending_tokens failed (token path)");
+                                                break 'gen_loop;
+                                            }
+                                    }
+                                    None => {
+                                        // Channel closed — this generation turn is complete
+                                        bridge.set_status_message(None).await;
+                                        sys_info!("[WS_CHAT] Generation complete, sending done message");
+                                        let _ = flush_pending_tokens(
                                             &mut ws_sender,
                                             &mut pending_tokens,
                                             &mut pending_tokens_used,
@@ -208,178 +268,179 @@ pub async fn handle_websocket(
                                             &mut pending_gen_tokens,
                                             &mut next_flush,
                                             &mut debug,
-                                        ).await.is_err() {
-                                            eprintln!("[WS_CHAT] BREAK: flush_pending_tokens failed (token path)");
-                                            break;
-                                        }
-                                }
-                                None => {
-                                    // Channel closed, generation complete
-                                    bridge.set_status_message(None).await;
-                                    sys_info!("[WS_CHAT] Generation complete, sending done message");
-                                    let _ = flush_pending_tokens(
-                                        &mut ws_sender,
-                                        &mut pending_tokens,
-                                        &mut pending_tokens_used,
-                                        &mut pending_max_tokens,
-                                        &mut pending_gen_tok_per_sec,
-                                        &mut pending_gen_tokens,
-                                        &mut next_flush,
-                                        &mut debug,
-                                    ).await;
+                                        ).await;
 
-                                    // Get conversation_id and timings from completion result
-                                    match done_rx.await {
-                                        Ok(GenerationResult::Complete { conversation_id, prompt_tok_per_sec, gen_tok_per_sec, gen_eval_ms, gen_tokens, prompt_eval_ms, prompt_tokens, finish_reason, token_breakdown, .. }) => {
-                                            eprintln!("[WS_CHAT] Generation complete: conv={}, finish={:?}", conversation_id, finish_reason);
-                                            let done_msg = serde_json::json!({
-                                                "type": "done",
-                                                "conversation_id": conversation_id,
-                                                "prompt_tok_per_sec": prompt_tok_per_sec,
-                                                "gen_tok_per_sec": gen_tok_per_sec,
-                                                "gen_eval_ms": gen_eval_ms,
-                                                "gen_tokens": gen_tokens,
-                                                "prompt_eval_ms": prompt_eval_ms,
-                                                "prompt_tokens": prompt_tokens,
-                                                "finish_reason": finish_reason,
-                                                "token_breakdown": token_breakdown
-                                            });
-                                            let _ = ws_sender.send(WsMessage::Text(done_msg.to_string())).await;
-                                            // Store finish_reason for polling-based auto-continue
-                                            bridge.set_last_finish_reason(finish_reason.clone()).await;
-                                            sys_debug!("[WS_CHAT] Done message sent");
-
-                                            // Background: auto-generate/update title after each response
-                                            // Brief delay to let the worker's generation thread fully join
-                                            {
-                                                let conv_id_clean = conversation_id.clone();
-                                                let db_bg = db.clone();
-                                                let bridge_bg = bridge.clone();
-                                                tokio::spawn(async move {
-                                                    // Wait for worker generation thread to fully join
-                                                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                                                    let messages = match db_bg.get_messages(&conv_id_clean) {
-                                                        Ok(m) => m,
-                                                        Err(_) => return,
-                                                    };
-                                                    // Need at least one user + one assistant message
-                                                    let first_user = messages.iter().find(|m| m.role == "user");
-                                                    let first_assistant = messages.iter().find(|m| m.role == "assistant");
-                                                    if first_user.is_none() || first_assistant.is_none() {
-                                                        return;
-                                                    }
-                                                    // Build prompt from first + last exchange (if different)
-                                                    let last_user = messages.iter().rev().find(|m| m.role == "user");
-                                                    let last_assistant = messages.iter().rev().find(|m| m.role == "assistant");
-                                                    let mut prompt = String::new();
-                                                    let fu = first_user.unwrap();
-                                                    let fa = first_assistant.unwrap();
-                                                    let fu_trunc: String = fu.content.chars().take(200).collect();
-                                                    let fa_trunc: String = fa.content.chars().take(200).collect();
-                                                    prompt.push_str(&format!("User: {fu_trunc}\nAssistant: {fa_trunc}"));
-                                                    // Append latest exchange if it's different from the first
-                                                    if let (Some(lu), Some(la)) = (last_user, last_assistant) {
-                                                        if lu.content != fu.content {
-                                                            let lu_trunc: String = lu.content.chars().take(200).collect();
-                                                            let la_trunc: String = la.content.chars().take(200).collect();
-                                                            prompt.push_str(&format!("\n\n[Latest]\nUser: {lu_trunc}\nAssistant: {la_trunc}"));
-                                                        }
-                                                    }
-
-                                                    eprintln!("[WS_TITLE] Requesting title for {conv_id_clean}");
-                                                    match bridge_bg.generate_title(&conv_id_clean, &prompt).await {
-                                                        Ok(raw_title) => {
-                                                            let title = sanitize_title(&raw_title);
-                                                            eprintln!("[WS_TITLE] Generated: '{title}' (raw: '{raw_title}')");
-                                                            if !title.is_empty() {
-                                                                if let Err(e) = db_bg.update_conversation_title(&conv_id_clean, &title) {
-                                                                    eprintln!("[WS_TITLE] Failed to store: {e}");
-                                                                }
-                                                            }
-                                                        }
-                                                        Err(e) => eprintln!("[WS_TITLE] Title generation FAILED: {e}"),
-                                                    }
+                                        match done_rx.await {
+                                            Ok(GenerationResult::Complete { conversation_id, prompt_tok_per_sec, gen_tok_per_sec, gen_eval_ms, gen_tokens, prompt_eval_ms, prompt_tokens, finish_reason, token_breakdown, .. }) => {
+                                                eprintln!("[WS_CHAT] Complete: conv={}, finish={:?}", conversation_id, finish_reason);
+                                                let done_msg = serde_json::json!({
+                                                    "type": "done",
+                                                    "conversation_id": conversation_id,
+                                                    "prompt_tok_per_sec": prompt_tok_per_sec,
+                                                    "gen_tok_per_sec": gen_tok_per_sec,
+                                                    "gen_eval_ms": gen_eval_ms,
+                                                    "gen_tokens": gen_tokens,
+                                                    "prompt_eval_ms": prompt_eval_ms,
+                                                    "prompt_tokens": prompt_tokens,
+                                                    "finish_reason": finish_reason,
+                                                    "token_breakdown": token_breakdown
                                                 });
+                                                let _ = ws_sender.send(WsMessage::Text(done_msg.to_string())).await;
+                                                bridge.set_last_finish_reason(finish_reason.clone()).await;
+                                                sys_debug!("[WS_CHAT] Done message sent");
+                                                completed_conv_id = Some(conversation_id);
+                                                completed_finish_reason = finish_reason;
+                                            }
+                                            Ok(GenerationResult::Cancelled) => {
+                                                sys_info!("[WS_CHAT] Generation was cancelled");
+                                                let abort_msg = serde_json::json!({ "type": "abort" });
+                                                let _ = ws_sender.send(WsMessage::Text(abort_msg.to_string())).await;
+                                            }
+                                            Ok(GenerationResult::Error(ref e)) => {
+                                                sys_error!("[WS_CHAT] Generation error from worker: {}", e);
+                                                let error_msg = serde_json::json!({
+                                                    "type": "error",
+                                                    "error": e
+                                                });
+                                                let _ = ws_sender.send(WsMessage::Text(error_msg.to_string())).await;
+                                            }
+                                            Err(e) => {
+                                                sys_error!("[WS_CHAT] Generation result channel closed: {}", e);
+                                                let error_msg = serde_json::json!({
+                                                    "type": "error",
+                                                    "error": "Generation failed: result channel closed"
+                                                });
+                                                let _ = ws_sender.send(WsMessage::Text(error_msg.to_string())).await;
                                             }
                                         }
-                                        Ok(GenerationResult::Cancelled) => {
-                                            sys_info!("[WS_CHAT] Generation was cancelled");
-                                            let abort_msg = serde_json::json!({ "type": "abort" });
-                                            let _ = ws_sender.send(WsMessage::Text(abort_msg.to_string())).await;
-                                        }
-                                        Ok(GenerationResult::Error(ref e)) => {
-                                            sys_error!("[WS_CHAT] Generation error from worker: {}", e);
-                                            let error_msg = serde_json::json!({
-                                                "type": "error",
-                                                "error": e
-                                            });
-                                            let _ = ws_sender.send(WsMessage::Text(error_msg.to_string())).await;
-                                        }
-                                        Err(e) => {
-                                            sys_error!("[WS_CHAT] Generation result channel closed: {}", e);
-                                            let error_msg = serde_json::json!({
-                                                "type": "error",
-                                                "error": "Generation failed: result channel closed"
-                                            });
-                                            let _ = ws_sender.send(WsMessage::Text(error_msg.to_string())).await;
-                                        }
+                                        break 'stream_loop;
                                     }
-                                    break;
+                                }
+                            }
+                            _ = tokio::time::sleep_until(next_flush), if !pending_tokens.is_empty() => {
+                                if flush_pending_tokens(
+                                    &mut ws_sender,
+                                    &mut pending_tokens,
+                                    &mut pending_tokens_used,
+                                    &mut pending_max_tokens,
+                                    &mut pending_gen_tok_per_sec,
+                                    &mut pending_gen_tokens,
+                                    &mut next_flush,
+                                    &mut debug,
+                                ).await.is_err() {
+                                    break 'gen_loop;
+                                }
+                            }
+                            // Heartbeat: keep frontend alive during long-running silent commands
+                            _ = tokio::time::sleep_until(heartbeat_deadline) => {
+                                let hb = serde_json::json!({ "type": "heartbeat" });
+                                if ws_sender.send(WsMessage::Text(hb.to_string())).await.is_err() {
+                                    eprintln!("[WS_CHAT] BREAK: heartbeat send failed");
+                                    break 'gen_loop;
+                                }
+                                heartbeat_deadline = Instant::now() + Duration::from_secs(15);
+                            }
+                            // Handle client disconnection or close messages
+                            ws_msg = ws_receiver.next() => {
+                                match ws_msg {
+                                    Some(Ok(WsMessage::Close(_))) | None => {
+                                        eprintln!("[WS_CHAT] BREAK: client close/disconnect");
+                                        let _ = flush_pending_tokens(
+                                            &mut ws_sender,
+                                            &mut pending_tokens,
+                                            &mut pending_tokens_used,
+                                            &mut pending_max_tokens,
+                                            &mut pending_gen_tok_per_sec,
+                                            &mut pending_gen_tokens,
+                                            &mut next_flush,
+                                            &mut debug,
+                                        ).await;
+                                        break 'gen_loop;
+                                    }
+                                    Some(Ok(WsMessage::Ping(data))) => {
+                                        let _ = ws_sender.send(WsMessage::Pong(data)).await;
+                                    }
+                                    Some(Err(_e)) => {
+                                        eprintln!("[WS_CHAT] BREAK: client error: {}", _e);
+                                        break 'gen_loop;
+                                    }
+                                    _ => {}
                                 }
                             }
                         }
-                        _ = tokio::time::sleep_until(next_flush), if !pending_tokens.is_empty() => {
-                            if flush_pending_tokens(
-                                &mut ws_sender,
-                                &mut pending_tokens,
-                                &mut pending_tokens_used,
-                                &mut pending_max_tokens,
-                                &mut pending_gen_tok_per_sec,
-                                &mut pending_gen_tokens,
-                                &mut next_flush,
-                                &mut debug,
-                            ).await.is_err() {
-                                break;
-                            }
-                        }
-                        // Heartbeat: keep frontend alive during long-running silent commands
-                        _ = tokio::time::sleep_until(heartbeat_deadline) => {
-                            let hb = serde_json::json!({ "type": "heartbeat" });
-                            if ws_sender.send(WsMessage::Text(hb.to_string())).await.is_err() {
-                                eprintln!("[WS_CHAT] BREAK: heartbeat send failed");
-                                break;
-                            }
-                            heartbeat_deadline = Instant::now() + Duration::from_secs(15);
-                        }
-                        // Handle client disconnection or close messages
-                        ws_msg = ws_receiver.next() => {
-                            match ws_msg {
-                                Some(Ok(WsMessage::Close(_))) | None => {
-                                    eprintln!("[WS_CHAT] BREAK: client close/disconnect");
-                                    let _ = flush_pending_tokens(
-                                        &mut ws_sender,
-                                        &mut pending_tokens,
-                                        &mut pending_tokens_used,
-                                        &mut pending_max_tokens,
-                                        &mut pending_gen_tok_per_sec,
-                                        &mut pending_gen_tokens,
-                                        &mut next_flush,
-                                        &mut debug,
-                                    ).await;
-                                    break;
-                                }
-                                Some(Ok(WsMessage::Ping(data))) => {
-                                    let _ = ws_sender.send(WsMessage::Pong(data)).await;
-                                }
-                                Some(Err(_e)) => {
-                                    eprintln!("[WS_CHAT] BREAK: client error: {}", _e);
-                                    break;
-                                }
-                                _ => {}
-                            }
+                    } // end 'stream_loop
+
+                    // ── Server-side continuation decision ──────────────────
+                    let finish_str = completed_finish_reason.as_deref().unwrap_or("");
+                    let can_continue = should_server_auto_continue(finish_str)
+                        && server_auto_continue_count < MAX_SERVER_AUTO_CONTINUES;
+
+                    if let Some(conv_id) = completed_conv_id {
+                        if can_continue {
+                            server_auto_continue_count += 1;
+                            eprintln!(
+                                "[WS_CHAT] Server auto-continue {}/{} (reason={})",
+                                server_auto_continue_count, MAX_SERVER_AUTO_CONTINUES, finish_str
+                            );
+                            current_conv_id = Some(conv_id);
+                            current_message = make_server_continuation_message(finish_str, &original_message);
+                            continue 'gen_loop;
+                        } else {
+                            // Final completion — run title generation below
+                            final_conv_id_for_title = conv_id;
                         }
                     }
+                    break 'gen_loop;
+                } // end 'gen_loop
+
+                // Background: auto-generate/update title after the final response.
+                // Brief delay to let the worker's generation thread fully join.
+                if !final_conv_id_for_title.is_empty() {
+                    let conv_id_clean = final_conv_id_for_title.clone();
+                    let db_bg = db.clone();
+                    let bridge_bg = bridge.clone();
+                    tokio::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                        let messages = match db_bg.get_messages(&conv_id_clean) {
+                            Ok(m) => m,
+                            Err(_) => return,
+                        };
+                        let first_user = messages.iter().find(|m| m.role == "user");
+                        let first_assistant = messages.iter().find(|m| m.role == "assistant");
+                        if first_user.is_none() || first_assistant.is_none() {
+                            return;
+                        }
+                        let last_user = messages.iter().rev().find(|m| m.role == "user");
+                        let last_assistant = messages.iter().rev().find(|m| m.role == "assistant");
+                        let mut prompt = String::new();
+                        let fu = first_user.unwrap();
+                        let fa = first_assistant.unwrap();
+                        let fu_trunc: String = fu.content.chars().take(200).collect();
+                        let fa_trunc: String = fa.content.chars().take(200).collect();
+                        prompt.push_str(&format!("User: {fu_trunc}\nAssistant: {fa_trunc}"));
+                        if let (Some(lu), Some(la)) = (last_user, last_assistant) {
+                            if lu.content != fu.content {
+                                let lu_trunc: String = lu.content.chars().take(200).collect();
+                                let la_trunc: String = la.content.chars().take(200).collect();
+                                prompt.push_str(&format!("\n\n[Latest]\nUser: {lu_trunc}\nAssistant: {la_trunc}"));
+                            }
+                        }
+                        eprintln!("[WS_TITLE] Requesting title for {conv_id_clean}");
+                        match bridge_bg.generate_title(&conv_id_clean, &prompt).await {
+                            Ok(raw_title) => {
+                                let title = sanitize_title(&raw_title);
+                                eprintln!("[WS_TITLE] Generated: '{title}' (raw: '{raw_title}')");
+                                if !title.is_empty() {
+                                    if let Err(e) = db_bg.update_conversation_title(&conv_id_clean, &title) {
+                                        eprintln!("[WS_TITLE] Failed to store: {e}");
+                                    }
+                                }
+                            }
+                            Err(e) => eprintln!("[WS_TITLE] Title generation FAILED: {e}"),
+                        }
+                    });
                 }
+
                 sys_debug!("[WS_CHAT] Message processing complete, waiting for next message");
             }
             Ok(WsMessage::Close(_)) => {

@@ -26,7 +26,8 @@ const SPLIT_MODE_OPTIONS = [
 
 interface AdvancedContextSectionProps {
   config: SamplerConfig;
-  onConfigChange: (field: keyof SamplerConfig, value: string | number | boolean) => void;
+  onConfigChange: (field: keyof SamplerConfig, value: string | number | boolean | null) => void;
+  supportsThinking?: boolean;
 }
 
 const Toggle: React.FC<{
@@ -229,9 +230,19 @@ const HardwareGroup = ({
 export const AdvancedContextSection: React.FC<AdvancedContextSectionProps> = ({
   config,
   onConfigChange,
+  supportsThinking,
 }) => (
   <div className="flex flex-wrap gap-3">
     <KvCacheGroup config={config} onConfigChange={onConfigChange} />
+    {supportsThinking ? (
+      <ParamGroup title="Thinking">
+        <Toggle
+          label={config.thinking_mode === false ? 'Disabled' : 'Enabled'}
+          checked={config.thinking_mode !== false}
+          onChange={(v) => onConfigChange('thinking_mode', v ? null : false)}
+        />
+      </ParamGroup>
+    ) : null}
     <ParamGroup title="Batch">
       <div className="flex gap-1">
         {BATCH_PRESETS.map((size) => (

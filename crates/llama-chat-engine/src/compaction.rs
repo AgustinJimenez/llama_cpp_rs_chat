@@ -71,6 +71,7 @@ pub fn maybe_compact_conversation(
     backend: &llama_cpp_2::llama_backend::LlamaBackend,
     chat_template_string: Option<&str>,
     overhead_tokens: Option<i32>,
+    actual_token_pos: Option<usize>,
     status_sender: Option<&tokio::sync::mpsc::UnboundedSender<llama_chat_types::TokenData>>,
 ) -> String {
     // Recursion guard: prevent infinite recompaction
@@ -81,11 +82,22 @@ pub fn maybe_compact_conversation(
         return conversation_content.to_string();
     }
 
-    // Count tokens using the model's tokenizer (exact), fallback to chars/4 heuristic
-    let estimated_tokens = model
-        .str_to_token(conversation_content, llama_cpp_2::model::AddBos::Never)
-        .map(|t| t.len())
-        .unwrap_or(conversation_content.len() / 4);
+    // Use the actual KV cache token position from the last generation if available.
+    // This is what the model actually consumed — it accounts for tool output truncation
+    // (verbose tool results are stored in DB for display but the model only sees summaries).
+    // Falling back to tokenizing raw DB content would overcount dramatically when tools
+    // produce large outputs (e.g. nim compiler logs: ~500K chars → ~125K estimated tokens
+    // but model only saw ~10K tokens of truncated output).
+    let estimated_tokens = if let Some(pos) = actual_token_pos {
+        eprintln!("[COMPACTION] Using actual token_pos={} from last generation (raw DB would overcount)", pos);
+        pos
+    } else {
+        // First turn: no prior generation, tokenize raw content as fallback
+        model
+            .str_to_token(conversation_content, llama_cpp_2::model::AddBos::Never)
+            .map(|t| t.len())
+            .unwrap_or(conversation_content.len() / 4)
+    };
     // Use real overhead from conversation_context if available, else fallback
     let overhead = overhead_tokens
         .filter(|&o| o > 0)
@@ -237,7 +249,7 @@ pub fn maybe_compact_conversation(
                 );
                 return maybe_compact_conversation(
                     &text, context_size, conversation_id, db, model, backend,
-                    chat_template_string, overhead_tokens, status_sender,
+                    chat_template_string, overhead_tokens, None, status_sender,
                 );
             }
 
