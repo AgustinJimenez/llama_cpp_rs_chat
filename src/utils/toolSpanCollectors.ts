@@ -522,24 +522,60 @@ function stripChannelTags(text: string): string {
 export function buildSegments(content: string, toolTags?: ToolTags): MessageSegment[] {
   // Preprocess: move tool calls out of thinking blocks so they become widgets
   const preprocessed = moveToolsOutOfThinking(content);
-  const cleaned = preprocessed
-    .replace(THINKING_REGEX, '')
-    .replace(THINKING_UNCLOSED_REGEX, '')
-    .replace(THINKING_ORPHAN_CLOSE_REGEX, '');
-  const pruned = stripUnclosedToolCallTail(cleaned, toolTags);
 
+  // Phase 1: collect thinking spans at their real positions so they render chronologically
+  const thinkingSpans: Span[] = [];
+  const closedThinkRe = /<think>([\s\S]*?)<\/think>/g;
+  let tm;
+  while ((tm = closedThinkRe.exec(preprocessed)) !== null) {
+    thinkingSpans.push({
+      start: tm.index,
+      end: tm.index + tm[0].length,
+      segment: { type: 'thinking', content: tm[1].trim() },
+    });
+  }
+  // Unclosed thinking block (still streaming)
+  const lastOpenIdx = preprocessed.lastIndexOf('<think>');
+  if (lastOpenIdx !== -1 && !preprocessed.slice(lastOpenIdx).includes('</think>')) {
+    thinkingSpans.push({
+      start: lastOpenIdx,
+      end: preprocessed.length,
+      segment: {
+        type: 'thinking',
+        content: preprocessed.slice(lastOpenIdx + '<think>'.length).trim(),
+      },
+    });
+  }
+
+  // Phase 2: replace thinking spans with same-length whitespace so tool span
+  // positions remain valid relative to preprocessed
+  let contentForTools = preprocessed;
+  for (const span of thinkingSpans) {
+    contentForTools =
+      contentForTools.slice(0, span.start) +
+      ' '.repeat(span.end - span.start) +
+      contentForTools.slice(span.end);
+  }
+
+  // Phase 3: collect tool/exec spans from the whitespace-padded content
+  const pruned = stripUnclosedToolCallTail(contentForTools, toolTags);
   const toolSpans = selectToolSpans(pruned, toolTags);
-  const spans = [...collectExecSpans(pruned), ...toolSpans].sort((a, b) => a.start - b.start);
+  const execSpans = collectExecSpans(pruned);
 
-  // Determine if we need to strip channel/turn tags from text segments
+  // Phase 4: merge all spans, sorted by position in preprocessed
   const needsChannelStrip = toolTags?.exec_open === '<|tool_call>';
+  const spans = [...execSpans, ...toolSpans, ...thinkingSpans].sort((a, b) => a.start - b.start);
 
+  // Phase 5: build segments by slicing preprocessed at span boundaries
   const result: MessageSegment[] = [];
   let cursor = 0;
 
   for (const span of spans) {
     if (span.start > cursor) {
-      let text = pruned.slice(cursor, span.start).trim();
+      let text = preprocessed
+        .slice(cursor, span.start)
+        .replace(THINKING_ORPHAN_CLOSE_REGEX, '')
+        .trim();
       if (needsChannelStrip) text = stripChannelTags(text).trim();
       if (text) result.push({ type: 'text', content: text });
     }
@@ -547,8 +583,8 @@ export function buildSegments(content: string, toolTags?: ToolTags): MessageSegm
     cursor = span.end;
   }
 
-  if (cursor < pruned.length) {
-    let text = pruned.slice(cursor).trim();
+  if (cursor < preprocessed.length) {
+    let text = preprocessed.slice(cursor).replace(THINKING_ORPHAN_CLOSE_REGEX, '').trim();
     if (needsChannelStrip) text = stripChannelTags(text).trim();
     if (text) result.push({ type: 'text', content: text });
   }

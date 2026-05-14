@@ -330,8 +330,8 @@ const AssistantMessage: React.FC<{
           </pre>
         ) : (
           <>
-            {/* Thinking process (for reasoning models) */}
-            {thinkingContent != null ? (
+            {/* Thinking process — only when not already placed chronologically in segments */}
+            {thinkingContent != null && !segments.some((s) => s.type === 'thinking') ? (
               <ThinkingBlock
                 content={thinkingContent}
                 isStreaming={isThinkingStreaming ? isStreaming : undefined}
@@ -342,7 +342,14 @@ const AssistantMessage: React.FC<{
             {/* eslint-disable react/no-array-index-key -- segments are positional with no stable ID */}
             {segments.map((segment, index) => {
               if (segment.type === 'thinking') {
-                return <ThinkingBlock key={`seg-think-${index}`} content={segment.content} />;
+                const isLastSeg = index === segments.length - 1;
+                return (
+                  <ThinkingBlock
+                    key={`seg-think-${index}`}
+                    content={segment.content}
+                    isStreaming={isLastSeg && isThinkingStreaming ? isStreaming : undefined}
+                  />
+                );
               }
               if (segment.type === 'tool_call') {
                 return (
