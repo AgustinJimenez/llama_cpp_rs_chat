@@ -220,6 +220,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     isModelBusy,
     isModelLoaded,
     isGeneratingElsewhere,
+    isCompacting,
     disabled,
     estimatedConvTokens,
     modelContextSize,
@@ -307,6 +308,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     isGeneratingElsewhere,
     isModelLoaded,
     disabledReason,
+    isCompacting,
   );
 
   return (

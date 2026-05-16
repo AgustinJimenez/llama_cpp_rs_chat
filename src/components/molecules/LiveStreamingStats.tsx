@@ -137,6 +137,7 @@ const CompactButton = ({ ctxPct, conversationId }: { ctxPct: number; conversatio
     if (isCompacting) return;
     setIsCompacting(true);
     try {
+      window.dispatchEvent(new CustomEvent('conversation-compacting'));
       await compactConversation(conversationId);
       toast.success('Conversation compacted', { duration: 2000 });
       window.dispatchEvent(new CustomEvent('conversation-compacted'));
@@ -213,7 +214,7 @@ const StatsLeft = ({
     {timings?.genTokPerSec ? (
       <MessageStatistics timings={timings} tokensUsed={tokensUsed} maxTokens={maxTokens} />
     ) : null}
-    {!timings?.genTokPerSec && (tokensUsed !== undefined || isLoading || streamStatus) ? (
+    {!timings?.genTokPerSec && isLoading ? (
       <LiveStreamingStats
         tokensUsed={tokensUsed}
         maxTokens={maxTokens}

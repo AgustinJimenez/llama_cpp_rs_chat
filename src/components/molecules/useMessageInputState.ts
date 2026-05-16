@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useChatContext } from '../../contexts/ChatContext';
@@ -22,6 +22,18 @@ export function useInputState() {
   const isModelBusy = isModelLoading && loadingAction !== null;
   const isRemoteProvider = activeProvider !== 'local';
 
+  const [isCompacting, setIsCompacting] = useState(false);
+  useEffect(() => {
+    const onStart = () => setIsCompacting(true);
+    const onDone = () => setIsCompacting(false);
+    window.addEventListener('conversation-compacting', onStart);
+    window.addEventListener('conversation-compacted', onDone);
+    return () => {
+      window.removeEventListener('conversation-compacting', onStart);
+      window.removeEventListener('conversation-compacted', onDone);
+    };
+  }, []);
+
   const isGeneratingElsewhere =
     status.generating === true &&
     status.active_conversation_id != null &&
@@ -29,7 +41,8 @@ export function useInputState() {
     status.active_conversation_id !== currentConversationId;
 
   // Input is always enabled while generating — messages get queued (local) or backend-queued (remote)
-  const disabled = isModelBusy || isGeneratingElsewhere || (!status.loaded && !isRemoteProvider);
+  const disabled =
+    isModelBusy || isGeneratingElsewhere || isCompacting || (!status.loaded && !isRemoteProvider);
   const estimatedConvTokens = useMemo(
     () =>
       Math.round(messages.reduce((sum, m) => sum + (m.content?.length || 0), 0) / CHARS_PER_TOKEN),
@@ -46,6 +59,7 @@ export function useInputState() {
     isModelBusy,
     isModelLoaded,
     isGeneratingElsewhere,
+    isCompacting,
     disabled,
     estimatedConvTokens,
     modelContextSize,
@@ -63,7 +77,11 @@ export function getPlaceholder(
   isGeneratingElsewhere: boolean,
   isModelLoaded: boolean,
   disabledReason?: string,
+  isCompacting?: boolean,
 ) {
+  if (isCompacting) {
+    return 'Compacting conversation…';
+  }
   if (isModelBusy) {
     return loadingAction === 'unloading'
       ? t('chat.placeholderUnloading')
