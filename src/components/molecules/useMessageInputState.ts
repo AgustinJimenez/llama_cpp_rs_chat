@@ -43,14 +43,19 @@ export function useInputState() {
   // Input is always enabled while generating — messages get queued (local) or backend-queued (remote)
   const disabled =
     isModelBusy || isGeneratingElsewhere || isCompacting || (!status.loaded && !isRemoteProvider);
-  const estimatedConvTokens = useMemo(
-    () =>
-      Math.round(
-        messages.reduce((sum, m) => sum + (m.compacted ? 0 : m.content?.length || 0), 0) /
-          CHARS_PER_TOKEN,
-      ),
-    [messages],
-  );
+  const estimatedConvTokens = useMemo(() => {
+    // Prefer actual prompt token count from the last assistant message's timings —
+    // that's what the model really processed, no estimation needed.
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const pt = messages[i].timings?.promptTokens;
+      if (pt) return pt;
+    }
+    // Fall back to char-length estimate (no timing data yet)
+    return Math.round(
+      messages.reduce((sum, m) => sum + (m.compacted ? 0 : m.content?.length || 0), 0) /
+        CHARS_PER_TOKEN,
+    );
+  }, [messages]);
   const modelContextSize = status.context_size;
   const isModelLoaded = status.loaded || isRemoteProvider;
   return {
