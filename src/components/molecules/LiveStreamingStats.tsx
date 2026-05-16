@@ -1,8 +1,9 @@
-import { Database, Loader2, Square, PackageOpen } from 'lucide-react';
+import { Database, Loader2, Square, PackageOpen, X } from 'lucide-react';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { toast } from 'react-hot-toast';
 
 import { useChatContext } from '../../contexts/ChatContext';
+import { useModelContext } from '../../contexts/ModelContext';
 import type { TimingInfo } from '../../utils/chatTransport';
 import { compactConversation } from '../../utils/tauriCommands';
 
@@ -165,6 +166,174 @@ const CompactButton = ({ ctxPct, conversationId }: { ctxPct: number; conversatio
   );
 };
 
+const CHARS_PER_TOKEN = 4;
+const fmt = (n: number) => n.toLocaleString('en-US');
+const fmtK = (n: number) => `${(n / 1000).toFixed(1)}K`;
+const CTX_DANGER_PCT = 90;
+const CTX_WARN_PCT = 70;
+
+const BreakdownRow = ({
+  label,
+  value,
+  sub,
+  highlight,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  highlight?: boolean;
+}) => (
+  <div className={`flex items-baseline justify-between py-1 ${highlight ? 'font-semibold' : ''}`}>
+    <span className="text-muted-foreground">{label}</span>
+    <span className="font-mono tabular-nums">
+      {value}
+      {sub ? <span className="text-muted-foreground text-[10px] ml-1">{sub}</span> : null}
+    </span>
+  </div>
+);
+
+function barColor(pct: number) {
+  if (pct > CTX_DANGER_PCT) return 'bg-red-500';
+  if (pct > CTX_WARN_PCT) return 'bg-yellow-400';
+  return 'bg-primary';
+}
+
+const TokenBreakdownModal = ({
+  onClose,
+  modelContextSize,
+}: {
+  onClose: () => void;
+  modelContextSize: number;
+}) => {
+  const { messages } = useChatContext();
+  const { status } = useModelContext();
+
+  const systemPromptTokens = status.system_prompt_tokens ?? 0;
+  const toolTokens = status.tool_definitions_tokens ?? 0;
+
+  let summaryChars = 0;
+  let activeChars = 0;
+  let compactedChars = 0;
+  let lastPromptTokens: number | null = null;
+  let lastGenTokens: number | null = null;
+
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (lastPromptTokens === null && m.timings?.promptTokens && m.timings?.genTokens) {
+      lastPromptTokens = m.timings.promptTokens;
+      lastGenTokens = m.timings.genTokens;
+    }
+  }
+
+  for (const m of messages) {
+    const chars = m.content?.length ?? 0;
+    if (m.role === 'system' && m.content?.startsWith('[Conversation summary')) {
+      summaryChars += chars;
+    } else if (m.compacted) {
+      compactedChars += chars;
+    } else if (m.role !== 'system') {
+      activeChars += chars;
+    }
+  }
+
+  const summaryEst = Math.round(summaryChars / CHARS_PER_TOKEN);
+  const activeEst = Math.round(activeChars / CHARS_PER_TOKEN);
+  const compactedEst = Math.round(compactedChars / CHARS_PER_TOKEN);
+  const measuredTotal =
+    lastPromptTokens != null && lastGenTokens != null ? lastPromptTokens + lastGenTokens : null;
+  const estimatedTotal = systemPromptTokens + toolTokens + summaryEst + activeEst;
+  const displayTotal = measuredTotal ?? estimatedTotal;
+  const freeSpace = modelContextSize - displayTotal;
+  const usedPct = Math.round((displayTotal / modelContextSize) * 100);
+
+  return (
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      onClick={onClose}
+      onKeyDown={(e) => e.key === 'Escape' && onClose()}
+    >
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
+      <div
+        role="document"
+        className="bg-background border border-border rounded-xl shadow-2xl w-80 p-4 text-sm"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-3">
+          <span className="font-semibold flex items-center gap-1.5">
+            <Database className="h-3.5 w-3.5" />
+            Context breakdown
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="w-full h-2 rounded-full bg-muted mb-3 overflow-hidden">
+          <div
+            className={`h-full rounded-full ${barColor(usedPct)}`}
+            style={{ width: `${Math.min(usedPct, 100)}%` }}
+          />
+        </div>
+
+        <div className="divide-y divide-border">
+          <div className="pb-2 space-y-0.5">
+            <BreakdownRow label="System prompt" value={fmt(systemPromptTokens)} sub="tokens" />
+            <BreakdownRow label="Tool definitions" value={fmt(toolTokens)} sub="tokens" />
+            {summaryEst > 0 ? (
+              <BreakdownRow label="Compaction summary" value={`~${fmt(summaryEst)}`} sub="est." />
+            ) : null}
+            <BreakdownRow label="Active messages" value={`~${fmt(activeEst)}`} sub="est." />
+            {compactedEst > 0 ? (
+              <BreakdownRow
+                label="Compacted history"
+                value={`~${fmt(compactedEst)}`}
+                sub="not in ctx"
+              />
+            ) : null}
+          </div>
+          <div className="py-2 space-y-0.5">
+            {measuredTotal != null ? (
+              <BreakdownRow
+                label="Last measured total"
+                value={fmt(measuredTotal)}
+                sub="actual"
+                highlight
+              />
+            ) : (
+              <BreakdownRow
+                label="Estimated total"
+                value={`~${fmt(estimatedTotal)}`}
+                sub="est."
+                highlight
+              />
+            )}
+            <BreakdownRow
+              label="Free space"
+              value={`~${fmtK(freeSpace)}`}
+              sub={`${100 - usedPct}%`}
+            />
+            <BreakdownRow label="Context window" value={fmtK(modelContextSize)} />
+          </div>
+        </div>
+
+        {measuredTotal != null ? (
+          <p className="text-[10px] text-muted-foreground mt-2">
+            Measured total = prompt + response tokens from last generation.
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+};
+
 const ContextUsageInfo = ({
   estimatedConvTokens,
   modelContextSize,
@@ -174,20 +343,31 @@ const ContextUsageInfo = ({
   modelContextSize: number;
   ctxPct: number;
 }) => {
+  const [showModal, setShowModal] = useState(false);
   const CONTEXT_HIGH_PCT = 70;
   return (
-    <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono">
-      <Database className="h-3 w-3" />
-      <span
-        className={ctxPct > CONTEXT_HIGH_PCT ? 'text-yellow-400' : ''}
-        title={`Estimated conversation: ~${estimatedConvTokens.toLocaleString()} tokens / ${modelContextSize.toLocaleString()} context`}
+    <>
+      <button
+        type="button"
+        onClick={() => setShowModal(true)}
+        className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono hover:text-foreground transition-colors cursor-pointer"
+        title="Click for token breakdown"
       >
-        ~{(estimatedConvTokens / 1000).toFixed(1)}K / {(modelContextSize / 1000).toFixed(1)}K
-      </span>
-      {ctxPct > CONTEXT_HIGH_PCT ? (
-        <span className="text-yellow-400 text-[10px]">({ctxPct}%)</span>
+        <Database className="h-3 w-3" />
+        <span className={ctxPct > CONTEXT_HIGH_PCT ? 'text-yellow-400' : ''}>
+          ~{(estimatedConvTokens / 1000).toFixed(1)}K / {(modelContextSize / 1000).toFixed(1)}K
+        </span>
+        {ctxPct > CONTEXT_HIGH_PCT ? (
+          <span className="text-yellow-400 text-[10px]">({ctxPct}%)</span>
+        ) : null}
+      </button>
+      {showModal ? (
+        <TokenBreakdownModal
+          onClose={() => setShowModal(false)}
+          modelContextSize={modelContextSize}
+        />
       ) : null}
-    </div>
+    </>
   );
 };
 
