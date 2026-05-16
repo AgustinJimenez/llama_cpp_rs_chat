@@ -45,7 +45,10 @@ export function useInputState() {
     isModelBusy || isGeneratingElsewhere || isCompacting || (!status.loaded && !isRemoteProvider);
   const estimatedConvTokens = useMemo(
     () =>
-      Math.round(messages.reduce((sum, m) => sum + (m.content?.length || 0), 0) / CHARS_PER_TOKEN),
+      Math.round(
+        messages.reduce((sum, m) => sum + (m.compacted ? 0 : m.content?.length || 0), 0) /
+          CHARS_PER_TOKEN,
+      ),
     [messages],
   );
   const modelContextSize = status.context_size;
