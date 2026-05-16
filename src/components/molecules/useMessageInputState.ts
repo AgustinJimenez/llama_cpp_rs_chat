@@ -44,11 +44,12 @@ export function useInputState() {
   const disabled =
     isModelBusy || isGeneratingElsewhere || isCompacting || (!status.loaded && !isRemoteProvider);
   const estimatedConvTokens = useMemo(() => {
-    // Prefer actual prompt token count from the last assistant message's timings —
-    // that's what the model really processed, no estimation needed.
+    // Use promptTokens + genTokens from the last assistant message with timing data.
+    // promptTokens = context fed in, genTokens = response now also in context.
+    // Together they reflect what's actually occupying the context window right now.
     for (let i = messages.length - 1; i >= 0; i--) {
-      const pt = messages[i].timings?.promptTokens;
-      if (pt) return pt;
+      const tm = messages[i].timings;
+      if (tm?.promptTokens && tm?.genTokens) return tm.promptTokens + tm.genTokens;
     }
     // Fall back to char-length estimate (no timing data yet)
     return Math.round(
