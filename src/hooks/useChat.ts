@@ -34,6 +34,9 @@ export function useChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [queuedMessage, setQueuedMessage] = useState<{ content: string; images?: string[] } | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [tokensUsed, setTokensUsed] = useState<number | undefined>(undefined);
   const [maxTokens, setMaxTokens] = useState<number | undefined>(undefined);
@@ -87,8 +90,21 @@ export function useChat() {
     setTokensUsed(undefined);
     setMaxTokens(undefined);
     setLastTimings(undefined);
+    setQueuedMessage(null);
     providerSessionRef.current = null;
   }, []);
+
+  const cancelQueuedMessage = useCallback(() => setQueuedMessage(null), []);
+
+  // Auto-send queued message when generation finishes (local provider only)
+  useEffect(() => {
+    if (!isLoading && queuedMessage) {
+      const msg = queuedMessage;
+      setQueuedMessage(null);
+      sendMessage(msg.content, msg.images, true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading]);
 
   // Derive lastTimings from last assistant message (persists across loads)
   useEffect(() => {
@@ -229,7 +245,11 @@ export function useChat() {
         }
         return;
       }
-      if (!bypassLoadingCheck && isLoading) return;
+      // Queue message for local provider if generation is in progress
+      if (!bypassLoadingCheck && isLoading) {
+        setQueuedMessage({ content: trimmed, images: hasImages ? imageData : undefined });
+        return;
+      }
 
       resetAutoContinue();
       abortControllerRef.current?.abort();
@@ -624,5 +644,7 @@ export function useChat() {
     streamStatus,
     providerRef,
     providerParamsRef,
+    queuedMessage,
+    cancelQueuedMessage,
   };
 }

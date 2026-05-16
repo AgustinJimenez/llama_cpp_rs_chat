@@ -416,12 +416,12 @@ pub async fn handle_websocket(
                         let fu = first_user.unwrap();
                         let fa = first_assistant.unwrap();
                         let fu_trunc: String = fu.content.chars().take(200).collect();
-                        let fa_trunc: String = fa.content.chars().take(200).collect();
+                        let fa_trunc: String = strip_tool_tags(&fa.content).chars().take(200).collect();
                         prompt.push_str(&format!("User: {fu_trunc}\nAssistant: {fa_trunc}"));
                         if let (Some(lu), Some(la)) = (last_user, last_assistant) {
                             if lu.content != fu.content {
                                 let lu_trunc: String = lu.content.chars().take(200).collect();
-                                let la_trunc: String = la.content.chars().take(200).collect();
+                                let la_trunc: String = strip_tool_tags(&la.content).chars().take(200).collect();
                                 prompt.push_str(&format!("\n\n[Latest]\nUser: {lu_trunc}\nAssistant: {la_trunc}"));
                             }
                         }
@@ -693,6 +693,21 @@ pub async fn handle_status_ws(
 
 
 /// Clean up model-generated title: strip quotes, markdown, "Title:" prefix, truncate.
+/// Strip tool call/response blocks and thinking blocks from assistant content
+/// so they don't pollute the title generation prompt.
+pub fn strip_tool_tags(content: &str) -> String {
+    // Remove <tool_call>...</tool_call> blocks (and unclosed ones)
+    let re_tc = regex::Regex::new(r"<tool_call>[\s\S]*?(?:</tool_call>|$)").unwrap();
+    // Remove <tool_response>...</tool_response> blocks
+    let re_tr = regex::Regex::new(r"<tool_response>[\s\S]*?(?:</tool_response>|$)").unwrap();
+    // Remove <think>...</think> blocks
+    let re_think = regex::Regex::new(r"<think>[\s\S]*?(?:</think>|$)").unwrap();
+    let s = re_tc.replace_all(content, "");
+    let s = re_tr.replace_all(&s, "");
+    let s = re_think.replace_all(&s, "");
+    s.trim().to_string()
+}
+
 pub fn sanitize_title(raw: &str) -> String {
     let mut s = raw.trim().to_string();
     // Strip leading "Title:" or "title:" prefix
@@ -711,6 +726,10 @@ pub fn sanitize_title(raw: &str) -> String {
     }
     // Truncate to 60 chars
     let s = s.trim().to_string();
+    // Reject if the model hallucinated a raw tag as the title
+    if s.starts_with('<') {
+        return String::new();
+    }
     if s.chars().count() > 60 {
         s.chars().take(60).collect::<String>().trim_end().to_string()
     } else {

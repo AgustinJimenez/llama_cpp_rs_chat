@@ -273,8 +273,10 @@ const CompletedHeader: React.FC<{
   durationMs?: number;
 }> = ({ name, summary, isExpanded, onToggle, resultStatus, durationMs }) => {
   let durationStr: string | null = null;
-  if (durationMs != null && durationMs > 0) {
-    durationStr = durationMs < 1000 ? `${durationMs}ms` : `${(durationMs / 1000).toFixed(1)}s`;
+  if (durationMs != null) {
+    if (durationMs === 0) durationStr = '<1ms';
+    else if (durationMs < 1000) durationStr = `${durationMs}ms`;
+    else durationStr = `${(durationMs / 1000).toFixed(1)}s`;
   }
   return (
     <button
@@ -461,9 +463,12 @@ const SingleToolCall: React.FC<{ toolCall: ToolCall; isGenerating?: boolean }> =
   const [isExpanded, setIsExpanded] = useState(false);
   const [isOutputExpanded, setIsOutputExpanded] = useState(false);
   const summary = getToolSummary(toolCall.name, toolCall.arguments);
-  // If generation is stopped, tool calls can't be executing anymore
+  // If generation is stopped, tool calls can't be executing anymore.
+  // If duration_ms is known the tool has already finished executing — show CompletedHeader
+  // even when isPending=true (batch tools share one <tool_response> so output can't be matched).
   const isExecuting =
     isGenerating !== false &&
+    toolCall.duration_ms == null &&
     (toolCall.isStreaming === true || (toolCall.isPending === true && !toolCall.output));
   const elapsed = useElapsedTime(isExecuting);
   const outputLanguage = getOutputLanguage(toolCall.name, toolCall.arguments);

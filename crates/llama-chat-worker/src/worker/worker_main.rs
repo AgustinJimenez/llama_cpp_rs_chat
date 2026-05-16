@@ -326,6 +326,28 @@ pub fn run_worker(db_path: &str) {
                 write_response(&mut ipc_writer, &WorkerResponse::ok(req_id, WorkerPayload::AvailableBackends { backends }));
             }
 
+            WorkerCommand::CompactConversation { conversation_id } => {
+                // Reject if generation is in progress
+                if generation_thread.as_ref().map(|h| !h.is_finished()).unwrap_or(false) {
+                    write_response(&mut ipc_writer, &WorkerResponse::error(req_id, "Cannot compact while generation is in progress"));
+                    continue;
+                }
+                let state = llama_state.clone();
+                let db_clone = db.clone();
+                let conv_id = conversation_id.clone();
+                eprintln!("[WORKER] Manual compaction requested for conv={conv_id}");
+                match llama_chat_engine::compaction::force_compact_conversation(&conv_id, &db_clone, &state, None) {
+                    Ok(()) => {
+                        eprintln!("[WORKER] Manual compaction complete for conv={conv_id}");
+                        write_response(&mut ipc_writer, &WorkerResponse::ok(req_id, WorkerPayload::CompactionDone { conversation_id: conv_id }));
+                    }
+                    Err(e) => {
+                        eprintln!("[WORKER] Manual compaction failed: {e}");
+                        write_response(&mut ipc_writer, &WorkerResponse::error(req_id, e));
+                    }
+                }
+            }
+
             WorkerCommand::Ping => {
                 write_response(&mut ipc_writer, &WorkerResponse::ok(req_id, WorkerPayload::Pong));
             }

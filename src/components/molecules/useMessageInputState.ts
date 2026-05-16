@@ -14,6 +14,8 @@ export function useInputState() {
     stopGeneration,
     messages,
     currentConversationId,
+    queuedMessage,
+    cancelQueuedMessage,
   } = useChatContext();
   const { status, isLoading: isModelLoading, loadingAction, activeProvider } = useModelContext();
   const hasVision = status.has_vision ?? false;
@@ -26,13 +28,8 @@ export function useInputState() {
     currentConversationId != null &&
     status.active_conversation_id !== currentConversationId;
 
-  // For remote providers, allow typing during generation (messages get queued)
-  const isRemoteStreaming = isLoading && isRemoteProvider;
-  const disabled =
-    (isLoading && !isRemoteStreaming) ||
-    isModelBusy ||
-    isGeneratingElsewhere ||
-    (!status.loaded && !isRemoteProvider);
+  // Input is always enabled while generating — messages get queued (local) or backend-queued (remote)
+  const disabled = isModelBusy || isGeneratingElsewhere || (!status.loaded && !isRemoteProvider);
   const estimatedConvTokens = useMemo(
     () =>
       Math.round(messages.reduce((sum, m) => sum + (m.content?.length || 0), 0) / CHARS_PER_TOKEN),
@@ -53,6 +50,8 @@ export function useInputState() {
     estimatedConvTokens,
     modelContextSize,
     loadingAction,
+    queuedMessage,
+    cancelQueuedMessage,
   };
 }
 

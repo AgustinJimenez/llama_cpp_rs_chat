@@ -170,6 +170,12 @@ async fn handle_request_impl(
             web::routes::conversation::handle_truncate_conversation(req, path, db.clone()).await?
         }
 
+        // Conversation compact (manual compaction from UI)
+        (&Method::POST, path) if path.starts_with("/api/conversations/") && path.ends_with("/compact") => {
+            let id = &path["/api/conversations/".len()..path.len()-"/compact".len()];
+            web::routes::conversation::handle_compact_conversation(id, bridge.clone()).await?
+        }
+
         // Conversation rename (PATCH must be before DELETE catch-all)
         (&Method::PATCH, path) if path.starts_with("/api/conversations/") && path.ends_with("/title") => {
             let id = &path["/api/conversations/".len()..path.len() - "/title".len()];

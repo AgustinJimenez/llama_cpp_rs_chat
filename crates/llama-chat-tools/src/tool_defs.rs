@@ -440,6 +440,7 @@ static ALL_TOOLS: &[ToolDef] = &[
         description: "Get the visible text of the current page (HTML stripped). Returns up to 30,000 chars. If the page is longer, the result ends with '[N chars remaining — call browser_get_text(offset=M) to continue]'. Use offset to paginate through long articles.",
         params: Params::Simple(&[
             p("offset", "integer", "Character offset to start reading from (default 0). Use the offset shown in the '[N chars remaining]' footer to read the next page."),
+            p("summary", "string", "Custom prompt for AI summarization of the page content (e.g. 'extract the pricing table' or 'summarize the main article'). Saves context tokens on large pages. Pass false to get raw text without summarization."),
         ]),
         required: &[],
     },

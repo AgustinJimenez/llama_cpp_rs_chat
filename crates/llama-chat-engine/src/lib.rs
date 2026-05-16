@@ -9,7 +9,7 @@ extern crate llama_chat_types;
 pub mod browser;
 mod command_executor;
 pub mod config_ext;
-mod compaction;
+pub mod compaction;
 mod context_eval;
 pub mod filename_patterns;
 mod generation;

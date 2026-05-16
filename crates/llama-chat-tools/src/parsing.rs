@@ -187,11 +187,50 @@ fn escape_inner_quotes_in_strings(input: &str) -> String {
     result
 }
 
+/// Fix the broken format some models emit where the arguments object is wrapped
+/// in a bare nested object instead of being a flat key:
+///   `{"name": "X", {"arguments": {...}}}` → `{"name": "X", "arguments": {...}}`
+///   `{"name": "X", {"key": "val"}}` → `{"name": "X", "arguments": {"key": "val"}}`
+fn fix_bare_nested_object(input: &str) -> Option<String> {
+    if !input.contains("\"name\"") {
+        return None;
+    }
+
+    // Case 1: {"name": "X", {"arguments": VALUE}} — nested "arguments" wrapper
+    // Replace `, {"arguments":` with `, "arguments":` and strip one trailing `}`
+    if let Some(pos) = input.find(", {\"arguments\"") {
+        let before = &input[..pos];
+        let rest = &input[pos + ", {\"arguments\"".len()..];
+        let candidate = format!("{}, \"arguments\"{}", before, rest);
+        // Strip one trailing `}` (the extra one from the now-removed wrapping `{`)
+        let trimmed = candidate.trim_end();
+        if trimmed.ends_with('}') {
+            let last = trimmed.rfind('}').unwrap();
+            let fixed = trimmed[..last].trim_end().to_string();
+            return Some(fixed);
+        }
+        return Some(candidate);
+    }
+
+    // Case 2: {"name": "X", {"key": "val"}} — bare args object with no "arguments" key
+    // Find `, {"` that comes after the name field
+    if let Some(name_end) = input.find("\", ") {
+        let after_name = &input[name_end + 3..];
+        if after_name.starts_with('{') {
+            let before = &input[..name_end + 3];
+            return Some(format!("{}\"arguments\": {}", before, after_name));
+        }
+    }
+
+    None
+}
+
 /// 1. Raw parse
 /// 2. Escape literal newlines inside strings
 /// 3. Escape invalid backslashes + newlines
 /// 4. Auto-close missing braces/brackets
 /// 5. Escape unescaped inner quotes (LLM JSON-in-JSON)
+/// 6. Fix bare nested object (broken `{"name":"X", {...}}` format)
 pub fn try_parse_with_fixups(input: &str) -> Option<Value> {
     // 1. Try as-is
     if let Ok(v) = serde_json::from_str::<Value>(input) {
@@ -221,7 +260,19 @@ pub fn try_parse_with_fixups(input: &str) -> Option<Value> {
     // 6. All fixups combined
     let all_fixed = escape_inner_quotes_in_strings(&escaped_both);
     let all_closed = auto_close_json(&all_fixed);
-    serde_json::from_str::<Value>(&all_closed).ok()
+    if let Ok(v) = serde_json::from_str::<Value>(&all_closed) {
+        return Some(v);
+    }
+    // 7. Fix bare nested object format: {"name":"X", {"arguments":{...}}} or {"name":"X", {...}}
+    if let Some(fixed) = fix_bare_nested_object(input) {
+        let fixed_bs = escape_invalid_backslashes_in_strings(&fixed);
+        let fixed_nl = escape_newlines_in_json_strings(&fixed_bs);
+        let fixed_closed = auto_close_json(&fixed_nl);
+        if let Ok(v) = serde_json::from_str::<Value>(&fixed_closed) {
+            return Some(v);
+        }
+    }
+    None
 }
 
 /// Extract (name, arguments) from a single JSON object that has "name" and optional "arguments".

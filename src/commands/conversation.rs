@@ -160,6 +160,14 @@ pub async fn truncate_conversation(
 }
 
 #[tauri::command]
+pub async fn compact_conversation(
+    conversation_id: String,
+    bridge: tauri::State<'_, crate::web::worker::worker_bridge::SharedWorkerBridge>,
+) -> Result<(), String> {
+    bridge.compact_conversation(&conversation_id).await
+}
+
+#[tauri::command]
 pub async fn get_conversation_metrics(
     conversation_id: String,
     db: tauri::State<'_, SharedDatabase>,

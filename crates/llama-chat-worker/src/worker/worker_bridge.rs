@@ -346,6 +346,20 @@ impl WorkerBridge {
         }
     }
 
+    /// Force compact a conversation (manual user action).
+    pub async fn compact_conversation(&self, conversation_id: &str) -> Result<(), String> {
+        let payload = self
+            .send_and_wait(WorkerCommand::CompactConversation {
+                conversation_id: conversation_id.to_string(),
+            })
+            .await?;
+        match payload {
+            WorkerPayload::CompactionDone { .. } => Ok(()),
+            WorkerPayload::Error { message } => Err(message),
+            _ => Err("Unexpected response to CompactConversation".to_string()),
+        }
+    }
+
     /// Get cached model status (no IPC round-trip).
     pub async fn model_status(&self) -> Option<ModelMeta> {
         self.model_meta.lock().await.clone()

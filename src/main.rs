@@ -1164,6 +1164,7 @@ fn main() {
             commands::conversation::get_conversation,
             commands::conversation::delete_conversation,
             commands::conversation::truncate_conversation,
+            commands::conversation::compact_conversation,
             commands::conversation::get_conversation_metrics,
             // Chat
             generate_stream,

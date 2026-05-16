@@ -324,6 +324,17 @@ pub async fn handle_truncate_conversation(
     }
 }
 
+/// POST /api/conversations/:id/compact — force compact a conversation
+pub async fn handle_compact_conversation(
+    conversation_id: &str,
+    bridge: llama_chat_worker::worker::worker_bridge::SharedWorkerBridge,
+) -> Result<Response<Body>, Infallible> {
+    match bridge.compact_conversation(conversation_id).await {
+        Ok(()) => Ok(json_raw(StatusCode::OK, r#"{"ok":true}"#.to_string())),
+        Err(e) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &e)),
+    }
+}
+
 /// PATCH /api/conversations/{id}/title — rename a conversation
 pub async fn handle_rename_conversation(
     req: Request<Body>,

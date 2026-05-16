@@ -62,6 +62,8 @@ pub fn should_compact(
 /// 3. Inserts a summary message in the DB
 ///
 /// The returned text already reflects the compacted state (from DB reload).
+///
+/// `force` — skip the usage-threshold check and always compact (used by the manual Compact button).
 pub fn maybe_compact_conversation(
     conversation_content: &str,
     context_size: u32,
@@ -72,6 +74,7 @@ pub fn maybe_compact_conversation(
     chat_template_string: Option<&str>,
     overhead_tokens: Option<i32>,
     actual_token_pos: Option<usize>,
+    force: bool,
     status_sender: Option<&tokio::sync::mpsc::UnboundedSender<llama_chat_types::TokenData>>,
 ) -> String {
     // Recursion guard: prevent infinite recompaction
@@ -110,7 +113,7 @@ pub fn maybe_compact_conversation(
         estimated_tokens, threshold, context_size, overhead,
         if overhead_tokens.is_some() { " real" } else { " est" }, conversation_id);
 
-    if estimated_tokens < threshold {
+    if !force && estimated_tokens < threshold {
         RECOMPACT_DEPTH.store(0, std::sync::atomic::Ordering::Relaxed);
         return conversation_content.to_string();
     }
@@ -186,7 +189,7 @@ pub fn maybe_compact_conversation(
     eprintln!("[COMPACTION] Running summarization on {} chars...", old_text.len());
     send_status(status_sender, "Compacting conversation...");
     let summary = match summarize_conversation(
-        model, backend, &old_text, chat_template_string, conversation_id, status_sender,
+        model, backend, &old_text, chat_template_string, conversation_id, context_size, status_sender,
     ) {
         Ok(s) => {
             eprintln!("[COMPACTION] Summarization succeeded: {} chars → {} chars", old_text.len(), s.len());
@@ -249,7 +252,7 @@ pub fn maybe_compact_conversation(
                 );
                 return maybe_compact_conversation(
                     &text, context_size, conversation_id, db, model, backend,
-                    chat_template_string, overhead_tokens, None, status_sender,
+                    chat_template_string, overhead_tokens, None, false, status_sender,
                 );
             }
 
@@ -299,12 +302,18 @@ fn get_sequence_for_compaction(
 /// Map-reduce summarization: split large text into chunks, summarize each,
 /// then combine all chunk summaries into one final summary.
 /// Uses a SINGLE reusable context to avoid CUDA memory fragmentation.
+///
+/// Chunk size and summary context are derived dynamically from `context_size`:
+/// - input budget  = 75% of context (leaves 25% for output + prompt overhead)
+/// - chunk_chars   = input_budget_tokens × 3  (~3 chars/token for chat text)
+/// - summary_ctx   = min(context_size, 8192)  (no need for huge VRAM just to write a summary)
 fn summarize_conversation(
     model: &llama_cpp_2::model::LlamaModel,
     backend: &llama_cpp_2::llama_backend::LlamaBackend,
     old_text: &str,
     chat_template_string: Option<&str>,
     conversation_id: &str,
+    context_size: u32,
     status_sender: Option<&tokio::sync::mpsc::UnboundedSender<TokenData>>,
 ) -> Result<String, String> {
     use super::command_executor::run_summary_pass_public;
@@ -312,20 +321,29 @@ fn summarize_conversation(
     use llama_chat_types::SamplerConfig;
     use std::num::NonZeroU32;
 
-    const CHUNK_SIZE: usize = 10000;
-    const SUMMARY_CTX: u32 = 4096;
+    // Reserve 25% of context for output + prompt overhead (min 256, max 2048 tokens).
+    let reserved = (context_size / 4).clamp(256, 2048);
+    let input_tokens = context_size.saturating_sub(reserved).saturating_sub(64); // 64 for prompt template overhead
+    let chunk_size_chars = (input_tokens as usize) * 3;
+    // Summary context: enough for input chunk + output, capped to avoid unnecessary VRAM use.
+    let summary_ctx = context_size.min(8192).max(512);
 
-    if old_text.len() <= CHUNK_SIZE {
+    eprintln!(
+        "[COMPACTION] Dynamic sizing: model_ctx={}, reserved={}, input_tokens={}, chunk_chars={}, summary_ctx={}",
+        context_size, reserved, input_tokens, chunk_size_chars, summary_ctx
+    );
+
+    if old_text.len() <= chunk_size_chars {
         return run_summary_pass_public(model, backend, old_text, chat_template_string, conversation_id);
     }
 
     // Create ONE summary context, reuse for all chunks (avoids CUDA memory fragmentation)
-    let n_ctx = NonZeroU32::new(SUMMARY_CTX).unwrap();
+    let n_ctx = NonZeroU32::new(summary_ctx).unwrap();
     let config = SamplerConfig::default();
     let mut ctx = create_fresh_context(model, backend, n_ctx, false, &config)?;
-    eprintln!("[COMPACTION] Created reusable summary context ({})", SUMMARY_CTX);
+    eprintln!("[COMPACTION] Created reusable summary context (n_ctx={})", summary_ctx);
 
-    let result = summarize_with_ctx(model, &mut ctx, old_text, chat_template_string, conversation_id, status_sender);
+    let result = summarize_with_ctx(model, &mut ctx, old_text, chunk_size_chars, chat_template_string, conversation_id, status_sender);
 
     // Drop the single context — only one alloc/free cycle
     drop(ctx);
@@ -339,30 +357,29 @@ fn summarize_with_ctx(
     model: &llama_cpp_2::model::LlamaModel,
     ctx: &mut llama_cpp_2::context::LlamaContext<'_>,
     old_text: &str,
+    chunk_size: usize,
     chat_template_string: Option<&str>,
     conversation_id: &str,
     status_sender: Option<&tokio::sync::mpsc::UnboundedSender<TokenData>>,
 ) -> Result<String, String> {
     use super::command_executor::run_summary_reusing_ctx;
-    const CHUNK_SIZE: usize = 10000;
 
     // === MAP PHASE: split into chunks and summarize each ===
     let mut chunk_summaries = Vec::new();
     let mut pos = 0;
     let mut chunk_num = 0;
-    let total_chunks = (old_text.len() + CHUNK_SIZE - 1) / CHUNK_SIZE;
+    let total_chunks = (old_text.len() + chunk_size - 1) / chunk_size;
 
     while pos < old_text.len() {
-        let end = (pos + CHUNK_SIZE).min(old_text.len());
+        let end = (pos + chunk_size).min(old_text.len());
         let end = (pos..=end).rev().find(|&i| old_text.is_char_boundary(i)).unwrap_or(end);
         let chunk = &old_text[pos..end];
         chunk_num += 1;
 
         let total_steps = total_chunks + 1; // +1 for reduce phase
         let pct = (chunk_num * 100) / total_steps;
-        let status_msg = format!("Compacting conversation ({}%)", pct);
-        send_status(status_sender, &status_msg);
-        eprintln!("[COMPACTION] Map phase: chunk {}/{} ({} chars)...", chunk_num, total_chunks, chunk.len());
+        send_status(status_sender, &format!("Compacting conversation ({}%)", pct));
+        eprintln!("[COMPACTION] Map phase: chunk {}/{} ({} chars, chunk_size={})...", chunk_num, total_chunks, chunk.len(), chunk_size);
 
         match run_summary_reusing_ctx(model, ctx, chunk, chat_template_string, conversation_id) {
             Ok(summary) => {
@@ -381,12 +398,13 @@ fn summarize_with_ctx(
     // === REDUCE PHASE ===
     let combined = chunk_summaries.join("\n\n");
     send_status(status_sender, "Compacting conversation (95%)");
-    eprintln!("[COMPACTION] Reduce: {} summaries ({} chars) → final...", chunk_summaries.len(), combined.len());
+    eprintln!("[COMPACTION] Reduce: {} chunk summaries ({} chars) → final...", chunk_summaries.len(), combined.len());
 
-    if combined.len() <= CHUNK_SIZE {
+    if combined.len() <= chunk_size {
         run_summary_reusing_ctx(model, ctx, &combined, chat_template_string, conversation_id)
     } else {
-        summarize_with_ctx(model, ctx, &combined, chat_template_string, conversation_id, status_sender)
+        // Combined summaries still too large — recurse (chunk_size is preserved)
+        summarize_with_ctx(model, ctx, &combined, chunk_size, chat_template_string, conversation_id, status_sender)
     }
 }
 
@@ -485,7 +503,7 @@ pub fn maybe_compact_mid_task(
     );
 
     // Summarize
-    let summary = match summarize_conversation(model, backend, &old_text, chat_template_string, conversation_id, None) {
+    let summary = match summarize_conversation(model, backend, &old_text, chat_template_string, conversation_id, context_size, None) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("[COMPACTION] Mid-task summarization failed: {}", e);
@@ -506,4 +524,50 @@ pub fn maybe_compact_mid_task(
     );
 
     Some(summary)
+}
+
+/// Force compaction of a conversation regardless of context usage threshold.
+///
+/// Called by the manual "Compact" button in the UI. Uses context_size=1 so the
+/// threshold evaluates to 0, guaranteeing the compaction logic runs.
+pub fn force_compact_conversation(
+    conversation_id: &str,
+    db: &SharedDatabase,
+    llama_state: &llama_chat_types::models::SharedLlamaState,
+    status_sender: Option<&tokio::sync::mpsc::UnboundedSender<llama_chat_types::TokenData>>,
+) -> Result<(), String> {
+    let state_guard = llama_state.lock().map_err(|_| "Failed to lock LLaMA state")?;
+    let state = state_guard.as_ref().ok_or("No model loaded")?;
+    let model = state.model.as_ref().ok_or("No model loaded")?;
+    // Use real context size for chunk sizing; pass context_size=1 to bypass the
+    // usage threshold check (makes threshold=0 so compaction always triggers).
+    let real_ctx = state.model_context_length.unwrap_or(4096);
+
+    let conversation_content = db
+        .get_conversation_as_text(conversation_id)
+        .map_err(|e| format!("DB error: {e}"))?;
+
+    if conversation_content.trim().is_empty() {
+        return Err("Conversation is empty, nothing to compact".into());
+    }
+
+    eprintln!("[COMPACTION] Force compaction: conv={}, ctx={}", conversation_id, real_ctx);
+
+    // Pass real context size so summarize_conversation can compute proper chunk sizes.
+    // force=true bypasses the threshold check so compaction always runs.
+    maybe_compact_conversation(
+        &conversation_content,
+        real_ctx,
+        conversation_id,
+        db,
+        model,
+        &state.backend,
+        state.chat_template_string.as_deref(),
+        None,
+        None,
+        true, // force — skip threshold check
+        status_sender,
+    );
+
+    Ok(())
 }

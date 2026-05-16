@@ -286,6 +286,15 @@ export async function deleteConversation(filename: string): Promise<void> {
   if (!response.ok) throw new Error('Failed to delete conversation');
 }
 
+export async function compactConversation(conversationId: string): Promise<void> {
+  const id = conversationId;
+  if (isTauriEnv()) {
+    return invokeCmd('compact_conversation', { conversationId: id });
+  }
+  const response = await fetch(`/api/conversations/${id}/compact`, { method: 'POST' });
+  if (!response.ok) throw new Error('Failed to compact conversation');
+}
+
 export async function truncateConversation(
   conversationId: string,
   fromSequence: number,

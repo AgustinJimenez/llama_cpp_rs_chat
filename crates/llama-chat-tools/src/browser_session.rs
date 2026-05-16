@@ -660,6 +660,8 @@ pub fn open_session(url: &str) -> Result<TauriHttpSession, String> {
 pub fn eval_in_browser_panel(js: &str) -> Result<String, String> {
     // Try Tauri WebView first
     if is_tauri_available() {
+        // When Tauri is running, ONLY use Tauri — never fall through to wry/CDP.
+        // Falling through while Tauri is available causes stray Chrome windows to open.
         for attempt in 0..3 {
             let resp = ureq::AgentBuilder::new()
                 .timeout(std::time::Duration::from_secs(15))
@@ -680,19 +682,20 @@ pub fn eval_in_browser_panel(js: &str) -> Result<String, String> {
                             std::thread::sleep(std::time::Duration::from_millis(1000));
                             continue;
                         }
-                        break; // Fall through to CDP
+                        return Err(format!("eval_in_browser_panel: Tauri eval failed after retries: {}", body.trim()));
                     }
                     if body.starts_with('"') && body.ends_with('"') {
                         return Ok(serde_json::from_str::<String>(&body).unwrap_or(body));
                     }
                     return Ok(body);
                 }
-                Err(_) => break, // Fall through to CDP
+                Err(e) => return Err(format!("eval_in_browser_panel: Tauri HTTP error: {e}")),
             }
         }
+        return Err("eval_in_browser_panel: Tauri eval failed after retries".into());
     }
 
-    // Try wry native WebView
+    // Try wry native WebView (web mode only — Tauri not running)
     #[cfg(feature = "wry-browser")]
     {
         match crate::wry_browser::evaluate(js) {
@@ -701,7 +704,7 @@ pub fn eval_in_browser_panel(js: &str) -> Result<String, String> {
         }
     }
 
-    // Try Chrome CDP
+    // Try Chrome CDP (web mode only — Tauri not running)
     #[cfg(feature = "cdp")]
     {
         match cdp::evaluate(js) {
@@ -719,18 +722,21 @@ pub fn notify_tauri_browser_navigate(url: &str) -> Result<(), String> {
 
     // Try Tauri WebView first
     if is_tauri_available() {
+        // When Tauri is running, ONLY use Tauri — never fall through to wry/CDP.
         let body = serde_json::json!({ "url": url });
-        if ureq::post(&format!("{TAURI_UI_BRIDGE_BASE}/bridge/browser/navigate"))
+        return if ureq::post(&format!("{TAURI_UI_BRIDGE_BASE}/bridge/browser/navigate"))
             .set("Content-Type", "application/json")
             .timeout(std::time::Duration::from_secs(3))
             .send_string(&body.to_string())
             .is_ok()
         {
-            return Ok(());
-        }
+            Ok(())
+        } else {
+            Err(format!("notify_tauri_browser_navigate: Tauri navigate request failed for {url}"))
+        };
     }
 
-    // Try wry native WebView
+    // Try wry native WebView (web mode only — Tauri not running)
     #[cfg(feature = "wry-browser")]
     {
         match crate::wry_browser::navigate(url) {
@@ -742,7 +748,7 @@ pub fn notify_tauri_browser_navigate(url: &str) -> Result<(), String> {
         }
     }
 
-    // Try Chrome CDP
+    // Try Chrome CDP (web mode only — Tauri not running)
     #[cfg(feature = "cdp")]
     {
         match cdp::navigate(url) {

@@ -55,6 +55,8 @@ pub enum WorkerCommand {
     GetGlobalStatus,
     /// List available compute backends (CUDA, Vulkan, CPU, etc.).
     GetAvailableBackends,
+    /// Force compact a conversation (manual user action).
+    CompactConversation { conversation_id: String },
     /// Health check.
     Ping,
     /// Graceful shutdown.
@@ -163,6 +165,8 @@ pub enum WorkerPayload {
     AvailableBackends {
         backends: Vec<BackendInfo>,
     },
+    /// Conversation compaction completed.
+    CompactionDone { conversation_id: String },
     /// An error occurred.
     Error { message: String },
 }

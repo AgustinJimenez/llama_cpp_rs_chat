@@ -175,6 +175,7 @@ pub async fn generate_llama_response(
         state.chat_template_string.as_deref(),
         if cached_overhead > 0 { Some(cached_overhead) } else { None },
         last_token_pos,
+        false, // not forced — check threshold normally
         token_sender.as_ref(),
     );
 

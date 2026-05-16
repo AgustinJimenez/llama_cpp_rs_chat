@@ -22,6 +22,8 @@ interface ChatContextValue {
   streamStatus?: string;
   providerRef: MutableRefObject<{ provider: string; model: string }>;
   providerParamsRef: MutableRefObject<Record<string, unknown>>;
+  queuedMessage: { content: string; images?: string[] } | null;
+  cancelQueuedMessage: () => void;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -50,6 +52,8 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
       chat.streamStatus,
       chat.providerRef,
       chat.providerParamsRef,
+      chat.queuedMessage,
+      chat.cancelQueuedMessage,
     ],
   );
 

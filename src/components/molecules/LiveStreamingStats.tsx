@@ -1,7 +1,10 @@
-import { Database, Loader2, Square } from 'lucide-react';
-import { useState, useEffect, useRef } from 'react';
+import { Database, Loader2, Square, PackageOpen } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { toast } from 'react-hot-toast';
 
+import { useChatContext } from '../../contexts/ChatContext';
 import type { TimingInfo } from '../../utils/chatTransport';
+import { compactConversation } from '../../utils/tauriCommands';
 
 import { MessageStatistics } from './messages/MessageStatistics';
 
@@ -128,6 +131,105 @@ export const LiveStreamingStats = ({
   );
 };
 
+const CompactButton = ({ ctxPct, conversationId }: { ctxPct: number; conversationId: string }) => {
+  const [isCompacting, setIsCompacting] = useState(false);
+  const handleCompact = useCallback(async () => {
+    if (isCompacting) return;
+    setIsCompacting(true);
+    try {
+      await compactConversation(conversationId);
+      toast.success('Conversation compacted', { duration: 2000 });
+      window.dispatchEvent(new CustomEvent('conversation-compacted'));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Compaction failed');
+    } finally {
+      setIsCompacting(false);
+    }
+  }, [conversationId, isCompacting]);
+  return (
+    <button
+      type="button"
+      onClick={handleCompact}
+      disabled={isCompacting}
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-muted hover:bg-accent text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+      title={`Summarize old messages to free context (${ctxPct}% used)`}
+    >
+      {isCompacting ? (
+        <Loader2 className="h-3 w-3 animate-spin" />
+      ) : (
+        <PackageOpen className="h-3 w-3" />
+      )}
+      {isCompacting ? 'Compacting…' : 'Compact'}
+    </button>
+  );
+};
+
+const ContextUsageInfo = ({
+  estimatedConvTokens,
+  modelContextSize,
+  ctxPct,
+}: {
+  estimatedConvTokens: number;
+  modelContextSize: number;
+  ctxPct: number;
+}) => {
+  const CONTEXT_HIGH_PCT = 70;
+  return (
+    <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono">
+      <Database className="h-3 w-3" />
+      <span
+        className={ctxPct > CONTEXT_HIGH_PCT ? 'text-yellow-400' : ''}
+        title={`Estimated conversation: ~${estimatedConvTokens.toLocaleString()} tokens / ${modelContextSize.toLocaleString()} context`}
+      >
+        ~{(estimatedConvTokens / 1000).toFixed(1)}K / {(modelContextSize / 1000).toFixed(1)}K
+      </span>
+      {ctxPct > CONTEXT_HIGH_PCT ? (
+        <span className="text-yellow-400 text-[10px]">({ctxPct}%)</span>
+      ) : null}
+    </div>
+  );
+};
+
+const StatsLeft = ({
+  timings,
+  tokensUsed,
+  maxTokens,
+  streamStatus,
+  isLoading,
+  estimatedConvTokens,
+  modelContextSize,
+  ctxPct,
+}: {
+  timings?: TimingInfo;
+  tokensUsed?: number;
+  maxTokens?: number;
+  streamStatus?: string;
+  isLoading: boolean;
+  estimatedConvTokens?: number;
+  modelContextSize?: number;
+  ctxPct: number;
+}) => (
+  <div className="flex-1 flex items-center gap-3 flex-wrap">
+    {timings?.genTokPerSec ? (
+      <MessageStatistics timings={timings} tokensUsed={tokensUsed} maxTokens={maxTokens} />
+    ) : null}
+    {!timings?.genTokPerSec && (tokensUsed !== undefined || isLoading || streamStatus) ? (
+      <LiveStreamingStats
+        tokensUsed={tokensUsed}
+        maxTokens={maxTokens}
+        streamStatus={streamStatus}
+      />
+    ) : null}
+    {!isLoading && estimatedConvTokens && modelContextSize ? (
+      <ContextUsageInfo
+        estimatedConvTokens={estimatedConvTokens}
+        modelContextSize={modelContextSize}
+        ctxPct={ctxPct}
+      />
+    ) : null}
+  </div>
+);
+
 export const StatsBar = ({
   timings,
   tokensUsed,
@@ -149,52 +251,46 @@ export const StatsBar = ({
   estimatedConvTokens?: number;
   modelContextSize?: number;
 }) => {
+  const { currentConversationId } = useChatContext();
+
   const isGenerating =
     timings?.genTokPerSec || disabled || (tokensUsed !== undefined && maxTokens !== undefined);
   const hasContextInfo = estimatedConvTokens && modelContextSize;
   if (!isGenerating && !hasContextInfo) return null;
   const ctxPct = hasContextInfo ? Math.round((estimatedConvTokens / modelContextSize) * 100) : 0;
-  const CONTEXT_HIGH_PCT = 70;
+  const COMPACT_THRESHOLD_PCT = 50;
+  const showCompact =
+    !isLoading && hasContextInfo && ctxPct >= COMPACT_THRESHOLD_PCT && !!currentConversationId;
+
   return (
     <div className="flex items-center justify-between mb-1">
-      <div className="flex-1">
-        {timings?.genTokPerSec ? (
-          <MessageStatistics timings={timings} tokensUsed={tokensUsed} maxTokens={maxTokens} />
+      <StatsLeft
+        timings={timings}
+        tokensUsed={tokensUsed}
+        maxTokens={maxTokens}
+        streamStatus={streamStatus}
+        isLoading={isLoading}
+        estimatedConvTokens={hasContextInfo ? estimatedConvTokens : undefined}
+        modelContextSize={hasContextInfo ? modelContextSize : undefined}
+        ctxPct={ctxPct}
+      />
+      <div className="flex items-center gap-2">
+        {showCompact ? (
+          <CompactButton ctxPct={ctxPct} conversationId={currentConversationId} />
         ) : null}
-        {!timings?.genTokPerSec && (tokensUsed !== undefined || isLoading || streamStatus) ? (
-          <LiveStreamingStats
-            tokensUsed={tokensUsed}
-            maxTokens={maxTokens}
-            streamStatus={streamStatus}
-          />
-        ) : null}
-        {!isGenerating && hasContextInfo ? (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
-            <Database className="h-3 w-3" />
-            <span
-              className={ctxPct > CONTEXT_HIGH_PCT ? 'text-yellow-400' : ''}
-              title={`Estimated conversation: ~${estimatedConvTokens.toLocaleString()} tokens / ${modelContextSize.toLocaleString()} context`}
-            >
-              ~{(estimatedConvTokens / 1000).toFixed(1)}K / {(modelContextSize / 1000).toFixed(1)}K
-            </span>
-            {ctxPct > CONTEXT_HIGH_PCT ? (
-              <span className="text-yellow-400 text-[10px]">({ctxPct}% used)</span>
-            ) : null}
-          </div>
+        {isLoading && stopGeneration ? (
+          <button
+            type="button"
+            onClick={stopGeneration}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-muted hover:bg-accent text-foreground transition-colors"
+            data-testid="stop-button"
+            title="Stop generation"
+          >
+            <Square className="h-3 w-3 fill-current" />
+            Stop
+          </button>
         ) : null}
       </div>
-      {isLoading && stopGeneration ? (
-        <button
-          type="button"
-          onClick={stopGeneration}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-muted hover:bg-accent text-foreground transition-colors"
-          data-testid="stop-button"
-          title="Stop generation"
-        >
-          <Square className="h-3 w-3 fill-current" />
-          Stop
-        </button>
-      ) : null}
     </div>
   );
 };

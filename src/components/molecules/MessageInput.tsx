@@ -1,4 +1,4 @@
-import { ArrowUp, X, FileText, Loader2, Paperclip } from 'lucide-react';
+import { ArrowUp, X, FileText, Loader2, Paperclip, Clock } from 'lucide-react';
 import type { KeyboardEvent } from 'react';
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 
@@ -102,6 +102,100 @@ const ExtractingIndicator = ({ count }: { count: number }) =>
     </div>
   ) : null;
 
+const QueuedMessageIndicator = ({
+  content,
+  onCancel,
+}: {
+  content: string;
+  onCancel: () => void;
+}) => (
+  <div className="px-5 pt-1 pb-1 flex items-center gap-2 text-xs text-muted-foreground">
+    <Clock className="h-3 w-3 flex-shrink-0" />
+    <span className="flex-1 truncate">
+      Queued:{' '}
+      <span className="text-foreground">
+        {content.length > 60 ? `${content.slice(0, 60)}…` : content}
+      </span>
+    </span>
+    <button
+      type="button"
+      onClick={onCancel}
+      className="flex-shrink-0 hover:text-foreground transition-colors"
+      title="Cancel queued message"
+      aria-label="Cancel queued message"
+    >
+      <X className="h-3 w-3" />
+    </button>
+  </div>
+);
+
+const InputRow = ({
+  isMultiline,
+  textareaRef,
+  message,
+  placeholder,
+  disabled,
+  disabledReason,
+  hasContent,
+  isExtracting,
+  queuedMessage,
+  onFileClick,
+  onChange,
+  onKeyDown,
+  onPaste,
+}: {
+  isMultiline: boolean;
+  textareaRef: React.RefObject<HTMLTextAreaElement>;
+  message: string;
+  placeholder: string;
+  disabled: boolean;
+  disabledReason?: string;
+  hasContent: boolean;
+  isExtracting: number;
+  queuedMessage: boolean;
+  onFileClick: () => void;
+  onChange: React.ChangeEventHandler<HTMLTextAreaElement>;
+  onKeyDown: (e: KeyboardEvent<HTMLTextAreaElement>) => void;
+  onPaste: React.ClipboardEventHandler<HTMLTextAreaElement>;
+}) => (
+  <div
+    className={`flat-input-container flat-card flex items-end gap-2 px-5 py-2.5 ${isMultiline ? '!rounded-2xl' : ''}`}
+  >
+    <button
+      type="button"
+      onClick={onFileClick}
+      className="flex-shrink-0 flex items-center py-1 opacity-40 hover:opacity-70 transition-opacity"
+      title="Attach files"
+      aria-label="Attach files"
+    >
+      <Paperclip className="h-4 w-4" />
+    </button>
+    <textarea
+      ref={textareaRef}
+      value={message}
+      onChange={onChange}
+      onKeyDown={onKeyDown}
+      onPaste={onPaste}
+      placeholder={placeholder}
+      disabled={disabled}
+      className="flex-1 bg-transparent border-none outline-none resize-none text-sm text-foreground placeholder:text-muted-foreground min-h-[28px] py-1 overflow-y-auto"
+      rows={1}
+      data-testid="message-input"
+      aria-disabled={disabled}
+      aria-label={disabled && disabledReason ? disabledReason : 'Message input'}
+    />
+    <button
+      type="submit"
+      disabled={disabled || !hasContent || isExtracting > 0 || queuedMessage}
+      className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-foreground text-background hover:opacity-80 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+      data-testid="send-button"
+      aria-label="Send message"
+    >
+      <ArrowUp className="h-4 w-4" />
+    </button>
+  </div>
+);
+
 interface MessageInputProps {
   disabledReason?: string;
   timings?: TimingInfo;
@@ -130,6 +224,8 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     estimatedConvTokens,
     modelContextSize,
     loadingAction,
+    queuedMessage,
+    cancelQueuedMessage,
   } = useInputState();
 
   const [message, setMessage] = useState('');
@@ -161,7 +257,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     (e: React.FormEvent) => {
       e.preventDefault();
       const hasContent = message.trim() || attachedImages.length > 0 || attachedFiles.length > 0;
-      if (!hasContent || disabled || isExtracting > 0) return;
+      if (!hasContent || disabled || isExtracting > 0 || queuedMessage) return;
 
       const finalMessage = buildFinalMessage(message, attachedFiles, attachedImages);
       onSendMessage(finalMessage, attachedImages.length > 0 ? attachedImages : undefined);
@@ -169,7 +265,16 @@ export const MessageInput: React.FC<MessageInputProps> = ({
       clearAll();
       if (textareaRef.current) textareaRef.current.style.height = 'auto';
     },
-    [message, attachedImages, attachedFiles, disabled, isExtracting, onSendMessage, clearAll],
+    [
+      message,
+      attachedImages,
+      attachedFiles,
+      disabled,
+      isExtracting,
+      queuedMessage,
+      onSendMessage,
+      clearAll,
+    ],
   );
 
   const handleKeyDown = useCallback(
@@ -226,6 +331,9 @@ export const MessageInput: React.FC<MessageInputProps> = ({
         estimatedConvTokens={estimatedConvTokens}
         modelContextSize={modelContextSize}
       />
+      {queuedMessage ? (
+        <QueuedMessageIndicator content={queuedMessage.content} onCancel={cancelQueuedMessage} />
+      ) : null}
       <ImagePreviews images={attachedImages} onRemove={removeImage} />
       <FilePreviews files={attachedFiles} onRemove={removeFile} />
       <ExtractingIndicator count={isExtracting} />
@@ -237,42 +345,21 @@ export const MessageInput: React.FC<MessageInputProps> = ({
         onChange={handleFileInputChange}
         accept={FILE_ACCEPT}
       />
-      <div
-        className={`flat-input-container flat-card flex items-end gap-2 px-5 py-2.5 ${isMultiline ? '!rounded-2xl' : ''}`}
-      >
-        <button
-          type="button"
-          onClick={handleFileButtonClick}
-          className="flex-shrink-0 flex items-center py-1 opacity-40 hover:opacity-70 transition-opacity"
-          title="Attach files"
-          aria-label="Attach files"
-        >
-          <Paperclip className="h-4 w-4" />
-        </button>
-        <textarea
-          ref={textareaRef}
-          value={message}
-          onChange={handleTextareaChange}
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-          placeholder={placeholder}
-          disabled={disabled}
-          className="flex-1 bg-transparent border-none outline-none resize-none text-sm text-foreground placeholder:text-muted-foreground min-h-[28px] py-1 overflow-y-auto"
-          rows={1}
-          data-testid="message-input"
-          aria-disabled={disabled}
-          aria-label={disabled && disabledReason ? disabledReason : 'Message input'}
-        />
-        <button
-          type="submit"
-          disabled={disabled || !hasContent || isExtracting > 0}
-          className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-foreground text-background hover:opacity-80 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-          data-testid="send-button"
-          aria-label="Send message"
-        >
-          <ArrowUp className="h-4 w-4" />
-        </button>
-      </div>
+      <InputRow
+        isMultiline={isMultiline}
+        textareaRef={textareaRef}
+        message={message}
+        placeholder={placeholder}
+        disabled={disabled}
+        disabledReason={disabledReason}
+        hasContent={!!hasContent}
+        isExtracting={isExtracting}
+        queuedMessage={!!queuedMessage}
+        onFileClick={handleFileButtonClick}
+        onChange={handleTextareaChange}
+        onKeyDown={handleKeyDown}
+        onPaste={handlePaste}
+      />
     </form>
   );
 };
