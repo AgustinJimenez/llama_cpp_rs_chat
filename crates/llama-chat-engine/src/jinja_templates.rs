@@ -4,11 +4,20 @@ use serde_json::{json, Value};
 /// Preprocess a Jinja2 template string for minijinja compatibility.
 ///
 /// Fixes Python-specific syntax that minijinja doesn't support:
-/// - `tojson(ensure_ascii=False)` → `tojson` (minijinja doesn't escape non-ASCII by default)
-/// - `.endswith("x")` → ` is endingwith("x")` (Python method → minijinja test)
-/// - `.startswith("x")` → ` is startingwith("x")` (Python method → minijinja test)
-/// - `.strip()` → ` | trim` (Python method → minijinja filter)
-/// - `.items()` → ` | items` (Python dict method → minijinja filter)
+/// - `tojson(ensure_ascii=False)` → `tojson`
+/// - `.endswith("x")` → ` is endingwith("x")`
+/// - `.startswith("x")` → ` is startingwith("x")`
+/// - `.strip()` → ` | trim`
+/// - `.items()` → ` | items`
+/// - `[::-1]` → ` | reverse`  (Python reverse slice — Qwen3.6 UD template)
+/// - `.split('x')[0]` → ` | split('x') | first`
+/// - `.split('x')[-1]` → ` | split('x') | last`
+/// - `.rstrip(...)` → ` | trim`
+/// - `.lstrip(...)` → ` | trim`
+///
+/// The split/lstrip/rstrip replacements are applied in order so that chained
+/// Python method calls like `s.split('x')[0].rstrip('\n')` become valid Jinja
+/// pipe expressions: `s | split('x') | first | trim`.
 fn preprocess_template(template: &str) -> String {
     use regex::Regex;
 
@@ -17,7 +26,6 @@ fn preprocess_template(template: &str) -> String {
         .replace("tojson(ensure_ascii=True)", "tojson");
 
     // Convert .endswith("x") → is endingwith("x")
-    // Handles: expr.endswith("...") or expr.endswith('...')
     if let Ok(re) = Regex::new(r"\.endswith\(") {
         result = re.replace_all(&result, " is endingwith(").to_string();
     }
@@ -27,12 +35,33 @@ fn preprocess_template(template: &str) -> String {
         result = re.replace_all(&result, " is startingwith(").to_string();
     }
 
-    // Convert .strip() → | trim (Python str.strip → Jinja trim filter)
+    // Convert .strip() → | trim
     result = result.replace(".strip()", " | trim");
 
-    // Convert .items() → | items (Python dict.items() → minijinja filter)
-    // Used by Harmony templates: `for key, val in dict.items()`
+    // Convert .items() → | items
     result = result.replace(".items()", " | items");
+
+    // Convert [::-1] → | reverse  (Python reverse slice, e.g. messages[::-1])
+    result = result.replace("[::-1]", " | reverse");
+
+    // Convert .split('x')[0] → | split('x') | first
+    // Convert .split('x')[-1] → | split('x') | last
+    // Must run before .lstrip/.rstrip so chained calls resolve correctly.
+    if let Ok(re) = Regex::new(r#"\.split\((['"][^'"]*['"])\)\[0\]"#) {
+        result = re.replace_all(&result, " | split($1) | first").to_string();
+    }
+    if let Ok(re) = Regex::new(r#"\.split\((['"][^'"]*['"])\)\[-1\]"#) {
+        result = re.replace_all(&result, " | split($1) | last").to_string();
+    }
+
+    // Convert .rstrip(...) / .lstrip(...) → | trim
+    // These consume the leading '.' so that chained calls become valid pipes.
+    if let Ok(re) = Regex::new(r"\.rstrip\([^)]*\)") {
+        result = re.replace_all(&result, " | trim").to_string();
+    }
+    if let Ok(re) = Regex::new(r"\.lstrip\([^)]*\)") {
+        result = re.replace_all(&result, " | trim").to_string();
+    }
 
     result
 }
