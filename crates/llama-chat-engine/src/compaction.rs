@@ -142,22 +142,18 @@ pub fn maybe_compact_conversation(
 
     eprintln!("[COMPACTION] {} messages loaded, {} eligible for compaction", messages.len(), non_compacted.len());
 
-    // Aggressive compaction: compact all large messages, keep only the last user message.
-    // Find messages to compact: everything except the last user message.
-    let last_user_idx = non_compacted.iter().rposition(|(_, m)| m.role == "user");
-    let to_compact: Vec<&(usize, &llama_chat_db::conversation::MessageRecord)> = non_compacted.iter()
-        .enumerate()
-        .filter(|(i, _)| Some(*i) != last_user_idx)
-        .map(|(_, item)| item)
-        .collect();
+    // Compact ALL non-system messages — the summary captures everything including the last
+    // interaction. After force compaction the model sees only: system + tools + summary.
+    let to_compact: Vec<&(usize, &llama_chat_db::conversation::MessageRecord)> =
+        non_compacted.iter().collect();
 
     if to_compact.is_empty() {
-        eprintln!("[COMPACTION] Skipping: nothing to compact (only user messages)");
+        eprintln!("[COMPACTION] Skipping: nothing to compact");
         return conversation_content.to_string();
     }
 
     let total_chars: usize = to_compact.iter().map(|(_, m)| m.content.len()).sum();
-    eprintln!("[COMPACTION] Will compact {} message(s) ({} chars total), keeping last user message", to_compact.len(), total_chars);
+    eprintln!("[COMPACTION] Will compact {} message(s) ({} chars total)", to_compact.len(), total_chars);
 
     // Build text of messages to summarize
     let old_text: String = to_compact.iter()
@@ -165,8 +161,8 @@ pub fn maybe_compact_conversation(
         .collect::<Vec<_>>()
         .join("\n\n");
 
-    // Use the old_messages slice for the sequence detection below
-    let old_messages = &non_compacted[..non_compacted.len().saturating_sub(1).max(1)];
+    // Use all messages for the sequence detection
+    let old_messages = &non_compacted[..];
 
     // Find the sequence_order of the last old message for DB marking
     // We need to get sequence_order from the DB — use a query
