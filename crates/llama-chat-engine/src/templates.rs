@@ -35,6 +35,7 @@ fn core_behavior_block() -> String {
 - When a task requires multiple steps, execute them one by one using your tools. Do not skip steps.
 - For complex tasks, briefly outline your plan before starting.
 - When you finish a task, ALWAYS write a brief summary of what you did. Never end on raw tool output.
+- After each completed task, suggest 2–3 relevant next steps the user might want to take, as a short bulleted list. Keep them concrete and specific to what was just done.
 
 ## Tool Usage Guidelines
 - Use `read_file` instead of cat/type. Use `write_file` for new files, `edit_file` for modifications.
