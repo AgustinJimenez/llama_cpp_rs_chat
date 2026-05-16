@@ -391,10 +391,10 @@ const StatsLeft = ({
   ctxPct: number;
 }) => (
   <div className="flex-1 flex items-center gap-3 flex-wrap">
-    {timings?.genTokPerSec ? (
+    {timings?.genTokPerSec && !isLoading ? (
       <MessageStatistics timings={timings} tokensUsed={tokensUsed} maxTokens={maxTokens} />
     ) : null}
-    {!timings?.genTokPerSec && isLoading ? (
+    {isLoading ? (
       <LiveStreamingStats
         tokensUsed={tokensUsed}
         maxTokens={maxTokens}
