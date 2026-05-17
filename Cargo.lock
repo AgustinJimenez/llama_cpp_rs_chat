@@ -3754,6 +3754,7 @@ version = "0.1.0"
 dependencies = [
  "calamine",
  "csv",
+ "dirs",
  "dom_smoothie",
  "encoding_rs",
  "headless_chrome",
