@@ -115,7 +115,16 @@ fn run_event_loop(
     let pending_nav: Arc<Mutex<Option<mpsc::Sender<Result<(), String>>>>> = Arc::new(Mutex::new(None));
     let pending_nav_for_ipc = pending_nav.clone();
 
-    let webview = match wry::WebViewBuilder::new()
+    // Persistent WebContext — stores cookies, cache, and session data across launches.
+    // This is the key difference from an ephemeral session: Google and other sites
+    // see a "returning user" with history rather than a new anonymous client each time,
+    // which avoids bot-detection challenges (same as how Tauri's WebView2 works).
+    let data_dir = dirs::data_local_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("llama-chat-browser");
+    let mut web_context = wry::WebContext::new(Some(data_dir));
+
+    let webview = match wry::WebViewBuilder::new_with_web_context(&mut web_context)
         .with_url("about:blank")
         // Match a real Chrome UA — removes "Edg/" suffix that WebView2 adds by default
         // and prevents Google from fingerprinting this as an embedded WebView.

@@ -69,10 +69,13 @@ headless_chrome = { version = "1.0", optional = true }
 wry = { version = "0.54", optional = true }
 tao = { version = "0.34", optional = true, features = ["rwh_06"] }
 
+# Platform data directories (for wry persistent WebContext cookie storage)
+dirs = { version = "6.0", optional = true }
+
 [features]
 default = ["cdp", "wry-browser"]
 cdp = ["dep:headless_chrome"]
-wry-browser = ["dep:wry", "dep:tao"]
+wry-browser = ["dep:wry", "dep:tao", "dep:dirs"]
 
 [lints.rust]
 warnings = "deny"
