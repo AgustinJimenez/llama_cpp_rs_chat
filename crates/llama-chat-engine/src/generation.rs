@@ -386,7 +386,7 @@ pub async fn generate_llama_response(
         log_debug!(&conversation_id, "Creating vision context...");
         let ctx = unsafe {
             let real_ctx = model
-                .new_context(&state.backend, ctx_params)
+                .new_context_safe(&state.backend, ctx_params)
                 .map_err(|e| format!("Context creation failed: {e}"))?;
             std::mem::transmute::<LlamaContext<'_>, LlamaContext<'static>>(real_ctx)
         };

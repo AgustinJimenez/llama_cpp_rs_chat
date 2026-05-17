@@ -638,9 +638,10 @@ pub fn dispatch_native_tool(
         ));
     }
 
-    // browser_search: navigate the in-app WebView to Google and read rendered results.
-    // Uses the real browser engine (WebView2) — not HTTP fetch — so it bypasses
-    // bot detection, handles JS-rendered pages, and CAPTCHAs show in the browser panel.
+    // browser_search: navigate the in-app WebView to DuckDuckGo and read rendered results.
+    // Uses the real browser engine (WebView2) — not HTTP fetch — so it handles JS-rendered
+    // pages. DDG is used because neither Google nor Bing will serve results to the wry
+    // standalone window (WebView2 fingerprint triggers bot detection on both).
     if name == "browser_search" {
         let query = match args.get("query").and_then(|v| v.as_str()) {
             Some(q) if !q.trim().is_empty() => q.trim(),
@@ -651,7 +652,7 @@ pub fn dispatch_native_tool(
             }
         };
         let encoded = urlencoding::encode(query);
-        let search_url = format!("https://www.google.com/search?q={encoded}");
+        let search_url = format!("https://duckduckgo.com/?q={encoded}&ia=web");
 
         // Navigate the WebView to the search URL
         if let Err(e) = browser_session::notify_tauri_browser_navigate(&search_url) {

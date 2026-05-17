@@ -598,7 +598,14 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                   <AdvancedContextSection
                     config={config}
                     onConfigChange={handleInputChange}
-                    supportsThinking={modelStatus.supports_thinking}
+                    supportsThinking={
+                      modelStatus.supports_thinking ??
+                      Boolean(
+                        modelInfo?.chat_template &&
+                        (modelInfo.chat_template.includes('enable_thinking') ||
+                          modelInfo.chat_template.includes('clear_thinking')),
+                      )
+                    }
                   />
 
                   <SamplingParametersSection config={config} onConfigChange={handleInputChange} />

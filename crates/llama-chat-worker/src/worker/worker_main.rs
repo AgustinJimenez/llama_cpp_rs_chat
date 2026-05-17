@@ -442,7 +442,9 @@ pub fn run_worker(db_path: &str) {
                         // Signal frontend that model file is loaded, now warming up system prompt
                         write_response(&mut ipc_writer, &WorkerResponse::ok(0, WorkerPayload::LoadingProgress { progress: 101 }));
 
-                        // Pre-evaluate system prompt into KV cache for faster first response
+                        // Pre-evaluate system prompt into KV cache for faster first response.
+                        // Uses new_context_safe which wraps with __try/__except to catch Windows SEH
+                        // exceptions (e.g. ACCESS VIOLATION from hybrid KV cache creation for QWEN35).
                         match warmup_system_prompt(state.clone(), &db) {
                             Ok(()) => eprintln!("[WORKER] System prompt warmup complete"),
                             Err(e) => eprintln!("[WORKER] System prompt warmup failed (non-fatal): {e}"),

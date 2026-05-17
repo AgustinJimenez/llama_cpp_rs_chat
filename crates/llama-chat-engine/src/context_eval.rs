@@ -25,10 +25,14 @@ pub(crate) fn parse_kv_cache_type(s: &str) -> KvCacheType {
         "q4_1" => KvCacheType::Q4_1,
         "q5_0" => KvCacheType::Q5_0,
         "q5_1" => KvCacheType::Q5_1,
-        // TurboQuant KV cache types (distinct from TQ weight types)
-        "turbo2" | "turbo2_0" => KvCacheType::Unknown(44), // GGML_TYPE_TURBO2_0 = 44 (2-bit KV)
-        "turbo3" | "turbo3_0" => KvCacheType::Unknown(42), // GGML_TYPE_TURBO3_0 = 42 (3-bit KV)
-        "turbo4" | "turbo4_0" => KvCacheType::Unknown(43), // GGML_TYPE_TURBO4_0 = 43 (4-bit KV)
+        // TurboQuant KV cache types — mapped to closest standard types.
+        // The custom TURBO GGML types (IDs 42-44) from older llama.cpp forks no longer
+        // exist in current builds (GGML_TYPE_COUNT = 42 in b9174). Using those IDs caused
+        // an out-of-bounds array access in ggml_blck_size() → ACCESS VIOLATION crash.
+        // Fallback: turbo2 → Q4_0 (4-bit, good compression), turbo3/turbo4 → Q4_0.
+        "turbo2" | "turbo2_0" => KvCacheType::Q4_0, // was Unknown(44), now Q4_0
+        "turbo3" | "turbo3_0" => KvCacheType::Q4_0, // was Unknown(42), now Q4_0
+        "turbo4" | "turbo4_0" => KvCacheType::Q4_0, // was Unknown(43), now Q4_0
         _ => KvCacheType::F16, // default
     }
 }
@@ -204,7 +208,7 @@ pub(crate) fn create_fresh_context(
     let ctx_params = build_context_params(n_ctx, offload_kqv, config);
     unsafe {
         let real_ctx = model
-            .new_context(backend, ctx_params)
+            .new_context_safe(backend, ctx_params)
             .map_err(|e| format!("Context creation failed: {e}"))?;
         Ok(std::mem::transmute::<LlamaContext<'_>, LlamaContext<'static>>(real_ctx))
     }

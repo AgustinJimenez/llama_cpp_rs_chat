@@ -165,6 +165,7 @@ export const useModelPathValidation = ({
             detected_tag_pairs: d.detected_tag_pairs as ModelMetadata['detected_tag_pairs'],
             has_vision: d.has_vision as boolean | undefined,
             mmproj_files: d.mmproj_files as ModelMetadata['mmproj_files'],
+            chat_template: d.chat_template as string | undefined,
           });
 
           // Update max layers if available

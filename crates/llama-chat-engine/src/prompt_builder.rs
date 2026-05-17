@@ -109,8 +109,8 @@ pub fn warmup_system_prompt(
     let start = Instant::now();
     let mut context = unsafe {
         let real_ctx = model
-            .new_context(&state.backend, ctx_params)
-            .map_err(|e| format!("Warmup context creation failed: {e}"))?;
+            .new_context_safe(&state.backend, ctx_params)
+            .map_err(|e| format!("Warmup context creation failed (SEH-safe): {e}"))?;
         std::mem::transmute::<LlamaContext<'_>, LlamaContext<'static>>(real_ctx)
     };
 

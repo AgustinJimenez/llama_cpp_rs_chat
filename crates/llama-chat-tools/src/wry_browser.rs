@@ -111,19 +111,86 @@ fn run_event_loop(
     // Pending eval replies — shared between IPC handler and event loop
     let pending: PendingReplies = Arc::new(Mutex::new(HashMap::new()));
     let pending_for_ipc = pending.clone();
+    // Pending navigate reply — fulfilled when page fires the load event via IPC
+    let pending_nav: Arc<Mutex<Option<mpsc::Sender<Result<(), String>>>>> = Arc::new(Mutex::new(None));
+    let pending_nav_for_ipc = pending_nav.clone();
 
     let webview = match wry::WebViewBuilder::new()
         .with_url("about:blank")
+        // Match a real Chrome UA — removes "Edg/" suffix that WebView2 adds by default
+        // and prevents Google from fingerprinting this as an embedded WebView.
+        .with_user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+        // Anti-automation fingerprint: hide webdriver flag and make window.ipc non-enumerable
+        // so it doesn't appear in Object.keys(window) bot scans.
+        .with_initialization_script(r#"
+(function() {
+    // 1. Hide navigator.webdriver
+    try {
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined, configurable: true });
+    } catch(e) {}
+
+    // 2. Make chrome.webview non-enumerable (hides from Object.keys scans).
+    //    We cannot delete it — WebView2's postMessage validates its presence at call time,
+    //    so removing it silently breaks all IPC (eval + nav_complete both stop working).
+    //    window.chrome is configurable:false so we can't replace it with a Proxy either.
+    //    window.ipc is Object.freeze()d so we can't rebuild it with a captured reference.
+    try {
+        if (window.chrome && window.chrome.webview) {
+            const orig = window.chrome.webview;
+            Object.defineProperty(window.chrome, 'webview', {
+                value: orig, enumerable: false, configurable: true, writable: true
+            });
+        }
+    } catch(e) {}
+
+    // 3. Hide Edge-specific chrome properties (edgeMarketingPagePrivate, appPinningPrivate)
+    //    that are not present in real Chrome and identify this as a WebView2/Edge context.
+    try {
+        ['edgeMarketingPagePrivate', 'appPinningPrivate'].forEach(function(k) {
+            if (window.chrome && window.chrome[k] !== undefined) {
+                Object.defineProperty(window.chrome, k, {
+                    value: undefined, enumerable: false, configurable: true, writable: true
+                });
+            }
+        });
+    } catch(e) {}
+
+    // 4. Make window.ipc non-enumerable
+    try {
+        if (window.ipc) {
+            const orig = window.ipc;
+            Object.defineProperty(window, 'ipc', { value: orig, enumerable: false, configurable: true, writable: true });
+        }
+    } catch(e) {}
+
+    // 5. Signal page load — used by navigate() to know when the page is ready.
+    //    Skip about:blank — its load event fires on window creation and would
+    //    prematurely fulfill a pending navigate before the real page loads.
+    window.addEventListener('load', function() {
+        if (document.URL === 'about:blank') return;
+        try { window.ipc.postMessage(JSON.stringify({id:'__nav_complete__',result:'ok'})); } catch(e) {}
+    });
+})();
+"#)
         .with_ipc_handler(move |msg| {
             // Messages from JS: {"id": "uuid", "result": "..."}
             let body = msg.body();
             eprintln!("[WRY_IPC] Received: {} bytes", body.len());
             if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body) {
-                if let (Some(id), Some(result)) = (
+                if let (Some(id), Some(_result)) = (
                     parsed.get("id").and_then(|v| v.as_str()),
                     parsed.get("result"),
                 ) {
-                    let result_str = match result {
+                    // Reserved: page load complete signal from init script
+                    if id == "__nav_complete__" {
+                        if let Ok(mut nav) = pending_nav_for_ipc.lock() {
+                            if let Some(tx) = nav.take() {
+                                let _ = tx.send(Ok(()));
+                            }
+                        }
+                        return;
+                    }
+                    let result_str = match _result {
                         serde_json::Value::String(s) => s.clone(),
                         other => other.to_string(),
                     };
@@ -163,7 +230,16 @@ fn run_event_loop(
                 WryCommand::Navigate { url, reply } => {
                     eprintln!("[WRY] Navigate: {url}");
                     match webview.load_url(&url) {
-                        Ok(()) => { let _ = reply.send(Ok(())); }
+                        Ok(()) => {
+                            // Don't reply yet — wait for the page 'load' event via IPC.
+                            // Fulfill any stale pending nav first (e.g. redirects).
+                            if let Ok(mut nav) = pending_nav.lock() {
+                                if let Some(old_tx) = nav.take() {
+                                    let _ = old_tx.send(Ok(()));
+                                }
+                                *nav = Some(reply);
+                            }
+                        }
                         Err(e) => { let _ = reply.send(Err(format!("wry navigate: {e}"))); }
                     }
                 }
@@ -210,8 +286,13 @@ pub fn navigate(url: &str) -> Result<(), String> {
         reply: tx,
     }).map_err(|_| "wry: event loop closed".to_string())?;
 
-    rx.recv_timeout(std::time::Duration::from_secs(15))
-        .map_err(|_| "wry navigate: timeout".to_string())?
+    // Wait up to 30s for the page load event. On timeout, return Ok — the navigate
+    // was initiated and the page may still be loading (slow network, heavy page, etc.).
+    match rx.recv_timeout(std::time::Duration::from_secs(30)) {
+        Ok(result) => result?,
+        Err(_) => eprintln!("[WRY] Navigate: no load event within 30s, continuing anyway"),
+    }
+    Ok(())
 }
 
 /// Evaluate JavaScript in the wry WebView and return the result.

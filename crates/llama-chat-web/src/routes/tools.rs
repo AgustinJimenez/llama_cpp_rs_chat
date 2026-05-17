@@ -758,6 +758,45 @@ pub async fn handle_post_tools_execute(
                 }),
             }
         }
+        // Browser tools — work without a model loaded, route through browser_session
+        "browser_navigate" | "browser_search" => {
+            let url = if tool_name == "browser_search" {
+                let q = tool_arguments.get("query").and_then(|v| v.as_str()).unwrap_or("");
+                format!("https://duckduckgo.com/?q={}&ia=web", urlencoding::encode(q))
+            } else {
+                tool_arguments.get("url").and_then(|v| v.as_str()).unwrap_or("").to_string()
+            };
+            if url.is_empty() {
+                return Ok(json_error(StatusCode::BAD_REQUEST, "url or query is required"));
+            }
+            match spawn_blocking(move || llama_chat_tools::browser_session::notify_tauri_browser_navigate(&url)).await {
+                Ok(Ok(())) => serde_json::json!({ "success": true, "result": "Navigated" }),
+                Ok(Err(e)) => serde_json::json!({ "success": false, "error": e }),
+                Err(e) => serde_json::json!({ "success": false, "error": format!("Task failed: {e}") }),
+            }
+        }
+        "browser_eval" => {
+            let js = tool_arguments.get("js").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            if js.is_empty() {
+                return Ok(json_error(StatusCode::BAD_REQUEST, "js is required"));
+            }
+            match spawn_blocking(move || llama_chat_tools::browser_session::eval_in_browser_panel(&js)).await {
+                Ok(Ok(r)) => serde_json::json!({ "success": true, "result": r }),
+                Ok(Err(e)) => serde_json::json!({ "success": false, "error": e }),
+                Err(e) => serde_json::json!({ "success": false, "error": format!("Task failed: {e}") }),
+            }
+        }
+        "browser_get_text" => {
+            match spawn_blocking(|| llama_chat_tools::browser_session::eval_in_browser_panel("document.body.innerText")).await {
+                Ok(Ok(r)) => serde_json::json!({ "success": true, "result": r }),
+                Ok(Err(e)) => serde_json::json!({ "success": false, "error": e }),
+                Err(e) => serde_json::json!({ "success": false, "error": format!("Task failed: {e}") }),
+            }
+        }
+        "browser_close" => {
+            let _ = llama_chat_tools::browser_session::notify_tauri_browser_close();
+            serde_json::json!({ "success": true, "result": "Closed" })
+        }
         // Desktop tools — work without a model loaded
         name if llama_chat_desktop_tools::is_desktop_tool(name) => {
             let result = if name == "take_screenshot" {
