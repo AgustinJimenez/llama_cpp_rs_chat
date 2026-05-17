@@ -762,7 +762,7 @@ pub async fn handle_post_tools_execute(
         "browser_navigate" | "browser_search" => {
             let url = if tool_name == "browser_search" {
                 let q = tool_arguments.get("query").and_then(|v| v.as_str()).unwrap_or("");
-                format!("https://duckduckgo.com/?q={}&ia=web", urlencoding::encode(q))
+                format!("https://www.google.com/search?q={}", urlencoding::encode(q))
             } else {
                 tool_arguments.get("url").and_then(|v| v.as_str()).unwrap_or("").to_string()
             };

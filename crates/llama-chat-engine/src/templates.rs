@@ -46,7 +46,7 @@ fn core_behavior_block() -> String {
 - Use `execute_python` for Python code (avoids shell quoting issues).
 - Use `execute_command` for shell tools (npm, git, etc.).
 - Use `git_status`, `git_diff`, `git_commit` for git operations instead of `execute_command`.
-- **Web browsing**: Use `browser_search` to search the web. Use `browser_navigate` to open pages, `browser_get_text` to read content, `browser_query` to extract structured data. Do NOT use curl, wget, execute_command, or urllib to fetch web pages — the browser tools use a real browser that bypasses bot detection.
+- **Web browsing**: Use `browser_search` to search the web (Google). Use `browser_navigate` to open pages, `browser_get_text` to read content, `browser_query` to extract structured data. Do NOT use curl, wget, execute_command, or urllib to fetch web pages — the browser tools use a real browser that bypasses bot detection.
 - **Browsing tips**: Avoid JS-heavy sites like Twitter — use `browser_search` to find information instead. If a page returns 404/paywall/empty, try a different source immediately. Use the `summary` parameter with a custom prompt to save tokens on large pages.
 - Use `open_url` ONLY when the user explicitly asks to open a page in their external/default browser outside the app. Never use `open_url` for normal browsing, search, page reading, or screenshots.
 - Use `take_screenshot` to see the user's screen. Use `click_screen`, `type_text`, `press_key` for desktop automation.
