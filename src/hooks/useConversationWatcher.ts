@@ -300,6 +300,7 @@ export function useConversationWatcher({
 
     let attempt = 0;
     let shouldReconnect = true;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/conversation/watch/${currentConversationId}`;
     let ws: WebSocket | null = null;
@@ -328,7 +329,7 @@ export function useConversationWatcher({
         if (shouldReconnect) {
           const delay = getNextDelay(attempt);
           attempt += 1;
-          setTimeout(connect, delay);
+          reconnectTimer = setTimeout(connect, delay);
         }
       };
     };
@@ -337,6 +338,7 @@ export function useConversationWatcher({
 
     return () => {
       shouldReconnect = false;
+      if (reconnectTimer !== null) clearTimeout(reconnectTimer);
       if (ws) ws.close();
     };
   }, [
