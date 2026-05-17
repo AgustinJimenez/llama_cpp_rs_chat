@@ -84,10 +84,6 @@ export const MessagesArea = () => {
     });
   });
 
-  useEffect(() => {
-    if (isLoading) autoScrollRef.current = true;
-  }, [isLoading]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // Auto-scroll to bottom on new messages / streaming tokens.
   const prevMessageCountRef = useRef(messages.length);
   const prevLastContentLenRef = useRef(0);
@@ -175,7 +171,7 @@ export const MessagesArea = () => {
                       onEditMessage={editMessage}
                       onRegenerate={regenerateFrom}
                       onContinue={continueFrom}
-                      isGenerating={isLoading}
+                      isGenerating={isLoading ? virtualRow.index === messages.length - 1 : false}
                       isLastMessage={virtualRow.index === messages.length - 1}
                     />
                   ) : (
