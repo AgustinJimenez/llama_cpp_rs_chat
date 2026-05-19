@@ -1,4 +1,4 @@
-    
+
 use llama_cpp_2::{
     context::LlamaContext,
     llama_batch::LlamaBatch,
@@ -25,6 +25,10 @@ pub(crate) use shared::{
     detect_repetition_loop, TokenGenConfig, TokenGenState, VisionCtxRef,
     REPETITION_CHECK_INTERVAL, REPETITION_CHECK_MIN_TOKENS, TOKEN_STALL_TIMEOUT,
 };
+
+#[path = "token_loop/watchdog.rs"]
+mod watchdog;
+use watchdog::WatchdogHandles;
 
 /// Run the outer generation loop: generates tokens, detects/executes commands, resumes.
 ///
@@ -55,47 +59,10 @@ pub(crate) fn run_generation_loop(
     log_debug!(cfg.conversation_id, "Stop tokens configured: {:?}", cfg.stop_tokens);
     log_debug!(cfg.conversation_id, "EOS token ID: {}", model.token_eos());
 
-    // tool_call_rounds tracking removed — no limit
     let mut stall_checkpoint = Instant::now();
     let gen_start_time = Instant::now();
 
-    // Watchdog thread: monitors heartbeat and sets cancel flag if sample()/decode()
-    // deadlocks in CUDA. The heartbeat is updated after every successful sample().
-    // If not updated within WATCHDOG_TIMEOUT, the watchdog assumes a deadlock.
-    const WATCHDOG_TIMEOUT_MS: u64 = 10_000; // 10 seconds
-    let heartbeat = Arc::new(std::sync::atomic::AtomicU64::new(
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64
-    ));
-    let watchdog_done = Arc::new(AtomicBool::new(false));
-    let watchdog_paused = Arc::new(AtomicBool::new(false));
-    let _watchdog_cancel = cancel.clone();
-    let watchdog_heartbeat = heartbeat.clone();
-    let watchdog_done_flag = watchdog_done.clone();
-    let watchdog_paused_flag = watchdog_paused.clone();
-    let watchdog_conv_id = cfg.conversation_id.to_string();
-    let watchdog_handle = std::thread::spawn(move || {
-        loop {
-            std::thread::sleep(std::time::Duration::from_secs(2));
-            if watchdog_done_flag.load(Ordering::Relaxed) {
-                break; // Generation finished normally
-            }
-            // Skip deadlock check while tools are executing (browser fetch can take 20+ seconds)
-            if watchdog_paused_flag.load(Ordering::Relaxed) {
-                continue;
-            }
-            let last = watchdog_heartbeat.load(Ordering::Relaxed);
-            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
-            if now.saturating_sub(last) > WATCHDOG_TIMEOUT_MS {
-                eprintln!("[WATCHDOG] sample()/decode() deadlock detected after {}ms — killing worker process (conv={})",
-                    now - last, watchdog_conv_id);
-                log_event(&watchdog_conv_id, "watchdog", &format!("Deadlock detected: {}ms — worker process exit", now - last));
-                // sample() is stuck in CUDA and can't be interrupted.
-                // Kill the worker process — it will auto-restart with clean state.
-                // The model reloads from disk, conversation continues from DB.
-                std::process::exit(42); // Exit code 42 = watchdog kill
-            }
-        }
-    });
+    let watchdog = WatchdogHandles::spawn(cancel.clone(), cfg.conversation_id.to_string());
 
     loop {
         let mut command_executed = false;
@@ -108,12 +75,12 @@ pub(crate) fn run_generation_loop(
             tokens_to_generate, gen.total_tokens_generated
         );
 
-        for i in 0..tokens_to_generate {
+        'token: for i in 0..tokens_to_generate {
             if cancel.load(Ordering::Relaxed) {
                 log_info!(cfg.conversation_id, "Generation cancelled by user");
                 gen.finish_reason = "cancelled".to_string();
                 hit_stop_condition = true;
-                break;
+                break 'token;
             }
 
             if i % 50 == 0 {
@@ -128,7 +95,6 @@ pub(crate) fn run_generation_loop(
                     eprintln!("[STALL] Generation stalled: 16 tokens took {}s (loop_recoveries={})", secs, gen.loop_recoveries);
                     log_event(cfg.conversation_id, "stall", &format!("16 tokens took {}s", secs));
                     if gen.loop_recoveries < 1 {
-                        // First stall: try recovery
                         gen.loop_recoveries += 1;
                         if let Some(ref sender) = token_sender {
                             let _ = sender.send(TokenData {
@@ -154,14 +120,12 @@ pub(crate) fn run_generation_loop(
                         gen.finish_reason = "error".to_string();
                     }
                     hit_stop_condition = true;
-                    break;
+                    break 'token;
                 }
                 stall_checkpoint = Instant::now();
             }
 
-            // Wall-clock stall check BEFORE sample() — if sample() itself blocks
-            // (e.g. VRAM oversubscription, GPU hang), the per-16-token check above
-            // never fires because `i` doesn't increment.
+            // Wall-clock stall check BEFORE sample() — catches GPU hangs where `i` never increments.
             if stall_checkpoint.elapsed() > TOKEN_STALL_TIMEOUT {
                 let secs = stall_checkpoint.elapsed().as_secs();
                 eprintln!("[STALL] Pre-sample stall: no progress for {}s", secs);
@@ -176,17 +140,14 @@ pub(crate) fn run_generation_loop(
                 }
                 gen.finish_reason = "error".to_string();
                 hit_stop_condition = true;
-                break;
+                break 'token;
             }
 
-            // Log first token after tool injection and every 100th token for hang diagnosis
             if i == 0 || gen.total_tokens_generated % 100 == 0 {
                 log_debug!(cfg.conversation_id, "Sampling token {} (i={}) ...", gen.total_tokens_generated, i);
             }
+
             // Safety check: verify logits exist before sampling.
-            // Crash root cause: llama.cpp throws C++ exception (0xE06D7363) when
-            // n_outputs==0 (no logits computed), causing GGML_ASSERT(logits != nullptr)
-            // in llama_sampler_sample → abort() → terminate().
             let logits = context.get_logits();
             if logits.is_empty() {
                 eprintln!("[FATAL] No logits available before sample() at token {}! n_outputs=0. Aborting generation.", gen.total_tokens_generated);
@@ -201,14 +162,10 @@ pub(crate) fn run_generation_loop(
                     });
                 }
                 hit_stop_condition = true;
-                break;
+                break 'token;
             }
             let next_token = sampler.sample(context, -1);
-            // Update watchdog heartbeat + stall timer after successful sample
-            heartbeat.store(
-                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64,
-                Ordering::Relaxed,
-            );
+            watchdog.ping();
             stall_checkpoint = Instant::now();
 
             // Check if sample() timed out (CUDA sync deadlock detected by safe wrapper)
@@ -231,11 +188,10 @@ pub(crate) fn run_generation_loop(
                         });
                     }
                     hit_stop_condition = true;
-                    break;
+                    break 'token;
                 }
             }
 
-            // If watchdog triggered cancel during sample(), break out
             if cancel.load(Ordering::Relaxed) {
                 eprintln!("[WATCHDOG] Cancel detected after sample() returned — aborting generation");
                 gen.finish_reason = "watchdog".to_string();
@@ -248,7 +204,7 @@ pub(crate) fn run_generation_loop(
                     });
                 }
                 hit_stop_condition = true;
-                break;
+                break 'token;
             }
 
             if next_token == model.token_eos() {
@@ -257,7 +213,6 @@ pub(crate) fn run_generation_loop(
                     "EOS token detected at position {} (in_exec_block: {})",
                     gen.total_tokens_generated, gen.exec_tracker.is_inside()
                 );
-                // Append EOS token text so RAW view shows where model stopped
                 #[allow(deprecated)]
                 if let Ok(eos_str) = model.token_to_str(next_token, Special::Tokenize) {
                     gen.response.push_str(&eos_str);
@@ -271,7 +226,7 @@ pub(crate) fn run_generation_loop(
                     }
                 }
                 hit_stop_condition = true;
-                break;
+                break 'token;
             }
 
             batch.clear();
@@ -285,23 +240,18 @@ pub(crate) fn run_generation_loop(
                     log_event(cfg.conversation_id, "context_guard", &format!("NoKvCacheSlot at token {}", gen.total_tokens_generated));
                     gen.finish_reason = "length".to_string();
                     hit_stop_condition = true;
-                    break;
+                    break 'token;
                 }
-                // Abort callback triggered during decode (cancel while stuck in llama_decode)
                 if err_str.contains("Unknown(2)") || cancel.load(Ordering::Relaxed) {
                     log_info!(cfg.conversation_id, "Decode aborted by cancel callback at token {}", gen.total_tokens_generated);
                     gen.finish_reason = "cancelled".to_string();
                     hit_stop_condition = true;
-                    break;
+                    break 'token;
                 }
                 return Err(format!("Decode failed at token {}: {e}", gen.total_tokens_generated));
             }
 
-            // Update watchdog heartbeat after successful decode
-            heartbeat.store(
-                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64,
-                Ordering::Relaxed,
-            );
+            watchdog.ping();
 
             // Log generated token for crash reproduction
             if let Ok(dump_dir) = std::env::var("LLAMA_CHAT_DATA_DIR") {
@@ -315,16 +265,14 @@ pub(crate) fn run_generation_loop(
             gen.total_tokens_generated += 1;
             gen.generated_token_ids.push(next_token);
 
-            // Context position guard: if we've consumed >95% of context, stop gracefully.
-            // This catches recurrent/hybrid models (Mamba/Jamba) where llama_decode returns
-            // success but internally fails (logs "failed to find a memory slot").
+            // Context position guard: stop at 95% full
             let ctx_limit = cfg.context_size.saturating_sub(cfg.context_size / 20);
             if gen.token_pos as u32 >= ctx_limit {
                 eprintln!("[CTX_GUARD] Context 95% full ({}/{}, limit={}) — stopping with finish_reason=length", gen.token_pos, cfg.context_size, ctx_limit);
                 log_event(cfg.conversation_id, "context_guard", &format!("Context 95% full ({}/{})", gen.token_pos, cfg.context_size));
                 gen.finish_reason = "length".to_string();
                 hit_stop_condition = true;
-                break;
+                break 'token;
             }
 
             #[allow(deprecated)]
@@ -332,7 +280,7 @@ pub(crate) fn run_generation_loop(
                 Ok(s) => s,
                 Err(e) => {
                     log_warn!(cfg.conversation_id, "Token {} can't be displayed: {}. Continuing.", next_token, e);
-                    continue;
+                    continue 'token;
                 }
             };
 
@@ -348,7 +296,7 @@ pub(crate) fn run_generation_loop(
                     gen.response.truncate(new_len);
                 }
                 hit_stop_condition = true;
-                break;
+                break 'token;
             }
 
             gen.response.push_str(&token_str);
@@ -362,7 +310,6 @@ pub(crate) fn run_generation_loop(
                 eprintln!("[LOOP_RECOVERY] Repetition loop detected at token {}, loop_recoveries={}", gen.total_tokens_generated, gen.loop_recoveries);
                 log_event(cfg.conversation_id, "loop_recovery", &format!("Repetition loop at token {}", gen.total_tokens_generated));
                 if gen.loop_recoveries < 1 {
-                    // First loop: try to recover by auto-continuing with corrective message
                     gen.loop_recoveries += 1;
                     if let Some(ref sender) = token_sender {
                         let _ = sender.send(TokenData {
@@ -374,9 +321,8 @@ pub(crate) fn run_generation_loop(
                     }
                     gen.finish_reason = "loop_recovery".to_string();
                     hit_stop_condition = true;
-                    break;
+                    break 'token;
                 } else {
-                    // Already tried recovery once, stop for real
                     if let Some(ref sender) = token_sender {
                         let _ = sender.send(TokenData {
                             token: "\n\n[Generation stopped: repetition loop persists after recovery attempt]".to_string(),
@@ -387,7 +333,7 @@ pub(crate) fn run_generation_loop(
                     }
                     gen.finish_reason = "error".to_string();
                     hit_stop_condition = true;
-                    break;
+                    break 'token;
                 }
             }
 
@@ -422,178 +368,143 @@ pub(crate) fn run_generation_loop(
                 gen.last_logger_sync = Instant::now();
             }
 
-            // Check for and execute commands in the response.
+            // Check for and execute tool calls in the response.
             // Fast gate: only call the expensive detector when the new token
             // contains a character that could close a tool call block.
-            // This skips ~90% of tokens (no '>', ']', or '}').
             let token_has_close_char = token_str.as_bytes().iter().any(|&b| b == b'>' || b == b']' || b == b'}');
             if token_has_close_char {
-            // Pause watchdog during tool execution — tools (browser fetch, HTTP requests)
-            // can take 20+ seconds, which would trigger the deadlock detector otherwise.
-            watchdog_paused.store(true, Ordering::Relaxed);
-            let tool_check_result = check_and_execute_command_with_tags(
-                &gen.response, gen.last_exec_scan_pos, cfg.conversation_id, model, cfg.tags,
-                cfg.template_type,
-                &mut gen.recent_commands, &mut gen.consecutive_loop_blocks, token_sender, gen.token_pos, cfg.context_size,
-                Some(cancel.clone()), cfg.use_htmd, cfg.browser_backend,
-                cfg.mcp_manager.clone(), cfg.db.clone(),
-                cfg.backend, cfg.chat_template_string,
-            );
-            watchdog_paused.store(false, Ordering::Relaxed);
-            // Reset heartbeat after tool execution so watchdog has a fresh baseline
-            heartbeat.store(
-                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64,
-                Ordering::Relaxed,
-            );
-            if let Some(exec_result) = tool_check_result? {
-                // Sync accumulated content + command output to logger
-                {
-                    let mut logger = conversation_logger.lock()
-                        .map_err(|_| "Failed to lock conversation logger")?;
-                    logger.set_token_counts(gen.token_pos, cfg.context_size as i32);
-                    let pending = &gen.response[gen.logger_synced_len..];
-                    if !pending.is_empty() {
-                        logger.log_token_bulk(pending);
+                watchdog.pause();
+                let tool_check_result = check_and_execute_command_with_tags(
+                    &gen.response, gen.last_exec_scan_pos, cfg.conversation_id, model, cfg.tags,
+                    cfg.template_type,
+                    &mut gen.recent_commands, &mut gen.consecutive_loop_blocks, token_sender, gen.token_pos, cfg.context_size,
+                    Some(cancel.clone()), cfg.use_htmd, cfg.browser_backend,
+                    cfg.mcp_manager.clone(), cfg.db.clone(),
+                    cfg.backend, cfg.chat_template_string,
+                );
+                watchdog.resume();
+                watchdog.ping();
+
+                if let Some(exec_result) = tool_check_result? {
+                    // Sync accumulated content + command output to logger
+                    {
+                        let mut logger = conversation_logger.lock()
+                            .map_err(|_| "Failed to lock conversation logger")?;
+                        logger.set_token_counts(gen.token_pos, cfg.context_size as i32);
+                        let pending = &gen.response[gen.logger_synced_len..];
+                        if !pending.is_empty() {
+                            logger.log_token_bulk(pending);
+                        }
+                        logger.log_token(&exec_result.output_block);
                     }
-                    logger.log_token(&exec_result.output_block);
-                }
 
-                gen.response.push_str(&exec_result.output_block);
-                gen.logger_synced_len = gen.response.len();
+                    gen.response.push_str(&exec_result.output_block);
+                    gen.logger_synced_len = gen.response.len();
 
-                // DISABLED: First tool injection workaround. This used to restart the entire
-                // context on the first tool call to avoid a CUDA graph_compute() deadlock on
-                // hybrid models (Qwen3.5/3.6). The single-token injection fix (4b013d6) and
-                // watchdog pause fix should have resolved the root cause. Commenting out to
-                // test direct injection on first tool call — re-enable if deadlocks return.
-                // let is_first_injection = gen.tool_response_tokens == 0;
-                // if is_first_injection {
-                //     log_info!(cfg.conversation_id, "First tool injection — restarting context to avoid hybrid model deadlock");
-                //     gen.tool_response_tokens += exec_result.model_tokens.len() as i32;
-                //     gen.finish_reason = "tool_continue".to_string();
-                //     hit_stop_condition = true;
-                //     break;
-                // }
+                    gen.tool_response_tokens += exec_result.model_tokens.len() as i32;
+                    command_executed = true;
 
-                gen.tool_response_tokens += exec_result.model_tokens.len() as i32;
-                command_executed = true;
-
-                // Choose injection path: vision (images + MtmdContext) or standard text tokens
-                #[cfg(feature = "vision")]
-                let used_vision = if !exec_result.response_images.is_empty() {
-                    if let Some(mtmd_ctx) = vision_ctx {
-                        eprintln!("[VISION] Injecting {} image(s) via vision pipeline...", exec_result.response_images.len());
-                        match super::prompt_builder::inject_tool_response_with_vision(
-                            &exec_result, mtmd_ctx, context,
-                            &mut gen.token_pos, cfg.n_batch, cfg.conversation_id,
-                        ) {
-                            Ok(()) => {
-                                eprintln!("[VISION] Vision injection succeeded, token_pos={}", gen.token_pos);
-                                true
+                    // Choose injection path: vision (images + MtmdContext) or standard text tokens
+                    #[cfg(feature = "vision")]
+                    let used_vision = if !exec_result.response_images.is_empty() {
+                        if let Some(mtmd_ctx) = vision_ctx {
+                            eprintln!("[VISION] Injecting {} image(s) via vision pipeline...", exec_result.response_images.len());
+                            match super::prompt_builder::inject_tool_response_with_vision(
+                                &exec_result, mtmd_ctx, context,
+                                &mut gen.token_pos, cfg.n_batch, cfg.conversation_id,
+                            ) {
+                                Ok(()) => {
+                                    eprintln!("[VISION] Vision injection succeeded, token_pos={}", gen.token_pos);
+                                    true
+                                }
+                                Err(e) => {
+                                    eprintln!("[VISION] Vision injection failed: {e}, falling back to text");
+                                    false
+                                }
                             }
-                            Err(e) => {
-                                eprintln!("[VISION] Vision injection failed: {e}, falling back to text");
-                                false
-                            }
+                        } else {
+                            false
                         }
                     } else {
                         false
+                    };
+                    #[cfg(not(feature = "vision"))]
+                    let used_vision = false;
+
+                    if !used_vision {
+                        log_info!(cfg.conversation_id, "Injecting {} output tokens into context...", exec_result.model_tokens.len());
+                        watchdog.pause();
+                        let inject_result = inject_output_tokens(
+                            &exec_result.model_tokens, batch, context,
+                            &mut gen.token_pos, cfg.conversation_id,
+                        );
+                        watchdog.resume();
+                        watchdog.ping();
+                        match inject_result {
+                            Ok(()) => {},
+                            Err(e) if e == "CONTEXT_EXHAUSTED" => {
+                                eprintln!("[CTX_GUARD] Context exhausted during tool output injection — setting finish_reason=length");
+                                log_event(cfg.conversation_id, "context_guard", "Context exhausted during tool output injection");
+                                gen.finish_reason = "length".to_string();
+                                hit_stop_condition = true;
+                                break 'token;
+                            },
+                            Err(e) => return Err(e),
+                        }
                     }
-                } else {
-                    false
-                };
-                #[cfg(not(feature = "vision"))]
-                let used_vision = false;
 
-                if !used_vision {
-                    log_info!(cfg.conversation_id, "Injecting {} output tokens into context...", exec_result.model_tokens.len());
-                    // Pause watchdog during injection — large tool responses (e.g. browser pages)
-                    // can take 10+ seconds to decode one-by-one, triggering the deadlock detector.
-                    watchdog_paused.store(true, Ordering::Relaxed);
-                    let inject_result = inject_output_tokens(
-                        &exec_result.model_tokens, batch, context,
-                        &mut gen.token_pos, cfg.conversation_id,
-                    );
-                    watchdog_paused.store(false, Ordering::Relaxed);
-                    heartbeat.store(
-                        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64,
-                        Ordering::Relaxed,
-                    );
-                    match inject_result {
-                        Ok(()) => {},
-                        Err(e) if e == "CONTEXT_EXHAUSTED" => {
-                            eprintln!("[CTX_GUARD] Context exhausted during tool output injection — setting finish_reason=length");
-                            log_event(cfg.conversation_id, "context_guard", "Context exhausted during tool output injection");
-                            gen.finish_reason = "length".to_string();
-                            hit_stop_condition = true;
-                            break;
-                        },
-                        Err(e) => return Err(e),
+                    // Feed injected tokens to sampler so grammar/penalties stay in sync.
+                    let injected_tokens: Vec<LlamaToken> = exec_result.model_tokens.iter().map(|&id| LlamaToken(id)).collect();
+                    sampler.accept_many(&injected_tokens);
+                    gen.generated_token_ids.extend(injected_tokens);
+
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    context.synchronize();
+
+                    if exec_result.output_block.contains("[INFINITE_LOOP_DETECTED]") {
+                        eprintln!("[LOOP] Infinite loop detected — force-stopping generation");
+                        log_event(cfg.conversation_id, "infinite_loop", "Force-stopped: model stuck in infinite tool call loop");
+                        gen.finish_reason = "infinite_loop".to_string();
+                        hit_stop_condition = true;
+                        break 'token;
                     }
+
+                    // Mid-task compaction
+                    let conv_id_clean = cfg.conversation_id;
+                    let cached_overhead = cfg.db.get_context_overhead_tokens(conv_id_clean);
+                    if let Some(_summary) = super::compaction::maybe_compact_mid_task(
+                        cfg.conversation_id,
+                        &cfg.db,
+                        model,
+                        cfg.backend,
+                        cfg.chat_template_string,
+                        gen.tool_response_tokens,
+                        gen.recent_commands.len(),
+                        cfg.context_size,
+                        cached_overhead,
+                    ) {
+                        // Compaction happened — DB updated for next turn.
+                    }
+                    const PROACTIVE_COMPACT_INTERVAL: usize = 30;
+                    if cfg.proactive_compaction
+                        && gen.recent_commands.len() > 0
+                        && gen.recent_commands.len() % PROACTIVE_COMPACT_INTERVAL == 0
+                    {
+                        eprintln!("[PROACTIVE_COMPACT] {} tool calls reached, forcing compaction cycle", gen.recent_commands.len());
+                        log_event(cfg.conversation_id, "compaction", &format!("{} tool calls → proactive compact", gen.recent_commands.len()));
+                        gen.finish_reason = "length".to_string();
+                        hit_stop_condition = true;
+                        break 'token;
+                    }
+
+                    hit_stop_condition = false;
+                    gen.last_exec_scan_pos = gen.response.len();
+                    gen.exec_tracker = ExecBlockTracker::new();
+                    stall_checkpoint = Instant::now();
+                    break 'token;
                 }
-
-                // Feed injected tokens to sampler so grammar/penalties stay in sync.
-                let injected_tokens: Vec<LlamaToken> = exec_result.model_tokens.iter().map(|&id| LlamaToken(id)).collect();
-                sampler.accept_many(&injected_tokens);
-                gen.generated_token_ids.extend(injected_tokens);
-
-                // Brief pause after injection to let CUDA driver settle.
-                std::thread::sleep(std::time::Duration::from_millis(50));
-                context.synchronize();
-
-                // Force-stop on infinite loop detection
-                if exec_result.output_block.contains("[INFINITE_LOOP_DETECTED]") {
-                    eprintln!("[LOOP] Infinite loop detected — force-stopping generation");
-                    log_event(cfg.conversation_id, "infinite_loop", "Force-stopped: model stuck in infinite tool call loop");
-                    gen.finish_reason = "infinite_loop".to_string();
-                    hit_stop_condition = true;
-                    break;
-                }
-
-                // Mid-task compaction: if tool outputs are eating too much context,
-                // summarize older tool results in DB for the next turn.
-                let conv_id_clean = cfg.conversation_id;
-                let cached_overhead = cfg.db.get_context_overhead_tokens(conv_id_clean);
-                if let Some(_summary) = super::compaction::maybe_compact_mid_task(
-                    cfg.conversation_id,
-                    &cfg.db,
-                    model,
-                    cfg.backend,
-                    cfg.chat_template_string,
-                    gen.tool_response_tokens,
-                    gen.recent_commands.len(),
-                    cfg.context_size,
-                    cached_overhead,
-                ) {
-                    // Compaction happened — DB updated for next turn.
-                    // Current generation continues normally.
-                }
-                // Proactive compaction: every 30 tool calls, force auto-continue
-                // to compact conversation and free context space.
-                const PROACTIVE_COMPACT_INTERVAL: usize = 30;
-                if cfg.proactive_compaction
-                    && gen.recent_commands.len() > 0
-                    && gen.recent_commands.len() % PROACTIVE_COMPACT_INTERVAL == 0
-                {
-                    eprintln!("[PROACTIVE_COMPACT] {} tool calls reached, forcing compaction cycle", gen.recent_commands.len());
-                    log_event(cfg.conversation_id, "compaction", &format!("{} tool calls → proactive compact", gen.recent_commands.len()));
-                    gen.finish_reason = "length".to_string();
-                    hit_stop_condition = true;
-                    break;
-                }
-
-                // tool call round (no limit)
-                hit_stop_condition = false;
-                gen.last_exec_scan_pos = gen.response.len();
-                // Reset exec block tracker after tool execution — the tool call
-                // block is now closed (result injected), so we must allow stop
-                // tokens to fire again for the model's continuation text.
-                gen.exec_tracker = ExecBlockTracker::new();
-                stall_checkpoint = Instant::now(); // Reset after tool execution
-                break;
-            }
             } // token_has_close_char
-        }
+        } // 'token
 
         if hit_stop_condition {
             break;
@@ -603,19 +514,11 @@ pub(crate) fn run_generation_loop(
             break;
         }
 
-        if false {
-            // Tool call round limit removed — let the model work until it's done
-            // (context window is the natural limit)
-            break;
-        }
-
         if !command_executed {
             log_debug!(cfg.conversation_id, "Continuing generation: no stop condition hit");
         }
     }
 
-    // Stop watchdog thread
-    watchdog_done.store(true, Ordering::Relaxed);
-    let _ = watchdog_handle.join();
+    watchdog.stop();
     Ok(())
 }

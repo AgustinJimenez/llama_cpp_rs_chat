@@ -1,4 +1,4 @@
-pub(super) fn convert_and_truncate(source: &str, max_chars: usize) -> String {
+pub(crate) fn convert_and_truncate(source: &str, max_chars: usize) -> String {
     let converter = htmd::HtmlToMarkdown::new();
     let markdown = converter.convert(source).unwrap_or_else(|e| {
         eprintln!("[WEB_FETCH/MD] htmd conversion failed: {e}, using raw html2text");
@@ -20,7 +20,7 @@ pub(super) fn convert_and_truncate(source: &str, max_chars: usize) -> String {
     }
 }
 
-pub(super) fn extract_body_content(html: &str) -> String {
+pub(crate) fn extract_body_content(html: &str) -> String {
     let lower = html.to_ascii_lowercase();
     let start = lower
         .find("<body")

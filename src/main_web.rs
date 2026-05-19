@@ -4,22 +4,19 @@
 extern crate llama_chat_types;
 
 mod web; // Declare web module for model capabilities and utilities
+mod vlm_ocr;
+mod server;
 
 // Import all types and functions from web modules
-use web::database::{Database, SharedDatabase};
+use web::database::SharedDatabase;
 
 use std::convert::Infallible;
-use std::net::SocketAddr;
-use std::sync::Arc;
 
 #[cfg(not(feature = "mock"))]
-use web::worker::process_manager::ProcessManager;
-#[cfg(not(feature = "mock"))]
-use web::worker::worker_bridge::{SharedWorkerBridge, WorkerBridge};
+use web::worker::worker_bridge::SharedWorkerBridge;
 
 // HTTP server using hyper
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Method, Request, Response, Server, StatusCode};
+use hyper::{Body, Method, Request, Response, StatusCode};
 
 // Note: All struct definitions (SamplerConfig, TokenData, ChatRequest, ChatResponse, etc.)
 // and helper functions (load_config, add_to_model_history, get_model_status, etc.)
@@ -406,7 +403,7 @@ fn main() -> std::io::Result<()> {
 
     // VLM OCR subprocess mode
     if args.iter().any(|a| a == "--vlm-ocr") {
-        return vlm_ocr_main(&args);
+        return vlm_ocr::vlm_ocr_main(&args);
     }
 
     // Check for --worker flag BEFORE creating tokio runtime.
@@ -422,252 +419,5 @@ fn main() -> std::io::Result<()> {
 
     // Create tokio runtime for the server
     let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(server_main())
-}
-
-/// VLM OCR subprocess: loads PaddleOCR-VL, runs OCR on an image, prints extracted text to stdout.
-/// Runs on CPU (0 GPU layers) so it doesn't interfere with the main model on GPU.
-#[cfg(feature = "vision")]
-fn vlm_ocr_main(args: &[String]) -> std::io::Result<()> {
-    use llama_cpp_2::llama_backend::LlamaBackend;
-    use llama_cpp_2::model::LlamaModel;
-    use llama_cpp_2::model::params::LlamaModelParams;
-    use llama_cpp_2::context::params::LlamaContextParams;
-    use llama_cpp_2::llama_batch::LlamaBatch;
-    use llama_cpp_2::sampling::LlamaSampler;
-    use llama_cpp_2::mtmd::{MtmdContext, MtmdContextParams, MtmdBitmap, MtmdInputText};
-    use std::ffi::CString;
-
-    let get_arg = |flag: &str| -> Option<&str> {
-        args.windows(2).find(|w| w[0] == flag).map(|w| w[1].as_str())
-    };
-    let model_path = get_arg("--model").unwrap_or("assets/ocr-vlm/PaddleOCR-VL-1.5.gguf");
-    let mmproj_path = get_arg("--mmproj").unwrap_or("assets/ocr-vlm/PaddleOCR-VL-1.5-mmproj.gguf");
-    let image_path = match get_arg("--image") {
-        Some(p) => p,
-        None => { eprintln!("Error: --image required"); std::process::exit(1); }
-    };
-
-    let io_err = |msg: String| std::io::Error::new(std::io::ErrorKind::Other, msg);
-
-    // Init backend
-    let backend = LlamaBackend::init().map_err(|e| io_err(format!("Backend: {e}")))?;
-
-    // Load model on CPU (0 GPU layers — doesn't interfere with main model on GPU)
-    let llama_model_params = LlamaModelParams::default().with_n_gpu_layers(0);
-    let model = LlamaModel::load_from_file(&backend, model_path, &llama_model_params)
-        .map_err(|e| io_err(format!("Model load: {e}")))?;
-
-    // Load mmproj for vision
-    let mtmd_params = MtmdContextParams {
-        use_gpu: false,
-        print_timings: false,
-        n_threads: 4,
-        media_marker: CString::new("<__media__>").unwrap(),
-    };
-    let vision = MtmdContext::init_from_file(mmproj_path, &model, &mtmd_params)
-        .map_err(|e| io_err(format!("Mmproj: {e}")))?;
-
-    // Create context
-    let n_ctx = std::num::NonZeroU32::new(8192);
-    let mut ctx_params = LlamaContextParams::default()
-        .with_n_ctx(n_ctx)
-        .with_n_batch(512)
-        .with_flash_attention_policy(0); // GLM-OCR requires flash-attn OFF
-    if vision.decode_use_non_causal() {
-        ctx_params = ctx_params.with_flash_attention_policy(0);
-    }
-    let mut ctx = model.new_context(&backend, ctx_params)
-        .map_err(|e| io_err(format!("Context: {e}")))?;
-
-    // Load image
-    let img_bytes = std::fs::read(image_path)?;
-    let bitmap = MtmdBitmap::from_buffer(&vision, &img_bytes)
-        .map_err(|e| io_err(format!("Image: {e}")))?;
-
-    // Build prompt with image marker — use simple OCR prompt
-    let prompt = "<__media__>OCR the text in this image:";
-    let text_input = MtmdInputText {
-        text: prompt.to_string(),
-        add_special: true,
-        parse_special: true,
-    };
-    let chunks = vision.tokenize(text_input, &[&bitmap])
-        .map_err(|e| io_err(format!("Tokenize: {e}")))?;
-
-    // Evaluate prompt + image through the model
-    let n_past = chunks.eval_chunks(&vision, &ctx, 0, 0, 512, true)
-        .map_err(|e| io_err(format!("Eval: {e}")))?;
-
-    // Generate text output
-    // Greedy decoding with repetition penalty to avoid loops
-    let mut sampler = LlamaSampler::chain_simple(vec![
-        LlamaSampler::penalties(2048, 1.3, 0.0, 0.0), // repeat_penalty=1.3
-        LlamaSampler::temp(0.0),
-        LlamaSampler::greedy(),
-    ]);
-
-    let mut batch = LlamaBatch::new(1, 1);
-    let mut output = String::new();
-    let mut token_pos = n_past;
-    let eos = model.token_eos();
-
-    for _ in 0..2048 {
-        let token = sampler.sample(&ctx, -1);
-        if token == eos { break; }
-
-        #[allow(deprecated)]
-        let s = model.token_to_str(token, llama_cpp_2::model::Special::Tokenize)
-            .unwrap_or_default();
-
-        // Stop on special tokens like <|user|>, <|endoftext|>
-        if s.contains("<|user|>") || s.contains("<|endoftext|>") || s.contains("<|assistant|>") {
-            break;
-        }
-        output.push_str(&s);
-
-        batch.clear();
-        if batch.add(token, token_pos, &[0], true).is_err() { break; }
-        if ctx.decode(&mut batch).is_err() { break; }
-        token_pos += 1;
-    }
-
-    print!("{}", output.trim());
-    Ok(())
-}
-
-#[cfg(not(feature = "vision"))]
-fn vlm_ocr_main(_args: &[String]) -> std::io::Result<()> {
-    eprintln!("VLM OCR requires the 'vision' feature");
-    std::process::exit(1);
-}
-
-/// Write our PID to `assets/server.pid`. On startup, if a PID file already exists and that
-/// process is still alive, kill it first so only one server instance runs at a time.
-fn enforce_single_instance() {
-    const PID_FILE: &str = "assets/server.pid";
-
-    // If a stale PID file exists, try to kill the old process.
-    if let Ok(contents) = std::fs::read_to_string(PID_FILE) {
-        if let Ok(old_pid) = contents.trim().parse::<u32>() {
-            // On Windows, use taskkill; on Unix, send SIGTERM.
-            #[cfg(target_os = "windows")]
-            {
-                let _ = std::process::Command::new("taskkill")
-                    .args(["/T", "/F", "/PID", &old_pid.to_string()])
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status();
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                let _ = std::process::Command::new("kill")
-                    .args(["-TERM", &old_pid.to_string()])
-                    .status();
-            }
-            // Give it a moment to release the port.
-            std::thread::sleep(std::time::Duration::from_millis(500));
-            eprintln!("[SERVER] Killed previous instance (PID {old_pid})");
-        }
-    }
-
-    // Write our own PID.
-    let my_pid = std::process::id();
-    let _ = std::fs::write(PID_FILE, my_pid.to_string());
-
-    // Remove PID file on exit via a dedicated thread watching for process death.
-    // (Simple: just register a normal exit hook via std::panic + atexit isn't easy in Rust,
-    //  so we rely on the OS to reclaim the file on next startup instead.)
-}
-
-async fn server_main() -> std::io::Result<()> {
-    enforce_single_instance();
-
-    // Initialize SQLite database
-    let db: SharedDatabase = Arc::new(
-        Database::new("assets/llama_chat.db").expect("Failed to initialize SQLite database"),
-    );
-    println!("📦 SQLite database initialized at assets/llama_chat.db");
-
-    // Initialize background process tracking so remote provider tool calls can register processes
-    let bg_session_id = format!("web_{}", std::process::id());
-    llama_chat_command::background::init_background_tracking(db.clone(), bg_session_id);
-
-
-
-    // Apply file logging setting from config
-    {
-        let config = db.load_config();
-        web::logger::LOGGER.set_enabled(!config.disable_file_logging);
-        if config.disable_file_logging {
-            println!("📝 File logging disabled (enable in settings)");
-        }
-    }
-
-    // Spawn worker process
-    #[cfg(not(feature = "mock"))]
-    let worker_bridge: SharedWorkerBridge = {
-        let pm = Arc::new(
-            ProcessManager::spawn("assets/llama_chat.db")
-                .expect("Failed to spawn worker process"),
-        );
-        Arc::new(WorkerBridge::new(pm))
-    };
-
-    // Create HTTP service
-    let make_svc = make_service_fn({
-        #[cfg(not(feature = "mock"))]
-        let worker_bridge = worker_bridge.clone();
-        let db = db.clone();
-
-        move |_conn| {
-            #[cfg(not(feature = "mock"))]
-            let worker_bridge = worker_bridge.clone();
-            let db = db.clone();
-
-            async move {
-                Ok::<_, Infallible>(service_fn(move |req| {
-                    let db = db.clone();
-                    #[cfg(not(feature = "mock"))]
-                    {
-                        handle_request(req, worker_bridge.clone(), db)
-                    }
-                    #[cfg(feature = "mock")]
-                    {
-                        handle_request(req, db)
-                    }
-                }))
-            }
-        }
-    });
-
-    // Start server
-    let addr = SocketAddr::from(([0, 0, 0, 0], 18080));
-    let server = Server::bind(&addr).serve(make_svc);
-
-    println!("🦙 LLaMA Chat Web Server starting on http://{addr}");
-    println!("📡 Worker process spawned for model inference");
-    println!("Available endpoints:");
-    println!("  GET  /health               - Health check");
-    println!("  POST /api/chat             - Chat with LLaMA");
-    println!("  GET  /api/config           - Get sampler configuration");
-    println!("  POST /api/config           - Update sampler configuration");
-    println!("  GET  /api/model/status     - Get current model status");
-    println!("  GET  /api/model/history    - Get model path history");
-    println!("  POST /api/model/history    - Add model path to history");
-    println!("  POST /api/model/load       - Load a specific model");
-    println!("  POST /api/model/unload     - Unload current model");
-    println!("  POST /api/model/hard-unload - Force kill worker (reclaim all memory)");
-    println!("  POST /api/upload           - Upload model file");
-    println!("  GET  /api/conversations    - List conversation files");
-    println!("  POST /api/tools/execute    - Execute tool calls");
-    println!("  GET  /api/tools/web-fetch  - Fetch web page as text");
-    println!("  GET  /api/browse           - Browse model files");
-    println!("  GET  /                     - Web interface");
-
-    server
-        .await
-        .map_err(std::io::Error::other)?;
-
-    Ok(())
+    rt.block_on(server::server_main())
 }

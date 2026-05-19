@@ -2,6 +2,7 @@
 #![allow(dead_code)] // FFI module: declarations are often added ahead of use
 
 mod types;
+mod window_search;
 mod window;
 mod process;
 mod input;

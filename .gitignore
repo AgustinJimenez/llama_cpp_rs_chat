@@ -80,3 +80,34 @@ post_data.txt
 *.png
 temp_ocr/
 bash.exe.stackdump
+
+# Backup files created by agents/editors
+*.llama_bak
+
+# Runtime files
+assets/server.pid
+llama_chat.db
+
+# Compiled executables from agent tasks
+*.exe
+
+# Nim experiments from agent tasks
+*.nim
+
+# Java/Maven artifacts from agent tasks
+.mvn/
+mvnw
+mvnw.cmd
+
+# PHP artifacts from agent tasks
+*.phar
+
+# Downloaded database packages
+db-*/
+
+# Agent-generated project directories
+people-crud/
+people_data.json
+
+# Scratch markdown notes (auto-generated summaries)
+hn_*.md

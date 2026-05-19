@@ -1,0 +1,2722 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "llama-chat-web REST API",
+    "version": "1.0.0",
+    "description": "HTTP REST API for the llama-chat-web backend server (default port 18080). Handles local model inference, conversation management, HuggingFace Hub downloads, MCP server management, remote providers, tool execution, and system monitoring."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:18080",
+      "description": "Local development server"
+    }
+  ],
+  "components": {
+    "schemas": {
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": { "type": "string" }
+        },
+        "required": ["error"]
+      },
+      "SuccessResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" }
+        },
+        "required": ["success"]
+      },
+      "ChatMessage": {
+        "type": "object",
+        "description": "A single message in a conversation.",
+        "properties": {
+          "id": { "type": "string" },
+          "role": { "type": "string", "enum": ["user", "assistant", "system", "tool"] },
+          "content": { "type": "string" },
+          "timestamp": { "type": "integer", "format": "int64", "description": "Unix timestamp in seconds" },
+          "prompt_tok_per_sec": { "type": "number", "nullable": true },
+          "gen_tok_per_sec": { "type": "number", "nullable": true },
+          "gen_eval_ms": { "type": "number", "nullable": true },
+          "gen_tokens": { "type": "integer", "nullable": true },
+          "prompt_eval_ms": { "type": "number", "nullable": true },
+          "prompt_tokens": { "type": "integer", "nullable": true },
+          "compacted": { "type": "boolean", "description": "True if this message has been compacted (summarized)." },
+          "sequence_order": { "type": "integer", "nullable": true, "description": "DB sequence order for precise truncation." }
+        },
+        "required": ["id", "role", "content", "timestamp", "compacted"]
+      },
+      "ChatRequest": {
+        "type": "object",
+        "properties": {
+          "message": { "type": "string", "description": "The user's chat message." },
+          "conversation_id": { "type": "string", "nullable": true, "description": "Existing conversation ID to continue. If omitted a new conversation is created." },
+          "image_data": {
+            "type": "array",
+            "items": { "type": "string" },
+            "nullable": true,
+            "description": "Base64-encoded image data URIs (e.g. 'data:image/png;base64,...') for vision models."
+          },
+          "auto_continue": {
+            "type": "boolean",
+            "default": false,
+            "description": "When true the user message is not logged — the model resumes an interrupted generation."
+          }
+        },
+        "required": ["message"]
+      },
+      "ChatResponse": {
+        "type": "object",
+        "description": "Immediate response from POST /api/chat. Real content arrives via WebSocket.",
+        "properties": {
+          "message": { "$ref": "#/components/schemas/ChatMessage" },
+          "conversation_id": { "type": "string" },
+          "tokens_used": { "type": "integer", "nullable": true },
+          "max_tokens": { "type": "integer", "nullable": true }
+        },
+        "required": ["message", "conversation_id"]
+      },
+      "TokenData": {
+        "type": "object",
+        "description": "A single SSE token event emitted by /api/chat/stream.",
+        "properties": {
+          "token": { "type": "string" },
+          "tokens_used": { "type": "integer" },
+          "max_tokens": { "type": "integer" },
+          "status": { "type": "string", "nullable": true },
+          "gen_tok_per_sec": { "type": "number", "nullable": true },
+          "gen_tokens": { "type": "integer", "nullable": true },
+          "tool_timing": {
+            "nullable": true,
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "duration_ms": { "type": "integer", "format": "int64" }
+            },
+            "required": ["name", "duration_ms"]
+          }
+        },
+        "required": ["token", "tokens_used", "max_tokens"]
+      },
+      "ConversationFile": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "description": "Unique conversation ID (e.g. 'chat_2024-01-01-12-00-00-000')." },
+          "display_name": { "type": "string" },
+          "timestamp": { "type": "string" },
+          "title": { "type": "string", "nullable": true },
+          "provider_id": { "type": "string", "nullable": true }
+        },
+        "required": ["name", "display_name", "timestamp"]
+      },
+      "ConversationsResponse": {
+        "type": "object",
+        "properties": {
+          "conversations": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ConversationFile" }
+          }
+        },
+        "required": ["conversations"]
+      },
+      "ToolTiming": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "duration_ms": { "type": "integer", "format": "int64" }
+        },
+        "required": ["name", "duration_ms"]
+      },
+      "ConversationContentResponse": {
+        "type": "object",
+        "properties": {
+          "content": { "type": "string", "description": "Raw conversation text (empty for remote provider conversations)." },
+          "messages": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ChatMessage" }
+          },
+          "provider_id": { "type": "string", "nullable": true },
+          "provider_session_id": { "type": "string", "nullable": true },
+          "tool_timings": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ToolTiming" }
+          }
+        },
+        "required": ["content", "messages", "tool_timings"]
+      },
+      "ToolTags": {
+        "type": "object",
+        "description": "Tool call XML tag delimiters auto-detected from the model.",
+        "properties": {
+          "exec_open": { "type": "string" },
+          "exec_close": { "type": "string" },
+          "output_open": { "type": "string" },
+          "output_close": { "type": "string" }
+        },
+        "required": ["exec_open", "exec_close", "output_open", "output_close"]
+      },
+      "ModelStatus": {
+        "type": "object",
+        "properties": {
+          "loaded": { "type": "boolean" },
+          "loading": { "type": "boolean", "nullable": true },
+          "loading_progress": { "type": "integer", "minimum": 0, "maximum": 100, "nullable": true },
+          "generating": { "type": "boolean", "nullable": true },
+          "active_conversation_id": { "type": "string", "nullable": true },
+          "status_message": { "type": "string", "nullable": true },
+          "model_path": { "type": "string", "nullable": true },
+          "last_used": { "type": "string", "nullable": true },
+          "memory_usage_mb": { "type": "integer", "format": "int64", "nullable": true },
+          "has_vision": { "type": "boolean", "nullable": true },
+          "tool_tags": { "$ref": "#/components/schemas/ToolTags", "nullable": true },
+          "gpu_layers": { "type": "integer", "nullable": true },
+          "block_count": { "type": "integer", "nullable": true },
+          "system_prompt_tokens": { "type": "integer", "nullable": true },
+          "tool_definitions_tokens": { "type": "integer", "nullable": true },
+          "context_size": { "type": "integer", "nullable": true },
+          "last_finish_reason": { "type": "string", "nullable": true, "description": "Why the last generation stopped: 'stop', 'length', 'cancelled', 'tool_calls', 'error'." },
+          "supports_thinking": { "type": "boolean", "nullable": true }
+        },
+        "required": ["loaded"]
+      },
+      "ModelLoadRequest": {
+        "type": "object",
+        "properties": {
+          "model_path": { "type": "string", "description": "Absolute path to the GGUF model file." },
+          "gpu_layers": { "type": "integer", "nullable": true, "description": "Number of layers to offload to GPU. Omit for auto." },
+          "mmproj_path": { "type": "string", "nullable": true, "description": "Absolute path to the mmproj companion GGUF for vision models." },
+          "context_size": { "type": "integer", "nullable": true },
+          "flash_attention": { "type": "boolean", "nullable": true },
+          "cache_type_k": { "type": "string", "nullable": true, "description": "KV cache quantization type for K (e.g. 'f16', 'q8_0', 'turbo2')." },
+          "cache_type_v": { "type": "string", "nullable": true, "description": "KV cache quantization type for V." }
+        },
+        "required": ["model_path"]
+      },
+      "ModelResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "message": { "type": "string" },
+          "status": { "$ref": "#/components/schemas/ModelStatus", "nullable": true }
+        },
+        "required": ["success", "message"]
+      },
+      "BackendDeviceInfo": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "vram_mb": { "type": "integer", "format": "int64", "nullable": true }
+        },
+        "required": ["name", "description"]
+      },
+      "BackendInfo": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "available": { "type": "boolean" },
+          "devices": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/BackendDeviceInfo" }
+          }
+        },
+        "required": ["name", "available", "devices"]
+      },
+      "BackendsResponse": {
+        "type": "object",
+        "properties": {
+          "backends": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/BackendInfo" }
+          },
+          "nvidia_gpu_detected": { "type": "boolean" },
+          "cuda_backend_loaded": { "type": "boolean" }
+        },
+        "required": ["backends", "nvidia_gpu_detected", "cuda_backend_loaded"]
+      },
+      "SamplerConfig": {
+        "type": "object",
+        "description": "Full sampler and application configuration.",
+        "properties": {
+          "sampler_type": { "type": "string", "description": "Sampler algorithm: 'Temperature', 'Mirostat', 'Mirostat2', 'Greedy'." },
+          "temperature": { "type": "number", "minimum": 0.0, "maximum": 2.0 },
+          "top_p": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+          "top_k": { "type": "integer" },
+          "mirostat_tau": { "type": "number" },
+          "mirostat_eta": { "type": "number" },
+          "repeat_penalty": { "type": "number", "default": 1.0 },
+          "min_p": { "type": "number", "default": 0.0 },
+          "typical_p": { "type": "number", "default": 1.0 },
+          "frequency_penalty": { "type": "number", "default": 0.0 },
+          "presence_penalty": { "type": "number", "default": 0.0 },
+          "penalty_last_n": { "type": "integer", "default": 64 },
+          "dry_multiplier": { "type": "number", "default": 0.0 },
+          "dry_base": { "type": "number", "default": 1.75 },
+          "dry_allowed_length": { "type": "integer", "default": 2 },
+          "dry_penalty_last_n": { "type": "integer", "default": -1 },
+          "top_n_sigma": { "type": "number", "default": -1.0 },
+          "flash_attention": { "type": "boolean", "default": true },
+          "cache_type_k": { "type": "string", "default": "f16" },
+          "cache_type_v": { "type": "string", "default": "f16" },
+          "n_batch": { "type": "integer", "default": 2048 },
+          "model_path": { "type": "string", "nullable": true },
+          "system_prompt": { "type": "string", "nullable": true },
+          "system_prompt_type": { "type": "string", "default": "Custom" },
+          "context_size": { "type": "integer", "nullable": true },
+          "stop_tokens": {
+            "type": "array",
+            "items": { "type": "string" },
+            "nullable": true
+          },
+          "model_history": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": []
+          },
+          "disable_file_logging": { "type": "boolean", "default": true },
+          "safe_tool_injection": { "type": "boolean", "default": false },
+          "tool_tag_exec_open": { "type": "string", "nullable": true },
+          "tool_tag_exec_close": { "type": "string", "nullable": true },
+          "tool_tag_output_open": { "type": "string", "nullable": true },
+          "tool_tag_output_close": { "type": "string", "nullable": true },
+          "web_browser_backend": { "type": "string", "nullable": true },
+          "models_directory": { "type": "string", "nullable": true },
+          "seed": { "type": "integer", "default": -1 },
+          "n_ubatch": { "type": "integer", "default": 512 },
+          "n_threads": { "type": "integer", "default": 0 },
+          "n_threads_batch": { "type": "integer", "default": 0 },
+          "rope_freq_base": { "type": "number", "default": 0.0 },
+          "rope_freq_scale": { "type": "number", "default": 0.0 },
+          "use_mlock": { "type": "boolean", "default": false },
+          "use_mmap": { "type": "boolean", "default": true },
+          "main_gpu": { "type": "integer", "default": 0 },
+          "split_mode": { "type": "string", "default": "layer" },
+          "use_htmd": { "type": "boolean", "default": false },
+          "tag_pairs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "open": { "type": "string" },
+                "close": { "type": "string" }
+              }
+            },
+            "nullable": true
+          },
+          "proactive_compaction": { "type": "boolean", "default": false },
+          "telegram_bot_token": { "type": "string", "nullable": true },
+          "telegram_chat_id": { "type": "string", "nullable": true },
+          "provider_api_keys": { "type": "string", "nullable": true, "description": "JSON blob of provider API key configurations." },
+          "max_tool_calls": { "type": "integer", "default": 2000 },
+          "loop_detection_limit": { "type": "integer", "default": 15 },
+          "thinking_mode": { "type": "boolean", "nullable": true, "description": "Enable thinking/reasoning mode. null = use model default." }
+        },
+        "required": ["sampler_type", "temperature", "top_p", "top_k", "mirostat_tau", "mirostat_eta"]
+      },
+      "FileItem": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "path": { "type": "string" },
+          "is_directory": { "type": "boolean" },
+          "size": { "type": "integer", "format": "int64", "nullable": true }
+        },
+        "required": ["name", "path", "is_directory"]
+      },
+      "BrowseFilesResponse": {
+        "type": "object",
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/FileItem" }
+          },
+          "current_path": { "type": "string" },
+          "parent_path": { "type": "string", "nullable": true }
+        },
+        "required": ["files", "current_path"]
+      },
+      "HubFile": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "size": { "type": "integer", "format": "int64" }
+        },
+        "required": ["name", "size"]
+      },
+      "HubModel": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "author": { "type": "string" },
+          "downloads": { "type": "integer", "format": "int64" },
+          "likes": { "type": "integer", "format": "int64" },
+          "last_modified": { "type": "string" },
+          "pipeline_tag": { "type": "string" },
+          "files": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/HubFile" }
+          }
+        },
+        "required": ["id", "author", "downloads", "likes", "last_modified", "pipeline_tag", "files"]
+      },
+      "DownloadRequest": {
+        "type": "object",
+        "properties": {
+          "model_id": { "type": "string", "description": "HuggingFace model repo ID (e.g. 'unsloth/Llama-3.2-1B-GGUF')." },
+          "filename": { "type": "string", "description": "Filename within the repo (e.g. 'model.Q4_K_M.gguf')." },
+          "destination": { "type": "string", "description": "Absolute path to the local destination directory." }
+        },
+        "required": ["model_id", "filename", "destination"]
+      },
+      "McpTransport": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Stdio transport — launches a subprocess.",
+            "properties": {
+              "type": { "type": "string", "enum": ["Stdio"] },
+              "command": { "type": "string" },
+              "args": { "type": "array", "items": { "type": "string" } },
+              "env_vars": {
+                "type": "object",
+                "additionalProperties": { "type": "string" }
+              }
+            },
+            "required": ["type", "command", "args"]
+          },
+          {
+            "type": "object",
+            "description": "HTTP transport — connects to a running MCP server over HTTP.",
+            "properties": {
+              "type": { "type": "string", "enum": ["Http"] },
+              "url": { "type": "string" }
+            },
+            "required": ["type", "url"]
+          }
+        ]
+      },
+      "McpServerConfig": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "Unique server ID." },
+          "name": { "type": "string", "description": "Human-readable server name." },
+          "transport": { "$ref": "#/components/schemas/McpTransport" },
+          "enabled": { "type": "boolean" }
+        },
+        "required": ["id", "name", "transport", "enabled"]
+      },
+      "McpServerStatus": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "connected": { "type": "boolean" },
+          "tool_count": { "type": "integer" },
+          "tools": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["id", "name", "connected", "tool_count", "tools"]
+      },
+      "ProviderRequest": {
+        "type": "object",
+        "properties": {
+          "prompt": { "type": "string" },
+          "model": { "type": "string", "nullable": true },
+          "max_turns": { "type": "integer", "nullable": true },
+          "cwd": { "type": "string", "nullable": true },
+          "session_id": { "type": "string", "nullable": true },
+          "conversation_id": { "type": "string", "nullable": true },
+          "params": {
+            "type": "object",
+            "nullable": true,
+            "description": "Provider-specific parameters (temperature, thinking_mode, etc.)."
+          }
+        },
+        "required": ["prompt"]
+      },
+      "ProviderGenerateResponse": {
+        "type": "object",
+        "properties": {
+          "response": { "type": "string" },
+          "cost_usd": { "type": "number", "nullable": true },
+          "duration_ms": { "type": "integer", "format": "int64", "nullable": true },
+          "stop_reason": { "type": "string", "nullable": true },
+          "provider": { "type": "string" },
+          "model": { "type": "string" },
+          "session_id": { "type": "string", "nullable": true },
+          "conversation_id": { "type": "string" },
+          "input_tokens": { "type": "integer", "nullable": true },
+          "output_tokens": { "type": "integer", "nullable": true }
+        },
+        "required": ["response", "provider", "model", "conversation_id"]
+      },
+      "ToolExecuteRequest": {
+        "type": "object",
+        "properties": {
+          "tool_name": {
+            "type": "string",
+            "description": "Tool name: read_file, write_file, edit_file, undo_edit, insert_text, search_files, find_files, list_directory, bash, shell, command, web_fetch, browser_navigate, browser_search, browser_eval, browser_get_text, browser_close, or any desktop tool."
+          },
+          "arguments": {
+            "type": "object",
+            "description": "Tool-specific arguments.",
+            "additionalProperties": true
+          }
+        },
+        "required": ["tool_name", "arguments"]
+      },
+      "ToolExecuteResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "result": { "type": "string", "nullable": true },
+          "error": { "type": "string", "nullable": true }
+        },
+        "required": ["success"]
+      },
+      "AppErrorRecord": {
+        "type": "object",
+        "properties": {
+          "level": { "type": "string", "description": "Error severity: 'error', 'warn', 'info'." },
+          "source": { "type": "string", "description": "Component where the error originated." },
+          "message": { "type": "string" },
+          "details": { "type": "string", "nullable": true },
+          "timestamp": { "type": "integer", "format": "int64", "nullable": true, "description": "Unix timestamp in milliseconds." }
+        },
+        "required": ["level", "source", "message"]
+      },
+      "FrontendLogEntry": {
+        "type": "object",
+        "properties": {
+          "level": { "type": "string", "enum": ["info", "warn", "warning", "error", "debug"] },
+          "message": { "type": "string" },
+          "timestamp": { "type": "string", "nullable": true }
+        },
+        "required": ["level", "message"]
+      },
+      "SystemUsageResponse": {
+        "type": "object",
+        "properties": {
+          "cpu": { "type": "number", "description": "CPU usage percentage (0-100)." },
+          "gpu": { "type": "number", "description": "GPU utilization percentage (0-100)." },
+          "ram": { "type": "number", "description": "RAM usage percentage (0-100)." },
+          "total_ram_gb": { "type": "number" },
+          "total_vram_gb": { "type": "number" },
+          "cpu_cores": { "type": "integer" },
+          "cpu_ghz": { "type": "number" }
+        },
+        "required": ["cpu", "gpu", "ram", "total_ram_gb", "total_vram_gb", "cpu_cores", "cpu_ghz"]
+      }
+    }
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health check",
+        "description": "Returns a simple OK response to confirm the server is alive.",
+        "operationId": "getHealth",
+        "tags": ["Health"],
+        "responses": {
+          "200": {
+            "description": "Server is healthy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "example": "ok" },
+                    "service": { "type": "string", "example": "llama-chat-web" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/info": {
+      "get": {
+        "summary": "App and system info",
+        "description": "Returns application version, platform, architecture, and compiled feature flags.",
+        "operationId": "getAppInfo",
+        "tags": ["System"],
+        "responses": {
+          "200": {
+            "description": "App info.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "app": { "type": "string" },
+                    "version": { "type": "string" },
+                    "platform": { "type": "string" },
+                    "arch": { "type": "string" },
+                    "features": {
+                      "type": "object",
+                      "properties": {
+                        "vision": { "type": "boolean" },
+                        "cuda": { "type": "boolean" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/docs": {
+      "get": {
+        "summary": "API documentation listing",
+        "description": "Returns a machine-readable list of all API endpoints.",
+        "operationId": "getApiDocs",
+        "tags": ["System"],
+        "responses": {
+          "200": {
+            "description": "Endpoint list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "endpoints": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "method": { "type": "string" },
+                          "path": { "type": "string" },
+                          "description": { "type": "string" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/system/usage": {
+      "get": {
+        "summary": "CPU / RAM / GPU usage",
+        "description": "Returns current system resource utilisation. Values are sampled and cached for 500ms.",
+        "operationId": "getSystemUsage",
+        "tags": ["System"],
+        "responses": {
+          "200": {
+            "description": "System usage metrics.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SystemUsageResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/system/processes": {
+      "get": {
+        "summary": "List background processes",
+        "description": "Returns all alive background processes started by tool execution (e.g. servers launched by execute_command with background=true).",
+        "operationId": "listBackgroundProcesses",
+        "tags": ["System"],
+        "responses": {
+          "200": {
+            "description": "List of alive background processes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "pid": { "type": "integer" },
+                      "command": { "type": "string" },
+                      "conversationId": { "type": "string", "nullable": true },
+                      "startedAt": { "type": "integer", "format": "int64" },
+                      "alive": { "type": "boolean" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/system/processes/kill": {
+      "post": {
+        "summary": "Kill a background process",
+        "description": "Terminates a background process by PID (process tree kill).",
+        "operationId": "killBackgroundProcess",
+        "tags": ["System"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "pid": { "type": "integer", "description": "PID to terminate." }
+                },
+                "required": ["pid"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Kill result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/desktop/abort": {
+      "post": {
+        "summary": "Abort desktop automation",
+        "description": "Sends an abort signal to stop any in-progress desktop automation tool calls.",
+        "operationId": "desktopAbort",
+        "tags": ["System"],
+        "responses": {
+          "200": {
+            "description": "Abort signal sent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/logs/frontend": {
+      "post": {
+        "summary": "Ingest frontend log entries",
+        "description": "Accepts batches of frontend log entries and writes them to timestamped log files. Maximum 200 entries per request.",
+        "operationId": "postFrontendLogs",
+        "tags": ["Logging"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "logs": {
+                    "type": "array",
+                    "items": { "$ref": "#/components/schemas/FrontendLogEntry" },
+                    "maxItems": 200
+                  }
+                },
+                "required": ["logs"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Logs written.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SuccessResponse" }
+              }
+            }
+          },
+          "400": { "description": "Empty or oversized payload." },
+          "413": { "description": "Too many log entries." }
+        }
+      }
+    },
+    "/api/errors": {
+      "get": {
+        "summary": "Get recorded app errors",
+        "description": "Returns the most recent app-level errors stored in the database.",
+        "operationId": "getAppErrors",
+        "tags": ["Logging"],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "default": 100, "minimum": 1, "maximum": 500 },
+            "description": "Maximum number of errors to return."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of app errors.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/AppErrorRecord" }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Record an app error",
+        "description": "Stores a frontend or runtime error in the database for later review.",
+        "operationId": "recordAppError",
+        "tags": ["Logging"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AppErrorRecord" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Error stored.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SuccessResponse" }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Clear all app errors",
+        "description": "Deletes all stored app error records.",
+        "operationId": "clearAppErrors",
+        "tags": ["Logging"],
+        "responses": {
+          "200": {
+            "description": "Errors cleared.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "deleted": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chat": {
+      "post": {
+        "summary": "Send a chat message (local model)",
+        "description": "Submits a user message to the local model for generation. Returns immediately with the conversation_id; real streaming content arrives via the WebSocket at /ws/conversation/watch/{id}.",
+        "operationId": "postChat",
+        "tags": ["Chat"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ChatRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Generation started. Content streams via WebSocket.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ChatResponse" }
+              }
+            }
+          },
+          "503": {
+            "description": "No model loaded or worker unavailable.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chat/stream": {
+      "post": {
+        "summary": "Send a chat message with SSE streaming (local model)",
+        "description": "Submits a user message and streams tokens back using Server-Sent Events. Each event is a JSON object matching the TokenData schema. The stream ends with 'data: [DONE]'.",
+        "operationId": "postChatStream",
+        "tags": ["Chat"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ChatRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SSE token stream.",
+            "content": {
+              "text/event-stream": {
+                "schema": { "$ref": "#/components/schemas/TokenData" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chat/cancel": {
+      "post": {
+        "summary": "Cancel current generation",
+        "description": "Sends a cancellation signal to the worker to stop the active generation.",
+        "operationId": "postChatCancel",
+        "tags": ["Chat"],
+        "responses": {
+          "200": {
+            "description": "Cancellation requested.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ws/chat/stream": {
+      "get": {
+        "summary": "WebSocket: streaming chat",
+        "description": "WebSocket upgrade endpoint. After upgrade the server streams generation tokens to the client. Requires 'Upgrade: websocket' headers.",
+        "operationId": "wsChat",
+        "tags": ["WebSocket"],
+        "responses": {
+          "101": { "description": "Switching Protocols — WebSocket upgrade successful." },
+          "400": { "description": "WebSocket upgrade required." }
+        }
+      }
+    },
+    "/ws/conversation/watch/{id}": {
+      "get": {
+        "summary": "WebSocket: watch conversation for new messages",
+        "description": "WebSocket upgrade endpoint. The server pushes new messages and generation events for the specified conversation as they arrive.",
+        "operationId": "wsConversationWatch",
+        "tags": ["WebSocket"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Conversation ID to watch."
+          }
+        ],
+        "responses": {
+          "101": { "description": "Switching Protocols." },
+          "400": { "description": "WebSocket upgrade required." }
+        }
+      }
+    },
+    "/ws/status": {
+      "get": {
+        "summary": "WebSocket: persistent status connection",
+        "description": "WebSocket upgrade endpoint. The server sends an initial model status message and then keeps the connection alive with pings. Used by the frontend to detect server crashes and reload state.",
+        "operationId": "wsStatus",
+        "tags": ["WebSocket"],
+        "responses": {
+          "101": { "description": "Switching Protocols." },
+          "400": { "description": "WebSocket upgrade required." }
+        }
+      }
+    },
+    "/api/config": {
+      "get": {
+        "summary": "Get global sampler/app configuration",
+        "description": "Returns the currently saved sampler and application configuration.",
+        "operationId": "getConfig",
+        "tags": ["Configuration"],
+        "responses": {
+          "200": {
+            "description": "Current configuration.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SamplerConfig" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Update global configuration",
+        "description": "Saves a new sampler/app configuration. Validates temperature (0-2) and top_p (0-1) before saving.",
+        "operationId": "postConfig",
+        "tags": ["Configuration"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SamplerConfig" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Configuration saved.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SuccessResponse" }
+              }
+            }
+          },
+          "400": { "description": "Validation failed (invalid temperature, top_p, or context_size)." }
+        }
+      }
+    },
+    "/api/config/provider-keys": {
+      "get": {
+        "summary": "Get configured provider API keys (masked)",
+        "description": "Returns provider API key configuration with values masked (first 4 + last 4 characters shown).",
+        "operationId": "getProviderKeys",
+        "tags": ["Configuration"],
+        "responses": {
+          "200": {
+            "description": "Masked provider key map.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "api_key": { "type": "string", "description": "Masked key value." },
+                      "configured": { "type": "boolean" },
+                      "base_url": { "type": "string", "nullable": true }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Set a provider API key",
+        "description": "Stores or updates the API key and optional base URL for a provider. Send empty api_key and no base_url to remove a provider.",
+        "operationId": "setProviderKey",
+        "tags": ["Configuration"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "provider": { "type": "string", "description": "Provider identifier (e.g. 'openai', 'anthropic', 'openrouter')." },
+                  "api_key": { "type": "string" },
+                  "base_url": { "type": "string", "nullable": true }
+                },
+                "required": ["provider"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Key saved.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "provider": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/config/active-provider": {
+      "get": {
+        "summary": "Get active provider and model",
+        "description": "Returns the currently selected provider (local or a remote provider ID) and model.",
+        "operationId": "getActiveProvider",
+        "tags": ["Configuration"],
+        "responses": {
+          "200": {
+            "description": "Active provider info.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "provider": { "type": "string", "example": "local" },
+                    "model": { "type": "string", "nullable": true }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Set active provider and model",
+        "description": "Switches the active provider. Use 'local' to switch back to the local GGUF model.",
+        "operationId": "setActiveProvider",
+        "tags": ["Configuration"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "provider": { "type": "string", "default": "local" },
+                  "model": { "type": "string", "nullable": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Provider set.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "provider": { "type": "string" },
+                    "model": { "type": "string", "nullable": true }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/conversations": {
+      "get": {
+        "summary": "List all conversations",
+        "description": "Returns all conversations sorted by creation time (newest first). Supports optional text search.",
+        "operationId": "listConversations",
+        "tags": ["Conversations"],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Filter conversations by title, display name, or ID containing this term (case-insensitive)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Conversation list.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ConversationsResponse" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a new empty conversation",
+        "description": "Creates a new conversation record with the given title.",
+        "operationId": "createConversation",
+        "tags": ["Conversations"],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": { "type": "string", "default": "New conversation" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "New conversation created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string" },
+                    "title": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/conversations/batch": {
+      "delete": {
+        "summary": "Batch delete conversations",
+        "description": "Deletes multiple conversations by ID in a single request.",
+        "operationId": "batchDeleteConversations",
+        "tags": ["Conversations"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "ids": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "List of conversation IDs to delete."
+                  }
+                },
+                "required": ["ids"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Batch delete result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "deleted": { "type": "integer" },
+                    "failed": { "type": "integer" },
+                    "total": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/conversations/{id}": {
+      "delete": {
+        "summary": "Delete a conversation",
+        "description": "Deletes a conversation and its associated persisted screenshots. ID must start with 'chat_'.",
+        "operationId": "deleteConversation",
+        "tags": ["Conversations"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Conversation ID (e.g. 'chat_2024-01-01-12-00-00-000')."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Conversation deleted.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SuccessResponse" }
+              }
+            }
+          },
+          "400": { "description": "Invalid conversation ID." },
+          "500": { "description": "Delete failed." }
+        }
+      }
+    },
+    "/api/conversations/{id}/title": {
+      "patch": {
+        "summary": "Rename a conversation",
+        "description": "Updates the title of an existing conversation.",
+        "operationId": "renameConversation",
+        "tags": ["Conversations"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": { "type": "string" }
+                },
+                "required": ["title"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Conversation renamed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "title": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "404": { "description": "Conversation not found." }
+        }
+      }
+    },
+    "/api/conversations/{id}/truncate": {
+      "post": {
+        "summary": "Truncate conversation at a sequence order",
+        "description": "Deletes all messages with sequence_order >= from_sequence. Used for edit and regenerate functionality.",
+        "operationId": "truncateConversation",
+        "tags": ["Conversations"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "from_sequence": { "type": "integer", "description": "All messages at or after this sequence_order will be deleted." }
+                },
+                "required": ["from_sequence"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Messages truncated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "deleted": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/conversations/{id}/compact": {
+      "post": {
+        "summary": "Force compact a conversation",
+        "description": "Manually triggers conversation compaction (summarisation) via the worker process.",
+        "operationId": "compactConversation",
+        "tags": ["Conversations"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Compaction triggered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/conversations/{id}/summary": {
+      "patch": {
+        "summary": "Edit compaction summary text",
+        "description": "Replaces the stored compaction summary for a conversation.",
+        "operationId": "updateSummary",
+        "tags": ["Conversations"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "text": { "type": "string" }
+                },
+                "required": ["text"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Summary updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "ok": { "type": "boolean" } }
+                }
+              }
+            }
+          },
+          "404": { "description": "Conversation or summary not found." }
+        }
+      },
+      "delete": {
+        "summary": "Delete compaction summary",
+        "description": "Removes the compaction summary, reverting the conversation to its full uncompacted state.",
+        "operationId": "deleteSummary",
+        "tags": ["Conversations"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Summary deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "ok": { "type": "boolean" } }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/conversations/{id}/events": {
+      "get": {
+        "summary": "Get conversation event log",
+        "description": "Returns in-memory debug events (stalls, compaction, tool calls, etc.) for a conversation.",
+        "operationId": "getConversationEvents",
+        "tags": ["Conversations"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Event list.",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "type": "object" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/conversations/{id}/metrics": {
+      "get": {
+        "summary": "Get conversation generation metrics",
+        "description": "Returns persisted metrics log entries (timing, token counts) for a conversation.",
+        "operationId": "getConversationMetrics",
+        "tags": ["Conversations"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Metrics log entries.",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "type": "object" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/conversations/{id}/token-analysis": {
+      "get": {
+        "summary": "Token usage breakdown",
+        "description": "Estimates token usage per role (system, user, assistant, tool responses) for the conversation using character-count heuristics.",
+        "operationId": "getConversationTokenAnalysis",
+        "tags": ["Conversations"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Token analysis result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "total_messages": { "type": "integer" },
+                    "compacted_messages": { "type": "integer" },
+                    "total_chars": { "type": "integer" },
+                    "total_tokens_estimate": { "type": "integer" },
+                    "breakdown": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                          "chars": { "type": "integer" },
+                          "tokens": { "type": "integer" },
+                          "pct": { "type": "integer" }
+                        }
+                      }
+                    },
+                    "tool_calls": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/conversations/{id}/config": {
+      "get": {
+        "summary": "Get conversation-level config override",
+        "description": "Returns the sampler configuration for a specific conversation (falls back to global config if no override is set).",
+        "operationId": "getConversationConfig",
+        "tags": ["Configuration", "Conversations"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Conversation config.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SamplerConfig" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Set conversation-level config override",
+        "description": "Saves a sampler configuration override that applies only to this conversation.",
+        "operationId": "setConversationConfig",
+        "tags": ["Configuration", "Conversations"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SamplerConfig" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Config saved.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SuccessResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/conversation/{id}": {
+      "get": {
+        "summary": "Get conversation messages",
+        "description": "Returns the full message history for a conversation. Tool call/response pairs are reconstructed into the streamed widget format.",
+        "operationId": "getConversation",
+        "tags": ["Conversations"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Conversation content.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ConversationContentResponse" }
+              }
+            }
+          },
+          "404": { "description": "Conversation not found." }
+        }
+      }
+    },
+    "/api/conversation/{id}/export": {
+      "get": {
+        "summary": "Export conversation",
+        "description": "Exports a conversation as Markdown or JSON. Returns a downloadable file.",
+        "operationId": "exportConversation",
+        "tags": ["Conversations"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["md", "json"], "default": "md" },
+            "description": "Export format."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Exported file (Content-Disposition: attachment).",
+            "content": {
+              "text/markdown": { "schema": { "type": "string" } },
+              "application/json": { "schema": { "type": "object" } }
+            }
+          }
+        }
+      }
+    },
+    "/api/conversation/{id}/queue": {
+      "post": {
+        "summary": "Queue a message for injection during active generation",
+        "description": "Queues a user message to be injected into the conversation while the model is actively generating (interrupt-and-continue).",
+        "operationId": "queueMessage",
+        "tags": ["Chat", "Conversations"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "content": { "type": "string" }
+                },
+                "required": ["content"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Message queued.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "queued": { "type": "integer", "description": "Number of characters queued." }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/model/status": {
+      "get": {
+        "summary": "Get current model status",
+        "description": "Returns the loaded model status including load state, generation status, context size, and token overhead.",
+        "operationId": "getModelStatus",
+        "tags": ["Model"],
+        "responses": {
+          "200": {
+            "description": "Model status.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ModelStatus" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/model/info": {
+      "get": {
+        "summary": "Get detailed GGUF model info",
+        "description": "Reads and returns GGUF metadata for a model file: architecture, context length, quantization, recommended parameters, chat template, and detected mmproj files.",
+        "operationId": "getModelInfo",
+        "tags": ["Model"],
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "URL-encoded absolute path to the GGUF file."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Model metadata.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": { "type": "string" },
+                    "architecture": { "type": "string" },
+                    "parameters": { "type": "string" },
+                    "quantization": { "type": "string" },
+                    "file_size": { "type": "string" },
+                    "context_length": { "type": "string" },
+                    "path": { "type": "string" },
+                    "estimated_layers": { "type": "integer" },
+                    "general_name": { "type": "string" },
+                    "has_vision": { "type": "boolean" },
+                    "mmproj_files": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": { "type": "string" },
+                          "path": { "type": "string" },
+                          "file_size": { "type": "string" }
+                        }
+                      }
+                    },
+                    "recommended_params": { "type": "object" },
+                    "gguf_metadata": { "type": "object" },
+                    "tool_format": { "type": "string" },
+                    "chat_template": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Missing or invalid path, or path is a directory." },
+          "404": { "description": "Model file not found." }
+        }
+      }
+    },
+    "/api/model/load": {
+      "post": {
+        "summary": "Load a GGUF model",
+        "description": "Instructs the worker process to load the specified model. Persists context/cache parameters to global config.",
+        "operationId": "loadModel",
+        "tags": ["Model"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ModelLoadRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Model loaded successfully.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ModelResponse" }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to load model.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ModelResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/model/unload": {
+      "post": {
+        "summary": "Unload the current model",
+        "description": "Force-kills the worker process to reclaim all CUDA memory and automatically restarts it. Equivalent to hard-unload.",
+        "operationId": "unloadModel",
+        "tags": ["Model"],
+        "responses": {
+          "200": {
+            "description": "Model unloaded.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ModelResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/model/hard-unload": {
+      "post": {
+        "summary": "Force-kill worker to reclaim all VRAM",
+        "description": "Immediately kills the worker process, reclaiming all GPU and system memory. A fresh worker is automatically started.",
+        "operationId": "hardUnloadModel",
+        "tags": ["Model"],
+        "responses": {
+          "200": {
+            "description": "Worker killed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/model/history": {
+      "get": {
+        "summary": "Get recently used model paths",
+        "description": "Returns a list of recently loaded model file paths.",
+        "operationId": "getModelHistory",
+        "tags": ["Model"],
+        "responses": {
+          "200": {
+            "description": "Model path history.",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Add a path to model history",
+        "description": "Manually adds a model path to the recent history list.",
+        "operationId": "addModelHistory",
+        "tags": ["Model"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "model_path": { "type": "string" }
+                },
+                "required": ["model_path"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Path added.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SuccessResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/backends": {
+      "get": {
+        "summary": "List available compute backends",
+        "description": "Returns all compute backends (CUDA, Vulkan, CPU, etc.) with device info and VRAM. Also indicates whether an NVIDIA GPU was hardware-detected and whether CUDA is loaded.",
+        "operationId": "getBackends",
+        "tags": ["Model"],
+        "responses": {
+          "200": {
+            "description": "Backend list.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BackendsResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/backends/install": {
+      "post": {
+        "summary": "Download and install GPU backend DLLs",
+        "description": "Downloads the CUDA backend DLL from the GitHub release and places it in the app directory. Returns an SSE stream with progress events.",
+        "operationId": "installBackend",
+        "tags": ["Model"],
+        "responses": {
+          "200": {
+            "description": "SSE progress stream. Events: {type:'progress', bytes, total, percent} or {type:'done', path, bytes} or {type:'error', message}.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": { "type": "string", "enum": ["progress", "done", "error"] },
+                    "bytes": { "type": "integer" },
+                    "total": { "type": "integer" },
+                    "percent": { "type": "integer" },
+                    "path": { "type": "string" },
+                    "message": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/providers": {
+      "get": {
+        "summary": "List all providers",
+        "description": "Returns all provider backends (local, OpenAI-compatible, CLI tools like Claude Code, Codex) with their availability status.",
+        "operationId": "listProviders",
+        "tags": ["Providers"],
+        "responses": {
+          "200": {
+            "description": "Provider list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "providers": { "type": "array", "items": { "type": "object" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/providers/configured": {
+      "get": {
+        "summary": "List configured (non-CLI) providers",
+        "description": "Returns only non-CLI providers that have been configured with API keys.",
+        "operationId": "listConfiguredProviders",
+        "tags": ["Providers"],
+        "responses": {
+          "200": {
+            "description": "Configured provider list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "providers": { "type": "array", "items": { "type": "object" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/providers/cli-status": {
+      "get": {
+        "summary": "List CLI providers with availability",
+        "description": "Checks availability of CLI-based providers (Claude Code, Codex) by detecting their executables.",
+        "operationId": "listCliProviders",
+        "tags": ["Providers"],
+        "responses": {
+          "200": {
+            "description": "CLI provider list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "providers": { "type": "array", "items": { "type": "object" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/providers/{provider}/models": {
+      "get": {
+        "summary": "Fetch available models from a provider",
+        "description": "Calls the provider's /v1/models endpoint and returns the model list. Requires the provider to have an API key configured.",
+        "operationId": "getProviderModels",
+        "tags": ["Providers"],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Provider ID (e.g. 'openai', 'openrouter', 'anthropic')."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Model list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "models": { "type": "array", "items": { "type": "string" } }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "No API key or base URL configured." }
+        }
+      }
+    },
+    "/api/providers/{provider}/generate": {
+      "post": {
+        "summary": "Generate with a remote provider (blocking)",
+        "description": "Runs a full agentic generation loop with the specified provider and returns the complete response when done.",
+        "operationId": "providerGenerate",
+        "tags": ["Providers"],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ProviderRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Generation complete.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ProviderGenerateResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/providers/{provider}/stream": {
+      "post": {
+        "summary": "Generate with a remote provider (SSE streaming)",
+        "description": "Runs a full agentic generation loop with the specified provider, streaming tokens via SSE. Events have type 'token', 'status', or 'done'.",
+        "operationId": "providerStream",
+        "tags": ["Providers"],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ProviderRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SSE stream. Token events: {type:'token',token:string}. Done event: {type:'done',provider,session_id,stop_reason,cost_usd,duration_ms,input_tokens,output_tokens,model,conversation_id}.",
+            "content": {
+              "text/event-stream": { "schema": { "type": "object" } }
+            }
+          }
+        }
+      }
+    },
+    "/api/tools/available": {
+      "get": {
+        "summary": "List available tools with schemas",
+        "description": "Returns all built-in native tools with their JSON schemas (used to populate model system prompt).",
+        "operationId": "getAvailableTools",
+        "tags": ["Tools"],
+        "responses": {
+          "200": {
+            "description": "Tool list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "core_tools": { "type": "integer" },
+                    "tools": { "type": "array", "items": { "type": "object" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tools/execute": {
+      "post": {
+        "summary": "Execute a tool call",
+        "description": "Executes a named tool with provided arguments. Supports: read_file, write_file, edit_file, undo_edit, insert_text, search_files, find_files, list_directory, bash/shell/command, web_fetch, browser_navigate, browser_search, browser_eval, browser_get_text, browser_close, and all desktop automation tools.",
+        "operationId": "executeTools",
+        "tags": ["Tools"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ToolExecuteRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Tool execution result.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ToolExecuteResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tools/web-fetch": {
+      "get": {
+        "summary": "Fetch a web page as plain text",
+        "description": "Fetches the URL, strips HTML, and returns the text content. Useful for quick curl-style access without a model context.",
+        "operationId": "webFetch",
+        "tags": ["Tools"],
+        "parameters": [
+          {
+            "name": "url",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "URL to fetch."
+          },
+          {
+            "name": "max_length",
+            "in": "query",
+            "schema": { "type": "integer", "default": 10000 },
+            "description": "Maximum characters to return."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Fetched text.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ToolExecuteResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/file/extract-text": {
+      "post": {
+        "summary": "Extract text from a file",
+        "description": "Accepts raw file bytes in the body and returns extracted plain text. Supports PDF, DOCX, PPTX, XLSX, EPUB, ODT, RTF, ZIP, CSV, EML, and plain text files (with encoding detection).",
+        "operationId": "extractText",
+        "tags": ["Tools"],
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Filename with extension (used for type detection, e.g. 'report.pdf')."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": { "type": "string", "format": "binary" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Extracted text.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "filename": { "type": "string" },
+                    "text": { "type": "string" },
+                    "chars": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/mcp/servers": {
+      "get": {
+        "summary": "List MCP servers",
+        "description": "Returns all configured MCP (Model Context Protocol) server definitions.",
+        "operationId": "listMcpServers",
+        "tags": ["MCP"],
+        "responses": {
+          "200": {
+            "description": "Server list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/McpServerConfig" }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Add or update an MCP server",
+        "description": "Saves an MCP server configuration. If the ID already exists it is updated.",
+        "operationId": "saveMcpServer",
+        "tags": ["MCP"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/McpServerConfig" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Server saved.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SuccessResponse" }
+              }
+            }
+          },
+          "400": { "description": "Validation failed (missing id, name, or transport config)." }
+        }
+      }
+    },
+    "/api/mcp/servers/{id}": {
+      "delete": {
+        "summary": "Remove an MCP server",
+        "description": "Deletes the MCP server configuration with the given ID.",
+        "operationId": "deleteMcpServer",
+        "tags": ["MCP"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server deleted.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SuccessResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/mcp/servers/{id}/toggle": {
+      "post": {
+        "summary": "Enable or disable an MCP server",
+        "description": "Toggles the enabled state of an MCP server without removing its configuration.",
+        "operationId": "toggleMcpServer",
+        "tags": ["MCP"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "enabled": { "type": "boolean" }
+                },
+                "required": ["enabled"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Server toggled.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SuccessResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/mcp/refresh": {
+      "post": {
+        "summary": "Refresh MCP connections",
+        "description": "Instructs the worker to reconnect to all enabled MCP servers and rediscover available tools.",
+        "operationId": "refreshMcp",
+        "tags": ["MCP"],
+        "responses": {
+          "200": {
+            "description": "Refresh result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "connected_servers": { "type": "array", "items": { "type": "string" } },
+                    "total_tools": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/mcp/tools": {
+      "get": {
+        "summary": "List discovered MCP tools",
+        "description": "Returns all tools currently discovered from connected MCP servers, grouped by server.",
+        "operationId": "listMcpTools",
+        "tags": ["MCP"],
+        "responses": {
+          "200": {
+            "description": "MCP tool list by server.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "servers": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/McpServerStatus" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/browse": {
+      "get": {
+        "summary": "Browse filesystem for model files",
+        "description": "Lists files and directories at the given path. Defaults to /app/models. Directories and GGUF files are shown; results are sorted with directories first.",
+        "operationId": "browseFiles",
+        "tags": ["Files"],
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "schema": { "type": "string", "default": "/app/models" },
+            "description": "URL-encoded absolute directory path to browse."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Directory contents.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BrowseFilesResponse" }
+              }
+            }
+          },
+          "403": { "description": "Path not allowed." },
+          "404": { "description": "Directory not found." }
+        }
+      }
+    },
+    "/api/browse/pick-directory": {
+      "post": {
+        "summary": "Open native OS directory picker",
+        "description": "Shows the operating system's native directory picker dialog and returns the selected path. Returns null path if the user cancels.",
+        "operationId": "pickDirectory",
+        "tags": ["Files"],
+        "responses": {
+          "200": {
+            "description": "Selected path (null if cancelled).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "path": { "type": "string", "nullable": true }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/browse/pick-file": {
+      "post": {
+        "summary": "Open native OS file picker (GGUF)",
+        "description": "Shows the operating system's native file picker dialog filtered to .gguf files. Returns null path if the user cancels.",
+        "operationId": "pickFile",
+        "tags": ["Files"],
+        "responses": {
+          "200": {
+            "description": "Selected file path (null if cancelled).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "path": { "type": "string", "nullable": true }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/upload": {
+      "post": {
+        "summary": "Upload a model file",
+        "description": "Uploads a GGUF model file to /app/models. Maximum 100MB. Filename is taken from the Content-Disposition header or filename query parameter.",
+        "operationId": "uploadModel",
+        "tags": ["Files"],
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Destination filename (used if Content-Disposition header is absent)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": { "type": "string", "format": "binary" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "File uploaded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" },
+                    "file_path": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "413": { "description": "File too large (> 100MB)." }
+        }
+      }
+    },
+    "/api/hub/search": {
+      "get": {
+        "summary": "Search HuggingFace Hub for GGUF models",
+        "description": "Proxies the HuggingFace API to search for GGUF models, avoiding CORS restrictions from the browser.",
+        "operationId": "hubSearch",
+        "tags": ["HuggingFace Hub"],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Search query (e.g. 'devstral', 'llama')."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "default": 20, "maximum": 50 },
+            "description": "Maximum number of results."
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["downloads", "likes", "lastModified", "createdAt"], "default": "downloads" },
+            "description": "Sort field."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search results.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/HubModel" }
+                }
+              }
+            }
+          },
+          "502": { "description": "HuggingFace API error." }
+        }
+      }
+    },
+    "/api/hub/tree": {
+      "get": {
+        "summary": "List GGUF files in a HuggingFace repo",
+        "description": "Fetches the file tree of a HuggingFace model repository and returns only the GGUF files with their sizes.",
+        "operationId": "hubTree",
+        "tags": ["HuggingFace Hub"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Repository ID (e.g. 'unsloth/Llama-3.2-1B-GGUF')."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "GGUF file list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/HubFile" }
+                }
+              }
+            }
+          },
+          "400": { "description": "Missing id parameter." },
+          "502": { "description": "HuggingFace API error." }
+        }
+      }
+    },
+    "/api/hub/download": {
+      "post": {
+        "summary": "Download a model from HuggingFace Hub",
+        "description": "Downloads a GGUF file from HuggingFace to the local filesystem. Supports resume (HTTP Range requests + .part files). Returns an SSE stream with progress events. If the file already exists, returns a done event immediately.",
+        "operationId": "hubDownload",
+        "tags": ["HuggingFace Hub"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/DownloadRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SSE download progress stream. Events: {type:'progress',bytes,total,speed_kbps} or {type:'done',path,bytes} or {type:'error',message}.",
+            "content": {
+              "text/event-stream": { "schema": { "type": "object" } }
+            }
+          },
+          "400": { "description": "Destination directory does not exist." }
+        }
+      }
+    },
+    "/api/hub/downloads": {
+      "get": {
+        "summary": "List download records",
+        "description": "Returns all hub download records stored in the database (both pending and completed).",
+        "operationId": "listDownloads",
+        "tags": ["HuggingFace Hub"],
+        "responses": {
+          "200": {
+            "description": "Download records.",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "type": "object" } }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Cancel/delete a download",
+        "description": "Deletes a download record from the database and removes the associated .part and final files from disk.",
+        "operationId": "deleteDownload",
+        "tags": ["HuggingFace Hub"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "integer" },
+            "description": "Download record ID."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Download deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "ok": { "type": "boolean" } }
+                }
+              }
+            }
+          },
+          "400": { "description": "Missing or invalid id parameter." }
+        }
+      }
+    },
+    "/api/hub/downloads/verify": {
+      "post": {
+        "summary": "Verify downloaded files",
+        "description": "Checks all download records against the filesystem, removes records for files that no longer exist, and returns the clean list.",
+        "operationId": "verifyDownloads",
+        "tags": ["HuggingFace Hub"],
+        "responses": {
+          "200": {
+            "description": "Verified download records.",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "type": "object" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/images/{path}": {
+      "get": {
+        "summary": "Serve persisted screenshot image",
+        "description": "Serves a screenshot image stored by the take_screenshot tool. Supports .jpg, .jpeg, and .png.",
+        "operationId": "getImage",
+        "tags": ["Files"],
+        "parameters": [
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Relative path under assets/images/ (e.g. 'chat_2024-01-01-12-00/shot.jpg')."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Image bytes.",
+            "content": {
+              "image/png": { "schema": { "type": "string", "format": "binary" } },
+              "image/jpeg": { "schema": { "type": "string", "format": "binary" } }
+            }
+          },
+          "404": { "description": "Image not found." }
+        }
+      }
+    }
+  }
+}
