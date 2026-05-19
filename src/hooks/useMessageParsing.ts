@@ -11,6 +11,7 @@ import {
   THINKING_REGEX,
   THINKING_UNCLOSED_REGEX,
   THINKING_ORPHAN_CLOSE_REGEX,
+  THINKING_ORPHAN_OPEN_REGEX,
 } from '../utils/toolSpanCollectors';
 
 export type { MessageSegment } from '../utils/toolSpanCollectors';
@@ -122,7 +123,7 @@ export function useMessageParsing(message: Message, toolTags?: ToolTags): Parsed
     // Preprocess: move tool calls out of thinking blocks so they don't show as raw text
     const preprocessed = moveToolsOutOfThinking(message.content);
     const thinkMatch = preprocessed.match(/<think>([\s\S]*?)<\/think>/);
-    if (thinkMatch) return thinkMatch[1].trim();
+    if (thinkMatch) return thinkMatch[1].trim() || null; // null for empty <think></think>
     const unclosedMatch = preprocessed.match(THINKING_UNCLOSED_REGEX);
     // Return empty string (not null) for unclosed thinking — this allows the
     // ThinkingBlock to render immediately when <think> opens, even before content arrives.
@@ -155,6 +156,7 @@ export function useMessageParsing(message: Message, toolTags?: ToolTags): Parsed
       .replace(THINKING_REGEX, '')
       .replace(THINKING_UNCLOSED_REGEX, '')
       .replace(THINKING_ORPHAN_CLOSE_REGEX, '')
+      .replace(THINKING_ORPHAN_OPEN_REGEX, '')
       .replace(EXEC_CLEANUP, '')
       .replace(SYS_OUTPUT_CLEANUP, '')
       .replace(/<tool_response>[\s\S]*?<\/tool_response>/g, '')

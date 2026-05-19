@@ -55,6 +55,11 @@ pub mod codex;
 pub mod gemini;
 pub mod openai_compat;
 
+// Private submodules used only by openai_compat
+mod openai_compat_types;
+mod openai_compat_request;
+mod openai_compat_streaming;
+
 /// Apply CREATE_NO_WINDOW on Windows to prevent terminal flashing for CLI providers.
 #[cfg(windows)]
 pub fn hide_cli_window(cmd: &mut tokio::process::Command) {

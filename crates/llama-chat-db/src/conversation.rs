@@ -1,13 +1,16 @@
 // Conversation and message database operations
 
+pub use crate::logger::ConversationLogger;
+
 use super::{
     current_timestamp_millis, current_timestamp_secs, db_error, generate_conversation_id, Database,
-    StreamingUpdate,
 };
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 use serde_json;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+
+#[path = "conversation/compaction.rs"]
+mod compaction;
 
 
 /// Conversation metadata
@@ -35,6 +38,42 @@ pub struct MessageRecord {
     pub prompt_tokens: Option<i32>,
     /// True if this message has been compacted (summarized). The model skips these.
     pub compacted: bool,
+    /// DB sequence_order for this message — used for precise truncation on edit.
+    pub sequence_order: i32,
+}
+
+/// A compaction summary — records which message range has been summarized.
+#[derive(Debug, Clone)]
+pub struct CompactionSummaryRecord {
+    pub id: String,
+    pub conversation_id: String,
+    pub covers_from_sequence: i32,
+    pub covers_to_sequence: i32,
+    pub message_count: i32,
+    pub summary_text: String,
+    pub created_at: i64,
+}
+
+impl CompactionSummaryRecord {
+    /// Convert to a synthetic MessageRecord for UI rendering.
+    pub fn as_message_record(&self) -> MessageRecord {
+        MessageRecord {
+            role: "system".to_string(),
+            content: format!(
+                "[Conversation summary — {} earlier messages compacted]\n{}",
+                self.message_count, self.summary_text
+            ),
+            timestamp: self.created_at as u64,
+            prompt_tok_per_sec: None,
+            gen_tok_per_sec: None,
+            gen_eval_ms: None,
+            gen_tokens: None,
+            prompt_eval_ms: None,
+            prompt_tokens: None,
+            compacted: false,
+            sequence_order: self.covers_to_sequence,
+        }
+    }
 }
 
 impl Database {
@@ -428,28 +467,80 @@ impl Database {
     }
 
     /// Delete all messages with sequence_order >= from_sequence.
+    /// Also deletes any compaction summaries that cover messages in the deleted range
+    /// (so the model automatically reverts to full context from the nearest surviving summary).
     /// Returns the number of deleted messages.
     pub fn truncate_messages(&self, conversation_id: &str, from_sequence: i32) -> Result<usize, String> {
         let conn = self.connection();
+
+        // Any summary whose range ends at or after from_sequence is invalidated: it covers
+        // messages that are about to be deleted, so the model must fall back to raw messages.
+        conn.execute(
+            "DELETE FROM compaction_summaries WHERE conversation_id = ?1 AND covers_to_sequence >= ?2",
+            rusqlite::params![conversation_id, from_sequence],
+        )
+        .map_err(db_error("delete invalidated summaries"))?;
+
         let deleted = conn
             .execute(
                 "DELETE FROM messages WHERE conversation_id = ?1 AND sequence_order >= ?2",
                 rusqlite::params![conversation_id, from_sequence],
             )
             .map_err(db_error("truncate messages"))?;
+
         Ok(deleted)
     }
 
-    /// Get all messages for a conversation (in order)
-    pub fn get_messages(&self, conversation_id: &str) -> Result<Vec<MessageRecord>, String> {
+    /// Load all compaction summaries for a conversation in ascending coverage order.
+    pub fn get_compaction_summaries(
+        &self,
+        conversation_id: &str,
+    ) -> Result<Vec<CompactionSummaryRecord>, String> {
         let conn = self.connection();
         let mut stmt = conn
             .prepare(
-                "SELECT role, content, timestamp, prompt_tok_per_sec, gen_tok_per_sec, gen_eval_ms, gen_tokens, prompt_eval_ms, prompt_tokens, COALESCE(compacted, 0) FROM messages WHERE conversation_id = ?1 ORDER BY sequence_order ASC",
+                "SELECT id, conversation_id, covers_from_sequence, covers_to_sequence, message_count, summary_text, created_at \
+                 FROM compaction_summaries WHERE conversation_id = ?1 ORDER BY covers_to_sequence ASC",
             )
-            .map_err(db_error("prepare statement"))?;
+            .map_err(db_error("prepare compaction summaries"))?;
 
-        let messages = stmt
+        let records = stmt
+            .query_map([conversation_id], |row| {
+                Ok(CompactionSummaryRecord {
+                    id: row.get(0)?,
+                    conversation_id: row.get(1)?,
+                    covers_from_sequence: row.get(2)?,
+                    covers_to_sequence: row.get(3)?,
+                    message_count: row.get(4)?,
+                    summary_text: row.get(5)?,
+                    created_at: row.get(6)?,
+                })
+            })
+            .map_err(db_error("query compaction summaries"))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(records)
+    }
+
+    /// Get all messages for a conversation (in order), with compaction metadata applied.
+    ///
+    /// Messages that fall within a compaction summary's range have `compacted=true`.
+    /// A synthetic `role='system'` record is injected after each compacted range so the
+    /// UI can render the summary divider at the right position.
+    pub fn get_messages(&self, conversation_id: &str) -> Result<Vec<MessageRecord>, String> {
+        let summaries = self.get_compaction_summaries(conversation_id)?;
+
+        let conn = self.connection();
+        let mut stmt = conn
+            .prepare(
+                "SELECT role, content, timestamp, prompt_tok_per_sec, gen_tok_per_sec, gen_eval_ms, gen_tokens, \
+                 prompt_eval_ms, prompt_tokens, sequence_order \
+                 FROM messages WHERE conversation_id = ?1 ORDER BY sequence_order ASC",
+            )
+            .map_err(db_error("prepare messages"))?;
+
+        let raw: Vec<MessageRecord> = stmt
             .query_map([conversation_id], |row| {
                 Ok(MessageRecord {
                     role: row.get(0)?,
@@ -461,477 +552,131 @@ impl Database {
                     gen_tokens: row.get(6)?,
                     prompt_eval_ms: row.get(7)?,
                     prompt_tokens: row.get(8)?,
-                    compacted: row.get::<_, i32>(9).unwrap_or(0) != 0,
+                    compacted: false,
+                    sequence_order: row.get(9).unwrap_or(0),
                 })
             })
             .map_err(db_error("query messages"))?
             .filter_map(|r| r.ok())
             .collect();
 
-        Ok(messages)
+        if summaries.is_empty() {
+            return Ok(raw);
+        }
+
+        // Merge raw messages with synthetic summary records.
+        // Summaries are already sorted by covers_to_sequence ASC.
+        let mut output = Vec::with_capacity(raw.len() + summaries.len());
+        let mut sum_iter = summaries.iter().peekable();
+
+        for mut msg in raw {
+            // Inject summaries that end before this message's sequence position.
+            while let Some(s) = sum_iter.peek() {
+                if s.covers_to_sequence < msg.sequence_order {
+                    output.push(s.as_message_record());
+                    sum_iter.next();
+                } else {
+                    break;
+                }
+            }
+
+            // Mark non-system messages that fall within any summary range as compacted.
+            if msg.role != "system" {
+                msg.compacted = summaries.iter().any(|s| {
+                    s.covers_from_sequence <= msg.sequence_order
+                        && msg.sequence_order <= s.covers_to_sequence
+                });
+            }
+
+            output.push(msg);
+        }
+
+        // Inject any remaining summaries (edge case: summary past last message).
+        for s in sum_iter {
+            output.push(s.as_message_record());
+        }
+
+        Ok(output)
     }
 
     /// Get conversation as text format for the prompt builder.
     ///
-    /// Returns ONLY user/assistant messages (+ compaction summaries).
+    /// Strategy: find the most recent compaction summary, emit it as a SYSTEM: block,
+    /// then emit only the messages that come after its covered range.
+    /// If no summary exists, emit all messages from the beginning.
+    ///
     /// System prompt and tool definitions are injected separately by the
     /// prompt builder (templates.rs), NOT from conversation text.
-    /// This separation enables accurate token budgeting in conversation_context.
     pub fn get_conversation_as_text(&self, conversation_id: &str) -> Result<String, String> {
-        let messages = self.get_messages(conversation_id)?;
+        let conn = self.connection();
+
+        // Find the latest summary (highest covers_to_sequence).
+        let latest = conn
+            .query_row(
+                "SELECT covers_from_sequence, covers_to_sequence, message_count, summary_text \
+                 FROM compaction_summaries WHERE conversation_id = ?1 \
+                 ORDER BY covers_to_sequence DESC LIMIT 1",
+                [conversation_id],
+                |row| {
+                    Ok((
+                        row.get::<_, i32>(0)?,
+                        row.get::<_, i32>(1)?,
+                        row.get::<_, i32>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(db_error("get latest compaction summary"))?;
+
         let mut text = String::new();
 
-        // Add messages (skip compacted ones — model reads summaries instead)
-        for msg in messages {
-            if msg.compacted {
-                continue;
-            }
+        // Emit the summary as a SYSTEM: block so template parsers can inject it into the
+        // system prompt (same wire format as before, just sourced from the new table).
+        let start_after = if let Some((_, covers_to, message_count, summary_text)) = &latest {
+            text.push_str("SYSTEM:\n");
+            text.push_str(&format!(
+                "[Conversation summary — {} earlier messages compacted]\n{}",
+                message_count, summary_text
+            ));
+            text.push_str("\n\n");
+            *covers_to
+        } else {
+            0
+        };
 
-            let role_header = match msg.role.as_str() {
+        // Emit user/assistant messages that come after the summarized range.
+        let mut stmt = conn
+            .prepare(
+                "SELECT role, content FROM messages \
+                 WHERE conversation_id = ?1 AND sequence_order > ?2 AND role != 'system' \
+                 ORDER BY sequence_order ASC",
+            )
+            .map_err(db_error("prepare conversation text query"))?;
+
+        let rows = stmt
+            .query_map(params![conversation_id, start_after], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(db_error("query conversation text"))?;
+
+        for row in rows.filter_map(|r| r.ok()) {
+            let (role, content) = row;
+            let role_header = match role.as_str() {
                 "user" => "USER",
                 "assistant" => "ASSISTANT",
-                "system" => "SYSTEM",
-                _ => &msg.role.to_uppercase(),
+                other => other,
             };
-
             text.push_str(role_header);
             text.push_str(":\n");
-            text.push_str(&msg.content);
+            text.push_str(&content);
             text.push_str("\n\n");
         }
 
         Ok(text)
     }
 
-    /// Mark messages as compacted and insert a summary message.
-    pub fn compact_messages(
-        &self,
-        conversation_id: &str,
-        up_to_sequence: i32,
-        summary: &str,
-        summary_sequence: i32,
-    ) -> Result<usize, String> {
-        let conn = self.connection();
-
-        // Mark old messages as compacted
-        let marked = conn.execute(
-            "UPDATE messages SET compacted = 1 WHERE conversation_id = ?1 AND sequence_order <= ?2 AND role != 'system' AND COALESCE(compacted, 0) = 0",
-            rusqlite::params![conversation_id, up_to_sequence],
-        ).map_err(db_error("mark messages compacted"))?;
-
-        // Insert summary message right before the first non-compacted message
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-
-        conn.execute(
-            "INSERT INTO messages (id, conversation_id, role, content, timestamp, sequence_order, is_streaming, compacted) VALUES (?1, ?2, 'system', ?3, ?4, ?5, 0, 0)",
-            rusqlite::params![
-                uuid::Uuid::new_v4().to_string(),
-                conversation_id,
-                format!("[Conversation summary — {} earlier messages compacted]\n{}", marked, summary),
-                timestamp,
-                summary_sequence,
-            ],
-        ).map_err(db_error("insert compaction summary"))?;
-
-        Ok(marked)
-    }
-}
-
-/// SQLite-backed conversation logger
-/// Replaces the file-based ConversationLogger
-pub struct ConversationLogger {
-    db: Arc<Database>,
-    conversation_id: String,
-    current_message_id: Option<String>,
-    /// Preserved after finish_assistant_message so timings can be stored.
-    last_finished_message_id: Option<String>,
-    accumulated_content: String,
-    sequence_counter: i32,
-    last_broadcast_at: Option<Instant>,
-    last_broadcast_len: usize,
-    /// Latest token position from generation (avoids re-tokenization in watchers)
-    current_tokens_used: i32,
-    /// Context size from generation (avoids re-tokenization in watchers)
-    current_max_tokens: i32,
-    /// Last time we flushed accumulated content to the DB (crash recovery)
-    last_db_flush: Option<Instant>,
-    /// Length of accumulated_content at last DB flush
-    last_db_flush_len: usize,
-}
-
-const STREAM_BROADCAST_MIN_INTERVAL: Duration = Duration::from_millis(200);
-const STREAM_BROADCAST_MIN_CHARS: usize = 64;
-/// How often to persist streaming content to DB for crash recovery
-const DB_FLUSH_INTERVAL: Duration = Duration::from_secs(5);
-
-impl ConversationLogger {
-    /// Create a new conversation
-    pub fn new(db: Arc<Database>, system_prompt: Option<&str>) -> Result<Self, String> {
-        let conversation_id = db.create_conversation(system_prompt)?;
-
-        let sequence_counter = if system_prompt.is_some() {
-            // Insert system message
-            let now = current_timestamp_secs();
-            db.insert_message(&conversation_id, "system", system_prompt.unwrap(), now, 0)?;
-            1
-        } else {
-            0
-        };
-
-        Ok(Self {
-            db,
-            conversation_id,
-            current_message_id: None,
-            last_finished_message_id: None,
-            accumulated_content: String::new(),
-            sequence_counter,
-            last_broadcast_at: None,
-            last_broadcast_len: 0,
-            current_tokens_used: 0,
-            current_max_tokens: 0,
-            last_db_flush: None,
-            last_db_flush_len: 0,
-        })
-    }
-
-    /// Load an existing conversation
-    pub fn from_existing(db: Arc<Database>, conversation_id: &str) -> Result<Self, String> {
-        let id = conversation_id;
-
-        if !db.conversation_exists(id)? {
-            return Err(format!("Conversation {id} not found"));
-        }
-
-        let sequence_counter = db.get_message_count(id)?;
-
-        Ok(Self {
-            db,
-            conversation_id: id.to_string(),
-            current_message_id: None,
-            last_finished_message_id: None,
-            accumulated_content: String::new(),
-            sequence_counter,
-            last_broadcast_at: None,
-            last_broadcast_len: 0,
-            current_tokens_used: 0,
-            current_max_tokens: 0,
-            last_db_flush: None,
-            last_db_flush_len: 0,
-        })
-    }
-
-    /// Log a complete message (typically user message)
-    pub fn log_message(&mut self, role: &str, message: &str) {
-        self.log_message_with_tokens(role, message, None);
-    }
-
-    /// Log a message with an optional pre-computed token count.
-    pub fn log_message_with_tokens(&mut self, role: &str, message: &str, token_count: Option<i32>) {
-        let timestamp = current_timestamp_secs();
-        let role_lower = role.to_lowercase();
-
-        if let Err(e) = self.db.insert_message_with_tokens(
-            &self.conversation_id,
-            &role_lower,
-            message,
-            timestamp,
-            self.sequence_counter,
-            token_count,
-        ) {
-            sys_error!("Failed to log message: {}", e);
-            return;
-        }
-
-        self.sequence_counter += 1;
-
-        // Update conversation timestamp
-        let _ = self.db.update_conversation_timestamp(&self.conversation_id);
-    }
-
-    /// Start streaming an assistant message
-    pub fn start_assistant_message(&mut self) {
-        let message_id = uuid::Uuid::new_v4().to_string();
-        let timestamp = current_timestamp_secs();
-
-        // Insert placeholder message with is_streaming = 1
-        if let Err(e) = self.db.insert_streaming_message(
-            &self.conversation_id,
-            &message_id,
-            timestamp,
-            self.sequence_counter,
-        ) {
-            sys_error!("Failed to start streaming message: {}", e);
-            return;
-        }
-
-        // Initialize streaming buffer
-        if let Err(e) = self
-            .db
-            .init_streaming_buffer(&self.conversation_id, &message_id)
-        {
-            sys_error!("Failed to init streaming buffer: {}", e);
-        }
-
-        self.current_message_id = Some(message_id);
-        self.accumulated_content.clear();
-        self.sequence_counter += 1;
-        self.last_broadcast_at = None;
-        self.last_broadcast_len = 0;
-    }
-
-    /// Update token counts from the generation loop (call before log_token)
-    pub fn set_token_counts(&mut self, tokens_used: i32, max_tokens: i32) {
-        self.current_tokens_used = tokens_used;
-        self.current_max_tokens = max_tokens;
-    }
-
-    /// Append a token to the current streaming message.
-    /// Only accumulates in memory + broadcasts via WebSocket (throttled).
-    /// DB writes happen only at finish_assistant_message() — keeps generation non-blocking.
-    pub fn log_token(&mut self, token: &str) {
-        self.accumulated_content.push_str(token);
-
-        if self.current_message_id.is_some() {
-            // Throttle WebSocket broadcasts to avoid overwhelming clients
-            let now = Instant::now();
-            let len = self.accumulated_content.len();
-            let should_broadcast = match self.last_broadcast_at {
-                None => true,
-                Some(last_at) => {
-                    let elapsed = now.duration_since(last_at);
-                    elapsed >= STREAM_BROADCAST_MIN_INTERVAL
-                        && len.saturating_sub(self.last_broadcast_len) >= STREAM_BROADCAST_MIN_CHARS
-                }
-            };
-
-            if should_broadcast {
-                self.last_broadcast_at = Some(now);
-                self.last_broadcast_len = len;
-                self.db.broadcast_streaming_update(StreamingUpdate {
-                    conversation_id: self.conversation_id.clone(),
-                    partial_content: self.accumulated_content.clone(),
-                    tokens_used: self.current_tokens_used,
-                    max_tokens: self.current_max_tokens,
-                    is_complete: false,
-                });
-            }
-        }
-    }
-
-    /// Append a bulk chunk of token content and broadcast if needed.
-    /// More efficient than per-token log_token() — called from periodic sync.
-    pub fn log_token_bulk(&mut self, chunk: &str) {
-        if chunk.is_empty() {
-            return;
-        }
-        self.accumulated_content.push_str(chunk);
-
-        if let Some(ref msg_id) = self.current_message_id {
-            let now = Instant::now();
-            let len = self.accumulated_content.len();
-            let should_broadcast = match self.last_broadcast_at {
-                None => true,
-                Some(last_at) => {
-                    now.duration_since(last_at) >= STREAM_BROADCAST_MIN_INTERVAL
-                        && len.saturating_sub(self.last_broadcast_len) >= STREAM_BROADCAST_MIN_CHARS
-                }
-            };
-
-            if should_broadcast {
-                self.last_broadcast_at = Some(now);
-                self.last_broadcast_len = len;
-                self.db.broadcast_streaming_update(StreamingUpdate {
-                    conversation_id: self.conversation_id.clone(),
-                    partial_content: self.accumulated_content.clone(),
-                    tokens_used: self.current_tokens_used,
-                    max_tokens: self.current_max_tokens,
-                    is_complete: false,
-                });
-            }
-
-            // Periodic DB flush for crash recovery — save content so far
-            let should_flush = match self.last_db_flush {
-                None => true,
-                Some(last) => now.duration_since(last) >= DB_FLUSH_INTERVAL
-                    && len > self.last_db_flush_len,
-            };
-            if should_flush {
-                let conn = self.db.connection();
-                let _ = conn.execute(
-                    "UPDATE messages SET content = ?1 WHERE id = ?2",
-                    rusqlite::params![&self.accumulated_content, msg_id],
-                );
-                self.last_db_flush = Some(now);
-                self.last_db_flush_len = len;
-            }
-        }
-    }
-
-    /// Finish the current streaming message
-    pub fn finish_assistant_message(&mut self) {
-        if let Some(ref msg_id) = self.current_message_id {
-            // Update the message with final content
-            if let Err(e) = self
-                .db
-                .finalize_streaming_message(msg_id, &self.accumulated_content)
-            {
-                sys_error!("Failed to finalize streaming message: {}", e);
-            }
-
-            // Clean up streaming buffer
-            if let Err(e) = self.db.delete_streaming_buffer(&self.conversation_id) {
-                sys_error!("Failed to clean streaming buffer: {}", e);
-            }
-
-            // Broadcast completion
-            self.last_broadcast_at = Some(Instant::now());
-            self.last_broadcast_len = self.accumulated_content.len();
-            self.db.broadcast_streaming_update(StreamingUpdate {
-                conversation_id: self.conversation_id.clone(),
-                partial_content: self.accumulated_content.clone(),
-                tokens_used: self.current_tokens_used,
-                max_tokens: self.current_max_tokens,
-                is_complete: true,
-            });
-        }
-
-        self.last_finished_message_id = self.current_message_id.take();
-        self.accumulated_content.clear();
-
-        // Update conversation timestamp
-        let _ = self.db.update_conversation_timestamp(&self.conversation_id);
-    }
-
-    /// Store generation metrics in the logs table as a JSON entry.
-    pub fn log_metrics(
-        &self,
-        prompt_tok_per_sec: Option<f64>,
-        gen_tok_per_sec: Option<f64>,
-        tokens_used: i32,
-        max_tokens: i32,
-    ) {
-        let metrics = serde_json::json!({
-            "prompt_tok_per_sec": prompt_tok_per_sec,
-            "gen_tok_per_sec": gen_tok_per_sec,
-            "tokens_used": tokens_used,
-            "max_tokens": max_tokens,
-        });
-        if let Err(e) = self.db.insert_log(
-            Some(&self.conversation_id),
-            "metrics",
-            &metrics.to_string(),
-        ) {
-            sys_error!("Failed to log metrics: {}", e);
-        }
-    }
-
-    /// Store generation timing metrics on the last finished assistant message.
-    pub fn store_message_timings(
-        &self,
-        prompt_tok_per_sec: Option<f64>,
-        gen_tok_per_sec: Option<f64>,
-        gen_eval_ms: Option<f64>,
-        gen_tokens: Option<i32>,
-        prompt_eval_ms: Option<f64>,
-        prompt_tokens: Option<i32>,
-    ) {
-        if let Some(ref msg_id) = self.last_finished_message_id {
-            if let Err(e) = self.db.update_message_timings(
-                msg_id,
-                prompt_tok_per_sec,
-                gen_tok_per_sec,
-                gen_eval_ms,
-                gen_tokens,
-                prompt_eval_ms,
-                prompt_tokens,
-            ) {
-                sys_error!("Failed to store message timings: {}", e);
-            }
-        }
-    }
-
-    /// Get the conversation ID
-    pub fn get_conversation_id(&self) -> String {
-        self.conversation_id.clone()
-    }
-
-    /// Get full conversation content as text (backward compatibility)
-    pub fn get_full_conversation(&self) -> String {
-        self.db
-            .get_conversation_as_text(&self.conversation_id)
-            .unwrap_or_default()
-    }
-
-    /// Load conversation from database (replaces load_conversation_from_file)
-    pub fn load_conversation_from_file(&self) -> std::io::Result<String> {
-        self.db
-            .get_conversation_as_text(&self.conversation_id)
-            .map_err(std::io::Error::other)
-    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn create_test_db() -> Arc<Database> {
-        Arc::new(Database::new(":memory:").unwrap())
-    }
-
-    #[test]
-    fn test_create_conversation() {
-        let db = create_test_db();
-        let id = db.create_conversation(Some("Test prompt")).unwrap();
-        assert!(id.starts_with("chat_"));
-        assert!(db.conversation_exists(&id).unwrap());
-    }
-
-    #[test]
-    fn test_insert_and_get_messages() {
-        let db = create_test_db();
-        let conv_id = db.create_conversation(None).unwrap();
-
-        db.insert_message(&conv_id, "user", "Hello", 1234567890, 0)
-            .unwrap();
-        db.insert_message(&conv_id, "assistant", "Hi there!", 1234567891, 1)
-            .unwrap();
-
-        let messages = db.get_messages(&conv_id).unwrap();
-        assert_eq!(messages.len(), 2);
-        assert_eq!(messages[0].role, "user");
-        assert_eq!(messages[0].content, "Hello");
-        assert_eq!(messages[1].role, "assistant");
-        assert_eq!(messages[1].content, "Hi there!");
-    }
-
-    #[test]
-    fn test_conversation_logger() {
-        let db = create_test_db();
-        let mut logger = ConversationLogger::new(db.clone(), Some("System prompt")).unwrap();
-
-        logger.log_message("USER", "Hello");
-        logger.start_assistant_message();
-        logger.log_token("Hi ");
-        logger.log_token("there!");
-        logger.finish_assistant_message();
-
-        let text = logger.get_full_conversation();
-        assert!(text.contains("SYSTEM:\nSystem prompt"));
-        assert!(text.contains("USER:\nHello"));
-        assert!(text.contains("ASSISTANT:\nHi there!"));
-    }
-
-    #[test]
-    fn test_delete_conversation() {
-        let db = create_test_db();
-        let id = db.create_conversation(None).unwrap();
-        db.insert_message(&id, "user", "Test", 0, 0).unwrap();
-
-        assert!(db.conversation_exists(&id).unwrap());
-        db.delete_conversation(&id).unwrap();
-        assert!(!db.conversation_exists(&id).unwrap());
-    }
-}
+mod tests;

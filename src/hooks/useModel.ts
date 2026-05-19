@@ -79,7 +79,17 @@ export const useModel = () => {
       const json = JSON.stringify(data);
       if (json !== lastStatusJson.current) {
         lastStatusJson.current = json;
-        setStatus(data);
+        // During crash recovery: backend may briefly report loaded:false while still generating.
+        // Preserve the last known model_path so the header doesn't flash "Select a provider".
+        if (!data.loaded && data.generating) {
+          setStatus((prev) => ({
+            ...data,
+            loaded: prev.loaded,
+            model_path: prev.model_path ?? data.model_path,
+          }));
+        } else {
+          setStatus(data);
+        }
       }
       setError(null);
       setHasStatusError(false);

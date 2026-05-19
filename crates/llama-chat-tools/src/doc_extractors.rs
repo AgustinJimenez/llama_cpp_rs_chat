@@ -1,5 +1,9 @@
 //! Document format extractors.
 use std::io::Read;
+
+#[path = "doc_extractors/html_markdown.rs"]
+mod html_markdown;
+use html_markdown::{convert_and_truncate, extract_body_content};
 pub fn extract_pdf_text(bytes: &[u8], max_chars: usize) -> String {
     // Try pdf_oxide first (fast, handles more encodings) via temp file
     let oxide_result: Result<String, String> = extract_pdf_with_oxide(bytes, max_chars);
@@ -645,50 +649,14 @@ fn html_to_markdown_truncated(html: &str, max_chars: usize) -> String {
     let source = match &article_html {
         Some(article) => article,
         None => {
-            // Fallback: extract <body> only (avoids <head> tag leakage)
             let body = extract_body_content(html);
-            if body.is_empty() { html } else {
-                // Need to return owned string — use a leak-free approach
+            if body.is_empty() {
+                html
+            } else {
                 return convert_and_truncate(&body, max_chars);
             }
         }
     };
 
     convert_and_truncate(source, max_chars)
-}
-
-/// Convert HTML source to markdown and truncate.
-#[allow(dead_code)]
-fn convert_and_truncate(source: &str, max_chars: usize) -> String {
-    let converter = htmd::HtmlToMarkdown::new();
-    let markdown = converter.convert(source).unwrap_or_else(|e| {
-        eprintln!("[WEB_FETCH/MD] htmd conversion failed: {e}, using raw html2text");
-        html2text::from_read(source.as_bytes(), 120)
-    });
-
-    if markdown.is_empty() {
-        return "(empty page)".to_string();
-    }
-
-    if markdown.len() > max_chars {
-        let mut end = max_chars;
-        while end > 0 && !markdown.is_char_boundary(end) {
-            end -= 1;
-        }
-        format!("{}\n\n[Truncated at {} chars]", &markdown[..end], max_chars)
-    } else {
-        markdown
-    }
-}
-
-/// Extract content between <body> and </body> tags (case-insensitive).
-#[allow(dead_code)]
-fn extract_body_content(html: &str) -> String {
-    let lower = html.to_ascii_lowercase();
-    let start = lower.find("<body").and_then(|i| lower[i..].find('>').map(|j| i + j + 1));
-    let end = lower.rfind("</body>");
-    match (start, end) {
-        (Some(s), Some(e)) if s < e => html[s..e].to_string(),
-        _ => String::new(), // fallback: convert whole HTML
-    }
 }

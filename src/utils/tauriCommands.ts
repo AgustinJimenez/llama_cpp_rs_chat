@@ -292,7 +292,33 @@ export async function compactConversation(conversationId: string): Promise<void>
     return invokeCmd('compact_conversation', { conversationId: id });
   }
   const response = await fetch(`/api/conversations/${id}/compact`, { method: 'POST' });
-  if (!response.ok) throw new Error('Failed to compact conversation');
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error((body as { error?: string }).error ?? 'Failed to compact conversation');
+  }
+}
+
+export async function updateConversationSummary(
+  conversationId: string,
+  text: string,
+): Promise<void> {
+  const response = await fetch(`/api/conversations/${conversationId}/summary`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error((body as { error?: string }).error ?? 'Failed to update summary');
+  }
+}
+
+export async function deleteConversationSummary(conversationId: string): Promise<void> {
+  const response = await fetch(`/api/conversations/${conversationId}/summary`, { method: 'DELETE' });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error((body as { error?: string }).error ?? 'Failed to delete summary');
+  }
 }
 
 export async function truncateConversation(

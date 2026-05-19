@@ -52,6 +52,7 @@ pub async fn get_model_status(
                 tool_definitions_tokens: None,
                 context_size,
                 last_finish_reason: last_finish_reason.clone(),
+                supports_thinking: None,
             }
         }
         None => ModelStatus {
@@ -72,6 +73,7 @@ pub async fn get_model_status(
             tool_definitions_tokens: None,
             context_size: None,
             last_finish_reason,
+            supports_thinking: None,
         },
     };
 
@@ -119,6 +121,7 @@ pub async fn load_model(
                     tool_definitions_tokens: None,
                     context_size,
                     last_finish_reason: None,
+                    supports_thinking: None,
                 }),
             })
         }
@@ -156,6 +159,7 @@ pub async fn unload_model(
                 tool_definitions_tokens: None,
                 context_size: None,
                 last_finish_reason: None,
+                supports_thinking: None,
             }),
         }),
         Err(e) => Ok(ModelResponse {

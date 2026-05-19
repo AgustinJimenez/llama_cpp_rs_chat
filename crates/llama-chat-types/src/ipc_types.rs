@@ -167,6 +167,8 @@ pub enum WorkerPayload {
     },
     /// Conversation compaction completed.
     CompactionDone { conversation_id: String },
+    /// Intermediate status update (id=0, no pending request needed).
+    StatusUpdate { message: String },
     /// An error occurred.
     Error { message: String },
 }

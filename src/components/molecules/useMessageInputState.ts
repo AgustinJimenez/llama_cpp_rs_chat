@@ -45,13 +45,16 @@ export function useInputState() {
     isModelBusy || isGeneratingElsewhere || isCompacting || (!status.loaded && !isRemoteProvider);
   const estimatedConvTokens = useMemo(() => {
     // Use promptTokens + genTokens from the last assistant message with timing data.
-    // promptTokens = context fed in, genTokens = response now also in context.
-    // Together they reflect what's actually occupying the context window right now.
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const tm = messages[i].timings;
-      if (tm?.promptTokens && tm?.genTokens) return tm.promptTokens + tm.genTokens;
+    // Skip this estimate if compacted messages exist — timing data is from before
+    // compaction and doesn't reflect the actual (reduced) context window.
+    const hasCompacted = messages.some((m) => m.compacted);
+    if (!hasCompacted) {
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const tm = messages[i].timings;
+        if (tm?.promptTokens && tm?.genTokens) return tm.promptTokens + tm.genTokens;
+      }
     }
-    // Fall back to char-length estimate (no timing data yet)
+    // Fall back to char-length estimate (no timing data yet, or post-compaction)
     return Math.round(
       messages.reduce((sum, m) => sum + (m.compacted ? 0 : m.content?.length || 0), 0) /
         CHARS_PER_TOKEN,

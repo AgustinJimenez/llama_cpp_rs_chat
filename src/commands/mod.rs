@@ -1,5 +1,10 @@
 pub mod browser_panel;
+pub mod chat;
 pub mod config;
 pub mod conversation;
+pub mod files;
 pub mod hub;
+pub mod logging;
 pub mod model;
+pub mod providers;
+pub mod tools;

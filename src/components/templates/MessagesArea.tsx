@@ -43,7 +43,7 @@ export const MessagesArea = () => {
     tailMsg?.role === 'system' &&
     tailMsg.content.includes('[System:') &&
     (isModelLoading || modelStatus.generating === true);
-  const showLoadingRow = isLoading || isCrashRecovery;
+  const showLoadingRow = isCrashRecovery;
   const itemCount = messages.length + (showLoadingRow ? 1 : 0);
 
   const virtualizer = useVirtualizer({

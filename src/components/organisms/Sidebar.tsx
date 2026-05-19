@@ -310,10 +310,9 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
 
         <div className="flex-1 overflow-y-auto px-2 pb-2 min-h-0" data-testid="conversations-list">
           {(() => {
-            if (loading) {
-              return <div className="text-center text-foreground/50 text-xs py-6">Loading...</div>;
-            }
             if (filteredConversations.length === 0) {
+              // Only show empty state when not loading — avoids replacing the list with a label
+              if (loading) return null;
               return (
                 <div className="text-center text-foreground/50 text-xs py-6">
                   {searchTerm ? `No results for "${searchTerm}"` : 'No conversations yet'}

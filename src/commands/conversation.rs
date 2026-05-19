@@ -74,7 +74,7 @@ pub async fn get_conversation(
                     timestamp: m.timestamp, prompt_tok_per_sec: m.prompt_tok_per_sec,
                     gen_tok_per_sec: m.gen_tok_per_sec, gen_eval_ms: m.gen_eval_ms,
                     gen_tokens: m.gen_tokens, prompt_eval_ms: m.prompt_eval_ms, prompt_tokens: m.prompt_tokens,
-                    compacted: false,
+                    compacted: false, sequence_order: Some(m.sequence_order),
                 });
                 msg_idx += 1;
             }
@@ -87,7 +87,7 @@ pub async fn get_conversation(
                 timestamp: m.timestamp, prompt_tok_per_sec: m.prompt_tok_per_sec,
                 gen_tok_per_sec: m.gen_tok_per_sec, gen_eval_ms: m.gen_eval_ms,
                 gen_tokens: m.gen_tokens, prompt_eval_ms: m.prompt_eval_ms, prompt_tokens: m.prompt_tokens,
-                compacted: m.compacted,
+                compacted: m.compacted, sequence_order: Some(m.sequence_order),
             });
             msg_idx += 1;
             idx += 1;
@@ -117,6 +117,7 @@ pub async fn get_conversation(
                 prompt_eval_ms: None,
                 prompt_tokens: None,
                 compacted: false,
+                sequence_order: None,
             });
             // Save recovered content as a real message and clear buffer
             if let Ok(mut logger) = web::database::conversation::ConversationLogger::from_existing(
@@ -131,7 +132,13 @@ pub async fn get_conversation(
         }
     }
 
-    Ok(ConversationContentResponse { content, messages: final_messages, provider_id: None, provider_session_id: None })
+    Ok(ConversationContentResponse {
+        content,
+        messages: final_messages,
+        provider_id: None,
+        provider_session_id: None,
+        tool_timings: Vec::new(),
+    })
 }
 
 #[tauri::command]
@@ -198,6 +205,7 @@ pub fn parse_conversation_to_messages(content: &str) -> Vec<crate::web::models::
                     prompt_eval_ms: None,
                     prompt_tokens: None,
                     compacted: false,
+                    sequence_order: None,
                 });
                 sequence += 1;
             }
@@ -222,6 +230,7 @@ pub fn parse_conversation_to_messages(content: &str) -> Vec<crate::web::models::
             prompt_eval_ms: None,
             prompt_tokens: None,
             compacted: false,
+            sequence_order: None,
         });
     }
 

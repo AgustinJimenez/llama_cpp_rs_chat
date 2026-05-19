@@ -176,6 +176,16 @@ async fn handle_request_impl(
             web::routes::conversation::handle_compact_conversation(id, bridge.clone()).await?
         }
 
+        // Summary edit/delete (PATCH/DELETE must be before generic catch-alls)
+        (&Method::PATCH, path) if path.starts_with("/api/conversations/") && path.ends_with("/summary") => {
+            let id = &path["/api/conversations/".len()..path.len() - "/summary".len()];
+            web::routes::conversation::handle_update_summary(req, id, db.clone()).await?
+        }
+        (&Method::DELETE, path) if path.starts_with("/api/conversations/") && path.ends_with("/summary") => {
+            let id = &path["/api/conversations/".len()..path.len() - "/summary".len()];
+            web::routes::conversation::handle_delete_summary(id, db.clone()).await?
+        }
+
         // Conversation rename (PATCH must be before DELETE catch-all)
         (&Method::PATCH, path) if path.starts_with("/api/conversations/") && path.ends_with("/title") => {
             let id = &path["/api/conversations/".len()..path.len() - "/title".len()];
@@ -544,7 +554,7 @@ fn enforce_single_instance() {
             #[cfg(target_os = "windows")]
             {
                 let _ = std::process::Command::new("taskkill")
-                    .args(["/PID", &old_pid.to_string(), "/F"])
+                    .args(["/T", "/F", "/PID", &old_pid.to_string()])
                     .stdout(std::process::Stdio::null())
                     .stderr(std::process::Stdio::null())
                     .status();

@@ -155,6 +155,7 @@ export function useChat() {
             };
           }
           if (msg.compacted) m.compacted = true;
+          if (msg.sequence_order != null) m.sequenceOrder = msg.sequence_order as number;
           return m;
         });
         // Assign persisted tool timings to messages by sequential index.
@@ -311,6 +312,16 @@ export function useChat() {
     setIsLoading,
   });
 
+  // ─── Reload messages after compaction ─────────────────────────────────
+
+  useEffect(() => {
+    const onCompacted = () => {
+      if (currentConversationId) loadConversation(currentConversationId);
+    };
+    window.addEventListener('conversation-compacted', onCompacted);
+    return () => window.removeEventListener('conversation-compacted', onCompacted);
+  }, [currentConversationId, loadConversation]);
+
   // ─── Edit message ──────────────────────────────────────────────────────
 
   const editMessage = useCallback(
@@ -324,10 +335,13 @@ export function useChat() {
       }
       if (isLoading) return;
 
-      const systemMsgsBefore = messagesRef.current
-        .slice(0, messageIndex)
-        .filter((m) => m.role === 'system').length;
-      const fromSequence = messageIndex - systemMsgsBefore + 1;
+      const targetMsg = messagesRef.current[messageIndex];
+      const fromSequence = targetMsg?.sequenceOrder ?? (() => {
+        const systemMsgsBefore = messagesRef.current
+          .slice(0, messageIndex)
+          .filter((m) => m.role === 'system').length;
+        return messageIndex - systemMsgsBefore + 1;
+      })();
 
       if (currentConversationId) {
         try {
@@ -369,10 +383,13 @@ export function useChat() {
       const userContent = msgs[userMsgIndex].content;
       const userImages = msgs[userMsgIndex].image_data;
 
-      const systemMsgsBefore = msgs
-        .slice(0, messageIndex)
-        .filter((m) => m.role === 'system').length;
-      const fromSequence = messageIndex - systemMsgsBefore + 1;
+      const targetMsg = msgs[messageIndex];
+      const fromSequence = targetMsg?.sequenceOrder ?? (() => {
+        const systemMsgsBefore = msgs
+          .slice(0, messageIndex)
+          .filter((m) => m.role === 'system').length;
+        return messageIndex - systemMsgsBefore + 1;
+      })();
 
       if (currentConversationId) {
         try {
@@ -542,6 +559,7 @@ export function useChat() {
                 content: String(msg.content),
                 timestamp: Number(msg.timestamp),
                 ...(msg.compacted ? { compacted: true } : {}),
+                ...(msg.sequence_order != null ? { sequenceOrder: msg.sequence_order as number } : {}),
                 ...(msg.gen_tok_per_sec != null
                   ? {
                       timings: {

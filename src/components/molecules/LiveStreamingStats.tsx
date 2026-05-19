@@ -4,13 +4,42 @@ import { toast } from 'react-hot-toast';
 
 import { useChatContext } from '../../contexts/ChatContext';
 import { useModelContext } from '../../contexts/ModelContext';
-import type { TimingInfo } from '../../utils/chatTransport';
+import type { TimingInfo, TokenBreakdown } from '../../utils/chatTransport';
 import { compactConversation } from '../../utils/tauriCommands';
 
 import { MessageStatistics } from './messages/MessageStatistics';
 
 const STATUS_POLL_INTERVAL_MS = 2000;
 const CONTEXT_WARNING_THRESHOLD_PCT = 90;
+
+const LiveTokenCounter = ({
+  tokensUsed,
+  maxTokens,
+  pct,
+}: {
+  tokensUsed: number;
+  maxTokens: number;
+  pct: number;
+}) => {
+  const [showModal, setShowModal] = useState(false);
+  const fmt = (n: number) => n.toLocaleString('en-US').replace(/,/g, '.');
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setShowModal(true)}
+        className={`inline-flex items-center gap-1 cursor-pointer hover:text-foreground transition-colors ${pct > CONTEXT_WARNING_THRESHOLD_PCT ? 'text-yellow-400' : ''}`}
+        title="Click for token breakdown"
+      >
+        <Database className="h-3 w-3" />
+        {fmt(tokensUsed)}/{fmt(maxTokens)}
+      </button>
+      {showModal ? (
+        <TokenBreakdownModal onClose={() => setShowModal(false)} modelContextSize={maxTokens} />
+      ) : null}
+    </>
+  );
+};
 
 export const LiveStreamingStats = ({
   tokensUsed,
@@ -30,7 +59,6 @@ export const LiveStreamingStats = ({
   const lastTokensRef = useRef<number>(0);
   const genTimeRef = useRef(0); // accumulated generation-only time (ms)
   const lastTickRef = useRef(Date.now());
-  const fmt = (n: number) => n.toLocaleString('en-US').replace(/,/g, '.');
   const pct = tokensUsed && maxTokens ? Math.round((tokensUsed / maxTokens) * 100) : 0;
 
   useEffect(() => {
@@ -90,7 +118,9 @@ export const LiveStreamingStats = ({
     return () => clearInterval(id);
   }, [streamStatus]);
 
-  const displayStatus = streamStatus || polledStatus;
+  const rawStatus = streamStatus || polledStatus;
+  // Compaction progress is shown by CompactButton — filter it out of the inline status line.
+  const displayStatus = rawStatus?.includes('Compacting') ? undefined : rawStatus;
   const hasContext = tokensUsed !== undefined && maxTokens !== undefined;
   // Use generation-only tok/s (excludes tool execution time)
   const tokPerSec = liveTokPerSec > 0 ? liveTokPerSec.toFixed(1) : null;
@@ -120,22 +150,58 @@ export const LiveStreamingStats = ({
       ) : null}
       {/* Elapsed time removed — shown by LoadingIndicator below the chat bubble */}
       {hasContext ? (
-        <span
-          className={`inline-flex items-center gap-1 ${pct > CONTEXT_WARNING_THRESHOLD_PCT ? 'text-yellow-400' : ''}`}
-          title={`Context: ${pct}% used`}
-        >
-          <Database className="h-3 w-3" />
-          {fmt(tokensUsed ?? 0)}/{fmt(maxTokens ?? 0)}
-        </span>
+        <LiveTokenCounter
+          tokensUsed={tokensUsed ?? 0}
+          maxTokens={maxTokens ?? 0}
+          pct={pct}
+        />
       ) : null}
     </div>
   );
 };
 
-const CompactButton = ({ ctxPct, conversationId }: { ctxPct: number; conversationId: string }) => {
+const CompactButton = ({
+  ctxPct,
+  conversationId,
+  streamStatus,
+}: {
+  ctxPct: number;
+  conversationId: string;
+  streamStatus?: string;
+}) => {
   const [isCompacting, setIsCompacting] = useState(false);
+  const [elapsedSec, setElapsedSec] = useState(0);
+  const [polledProgress, setPolledProgress] = useState<string | null>(null);
+  const startRef = useRef<number>(0);
+
+  // Auto-compaction is happening when the generation stream carries a Compacting status.
+  const isAutoCompacting = !!streamStatus?.includes('Compacting');
+  const compacting = isCompacting || isAutoCompacting;
+
+  useEffect(() => {
+    if (!compacting) { setElapsedSec(0); setPolledProgress(null); return; }
+    startRef.current = Date.now();
+    const id = setInterval(() => setElapsedSec(Math.floor((Date.now() - startRef.current) / 1000)), 1000);
+    // Poll server progress only for manual compaction; auto uses streamStatus directly.
+    if (!isAutoCompacting) {
+      const pollId = setInterval(async () => {
+        try {
+          const resp = await fetch('/api/model/status');
+          if (resp.ok) {
+            const data = await resp.json();
+            if (data.status_message) setPolledProgress(data.status_message);
+          }
+        } catch { /* ignore */ }
+      }, 1000);
+      return () => { clearInterval(id); clearInterval(pollId); };
+    }
+    return () => clearInterval(id);
+  }, [compacting, isAutoCompacting]);
+
+  const fmtElapsed = (s: number) => s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${s % 60 < 10 ? '0' : ''}${s % 60}s`;
+
   const handleCompact = useCallback(async () => {
-    if (isCompacting) return;
+    if (compacting) return;
     setIsCompacting(true);
     try {
       window.dispatchEvent(new CustomEvent('conversation-compacting'));
@@ -147,26 +213,46 @@ const CompactButton = ({ ctxPct, conversationId }: { ctxPct: number; conversatio
     } finally {
       setIsCompacting(false);
     }
-  }, [conversationId, isCompacting]);
+  }, [conversationId, compacting]);
+
+  // Extract progress % — from streamStatus for auto, polled status for manual.
+  const pctSource = isAutoCompacting ? streamStatus : polledProgress;
+  const pctMatch = pctSource?.match(/\((\d+)%\)/);
+  const pct = pctMatch ? pctMatch[1] : null;
+
   return (
     <button
       type="button"
       onClick={handleCompact}
-      disabled={isCompacting}
+      disabled={compacting}
       className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-muted hover:bg-accent text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       title={`Summarize old messages to free context (${ctxPct}% used)`}
     >
-      {isCompacting ? (
+      {compacting ? (
         <Loader2 className="h-3 w-3 animate-spin" />
       ) : (
         <PackageOpen className="h-3 w-3" />
       )}
-      {isCompacting ? 'Compacting…' : 'Compact'}
+      {compacting
+        ? `Compacting${pct ? ` ${pct}%` : '…'} ${fmtElapsed(elapsedSec)}`
+        : 'Compact'}
     </button>
   );
 };
 
 const CHARS_PER_TOKEN = 4;
+
+function extractToolResponseChars(content: string): number {
+  let count = 0;
+  const re1 = /<tool_response>[\s\S]*?<\/tool_response>/g;
+  const re2 = /\[TOOL_RESULTS\][\s\S]*?\[\/TOOL_RESULTS\]/g;
+  let m: RegExpExecArray | null;
+  // biome-ignore lint/suspicious/noAssignInExpressions: intentional loop pattern
+  while ((m = re1.exec(content)) !== null) count += m[0].length;
+  // biome-ignore lint/suspicious/noAssignInExpressions: intentional loop pattern
+  while ((m = re2.exec(content)) !== null) count += m[0].length;
+  return count;
+}
 const fmt = (n: number) => n.toLocaleString('en-US');
 const fmtK = (n: number) => `${(n / 1000).toFixed(1)}K`;
 const CTX_DANGER_PCT = 90;
@@ -212,16 +298,20 @@ const TokenBreakdownModal = ({
   const toolTokens = status.tool_definitions_tokens ?? 0;
 
   let summaryChars = 0;
-  let activeChars = 0;
+  let activeMsgChars = 0;
+  let activeToolChars = 0;
   let compactedChars = 0;
   let lastPromptTokens: number | null = null;
   let lastGenTokens: number | null = null;
+  let lastTokenBreakdown: TokenBreakdown | null = null;
 
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
     if (lastPromptTokens === null && m.timings?.promptTokens && m.timings?.genTokens) {
       lastPromptTokens = m.timings.promptTokens;
       lastGenTokens = m.timings.genTokens;
+      lastTokenBreakdown = m.timings.tokenBreakdown ?? null;
+      break;
     }
   }
 
@@ -232,16 +322,19 @@ const TokenBreakdownModal = ({
     } else if (m.compacted) {
       compactedChars += chars;
     } else if (m.role !== 'system') {
-      activeChars += chars;
+      const toolChars = extractToolResponseChars(m.content ?? '');
+      activeToolChars += toolChars;
+      activeMsgChars += chars - toolChars;
     }
   }
 
   const summaryEst = Math.round(summaryChars / CHARS_PER_TOKEN);
-  const activeEst = Math.round(activeChars / CHARS_PER_TOKEN);
+  const activeMsgEst = Math.round(activeMsgChars / CHARS_PER_TOKEN);
+  const activeToolEst = Math.round(activeToolChars / CHARS_PER_TOKEN);
   const compactedEst = Math.round(compactedChars / CHARS_PER_TOKEN);
   const measuredTotal =
     lastPromptTokens != null && lastGenTokens != null ? lastPromptTokens + lastGenTokens : null;
-  const estimatedTotal = systemPromptTokens + toolTokens + summaryEst + activeEst;
+  const estimatedTotal = systemPromptTokens + toolTokens + summaryEst + activeMsgEst + activeToolEst;
   const displayTotal = measuredTotal ?? estimatedTotal;
   const freeSpace = modelContextSize - displayTotal;
   const usedPct = Math.round((displayTotal / modelContextSize) * 100);
@@ -290,7 +383,23 @@ const TokenBreakdownModal = ({
             {summaryEst > 0 ? (
               <BreakdownRow label="Compaction summary" value={`~${fmt(summaryEst)}`} sub="est." />
             ) : null}
-            <BreakdownRow label="Active messages" value={`~${fmt(activeEst)}`} sub="est." />
+            <BreakdownRow label="Messages" value={`~${fmt(activeMsgEst)}`} sub="est." />
+            {lastTokenBreakdown?.tool_calls_and_results != null ? (
+              <BreakdownRow
+                label="Tool output"
+                value={fmt(lastTokenBreakdown.tool_calls_and_results)}
+                sub="measured"
+              />
+            ) : (
+              <BreakdownRow label="Tool output" value={`~${fmt(activeToolEst)}`} sub="est." />
+            )}
+            {lastTokenBreakdown?.tool_calls_and_results != null && activeToolEst > 0 ? (
+              <BreakdownRow
+                label="Tool output (raw est.)"
+                value={`~${fmt(activeToolEst)}`}
+                sub={`${Math.round((1 - lastTokenBreakdown.tool_calls_and_results / activeToolEst) * 100)}% RTK`}
+              />
+            ) : null}
             {compactedEst > 0 ? (
               <BreakdownRow
                 label="Compacted history"
@@ -392,7 +501,7 @@ const StatsLeft = ({
 }) => (
   <div className="flex-1 flex items-center gap-3 flex-wrap">
     {timings?.genTokPerSec && !isLoading ? (
-      <MessageStatistics timings={timings} tokensUsed={tokensUsed} maxTokens={maxTokens} />
+      <MessageStatistics timings={timings} />
     ) : null}
     {isLoading ? (
       <LiveStreamingStats
@@ -440,8 +549,11 @@ export const StatsBar = ({
   if (!isGenerating && !hasContextInfo) return null;
   const ctxPct = hasContextInfo ? Math.round((estimatedConvTokens / modelContextSize) * 100) : 0;
   const COMPACT_THRESHOLD_PCT = 50;
+  const isAutoCompacting = !!streamStatus?.includes('Compacting');
+  // Show compact button when idle + context is full, OR when auto-compaction is active mid-gen.
   const showCompact =
-    !isLoading && hasContextInfo && ctxPct >= COMPACT_THRESHOLD_PCT && !!currentConversationId;
+    ((!isLoading && hasContextInfo && ctxPct >= COMPACT_THRESHOLD_PCT) || isAutoCompacting) &&
+    !!currentConversationId;
 
   return (
     <div className="flex items-center justify-between mb-1">
@@ -457,7 +569,11 @@ export const StatsBar = ({
       />
       <div className="flex items-center gap-2">
         {showCompact ? (
-          <CompactButton ctxPct={ctxPct} conversationId={currentConversationId} />
+          <CompactButton
+            ctxPct={ctxPct}
+            conversationId={currentConversationId}
+            streamStatus={streamStatus}
+          />
         ) : null}
         {isLoading && stopGeneration ? (
           <button

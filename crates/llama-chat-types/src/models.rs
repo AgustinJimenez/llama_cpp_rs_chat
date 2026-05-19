@@ -9,6 +9,14 @@ use std::sync::{Arc, Mutex};
 
 use crate::tool_tags::{TagPair, ToolTags};
 
+#[path = "models/payloads.rs"]
+mod payloads;
+pub use payloads::{
+    BrowseFilesResponse, ChatMessage, ChatRequest, ChatResponse, ConversationContentResponse,
+    ConversationFile, ConversationsResponse, FileItem, ModelLoadRequest, ModelResponse,
+    ModelStatus, ToolTiming, ToolTimingLive, TokenData,
+};
+
 // Import logging macros
 use crate::sys_debug;
 
@@ -476,191 +484,6 @@ pub fn translate_tool_for_model(
         // Model supports native tools - no translation needed
         (tool_name.to_string(), arguments.clone())
     }
-}
-
-/// Live tool timing event emitted after each tool call completes during streaming.
-/// Allows the frontend to show "(87ms)" or "(3.2s)" next to each tool name in real time.
-#[derive(Serialize, Deserialize, Clone, Default, Debug)]
-pub struct ToolTimingLive {
-    pub name: String,
-    pub duration_ms: u64,
-}
-
-// Token data with metadata for streaming
-#[derive(Serialize, Clone, Default)]
-pub struct TokenData {
-    pub token: String,
-    pub tokens_used: i32,
-    pub max_tokens: i32,
-    /// Optional status message (e.g. "Compacting 5/19...") shown in the UI during generation.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub status: Option<String>,
-    /// Live generation speed (tokens/sec), updated during streaming.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub gen_tok_per_sec: Option<f64>,
-    /// Tokens generated so far in this generation pass.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub gen_tokens: Option<i32>,
-    /// Tool timing event: emitted once per tool call after execution completes.
-    /// Carries name + duration so the frontend can annotate tool calls live.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_timing: Option<ToolTimingLive>,
-}
-
-// Request/Response structures
-#[derive(Deserialize)]
-pub struct ChatRequest {
-    pub message: String,
-    pub conversation_id: Option<String>,
-    /// Base64-encoded image data URIs (e.g., "data:image/png;base64,...") for vision models.
-    /// Supports multiple images per message.
-    #[serde(default)]
-    pub image_data: Option<Vec<String>>,
-    /// When true, this is an automatic continuation after context exhaustion or Y/N check.
-    /// The user message will NOT be logged to the conversation -- the model simply resumes.
-    #[serde(default)]
-    pub auto_continue: bool,
-}
-
-#[derive(Serialize)]
-pub struct ChatResponse {
-    pub message: ChatMessage,
-    pub conversation_id: String,
-    pub tokens_used: Option<i32>,
-    pub max_tokens: Option<i32>,
-}
-
-#[derive(Serialize)]
-pub struct ChatMessage {
-    pub id: String,
-    pub role: String,
-    pub content: String,
-    pub timestamp: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prompt_tok_per_sec: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub gen_tok_per_sec: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub gen_eval_ms: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub gen_tokens: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prompt_eval_ms: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prompt_tokens: Option<i32>,
-    /// True if this message has been compacted (summarized for the model).
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub compacted: bool,
-}
-
-#[derive(Serialize)]
-pub struct ConversationFile {
-    pub name: String,
-    pub display_name: String,
-    pub timestamp: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub provider_id: Option<String>,
-}
-
-#[derive(Serialize)]
-pub struct ConversationsResponse {
-    pub conversations: Vec<ConversationFile>,
-}
-
-#[derive(Serialize)]
-pub struct ToolTiming {
-    pub name: String,
-    pub duration_ms: u64,
-}
-
-#[derive(Serialize)]
-pub struct ConversationContentResponse {
-    pub content: String,
-    pub messages: Vec<ChatMessage>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub provider_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub provider_session_id: Option<String>,
-    pub tool_timings: Vec<ToolTiming>,
-}
-
-#[derive(Serialize)]
-pub struct FileItem {
-    pub name: String,
-    pub path: String,
-    pub is_directory: bool,
-    pub size: Option<u64>,
-}
-
-#[derive(Serialize)]
-pub struct BrowseFilesResponse {
-    pub files: Vec<FileItem>,
-    pub current_path: String,
-    pub parent_path: Option<String>,
-}
-
-#[derive(Serialize)]
-pub struct ModelStatus {
-    pub loaded: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub loading: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub loading_progress: Option<u8>,
-    /// True when a generation is active (streaming tokens or executing tools).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub generating: Option<bool>,
-    /// The conversation ID of the active generation, if any.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub active_conversation_id: Option<String>,
-    /// Status message during compaction (e.g. "Compacting conversation (5/43)")
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub status_message: Option<String>,
-    pub model_path: Option<String>,
-    pub last_used: Option<String>,
-    pub memory_usage_mb: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub has_vision: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_tags: Option<ToolTags>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub gpu_layers: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub block_count: Option<u32>,
-    /// Cached token counts for system prompt + tool definitions overhead.
-    /// Populated after first generation from conversation_context table.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub system_prompt_tokens: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_definitions_tokens: Option<i32>,
-    /// The context size the model was loaded with (from config or model default).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub context_size: Option<u32>,
-    /// Last generation finish reason (consumed once by polling for auto-continue).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_finish_reason: Option<String>,
-    /// True when the loaded model's chat template uses enable_thinking/clear_thinking variables.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_thinking: Option<bool>,
-}
-
-#[derive(Deserialize)]
-pub struct ModelLoadRequest {
-    pub model_path: String,
-    pub gpu_layers: Option<u32>,
-    pub mmproj_path: Option<String>,
-    pub context_size: Option<u32>,
-    pub flash_attention: Option<bool>,
-    pub cache_type_k: Option<String>,
-    pub cache_type_v: Option<String>,
-}
-
-#[derive(Serialize)]
-pub struct ModelResponse {
-    pub success: bool,
-    pub message: String,
-    pub status: Option<ModelStatus>,
 }
 
 // Shared state for LLaMA

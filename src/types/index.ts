@@ -12,6 +12,8 @@ export interface Message {
   timings?: TimingInfo;
   /** True if this message has been compacted (summarized for the model). */
   compacted?: boolean;
+  /** DB sequence_order for this message — used for precise truncation. */
+  sequenceOrder?: number;
   /** duration_ms for each tool call in this message, in order (loaded from persisted event log). */
   toolCallTimings?: number[];
 }

@@ -430,6 +430,8 @@ export const THINKING_REGEX = /<think>[\s\S]*?<\/think>/g;
 export const THINKING_UNCLOSED_REGEX = /<think>([\s\S]*)$/;
 /** Strip orphan </think> tags that have no matching <think> open. */
 export const THINKING_ORPHAN_CLOSE_REGEX = /<\/think>/g;
+/** Strip orphan <think> tags left behind when an empty <think></think> span is skipped. */
+export const THINKING_ORPHAN_OPEN_REGEX = /<think>/g;
 
 // Regexes for tool call+response pairs inside thinking blocks
 const EXEC_PAIR_RE =
@@ -528,10 +530,12 @@ export function buildSegments(content: string, toolTags?: ToolTags): MessageSegm
   const closedThinkRe = /<think>([\s\S]*?)<\/think>/g;
   let tm;
   while ((tm = closedThinkRe.exec(preprocessed)) !== null) {
+    const thinkContent = tm[1].trim();
+    if (!thinkContent) continue; // skip empty <think></think> (Qwen3 template artifact)
     thinkingSpans.push({
       start: tm.index,
       end: tm.index + tm[0].length,
-      segment: { type: 'thinking', content: tm[1].trim() },
+      segment: { type: 'thinking', content: thinkContent },
     });
   }
   // Unclosed thinking block (still streaming)
@@ -575,6 +579,7 @@ export function buildSegments(content: string, toolTags?: ToolTags): MessageSegm
       let text = preprocessed
         .slice(cursor, span.start)
         .replace(THINKING_ORPHAN_CLOSE_REGEX, '')
+        .replace(THINKING_ORPHAN_OPEN_REGEX, '')
         .trim();
       if (needsChannelStrip) text = stripChannelTags(text).trim();
       if (text) result.push({ type: 'text', content: text });
@@ -584,7 +589,7 @@ export function buildSegments(content: string, toolTags?: ToolTags): MessageSegm
   }
 
   if (cursor < preprocessed.length) {
-    let text = preprocessed.slice(cursor).replace(THINKING_ORPHAN_CLOSE_REGEX, '').trim();
+    let text = preprocessed.slice(cursor).replace(THINKING_ORPHAN_CLOSE_REGEX, '').replace(THINKING_ORPHAN_OPEN_REGEX, '').trim();
     if (needsChannelStrip) text = stripChannelTags(text).trim();
     if (text) result.push({ type: 'text', content: text });
   }
