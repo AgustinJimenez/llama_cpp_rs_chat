@@ -24,17 +24,7 @@ import { logToastError } from '../utils/toastLogger';
 
 const TITLE_REFRESH_DELAY_MS = 4000;
 const TITLE_REFRESH_RETRY_MS = 10000;
-const CONTINUE_TASK_PREVIEW_LENGTH = 200;
-const CONTINUE_DELAY_MS = 150;
-const MAX_AUTO_CONTINUES = 3;
 const TOAST_DURATION_MS = 5000;
-
-// Auto-continue: finish reasons that trigger automatic re-generation.
-// NOTE: 'length', 'cuda_deadlock', 'loop_recovery', 'infinite_loop' are now handled
-// server-side in websocket.rs and will never reach the frontend with those values.
-// 'yn_continue' is disabled server-side (see generation.rs, AGENTIC_LOOP_IMPROVEMENTS.md).
-// Only 'tool_continue' remains as a frontend-triggered continuation path.
-const AUTO_CONTINUE_REASONS = new Set(['tool_continue']);
 
 function isAbortError(msg: string): boolean {
   return /aborted/i.test(msg);
@@ -91,7 +81,6 @@ export function useGenerationStream(deps: UseGenerationStreamDeps) {
     setStreamStatus,
     setCurrentConversationId,
     currentConversationIdRef,
-    messagesRef,
     providerRef,
     providerParamsRef,
     providerSessionRef,
@@ -202,6 +191,7 @@ export function useGenerationStream(deps: UseGenerationStreamDeps) {
                           if (m.role === 'system') {
                             if (!systemSeen) {
                               systemSeen = true;
+                              (m as Message).isSystemPrompt = true;
                               return true;
                             }
                             return false;
@@ -255,77 +245,6 @@ export function useGenerationStream(deps: UseGenerationStreamDeps) {
                       : msg,
                   ),
                 );
-              }
-
-              // Auto-continue logic
-              const finishReason = timings?.finishReason;
-              const shouldAutoContinue = AUTO_CONTINUE_REASONS.has(finishReason ?? '');
-              const isToolContinue = finishReason === 'tool_continue';
-
-              if (
-                shouldAutoContinue &&
-                (isToolContinue || autoContinueCountRef.current < MAX_AUTO_CONTINUES)
-              ) {
-                if (!isToolContinue) autoContinueCountRef.current += 1;
-                const reasonMap: Record<string, string> = {
-                  loop_recovery: 'loop recovery',
-                  tool_continue: 'tool continuation',
-                  yn_continue: 'task incomplete',
-                  infinite_loop: 'infinite loop — forcing new approach',
-                };
-                const reason = (finishReason && reasonMap[finishReason]) || 'context full';
-                console.warn(
-                  `[useChat] Auto-continue ${autoContinueCountRef.current}/${MAX_AUTO_CONTINUES} (${reason})`,
-                );
-
-                setIsLoading(true);
-                setTimeout(() => {
-                  const convId = conversationId || currentConversationIdRef.current;
-                  isStreamingRef.current = true;
-                  setLastTimings(undefined);
-                  abortControllerRef.current = new AbortController();
-
-                  const msgs = messagesRef.current;
-                  const firstUserMsg = msgs.find((m) => m.role === 'user');
-                  let continueMsg: string;
-                  if (finishReason === 'infinite_loop' || finishReason === 'loop_recovery') {
-                    continueMsg =
-                      '[SYSTEM] Infinite loop detected — you have been repeating similar actions without progress. STOP your current approach entirely. Step back, analyze what went wrong, explain it to the user, and either try a COMPLETELY DIFFERENT strategy or ask the user for guidance. Do NOT repeat any of the previous commands.';
-                  } else {
-                    continueMsg = firstUserMsg
-                      ? `Continue working on this task: "${firstUserMsg.content.slice(0, CONTINUE_TASK_PREVIEW_LENGTH)}". Pick up where you left off.`
-                      : 'Continue';
-                  }
-
-                  startGeneration(
-                    {
-                      prompt: continueMsg,
-                      conversationId: convId,
-                      autoContinue: true,
-                    },
-                    assistantMessageId,
-                  ).catch((err) => {
-                    isStreamingRef.current = false;
-                    const errorMessage =
-                      err instanceof Error ? err.message : 'An unknown error occurred';
-                    if (!isAbortError(errorMessage)) {
-                      toast.error(friendlyError(errorMessage), {
-                        id: 'stream-error',
-                        duration: TOAST_DURATION_MS,
-                      });
-                      logToastError('useChat.autoContinue', errorMessage, err);
-                    }
-                    setIsLoading(false);
-                  });
-                }, CONTINUE_DELAY_MS);
-                return;
-              }
-
-              // Check max auto-continues reached
-              const hitMax =
-                shouldAutoContinue && autoContinueCountRef.current >= MAX_AUTO_CONTINUES;
-              if (hitMax && timings) {
-                timings.finishReason = 'max_continues';
               }
 
               // Normal completion
@@ -440,7 +359,6 @@ export function useGenerationStream(deps: UseGenerationStreamDeps) {
       setStreamStatus,
       setCurrentConversationId,
       currentConversationIdRef,
-      messagesRef,
       providerRef,
       providerParamsRef,
       providerSessionRef,

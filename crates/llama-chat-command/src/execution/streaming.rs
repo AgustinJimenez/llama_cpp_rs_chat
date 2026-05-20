@@ -1,4 +1,5 @@
 use super::*;
+use crate::background::{register_streaming_process, unregister_streaming_process};
 
 pub fn execute_command_streaming(
     cmd: &str,
@@ -90,6 +91,8 @@ pub fn execute_command_streaming_with_timeout(
                 child_pid,
                 &trimmed[..trimmed.len().min(100)]
             );
+            // Register immediately so the PID survives a worker crash/restart.
+            register_streaming_process(child_pid, &trimmed[..trimmed.len().min(200)]);
             let stdout_pipe = child.stdout.take();
 
             let inactivity_timeout_secs: u64 = timeout_override.unwrap_or(120);
@@ -169,6 +172,7 @@ pub fn execute_command_streaming_with_timeout(
                             MAX_WALL_CLOCK_SECS, pid, pid
                         ));
                         kill_process_tree(pid);
+                        unregister_streaming_process(pid);
                         return output;
                     }
 
@@ -226,6 +230,7 @@ pub fn execute_command_streaming_with_timeout(
                     child_pid
                 );
                 kill_process_tree(child_pid);
+                unregister_streaming_process(child_pid);
                 output.push_str(&format!(
                     "\n[Command killed after {}s wall-clock limit]\n",
                     wall_start.elapsed().as_secs()
@@ -268,6 +273,9 @@ pub fn execute_command_streaming_with_timeout(
                     }
                 }
             }
+
+            // Process is dead (exited, killed, or cancelled) — remove from DB.
+            unregister_streaming_process(child_pid);
 
             if was_cancelled {
                 output.push_str("\n[Cancelled by user]\n");

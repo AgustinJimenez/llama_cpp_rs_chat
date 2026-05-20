@@ -10,14 +10,17 @@ use llama_chat_db::{conversation::ConversationLogger, SharedDatabase};
 use llama_chat_types::models::{ChatMessage, ChatRequest, ChatResponse};
 use crate::request_parsing::parse_json_body;
 use crate::response_helpers::{json_error, json_response};
-use crate::websocket::{handle_conversation_watch, handle_websocket};
+use crate::websocket::{
+    handle_conversation_watch, handle_websocket, make_server_continuation_message,
+    should_server_auto_continue, spawn_title_generation, MAX_SERVER_AUTO_CONTINUES,
+};
 use crate::websocket_utils::{
     build_json_error_response, build_websocket_upgrade_response,
     calculate_websocket_accept_key, get_websocket_key, is_websocket_upgrade,
 };
 
 #[cfg(not(feature = "mock"))]
-use llama_chat_worker::worker::worker_bridge::SharedWorkerBridge;
+use llama_chat_worker::worker::worker_bridge::{GenerationResult, SharedWorkerBridge};
 
 // Helper function to get current timestamp for logging
 fn timestamp_now() -> String {
@@ -238,41 +241,150 @@ pub async fn handle_post_chat_stream(
 
     #[cfg(not(feature = "mock"))]
     {
-        // Start generation via worker bridge
-        let (mut token_rx, _done_rx) = match bridge
-            .generate(
-                chat_request.message.clone(),
-                None,  // New conversation (worker creates it)
-                false, // Worker logs user message
-                chat_request.image_data.clone(),
-            )
-            .await
-        {
-            Ok(rx) => rx,
-            Err(e) => {
-                return Ok(json_error(StatusCode::SERVICE_UNAVAILABLE, &e));
-            }
-        };
-
         // Use Body::channel for direct control over chunk sending
         let (mut sender, body) = Body::channel();
+        let bridge_clone = bridge.clone();
+        let db_clone = db.clone();
+        let original_message = chat_request.message.clone();
+        let initial_conv_id = chat_request.conversation_id.clone();
+        let initial_image_data = chat_request.image_data.clone();
+        let initial_auto_continue = chat_request.auto_continue;
 
-        // Spawn task to send tokens through the channel
         tokio::spawn(async move {
-            while let Some(token_data) = token_rx.recv().await {
-                // Send TokenData as JSON
-                let json_str = serde_json::to_string(&token_data).unwrap_or_else(|_| {
-                    r#"{"token":"","tokens_used":0,"max_tokens":0}"#.to_string()
-                });
-                let event = format!("data: {json_str}\n\n");
+            let mut current_message = original_message.clone();
+            let mut current_conv_id = initial_conv_id;
+            let mut server_auto_continue_count = 0u32;
+            let mut final_conv_id_for_title: Option<String> = None;
 
-                // Send chunk immediately - this ensures no buffering
-                if sender.send_data(Bytes::from(event)).await.is_err() {
-                    // Client disconnected
-                    break;
+            'gen_loop: loop {
+                let skip_user_log = server_auto_continue_count > 0 || initial_auto_continue;
+                let image_data = if server_auto_continue_count == 0 {
+                    initial_image_data.clone()
+                } else {
+                    None
+                };
+
+                let (mut token_rx, done_rx) = match bridge_clone
+                    .generate(
+                        current_message.clone(),
+                        current_conv_id.clone(),
+                        skip_user_log,
+                        image_data,
+                    )
+                    .await
+                {
+                    Ok(rx) => rx,
+                    Err(e) => {
+                        let error_json = serde_json::json!({
+                            "type": "error",
+                            "error": e
+                        });
+                        let _ = sender
+                            .send_data(Bytes::from(format!("data: {error_json}\n\n")))
+                            .await;
+                        break 'gen_loop;
+                    }
+                };
+
+                while let Some(token_data) = token_rx.recv().await {
+                    let json_str = serde_json::to_string(&token_data).unwrap_or_else(|_| {
+                        r#"{"token":"","tokens_used":0,"max_tokens":0}"#.to_string()
+                    });
+                    let event = format!("data: {json_str}\n\n");
+
+                    if sender.send_data(Bytes::from(event)).await.is_err() {
+                        break 'gen_loop;
+                    }
+                }
+
+                match done_rx.await {
+                    Ok(GenerationResult::Complete {
+                        conversation_id,
+                        tokens_used,
+                        max_tokens,
+                        prompt_tok_per_sec,
+                        gen_tok_per_sec,
+                        gen_eval_ms,
+                        gen_tokens,
+                        prompt_eval_ms,
+                        prompt_tokens,
+                        finish_reason,
+                        token_breakdown,
+                    }) => {
+                        bridge_clone
+                            .set_last_finish_reason(finish_reason.clone())
+                            .await;
+
+                        let finish_str = finish_reason.as_deref().unwrap_or("");
+                        let can_continue = should_server_auto_continue(finish_str)
+                            && server_auto_continue_count < MAX_SERVER_AUTO_CONTINUES;
+
+                        if can_continue {
+                            server_auto_continue_count += 1;
+                            current_conv_id = Some(conversation_id);
+                            current_message =
+                                make_server_continuation_message(finish_str, &original_message);
+                            continue 'gen_loop;
+                        }
+
+                        final_conv_id_for_title = Some(conversation_id.clone());
+                        let done_json = serde_json::json!({
+                            "type": "done",
+                            "conversation_id": conversation_id,
+                            "tokens_used": tokens_used,
+                            "max_tokens": max_tokens,
+                            "prompt_tok_per_sec": prompt_tok_per_sec,
+                            "gen_tok_per_sec": gen_tok_per_sec,
+                            "gen_eval_ms": gen_eval_ms,
+                            "gen_tokens": gen_tokens,
+                            "prompt_eval_ms": prompt_eval_ms,
+                            "prompt_tokens": prompt_tokens,
+                            "finish_reason": finish_reason,
+                            "token_breakdown": token_breakdown
+                        });
+                        if sender
+                            .send_data(Bytes::from(format!("data: {done_json}\n\n")))
+                            .await
+                            .is_err()
+                        {
+                            break 'gen_loop;
+                        }
+                        break 'gen_loop;
+                    }
+                    Ok(GenerationResult::Cancelled) => {
+                        let abort_json = serde_json::json!({ "type": "abort" });
+                        let _ = sender
+                            .send_data(Bytes::from(format!("data: {abort_json}\n\n")))
+                            .await;
+                        break 'gen_loop;
+                    }
+                    Ok(GenerationResult::Error(e)) => {
+                        let error_json = serde_json::json!({
+                            "type": "error",
+                            "error": e
+                        });
+                        let _ = sender
+                            .send_data(Bytes::from(format!("data: {error_json}\n\n")))
+                            .await;
+                        break 'gen_loop;
+                    }
+                    Err(e) => {
+                        let error_json = serde_json::json!({
+                            "type": "error",
+                            "error": format!("Generation failed: result channel closed ({e})")
+                        });
+                        let _ = sender
+                            .send_data(Bytes::from(format!("data: {error_json}\n\n")))
+                            .await;
+                        break 'gen_loop;
+                    }
                 }
             }
-            // Send done event
+
+            if let Some(conv_id) = final_conv_id_for_title {
+                spawn_title_generation(conv_id, db_clone, bridge_clone);
+            }
+
             let _ = sender.send_data(Bytes::from("data: [DONE]\n\n")).await;
         });
 

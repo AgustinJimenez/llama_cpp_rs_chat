@@ -58,6 +58,17 @@ pub fn init_background_tracking(db: SharedDatabase, session_id: String) {
     }
 }
 
+/// Register a foreground streaming process in the DB so it survives worker crashes.
+/// Called immediately after spawn; unregister when the process exits normally.
+pub(crate) fn register_streaming_process(pid: u32, command: &str) {
+    persist_bg_process(pid, command, None);
+}
+
+/// Remove a streaming process from the DB once it has exited or been killed.
+pub(crate) fn unregister_streaming_process(pid: u32) {
+    unpersist_bg_process(pid);
+}
+
 /// Persist a background process PID to the database.
 fn persist_bg_process(pid: u32, command: &str, conversation_id: Option<&str>) {
     let db = match BG_DB_REF.lock().ok().and_then(|r| r.clone()) {

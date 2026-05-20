@@ -31,8 +31,31 @@ pub fn inject_output_tokens(
 
     context.synchronize();
 
+    let ctx_size = context.n_ctx();
+    let current_pos = (*token_pos).max(0) as u32;
+    let headroom = ctx_size.saturating_sub(current_pos);
+    if tokens.len() as u32 > headroom {
+        eprintln!(
+            "[INJECT] Pre-flight: {} tokens would overflow ctx (pos={}, ctx={}, headroom={}) — aborting injection",
+            tokens.len(),
+            token_pos,
+            ctx_size,
+            headroom
+        );
+        return Err("CONTEXT_EXHAUSTED".to_string());
+    }
+
     let total = tokens.len();
     for (i, &token) in tokens.iter().enumerate() {
+        if *token_pos < 0 || *token_pos as u32 >= ctx_size {
+            eprintln!(
+                "[INJECT] token_pos {} >= n_ctx {} — aborting injection (CONTEXT_EXHAUSTED)",
+                token_pos,
+                ctx_size
+            );
+            return Err("CONTEXT_EXHAUSTED".to_string());
+        }
+
         batch.clear();
         let is_last = i == total - 1;
         batch
@@ -70,7 +93,6 @@ pub fn inject_output_tokens(
         *token_pos += 1;
     }
 
-    let ctx_size = context.n_ctx();
     if *token_pos as u32 >= ctx_size.saturating_sub(ctx_size / 20) {
         eprintln!(
             "[INJECT] Context 95% full after injection ({}/{})",
