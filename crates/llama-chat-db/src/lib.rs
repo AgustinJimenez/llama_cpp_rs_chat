@@ -16,6 +16,7 @@ pub mod app_errors;
 pub mod mcp;
 pub mod schema;
 pub mod event_log;
+pub mod agent_heartbeat;
 
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};

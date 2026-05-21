@@ -29,6 +29,7 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         ("message_queue", CREATE_MESSAGE_QUEUE_TABLE),
         ("compaction_summaries", CREATE_COMPACTION_SUMMARIES_TABLE),
         ("compaction_summaries_index", CREATE_COMPACTION_SUMMARIES_INDEX),
+        ("agent_heartbeat", CREATE_AGENT_HEARTBEAT_TABLE),
     ];
 
     for (name, sql) in statements.iter() {
@@ -159,6 +160,10 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         "ALTER TABLE conversations ADD COLUMN provider_id TEXT",
         [],
     );
+    let _ = conn.execute(
+        "ALTER TABLE conversations ADD COLUMN worker_id TEXT",
+        [],
+    );
 
     // Add resume-tracking columns to hub_downloads if missing
     let _ = conn.execute(
@@ -247,6 +252,32 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
     );
     let _ = conn.execute(
         "ALTER TABLE conversation_config ADD COLUMN tag_pairs TEXT",
+        [],
+    );
+
+    // Per-conversation heartbeat columns (migrated from global agent_heartbeat table)
+    let _ = conn.execute(
+        "ALTER TABLE conversation_config ADD COLUMN heartbeat_enabled INTEGER DEFAULT 0",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE conversation_config ADD COLUMN heartbeat_interval_minutes INTEGER DEFAULT 30",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE conversation_config ADD COLUMN heartbeat_prompt TEXT",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE conversation_config ADD COLUMN heartbeat_last_fired_at INTEGER DEFAULT 0",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE conversation_config ADD COLUMN heartbeat_last_result TEXT",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE conversation_config ADD COLUMN heartbeat_has_unread INTEGER DEFAULT 0",
         [],
     );
 

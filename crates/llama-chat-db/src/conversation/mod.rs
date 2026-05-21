@@ -18,6 +18,7 @@ pub struct ConversationRecord {
     pub id: String,
     pub title: String,
     pub system_prompt: Option<String>,
+    pub worker_id: Option<String>,
     pub provider_id: Option<String>,
     pub provider_session_id: Option<String>,
 }
@@ -116,15 +117,16 @@ impl Database {
     pub fn get_conversation(&self, id: &str) -> Result<Option<ConversationRecord>, String> {
         let conn = self.connection();
         let result = conn.query_row(
-            "SELECT id, COALESCE(title, ''), system_prompt, provider_id, provider_session_id FROM conversations WHERE id = ?1",
+            "SELECT id, COALESCE(title, ''), system_prompt, worker_id, provider_id, provider_session_id FROM conversations WHERE id = ?1",
             [id],
             |row| {
                 Ok(ConversationRecord {
                     id: row.get(0)?,
                     title: row.get::<_, String>(1).unwrap_or_default(),
                     system_prompt: row.get(2)?,
-                    provider_id: row.get(3)?,
-                    provider_session_id: row.get(4)?,
+                    worker_id: row.get(3)?,
+                    provider_id: row.get(4)?,
+                    provider_session_id: row.get(5)?,
                 })
             },
         );
@@ -141,7 +143,7 @@ impl Database {
         let conn = self.connection();
         let mut stmt = conn
             .prepare(
-                "SELECT id, COALESCE(title, ''), system_prompt, provider_id, provider_session_id FROM conversations ORDER BY created_at DESC",
+                "SELECT id, COALESCE(title, ''), system_prompt, worker_id, provider_id, provider_session_id FROM conversations ORDER BY created_at DESC",
             )
             .map_err(db_error("prepare statement"))?;
 
@@ -151,8 +153,9 @@ impl Database {
                     id: row.get(0)?,
                     title: row.get::<_, String>(1).unwrap_or_default(),
                     system_prompt: row.get(2)?,
-                    provider_id: row.get(3)?,
-                    provider_session_id: row.get(4)?,
+                    worker_id: row.get(3)?,
+                    provider_id: row.get(4)?,
+                    provider_session_id: row.get(5)?,
                 })
             })
             .map_err(db_error("query conversations"))?
@@ -254,6 +257,48 @@ impl Database {
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok((None, None)),
             Err(e) => Err(format!("Failed to get conversation provider session id: {e}")),
         }
+    }
+
+    /// Get the worker binding for a conversation. NULL means "default worker".
+    pub fn get_conversation_worker_id(&self, id: &str) -> Result<Option<String>, String> {
+        let conn = self.connection();
+        let result = conn.query_row(
+            "SELECT worker_id FROM conversations WHERE id = ?1",
+            [id],
+            |row| row.get::<_, Option<String>>(0),
+        );
+        match result {
+            Ok(worker_id) => Ok(worker_id),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(format!("Failed to get conversation worker id: {e}")),
+        }
+    }
+
+    /// Set or clear the worker binding for a conversation. None means "default worker".
+    pub fn set_conversation_worker_id(
+        &self,
+        id: &str,
+        worker_id: Option<&str>,
+    ) -> Result<(), String> {
+        let conn = self.connection();
+        conn.execute(
+            "UPDATE conversations SET worker_id = ?1 WHERE id = ?2",
+            params![worker_id, id],
+        )
+        .map_err(db_error("update conversation worker id"))?;
+        Ok(())
+    }
+
+    /// Clear worker binding for all conversations bound to the given worker.
+    pub fn clear_worker_id_for_worker(&self, worker_id: &str) -> Result<usize, String> {
+        let conn = self.connection();
+        let updated = conn
+            .execute(
+                "UPDATE conversations SET worker_id = NULL WHERE worker_id = ?1",
+                [worker_id],
+            )
+            .map_err(db_error("clear worker binding for conversations"))?;
+        Ok(updated)
     }
 
     // ─── Message Queue (for injecting user messages during remote provider generation) ───

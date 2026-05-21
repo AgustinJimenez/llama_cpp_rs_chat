@@ -15,4 +15,7 @@ pub mod system;
 pub mod mcp;
 pub mod providers;
 pub mod tools;
+pub mod workers;
 pub mod app_errors;
+pub mod agent_heartbeat;
+pub mod openai_compat_server;

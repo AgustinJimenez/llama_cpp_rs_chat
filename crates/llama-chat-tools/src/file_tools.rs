@@ -14,7 +14,7 @@ use crate::doc_extractors::{
 
 #[path = "file_tools/editing.rs"]
 mod editing;
-pub use editing::{tool_edit_file, tool_insert_text, tool_undo_edit};
+pub use editing::{tool_edit_file, tool_insert_text, tool_multi_edit, tool_undo_edit};
 
 /// Maximum file size to return inline (100 KB).
 const MAX_READ_SIZE: usize = 100 * 1024;
@@ -374,10 +374,11 @@ pub fn tool_read_file(args: &Value) -> String {
     // Append truncation notice if capped at MAX_LINES_DEFAULT
     if was_truncated_by_cap {
         result.push_str(&format!(
-            "\n[File truncated at {} lines. Total: {} lines (~{} tokens). \
-             Use offset and limit parameters to read specific portions, \
-             or search_files to find specific content.]",
-            MAX_LINES_DEFAULT, total_lines, total_lines * 10 / 4
+            "\n[File truncated at line {}. Total: {} lines (~{} tokens). \
+             To read the next section: read_file(path=\"{}\", offset={}, limit={}). \
+             Or use search_files to find specific content.]",
+            end, total_lines, total_lines * 10 / 4,
+            path, end + 1, MAX_LINES_DEFAULT
         ));
     }
 

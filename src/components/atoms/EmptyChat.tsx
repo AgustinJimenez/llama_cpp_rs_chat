@@ -13,7 +13,7 @@ interface WelcomeMessageProps {
 type InstallState = 'idle' | 'installing' | 'done' | 'error';
 
 // eslint-disable-next-line complexity, max-lines-per-function
-export const WelcomeMessage: React.FC<WelcomeMessageProps> = ({ children }) => {
+export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
   const {
     status,
     isLoading,

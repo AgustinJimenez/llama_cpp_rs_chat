@@ -55,6 +55,8 @@ pub mod event_log { pub use llama_chat_db::event_log::*; }
 #[allow(unused_imports)]
 pub mod prevent_sleep { pub use llama_chat_worker::prevent_sleep::*; }
 #[allow(unused_imports)]
+pub mod agent_heartbeat_runner { pub use llama_chat_web::agent_heartbeat_runner::*; }
+#[allow(unused_imports)]
 pub mod request { pub use llama_chat_web::request::*; }
 #[allow(unused_imports)]
 pub mod request_parsing { pub use llama_chat_web::request_parsing::*; }
@@ -68,6 +70,8 @@ pub mod vram_calculator { pub use llama_chat_engine::vram_calculator::*; }
 pub mod websocket { pub use llama_chat_web::websocket::*; }
 #[allow(unused_imports)]
 pub mod websocket_utils { pub use llama_chat_web::websocket_utils::*; }
+#[allow(unused_imports)]
+pub mod worker_pool { pub use llama_chat_web::worker_pool::*; }
 #[allow(unused_imports)]
 pub mod worker {
     pub use llama_chat_worker::*;

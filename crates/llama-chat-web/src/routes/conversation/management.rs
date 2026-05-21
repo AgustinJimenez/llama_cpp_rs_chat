@@ -1,4 +1,12 @@
 use super::*;
+use crate::worker_pool::{resolve_bridge_for_conversation, WorkerPool};
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct CreateConversationRequest {
+    title: Option<String>,
+    worker_id: Option<String>,
+}
 
 pub async fn handle_truncate_conversation(
     req: hyper::Request<Body>,
@@ -57,8 +65,14 @@ pub async fn handle_truncate_conversation(
 
 pub async fn handle_compact_conversation(
     conversation_id: &str,
-    bridge: llama_chat_worker::worker::worker_bridge::SharedWorkerBridge,
+    pool: WorkerPool,
+    db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
+    let bridge = match resolve_bridge_for_conversation(&pool, &db, Some(conversation_id)) {
+        Ok(bridge) => bridge,
+        Err(e) => return Ok(json_error(StatusCode::SERVICE_UNAVAILABLE, &e)),
+    };
+
     match bridge.compact_conversation(conversation_id).await {
         Ok(()) => Ok(json_raw(StatusCode::OK, r#"{"ok":true}"#.to_string())),
         Err(e) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &e)),
@@ -132,11 +146,29 @@ pub async fn handle_rename_conversation(
 
 pub async fn handle_create_conversation(
     req: Request<Body>,
+    pool: WorkerPool,
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
-    let body = hyper::body::to_bytes(req.into_body()).await.unwrap_or_default();
-    let json: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
-    let title = json.get("title").and_then(|t| t.as_str()).unwrap_or("New conversation");
+    let create: CreateConversationRequest = match crate::request_parsing::parse_json_body(req.into_body()).await {
+        Ok(body) => body,
+        Err(_) => CreateConversationRequest {
+            title: None,
+            worker_id: None,
+        },
+    };
+    let title = create.title.as_deref().unwrap_or("New conversation");
+    let normalized_worker_id = create
+        .worker_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty() && *id != "default")
+        .map(str::to_string);
+
+    if let Some(worker_id) = normalized_worker_id.as_deref() {
+        if pool.get(worker_id).is_none() {
+            return Ok(json_error(StatusCode::NOT_FOUND, "Worker not found"));
+        }
+    }
 
     let conv_id = format!("chat_{}", chrono::Local::now().format("%Y-%m-%d-%H-%M-%S-%3f"));
     let now = std::time::SystemTime::now()
@@ -146,12 +178,12 @@ pub async fn handle_create_conversation(
 
     let conn = db.connection();
     match conn.execute(
-        "INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?1, ?2, ?3, ?3)",
-        rusqlite::params![conv_id, title, now],
+        "INSERT INTO conversations (id, title, created_at, updated_at, worker_id) VALUES (?1, ?2, ?3, ?3, ?4)",
+        rusqlite::params![conv_id, title, now, normalized_worker_id],
     ) {
         Ok(_) => Ok(json_raw(
             StatusCode::OK,
-            serde_json::to_string(&json!({"id": conv_id, "title": title})).unwrap(),
+            serde_json::to_string(&json!({"id": conv_id, "title": title, "worker_id": create.worker_id})).unwrap(),
         )),
         Err(e) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Failed: {e}"))),
     }

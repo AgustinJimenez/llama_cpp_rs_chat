@@ -8,6 +8,7 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::Server;
 
 use crate::web::database::{Database, SharedDatabase};
+use crate::web::worker_pool::WorkerPool;
 
 #[cfg(not(feature = "mock"))]
 use crate::web::worker::process_manager::ProcessManager;
@@ -86,16 +87,27 @@ pub async fn server_main() -> std::io::Result<()> {
         );
         Arc::new(WorkerBridge::new(pm))
     };
+    let worker_pool = WorkerPool::new(worker_bridge.clone(), "assets/llama_chat.db");
+
+    // Spawn the agent heartbeat background task
+    #[cfg(not(feature = "mock"))]
+    {
+        let hb_pool = worker_pool.clone();
+        let hb_db = db.clone();
+        tokio::spawn(async move {
+            crate::web::agent_heartbeat_runner::run(hb_pool, hb_db).await;
+        });
+    }
 
     // Create HTTP service
     let make_svc = make_service_fn({
         #[cfg(not(feature = "mock"))]
-        let worker_bridge = worker_bridge.clone();
+        let worker_pool = worker_pool.clone();
         let db = db.clone();
 
         move |_conn| {
             #[cfg(not(feature = "mock"))]
-            let worker_bridge = worker_bridge.clone();
+            let worker_pool = worker_pool.clone();
             let db = db.clone();
 
             async move {
@@ -103,7 +115,7 @@ pub async fn server_main() -> std::io::Result<()> {
                     let db = db.clone();
                     #[cfg(not(feature = "mock"))]
                     {
-                        super::handle_request(req, worker_bridge.clone(), db)
+                        super::handle_request(req, worker_pool.clone(), db)
                     }
                     #[cfg(feature = "mock")]
                     {
@@ -119,7 +131,7 @@ pub async fn server_main() -> std::io::Result<()> {
     let server = Server::bind(&addr).serve(make_svc);
 
     println!("🦙 LLaMA Chat Web Server starting on http://{addr}");
-    println!("📡 Worker process spawned for model inference");
+    println!("📡 Worker pool initialized with default worker for model inference");
     println!("Available endpoints:");
     println!("  GET  /health               - Health check");
     println!("  POST /api/chat             - Chat with LLaMA");

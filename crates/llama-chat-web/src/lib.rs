@@ -8,6 +8,7 @@
 #[macro_use]
 extern crate llama_chat_types;
 
+pub mod agent_heartbeat_runner;
 pub mod native_tools_bridge;
 pub mod request;
 pub mod request_parsing;
@@ -17,3 +18,4 @@ pub mod skills;
 pub mod providers;
 pub mod websocket;
 pub mod websocket_utils;
+pub mod worker_pool;

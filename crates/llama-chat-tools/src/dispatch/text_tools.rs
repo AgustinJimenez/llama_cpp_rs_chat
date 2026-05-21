@@ -18,6 +18,7 @@ pub(super) fn dispatch_text_tool(
         "read_file" => file_tools::tool_read_file(args),
         "write_file" => file_tools::tool_write_file(args),
         "edit_file" => file_tools::tool_edit_file(args),
+        "multi_edit" => file_tools::tool_multi_edit(args),
         "undo_edit" => file_tools::tool_undo_edit(args),
         "insert_text" => file_tools::tool_insert_text(args),
         "search_files" => search_tools::tool_search_files(args),

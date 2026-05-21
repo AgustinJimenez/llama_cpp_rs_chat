@@ -10,6 +10,7 @@ use llama_chat_db::{conversation::ConversationLogger, SharedDatabase};
 use llama_chat_types::models::{ChatMessage, ChatRequest, ChatResponse};
 use crate::request_parsing::parse_json_body;
 use crate::response_helpers::{json_error, json_response};
+use crate::worker_pool::{resolve_bridge_for_conversation, WorkerPool};
 use crate::websocket::{
     handle_conversation_watch, handle_websocket, make_server_continuation_message,
     should_server_auto_continue, spawn_title_generation, MAX_SERVER_AUTO_CONTINUES,
@@ -55,9 +56,28 @@ fn resolve_system_prompt(
     }
 }
 
+#[cfg(not(feature = "mock"))]
+fn resolve_bridge_for_request(
+    pool: &WorkerPool,
+    db: &SharedDatabase,
+    conversation_id: Option<&str>,
+    requested_worker_id: Option<&str>,
+) -> Result<SharedWorkerBridge, String> {
+    if let Some(conversation_id) = conversation_id {
+        return resolve_bridge_for_conversation(pool, db, Some(conversation_id));
+    }
+
+    let worker_id = requested_worker_id
+        .map(str::trim)
+        .filter(|id| !id.is_empty() && *id != "default");
+
+    pool.get_or_default(worker_id)
+        .ok_or_else(|| "No worker bridge available".to_string())
+}
+
 pub async fn handle_post_chat(
     req: Request<Body>,
-    #[cfg(not(feature = "mock"))] bridge: SharedWorkerBridge,
+    #[cfg(not(feature = "mock"))] pool: WorkerPool,
     #[cfg(feature = "mock")] _bridge: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
@@ -69,6 +89,16 @@ pub async fn handle_post_chat(
 
     #[cfg(not(feature = "mock"))]
     {
+        let bridge = match resolve_bridge_for_request(
+            &pool,
+            &db,
+            chat_request.conversation_id.as_deref(),
+            chat_request.worker_id.as_deref(),
+        ) {
+            Ok(bridge) => bridge,
+            Err(e) => return Ok(json_error(StatusCode::SERVICE_UNAVAILABLE, &e)),
+        };
+
         // Check for test mode environment variable
         if std::env::var("TEST_MODE").unwrap_or_default() == "true" {
             // Fast test response
@@ -150,6 +180,15 @@ pub async fn handle_post_chat(
             logger.get_conversation_id()
         };
 
+        if chat_request.conversation_id.is_none() {
+            let normalized_worker_id = chat_request
+                .worker_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|id| !id.is_empty() && *id != "default");
+            let _ = db.set_conversation_worker_id(&conversation_id, normalized_worker_id);
+        }
+
         // Submit generation to worker (skip_user_logging since we logged above)
         sys_info!(
             "[{}] [API_CHAT] Submitting generation to worker for conversation: {}",
@@ -227,7 +266,7 @@ pub async fn handle_post_chat(
 
 pub async fn handle_post_chat_stream(
     req: Request<Body>,
-    #[cfg(not(feature = "mock"))] bridge: SharedWorkerBridge,
+    #[cfg(not(feature = "mock"))] pool: WorkerPool,
     #[cfg(feature = "mock")] _bridge: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
@@ -243,10 +282,26 @@ pub async fn handle_post_chat_stream(
     {
         // Use Body::channel for direct control over chunk sending
         let (mut sender, body) = Body::channel();
+        let bridge = match resolve_bridge_for_request(
+            &pool,
+            &db,
+            chat_request.conversation_id.as_deref(),
+            chat_request.worker_id.as_deref(),
+        ) {
+            Ok(bridge) => bridge,
+            Err(e) => return Ok(json_error(StatusCode::SERVICE_UNAVAILABLE, &e)),
+        };
         let bridge_clone = bridge.clone();
         let db_clone = db.clone();
         let original_message = chat_request.message.clone();
+        let is_new_conversation = chat_request.conversation_id.is_none();
         let initial_conv_id = chat_request.conversation_id.clone();
+        let requested_worker_id = chat_request
+            .worker_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty() && *id != "default")
+            .map(str::to_string);
         let initial_image_data = chat_request.image_data.clone();
         let initial_auto_continue = chat_request.auto_continue;
 
@@ -311,6 +366,13 @@ pub async fn handle_post_chat_stream(
                         finish_reason,
                         token_breakdown,
                     }) => {
+                        if is_new_conversation {
+                            let _ = db_clone.set_conversation_worker_id(
+                                &conversation_id,
+                                requested_worker_id.as_deref(),
+                            );
+                        }
+
                         bridge_clone
                             .set_last_finish_reason(finish_reason.clone())
                             .await;
@@ -429,7 +491,7 @@ pub async fn handle_post_chat_cancel(
 
 pub async fn handle_websocket_chat_stream(
     req: Request<Body>,
-    #[cfg(not(feature = "mock"))] bridge: SharedWorkerBridge,
+    #[cfg(not(feature = "mock"))] pool: WorkerPool,
     #[cfg(feature = "mock")] _bridge: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
@@ -447,15 +509,14 @@ pub async fn handle_websocket_chat_stream(
 
     #[cfg(not(feature = "mock"))]
     {
-        // Clone state for the WebSocket handler
-        let bridge_ws = bridge.clone();
+        let pool_ws = pool.clone();
         let db_ws = db.clone();
 
         // Spawn WebSocket handler on the upgraded connection
         tokio::spawn(async move {
             match hyper::upgrade::on(req).await {
                 Ok(upgraded) => {
-                    if let Err(e) = handle_websocket(upgraded, bridge_ws, db_ws).await {
+                    if let Err(e) = handle_websocket(upgraded, pool_ws, db_ws).await {
                         sys_error!("[WEBSOCKET ERROR] {}", e);
                     }
                 }
@@ -480,7 +541,7 @@ pub async fn handle_websocket_chat_stream(
 pub async fn handle_conversation_watch_websocket(
     req: Request<Body>,
     path: &str,
-    #[cfg(not(feature = "mock"))] bridge: SharedWorkerBridge,
+    #[cfg(not(feature = "mock"))] pool: WorkerPool,
     #[cfg(feature = "mock")] _bridge: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
@@ -508,8 +569,10 @@ pub async fn handle_conversation_watch_websocket(
 
     #[cfg(not(feature = "mock"))]
     {
-        // Clone state for the WebSocket handler
-        let bridge_ws = bridge.clone();
+        let bridge_ws = match resolve_bridge_for_conversation(&pool, &db, Some(&conversation_id)) {
+            Ok(bridge) => bridge,
+            Err(e) => return Ok(build_json_error_response(StatusCode::SERVICE_UNAVAILABLE, &e)),
+        };
         let db_ws = db.clone();
 
         // Spawn WebSocket handler on the upgraded connection

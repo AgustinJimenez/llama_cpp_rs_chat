@@ -15,6 +15,10 @@ Web mode vs Tauri mode: In web mode (`llama_chat_web`), the HTTP REST API is ava
 
 IMPORTANT — `cargo tauri dev` builds in DEBUG mode by default. CUDA debug builds take ~27 min. Use `npm run tauri:dev:release` or `cargo tauri dev --release` for faster iteration. Also, `cargo tauri dev` requires cmake on PATH — if running directly (not via `npm run cargo`), set `CMAKE=target/cmake/cmake-3.31.6-windows-x86_64/bin/cmake.exe` env var.
 
+CRITICAL — NEVER run or test model loading with a debug build or CPU-only build. The debug binary at `target/debug/llama_chat_web.exe` does NOT include CUDA — the worker process will crash immediately on any model load attempt. Always use `npm run dev:cuda`, `npm run dev:auto`, or a release CUDA build (`cargo build --bin llama_chat_web --features cuda,vision --release`) before testing any model loading functionality. If you see "Worker process crashed" on model load, check that you are running the CUDA release binary.
+
+PERFORMANCE NOTE — Even when CUDA kernels are active, a debug build runs at ~5 tok/s vs ~80-150 tok/s on release. This is because the Rust-side sampling/pipeline code has zero compiler optimizations in debug mode. Always verify you are running `target/release/llama_chat_web.exe` (not `target/debug/`) when performance matters. Check the process path with: `wmic process where "name='llama_chat_web.exe'" get ExecutablePath`.
+
 GPU acceleration: "npm run dev:auto" (web) or "npm run dev:auto:desktop" automatically detect the best setup (Metal on macOS, CUDA on Windows, CPU fallback). Manual options: "npm run dev:metal"/"npm run tauri:dev:metal", "npm run dev:cuda"/"npm run tauri:dev:cuda".
 
 Frontend alternatives: "npm run build" for production build. If the backend is already running, start Vite only with "npx vite --host --port 4000".

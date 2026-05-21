@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS conversations (
     updated_at INTEGER NOT NULL,
     system_prompt TEXT,
     title TEXT,
+    worker_id TEXT,
     provider_id TEXT,
     provider_session_id TEXT
 )
@@ -218,4 +219,17 @@ CREATE TABLE IF NOT EXISTS compaction_summaries (
 pub(super) const CREATE_COMPACTION_SUMMARIES_INDEX: &str = r#"
 CREATE INDEX IF NOT EXISTS idx_compaction_summaries_conversation
 ON compaction_summaries(conversation_id, covers_to_sequence)
+"#;
+
+pub(super) const CREATE_AGENT_HEARTBEAT_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS agent_heartbeat (
+    id INTEGER PRIMARY KEY DEFAULT 1,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    interval_minutes INTEGER NOT NULL DEFAULT 5,
+    prompt TEXT NOT NULL DEFAULT '',
+    conversation_id TEXT,
+    last_fired_at INTEGER NOT NULL DEFAULT 0,
+    last_result TEXT,
+    has_unread INTEGER NOT NULL DEFAULT 0
+)
 "#;

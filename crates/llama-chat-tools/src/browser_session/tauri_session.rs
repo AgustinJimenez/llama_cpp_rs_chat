@@ -119,7 +119,7 @@ impl TauriHttpSession {
         // Normalize expected URL for comparison (strip trailing slash, lowercase scheme+host)
         let expected = self.current_url.trim_end_matches('/').to_lowercase();
         // Extract just the host+path portion for flexible matching (handles http↔https, www differences)
-        let expected_path = expected
+        let _expected_path = expected
             .find("//")
             .map(|i| &expected[i + 2..])
             .unwrap_or(&expected);
@@ -137,8 +137,8 @@ impl TauriHttpSession {
                             .map(|i| &href_norm[i + 2..])
                             .unwrap_or(&href_norm);
                         // Accept if path portion matches or if browser is on about:blank (initial)
-                        if href_path != expected_path && !href_norm.starts_with("about:") {
-                            eprintln!("[BROWSER_HTTP] waiting for URL: expected={expected_path}, got={href_path}");
+                        if href_path != _expected_path && !href_norm.starts_with("about:") {
+                            eprintln!("[BROWSER_HTTP] waiting for URL: expected={_expected_path}, got={href_path}");
                             std::thread::sleep(poll_interval);
                             continue;
                         }

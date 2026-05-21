@@ -8,7 +8,8 @@ use tokio_tungstenite::WebSocketStream;
 
 use llama_chat_db::SharedDatabase;
 use llama_chat_types::models::ChatRequest;
-use llama_chat_worker::worker::worker_bridge::{GenerationResult, SharedWorkerBridge};
+use llama_chat_worker::worker::worker_bridge::GenerationResult;
+use crate::worker_pool::{resolve_bridge_for_conversation, WorkerPool};
 
 use super::{
     make_server_continuation_message, should_server_auto_continue, ACTIVE_WS_CONNECTIONS,
@@ -90,7 +91,7 @@ pub(super) async fn flush_pending_tokens(
 /// WebSocket handler for real-time token streaming.
 pub async fn handle_websocket(
     upgraded: hyper::upgrade::Upgraded,
-    bridge: SharedWorkerBridge,
+    pool: WorkerPool,
     db: SharedDatabase,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Convert the upgraded connection to a WebSocket stream
@@ -130,10 +131,38 @@ pub async fn handle_websocket(
 
                 sys_debug!("[WS_CHAT] User message: {}", chat_request.message);
 
+                let bridge = match if let Some(conversation_id) = chat_request.conversation_id.as_deref() {
+                    resolve_bridge_for_conversation(&pool, &db, Some(conversation_id))
+                } else {
+                    let worker_id = chat_request
+                        .worker_id
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|id| !id.is_empty() && *id != "default");
+                    pool.get_or_default(worker_id)
+                        .ok_or_else(|| "No worker bridge available".to_string())
+                } {
+                    Ok(bridge) => bridge,
+                    Err(e) => {
+                        let error_msg = serde_json::json!({
+                            "type": "error",
+                            "error": e
+                        });
+                        let _ = ws_sender.send(WsMessage::Text(error_msg.to_string())).await;
+                        break;
+                    }
+                };
+
                 // ── Server-side auto-continue setup ────────────────────────
                 let original_message = chat_request.message.clone();
                 let mut current_message = chat_request.message.clone();
                 let mut current_conv_id = chat_request.conversation_id.clone();
+                let requested_worker_id = chat_request
+                    .worker_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty() && *id != "default")
+                    .map(str::to_string);
                 let mut server_auto_continue_count = 0u32;
                 let mut final_conv_id_for_title = String::new();
 
@@ -251,6 +280,12 @@ pub async fn handle_websocket(
 
                                         match done_rx.await {
                                             Ok(GenerationResult::Complete { conversation_id, prompt_tok_per_sec, gen_tok_per_sec, gen_eval_ms, gen_tokens, prompt_eval_ms, prompt_tokens, finish_reason, token_breakdown, .. }) => {
+                                                if chat_request.conversation_id.is_none() {
+                                                    let _ = db.set_conversation_worker_id(
+                                                        &conversation_id,
+                                                        requested_worker_id.as_deref(),
+                                                    );
+                                                }
                                                 eprintln!("[WS_CHAT] Complete: conv={}, finish={:?}", conversation_id, finish_reason);
                                                 let done_msg = serde_json::json!({
                                                     "type": "done",

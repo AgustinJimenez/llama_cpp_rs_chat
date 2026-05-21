@@ -157,6 +157,51 @@ pub fn tool_edit_file(args: &Value) -> String {
     }
 }
 
+pub fn tool_multi_edit(args: &Value) -> String {
+    let edits = match args.get("edits").and_then(|v| v.as_array()) {
+        Some(e) => e,
+        None => return "Error: 'edits' argument is required and must be an array".to_string(),
+    };
+
+    if edits.is_empty() {
+        return "Error: 'edits' array is empty".to_string();
+    }
+
+    let mut results: Vec<String> = Vec::new();
+
+    for (i, edit) in edits.iter().enumerate() {
+        let path = match edit.get("path").and_then(|v| v.as_str()) {
+            Some(p) => p,
+            None => {
+                results.push(format!("Edit {}: Error: missing 'path'", i + 1));
+                break;
+            }
+        };
+        let old_string = match edit.get("old_string").and_then(|v| v.as_str()) {
+            Some(s) => s,
+            None => {
+                results.push(format!("Edit {}: Error: missing 'old_string'", i + 1));
+                break;
+            }
+        };
+        let new_string = edit.get("new_string").and_then(|v| v.as_str()).unwrap_or("");
+
+        let result = tool_edit_file(&serde_json::json!({
+            "path": path,
+            "old_string": old_string,
+            "new_string": new_string,
+        }));
+
+        let ok = !result.starts_with("Error:");
+        results.push(format!("Edit {} ({}): {}", i + 1, path, result));
+        if !ok {
+            break;
+        }
+    }
+
+    results.join("\n\n")
+}
+
 pub fn tool_undo_edit(args: &Value) -> String {
     let path = match args.get("path").and_then(|v| v.as_str()) {
         Some(p) => p,

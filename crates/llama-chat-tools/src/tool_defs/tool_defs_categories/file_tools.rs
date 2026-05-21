@@ -1,6 +1,6 @@
 //! File system, code execution, and code-intelligence tool definitions.
 
-use super::{p, Params, ToolDef};
+use super::{p, Params, RawParam, ToolDef};
 
 pub static FILE_TOOLS: &[ToolDef] = &[
     // ─── read_file ───
@@ -36,6 +36,31 @@ pub static FILE_TOOLS: &[ToolDef] = &[
             p("new_string", "string", "Text to replace it with"),
         ]),
         required: &["path", "old_string", "new_string"],
+    },
+    // ─── multi_edit ───
+    ToolDef {
+        name: "multi_edit",
+        description: "Apply multiple targeted edits across one or more files in a single call. Each edit replaces an exact string that must appear exactly once in its file. Edits are applied in order; if any edit fails the remaining edits are skipped. Use this instead of multiple edit_file calls when refactoring across files.",
+        params: Params::Mixed(
+            &[],
+            &[RawParam {
+                name: "edits",
+                build: || serde_json::json!({
+                    "type": "array",
+                    "description": "List of edits to apply, in order.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "path":       { "type": "string", "description": "Path to the file to edit" },
+                            "old_string": { "type": "string", "description": "Exact text to find (must appear exactly once)" },
+                            "new_string": { "type": "string", "description": "Text to replace it with" }
+                        },
+                        "required": ["path", "old_string", "new_string"]
+                    }
+                }),
+            }],
+        ),
+        required: &["edits"],
     },
     // ─── undo_edit ───
     ToolDef {

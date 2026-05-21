@@ -61,6 +61,18 @@ pub mod tools {
     pub use llama_chat_web::routes::tools::*;
 }
 #[allow(unused_imports)]
+pub mod workers {
+    pub use llama_chat_web::routes::workers::*;
+}
+#[allow(unused_imports)]
 pub mod app_errors {
     pub use llama_chat_web::routes::app_errors::*;
+}
+#[allow(unused_imports)]
+pub mod agent_heartbeat {
+    pub use llama_chat_web::routes::agent_heartbeat::*;
+}
+#[allow(unused_imports)]
+pub mod openai_compat_server {
+    pub use llama_chat_web::routes::openai_compat_server::*;
 }

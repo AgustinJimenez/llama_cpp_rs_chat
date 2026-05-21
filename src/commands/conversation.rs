@@ -27,6 +27,7 @@ pub async fn get_conversations(
             timestamp: timestamp_part,
             title: title_opt,
             provider_id: None,
+            worker_id: r.worker_id.clone(),
         });
     }
     Ok(ConversationsResponse { conversations })
@@ -137,6 +138,7 @@ pub async fn get_conversation(
         messages: final_messages,
         provider_id: None,
         provider_session_id: None,
+        worker_id: db.get_conversation_worker_id(conversation_id).unwrap_or(None),
         tool_timings: Vec::new(),
     })
 }

@@ -8,6 +8,7 @@ use std::convert::Infallible;
 use llama_chat_db::SharedDatabase;
 use llama_chat_types::models::{ChatMessage, ConversationContentResponse, ConversationFile, ConversationsResponse, ToolTiming};
 use crate::response_helpers::{json_error, json_raw, serialize_with_fallback};
+use crate::worker_pool::{resolve_bridge_for_conversation, WorkerPool};
 
 #[path = "conversation/management.rs"]
 mod management;
@@ -140,6 +141,7 @@ pub async fn handle_get_conversation(
                 messages,
                 provider_id,
                 provider_session_id,
+                worker_id: db.get_conversation_worker_id(conversation_id).unwrap_or(None),
                 tool_timings,
             };
 
@@ -196,6 +198,7 @@ pub async fn handle_get_conversations(
                     timestamp: timestamp_part,
                     title,
                     provider_id: record.provider_id.clone(),
+                    worker_id: record.worker_id.clone(),
                 });
             }
         }
@@ -223,7 +226,8 @@ pub async fn handle_get_conversations(
 /// GET /api/conversations/:id/events — return in-memory event log for a conversation
 pub async fn handle_get_conversation_events(
     path: &str,
-    bridge: llama_chat_worker::worker::worker_bridge::SharedWorkerBridge,
+    pool: WorkerPool,
+    db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     let stripped = match path.strip_prefix("/api/conversations/") {
         Some(s) => s,
@@ -232,6 +236,11 @@ pub async fn handle_get_conversation_events(
     let conv_id = match stripped.strip_suffix("/events") {
         Some(s) => s,
         None => return Ok(json_error(StatusCode::BAD_REQUEST, "Invalid path")),
+    };
+
+    let bridge = match resolve_bridge_for_conversation(&pool, &db, Some(conv_id)) {
+        Ok(bridge) => bridge,
+        Err(e) => return Ok(json_error(StatusCode::SERVICE_UNAVAILABLE, &e)),
     };
 
     match bridge.get_conversation_events(conv_id).await {

@@ -7,6 +7,9 @@
 # Claude Code files
 .claude/
 
+# CodeGraph index (generated locally, 100MB+)
+.codegraph/
+
 # Environment files
 .env
 .env.local

@@ -27,6 +27,8 @@ pub struct ChatRequest {
     pub message: String,
     pub conversation_id: Option<String>,
     #[serde(default)]
+    pub worker_id: Option<String>,
+    #[serde(default)]
     pub image_data: Option<Vec<String>>,
     #[serde(default)]
     pub auto_continue: bool,
@@ -73,6 +75,8 @@ pub struct ConversationFile {
     pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worker_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -94,6 +98,8 @@ pub struct ConversationContentResponse {
     pub provider_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worker_id: Option<String>,
     pub tool_timings: Vec<ToolTiming>,
 }
 

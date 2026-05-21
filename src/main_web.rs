@@ -13,7 +13,7 @@ use web::database::SharedDatabase;
 use std::convert::Infallible;
 
 #[cfg(not(feature = "mock"))]
-use web::worker::worker_bridge::SharedWorkerBridge;
+use web::worker_pool::WorkerPool;
 
 // HTTP server using hyper
 use hyper::{Body, Method, Request, Response, StatusCode};
@@ -27,10 +27,10 @@ use hyper::{Body, Method, Request, Response, StatusCode};
 #[cfg(not(feature = "mock"))]
 async fn handle_request(
     req: Request<Body>,
-    worker_bridge: SharedWorkerBridge,
+    worker_pool: WorkerPool,
     db: SharedDatabase,
 ) -> std::result::Result<Response<Body>, Infallible> {
-    handle_request_impl(req, Some(worker_bridge), db).await
+    handle_request_impl(req, Some(worker_pool), db).await
 }
 
 #[cfg(feature = "mock")]
@@ -43,7 +43,7 @@ async fn handle_request(
 
 async fn handle_request_impl(
     req: Request<Body>,
-    #[cfg(not(feature = "mock"))] worker_bridge: Option<SharedWorkerBridge>,
+    #[cfg(not(feature = "mock"))] worker_pool: Option<WorkerPool>,
     #[cfg(feature = "mock")] _worker_bridge: Option<()>,
     db: SharedDatabase,
 ) -> std::result::Result<Response<Body>, Infallible> {
@@ -51,7 +51,12 @@ async fn handle_request_impl(
     let path = req.uri().path().to_string();
 
     #[cfg(not(feature = "mock"))]
-    let bridge = worker_bridge.unwrap();
+    let pool = worker_pool.expect("Worker pool missing");
+
+    #[cfg(not(feature = "mock"))]
+    let bridge = pool
+        .get("default")
+        .expect("Default worker missing from pool");
 
     #[cfg(feature = "mock")]
     let bridge = ();
@@ -89,11 +94,11 @@ async fn handle_request_impl(
 
         // Chat endpoints
         (&Method::POST, "/api/chat") => {
-            web::routes::chat::handle_post_chat(req, bridge.clone(), db.clone()).await?
+            web::routes::chat::handle_post_chat(req, pool.clone(), db.clone()).await?
         }
 
         (&Method::POST, "/api/chat/stream") => {
-            web::routes::chat::handle_post_chat_stream(req, bridge.clone(), db.clone()).await?
+            web::routes::chat::handle_post_chat_stream(req, pool.clone(), db.clone()).await?
         }
 
         (&Method::POST, "/api/chat/cancel") => {
@@ -101,11 +106,11 @@ async fn handle_request_impl(
         }
 
         (&Method::GET, "/ws/chat/stream") => {
-            web::routes::chat::handle_websocket_chat_stream(req, bridge.clone(), db.clone()).await?
+            web::routes::chat::handle_websocket_chat_stream(req, pool.clone(), db.clone()).await?
         }
 
         (&Method::GET, path) if path.starts_with("/ws/conversation/watch/") => {
-            web::routes::chat::handle_conversation_watch_websocket(req, path, bridge.clone(), db.clone())
+            web::routes::chat::handle_conversation_watch_websocket(req, path, pool.clone(), db.clone())
                 .await?
         }
 
@@ -148,7 +153,7 @@ async fn handle_request_impl(
 
         // Conversation event log (in-memory debug events)
         (&Method::GET, path) if path.starts_with("/api/conversations/") && path.ends_with("/events") => {
-            web::routes::conversation::handle_get_conversation_events(path, bridge.clone()).await?
+            web::routes::conversation::handle_get_conversation_events(path, pool.clone(), db.clone()).await?
         }
 
         // Conversation token analysis
@@ -170,7 +175,7 @@ async fn handle_request_impl(
         // Conversation compact (manual compaction from UI)
         (&Method::POST, path) if path.starts_with("/api/conversations/") && path.ends_with("/compact") => {
             let id = &path["/api/conversations/".len()..path.len()-"/compact".len()];
-            web::routes::conversation::handle_compact_conversation(id, bridge.clone()).await?
+            web::routes::conversation::handle_compact_conversation(id, pool.clone(), db.clone()).await?
         }
 
         // Summary edit/delete (PATCH/DELETE must be before generic catch-alls)
@@ -210,7 +215,12 @@ async fn handle_request_impl(
         }
 
         (&Method::POST, "/api/conversations") => {
-            web::routes::conversation::handle_create_conversation(req, db.clone()).await?
+            web::routes::conversation::handle_create_conversation(req, pool.clone(), db.clone()).await?
+        }
+
+        (&Method::PATCH, path) if path.starts_with("/api/conversations/") && path.ends_with("/worker") => {
+            let id = &path["/api/conversations/".len()..path.len() - "/worker".len()];
+            web::routes::workers::handle_patch_conversation_worker(req, id, pool.clone(), db.clone()).await?
         }
 
         // Batch delete (must be before single delete /api/conversations/{id})
@@ -252,6 +262,22 @@ async fn handle_request_impl(
                 .trim_end_matches("/generate")
                 .trim_end_matches('/');
             web::routes::providers::handle_provider_generate(req, db.clone(), provider_id).await?
+        }
+
+        // Multi-worker management
+        (&Method::GET, "/api/workers") => {
+            web::routes::workers::handle_list_workers(pool.clone()).await?
+        }
+        (&Method::POST, "/api/workers") => {
+            web::routes::workers::handle_create_worker(req, pool.clone()).await?
+        }
+        (&Method::GET, path) if path.starts_with("/api/workers/") && path.ends_with("/status") => {
+            let worker_id = &path["/api/workers/".len()..path.len() - "/status".len()];
+            web::routes::workers::handle_get_worker_status(worker_id.trim_end_matches('/'), pool.clone()).await?
+        }
+        (&Method::DELETE, path) if path.starts_with("/api/workers/") => {
+            let worker_id = &path["/api/workers/".len()..];
+            web::routes::workers::handle_delete_worker(worker_id, pool.clone(), db.clone()).await?
         }
 
         // Model endpoints
@@ -371,6 +397,32 @@ async fn handle_request_impl(
                     .body(Body::from("Not Found"))
                     .unwrap()
             }
+        }
+
+        // Per-conversation agent heartbeat
+        (&Method::GET, path) if path.starts_with("/api/conversations/") && path.ends_with("/heartbeat") => {
+            let id = &path["/api/conversations/".len()..path.len() - "/heartbeat".len()];
+            web::routes::agent_heartbeat::handle_get_heartbeat(id, db.clone()).await?
+        }
+        (&Method::POST, path) if path.starts_with("/api/conversations/") && path.ends_with("/heartbeat") => {
+            let id = &path["/api/conversations/".len()..path.len() - "/heartbeat".len()];
+            web::routes::agent_heartbeat::handle_post_heartbeat(req, id, db.clone()).await?
+        }
+        (&Method::POST, path) if path.starts_with("/api/conversations/") && path.ends_with("/heartbeat/fire") => {
+            let id = &path["/api/conversations/".len()..path.len() - "/heartbeat/fire".len()];
+            web::routes::agent_heartbeat::handle_fire_heartbeat(id, pool.clone(), db.clone()).await?
+        }
+        (&Method::POST, path) if path.starts_with("/api/conversations/") && path.ends_with("/heartbeat/clear") => {
+            let id = &path["/api/conversations/".len()..path.len() - "/heartbeat/clear".len()];
+            web::routes::agent_heartbeat::handle_clear_heartbeat(id, db.clone()).await?
+        }
+
+        // OpenAI-compatible server endpoints (for clients like openclaw)
+        (&Method::GET, "/v1/models") => {
+            web::routes::openai_compat_server::handle_get_models(bridge.clone()).await?
+        }
+        (&Method::POST, "/v1/chat/completions") => {
+            web::routes::openai_compat_server::handle_post_chat_completions(req, bridge.clone()).await?
         }
 
         // CORS preflight

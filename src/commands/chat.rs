@@ -21,6 +21,17 @@ pub async fn generate_stream(
     use crate::web::chat::{get_tool_tags_for_model, get_universal_system_prompt_with_tags};
     use crate::web::database::conversation::ConversationLogger;
 
+    if request
+        .worker_id
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|id| !id.is_empty() && id != "default")
+    {
+        return Err(
+            "Per-conversation workers are not implemented in Tauri mode yet; only the default worker is available".to_string(),
+        );
+    }
+
     // Resolve system prompt
     let general_name = bridge
         .model_status()
