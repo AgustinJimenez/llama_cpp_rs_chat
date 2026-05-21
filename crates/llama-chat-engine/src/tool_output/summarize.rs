@@ -119,16 +119,18 @@ Rules:
 - Plain text only. No markdown: no headers (#), no bold (**), no italics, no code fences.
 - Start directly with the content. No preamble like 'Here is a summary...'.
 - No raw code snippets or file contents — describe what things do and why.
+- CRITICAL: This summary represents REAL actions already taken. Any task listed as complete must NOT be repeated.
 
 Cover these areas in order:
 1. Primary Request and Intent: what the user asked for, all goals and sub-goals.
-2. Key Technical Concepts: technologies, frameworks, architecture decisions and why.
-3. Files and Code Sections: every file created or edited, what changed and why.
-4. Errors and Fixes: every error, its root cause, and how it was fixed.
-5. Problem Solving: approaches tried, decisions made, trade-offs, open issues.
-6. Pending Tasks: tasks requested but not yet completed.
-7. Current Work: exactly what was in progress at compaction time.
-8. Next Step: the immediate next action to continue.";
+2. Task Completion Status: EXPLICITLY state 'COMPLETE', 'IN PROGRESS', or 'NOT STARTED' for every goal. List every tool call made (function name, result summary) to prove real execution happened.
+3. Key Technical Concepts: technologies, frameworks, architecture decisions and why.
+4. Files and Code Sections: every file created or edited, what changed and why.
+5. Errors and Fixes: every error, its root cause, and how it was fixed.
+6. Problem Solving: approaches tried, decisions made, trade-offs, open issues.
+7. Pending Tasks: tasks requested but not yet completed.
+8. Current Work: exactly what was in progress at compaction time.
+9. Next Step: the immediate next action to continue. If the primary task is COMPLETE, say so explicitly.";
 
 /// Public entry point for conversation compaction summarization.
 pub fn run_summary_pass_public(

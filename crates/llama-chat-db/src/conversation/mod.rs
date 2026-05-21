@@ -59,7 +59,7 @@ impl CompactionSummaryRecord {
         MessageRecord {
             role: "system".to_string(),
             content: format!(
-                "[Conversation summary — {} earlier messages compacted]\n{}",
+                "[Compacted history — {} messages. This is REAL work already done. Tasks marked COMPLETE were actually executed — do NOT repeat them.]\n{}",
                 self.message_count, self.summary_text
             ),
             timestamp: self.created_at as u64,
