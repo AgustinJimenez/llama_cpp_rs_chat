@@ -54,6 +54,9 @@ export const useModel = () => {
   const [error, setError] = useState<string | null>(null);
   const [hasStatusError, setHasStatusError] = useState(false);
   const lastStatusJson = useRef('');
+  // Ref mirror of loadingAction so fetchStatus (a stable callback) can read the current action
+  // without being in its dependency array and without going stale.
+  const loadingActionRef = useRef<LoadingAction>(null);
 
   const hardUnload = useCallback(async () => {
     try {
@@ -93,16 +96,21 @@ export const useModel = () => {
       }
       setError(null);
       setHasStatusError(false);
-      // Sync loading state from server (e.g. after browser refresh during load)
-      if (data.loading && !data.loaded) {
+      // Sync loading state from server (e.g. after browser refresh during load).
+      // Guard: never override an in-progress unload — the server briefly reports
+      // loading=true while the worker respawns, which would re-activate the fast
+      // poll and make the UI flash "loading → loaded" right after disconnecting.
+      if (data.loading && !data.loaded && loadingActionRef.current !== 'unloading') {
         setIsLoading(true);
         isLoadingRef.current = true;
         setLoadingAction('loading');
+        loadingActionRef.current = 'loading';
       } else if (!data.loading && !data.loaded && isLoadingRef.current) {
         // Backend finished loading (or crashed) — clear frontend loading state
         setIsLoading(false);
         isLoadingRef.current = false;
         setLoadingAction(null);
+        loadingActionRef.current = null;
       }
       // Backend handles crash recovery (worker_bridge.rs: CrashRecoveryCtx)
       // — auto-restarts worker, reloads model, continues generation.
@@ -119,6 +127,7 @@ export const useModel = () => {
       setIsLoading(true);
       isLoadingRef.current = true;
       setLoadingAction('loading');
+      loadingActionRef.current = 'loading';
       setError(null);
 
       const refreshStatusSafe = async () => {
@@ -188,6 +197,7 @@ export const useModel = () => {
         setIsLoading(false);
         isLoadingRef.current = false;
         setLoadingAction(null);
+        loadingActionRef.current = null;
       }
     },
     [fetchStatus],
@@ -197,6 +207,7 @@ export const useModel = () => {
     setIsLoading(true);
     isLoadingRef.current = true;
     setLoadingAction('unloading');
+    loadingActionRef.current = 'unloading';
     setError(null);
 
     try {
@@ -222,6 +233,7 @@ export const useModel = () => {
       setIsLoading(false);
       isLoadingRef.current = false;
       setLoadingAction(null);
+      loadingActionRef.current = null;
     }
   }, [fetchStatus]);
 
@@ -241,6 +253,7 @@ export const useModel = () => {
           setIsLoading(false);
           isLoadingRef.current = false;
           setLoadingAction(null);
+          loadingActionRef.current = null;
         }
       } catch {
         // Keep polling on error
