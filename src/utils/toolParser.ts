@@ -281,6 +281,18 @@ const lfm2Parser: ToolParser = {
 };
 
 /**
+ * Strip <think>...</think> blocks from text before tool call detection.
+ * Prevents reasoning content from being mistaken for real tool calls when a
+ * model writes example tool-call syntax inside its thinking block.
+ * Also handles the unclosed case (block still streaming).
+ */
+function stripThinkingBlocks(text: string): string {
+  return text
+    .replace(/<think>[\s\S]*?<\/think>/g, '') // closed think blocks
+    .replace(/<think>[\s\S]*$/, ''); // unclosed think block (still streaming)
+}
+
+/**
  * Parser registry mapping tool formats to parsers
  */
 const parserRegistry: Record<ToolFormat, ToolParser | null> = {
@@ -301,11 +313,12 @@ export function parseToolCalls(text: string, format: ToolFormat): ToolCall[] {
     return [];
   }
 
-  if (!parser.detect(text)) {
+  const stripped = stripThinkingBlocks(text);
+  if (!parser.detect(stripped)) {
     return [];
   }
 
-  return parser.parse(text);
+  return parser.parse(stripped);
 }
 
 /**
@@ -313,11 +326,13 @@ export function parseToolCalls(text: string, format: ToolFormat): ToolCall[] {
  * Tries all parsers until one matches
  */
 export function autoParseToolCalls(text: string): ToolCall[] {
+  // Strip thinking blocks first so reasoning content is never mistaken for real tool calls
+  const stripped = stripThinkingBlocks(text);
   const parsers = [lfm2Parser, mistralParser, llama3Parser, qwenParser];
 
   for (const parser of parsers) {
-    if (parser.detect(text)) {
-      const results = parser.parse(text);
+    if (parser.detect(stripped)) {
+      const results = parser.parse(stripped);
       if (results.length > 0) return results;
       // If detected but parsed nothing, try next parser
     }
