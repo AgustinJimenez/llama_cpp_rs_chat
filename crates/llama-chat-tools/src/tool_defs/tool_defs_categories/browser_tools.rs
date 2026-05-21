@@ -91,7 +91,7 @@ pub static BROWSER_TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "browser_search",
-        description: "Search the web. Returns a list of results with titles, URLs, and snippets. Use this for web searches instead of navigating to search engines manually.",
+        description: "Search the web using a text query. Returns a list of results with titles, URLs, and snippets. Do NOT pass a URL here — use browser_navigate to open a specific URL.",
         params: Params::Simple(&[
             p("query", "string", "The search query"),
             p("max_results", "integer", "Max results to return (default: 8)"),
