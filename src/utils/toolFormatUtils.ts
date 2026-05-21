@@ -271,3 +271,24 @@ export function stripUnclosedToolCallTail(content: string, toolTags?: ToolTags):
 
   return cutoff < content.length ? content.slice(0, cutoff).trimEnd() : content;
 }
+
+/**
+ * Extract a partial tool function name from raw incomplete tail text.
+ * Used to show a pending widget before the tool call is fully written.
+ * Handles Qwen JSON, Llama3 XML, Mistral bracket, and LFM2 formats.
+ */
+export function extractPartialToolName(tail: string): string | null {
+  // Qwen JSON: {"name": "browser_get_text"
+  let m = tail.match(/"name"\s*:\s*"([^"]+)/);
+  if (m) return m[1];
+  // Llama3 / Qwen hybrid: <function=browser_get_text>
+  m = tail.match(/<function=([^>\s]+)/);
+  if (m?.[1]) return m[1].trim();
+  // Mistral: [TOOL_CALLS]browser_get_text
+  m = tail.match(/\[TOOL_CALLS\]\s*(\w+)/);
+  if (m) return m[1];
+  // LFM2: <|tool_call_start|>[browser_get_text(
+  m = tail.match(/<\|tool_call_start\|>\s*\[([^([]+)/);
+  if (m?.[1]?.trim()) return m[1].trim();
+  return null;
+}

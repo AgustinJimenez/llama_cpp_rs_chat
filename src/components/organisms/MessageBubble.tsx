@@ -1,4 +1,4 @@
-import { Pencil, RefreshCw, Play } from 'lucide-react';
+import { Pencil, RefreshCw, Play, Loader2 } from 'lucide-react';
 import React, { useState, useRef, useEffect } from 'react';
 
 import { useModelContext } from '../../contexts/ModelContext';
@@ -321,6 +321,18 @@ const AssistantMessage: React.FC<{
                     toolCalls={[segment.toolCall]}
                     isGenerating={isGenerating}
                   />
+                );
+              }
+              if (segment.type === 'tool_call_pending') {
+                return (
+                  <div
+                    key={`seg-tcp-${index}`}
+                    className="w-full rounded bg-muted px-3 py-2 flex items-center gap-2 text-xs text-foreground/70"
+                  >
+                    <Loader2 className="h-3 w-3 animate-spin flex-shrink-0" />
+                    <span className="font-medium">{segment.name ?? 'tool call'}</span>
+                    <span className="text-foreground/40">writing arguments…</span>
+                  </div>
                 );
               }
               // Text segment — no bubble, just text on background

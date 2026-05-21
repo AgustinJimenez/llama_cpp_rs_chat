@@ -14,6 +14,7 @@ import type { ToolCall, ToolTags } from '../types';
 
 import {
   extractBalancedJson,
+  extractPartialToolName,
   findStreamingResponse,
   stripUnclosedToolCallTail,
 } from './toolFormatUtils';
@@ -24,7 +25,8 @@ import { collectQwenSpans } from './toolSpanCollectorsQwen';
 export type MessageSegment =
   | { type: 'text'; content: string }
   | { type: 'tool_call'; toolCall: ToolCall }
-  | { type: 'thinking'; content: string };
+  | { type: 'thinking'; content: string }
+  | { type: 'tool_call_pending'; name: string | null };
 
 export type Span = { start: number; end: number; segment: MessageSegment };
 
@@ -588,10 +590,24 @@ export function buildSegments(content: string, toolTags?: ToolTags): MessageSegm
     cursor = span.end;
   }
 
-  if (cursor < preprocessed.length) {
-    let text = preprocessed.slice(cursor).replace(THINKING_ORPHAN_CLOSE_REGEX, '').replace(THINKING_ORPHAN_OPEN_REGEX, '').trim();
+  // Only emit trailing text up to `pruned.length` — the stripped portion is an
+  // incomplete tool call that we never want to show as raw markdown.
+  const trailingEnd = pruned.length;
+  if (cursor < trailingEnd) {
+    let text = preprocessed
+      .slice(cursor, trailingEnd)
+      .replace(THINKING_ORPHAN_CLOSE_REGEX, '')
+      .replace(THINKING_ORPHAN_OPEN_REGEX, '')
+      .trim();
     if (needsChannelStrip) text = stripChannelTags(text).trim();
     if (text) result.push({ type: 'text', content: text });
+  }
+
+  // If content was stripped (incomplete tool call at the tail), show a pending widget
+  // so the user sees the function name immediately rather than blank space.
+  if (pruned.length < contentForTools.length) {
+    const tail = contentForTools.slice(pruned.length);
+    result.push({ type: 'tool_call_pending', name: extractPartialToolName(tail) });
   }
 
   return result;
