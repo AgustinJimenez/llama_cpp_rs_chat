@@ -112,9 +112,18 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
   if (!response.ok) {
     const text = await response.text().catch(() => response.statusText);
+    // If the error body is JSON with a message field, surface just that string
+    // so callers don't receive a raw JSON blob as the error message.
+    try {
+      const parsed = JSON.parse(text) as Record<string, unknown>;
+      if (typeof parsed.message === 'string') throw new Error(parsed.message);
+    } catch (e) {
+      if (e instanceof SyntaxError) throw new Error(text || `HTTP ${response.status}`);
+      throw e;
+    }
     throw new Error(text || `HTTP ${response.status}`);
   }
-  return response.json();
+  return response.json() as Promise<T>;
 }
 
 // ─── Configuration ────────────────────────────────────────────────────
