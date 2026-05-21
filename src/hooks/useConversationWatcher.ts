@@ -1,0 +1,354 @@
+import { useEffect, useRef } from 'react';
+import { toast } from 'react-hot-toast';
+
+const CONVERSATION_POLL_INTERVAL_MS = 5000;
+const MIN_CONTEXT_SIZE_WARNING = 4096;
+
+import type { Message } from '../types';
+import { parseConversationFile } from '../utils/conversationParser';
+import { isTauriEnv } from '../utils/tauri';
+import { getConversation } from '../utils/tauriCommands';
+import { logToastError, logToastWarning } from '../utils/toastLogger';
+
+/**
+ * Check if the content has an unclosed tool response/output tag, indicating
+ * a command is still executing. Used to avoid prematurely declaring generation done.
+ */
+function hasUnclosedToolExecution(content: string): boolean {
+  // Qwen/generic: <tool_response> without matching </tool_response>
+  const lastTrOpen = content.lastIndexOf('<tool_response>');
+  const lastTrClose = content.lastIndexOf('</tool_response>');
+  if (lastTrOpen !== -1 && lastTrOpen > lastTrClose) return true;
+
+  // SYSTEM.EXEC format: <||SYSTEM.OUTPUT> without closing
+  const lastSoOpen = content.lastIndexOf('SYSTEM.OUTPUT>');
+  const lastSoClose = content.lastIndexOf('SYSTEM.OUTPUT||>');
+  if (lastSoOpen !== -1 && lastSoOpen > lastSoClose) return true;
+
+  // Mistral: [TOOL_RESULTS] without [/TOOL_RESULTS]
+  const lastMrOpen = content.lastIndexOf('[TOOL_RESULTS]');
+  const lastMrClose = content.lastIndexOf('[/TOOL_RESULTS]');
+  if (lastMrOpen !== -1 && lastMrOpen > lastMrClose) return true;
+
+  // Unclosed tool call (model still generating the call, before execution)
+  // GLM models close <tool_call> with <|end_of_box|> instead of </tool_call>
+  const lastTcOpen = content.lastIndexOf('<tool_call>');
+  const lastTcClose = Math.max(
+    content.lastIndexOf('</tool_call>'),
+    content.lastIndexOf('<|end_of_box|>'),
+  );
+  if (lastTcOpen !== -1 && lastTcOpen > lastTcClose) return true;
+
+  return false;
+}
+
+interface UseConversationWatcherOptions {
+  currentConversationId: string | null;
+  isStreamingRef: React.MutableRefObject<boolean>;
+  currentMessagesRef: React.MutableRefObject<Message[]>;
+  setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
+  setTokensUsed: React.Dispatch<React.SetStateAction<number | undefined>>;
+  setMaxTokens: React.Dispatch<React.SetStateAction<number | undefined>>;
+  setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;
+}
+
+const WS_RECONNECT_BASE_MS = 500;
+const WS_RECONNECT_MAX_MS = 5000;
+const WS_STUCK_STREAMING_POLL_MS = 15_000;
+
+/**
+ * Pick the best message list between incoming (server) and local (UI).
+ * During streaming, prefer whichever has more content to avoid flickering.
+ */
+function reconcileMessages(incoming: Message[], local: Message[], isStreaming: boolean): Message[] {
+  if (!isStreaming || local.length === 0) {
+    // Preserve timings from local messages (attached by onComplete) that
+    // the file-parsed incoming messages don't have.
+    // Match by index+role since IDs differ between local and parsed messages.
+    if (local.length > 0 && incoming.length > 0) {
+      let hasTimings = false;
+      for (const msg of local) {
+        if (msg.timings) {
+          hasTimings = true;
+          break;
+        }
+      }
+      if (hasTimings) {
+        return incoming.map((msg, i) => {
+          const localMsg = local[i];
+          if (localMsg?.timings && localMsg.role === msg.role) {
+            return { ...msg, timings: localMsg.timings };
+          }
+          return msg;
+        });
+      }
+    }
+    return incoming;
+  }
+
+  const localLast = local[local.length - 1];
+  const incomingLast = incoming[incoming.length - 1];
+
+  if (localLast?.role === 'assistant') {
+    const incomingAssistant = incomingLast?.role === 'assistant' ? incomingLast : null;
+    const incomingLength = incomingAssistant?.content.length ?? 0;
+    if (incomingLength < localLast.content.length || incoming.length < local.length) {
+      return local;
+    }
+  } else if (incoming.length < local.length) {
+    return local;
+  }
+
+  return incoming;
+}
+
+function getNextDelay(attempt: number): number {
+  const exp = WS_RECONNECT_BASE_MS * Math.pow(2, attempt);
+  return Math.min(exp, WS_RECONNECT_MAX_MS);
+}
+
+/** Handle context size warning toasts from conversation content. */
+function handleContextWarnings(content: string) {
+  if (
+    content.includes('\u26a0\ufe0f Context Size Reduced') &&
+    content.includes('Auto-reduced to:')
+  ) {
+    const match = content.match(/Auto-reduced to: (\d+) tokens/);
+    if (match) {
+      const reducedSize = parseInt(match[1]);
+      if (reducedSize < MIN_CONTEXT_SIZE_WARNING) {
+        const display = `\u26a0\ufe0f Context size critically low (${reducedSize} tokens)! Model may not work properly.`;
+        logToastWarning('useConversationWatcher.context', display);
+        toast.error(display, { duration: 10000 });
+      } else {
+        const display = `\u26a0\ufe0f Context size reduced to ${reducedSize} tokens due to VRAM limits.`;
+        logToastWarning('useConversationWatcher.context', display);
+        toast(display, {
+          duration: 5000,
+          icon: '\u26a0\ufe0f',
+        });
+      }
+    }
+  }
+}
+
+interface WsUpdateMessage {
+  type?: string;
+  content?: string;
+  tokens_used?: number;
+  max_tokens?: number;
+}
+
+/** Process a WebSocket update message: parse messages, handle errors, update token counts. */
+function handleWsUpdate(
+  message: WsUpdateMessage,
+  opts: Pick<
+    UseConversationWatcherOptions,
+    'isStreamingRef' | 'setMessages' | 'setIsLoading' | 'setTokensUsed' | 'setMaxTokens'
+  >,
+) {
+  const { isStreamingRef, setMessages, setIsLoading, setTokensUsed, setMaxTokens } = opts;
+
+  // Skip updates during active streaming
+  if (isStreamingRef.current) {
+    console.warn('[ConversationWatcher] Skipping update - streaming is active');
+    return;
+  }
+
+  const { content } = message;
+  if (!content) return;
+
+  handleContextWarnings(content);
+
+  // Prefer structured messages from the update if available,
+  // otherwise fall back to parsing the raw text content.
+  // This prevents raw JSON blobs from incremental saves overwriting clean messages.
+  const wsMessages = (message as Record<string, unknown>).messages as unknown[] | undefined;
+  if (wsMessages && wsMessages.length > 0) {
+    setMessages(wsMessages as Parameters<typeof setMessages>[0]);
+    console.warn(
+      '[ConversationWatcher] Updated messages from structured data, count:',
+      wsMessages.length,
+    );
+  } else {
+    const parsedMessages = parseConversationFile(content);
+    // Only overwrite if parsed messages have more content than existing ones.
+    // loadConversation provides structured messages with metadata (compacted, timings)
+    // that the raw text parser can't preserve, so prefer existing when counts match.
+    setMessages((prev) => {
+      if (prev.length > 0 && parsedMessages.length <= prev.length) return prev;
+      return parsedMessages;
+    });
+    console.warn(
+      '[ConversationWatcher] Updated messages from parsed content, count:',
+      parsedMessages.length,
+    );
+  }
+
+  if (content.includes('\u26a0\ufe0f Generation Error:')) {
+    console.error('[ConversationWatcher] Generation error detected');
+    const display =
+      'Model generation failed. Try simplifying your request or reducing context size.';
+    logToastError('useConversationWatcher.handleUpdate', display);
+    toast.error(display, { duration: 7000 });
+    setIsLoading(false);
+    return;
+  }
+
+  setIsLoading(false);
+
+  if (message.tokens_used !== undefined && message.tokens_used !== null) {
+    setTokensUsed(message.tokens_used);
+  }
+  if (message.max_tokens !== undefined && message.max_tokens !== null) {
+    setMaxTokens(message.max_tokens);
+  }
+}
+
+/**
+ * Hook to watch conversation updates via WebSocket.
+ * Handles real-time updates and context warnings.
+ *
+ * Tool execution is handled entirely by the backend inline during generation.
+ * This hook only manages message display and loading state.
+ */
+export function useConversationWatcher({
+  currentConversationId,
+  isStreamingRef,
+  currentMessagesRef,
+  setMessages,
+  setTokensUsed,
+  setMaxTokens,
+  setIsLoading,
+}: UseConversationWatcherOptions) {
+  const lastWsUpdateAtRef = useRef<number>(Date.now());
+  const lastPolledAssistantContentRef = useRef<string>('');
+  const stablePollsRef = useRef(0);
+
+  // Fallback: re-fetch conversation if WS is disconnected but a conversation is active
+  useEffect(() => {
+    const shouldPollConversation = () => {
+      if (!currentConversationId || !isStreamingRef.current) return false;
+      return Date.now() - lastWsUpdateAtRef.current >= WS_STUCK_STREAMING_POLL_MS;
+    };
+
+    const reconcileUiStateFromMessages = async (parsedMessages: Message[]) => {
+      const lastMessage = parsedMessages[parsedMessages.length - 1];
+      if (!lastMessage || lastMessage.role !== 'assistant') return;
+      const content = lastMessage.content.trim();
+      if (content.length === 0 || hasUnclosedToolExecution(content)) return;
+      isStreamingRef.current = false;
+      setIsLoading(false);
+    };
+
+    const fetchConversation = async () => {
+      if (!shouldPollConversation() || !currentConversationId) return;
+      try {
+        const data = await getConversation(currentConversationId);
+        let parsedMessages: Message[] | null = null;
+        // Prefer structured messages (handles remote provider tool_call reconstruction)
+        // over raw text content (which may contain JSON blobs from incremental saves)
+        if (data.messages && data.messages.length > 0) {
+          parsedMessages = data.messages as unknown as Message[];
+        } else if (data.content) {
+          parsedMessages = parseConversationFile(data.content);
+        }
+
+        if (!parsedMessages) return;
+
+        const nextMessages = reconcileMessages(
+          parsedMessages,
+          currentMessagesRef.current,
+          isStreamingRef.current,
+        );
+        const { current } = currentMessagesRef;
+        const changed =
+          nextMessages.length !== current.length ||
+          nextMessages.some(
+            (m, i) => m.content !== current[i]?.content || m.role !== current[i]?.role,
+          );
+        if (changed) setMessages(nextMessages);
+
+        if (isStreamingRef.current) {
+          const lastMsg = nextMessages[nextMessages.length - 1];
+          const assistantContent = lastMsg?.role === 'assistant' ? lastMsg.content : '';
+          if (!assistantContent) return;
+          if (assistantContent === lastPolledAssistantContentRef.current) {
+            stablePollsRef.current += 1;
+          } else {
+            stablePollsRef.current = 0;
+            lastPolledAssistantContentRef.current = assistantContent;
+          }
+          if (stablePollsRef.current < 1) return;
+        } else {
+          stablePollsRef.current = 0;
+          lastPolledAssistantContentRef.current = '';
+        }
+
+        await reconcileUiStateFromMessages(nextMessages);
+      } catch (err) {
+        logToastWarning('useConversationWatcher.poll', 'Conversation poll failed', err);
+      }
+    };
+
+    const interval = setInterval(fetchConversation, CONVERSATION_POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [currentConversationId, isStreamingRef, currentMessagesRef, setIsLoading, setMessages]);
+
+  useEffect(() => {
+    if (!currentConversationId || isTauriEnv()) return;
+
+    let attempt = 0;
+    let shouldReconnect = true;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/conversation/watch/${currentConversationId}`;
+    let ws: WebSocket | null = null;
+    const updateOpts = { isStreamingRef, setMessages, setIsLoading, setTokensUsed, setMaxTokens };
+
+    const connect = () => {
+      ws = new WebSocket(wsUrl);
+      ws.onopen = () => {
+        attempt = 0;
+        lastWsUpdateAtRef.current = Date.now();
+      };
+      ws.onmessage = (event) => {
+        try {
+          lastWsUpdateAtRef.current = Date.now();
+          const message = JSON.parse(event.data);
+          if (message.type === 'update') handleWsUpdate(message, updateOpts);
+        } catch (e) {
+          console.error('[ConversationWatcher] Failed to parse update:', e);
+        }
+      };
+      ws.onerror = (error) => {
+        console.error('[ConversationWatcher] WebSocket ERROR:', error);
+      };
+      ws.onclose = (event) => {
+        console.warn('[ConversationWatcher] WebSocket closed:', event.code, event.reason);
+        if (shouldReconnect) {
+          const delay = getNextDelay(attempt);
+          attempt += 1;
+          reconnectTimer = setTimeout(connect, delay);
+        }
+      };
+    };
+
+    connect();
+
+    return () => {
+      shouldReconnect = false;
+      if (reconnectTimer !== null) clearTimeout(reconnectTimer);
+      if (ws) ws.close();
+    };
+  }, [
+    currentConversationId,
+    isStreamingRef,
+    setMessages,
+    setTokensUsed,
+    setMaxTokens,
+    setIsLoading,
+  ]);
+
+  return {};
+}

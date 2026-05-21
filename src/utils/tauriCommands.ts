@@ -1,0 +1,694 @@
+/* eslint-disable max-lines -- unified API surface, splitting would fragment related functions */
+/**
+ * Unified typed wrappers for all backend commands.
+ * Each function branches between Tauri invoke() and HTTP fetch().
+ */
+const SSE_DATA_PREFIX_LENGTH = 6;
+
+import type { SamplerConfig, ToolCall, ToolTags } from '../types';
+
+import { isTauriEnv } from './tauri';
+
+// ─── Types ────────────────────────────────────────────────────────────
+
+interface ModelStatus {
+  loaded: boolean;
+  loading?: boolean;
+  loading_progress?: number;
+  generating?: boolean;
+  model_path: string | null;
+  last_used: string | null;
+  memory_usage_mb: number | null;
+  tool_tags?: ToolTags;
+  system_prompt_tokens?: number;
+  tool_definitions_tokens?: number;
+}
+
+interface ModelResponse {
+  success: boolean;
+  message: string;
+  status?: ModelStatus;
+}
+
+interface ConversationFile {
+  name: string;
+  display_name: string;
+  timestamp: string;
+  title?: string;
+}
+
+interface ConversationsResponse {
+  conversations: ConversationFile[];
+}
+
+interface ConversationContentResponse {
+  content: string;
+  messages: Array<{
+    id: string;
+    role: string;
+    content: string;
+    timestamp: number;
+  }>;
+  provider_id?: string;
+  provider_session_id?: string;
+  tool_timings?: Array<{ name: string; duration_ms: number }>;
+}
+
+interface FileItem {
+  name: string;
+  path: string;
+  is_directory: boolean;
+  size?: number;
+}
+
+interface BrowseFilesResponse {
+  files: FileItem[];
+  current_path: string;
+  parent_path?: string;
+}
+
+export interface SystemUsageData {
+  cpu: number;
+  gpu: number;
+  ram: number;
+  total_ram_gb?: number;
+  total_vram_gb?: number;
+  cpu_cores?: number;
+  cpu_ghz?: number;
+}
+
+export interface HubFile {
+  name: string;
+  size: number;
+}
+
+export interface HubModel {
+  id: string;
+  author: string;
+  downloads: number;
+  likes: number;
+  last_modified: string;
+  pipeline_tag: string;
+  files: HubFile[];
+}
+
+export interface AppErrorEntry {
+  id: number;
+  level: string;
+  source: string;
+  message: string;
+  details?: string | null;
+  timestamp: number;
+}
+
+// ─── Helper ───────────────────────────────────────────────────────────
+
+async function invokeCmd<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<T>(cmd, args);
+}
+
+async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, init);
+  if (!response.ok) {
+    const text = await response.text().catch(() => response.statusText);
+    throw new Error(text || `HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+// ─── Configuration ────────────────────────────────────────────────────
+
+export async function getConfig(): Promise<SamplerConfig> {
+  if (isTauriEnv()) {
+    return invokeCmd<SamplerConfig>('get_config');
+  }
+  return fetchJson<SamplerConfig>('/api/config');
+}
+
+export async function saveConfig(config: SamplerConfig): Promise<void> {
+  if (isTauriEnv()) {
+    await invokeCmd('save_config', { config });
+    return;
+  }
+  const response = await fetch('/api/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  });
+  if (!response.ok) throw new Error('Failed to save configuration');
+}
+
+export async function recordAppError(error: {
+  level: string;
+  source: string;
+  message: string;
+  details?: string;
+  timestamp?: number;
+}): Promise<void> {
+  if (isTauriEnv()) {
+    await invokeCmd('record_app_error', { error });
+    return;
+  }
+  await fetchJson('/api/errors', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(error),
+  });
+}
+
+export async function getAppErrors(limit = 100): Promise<AppErrorEntry[]> {
+  if (isTauriEnv()) {
+    return invokeCmd<AppErrorEntry[]>('get_app_errors', { limit });
+  }
+  return fetchJson<AppErrorEntry[]>(`/api/errors?limit=${limit}`);
+}
+
+export async function clearAppErrors(): Promise<{ success: boolean; deleted: number }> {
+  if (isTauriEnv()) {
+    return invokeCmd<{ success: boolean; deleted: number }>('clear_app_errors');
+  }
+  return fetchJson<{ success: boolean; deleted: number }>('/api/errors', {
+    method: 'DELETE',
+  });
+}
+
+// ─── Per-Conversation Config ──────────────────────────────────────────
+
+export async function getConversationConfig(conversationId: string): Promise<SamplerConfig> {
+  return fetchJson<SamplerConfig>(
+    `/api/conversations/${encodeURIComponent(conversationId)}/config`,
+  );
+}
+
+export async function saveConversationConfig(
+  conversationId: string,
+  config: SamplerConfig,
+): Promise<void> {
+  const response = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/config`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  });
+  if (!response.ok) throw new Error('Failed to save conversation configuration');
+}
+
+// ─── Model ────────────────────────────────────────────────────────────
+
+export async function getModelStatus(): Promise<ModelStatus> {
+  if (isTauriEnv()) {
+    return invokeCmd<ModelStatus>('get_model_status');
+  }
+  return fetchJson<ModelStatus>('/api/model/status');
+}
+
+export async function loadModel(
+  modelPath: string,
+  gpuLayers?: number,
+  mmprojPath?: string,
+): Promise<ModelResponse> {
+  const payload: Record<string, unknown> = { model_path: modelPath, gpu_layers: gpuLayers ?? null };
+  if (mmprojPath) payload.mmproj_path = mmprojPath;
+  if (isTauriEnv()) {
+    return invokeCmd<ModelResponse>('load_model', { request: payload });
+  }
+  return fetchJson<ModelResponse>('/api/model/load', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function unloadModel(): Promise<ModelResponse> {
+  if (isTauriEnv()) {
+    return invokeCmd<ModelResponse>('unload_model');
+  }
+  return fetchJson<ModelResponse>('/api/model/unload', { method: 'POST' });
+}
+
+export async function hardUnload(): Promise<void> {
+  if (isTauriEnv()) {
+    await invokeCmd('hard_unload');
+    return;
+  }
+  await fetch('/api/model/hard-unload', { method: 'POST' });
+}
+
+export async function getModelInfo(modelPath: string): Promise<Record<string, unknown>> {
+  if (isTauriEnv()) {
+    return invokeCmd<Record<string, unknown>>('get_model_info', { modelPath });
+  }
+  const encodedPath = encodeURIComponent(modelPath.trim());
+  return fetchJson<Record<string, unknown>>(`/api/model/info?path=${encodedPath}`);
+}
+
+export async function getModelHistory(): Promise<string[]> {
+  if (isTauriEnv()) {
+    return invokeCmd<string[]>('get_model_history');
+  }
+  return fetchJson<string[]>('/api/model/history');
+}
+
+export async function addModelHistory(modelPath: string): Promise<void> {
+  if (isTauriEnv()) {
+    await invokeCmd('add_model_history', { modelPath });
+    return;
+  }
+  await fetch('/api/model/history', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model_path: modelPath }),
+  });
+}
+
+// ─── Conversations ────────────────────────────────────────────────────
+
+export async function getConversations(): Promise<ConversationsResponse> {
+  if (isTauriEnv()) {
+    return invokeCmd<ConversationsResponse>('get_conversations');
+  }
+  return fetchJson<ConversationsResponse>('/api/conversations');
+}
+
+export async function getConversation(filename: string): Promise<ConversationContentResponse> {
+  if (isTauriEnv()) {
+    return invokeCmd<ConversationContentResponse>('get_conversation', { filename });
+  }
+  return fetchJson<ConversationContentResponse>(`/api/conversation/${filename}`);
+}
+
+export async function deleteConversation(filename: string): Promise<void> {
+  if (isTauriEnv()) {
+    await invokeCmd('delete_conversation', { filename });
+    return;
+  }
+  const response = await fetch(`/api/conversations/${filename}`, { method: 'DELETE' });
+  if (!response.ok) throw new Error('Failed to delete conversation');
+}
+
+export async function compactConversation(conversationId: string): Promise<void> {
+  const id = conversationId;
+  if (isTauriEnv()) {
+    return invokeCmd('compact_conversation', { conversationId: id });
+  }
+  const response = await fetch(`/api/conversations/${id}/compact`, { method: 'POST' });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error((body as { error?: string }).error ?? 'Failed to compact conversation');
+  }
+}
+
+export async function updateConversationSummary(
+  conversationId: string,
+  text: string,
+): Promise<void> {
+  const response = await fetch(`/api/conversations/${conversationId}/summary`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error((body as { error?: string }).error ?? 'Failed to update summary');
+  }
+}
+
+export async function deleteConversationSummary(conversationId: string): Promise<void> {
+  const response = await fetch(`/api/conversations/${conversationId}/summary`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error((body as { error?: string }).error ?? 'Failed to delete summary');
+  }
+}
+
+export async function truncateConversation(
+  conversationId: string,
+  fromSequence: number,
+): Promise<{ success: boolean; deleted: number }> {
+  const id = conversationId;
+  if (isTauriEnv()) {
+    return invokeCmd<{ success: boolean; deleted: number }>('truncate_conversation', {
+      conversationId: id,
+      fromSequence,
+    });
+  }
+  const response = await fetch(`/api/conversations/${id}/truncate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from_sequence: fromSequence }),
+  });
+  if (!response.ok) throw new Error('Failed to truncate conversation');
+  return response.json();
+}
+
+export interface ConversationMetric {
+  level: string;
+  message: string; // JSON string with prompt_tok_per_sec, gen_tok_per_sec, tokens_used, max_tokens
+  timestamp: number;
+}
+
+export async function getConversationMetrics(
+  conversationId: string,
+): Promise<ConversationMetric[]> {
+  const id = conversationId;
+  if (isTauriEnv()) {
+    return invokeCmd<ConversationMetric[]>('get_conversation_metrics', { conversationId: id });
+  }
+  return fetchJson<ConversationMetric[]>(`/api/conversations/${id}/metrics`);
+}
+
+export async function queueMessage(conversationId: string, content: string): Promise<void> {
+  const id = conversationId;
+  if (isTauriEnv()) {
+    await invokeCmd('queue_message', { conversationId: id, content });
+    return;
+  }
+  const response = await fetch(`/api/conversation/${id}/queue`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  });
+  if (!response.ok) throw new Error('Failed to queue message');
+}
+
+// ─── Chat ─────────────────────────────────────────────────────────────
+
+export async function cancelGeneration(): Promise<void> {
+  if (isTauriEnv()) {
+    await invokeCmd('cancel_generation');
+    return;
+  }
+  await fetch('/api/chat/cancel', { method: 'POST' });
+}
+
+// ─── Files ────────────────────────────────────────────────────────────
+
+export async function browseFiles(path?: string): Promise<BrowseFilesResponse> {
+  if (isTauriEnv()) {
+    return invokeCmd<BrowseFilesResponse>('browse_files', path ? { path } : {});
+  }
+  const query = path ? `?path=${encodeURIComponent(path)}` : '';
+  return fetchJson<BrowseFilesResponse>(`/api/browse${query}`);
+}
+
+// ─── Tools ────────────────────────────────────────────────────────────
+
+export async function executeTool(toolCall: ToolCall): Promise<Record<string, unknown>> {
+  if (isTauriEnv()) {
+    return invokeCmd<Record<string, unknown>>('execute_tool', {
+      request: {
+        tool_name: toolCall.name,
+        arguments: toolCall.arguments,
+      },
+    });
+  }
+  return fetchJson<Record<string, unknown>>('/api/tools/execute', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      tool_name: toolCall.name,
+      arguments: toolCall.arguments,
+    }),
+  });
+}
+
+export async function webFetch(url: string, maxLength?: number): Promise<Record<string, unknown>> {
+  if (isTauriEnv()) {
+    return invokeCmd<Record<string, unknown>>('web_fetch', { url, maxLength });
+  }
+  const params = new URLSearchParams({ url });
+  if (maxLength) params.set('max_length', String(maxLength));
+  return fetchJson<Record<string, unknown>>(`/api/tools/web-fetch?${params}`);
+}
+
+// ─── Native Directory Picker ─────────────────────────────────────────
+
+export async function pickDirectory(): Promise<string | null> {
+  if (isTauriEnv()) {
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const selected = await open({ directory: true, multiple: false });
+    return typeof selected === 'string' ? selected : null;
+  }
+  const result = await fetchJson<{ path: string | null }>('/api/browse/pick-directory', {
+    method: 'POST',
+  });
+  return result.path;
+}
+
+// ─── Native File Picker ─────────────────────────────────────────────
+
+export async function pickFile(): Promise<string | null> {
+  if (isTauriEnv()) {
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const selected = await open({
+      multiple: false,
+      filters: [{ name: 'GGUF Model Files', extensions: ['gguf'] }],
+    });
+    return selected ?? null;
+  }
+  const result = await fetchJson<{ path: string | null }>('/api/browse/pick-file', {
+    method: 'POST',
+  });
+  return result.path;
+}
+
+// ─── HuggingFace Hub ─────────────────────────────────────────────────
+
+export type HubSortField = 'downloads' | 'likes' | 'lastModified' | 'createdAt';
+
+export async function searchHubModels(
+  query: string,
+  limit = 20,
+  sort: HubSortField = 'downloads',
+): Promise<HubModel[]> {
+  const params = `q=${encodeURIComponent(query)}&limit=${limit}&sort=${sort}`;
+  if (isTauriEnv()) {
+    return invokeCmd<HubModel[]>('search_hub_models', { query, limit, sort });
+  }
+  return fetchJson<HubModel[]>(`/api/hub/search?${params}`);
+}
+
+export async function fetchHubTree(modelId: string): Promise<HubFile[]> {
+  if (isTauriEnv()) {
+    return invokeCmd<HubFile[]>('fetch_hub_tree', { modelId });
+  }
+  return fetchJson<HubFile[]>(`/api/hub/tree?id=${encodeURIComponent(modelId)}`);
+}
+
+// ─── Hub Download History ────────────────────────────────────────────
+
+export interface HubDownloadRecord {
+  id: number;
+  model_id: string;
+  filename: string;
+  dest_path: string;
+  file_size: number;
+  bytes_downloaded: number;
+  status: string; // 'pending' | 'completed'
+  etag: string | null;
+  downloaded_at: number;
+}
+
+/** Verify which downloaded files still exist on disk — prunes missing records from DB */
+export async function verifyHubDownloads(): Promise<HubDownloadRecord[]> {
+  if (isTauriEnv()) {
+    return invokeCmd<HubDownloadRecord[]>('verify_hub_downloads');
+  }
+  return fetchJson<HubDownloadRecord[]>('/api/hub/downloads/verify', { method: 'POST' });
+}
+
+/** Delete a download record and its files (.part and final) from disk */
+export async function deleteHubDownload(id: number): Promise<void> {
+  if (isTauriEnv()) {
+    await invokeCmd<void>('delete_hub_download', { id });
+    return;
+  }
+  await fetchJson(`/api/hub/downloads?id=${id}`, { method: 'DELETE' });
+}
+
+// ─── Hub Download (SSE) ──────────────────────────────────────────────
+
+export interface DownloadProgress {
+  type: 'progress' | 'done' | 'error';
+  bytes?: number;
+  total?: number;
+  speed_kbps?: number;
+  path?: string;
+  message?: string;
+}
+
+export function startHubDownload(
+  modelId: string,
+  filename: string,
+  destination: string,
+  onProgress: (event: DownloadProgress) => void,
+): AbortController {
+  const controller = new AbortController();
+
+  if (isTauriEnv()) {
+    const key = `${modelId}/${filename}`;
+    let unlisten: (() => void) | null = null;
+
+    (async () => {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const { listen } = await import('@tauri-apps/api/event');
+
+      // Listen for progress events filtered by key
+      unlisten = await listen<DownloadProgress & { key?: string }>(
+        'hub-download-progress',
+        (event) => {
+          if (controller.signal.aborted) return;
+          if (event.payload?.key !== key) return;
+          onProgress(event.payload);
+          if (event.payload.type === 'done' || event.payload.type === 'error') {
+            unlisten?.();
+            unlisten = null;
+          }
+        },
+      );
+
+      if (controller.signal.aborted) {
+        unlisten?.();
+        return;
+      }
+
+      try {
+        await invoke('download_hub_model', {
+          modelId,
+          filename,
+          destination,
+        });
+      } catch (err) {
+        if (!controller.signal.aborted) {
+          onProgress({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+          unlisten?.();
+        }
+      }
+    })();
+
+    controller.signal.addEventListener(
+      'abort',
+      () => {
+        unlisten?.();
+      },
+      { once: true },
+    );
+
+    return controller;
+  }
+
+  fetch('/api/hub/download', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model_id: modelId, filename, destination }),
+    signal: controller.signal,
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        const text = await response.text().catch(() => response.statusText);
+        let msg = text;
+        try {
+          msg = JSON.parse(text).error || text;
+        } catch {
+          /* keep raw */
+        }
+        onProgress({ type: 'error', message: msg });
+        return;
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        onProgress({ type: 'error', message: 'No response body' });
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const event = JSON.parse(line.slice(SSE_DATA_PREFIX_LENGTH)) as DownloadProgress;
+              onProgress(event);
+            } catch {
+              /* skip malformed */
+            }
+          }
+        }
+      }
+    })
+    .catch((err: unknown) => {
+      if (err instanceof Error && err.name !== 'AbortError') {
+        onProgress({ type: 'error', message: String(err) });
+      }
+    });
+
+  return controller;
+}
+
+// ─── Backends ────────────────────────────────────────────────────────
+
+export interface BackendDeviceInfo {
+  name: string;
+  description: string;
+  vram_mb?: number;
+}
+
+export interface BackendInfo {
+  name: string;
+  available: boolean;
+  devices: BackendDeviceInfo[];
+}
+
+export interface BackendsResponse {
+  backends: BackendInfo[];
+  nvidia_gpu_detected?: boolean;
+  cuda_backend_loaded?: boolean;
+}
+
+export async function getAvailableBackends(): Promise<BackendsResponse> {
+  if (isTauriEnv()) {
+    return invokeCmd<BackendsResponse>('get_available_backends');
+  }
+  return fetchJson<BackendsResponse>('/api/backends');
+}
+
+// ─── System ───────────────────────────────────────────────────────────
+
+export async function getSystemUsage(): Promise<SystemUsageData> {
+  if (isTauriEnv()) {
+    return invokeCmd<SystemUsageData>('get_system_usage');
+  }
+  return fetchJson<SystemUsageData>('/api/system/usage');
+}
+
+export interface BackgroundProcessInfo {
+  pid: number;
+  command: string;
+  conversationId?: string;
+  startedAt: number;
+  alive: boolean;
+}
+
+export async function getBackgroundProcesses(): Promise<BackgroundProcessInfo[]> {
+  return fetchJson<BackgroundProcessInfo[]>('/api/system/processes');
+}
+
+export async function killBackgroundProcess(pid: number): Promise<void> {
+  await fetchJson('/api/system/processes/kill', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pid }),
+  });
+}

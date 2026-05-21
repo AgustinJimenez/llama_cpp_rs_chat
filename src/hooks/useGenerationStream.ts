@@ -1,0 +1,397 @@
+/**
+ * Unified generation stream hook.
+ *
+ * Extracts the shared streaming lifecycle from useChat:
+ * - Stream sequence tracking (prevents stale updates)
+ * - Abort controller management
+ * - Auto-continue logic (context full, tool continuation, loop recovery)
+ * - Token → message state updates
+ * - Timing/stats updates
+ * - Error handling
+ * - System prompt fetching for new conversations
+ *
+ * Both local and remote providers go through this single path.
+ */
+import { useCallback, useRef } from 'react';
+import { toast } from 'react-hot-toast';
+
+import type { Message } from '../types';
+import type { ChatTransport, TimingInfo } from '../utils/chatTransport';
+import { createGenerationStream, type GenerationRequest } from '../utils/generationStream';
+import { notifyIfUnfocused } from '../utils/tauri';
+import { getConversation } from '../utils/tauriCommands';
+import { logToastError } from '../utils/toastLogger';
+
+const TITLE_REFRESH_DELAY_MS = 4000;
+const TITLE_REFRESH_RETRY_MS = 10000;
+const TOAST_DURATION_MS = 5000;
+
+function isAbortError(msg: string): boolean {
+  return /aborted/i.test(msg);
+}
+
+function friendlyError(msg: string): string {
+  if (/generation already in progress/i.test(msg)) {
+    return 'The model is busy. Click Stop first, then try again.';
+  }
+  if (/generation still cancelling/i.test(msg)) {
+    return 'Still cancelling the previous request. Please wait a moment.';
+  }
+  if (/worker stdin closed/i.test(msg)) {
+    return 'Connection to the model worker was lost. Try reloading the model.';
+  }
+  if (/context.*full|context.*exceeded/i.test(msg)) {
+    return 'The conversation is too long. Start a new conversation or reduce context size.';
+  }
+  if (/model.*not.*loaded|no model/i.test(msg)) {
+    return 'No model is loaded. Please load a model first.';
+  }
+  if (/failed to load conversation/i.test(msg)) {
+    return 'Could not load this conversation. It may have been deleted.';
+  }
+  return msg;
+}
+
+export interface UseGenerationStreamDeps {
+  setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
+  setIsLoading: (v: boolean) => void;
+  setError: (e: string | null) => void;
+  setLastTimings: (t: TimingInfo | undefined) => void;
+  setTokensUsed: (n: number | undefined) => void;
+  setMaxTokens: (n: number | undefined) => void;
+  setStreamStatus: (s: string | undefined) => void;
+  setCurrentConversationId: (id: string | null) => void;
+  currentConversationIdRef: React.MutableRefObject<string | null>;
+  messagesRef: React.MutableRefObject<Message[]>;
+  providerRef: React.MutableRefObject<{ provider: string; model: string }>;
+  providerParamsRef: React.MutableRefObject<Record<string, unknown>>;
+  providerSessionRef: React.MutableRefObject<string | null>;
+  transportRef: React.MutableRefObject<ChatTransport>;
+}
+
+// eslint-disable-next-line max-lines-per-function
+export function useGenerationStream(deps: UseGenerationStreamDeps) {
+  const {
+    setMessages,
+    setIsLoading,
+    setError,
+    setLastTimings,
+    setTokensUsed,
+    setMaxTokens,
+    setStreamStatus,
+    setCurrentConversationId,
+    currentConversationIdRef,
+    providerRef,
+    providerParamsRef,
+    providerSessionRef,
+    transportRef,
+  } = deps;
+
+  const isStreamingRef = useRef(false);
+  const streamSeqRef = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const autoContinueCountRef = useRef(0);
+  const compactingRef = useRef(false);
+  const lastTimingsRef = useRef<Partial<TimingInfo>>({});
+
+  // Fetch system prompt from backend and prepend to messages
+  const fetchSystemPrompt = useCallback(
+    (conversationId: string) => {
+      getConversation(conversationId)
+        .then((data) => {
+          const firstMsg = data.messages?.[0];
+          if (firstMsg?.role === 'system' && firstMsg.content) {
+            setMessages((prev) => {
+              if (prev.some((m) => m.role === 'system')) return prev;
+              return [
+                {
+                  id: `sys_${conversationId}`,
+                  role: 'system' as const,
+                  content: firstMsg.content,
+                  timestamp: Date.now(),
+                  isSystemPrompt: true,
+                },
+                ...prev,
+              ];
+            });
+          }
+        })
+        .catch(() => {});
+    },
+    [setMessages],
+  );
+
+  // Core: start a generation stream (works for both local and remote)
+  const startGeneration = useCallback(
+    // eslint-disable-next-line max-lines-per-function
+    async (request: GenerationRequest, assistantMessageId: string) => {
+      const streamSeq = (streamSeqRef.current += 1);
+      isStreamingRef.current = true;
+      setLastTimings(undefined);
+      lastTimingsRef.current = {};
+
+      const stream = createGenerationStream(providerRef.current.provider, {
+        transport: transportRef.current,
+        model: providerRef.current.model,
+        sessionRef: providerSessionRef,
+        providerParams: providerParamsRef.current,
+      });
+
+      try {
+        await stream.start(
+          request,
+          {
+            onToken: (token) => {
+              if (streamSeqRef.current !== streamSeq) return;
+              setMessages((prev) => {
+                const lastMsg = prev[prev.length - 1];
+                if (lastMsg && lastMsg.id === assistantMessageId) {
+                  return [...prev.slice(0, -1), { ...lastMsg, content: lastMsg.content + token }];
+                }
+                return prev.map((msg) =>
+                  msg.id === assistantMessageId ? { ...msg, content: msg.content + token } : msg,
+                );
+              });
+            },
+
+            onTimingsUpdate: (timings) => {
+              if (streamSeqRef.current !== streamSeq) return;
+              // Merge with current timings (can't use updater — setLastTimings takes value only)
+              setLastTimings({ ...lastTimingsRef.current, ...timings } as TimingInfo);
+              lastTimingsRef.current = { ...lastTimingsRef.current, ...timings } as TimingInfo;
+            },
+
+            onContextUpdate: (tokensUsed, maxTokens) => {
+              if (streamSeqRef.current !== streamSeq) return;
+              setTokensUsed(tokensUsed);
+              setMaxTokens(maxTokens);
+            },
+
+            onStatus: (message) => {
+              if (streamSeqRef.current !== streamSeq) return;
+              setStreamStatus(message);
+              // Compaction reload (local model only)
+              if (compactingRef.current && (!message || !message.includes('Compacting'))) {
+                compactingRef.current = false;
+                const convId = currentConversationIdRef.current;
+                if (convId) {
+                  getConversation(convId)
+                    .then((data) => {
+                      if (data.messages) {
+                        const mapped: Message[] = (
+                          data.messages as Array<Record<string, unknown>>
+                        ).map((msg) => ({
+                          id: String(msg.id),
+                          role: String(msg.role) as Message['role'],
+                          content: String(msg.content),
+                          timestamp: Number(msg.timestamp),
+                        }));
+                        let systemSeen = false;
+                        const filtered = mapped.filter((m) => {
+                          if (m.role === 'system') {
+                            if (!systemSeen) {
+                              systemSeen = true;
+                              (m as Message).isSystemPrompt = true;
+                              return true;
+                            }
+                            return false;
+                          }
+                          return !m.content.startsWith('[TOOL_RESULTS]');
+                        });
+                        setMessages(filtered);
+                      }
+                    })
+                    .catch(() => {});
+                }
+              }
+              if (message?.includes('Compacting')) {
+                compactingRef.current = true;
+              }
+            },
+
+            onComplete: (result) => {
+              if (streamSeqRef.current !== streamSeq) return;
+              const { conversationId, timings, tokensUsed, maxTokens } = result;
+
+              console.warn(
+                '[useChat] Streaming complete',
+                timings
+                  ? `gen=${timings.genTokPerSec?.toFixed(1)} tok/s finish=${timings.finishReason ?? '?'}`
+                  : '',
+              );
+
+              // Set conversation ID if new
+              if (!currentConversationIdRef.current) {
+                setCurrentConversationId(conversationId);
+                fetchSystemPrompt(conversationId);
+              }
+
+              // Refresh sidebar title (retry in case title generation takes longer)
+              setTimeout(() => {
+                window.dispatchEvent(new CustomEvent('conversation-title-updated'));
+              }, TITLE_REFRESH_DELAY_MS);
+              setTimeout(() => {
+                window.dispatchEvent(new CustomEvent('conversation-title-updated'));
+              }, TITLE_REFRESH_RETRY_MS);
+
+              if (tokensUsed !== undefined) setTokensUsed(tokensUsed);
+              if (maxTokens !== undefined) setMaxTokens(maxTokens);
+              if (timings) {
+                setLastTimings(timings);
+                setMessages((prev) =>
+                  prev.map((msg) =>
+                    msg.id === assistantMessageId
+                      ? { ...msg, timings, timestamp: Date.now() }
+                      : msg,
+                  ),
+                );
+              }
+
+              // Normal completion
+              isStreamingRef.current = false;
+              setStreamStatus(undefined);
+              autoContinueCountRef.current = 0;
+              notifyIfUnfocused('Generation complete', 'Your AI response is ready.');
+              setIsLoading(false);
+
+              // Reload message content from DB to fix truncation caused by
+              // streamSeq mismatch (e.g. yn_continue fired mid-stream and
+              // discarded tokens that the backend already wrote to DB).
+              const convId = conversationId || currentConversationIdRef.current;
+              if (convId) {
+                getConversation(convId)
+                  .then((data) => {
+                    if (!data.messages) return;
+                    const dbMsg = (data.messages as Array<Record<string, unknown>>).find(
+                      (m) => String(m.id) === assistantMessageId,
+                    );
+                    if (!dbMsg) return;
+                    const dbContent = String(dbMsg.content ?? '');
+                    setMessages((prev) =>
+                      prev.map((msg) =>
+                        msg.id === assistantMessageId && msg.content !== dbContent
+                          ? { ...msg, content: dbContent }
+                          : msg,
+                      ),
+                    );
+                  })
+                  .catch(() => {});
+              }
+            },
+
+            onToolTiming: (_name, durationMs) => {
+              if (streamSeqRef.current !== streamSeq) return;
+              // Append to existing timings — works across auto-continue cycles
+              // since the same assistantMessageId accumulates all tool calls.
+              setMessages((prev) => {
+                const idx = prev.findIndex((m) => m.id === assistantMessageId);
+                if (idx === -1) return prev;
+                const msg = prev[idx];
+                const newTimings = [...(msg.toolCallTimings ?? []), durationMs];
+                return [
+                  ...prev.slice(0, idx),
+                  { ...msg, toolCallTimings: newTimings },
+                  ...prev.slice(idx + 1),
+                ];
+              });
+            },
+
+            onError: (errorMsg) => {
+              if (streamSeqRef.current !== streamSeq) return;
+              isStreamingRef.current = false;
+              console.warn('[useChat] Streaming error');
+              setError(errorMsg);
+
+              if (!isAbortError(errorMsg)) {
+                const display = friendlyError(errorMsg);
+                toast.error(display, { id: 'stream-error', duration: TOAST_DURATION_MS });
+                logToastError('useChat.streamMessage', `Chat error: ${errorMsg}`);
+              }
+
+              setIsLoading(false);
+              if (isAbortError(errorMsg)) {
+                setMessages((prev) =>
+                  prev.filter(
+                    (m) =>
+                      !(
+                        m.id === assistantMessageId &&
+                        m.role === 'assistant' &&
+                        m.content.length === 0
+                      ),
+                  ),
+                );
+              }
+            },
+          },
+          abortControllerRef.current?.signal,
+        );
+      } catch (err) {
+        if (streamSeqRef.current !== streamSeq) return;
+        isStreamingRef.current = false;
+        const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
+        if (!isAbortError(errorMessage)) {
+          setError(errorMessage);
+          toast.error(friendlyError(errorMessage), {
+            id: 'stream-error',
+            duration: TOAST_DURATION_MS,
+          });
+          logToastError('useChat.startGeneration', errorMessage, err);
+        }
+        setIsLoading(false);
+        // Remove empty assistant message on abort
+        if (isAbortError(errorMessage)) {
+          setMessages((prev) =>
+            prev.filter(
+              (m) =>
+                !(m.id === assistantMessageId && m.role === 'assistant' && m.content.length === 0),
+            ),
+          );
+        }
+      }
+    },
+    [
+      setMessages,
+      setIsLoading,
+      setError,
+      setLastTimings,
+      setTokensUsed,
+      setMaxTokens,
+      setStreamStatus,
+      setCurrentConversationId,
+      currentConversationIdRef,
+      providerRef,
+      providerParamsRef,
+      providerSessionRef,
+      transportRef,
+      fetchSystemPrompt,
+    ],
+  );
+
+  const abortGeneration = useCallback(() => {
+    // Tell local backend to cancel (no-op for remote — channel close is enough)
+    if (providerRef.current.provider === 'local') {
+      fetch('/api/chat/cancel', { method: 'POST' }).catch(() => {});
+    }
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    isStreamingRef.current = false;
+    setIsLoading(false);
+  }, [providerRef, setIsLoading]);
+
+  const resetAutoContinue = useCallback(() => {
+    autoContinueCountRef.current = 0;
+  }, []);
+
+  return {
+    startGeneration,
+    abortGeneration,
+    resetAutoContinue,
+    isStreamingRef,
+    streamSeqRef,
+    abortControllerRef,
+    autoContinueCountRef,
+    fetchSystemPrompt,
+  };
+}
