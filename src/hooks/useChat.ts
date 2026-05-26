@@ -42,6 +42,9 @@ export function useChat() {
   const [maxTokens, setMaxTokens] = useState<number | undefined>(undefined);
   const [lastTimings, setLastTimings] = useState<TimingInfo | undefined>(undefined);
   const [streamStatus, setStreamStatus] = useState<string | undefined>(undefined);
+  const [currentConversationWorkerId, setCurrentConversationWorkerId] = useState<string | null>(
+    null,
+  );
   const messagesRef = useRef<Message[]>([]);
   const currentConversationIdRef = useRef<string | null>(null);
 
@@ -181,8 +184,15 @@ export function useChat() {
         const filtered = mapped.filter((msg: Message) => {
           if (msg.role === 'system') {
             // Always show compaction summaries and crash recovery messages
-            if (msg.content.startsWith('[Conversation summary')) return true;
-            if (msg.content.startsWith('[System:')) return true;
+            if (
+              msg.content.startsWith('[Conversation summary') ||
+              msg.content.startsWith('[Compacted history')
+            ) {
+              return true;
+            }
+            if (msg.content.startsWith('[System:')) {
+              return true;
+            }
             if (!systemPromptSeen) {
               systemPromptSeen = true;
               msg.isSystemPrompt = true;
@@ -583,10 +593,18 @@ export function useChat() {
               const filtered = mapped.filter((msg: Message) => {
                 if (msg.role === 'system') {
                   // Always show compaction summaries and crash recovery messages
-                  if (msg.content.startsWith('[Conversation summary')) return true;
-                  if (msg.content.startsWith('[System:')) return true;
+                  if (
+                    msg.content.startsWith('[Conversation summary') ||
+                    msg.content.startsWith('[Compacted history')
+                  ) {
+                    return true;
+                  }
+                  if (msg.content.startsWith('[System:')) {
+                    return true;
+                  }
                   if (!systemPromptSeen) {
                     systemPromptSeen = true;
+                    msg.isSystemPrompt = true;
                     return true;
                   }
                   return false;
@@ -670,5 +688,7 @@ export function useChat() {
     providerParamsRef,
     queuedMessage,
     cancelQueuedMessage,
+    currentConversationWorkerId,
+    setCurrentConversationWorkerId,
   };
 }

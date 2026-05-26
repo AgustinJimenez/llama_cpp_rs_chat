@@ -507,6 +507,21 @@ pub(crate) fn run_generation_loop(
         } // 'token
 
         if hit_stop_condition {
+            // If the model stopped immediately after a tool call without generating
+            // any meaningful text (< 20 chars since last tool injection), force a
+            // yn_continue so the model writes its final response to the user.
+            // This handles models that emit EOS/<|im_end|> right after "terminal"
+            // tool calls like browser_close instead of continuing with a summary.
+            if !gen.recent_commands.is_empty()
+                && gen.finish_reason.is_empty()
+                && gen.response.len().saturating_sub(gen.last_exec_scan_pos) < 20
+            {
+                eprintln!(
+                    "[TOKEN_LOOP] Stopped immediately after tool call with only {} new chars — forcing yn_continue",
+                    gen.response.len().saturating_sub(gen.last_exec_scan_pos)
+                );
+                gen.finish_reason = "yn_continue".to_string();
+            }
             break;
         }
         if gen.total_tokens_generated >= cfg.max_total_tokens {
