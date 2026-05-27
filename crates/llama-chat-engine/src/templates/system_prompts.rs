@@ -30,10 +30,10 @@ pub(crate) fn core_behavior_block() -> String {
 - When a task requires multiple steps, execute them one by one using your tools. Do not skip steps.
 - For complex tasks, briefly outline your plan before starting.
 - When you finish a task, ALWAYS write a brief summary of what you did. Never end on raw tool output.
-- After each completed task, suggest 2–3 relevant next steps the user might want to take, as a short bulleted list. Keep them concrete and specific to what was just done.
+- After each completed task, if there are natural follow-up capabilities worth mentioning, offer them casually in 1–2 sentences at the end — like "I can also dig into X, compare Y, or check Z if you're interested." Don't use headers or bullet lists for this; keep it conversational and brief. Skip it entirely if nothing obvious comes to mind.
 
 ## Tool Usage Guidelines
-- Use `read_file` instead of cat/type. Use `write_file` for new files, `edit_file` for modifications.
+- Use `read_file` instead of cat/type. Use `write_file` for new files, `edit_file` for modifications. Add `"summary": "false"` when you need the exact raw content (code files, configs) — omit it for large documents where a summary saves tokens.
 - Use `insert_text` to add lines at a specific position (imports, new functions).
 - Use `undo_edit` to revert a bad edit_file operation.
 - Use `search_files` instead of grep/findstr. Use `find_files` instead of find/dir.
@@ -41,7 +41,8 @@ pub(crate) fn core_behavior_block() -> String {
 - Use `execute_python` for Python code (avoids shell quoting issues).
 - Use `execute_command` for shell tools (npm, git, etc.).
 - Use `git_status`, `git_diff`, `git_commit` for git operations instead of `execute_command`.
-- **Web browsing**: Use `browser_search` to search the web (Google). Use `browser_navigate` to open pages, `browser_get_text` to read content, `browser_query` to extract structured data. Do NOT use curl, wget, execute_command, or urllib to fetch web pages — the browser tools use a real browser that bypasses bot detection.
+- **Web browsing**: Use `browser_search` to search the web (Google). Use `browser_navigate` to open pages, `browser_get_text` to read content, `browser_query` to extract structured data, `browser_go_back` to return to the previous page. Do NOT use curl, wget, execute_command, or urllib to fetch web pages — the browser tools use a real browser engine that bypasses bot detection; raw HTTP clients will be blocked by Cloudflare, Google, and similar systems.
+- **API exception**: If a site exposes a documented REST/JSON API that returns raw data (no HTML, no login wall, no bot checks) — e.g. `https://hacker-news.firebaseio.com/v0/topstories.json` — you MAY use `web_fetch` directly against that API endpoint. This exception applies only to clean machine-readable APIs, never to normal webpages.
 - **Browsing tips**: Avoid JS-heavy sites like Twitter — use `browser_search` to find information instead. If a page returns 404/paywall/empty, try a different source immediately. Use the `summary` parameter with a custom prompt to save tokens on large pages.
 - Use `open_url` ONLY when the user explicitly asks to open a page in their external/default browser outside the app. Never use `open_url` for normal browsing, search, page reading, or screenshots.
 - Use `take_screenshot` to see the user's screen. Use `click_screen`, `type_text`, `press_key` for desktop automation.
@@ -123,6 +124,7 @@ After execution, the system injects the result between {output_open} and {output
 
 ### read_file — Read a file's contents (supports PDF, DOCX, XLSX, PPTX, EPUB, ODT, RTF, CSV, EML, ZIP)
 {exec_open}{{"name": "read_file", "arguments": {{"path": "filename.txt"}}}}{exec_close}
+For code/config files where you need the exact content (not a summary): {exec_open}{{"name": "read_file", "arguments": {{"path": "script.gd", "summary": "false"}}}}{exec_close}
 
 ### write_file — Write content to a file (creates parent dirs)
 {exec_open}{{"name": "write_file", "arguments": {{"path": "output.txt", "content": "Hello world"}}}}{exec_close}
@@ -234,6 +236,7 @@ to=execute_python code<|message|>{{"code": "print('hello')"}}<|call|>
 
 ### read_file — Read a file's contents (supports PDF, DOCX, XLSX, PPTX, EPUB, ODT, RTF, CSV, EML, ZIP)
 to=read_file code<|message|>{{"path": "filename.txt"}}<|call|>
+For raw content (code/config files): to=read_file code<|message|>{{"path": "script.gd", "summary": "false"}}<|call|>
 
 ### write_file — Write content to a file (creates parent dirs)
 to=write_file code<|message|>{{"path": "output.txt", "content": "Hello world"}}<|call|>
