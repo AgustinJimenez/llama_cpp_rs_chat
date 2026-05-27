@@ -483,7 +483,14 @@ pub(crate) fn run_generation_loop(
                         cfg.context_size,
                         cached_overhead,
                     ) {
-                        // Compaction happened — DB updated for next turn.
+                        // Compaction happened — stop this turn so the next turn starts
+                        // with the compacted context. Without this break the generation
+                        // continues injecting tool outputs until CONTEXT_EXHAUSTED.
+                        eprintln!("[COMPACTION] Mid-task compaction fired — stopping generation so next turn uses compacted context");
+                        log_event(cfg.conversation_id, "compaction", "mid-task compact → stopping generation for context reload");
+                        gen.finish_reason = "length".to_string();
+                        hit_stop_condition = true;
+                        break 'token;
                     }
                     const PROACTIVE_COMPACT_INTERVAL: usize = 30;
                     if cfg.proactive_compaction
