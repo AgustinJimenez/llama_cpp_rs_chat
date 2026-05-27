@@ -329,7 +329,7 @@ impl Default for SamplerConfig {
             split_mode: "layer".to_string(),
             use_htmd: false,
             tag_pairs: None,
-            proactive_compaction: false,
+            proactive_compaction: true,
             safe_tool_injection: false,
             telegram_bot_token: None,
             telegram_chat_id: None,

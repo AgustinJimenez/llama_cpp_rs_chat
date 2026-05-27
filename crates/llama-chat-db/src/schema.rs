@@ -361,9 +361,13 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
     );
 
     // Insert default config row if it doesn't exist
-    // Add proactive_compaction column if missing
+    // Add proactive_compaction column if missing, then enable it on existing rows
     let _ = conn.execute(
-        "ALTER TABLE config ADD COLUMN proactive_compaction INTEGER DEFAULT 0",
+        "ALTER TABLE config ADD COLUMN proactive_compaction INTEGER DEFAULT 1",
+        [],
+    );
+    let _ = conn.execute(
+        "UPDATE config SET proactive_compaction = 1 WHERE proactive_compaction = 0 OR proactive_compaction IS NULL",
         [],
     );
 

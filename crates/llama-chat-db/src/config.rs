@@ -125,7 +125,7 @@ impl Default for DbSamplerConfig {
             split_mode: "layer".to_string(),
             use_rtk: true,
             use_htmd: false,
-            tag_pairs: None, proactive_compaction: false, safe_tool_injection: false,
+            tag_pairs: None, proactive_compaction: true, safe_tool_injection: false,
             telegram_bot_token: None,
             telegram_chat_id: None,
             provider_api_keys: None,

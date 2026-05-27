@@ -492,7 +492,7 @@ pub(crate) fn run_generation_loop(
                         hit_stop_condition = true;
                         break 'token;
                     }
-                    const PROACTIVE_COMPACT_INTERVAL: usize = 30;
+                    const PROACTIVE_COMPACT_INTERVAL: usize = 40;
                     if cfg.proactive_compaction
                         && gen.recent_commands.len() > 0
                         && gen.recent_commands.len() % PROACTIVE_COMPACT_INTERVAL == 0
