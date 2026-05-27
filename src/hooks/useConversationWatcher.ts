@@ -6,6 +6,7 @@ const MIN_CONTEXT_SIZE_WARNING = 4096;
 
 import type { Message } from '../types';
 import { parseConversationFile } from '../utils/conversationParser';
+import { processConversationMessages } from '../utils/messageUtils';
 import { isTauriEnv } from '../utils/tauri';
 import { getConversation } from '../utils/tauriCommands';
 import { logToastError, logToastWarning } from '../utils/toastLogger';
@@ -249,7 +250,9 @@ export function useConversationWatcher({
         // Prefer structured messages (handles remote provider tool_call reconstruction)
         // over raw text content (which may contain JSON blobs from incremental saves)
         if (data.messages && data.messages.length > 0) {
-          parsedMessages = data.messages as unknown as Message[];
+          parsedMessages = processConversationMessages(
+            data.messages as Array<Record<string, unknown>>,
+          );
         } else if (data.content) {
           parsedMessages = parseConversationFile(data.content);
         }

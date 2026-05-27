@@ -18,6 +18,7 @@ import { toast } from 'react-hot-toast';
 import type { Message } from '../types';
 import type { ChatTransport, TimingInfo } from '../utils/chatTransport';
 import { createGenerationStream, type GenerationRequest } from '../utils/generationStream';
+import { processConversationMessages } from '../utils/messageUtils';
 import { notifyIfUnfocused } from '../utils/tauri';
 import { getConversation } from '../utils/tauriCommands';
 import { logToastError } from '../utils/toastLogger';
@@ -178,27 +179,11 @@ export function useGenerationStream(deps: UseGenerationStreamDeps) {
                   getConversation(convId)
                     .then((data) => {
                       if (data.messages) {
-                        const mapped: Message[] = (
-                          data.messages as Array<Record<string, unknown>>
-                        ).map((msg) => ({
-                          id: String(msg.id),
-                          role: String(msg.role) as Message['role'],
-                          content: String(msg.content),
-                          timestamp: Number(msg.timestamp),
-                        }));
-                        let systemSeen = false;
-                        const filtered = mapped.filter((m) => {
-                          if (m.role === 'system') {
-                            if (!systemSeen) {
-                              systemSeen = true;
-                              (m as Message).isSystemPrompt = true;
-                              return true;
-                            }
-                            return false;
-                          }
-                          return !m.content.startsWith('[TOOL_RESULTS]');
-                        });
-                        setMessages(filtered);
+                        setMessages(
+                          processConversationMessages(
+                            data.messages as Array<Record<string, unknown>>,
+                          ),
+                        );
                       }
                     })
                     .catch(() => {});
