@@ -250,6 +250,22 @@ pub async fn generate_llama_response(
     let use_vision = false;
     if use_vision {
         log_info!(&conversation_id, "Using vision path with {} images", image_bytes_vec.len());
+    } else if !image_bytes_vec.is_empty() {
+        // Images were attached but this model has no vision support — warn the user so
+        // they know the image was ignored rather than silently getting a text-only answer.
+        log_warn!(&conversation_id, "Image(s) attached but model has no vision support — ignoring {} image(s)", image_bytes_vec.len());
+        if let Some(ref sender) = token_sender {
+            let _ = sender.send(TokenData {
+                token: format!(
+                    "*⚠️ This model does not support vision — {} image{} ignored.*\n\n",
+                    image_bytes_vec.len(),
+                    if image_bytes_vec.len() == 1 { " was" } else { "s were" }
+                ),
+                tokens_used: 0,
+                max_tokens: 0,
+                ..Default::default()
+            });
+        }
     }
 
     let (mut context, prompt_tokens, tokens) = if use_vision {
