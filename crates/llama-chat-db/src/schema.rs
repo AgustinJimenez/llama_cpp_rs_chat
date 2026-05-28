@@ -27,9 +27,9 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         ("app_errors", CREATE_APP_ERRORS_TABLE),
         ("app_errors_timestamp_index", CREATE_APP_ERRORS_TIMESTAMP_INDEX),
         ("message_queue", CREATE_MESSAGE_QUEUE_TABLE),
+        ("message_queue_conversation_index", CREATE_MESSAGE_QUEUE_CONVERSATION_INDEX),
         ("compaction_summaries", CREATE_COMPACTION_SUMMARIES_TABLE),
         ("compaction_summaries_index", CREATE_COMPACTION_SUMMARIES_INDEX),
-        ("agent_heartbeat", CREATE_AGENT_HEARTBEAT_TABLE),
     ];
 
     for (name, sql) in statements.iter() {
@@ -417,6 +417,16 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
     );
     let _ = conn.execute(
         "ALTER TABLE config ADD COLUMN active_provider_model TEXT",
+        [],
+    );
+
+    // Drop orphaned agent_heartbeat table (migrated to per-conversation heartbeat_* columns
+    // in conversation_config). Errors ignored — table may already be absent on fresh DBs.
+    let _ = conn.execute("DROP TABLE IF EXISTS agent_heartbeat", []);
+
+    // Add session index to background_processes if missing (for startup cleanup queries)
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_background_processes_session ON background_processes(session_id)",
         [],
     );
 
