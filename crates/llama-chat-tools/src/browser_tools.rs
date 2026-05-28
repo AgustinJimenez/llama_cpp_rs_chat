@@ -199,7 +199,17 @@ pub fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
             }).unwrap_or(0) as usize;
             const PAGE: usize = 30_000;
             match session.get_full_text(offset, PAGE) {
-                Ok(text) => NativeToolResult::text_only(text),
+                Ok(text) => {
+                    // Hint when content is suspiciously short — likely a JS-rendered SPA
+                    if offset == 0 && text.len() < 500 {
+                        NativeToolResult::text_only(format!(
+                            "{text}\n\n[partial: true — Page text is very short ({} chars). This is likely a JS-rendered app (canvas/WebGL/SPA) with minimal DOM text. Suggestions: use browser_get_html to check for inline script data, browser_snapshot to see interactive elements, or browser_screenshot for a visual capture.]",
+                            text.len()
+                        ))
+                    } else {
+                        NativeToolResult::text_only(text)
+                    }
+                }
                 Err(e) => NativeToolResult::text_only(format!("get_text failed: {e}")),
             }
         }
@@ -226,14 +236,26 @@ pub fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
         "snapshot" => {
             // Return a compact list of interactable elements (links, buttons, inputs)
             // so the model can identify clickable targets, cookie banners, forms, etc.
-            let js = r#"
-                (() => {
+            let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(80) as usize;
+            let filter = args.get("filter").and_then(|v| v.as_str()).unwrap_or("");
+            let max_chars = args.get("max_chars").and_then(|v| v.as_u64()).unwrap_or(8000) as usize;
+
+            // Build the root selector: if filter is given, scope to that container
+            let root_sel = if filter.is_empty() {
+                "document".to_string()
+            } else {
+                format!("(document.querySelector({}) || document)", serde_json::to_string(filter).unwrap_or_default())
+            };
+
+            let js = format!(r#"
+                (() => {{
+                    const root = {root};
                     const seen = new Set();
-                    return Array.from(document.querySelectorAll(
+                    return Array.from(root.querySelectorAll(
                         'a[href], button, input:not([type="hidden"]), select, textarea, [role="button"], [role="link"], label[for]'
                     ))
-                    .slice(0, 150)
-                    .map(el => {
+                    .slice(0, {limit})
+                    .map(el => {{
                         const text = (el.innerText || el.value || el.placeholder ||
                             el.getAttribute('aria-label') || el.getAttribute('title') || '').trim().slice(0, 100);
                         if (!text || seen.has(text)) return null;
@@ -244,26 +266,26 @@ pub fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
                         const cls = (typeof el.className === 'string' ? el.className : '')
                             .split(' ').filter(Boolean).slice(0,3).map(c=>'.'+c).join('');
                         const type_ = el.type ? '[type='+el.type+']' : '';
-                        return { tag, text, href: href.slice(0, 120), sel: (id || cls || tag)+type_ };
-                    })
+                        return {{ tag, text, href: href.slice(0, 120), sel: (id || cls || tag)+type_ }};
+                    }})
                     .filter(Boolean);
-                })()
-            "#;
-            match session.eval(js) {
+                }})()
+            "#, root = root_sel, limit = limit);
+
+            match session.eval(&js) {
                 Ok(v) => {
                     let s = serde_json::to_string_pretty(&v).unwrap_or_else(|_| v.to_string());
-                    const MAX: usize = 20_000;
-                    if s.len() > MAX {
-                        let mut end = MAX;
+                    if s.len() > max_chars {
+                        let mut end = max_chars;
                         while end > 0 && !s.is_char_boundary(end) { end -= 1; }
-                        NativeToolResult::text_only(format!("{}...\n[truncated]", &s[..end]))
+                        NativeToolResult::text_only(format!("{}...\n[truncated — use limit/filter to narrow results]", &s[..end]))
                     } else {
                         NativeToolResult::text_only(s)
                     }
                 }
                 Err(_) => {
                     // Fallback to text if JS eval isn't available
-                    match session.get_full_text(0, 20_000) {
+                    match session.get_full_text(0, max_chars) {
                         Ok(t) => NativeToolResult::text_only(t),
                         Err(e) => NativeToolResult::text_only(format!("snapshot failed: {e}")),
                     }
@@ -293,6 +315,15 @@ pub fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
                     NativeToolResult::text_only(msg)
                 }
                 Err(_) => NativeToolResult::text_only("Scrolled (content is fetched statically — use browser_get_text(offset=N) to read beyond the first page).".into()),
+            }
+        }
+        "go_back" => {
+            match session.eval("history.go(-1); 'ok'") {
+                Ok(_) => {
+                    crate::browser_session::clear_cache();
+                    NativeToolResult::text_only("Navigated back.".into())
+                }
+                Err(e) => NativeToolResult::text_only(format!("go_back failed: {e}")),
             }
         }
         "press_key" => {

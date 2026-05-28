@@ -1,5 +1,7 @@
 mod summarize;
 mod truncate;
+#[cfg(feature = "vision")]
+mod image_summary;
 
 // Re-export public API (preserves callers)
 pub use summarize::{
@@ -18,6 +20,8 @@ pub(crate) use summarize::{
     SUMMARIZE_THRESHOLD,
     summarize_tool_output,
 };
+#[cfg(feature = "vision")]
+pub(crate) use image_summary::run_image_vision_summary;
 
 /// Wrap tool output in the model's chat template turn structure.
 pub(crate) fn wrap_output_for_model(output_block: &str, template_type: Option<&str>) -> String {

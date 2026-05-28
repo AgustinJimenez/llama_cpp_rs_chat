@@ -2,21 +2,20 @@
 
 ## Findings
 
-### 1. `conversations.system_prompt` — ACTIVE DUPLICATION
-Both `conversations` and `conversation_config` store `system_prompt` + `system_prompt_type`.
+### 1. `conversations.system_prompt` — ACTIVE DUPLICATION ✅ FIXED
+Both `conversations` and `conversation_config` stored `system_prompt`.
 
-**Current state:**
-- `conversations.system_prompt` is set on INSERT and read in SELECT queries (`conversation/mod.rs:87-89`, `:120`, `:146`)
-- `conversation_config.system_prompt` is the per-conversation override used by the engine
-- `conversation_context.system_prompt_text` is a cached rendered version (fine, it's a cache)
+**Finding:** `conversations.system_prompt` was dead code — the engine exclusively reads from
+`conversation_config.system_prompt`. The column was never read for inference, and the
+`ConversationRecord` struct had `#[allow(dead_code)]` on it.
 
-**Plan:**
-- Audit which one the engine reads as the "active" system prompt — likely `conversation_config` takes precedence
-- If `conversations.system_prompt` is only used as the initial value when creating a conversation, migrate it:
-  - On conversation CREATE, also INSERT into `conversation_config` with the system_prompt
-  - Stop writing to `conversations.system_prompt`
-  - Add ALTER TABLE migration to drop the column once all reads are migrated
-- **Status:** NEEDS INVESTIGATION before changing
+**Fix:**
+- Removed `system_prompt` column from `CREATE TABLE conversations` in sql.rs
+- Dropped `system_prompt` param from `create_conversation()` (all callers passed `None`)
+- Removed `system_prompt` field from `ConversationRecord`
+- Updated all SELECT queries (column index shift)
+- Added `ALTER TABLE conversations DROP COLUMN system_prompt` migration for existing DBs
+- **Status:** DONE
 
 ---
 

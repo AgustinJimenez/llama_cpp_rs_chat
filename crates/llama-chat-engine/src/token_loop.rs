@@ -385,7 +385,7 @@ pub(crate) fn run_generation_loop(
                 watchdog.resume();
                 watchdog.ping();
 
-                if let Some(exec_result) = tool_check_result? {
+                if let Some(mut exec_result) = tool_check_result? {
                     // Sync accumulated content + command output to logger
                     {
                         let mut logger = conversation_logger.lock()
@@ -403,6 +403,57 @@ pub(crate) fn run_generation_loop(
 
                     gen.tool_response_tokens += exec_result.model_tokens.len() as i32;
                     command_executed = true;
+
+                    // Image summarization: if the agent requested a description (summary=<prompt>),
+                    // run a vision sub-pass and inject the text description instead of raw images.
+                    // Falls back to an informational hint when no vision model is loaded.
+                    if !exec_result.response_images.is_empty() {
+                        if let Some(prompt) = exec_result.image_summary_prompt.take() {
+                            #[cfg(feature = "vision")]
+                            if let Some(mtmd_ctx) = vision_ctx {
+                                match super::tool_output::run_image_vision_summary(
+                                    model, cfg.backend, mtmd_ctx,
+                                    &exec_result.response_images, &prompt,
+                                    cfg.conversation_id,
+                                ) {
+                                    Ok(description) => {
+                                        eprintln!(
+                                            "[IMAGE_SUMMARY] Described {} image(s): {} chars",
+                                            exec_result.response_images.len(), description.len()
+                                        );
+                                        exec_result.response_images.clear();
+                                        let suffix = format!("\n[Image content: {}]", description);
+                                        if let Ok(suffix_tokens) = model.str_to_token(&suffix, llama_cpp_2::model::AddBos::Never) {
+                                            exec_result.model_tokens.extend(suffix_tokens.iter().map(|t| t.0));
+                                        }
+                                    }
+                                    Err(e) => {
+                                        eprintln!("[IMAGE_SUMMARY] Vision summary failed ({e}), injecting raw image");
+                                        // fall through to raw vision injection below
+                                    }
+                                }
+                            }
+                            #[cfg(feature = "vision")]
+                            if !exec_result.response_images.is_empty() && vision_ctx.is_none() {
+                                // Vision feature compiled but no mmproj loaded — drop images, add hint
+                                eprintln!("[IMAGE_SUMMARY] No vision model loaded, dropping images");
+                                exec_result.response_images.clear();
+                                let hint = "\n[Image captured but vision model not loaded. Use ocr_screen to read text from the screen.]";
+                                if let Ok(hint_tokens) = model.str_to_token(hint, llama_cpp_2::model::AddBos::Never) {
+                                    exec_result.model_tokens.extend(hint_tokens.iter().map(|t| t.0));
+                                }
+                            }
+                            #[cfg(not(feature = "vision"))]
+                            {
+                                let _ = &prompt; // suppress unused-variable warning (only used in vision path)
+                                exec_result.response_images.clear();
+                                let hint = "\n[Image captured but vision not compiled. Use ocr_screen to read text from the screen.]";
+                                if let Ok(hint_tokens) = model.str_to_token(hint, llama_cpp_2::model::AddBos::Never) {
+                                    exec_result.model_tokens.extend(hint_tokens.iter().map(|t| t.0));
+                                }
+                            }
+                        }
+                    }
 
                     // Choose injection path: vision (images + MtmdContext) or standard text tokens
                     #[cfg(feature = "vision")]

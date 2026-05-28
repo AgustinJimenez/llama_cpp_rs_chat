@@ -19,41 +19,47 @@ pub fn strip_ansi_codes(text: &str) -> String {
     let mut i = 0;
 
     while i < len {
-        if bytes[i] == 0x1b {
-            // ESC character — start of escape sequence
-            i += 1;
-            if i >= len { break; }
+        if bytes[i] != 0x1b {
+            // Batch-copy the run of non-ESC bytes as a proper UTF-8 slice.
+            // ESC (0x1B) is ASCII so the stop position is always a char boundary.
+            let start = i;
+            while i < len && bytes[i] != 0x1b {
+                i += 1;
+            }
+            result.push_str(&text[start..i]);
+            continue;
+        }
 
-            if bytes[i] == b'[' {
-                // CSI sequence: ESC [ ... final_byte (letter)
+        // ESC character — start of escape sequence
+        i += 1;
+        if i >= len { break; }
+
+        if bytes[i] == b'[' {
+            // CSI sequence: ESC [ ... final_byte (letter)
+            i += 1;
+            while i < len && (bytes[i] == b';' || bytes[i].is_ascii_digit()) {
                 i += 1;
-                while i < len && (bytes[i] == b';' || bytes[i].is_ascii_digit()) {
-                    i += 1;
-                }
-                // Skip the final byte (letter)
-                if i < len && bytes[i].is_ascii_alphabetic() {
-                    i += 1;
-                }
-            } else if bytes[i] == b']' {
-                // OSC sequence: ESC ] ... (BEL or ESC \)
+            }
+            // Skip the final byte (letter)
+            if i < len && bytes[i].is_ascii_alphabetic() {
                 i += 1;
-                while i < len {
-                    if bytes[i] == 0x07 {
-                        i += 1;
-                        break;
-                    }
-                    if bytes[i] == 0x1b && i + 1 < len && bytes[i + 1] == b'\\' {
-                        i += 2;
-                        break;
-                    }
+            }
+        } else if bytes[i] == b']' {
+            // OSC sequence: ESC ] ... (BEL or ESC \)
+            i += 1;
+            while i < len {
+                if bytes[i] == 0x07 {
                     i += 1;
+                    break;
                 }
-            } else {
-                // Other escape: skip ESC + next char
+                if bytes[i] == 0x1b && i + 1 < len && bytes[i + 1] == b'\\' {
+                    i += 2;
+                    break;
+                }
                 i += 1;
             }
         } else {
-            result.push(bytes[i] as char);
+            // Other escape: skip ESC + next char
             i += 1;
         }
     }

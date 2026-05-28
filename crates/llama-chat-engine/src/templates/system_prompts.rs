@@ -186,6 +186,8 @@ For servers/daemons: {exec_open}{{"name": "execute_command", "arguments": {{"com
 
 ### take_screenshot — Capture the user's screen (use monitor=-1 to list monitors)
 {exec_open}{{"name": "take_screenshot", "arguments": {{"monitor": 0}}}}{exec_close}
+To get a text description instead of injecting the raw image (saves tokens): {exec_open}{{"name": "take_screenshot", "arguments": {{"monitor": 0, "summary": "Describe the error message visible on screen"}}}}{exec_close}
+Use `"summary": false` to always inject the raw image (e.g. when pixel-level detail matters).
 
 ### click_screen — Click at screen coordinates (auto-screenshots after)
 {exec_open}{{"name": "click_screen", "arguments": {{"x": 500, "y": 300}}}}{exec_close}

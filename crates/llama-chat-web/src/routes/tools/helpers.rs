@@ -96,13 +96,26 @@ pub fn fetch_url_as_text(url: &str, max_chars: usize) -> serde_json::Value {
         text.clone()
     };
 
-    serde_json::json!({
+    // Heuristic: if the HTML body was large but extracted text is tiny, the page
+    // likely requires JavaScript to render its content.
+    let is_partial = content_type.contains("text/html")
+        && body_buf.len() > 5_000
+        && text.len() < 300;
+
+    let mut result = serde_json::json!({
         "success": true,
         "result": truncated,
         "url": url,
         "status_code": status,
         "content_length": text.len()
-    })
+    });
+    if is_partial {
+        result["partial"] = serde_json::json!(true);
+        result["partial_reason"] = serde_json::json!(
+            "Page likely requires JavaScript — extracted text is very short relative to HTML size. Try browser_navigate + browser_get_text instead."
+        );
+    }
+    result
 }
 
 pub async fn handle_get_web_fetch(req: Request<Body>) -> Result<Response<Body>, Infallible> {

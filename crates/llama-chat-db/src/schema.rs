@@ -420,6 +420,10 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         [],
     );
 
+    // Drop system_prompt column from conversations table (dead code — engine reads from
+    // conversation_config.system_prompt exclusively). Requires SQLite 3.35+; errors ignored.
+    let _ = conn.execute("ALTER TABLE conversations DROP COLUMN system_prompt", []);
+
     // Drop orphaned agent_heartbeat table (migrated to per-conversation heartbeat_* columns
     // in conversation_config). Errors ignored — table may already be absent on fresh DBs.
     let _ = conn.execute("DROP TABLE IF EXISTS agent_heartbeat", []);

@@ -4,7 +4,7 @@
 //! monitors its health, and restarts it on crash.
 
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 /// Manages the worker child process lifecycle.
@@ -12,6 +12,11 @@ pub struct ProcessManager {
     child: Mutex<Option<Child>>,
     db_path: String,
     restart_count: AtomicU32,
+    /// Monotonically increasing counter — incremented on every restart.
+    /// Each stdout reader task records the generation at spawn time and
+    /// aborts its crash-recovery handler if the generation has advanced
+    /// (meaning another reader already took over).
+    generation: AtomicU64,
 }
 
 impl ProcessManager {
@@ -23,6 +28,7 @@ impl ProcessManager {
             child: Mutex::new(Some(child)),
             db_path: db_path.to_string(),
             restart_count: AtomicU32::new(0),
+            generation: AtomicU64::new(0),
         })
     }
 
@@ -64,12 +70,20 @@ impl ProcessManager {
             *guard = Some(child);
         }
         self.restart_count.fetch_add(1, Ordering::Relaxed);
+        self.generation.fetch_add(1, Ordering::SeqCst);
 
         eprintln!(
-            "[PROCESS_MGR] Worker restarted (restart #{})",
-            self.restart_count.load(Ordering::Relaxed)
+            "[PROCESS_MGR] Worker restarted (restart #{}, gen={})",
+            self.restart_count.load(Ordering::Relaxed),
+            self.generation.load(Ordering::Relaxed),
         );
         Ok(())
+    }
+
+    /// Return the current generation counter.
+    /// Stdout reader tasks use this to detect if they've been superseded.
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::SeqCst)
     }
 }
 

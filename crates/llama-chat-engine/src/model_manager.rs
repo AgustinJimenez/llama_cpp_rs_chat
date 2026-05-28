@@ -172,13 +172,9 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, request
         .as_mut()
         .expect("Model state should be initialized");
 
-    // Check if model is already loaded
-    if let Some(ref current_path) = state.current_model_path {
-        if current_path == model_path && state.model.is_some() {
-            state.last_used = std::time::SystemTime::now();
-            return Ok(()); // Model already loaded
-        }
-    }
+    // Note: we do NOT skip the reload if the same path is already loaded.
+    // The user may have changed structural settings (context size, KV cache type,
+    // GPU layers) that only take effect on reload. Always reload on explicit request.
 
     // CRITICAL: Drop inference cache and vision state BEFORE dropping the model.
     // Both borrow the model, so they must go first.
@@ -210,15 +206,19 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, request
     // Load new model with configured GPU acceleration and model params
     let defaults = ModelParams::default();
     let mp = model_params.unwrap_or(&defaults);
-    let llama_model_params = LlamaModelParams::default()
+    let mut llama_model_params = LlamaModelParams::default()
         .with_n_gpu_layers(optimal_gpu_layers)
         .with_use_mlock(mp.use_mlock)
         .with_main_gpu(mp.main_gpu)
         .with_split_mode(parse_split_mode(&mp.split_mode));
 
-    // Progress callback removed: upstream llama-cpp-rs made `params` private.
-    // TODO: re-add when a public API for progress callbacks is available.
-    let _ = &progress; // suppress unused warning
+    // Wire up loading progress callback via the public `params` field.
+    // The AtomicU8 must outlive the model load; it's owned by the caller via Arc.
+    if let Some(ref arc_progress) = progress {
+        let raw_ptr = Arc::as_ptr(arc_progress) as *mut std::os::raw::c_void;
+        llama_model_params.params.progress_callback = Some(loading_progress_cb);
+        llama_model_params.params.progress_callback_user_data = raw_ptr;
+    }
 
     log_info!("system", "Loading model from: {}", model_path);
     log_info!(

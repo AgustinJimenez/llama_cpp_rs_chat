@@ -98,6 +98,7 @@ const VALIDATED_TOOLS: &[&str] = &[
     "browser_navigate",
     "browser_search",
     "browser_click",
+    "browser_go_back",
     "browser_type",
     "browser_query",
     "browser_eval",

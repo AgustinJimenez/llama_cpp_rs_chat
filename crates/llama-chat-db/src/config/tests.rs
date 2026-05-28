@@ -122,7 +122,7 @@ fn test_model_history_limit() {
 #[test]
 fn test_logs() {
     let db = create_test_db();
-    let conv_id = db.create_conversation(None).unwrap();
+    let conv_id = db.create_conversation().unwrap();
 
     db.insert_log(Some(&conv_id), "INFO", "Test message 1")
         .unwrap();

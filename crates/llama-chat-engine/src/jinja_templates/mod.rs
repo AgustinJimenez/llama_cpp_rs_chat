@@ -107,7 +107,7 @@ pub fn apply_native_chat_template(
         bos_token => bos_token,
         eos_token => eos_token,
         enable_thinking => enable_thinking,
-        clear_thinking => !enable_thinking,
+        clear_thinking => true,
     };
 
     let template = env.get_template("chat_template")

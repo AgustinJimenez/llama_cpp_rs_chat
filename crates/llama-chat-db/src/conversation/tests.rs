@@ -9,7 +9,7 @@ fn create_test_db() -> Arc<Database> {
 #[test]
 fn test_create_conversation() {
     let db = create_test_db();
-    let id = db.create_conversation(Some("Test prompt")).unwrap();
+    let id = db.create_conversation().unwrap();
     assert!(id.starts_with("chat_"));
     assert!(db.conversation_exists(&id).unwrap());
 }
@@ -17,7 +17,7 @@ fn test_create_conversation() {
 #[test]
 fn test_insert_and_get_messages() {
     let db = create_test_db();
-    let conv_id = db.create_conversation(None).unwrap();
+    let conv_id = db.create_conversation().unwrap();
 
     db.insert_message(&conv_id, "user", "Hello", 1234567890, 0)
         .unwrap();
@@ -52,7 +52,7 @@ fn test_conversation_logger() {
 #[test]
 fn test_delete_conversation() {
     let db = create_test_db();
-    let id = db.create_conversation(None).unwrap();
+    let id = db.create_conversation().unwrap();
     db.insert_message(&id, "user", "Test", 0, 0).unwrap();
 
     assert!(db.conversation_exists(&id).unwrap());

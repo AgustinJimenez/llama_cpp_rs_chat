@@ -46,6 +46,11 @@ pub async fn stdin_writer_task(
 
 /// Task that reads responses from the worker's stdout and dispatches them.
 /// Persists across crash-recovery cycles so auto-continue works on repeated crashes.
+///
+/// `my_generation` is the ProcessManager generation at spawn time.  If the
+/// generation has advanced by the time the worker crashes, this reader is
+/// stale — a newer reader already owns the process — so crash recovery is
+/// skipped and the task exits silently.
 pub async fn stdout_reader_task(
     stdout: std::process::ChildStdout,
     pending: Arc<TokioMutex<HashMap<u64, PendingRequest>>>,
@@ -58,6 +63,7 @@ pub async fn stdout_reader_task(
     recovery_ctx: Arc<TokioMutex<CrashRecoveryCtx>>,
     auto_recovering: Arc<AtomicBool>,
     status_message: Arc<TokioMutex<Option<String>>>,
+    my_generation: u64,
 ) {
     // Read stdout on a blocking thread (pipe reads are blocking on Windows)
     let (line_tx, mut line_rx) = mpsc::unbounded_channel::<String>();
@@ -190,6 +196,17 @@ pub async fn stdout_reader_task(
         }
     }
 
+    // Worker died — check generation before running crash recovery.
+    // If the generation has advanced, a newer reader already owns the process;
+    // this reader is stale and should exit without restarting anything.
+    if process_manager.generation() != my_generation {
+        eprintln!(
+            "[BRIDGE] Stale reader (gen={my_generation}, current={}) — skipping crash recovery",
+            process_manager.generation()
+        );
+        return;
+    }
+
     // Worker died — save crash context, clear state, auto-restart + reload + continue.
     {
         // Update recovery context: save model/conversation info on first crash,
@@ -290,6 +307,7 @@ pub async fn stdout_reader_task(
                     if let Some(stdout) = stdout_opt {
                         let rc = Arc::new(TokioMutex::new(CrashRecoveryCtx::default()));
                         let ar = Arc::new(AtomicBool::new(false));
+                        let gen = process_manager.generation();
                         stdout_reader_task(
                             stdout,
                             pending,
@@ -302,6 +320,7 @@ pub async fn stdout_reader_task(
                             rc,
                             ar,
                             status_message.clone(),
+                            gen,
                         )
                         .await;
                     }
@@ -376,10 +395,11 @@ pub async fn stdout_reader_task(
                                     let rc2 = rc.clone();
                                     let ar2 = ar.clone();
                                     let sm2 = sm.clone();
+                                    let gen2 = pm2.generation();
                                     Some(tokio::task::spawn_local(async move {
                                         stdout_reader_task(
                                             stdout, p2, ag2, mm2, lmp2, lp2, pm2, ct2, rc2, ar2,
-                                            sm2,
+                                            sm2, gen2,
                                         )
                                         .await;
                                     }))
@@ -466,7 +486,8 @@ pub async fn stdout_reader_task(
                                 eprintln!(
                                     "[BRIDGE] Stdout reader reconnected (no model to reload)"
                                 );
-                                stdout_reader_task(stdout, p, ag, mm, lmp, lp, pm, ct, rc, ar, sm.clone())
+                                let gen = pm.generation();
+                                stdout_reader_task(stdout, p, ag, mm, lmp, lp, pm, ct, rc, ar, sm.clone(), gen)
                                     .await;
                             }
                         }

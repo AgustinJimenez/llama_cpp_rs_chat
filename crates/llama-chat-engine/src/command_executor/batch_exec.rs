@@ -34,9 +34,10 @@ pub(crate) fn execute_batch_tools(
     backend: &llama_cpp_2::llama_backend::LlamaBackend,
     chat_template_string: Option<&str>,
     tags: &crate::tool_tags::ToolTags,
-) -> (String, Vec<Vec<u8>>) {
+) -> (String, Vec<Vec<u8>>, Option<String>) {
     let mut combined_output = String::new();
     let mut all_response_images: Vec<Vec<u8>> = Vec::new();
+    let mut image_summary_prompt: Option<String> = None;
 
     // Group consecutive tool calls by read-only vs write classification.
     let mut groups: Vec<(bool, Vec<usize>)> = Vec::new();
@@ -194,6 +195,11 @@ pub(crate) fn execute_batch_tools(
         combined_output.push_str(&header);
 
         let (tool_output, tool_images) = results[i].take().unwrap_or_default();
+        if !tool_images.is_empty() && image_summary_prompt.is_none() {
+            // Build a raw JSON snippet for this tool call to reuse extract_image_summary_prompt
+            let tool_json = serde_json::to_string(&_args).unwrap_or_default();
+            image_summary_prompt = super::output_assembly::extract_image_summary_prompt(&tool_json);
+        }
         all_response_images.extend(tool_images);
 
         let summary_val = _args.get("summary");
@@ -237,5 +243,5 @@ pub(crate) fn execute_batch_tools(
         }
     }
 
-    (combined_output, all_response_images)
+    (combined_output, all_response_images, image_summary_prompt)
 }

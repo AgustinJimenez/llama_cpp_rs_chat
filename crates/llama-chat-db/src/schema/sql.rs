@@ -3,7 +3,6 @@ CREATE TABLE IF NOT EXISTS conversations (
     id TEXT PRIMARY KEY,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
-    system_prompt TEXT,
     title TEXT,
     worker_id TEXT,
     provider_id TEXT,

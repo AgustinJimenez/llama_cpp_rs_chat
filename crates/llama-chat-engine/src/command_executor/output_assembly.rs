@@ -12,6 +12,34 @@ use crate::tool_output::{
     SUMMARIZE_THRESHOLD,
 };
 
+const DEFAULT_IMAGE_SUMMARY_PROMPT: &str =
+    "Describe what is visible on this screen. Include: \
+     the application or window title, any visible text content, \
+     UI elements (buttons, menus, forms), error or status messages, \
+     and the overall layout.";
+
+/// Extract the `summary` parameter from a tool call for image results.
+/// Returns `None` for summary=false (inject raw images), `Some(prompt)` otherwise.
+pub(crate) fn extract_image_summary_prompt(command_text: &str) -> Option<String> {
+    let summary_val = extract_summary_param(command_text);
+    let cmd_lower = command_text.to_lowercase();
+    let disabled = summary_val.as_deref() == Some("false")
+        || cmd_lower.contains("\"summary\": false")
+        || cmd_lower.contains("\"summary\":false")
+        || cmd_lower.contains("summary>\nfalse")
+        || cmd_lower.contains("summary>false");
+    if disabled {
+        return None;
+    }
+    // Use a custom prompt if the agent supplied one (long enough, not a boolean)
+    if let Some(ref s) = summary_val {
+        if s != "true" && s != "false" && s.len() > 3 {
+            return Some(s.clone());
+        }
+    }
+    Some(DEFAULT_IMAGE_SUMMARY_PROMPT.to_string())
+}
+
 /// Re-export `tool_use_one_liner` for use in sibling modules.
 pub(crate) fn tool_use_one_liner_pub(name: &str, args: &str, output: &str, elapsed_ms: u64) -> String {
     tool_use_one_liner(name, args, output, elapsed_ms)

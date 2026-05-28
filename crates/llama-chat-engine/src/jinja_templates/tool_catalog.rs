@@ -10,7 +10,7 @@ pub(crate) const CORE_TOOL_NAMES: &[&str] = &[
     "send_telegram", "spawn_agent",
     "list_skills", "use_skill", "set_response_style",
     "ocr_screen",
-    "browser_navigate", "browser_click", "browser_type", "browser_eval",
+    "browser_navigate", "browser_go_back", "browser_click", "browser_type", "browser_eval",
     "browser_get_html", "browser_screenshot", "browser_wait", "browser_close",
     "browser_get_text", "browser_get_links", "browser_snapshot",
     "browser_scroll", "browser_press_key",

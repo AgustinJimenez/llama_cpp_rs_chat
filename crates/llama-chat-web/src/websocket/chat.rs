@@ -213,6 +213,7 @@ pub async fn handle_websocket(
                     // Per-generation completion state (reset each turn)
                     let mut completed_conv_id: Option<String> = None;
                     let mut completed_finish_reason: Option<String> = None;
+                    let mut completed_done_msg: Option<serde_json::Value> = None;
 
                     'stream_loop: loop {
                         tokio::select! {
@@ -287,7 +288,10 @@ pub async fn handle_websocket(
                                                     );
                                                 }
                                                 eprintln!("[WS_CHAT] Complete: conv={}, finish={:?}", conversation_id, finish_reason);
-                                                let done_msg = serde_json::json!({
+                                                bridge.set_last_finish_reason(finish_reason.clone()).await;
+                                                // Store done — send after can_continue check so the frontend
+                                                // WS isn't closed before server auto-continue has a chance to run.
+                                                completed_done_msg = Some(serde_json::json!({
                                                     "type": "done",
                                                     "conversation_id": conversation_id,
                                                     "prompt_tok_per_sec": prompt_tok_per_sec,
@@ -298,10 +302,7 @@ pub async fn handle_websocket(
                                                     "prompt_tokens": prompt_tokens,
                                                     "finish_reason": finish_reason,
                                                     "token_breakdown": token_breakdown
-                                                });
-                                                let _ = ws_sender.send(WsMessage::Text(done_msg.to_string())).await;
-                                                bridge.set_last_finish_reason(finish_reason.clone()).await;
-                                                sys_debug!("[WS_CHAT] Done message sent");
+                                                }));
                                                 completed_conv_id = Some(conversation_id);
                                                 completed_finish_reason = finish_reason;
                                             }
@@ -396,11 +397,20 @@ pub async fn handle_websocket(
                                 "[WS_CHAT] Server auto-continue {}/{} (reason={})",
                                 server_auto_continue_count, MAX_SERVER_AUTO_CONTINUES, finish_str
                             );
+                            // Notify frontend to stay alive without completing.
+                            // The frontend must NOT close the WS here — the next generation
+                            // will stream tokens on the same connection.
+                            let continuing_msg = serde_json::json!({"type": "server_continuing"});
+                            let _ = ws_sender.send(WsMessage::Text(continuing_msg.to_string())).await;
                             current_conv_id = Some(conv_id);
                             current_message = make_server_continuation_message(finish_str, &original_message);
                             continue 'gen_loop;
                         } else {
-                            // Final completion — run title generation below
+                            // Final completion — send the deferred done message
+                            if let Some(done_msg) = completed_done_msg {
+                                let _ = ws_sender.send(WsMessage::Text(done_msg.to_string())).await;
+                                sys_debug!("[WS_CHAT] Done message sent");
+                            }
                             final_conv_id_for_title = conv_id;
                         }
                     }

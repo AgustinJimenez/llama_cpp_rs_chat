@@ -17,8 +17,8 @@ use crate::tool_dispatch::{
 use crate::tool_tags::ToolTags;
 use super::output_assembly::tool_use_one_liner_pub;
 
-/// Result of single tool execution: (text_output, image_bytes)
-pub type SingleToolResult = (String, Vec<Vec<u8>>);
+/// Result of single tool execution: (text_output, image_bytes, image_summary_prompt)
+pub type SingleToolResult = (String, Vec<Vec<u8>>, Option<String>);
 
 /// Execute a single tool call and return (output_text, images).
 #[allow(clippy::too_many_arguments)]
@@ -233,5 +233,10 @@ pub(crate) fn execute_single_call(
         }
     };
 
-    (output, all_images)
+    let image_summary_prompt = if all_images.is_empty() {
+        None
+    } else {
+        super::output_assembly::extract_image_summary_prompt(command_text)
+    };
+    (output, all_images, image_summary_prompt)
 }

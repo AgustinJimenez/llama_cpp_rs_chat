@@ -51,6 +51,9 @@ pub struct WorkerBridge {
     next_id: AtomicU64,
     /// Process manager for kill/restart.
     process_manager: Arc<ProcessManager>,
+    /// Crash-recovery context shared with the stdout reader — cleared on intentional unload
+    /// so auto-reload doesn't fire when we voluntarily kill the worker.
+    recovery_ctx: Arc<TokioMutex<CrashRecoveryCtx>>,
 }
 
 impl WorkerBridge {
@@ -81,6 +84,7 @@ impl WorkerBridge {
         let auto_recovering = Arc::new(AtomicBool::new(false));
         let last_model_path: Arc<TokioMutex<Option<String>>> = Arc::new(TokioMutex::new(None));
         let status_message: Arc<TokioMutex<Option<String>>> = Arc::new(TokioMutex::new(None));
+        let initial_gen = process_manager.generation();
         tokio::spawn(stdout_reader_task(
             stdout_handle,
             pending.clone(),
@@ -90,9 +94,10 @@ impl WorkerBridge {
             loading_progress.clone(),
             process_manager.clone(),
             cmd_tx_arc.clone(),
-            recovery_ctx,
+            recovery_ctx.clone(),
             auto_recovering.clone(),
             status_message.clone(),
+            initial_gen,
         ));
 
         Self {
@@ -109,6 +114,7 @@ impl WorkerBridge {
             last_finish_reason: Arc::new(TokioMutex::new(None)),
             next_id: AtomicU64::new(1),
             process_manager,
+            recovery_ctx,
         }
     }
 
@@ -267,14 +273,21 @@ impl WorkerBridge {
     /// Force-kill the worker process. OS reclaims ALL memory (VRAM + RAM).
     /// Automatically restarts a fresh worker.
     pub async fn force_unload(&self) -> Result<(), String> {
+        // Clear BOTH recovery_ctx.model_path AND model_meta BEFORE killing.
+        // The crash-recovery handler in stdout_reader_task checks model_meta and will
+        // overwrite recovery_ctx.model_path from it if model_meta is still set at the
+        // time of the kill — causing unintended auto-reload after intentional unload.
+        // Clearing both here (before kill) closes that race.
+        self.recovery_ctx.lock().await.model_path = None;
+        *self.model_meta.lock().await = None;
+
         // Kill the worker (blocking call — use spawn_blocking to avoid stalling the runtime)
         let pm = self.process_manager.clone();
         tokio::task::spawn_blocking(move || pm.kill())
             .await
             .map_err(|e| format!("Kill task failed: {e}"))?;
 
-        // Clear cached state
-        *self.model_meta.lock().await = None;
+        // Clear remaining state (model_meta already cleared above)
         self.loading.store(false, Ordering::SeqCst);
         self.loading_progress.store(0, Ordering::Relaxed);
 
@@ -314,6 +327,7 @@ impl WorkerBridge {
         }
 
         if let Some(stdout) = self.process_manager.take_stdout() {
+            let gen = self.process_manager.generation();
             tokio::spawn(stdout_reader_task(
                 stdout,
                 self.pending.clone(),
@@ -326,6 +340,7 @@ impl WorkerBridge {
                 Arc::new(TokioMutex::new(CrashRecoveryCtx::default())),
                 self.auto_recovering.clone(),
                 self.status_message.clone(),
+                gen,
             ));
         }
     }

@@ -13,11 +13,9 @@ mod queries;
 
 /// Conversation metadata
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct ConversationRecord {
     pub id: String,
     pub title: String,
-    pub system_prompt: Option<String>,
     pub worker_id: Option<String>,
     pub provider_id: Option<String>,
     pub provider_session_id: Option<String>,
@@ -77,16 +75,15 @@ impl CompactionSummaryRecord {
 
 impl Database {
     /// Create a new conversation and snapshot the current global config into conversation_config.
-    pub fn create_conversation(&self, system_prompt: Option<&str>) -> Result<String, String> {
+    pub fn create_conversation(&self) -> Result<String, String> {
         let id = generate_conversation_id();
         let now = current_timestamp_millis();
 
         {
             let conn = self.connection();
             conn.execute(
-                "INSERT INTO conversations (id, created_at, updated_at, system_prompt, title, provider_id, provider_session_id)
-                 VALUES (?1, ?2, ?3, ?4, NULL, NULL, NULL)",
-                params![id, now, now, system_prompt],
+                "INSERT INTO conversations (id, created_at, updated_at) VALUES (?1, ?2, ?3)",
+                params![id, now, now],
             )
             .map_err(db_error("create conversation"))?;
         } // Release lock before loading config
@@ -117,16 +114,15 @@ impl Database {
     pub fn get_conversation(&self, id: &str) -> Result<Option<ConversationRecord>, String> {
         let conn = self.connection();
         let result = conn.query_row(
-            "SELECT id, COALESCE(title, ''), system_prompt, worker_id, provider_id, provider_session_id FROM conversations WHERE id = ?1",
+            "SELECT id, COALESCE(title, ''), worker_id, provider_id, provider_session_id FROM conversations WHERE id = ?1",
             [id],
             |row| {
                 Ok(ConversationRecord {
                     id: row.get(0)?,
                     title: row.get::<_, String>(1).unwrap_or_default(),
-                    system_prompt: row.get(2)?,
-                    worker_id: row.get(3)?,
-                    provider_id: row.get(4)?,
-                    provider_session_id: row.get(5)?,
+                    worker_id: row.get(2)?,
+                    provider_id: row.get(3)?,
+                    provider_session_id: row.get(4)?,
                 })
             },
         );
@@ -143,7 +139,7 @@ impl Database {
         let conn = self.connection();
         let mut stmt = conn
             .prepare(
-                "SELECT id, COALESCE(title, ''), system_prompt, worker_id, provider_id, provider_session_id FROM conversations ORDER BY created_at DESC",
+                "SELECT id, COALESCE(title, ''), worker_id, provider_id, provider_session_id FROM conversations ORDER BY created_at DESC",
             )
             .map_err(db_error("prepare statement"))?;
 
@@ -152,10 +148,9 @@ impl Database {
                 Ok(ConversationRecord {
                     id: row.get(0)?,
                     title: row.get::<_, String>(1).unwrap_or_default(),
-                    system_prompt: row.get(2)?,
-                    worker_id: row.get(3)?,
-                    provider_id: row.get(4)?,
-                    provider_session_id: row.get(5)?,
+                    worker_id: row.get(2)?,
+                    provider_id: row.get(3)?,
+                    provider_session_id: row.get(4)?,
                 })
             })
             .map_err(db_error("query conversations"))?

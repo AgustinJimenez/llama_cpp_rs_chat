@@ -176,6 +176,7 @@ pub async fn handle_post_tools_execute(
             exec_tools::handle_web_fetch(&tool_arguments).await
         }
         "browser_navigate" => browser_tools::handle_browser_navigate(&tool_arguments).await,
+        "browser_go_back" => browser_tools::handle_browser_go_back(&tool_arguments),
         "browser_search" => browser_tools::handle_browser_search(&tool_arguments).await,
         "browser_eval" => {
             let js = tool_arguments.get("js").and_then(|v| v.as_str()).unwrap_or("");
@@ -184,8 +185,10 @@ pub async fn handle_post_tools_execute(
             }
             browser_tools::handle_browser_eval(&tool_arguments).await
         }
-        "browser_get_text" => browser_tools::handle_browser_get_text().await,
-        "browser_close" => browser_tools::handle_browser_close(),
+        "browser_get_text" => browser_tools::handle_browser_get_text(&tool_arguments).await,
+        "browser_get_html" => browser_tools::handle_browser_get_html(&tool_arguments).await,
+        "browser_fetch_text" => browser_tools::handle_browser_fetch_text(&tool_arguments).await,
+        "browser_close" => browser_tools::handle_browser_close(&tool_arguments),
         name if llama_chat_desktop_tools::is_desktop_tool(name) => {
             browser_tools::handle_desktop_tool(name, &tool_arguments)
         }

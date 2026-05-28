@@ -41,7 +41,7 @@ pub struct ConversationLogger {
 impl ConversationLogger {
     /// Create a new conversation.
     pub fn new(db: Arc<Database>, system_prompt: Option<&str>) -> Result<Self, String> {
-        let conversation_id = db.create_conversation(system_prompt)?;
+        let conversation_id = db.create_conversation()?;
 
         let sequence_counter = if system_prompt.is_some() {
             // Insert system message

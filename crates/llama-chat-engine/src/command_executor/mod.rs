@@ -33,6 +33,9 @@ pub struct CommandExecutionResult {
     /// Raw image bytes from tool responses (e.g., screenshots) for vision pipeline injection.
     #[allow(dead_code)]
     pub response_images: Vec<Vec<u8>>,
+    /// If `Some`, run a vision summary pass with this prompt before injecting images.
+    /// `None` means inject images directly into the vision context (default / summary=false).
+    pub image_summary_prompt: Option<String>,
 }
 
 /// Check for and execute commands using model-specific tool tags.
@@ -147,7 +150,7 @@ pub fn check_and_execute_command_with_tags(
                 });
             }
 
-            let (output, all_response_images) = if is_batch {
+            let (output, all_response_images, image_summary_prompt) = if is_batch {
                 batch_exec::execute_batch_tools(
                     &all_calls,
                     conversation_id,
@@ -241,6 +244,7 @@ pub fn check_and_execute_command_with_tags(
                 model_tokens: model_tokens.iter().map(|t| t.0).collect(),
                 model_block: assembled.model_block,
                 response_images: all_response_images,
+                image_summary_prompt,
             }))
         }
     }

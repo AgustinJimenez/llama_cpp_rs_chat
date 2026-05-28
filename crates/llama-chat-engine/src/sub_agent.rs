@@ -233,11 +233,11 @@ pub fn run_sub_agent(
 
     drop(ctx);
 
-    let result = response.trim().to_string();
+    let full_response = response.trim().to_string();
     log_info!(
         conversation_id,
         "🤖 Sub-agent finished: {} chars, {} tool calls",
-        result.len(),
+        full_response.len(),
         tool_calls_executed
     );
 
@@ -251,7 +251,83 @@ pub fn run_sub_agent(
         });
     }
 
-    Ok(result)
+    // Extract only the final answer to inject into the main conversation's tool_response.
+    // The full trace (thinking + tool calls + responses) is already streamed to the frontend
+    // for display — injecting the whole trace would bloat the main context by 10–20K tokens.
+    let compact_result = extract_final_answer(&full_response);
+    log_info!(
+        conversation_id,
+        "🤖 Sub-agent compact result: {} chars (was {} chars)",
+        compact_result.len(),
+        full_response.len()
+    );
+
+    Ok(compact_result)
+}
+
+/// Extract the final human-readable answer from a sub-agent response.
+///
+/// The sub-agent response contains the full trace: thinking blocks, tool calls,
+/// tool responses, and finally the agent's narrative answer. Only the answer is
+/// relevant to the main conversation — the trace is already streamed to the
+/// frontend and does not need to live in the main context.
+///
+/// Strategy: find the last block of non-markup text after all tool calls have
+/// completed. Falls back to the last 2000 chars if no clean boundary is found.
+fn extract_final_answer(response: &str) -> String {
+    // Patterns that mark the end of a tool_response block
+    let response_close_markers = ["</tool_response>", "<|tool_response_end|>", "[/TOOL_RESULTS]"];
+
+    // Find the position after the LAST tool response close tag
+    let mut last_response_end = 0usize;
+    for marker in &response_close_markers {
+        if let Some(pos) = response.rfind(marker) {
+            let end = pos + marker.len();
+            if end > last_response_end {
+                last_response_end = end;
+            }
+        }
+    }
+
+    // Also skip past any trailing </think> or <think>...</think> blocks after the last tool response
+    let tail = response[last_response_end..].trim_start();
+
+    // Strip any leading thinking block in the tail
+    let answer_start = if tail.starts_with("<think>") {
+        if let Some(close) = tail.find("</think>") {
+            close + "</think>".len()
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+
+    let answer = tail[answer_start..].trim();
+
+    if !answer.is_empty() {
+        // Truncate to a reasonable length so one sub-agent can't dominate the context.
+        // 4000 chars ≈ 1000 tokens — enough for a detailed summary.
+        const MAX_ANSWER_CHARS: usize = 4000;
+        if answer.len() > MAX_ANSWER_CHARS {
+            let mut end = MAX_ANSWER_CHARS;
+            while end > 0 && !answer.is_char_boundary(end) { end -= 1; }
+            format!("{}…[truncated]", &answer[..end])
+        } else {
+            answer.to_string()
+        }
+    } else {
+        // No clean final answer found — fall back to last 2000 chars of the full response
+        const FALLBACK_CHARS: usize = 2000;
+        let trimmed = response.trim();
+        if trimmed.len() > FALLBACK_CHARS {
+            let mut start = trimmed.len() - FALLBACK_CHARS;
+            while start < trimmed.len() && !trimmed.is_char_boundary(start) { start += 1; }
+            format!("…{}", &trimmed[start..])
+        } else {
+            trimmed.to_string()
+        }
+    }
 }
 
 /// Try to extract a spawn_agent tool call from command text.

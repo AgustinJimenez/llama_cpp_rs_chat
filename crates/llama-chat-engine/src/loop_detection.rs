@@ -110,6 +110,7 @@ pub(crate) fn check_loop(
                 model_tokens: model_tokens.iter().map(|t| t.0).collect(),
                 model_block,
                 response_images: Vec::new(),
+                image_summary_prompt: None,
             }, consecutive_blocks));
         }
         Some(format!("WARNING: You have run {} very similar commands. You may be stuck in a loop. Try a completely different approach.", similar_count))
@@ -150,6 +151,7 @@ pub(crate) fn check_loop(
             model_tokens: model_tokens.iter().map(|t| t.0).collect(),
             model_block,
             response_images: Vec::new(),
+            image_summary_prompt: None,
         }, consecutive_blocks));
     }
 

@@ -298,7 +298,7 @@ mod tests {
     #[test]
     fn test_save_and_load_conversation_config() {
         let db = create_test_db();
-        let conv_id = db.create_conversation(None).unwrap();
+        let conv_id = db.create_conversation().unwrap();
 
         let config = DbSamplerConfig {
             temperature: 0.9,
@@ -327,7 +327,7 @@ mod tests {
     #[test]
     fn test_update_conversation_config() {
         let db = create_test_db();
-        let conv_id = db.create_conversation(None).unwrap();
+        let conv_id = db.create_conversation().unwrap();
 
         let config = DbSamplerConfig::default();
         db.save_conversation_config(&conv_id, &config).unwrap();
@@ -346,7 +346,7 @@ mod tests {
     #[test]
     fn test_conversation_config_cascade_delete() {
         let db = create_test_db();
-        let conv_id = db.create_conversation(None).unwrap();
+        let conv_id = db.create_conversation().unwrap();
 
         db.save_conversation_config(&conv_id, &DbSamplerConfig::default())
             .unwrap();

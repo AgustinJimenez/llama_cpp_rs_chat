@@ -4,42 +4,62 @@
 
 #[cfg(feature = "cdp")]
 pub(crate) mod cdp {
+    use std::collections::HashMap;
     use std::sync::Mutex;
     use headless_chrome::{Browser, LaunchOptions, Tab};
     use std::sync::Arc;
 
-    static CDP: Mutex<Option<(Browser, Arc<Tab>)>> = Mutex::new(None);
+    /// Shared Chrome instance (one process, many tabs).
+    static BROWSER: Mutex<Option<Browser>> = Mutex::new(None);
+    /// Named tabs — each agent/session gets its own isolated tab.
+    static TABS: Mutex<Option<HashMap<String, Arc<Tab>>>> = Mutex::new(None);
 
-    /// Get or launch the visible Chrome browser. Returns the active tab.
-    pub fn get_or_launch() -> Result<Arc<Tab>, String> {
-        let mut guard = CDP.lock().map_err(|e| format!("CDP lock: {e}"))?;
-        if let Some((_, ref tab)) = *guard {
-            // Check tab is still alive by trying a trivial eval
+    fn ensure_browser() -> Result<(), String> {
+        let mut guard = BROWSER.lock().map_err(|e| format!("CDP browser lock: {e}"))?;
+        if guard.is_none() {
+            eprintln!("[BROWSER_CDP] Launching visible Chrome window...");
+            let options = LaunchOptions {
+                headless: false,
+                window_size: Some((1280, 900)),
+                sandbox: false,
+                enable_logging: false,
+                ..LaunchOptions::default()
+            };
+            *guard = Some(Browser::new(options)
+                .map_err(|e| format!("Chrome launch failed (is Chrome/Edge installed?): {e}"))?);
+            eprintln!("[BROWSER_CDP] Chrome launched successfully");
+        }
+        Ok(())
+    }
+
+    /// Get or create a named tab. Tab `"main"` is the default/legacy tab.
+    pub fn get_or_create_tab(tab_id: &str) -> Result<Arc<Tab>, String> {
+        ensure_browser()?;
+        let mut tabs = TABS.lock().map_err(|e| format!("CDP tabs lock: {e}"))?;
+        let map = tabs.get_or_insert_with(HashMap::new);
+
+        // Check if existing tab is still alive
+        if let Some(tab) = map.get(tab_id) {
             if tab.evaluate("1", false).is_ok() {
                 return Ok(Arc::clone(tab));
             }
-            eprintln!("[BROWSER_CDP] Existing tab is dead, relaunching...");
+            eprintln!("[BROWSER_CDP] Tab '{tab_id}' is dead, recreating...");
+            map.remove(tab_id);
         }
-        eprintln!("[BROWSER_CDP] Launching visible Chrome window...");
-        let options = LaunchOptions {
-            headless: false,
-            window_size: Some((1280, 900)),
-            sandbox: false,
-            enable_logging: false,
-            ..LaunchOptions::default()
-        };
-        let browser = Browser::new(options)
-            .map_err(|e| format!("Chrome launch failed (is Chrome/Edge installed?): {e}"))?;
+
+        // Create new tab in the shared browser
+        let browser_guard = BROWSER.lock().map_err(|e| format!("CDP browser lock: {e}"))?;
+        let browser = browser_guard.as_ref().ok_or("Browser not initialized")?;
         let tab = browser.new_tab()
-            .map_err(|e| format!("Chrome new tab: {e}"))?;
-        let tab_clone = Arc::clone(&tab);
-        *guard = Some((browser, tab));
-        eprintln!("[BROWSER_CDP] Chrome launched successfully");
-        Ok(tab_clone)
+            .map_err(|e| format!("Chrome new tab '{tab_id}': {e}"))?;
+        let tab_arc = Arc::clone(&tab);
+        map.insert(tab_id.to_string(), tab);
+        eprintln!("[BROWSER_CDP] Created tab '{tab_id}'");
+        Ok(tab_arc)
     }
 
-    pub fn navigate(url: &str) -> Result<(), String> {
-        let tab = get_or_launch()?;
+    pub fn navigate_tab(url: &str, tab_id: &str) -> Result<(), String> {
+        let tab = get_or_create_tab(tab_id)?;
         tab.navigate_to(url)
             .map_err(|e| format!("CDP navigate: {e}"))?;
         tab.wait_until_navigated()
@@ -47,8 +67,12 @@ pub(crate) mod cdp {
         Ok(())
     }
 
-    pub fn evaluate(js: &str) -> Result<String, String> {
-        let tab = get_or_launch()?;
+    pub fn navigate(url: &str) -> Result<(), String> {
+        navigate_tab(url, "main")
+    }
+
+    pub fn evaluate_tab(js: &str, tab_id: &str) -> Result<String, String> {
+        let tab = get_or_create_tab(tab_id)?;
         let result = tab.evaluate(js, false)
             .map_err(|e| format!("CDP eval: {e}"))?;
         match result.value {
@@ -58,12 +82,33 @@ pub(crate) mod cdp {
         }
     }
 
-    pub fn close() -> Result<(), String> {
-        let mut guard = CDP.lock().map_err(|e| format!("CDP lock: {e}"))?;
-        if guard.is_some() {
-            eprintln!("[BROWSER_CDP] Closing Chrome");
+    pub fn evaluate(js: &str) -> Result<String, String> {
+        evaluate_tab(js, "main")
+    }
+
+    /// Close a single named tab and remove it from the map.
+    pub fn close_tab(tab_id: &str) -> Result<(), String> {
+        let mut tabs = TABS.lock().map_err(|e| format!("CDP tabs lock: {e}"))?;
+        if let Some(map) = tabs.as_mut() {
+            if map.remove(tab_id).is_some() {
+                eprintln!("[BROWSER_CDP] Closed tab '{tab_id}'");
+            }
         }
-        *guard = None; // Drop kills Chrome process
+        Ok(())
+    }
+
+    /// Close all tabs and kill Chrome.
+    pub fn close() -> Result<(), String> {
+        if let Ok(mut tabs) = TABS.lock() {
+            if let Some(map) = tabs.as_mut() {
+                eprintln!("[BROWSER_CDP] Closing {} tab(s)", map.len());
+                map.clear();
+            }
+            *tabs = None;
+        }
+        if let Ok(mut guard) = BROWSER.lock() {
+            *guard = None; // Drop kills Chrome process
+        }
         Ok(())
     }
 }
@@ -217,5 +262,55 @@ pub fn notify_tauri_browser_close() -> Result<(), String> {
     #[cfg(feature = "cdp")]
     { let _ = cdp::close(); }
 
+    Ok(())
+}
+
+// ─── Tab-aware public API ───────────────────────────────────────────────────
+
+/// Navigate a specific named browser tab. In CDP mode each tab_id is isolated.
+/// In Tauri/wry mode tab_id is ignored (single panel).
+pub fn navigate_browser_tab(url: &str, tab_id: &str) -> Result<(), String> {
+    // Tauri and wry don't support multi-tab — delegate to single-tab navigate
+    if is_tauri_available() {
+        return notify_tauri_browser_navigate(url);
+    }
+    #[cfg(feature = "wry-browser")]
+    {
+        if crate::wry_browser::navigate(url).is_ok() { return Ok(()); }
+    }
+    #[cfg(feature = "cdp")]
+    {
+        return cdp::navigate_tab(url, tab_id);
+    }
+    #[allow(unreachable_code)]
+    Err("No browser backend available".into())
+}
+
+/// Evaluate JS in a specific named browser tab.
+/// In Tauri/wry mode tab_id is ignored (single panel).
+pub fn eval_in_browser_tab(js: &str, tab_id: &str) -> Result<String, String> {
+    if is_tauri_available() {
+        return eval_in_browser_panel(js);
+    }
+    #[cfg(feature = "wry-browser")]
+    {
+        if let Ok(r) = crate::wry_browser::evaluate(js) { return Ok(r); }
+    }
+    #[cfg(feature = "cdp")]
+    {
+        return cdp::evaluate_tab(js, tab_id);
+    }
+    #[allow(unreachable_code)]
+    Err("No browser backend available".into())
+}
+
+/// Close a specific named browser tab (CDP only; no-op for Tauri/wry).
+pub fn close_browser_tab(tab_id: &str) -> Result<(), String> {
+    #[cfg(feature = "cdp")]
+    {
+        if !is_tauri_available() {
+            return cdp::close_tab(tab_id);
+        }
+    }
     Ok(())
 }
