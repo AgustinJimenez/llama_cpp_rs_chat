@@ -14,6 +14,8 @@
 
 > All releases are on the [Releases page](https://github.com/AgustinJimenez/llama_cpp_rs_chat/releases). Or build from source below.
 
+![LLaMA Chat in action](docs/preview.png)
+
 A multi-provider AI chat application built with Rust and React. Run local GGUF models via llama.cpp, or connect to 15+ cloud providers (Groq, Gemini, Claude, Mistral, etc.) — all with agentic tool execution. Available as a web app, desktop app (Tauri), or CLI.
 
 ## Features
