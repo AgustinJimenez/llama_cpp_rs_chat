@@ -98,7 +98,7 @@ const ExtractingIndicator = ({ count }: { count: number }) =>
   count > 0 ? (
     <div className="px-5 pt-1 pb-1 flex items-center gap-2 text-xs text-muted-foreground">
       <Loader2 className="h-3 w-3 animate-spin" />
-      Extracting text from {count} file{count > 1 ? 's' : ''}...
+      Extracting text from {count} file{count > 1 && 's'}...
     </div>
   ) : null;
 
@@ -108,26 +108,26 @@ const QueuedMessageIndicator = ({
 }: {
   content: string;
   onCancel: () => void;
-}) => (
-  <div className="px-5 pt-1 pb-1 flex items-center gap-2 text-xs text-muted-foreground">
-    <Clock className="h-3 w-3 flex-shrink-0" />
-    <span className="flex-1 truncate">
-      Queued:{' '}
-      <span className="text-foreground">
-        {content.length > 60 ? `${content.slice(0, 60)}…` : content}
+}) => {
+  const displayContent = content.length > 60 ? `${content.slice(0, 60)}…` : content;
+  return (
+    <div className="px-5 pt-1 pb-1 flex items-center gap-2 text-xs text-muted-foreground">
+      <Clock className="h-3 w-3 flex-shrink-0" />
+      <span className="flex-1 truncate">
+        Queued: <span className="text-foreground">{displayContent}</span>
       </span>
-    </span>
-    <button
-      type="button"
-      onClick={onCancel}
-      className="flex-shrink-0 hover:text-foreground transition-colors"
-      title="Cancel queued message"
-      aria-label="Cancel queued message"
-    >
-      <X className="h-3 w-3" />
-    </button>
-  </div>
-);
+      <button
+        type="button"
+        onClick={onCancel}
+        className="flex-shrink-0 hover:text-foreground transition-colors"
+        title="Cancel queued message"
+        aria-label="Cancel queued message"
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </div>
+  );
+};
 
 const InputRow = ({
   isMultiline,
@@ -157,44 +157,47 @@ const InputRow = ({
   onChange: React.ChangeEventHandler<HTMLTextAreaElement>;
   onKeyDown: (e: KeyboardEvent<HTMLTextAreaElement>) => void;
   onPaste: React.ClipboardEventHandler<HTMLTextAreaElement>;
-}) => (
-  <div
-    className={`flat-input-container flat-card flex items-end gap-2 px-5 py-2.5 ${isMultiline ? '!rounded-2xl' : ''}`}
-  >
-    <button
-      type="button"
-      onClick={onFileClick}
-      className="flex-shrink-0 flex items-center py-1 opacity-40 hover:opacity-70 transition-opacity"
-      title="Attach files"
-      aria-label="Attach files"
+}) => {
+  const textareaAriaLabel = disabled && disabledReason ? disabledReason : 'Message input';
+  return (
+    <div
+      className={`flat-input-container flat-card flex items-end gap-2 px-5 py-2.5 ${isMultiline ? '!rounded-2xl' : ''}`}
     >
-      <Paperclip className="h-4 w-4" />
-    </button>
-    <textarea
-      ref={textareaRef}
-      value={message}
-      onChange={onChange}
-      onKeyDown={onKeyDown}
-      onPaste={onPaste}
-      placeholder={placeholder}
-      disabled={disabled}
-      className="flex-1 bg-transparent border-none outline-none resize-none text-sm text-foreground placeholder:text-muted-foreground min-h-[28px] py-1 overflow-y-auto"
-      rows={1}
-      data-testid="message-input"
-      aria-disabled={disabled}
-      aria-label={disabled && disabledReason ? disabledReason : 'Message input'}
-    />
-    <button
-      type="submit"
-      disabled={disabled || !hasContent || isExtracting > 0 || queuedMessage}
-      className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-foreground text-background hover:opacity-80 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-      data-testid="send-button"
-      aria-label="Send message"
-    >
-      <ArrowUp className="h-4 w-4" />
-    </button>
-  </div>
-);
+      <button
+        type="button"
+        onClick={onFileClick}
+        className="flex-shrink-0 flex items-center py-1 opacity-40 hover:opacity-70 transition-opacity"
+        title="Attach files"
+        aria-label="Attach files"
+      >
+        <Paperclip className="h-4 w-4" />
+      </button>
+      <textarea
+        ref={textareaRef}
+        value={message}
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+        onPaste={onPaste}
+        placeholder={placeholder}
+        disabled={disabled}
+        className="flex-1 bg-transparent border-none outline-none resize-none text-sm text-foreground placeholder:text-muted-foreground min-h-[28px] py-1 overflow-y-auto"
+        rows={1}
+        data-testid="message-input"
+        aria-disabled={disabled}
+        aria-label={textareaAriaLabel}
+      />
+      <button
+        type="submit"
+        disabled={disabled || !hasContent || isExtracting > 0 || queuedMessage}
+        className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-foreground text-background hover:opacity-80 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+        data-testid="send-button"
+        aria-label="Send message"
+      >
+        <ArrowUp className="h-4 w-4" />
+      </button>
+    </div>
+  );
+};
 
 interface MessageInputProps {
   disabledReason?: string;
@@ -296,9 +299,11 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
   }, []);
 
+  /* eslint-disable react-hooks/refs */
   const isMultiline =
     message.includes('\n') ||
     (textareaRef.current?.scrollHeight ?? 0) > MULTILINE_SCROLL_THRESHOLD_PX;
+  /* eslint-enable react-hooks/refs */
   const hasContent = message.trim() || attachedImages.length > 0 || attachedFiles.length > 0;
   const placeholder = getPlaceholder(
     t,
@@ -321,7 +326,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
       data-testid="message-form"
       className="relative"
     >
-      {isDragging ? <DragOverlay /> : null}
+      {!!isDragging && <DragOverlay />}
       <StatsBar
         timings={timings}
         tokensUsed={tokensUsed}
@@ -333,9 +338,9 @@ export const MessageInput: React.FC<MessageInputProps> = ({
         estimatedConvTokens={estimatedConvTokens}
         modelContextSize={modelContextSize}
       />
-      {queuedMessage ? (
+      {!!queuedMessage && (
         <QueuedMessageIndicator content={queuedMessage.content} onCancel={cancelQueuedMessage} />
-      ) : null}
+      )}
       <ImagePreviews images={attachedImages} onRemove={removeImage} />
       <FilePreviews files={attachedFiles} onRemove={removeFile} />
       <ExtractingIndicator count={isExtracting} />

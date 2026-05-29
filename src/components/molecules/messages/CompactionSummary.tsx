@@ -20,6 +20,12 @@ export const CompactionSummary: React.FC<{ message: Message; cleanContent: strin
   const [editText, setEditText] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const expandChevron = expanded ? (
+    <ChevronDown className="h-3 w-3 shrink-0" />
+  ) : (
+    <ChevronRight className="h-3 w-3 shrink-0" />
+  );
+  const saveLabel = isSaving ? 'Saving\u2026' : 'Save';
 
   // Extract the summary text (after the header line)
   const lines = cleanContent.split('\n');
@@ -87,7 +93,7 @@ export const CompactionSummary: React.FC<{ message: Message; cleanContent: strin
           >
             Earlier messages summarized
           </button>
-          {modelReady ? (
+          {!!modelReady && (
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
               <button
                 onClick={handleStartEdit}
@@ -104,21 +110,17 @@ export const CompactionSummary: React.FC<{ message: Message; cleanContent: strin
                 <Trash2 className="h-3 w-3" />
               </button>
             </div>
-          ) : null}
+          )}
           <button
             onClick={() => setExpanded(!expanded)}
             className="hover:text-white transition-colors"
           >
-            {expanded ? (
-              <ChevronDown className="h-3 w-3 shrink-0" />
-            ) : (
-              <ChevronRight className="h-3 w-3 shrink-0" />
-            )}
+            {expandChevron}
           </button>
         </div>
-        {expanded ? (
+        {!!expanded && (
           <div className="bg-white/5 border-b border-white/10">
-            {isEditing ? (
+            {!!isEditing && (
               <div className="p-2 space-y-2">
                 <textarea
                   ref={textareaRef}
@@ -140,18 +142,18 @@ export const CompactionSummary: React.FC<{ message: Message; cleanContent: strin
                     disabled={isSaving || !editText.trim() || !modelReady}
                     className="px-2 py-1 text-xs rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
                   >
-                    {isSaving ? 'Saving…' : 'Save'}
+                    {saveLabel}
                   </button>
                 </div>
               </div>
-            ) : null}
-            {summaryBody && !isEditing ? (
+            )}
+            {!!summaryBody && !isEditing && (
               <div className="px-3 py-2 text-xs text-white/80 whitespace-pre-wrap">
                 {summaryBody}
               </div>
-            ) : null}
+            )}
           </div>
-        ) : null}
+        )}
       </div>
     </div>
   );

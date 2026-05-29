@@ -109,6 +109,13 @@ module.exports = {
     'eqeqeq': ['error', 'always', { null: 'ignore' }],
     'no-console': ['warn', { allow: ['warn', 'error'] }],
     'no-nested-ternary': 'warn',
+    'no-restricted-syntax': [
+      'error',
+      {
+        selector: 'JSXExpressionContainer > ConditionalExpression',
+        message: 'Avoid ternary operators inside JSX expressions. Extract to a variable before the return, or use {bool && <A/>} for simple cases.',
+      },
+    ],
     'no-unneeded-ternary': 'error',
     'no-else-return': 'warn',
     'prefer-template': 'warn',

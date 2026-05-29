@@ -57,6 +57,7 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
 
   useEffect(() => {
     if (!isOpen) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refresh();
     const id = setInterval(refresh, MODAL_POLL_INTERVAL_MS);
     return () => clearInterval(id);
@@ -105,11 +106,12 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
         </DialogHeader>
 
         <div className="space-y-2 py-2 max-h-[50vh] overflow-y-auto">
-          {processes.length === 0 ? (
+          {processes.length === 0 && (
             <p className="text-sm text-muted-foreground text-center py-6">
               No background processes running
             </p>
-          ) : (
+          )}
+          {processes.length > 0 &&
             processes.map((proc) => (
               <div
                 key={proc.pid}
@@ -123,17 +125,16 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
                     <span>PID {proc.pid}</span>
                     <span>·</span>
                     <span>{formatElapsed(proc.startedAt)}</span>
-                    {proc.alive ? (
+                    {!!proc.alive && (
                       <span className="inline-flex items-center gap-1 text-green-400">
                         <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
                         alive
                       </span>
-                    ) : (
-                      <span className="text-red-400">exited</span>
                     )}
+                    {!proc.alive && <span className="text-red-400">exited</span>}
                   </div>
                 </div>
-                {proc.alive ? (
+                {!!proc.alive && (
                   <button
                     onClick={() => handleKill(proc.pid)}
                     disabled={killing.has(proc.pid)}
@@ -142,13 +143,12 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
                   >
                     <X className="h-4 w-4" />
                   </button>
-                ) : null}
+                )}
               </div>
-            ))
-          )}
+            ))}
         </div>
 
-        {aliveCount > 1 ? (
+        {aliveCount > 1 && (
           <div className="flex justify-end pt-1">
             <button
               onClick={handleKillAll}
@@ -158,7 +158,7 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
               Kill All
             </button>
           </div>
-        ) : null}
+        )}
       </DialogContent>
     </Dialog>
   );

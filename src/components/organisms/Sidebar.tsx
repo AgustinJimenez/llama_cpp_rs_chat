@@ -105,10 +105,12 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (connected) fetchConversations();
   }, [connected]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (currentConversationId && connected) fetchConversations();
   }, [currentConversationId, connected]);
 
@@ -234,9 +236,16 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
     [onLoadConversation, closeMobileSidebar],
   );
 
+  const rotateCcwClass = loading ? 'animate-spin' : '';
+  const isBulkDelete = conversationToDelete?.name === '__bulk_delete__';
+  const deleteDialogTitle = isBulkDelete ? 'Conversations' : 'Conversation';
+  const deleteDialogDescription = isBulkDelete
+    ? `Are you sure you want to delete ${selectedConversations.size} conversations? This action cannot be undone.`
+    : 'Are you sure you want to delete this conversation? This action cannot be undone.';
+
   return (
     <>
-      {isMobileSidebarOpen ? (
+      {!!isMobileSidebarOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/50 md:hidden"
           role="button"
@@ -246,7 +255,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
             if (e.key === 'Enter' || e.key === ' ') closeMobileSidebar();
           }}
         />
-      ) : null}
+      )}
 
       <div
         className={`fixed top-0 left-0 h-screen bg-card border-r border-border z-50 flex flex-col transition-transform duration-200 md:translate-x-0 md:z-40 ${
@@ -270,12 +279,12 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
           >
             <Search size={16} />
             Explore models
-            {downloadActiveCount > 0 ? (
+            {downloadActiveCount > 0 && (
               <span className="ml-auto flex items-center gap-1 text-[10px] text-blue-400">
                 <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse" />
                 {downloadActiveCount}
               </span>
-            ) : null}
+            )}
           </button>
         </div>
 
@@ -288,7 +297,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
             data-testid="refresh-conversations"
             aria-label="Refresh conversations"
           >
-            <RotateCcw size={12} className={loading ? 'animate-spin' : ''} />
+            <RotateCcw size={12} className={rotateCcwClass} />
           </button>
         </div>
 
@@ -313,10 +322,11 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
             if (filteredConversations.length === 0) {
               // Only show empty state when not loading — avoids replacing the list with a label
               if (loading) return null;
+              const emptyLabel = searchTerm
+                ? `No results for "${searchTerm}"`
+                : 'No conversations yet';
               return (
-                <div className="text-center text-foreground/50 text-xs py-6">
-                  {searchTerm ? `No results for "${searchTerm}"` : 'No conversations yet'}
-                </div>
+                <div className="text-center text-foreground/50 text-xs py-6">{emptyLabel}</div>
               );
             }
             return groupedEntries.map(({ group, items }) => (
@@ -342,16 +352,16 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
           })()}
         </div>
 
-        {messages.length === 0 ? <BackgroundProcesses /> : null}
+        {messages.length === 0 && <BackgroundProcesses />}
 
-        {selectMode ? (
+        {!!selectMode && (
           <SelectBar
             selectedCount={selectedConversations.size}
             onSelectAll={selectAll}
             onDeleteSelected={deleteSelected}
             onCancel={cancelSelectMode}
           />
-        ) : null}
+        )}
 
         <div className="px-3 pb-3 pt-2 border-t border-border">
           <button
@@ -380,15 +390,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>
-              Delete{' '}
-              {conversationToDelete?.name === '__bulk_delete__' ? 'Conversations' : 'Conversation'}
-            </DialogTitle>
-            <DialogDescription>
-              {conversationToDelete?.name === '__bulk_delete__'
-                ? `Are you sure you want to delete ${selectedConversations.size} conversations? This action cannot be undone.`
-                : 'Are you sure you want to delete this conversation? This action cannot be undone.'}
-            </DialogDescription>
+            <DialogTitle>Delete {deleteDialogTitle}</DialogTitle>
+            <DialogDescription>{deleteDialogDescription}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={handleDeleteCancel}>
@@ -401,11 +404,11 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
         </DialogContent>
       </Dialog>
 
-      {isExplorerOpen ? (
+      {!!isExplorerOpen && (
         <Suspense fallback={null}>
           <HubExplorer isOpen={isExplorerOpen} onClose={() => setIsExplorerOpen(false)} />
         </Suspense>
-      ) : null}
+      )}
     </>
   );
 };

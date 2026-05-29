@@ -51,7 +51,7 @@ export const ToolTagsSection: React.FC<ToolTagsSectionProps> = ({
                 value={value}
                 onChange={(e) => onConfigChange(field.key, e.target.value)}
               />
-              {value ? (
+              {!!value && (
                 <button
                   type="button"
                   className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
@@ -60,7 +60,7 @@ export const ToolTagsSection: React.FC<ToolTagsSectionProps> = ({
                 >
                   <RotateCcw className="h-3 w-3" />
                 </button>
-              ) : null}
+              )}
             </div>
           );
         })}

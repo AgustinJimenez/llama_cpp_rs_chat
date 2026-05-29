@@ -167,11 +167,11 @@ export const VramBar: React.FC<{ vram: MemoryBreakdown['vram'] }> = ({ vram }) =
             minPctForLabel={10}
           />
         )}
-        {vram.overcommitted ? (
+        {!!vram.overcommitted && (
           <div className="absolute inset-0 bg-red-600/20 border-2 border-red-600 flex items-center justify-center">
             <span className="text-xs text-foreground font-bold">OVERCOMMITTED</span>
           </div>
-        ) : null}
+        )}
       </div>
     </div>
   );
@@ -222,11 +222,11 @@ const RamBar: React.FC<{ ram: MemoryBreakdown['ram'] }> = ({ ram }) => {
             minPctForLabel={10}
           />
         )}
-        {ram.overcommitted ? (
+        {!!ram.overcommitted && (
           <div className="absolute inset-0 bg-red-600/20 border-2 border-red-600 flex items-center justify-center">
             <span className="text-xs text-foreground font-bold">OVERCOMMITTED</span>
           </div>
-        ) : null}
+        )}
       </div>
     </div>
   );
@@ -382,51 +382,48 @@ const MemorySliders: React.FC<MemorySlidersProps> = ({
       display={formatSize(contextSize)}
     />
     {/* Token overhead bar — shows how much context is consumed by system prompt + tools */}
-    {systemPromptTokens || toolDefinitionsTokens
-      ? (() => {
-          const total = (systemPromptTokens || 0) + (toolDefinitionsTokens || 0);
-          const pct = Math.min(100, (total / Math.max(contextSize, 1)) * 100);
-          const available = Math.max(0, contextSize - total);
-          return (
-            <div className="pl-1 -mt-0.5 mb-1">
-              <div className="flex items-center gap-1.5">
-                <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden flex">
-                  <div
-                    className="h-full bg-indigo-500 rounded-l-full"
-                    style={{
-                      width: `${Math.min(100, ((systemPromptTokens || 0) / Math.max(contextSize, 1)) * 100)}%`,
-                    }}
-                    title={`System prompt: ${(systemPromptTokens || 0).toLocaleString()} tokens`}
-                  />
-                  <div
-                    className="h-full bg-purple-500"
-                    style={{
-                      width: `${Math.min(100, ((toolDefinitionsTokens || 0) / Math.max(contextSize, 1)) * 100)}%`,
-                    }}
-                    title={`Tool definitions: ${(toolDefinitionsTokens || 0).toLocaleString()} tokens`}
-                  />
-                </div>
-                <span className="text-[9px] text-muted-foreground tabular-nums shrink-0">
-                  {pct.toFixed(0)}% overhead
-                </span>
+    {!!(systemPromptTokens || toolDefinitionsTokens) &&
+      (() => {
+        const total = (systemPromptTokens || 0) + (toolDefinitionsTokens || 0);
+        const pct = Math.min(100, (total / Math.max(contextSize, 1)) * 100);
+        const available = Math.max(0, contextSize - total);
+        return (
+          <div className="pl-1 -mt-0.5 mb-1">
+            <div className="flex items-center gap-1.5">
+              <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden flex">
+                <div
+                  className="h-full bg-indigo-500 rounded-l-full"
+                  style={{
+                    width: `${Math.min(100, ((systemPromptTokens || 0) / Math.max(contextSize, 1)) * 100)}%`,
+                  }}
+                  title={`System prompt: ${(systemPromptTokens || 0).toLocaleString()} tokens`}
+                />
+                <div
+                  className="h-full bg-purple-500"
+                  style={{
+                    width: `${Math.min(100, ((toolDefinitionsTokens || 0) / Math.max(contextSize, 1)) * 100)}%`,
+                  }}
+                  title={`Tool definitions: ${(toolDefinitionsTokens || 0).toLocaleString()} tokens`}
+                />
               </div>
-              <div className="flex gap-3 mt-0.5 text-[9px] text-muted-foreground">
-                <span>
-                  <span className="inline-block w-1.5 h-1.5 bg-indigo-500 rounded-full mr-0.5" />
-                  System: {(systemPromptTokens || 0).toLocaleString()}
-                </span>
-                <span>
-                  <span className="inline-block w-1.5 h-1.5 bg-purple-500 rounded-full mr-0.5" />
-                  Tools: {(toolDefinitionsTokens || 0).toLocaleString()}
-                </span>
-                <span className="text-muted-foreground">
-                  Available: {available.toLocaleString()}
-                </span>
-              </div>
+              <span className="text-[9px] text-muted-foreground tabular-nums shrink-0">
+                {pct.toFixed(0)}% overhead
+              </span>
             </div>
-          );
-        })()
-      : null}
+            <div className="flex gap-3 mt-0.5 text-[9px] text-muted-foreground">
+              <span>
+                <span className="inline-block w-1.5 h-1.5 bg-indigo-500 rounded-full mr-0.5" />
+                System: {(systemPromptTokens || 0).toLocaleString()}
+              </span>
+              <span>
+                <span className="inline-block w-1.5 h-1.5 bg-purple-500 rounded-full mr-0.5" />
+                Tools: {(toolDefinitionsTokens || 0).toLocaleString()}
+              </span>
+              <span className="text-muted-foreground">Available: {available.toLocaleString()}</span>
+            </div>
+          </div>
+        );
+      })()}
     <SliderRow
       color="bg-purple-600"
       hexColor="#9333ea"
@@ -451,24 +448,24 @@ const MemoryWarnings: React.FC<{ memory: MemoryBreakdown }> = ({ memory }) => {
 
   return (
     <>
-      {memory.vram.overcommitted || memory.ram.overcommitted ? (
+      {!!(memory.vram.overcommitted || memory.ram.overcommitted) && (
         <div className="bg-red-900/20 border border-red-600 rounded-md p-3 flex items-start gap-2">
           <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
           <div className="text-sm text-red-600 dark:text-red-400">
             <p className="font-semibold mb-1">Memory Overcommitted!</p>
-            {memory.vram.overcommitted ? (
+            {!!memory.vram.overcommitted && (
               <p className="text-xs">
                 VRAM usage exceeds available GPU memory. Reduce GPU layers or context size.
               </p>
-            ) : null}
-            {memory.ram.overcommitted ? (
+            )}
+            {!!memory.ram.overcommitted && (
               <p className="text-xs">
                 RAM usage exceeds available system memory. Increase GPU layers or reduce model size.
               </p>
-            ) : null}
+            )}
           </div>
         </div>
-      ) : null}
+      )}
       {!memory.vram.overcommitted &&
         !memory.ram.overcommitted &&
         vramUtilization > UTILIZATION_HIGH_PCT && (

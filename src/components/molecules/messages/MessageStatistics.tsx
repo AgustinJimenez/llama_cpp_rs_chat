@@ -80,6 +80,7 @@ export const MessageStatistics = ({ timings, tokensUsed, maxTokens }: MessageSta
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshProcesses();
     const id = setInterval(refreshProcesses, PROCESS_POLL_INTERVAL_MS);
     return () => clearInterval(id);
@@ -87,53 +88,52 @@ export const MessageStatistics = ({ timings, tokensUsed, maxTokens }: MessageSta
 
   if (!genTokPerSec && bgProcesses.length === 0) return null;
 
+  const tokenTitle = promptTokens
+    ? `Input: ${formatNumber(promptTokens)}, Output: ${formatNumber(genTokens ?? 0)}`
+    : 'Tokens generated';
+  const tokenLabel = promptTokens
+    ? `in: ${formatNumber(promptTokens)}  out: ${formatNumber(genTokens ?? 0)}`
+    : `${formatNumber(genTokens ?? 0)} tokens`;
+  const processLabel = bgProcesses.length === 1 ? 'process' : 'processes';
+
   return (
     <div className="flex items-center gap-3 text-xs text-foreground font-mono">
-      {genTokens ? (
-        <span
-          className="inline-flex items-center gap-1"
-          title={
-            promptTokens
-              ? `Input: ${formatNumber(promptTokens)}, Output: ${formatNumber(genTokens)}`
-              : 'Tokens generated'
-          }
-        >
+      {!!genTokens && (
+        <span className="inline-flex items-center gap-1" title={tokenTitle}>
           <Hash className="h-3 w-3" />
-          {promptTokens
-            ? `in: ${formatNumber(promptTokens)}  out: ${formatNumber(genTokens)}`
-            : `${formatNumber(genTokens)} tokens`}
+          {tokenLabel}
         </span>
-      ) : null}
-      {genTokPerSec ? (
+      )}
+      {!!genTokPerSec && (
         <span className="inline-flex items-center gap-1" title="Generation speed">
           <Gauge className="h-3 w-3" />
           {genTokPerSec.toFixed(1)} tok/s
         </span>
-      ) : null}
-      {cachedTokens && promptTokens ? (
+      )}
+      {!!cachedTokens && !!promptTokens && (
         <span
           className="inline-flex items-center gap-1 text-cyan-400"
           title={`${formatNumber(cachedTokens)} of ${formatNumber(promptTokens)} input tokens served from cache`}
         >
           cache: {Math.round((cachedTokens / promptTokens) * 100)}%
         </span>
-      ) : null}
-      {tokensUsed !== undefined && maxTokens !== undefined && timings.tokenBreakdown ? (
+      )}
+      {tokensUsed !== undefined && maxTokens !== undefined && !!timings.tokenBreakdown && (
         <TokenBreakdownPopover
           breakdown={timings.tokenBreakdown}
           tokensUsed={tokensUsed}
           maxTokens={maxTokens}
           formatNumber={formatNumber}
         />
-      ) : null}
-      {tokensUsed !== undefined && maxTokens !== undefined && !timings.tokenBreakdown ? (
+      )}
+      {tokensUsed !== undefined && maxTokens !== undefined && !timings.tokenBreakdown && (
         <span className="inline-flex items-center gap-1" title="Context usage">
           <Database className="h-3 w-3" />
           {formatNumber(tokensUsed)}/{formatNumber(maxTokens)}
         </span>
-      ) : null}
+      )}
       <FinishReasonBadge finishReason={timings.finishReason} />
-      {bgProcesses.length > 0 ? (
+      {bgProcesses.length > 0 && (
         <>
           <button
             onClick={() => setModalOpen(true)}
@@ -141,7 +141,7 @@ export const MessageStatistics = ({ timings, tokensUsed, maxTokens }: MessageSta
             title="Click to manage background processes"
           >
             <Terminal className="h-3 w-3" />
-            {bgProcesses.length} {bgProcesses.length === 1 ? 'process' : 'processes'}
+            {bgProcesses.length} {processLabel}
           </button>
           <BackgroundProcessesModal
             isOpen={modalOpen}
@@ -151,7 +151,7 @@ export const MessageStatistics = ({ timings, tokensUsed, maxTokens }: MessageSta
             }}
           />
         </>
-      ) : null}
+      )}
     </div>
   );
 };

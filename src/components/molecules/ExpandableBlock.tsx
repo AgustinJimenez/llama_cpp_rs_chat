@@ -33,7 +33,7 @@ export const ThreeDotMenu: React.FC<{ actions: { label: string; onClick: () => v
           <circle cx="8" cy="13" r="1.5" />
         </svg>
       </button>
-      {open ? (
+      {!!open && (
         <div className="absolute right-0 mt-1 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[120px] z-50">
           {actions.map((a) => (
             <button
@@ -48,7 +48,7 @@ export const ThreeDotMenu: React.FC<{ actions: { label: string; onClick: () => v
             </button>
           ))}
         </div>
-      ) : null}
+      )}
     </div>
   );
 };
@@ -76,44 +76,43 @@ export const ExpandableBlock: React.FC<{
         {children}
         <ThreeDotMenu actions={allActions} />
       </div>
-      {expanded
-        ? createPortal(
+      {!!expanded &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center cursor-pointer"
+            role="button"
+            tabIndex={0}
+            onClick={() => setExpanded(false)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === 'Escape') setExpanded(false);
+            }}
+          >
             <div
-              className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center cursor-pointer"
-              role="button"
-              tabIndex={0}
-              onClick={() => setExpanded(false)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === 'Escape') setExpanded(false);
-              }}
+              className="max-w-[90vw] max-h-[90vh] flex items-center justify-center overflow-auto"
+              role="presentation"
+              onClick={(e) => e.stopPropagation()}
             >
-              <div
-                className="max-w-[90vw] max-h-[90vh] flex items-center justify-center overflow-auto"
-                role="presentation"
-                onClick={(e) => e.stopPropagation()}
+              <div className="[&>*]:mx-auto [&_svg]:mx-auto [&_canvas]:mx-auto">{children}</div>
+            </div>
+            <button
+              onClick={() => setExpanded(false)}
+              className="absolute top-4 right-4 p-2 bg-white/20 text-white rounded-full hover:bg-white/30 transition-colors backdrop-blur"
+              title="Close"
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
               >
-                <div className="[&>*]:mx-auto [&_svg]:mx-auto [&_canvas]:mx-auto">{children}</div>
-              </div>
-              <button
-                onClick={() => setExpanded(false)}
-                className="absolute top-4 right-4 p-2 bg-white/20 text-white rounded-full hover:bg-white/30 transition-colors backdrop-blur"
-                title="Close"
-              >
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 20 20"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path d="M5 5l10 10M15 5L5 15" />
-                </svg>
-              </button>
-            </div>,
-            document.body,
-          )
-        : null}
+                <path d="M5 5l10 10M15 5L5 15" />
+              </svg>
+            </button>
+          </div>,
+          document.body,
+        )}
     </>
   );
 };

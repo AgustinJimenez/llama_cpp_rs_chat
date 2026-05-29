@@ -12,7 +12,7 @@ const SERVER_CONTINUE_PREVIEW_LEN: usize = 200;
 pub fn should_server_auto_continue(finish_reason: &str) -> bool {
     matches!(
         finish_reason,
-        "length" | "cuda_deadlock" | "loop_recovery" | "infinite_loop" | "yn_continue"
+        "length" | "cuda_deadlock" | "loop_recovery" | "infinite_loop"
     )
 }
 

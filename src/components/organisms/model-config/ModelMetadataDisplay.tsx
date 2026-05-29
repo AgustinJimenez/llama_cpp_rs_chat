@@ -28,27 +28,27 @@ const BasicInfoSection = ({ modelInfo }: { modelInfo: ModelMetadata }) => (
   <div className="space-y-1">
     <h4 className="font-semibold text-sm mb-2">Basic Information</h4>
     <MetadataField label="File Name" value={modelInfo.name} />
-    {modelInfo.general_name ? (
+    {!!modelInfo.general_name && (
       <MetadataField label="Model Name" value={modelInfo.general_name} />
-    ) : null}
+    )}
     <MetadataField label="File Size" value={modelInfo.file_size} />
     <MetadataField label="Architecture" value={modelInfo.architecture} />
     <MetadataField label="Parameters" value={modelInfo.parameters} />
     <MetadataField label="Quantization" value={modelInfo.quantization} />
-    {modelInfo.file_type ? <MetadataField label="File Type" value={modelInfo.file_type} /> : null}
-    {modelInfo.quantization_version ? (
+    {!!modelInfo.file_type && <MetadataField label="File Type" value={modelInfo.file_type} />}
+    {!!modelInfo.quantization_version && (
       <MetadataField label="Quant Version" value={modelInfo.quantization_version} />
-    ) : null}
-    {modelInfo.has_vision ? (
+    )}
+    {!!modelInfo.has_vision && (
       <p className="flex items-center gap-1.5">
         <Eye className="h-3.5 w-3.5 text-violet-400" />
         <strong>Vision:</strong> <span className="text-violet-400 font-medium">Supported</span>
         <span className="text-muted-foreground">
           ({modelInfo.mmproj_files?.length} mmproj file
-          {(modelInfo.mmproj_files?.length ?? 0) > 1 ? 's' : ''} found)
+          {(modelInfo.mmproj_files?.length ?? 0) > 1 && 's'} found)
         </span>
       </p>
-    ) : null}
+    )}
   </div>
 );
 
@@ -63,16 +63,16 @@ const ModelDetailsSection = ({ modelInfo }: { modelInfo: ModelMetadata }) => {
   return (
     <div className="space-y-1 pt-2 border-t">
       <h4 className="font-semibold text-sm mb-2">Model Details</h4>
-      {modelInfo.description ? (
+      {!!modelInfo.description && (
         <MetadataField label="Description" value={modelInfo.description} />
-      ) : null}
-      {modelInfo.author ? <MetadataField label="Author" value={modelInfo.author} /> : null}
-      {modelInfo.organization ? (
+      )}
+      {!!modelInfo.author && <MetadataField label="Author" value={modelInfo.author} />}
+      {!!modelInfo.organization && (
         <MetadataField label="Organization" value={modelInfo.organization} />
-      ) : null}
-      {modelInfo.version ? <MetadataField label="Version" value={modelInfo.version} /> : null}
-      {modelInfo.license ? <MetadataField label="License" value={modelInfo.license} /> : null}
-      {modelInfo.url ? (
+      )}
+      {!!modelInfo.version && <MetadataField label="Version" value={modelInfo.version} />}
+      {!!modelInfo.license && <MetadataField label="License" value={modelInfo.license} />}
+      {!!modelInfo.url && (
         <p>
           <strong>URL:</strong>{' '}
           <a
@@ -84,8 +84,8 @@ const ModelDetailsSection = ({ modelInfo }: { modelInfo: ModelMetadata }) => {
             {modelInfo.url}
           </a>
         </p>
-      ) : null}
-      {modelInfo.repo_url ? (
+      )}
+      {!!modelInfo.repo_url && (
         <p>
           <strong>Repository:</strong>{' '}
           <a
@@ -97,7 +97,7 @@ const ModelDetailsSection = ({ modelInfo }: { modelInfo: ModelMetadata }) => {
             {modelInfo.repo_url}
           </a>
         </p>
-      ) : null}
+      )}
     </div>
   );
 };
@@ -113,30 +113,30 @@ const ArchitectureSpecsSection = ({ modelInfo }: { modelInfo: ModelMetadata }) =
     <div className="space-y-1 pt-2 border-t">
       <h4 className="font-semibold text-sm mb-2">Architecture Specifications</h4>
       <MetadataField label="Context Length" value={modelInfo.context_length} />
-      {modelInfo.block_count ? (
+      {!!modelInfo.block_count && (
         <MetadataField label="Block Count (Layers)" value={modelInfo.block_count} />
-      ) : null}
-      {modelInfo.embedding_length ? (
+      )}
+      {!!modelInfo.embedding_length && (
         <MetadataField label="Embedding Length" value={modelInfo.embedding_length} />
-      ) : null}
-      {modelInfo.feed_forward_length ? (
+      )}
+      {!!modelInfo.feed_forward_length && (
         <MetadataField label="FFN Length" value={modelInfo.feed_forward_length} />
-      ) : null}
-      {modelInfo.attention_head_count ? (
+      )}
+      {!!modelInfo.attention_head_count && (
         <MetadataField label="Attention Heads" value={modelInfo.attention_head_count} />
-      ) : null}
-      {modelInfo.attention_head_count_kv ? (
+      )}
+      {!!modelInfo.attention_head_count_kv && (
         <MetadataField label="KV Heads" value={modelInfo.attention_head_count_kv} />
-      ) : null}
-      {modelInfo.layer_norm_epsilon ? (
+      )}
+      {!!modelInfo.layer_norm_epsilon && (
         <MetadataField label="Layer Norm Epsilon" value={modelInfo.layer_norm_epsilon} mono />
-      ) : null}
-      {modelInfo.rope_dimension_count ? (
+      )}
+      {!!modelInfo.rope_dimension_count && (
         <MetadataField label="RoPE Dimensions" value={modelInfo.rope_dimension_count} />
-      ) : null}
-      {modelInfo.rope_freq_base ? (
+      )}
+      {!!modelInfo.rope_freq_base && (
         <MetadataField label="RoPE Freq Base" value={modelInfo.rope_freq_base} />
-      ) : null}
+      )}
     </div>
   );
 };
@@ -174,19 +174,19 @@ const TokenizerSection = ({ modelInfo }: { modelInfo: ModelMetadata }) => {
   return (
     <div className="space-y-1 pt-2 border-t">
       <h4 className="font-semibold text-sm mb-2">Tokenizer Information</h4>
-      {modelInfo.tokenizer_model ? (
+      {!!modelInfo.tokenizer_model && (
         <MetadataField label="Tokenizer Type" value={modelInfo.tokenizer_model} />
-      ) : null}
-      {modelInfo.bos_token_id ? (
+      )}
+      {!!modelInfo.bos_token_id && (
         <MetadataField label="BOS Token ID" value={modelInfo.bos_token_id} mono />
-      ) : null}
-      {modelInfo.eos_token_id ? (
+      )}
+      {!!modelInfo.eos_token_id && (
         <MetadataField label="EOS Token ID" value={modelInfo.eos_token_id} mono />
-      ) : null}
-      {modelInfo.padding_token_id ? (
+      )}
+      {!!modelInfo.padding_token_id && (
         <MetadataField label="Padding Token ID" value={modelInfo.padding_token_id} mono />
-      ) : null}
-      {modelInfo.chat_template ? (
+      )}
+      {!!modelInfo.chat_template && (
         <div>
           <p>
             <strong>Chat Template:</strong>
@@ -195,7 +195,7 @@ const TokenizerSection = ({ modelInfo }: { modelInfo: ModelMetadata }) => {
             {modelInfo.chat_template}
           </pre>
         </div>
-      ) : null}
+      )}
     </div>
   );
 };

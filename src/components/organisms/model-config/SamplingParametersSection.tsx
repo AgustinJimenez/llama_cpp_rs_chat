@@ -35,27 +35,32 @@ const NumericParam: React.FC<NumericParamProps> = ({
   max,
   step,
   integer,
-}) => (
-  <div className="flex items-center gap-1.5">
-    <label className="text-xs text-muted-foreground whitespace-nowrap">{label}</label>
-    <input
-      type="number"
-      value={format ? format(value) : value}
-      onChange={(e) => {
-        const v = parseFloat(e.target.value);
-        if (!isNaN(v)) {
-          onChange(
-            integer ? Math.round(Math.min(max, Math.max(min, v))) : Math.min(max, Math.max(min, v)),
-          );
-        }
-      }}
-      min={min}
-      max={max}
-      step={step}
-      className="w-16 h-6 px-1.5 text-xs font-mono text-right rounded border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-    />
-  </div>
-);
+}) => {
+  const displayValue = format ? format(value) : value;
+  return (
+    <div className="flex items-center gap-1.5">
+      <label className="text-xs text-muted-foreground whitespace-nowrap">{label}</label>
+      <input
+        type="number"
+        value={displayValue}
+        onChange={(e) => {
+          const v = parseFloat(e.target.value);
+          if (!isNaN(v)) {
+            onChange(
+              integer
+                ? Math.round(Math.min(max, Math.max(min, v)))
+                : Math.min(max, Math.max(min, v)),
+            );
+          }
+        }}
+        min={min}
+        max={max}
+        step={step}
+        className="w-16 h-6 px-1.5 text-xs font-mono text-right rounded border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+      />
+    </div>
+  );
+};
 
 // Which sampler types use which parameters
 const USES_TEMPERATURE: SamplerType[] = [
@@ -162,7 +167,7 @@ const SamplerGroup = ({
           step={0.05}
         />
       )}
-      {showAdvanced ? (
+      {!!showAdvanced && (
         <NumericParam
           label="Top-N σ"
           value={config.top_n_sigma ?? -1.0}
@@ -172,7 +177,7 @@ const SamplerGroup = ({
           max={5}
           step={0.1}
         />
-      ) : null}
+      )}
       {sampler !== 'Mirostat' && (
         <NumericParam
           label="Repeat"
@@ -266,6 +271,7 @@ const DryGroup = ({
   onConfigChange: ConfigChanger;
 }) => {
   const dryActive = (config.dry_multiplier ?? 0) > 0;
+  const dryGroupClass = dryActive ? '' : 'opacity-40 pointer-events-none';
   return (
     <ParamGroup title="DRY Anti-Repetition">
       <NumericParam
@@ -277,7 +283,7 @@ const DryGroup = ({
         max={5}
         step={0.1}
       />
-      <div className={dryActive ? '' : 'opacity-40 pointer-events-none'}>
+      <div className={dryGroupClass}>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
           <NumericParam
             label="Base"
@@ -323,8 +329,8 @@ export const SamplingParametersSection: React.FC<SamplingParametersSectionProps>
   return (
     <div className="flex flex-wrap gap-3">
       <SamplerGroup config={config} onConfigChange={onConfigChange} />
-      {showAdvanced ? <PenaltyGroup config={config} onConfigChange={onConfigChange} /> : null}
-      {showAdvanced ? <DryGroup config={config} onConfigChange={onConfigChange} /> : null}
+      {!!showAdvanced && <PenaltyGroup config={config} onConfigChange={onConfigChange} />}
+      {!!showAdvanced && <DryGroup config={config} onConfigChange={onConfigChange} />}
     </div>
   );
 };

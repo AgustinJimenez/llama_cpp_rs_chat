@@ -14,9 +14,9 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
   const [isModelConfigOpen, setIsModelConfigOpen] = useState(false);
   const [isEventLogOpen, setIsEventLogOpen] = useState(false);
   const [isProviderSelectorOpen, setIsProviderSelectorOpen] = useState(false);
+  const [isAgentSelectorOpen, setIsAgentSelectorOpen] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [browserViewUrl, setBrowserViewUrl] = useState<string | null>(null);
-  const [browserViewTabId, setBrowserViewTabId] = useState<string | null>(null);
   const [isBrowserViewOpen, setIsBrowserViewOpen] = useState(false);
   // eslint-disable-next-line react/hook-use-state
   const [sidebarWidth, setSidebarWidthRaw] = useState<number>(() =>
@@ -43,11 +43,12 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
   const toggleEventLog = useCallback(() => setIsEventLogOpen((p) => !p), []);
   const openProviderSelector = useCallback(() => setIsProviderSelectorOpen(true), []);
   const closeProviderSelector = useCallback(() => setIsProviderSelectorOpen(false), []);
+  const openAgentSelector = useCallback(() => setIsAgentSelectorOpen(true), []);
+  const closeAgentSelector = useCallback(() => setIsAgentSelectorOpen(false), []);
   const toggleMobileSidebar = useCallback(() => setIsMobileSidebarOpen((p) => !p), []);
   const closeMobileSidebar = useCallback(() => setIsMobileSidebarOpen(false), []);
-  const openBrowserView = useCallback((url: string, camofoxTabId?: string) => {
+  const openBrowserView = useCallback((url: string) => {
     setBrowserViewUrl(url);
-    setBrowserViewTabId(camofoxTabId ?? null);
     setIsBrowserViewOpen(true);
   }, []);
   // Set URL without opening the panel (for agent background navigation)
@@ -57,7 +58,6 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
   const closeBrowserView = useCallback(() => {
     setIsBrowserViewOpen(false);
     setBrowserViewUrl(null);
-    setBrowserViewTabId(null);
   }, []);
   const clearBrowserView = closeBrowserView;
   const toggleBrowserView = useCallback(() => setIsBrowserViewOpen((p) => !p), []);
@@ -80,11 +80,13 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
       isProviderSelectorOpen,
       openProviderSelector,
       closeProviderSelector,
+      isAgentSelectorOpen,
+      openAgentSelector,
+      closeAgentSelector,
       isMobileSidebarOpen,
       toggleMobileSidebar,
       closeMobileSidebar,
       browserViewUrl,
-      browserViewTabId,
       isBrowserViewOpen,
       openBrowserView,
       setBrowserViewUrlOnly,
@@ -111,11 +113,13 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
       isProviderSelectorOpen,
       openProviderSelector,
       closeProviderSelector,
+      isAgentSelectorOpen,
+      openAgentSelector,
+      closeAgentSelector,
       isMobileSidebarOpen,
       toggleMobileSidebar,
       closeMobileSidebar,
       browserViewUrl,
-      browserViewTabId,
       isBrowserViewOpen,
       openBrowserView,
       setBrowserViewUrlOnly,

@@ -73,6 +73,10 @@ pub mod agent_heartbeat {
     pub use llama_chat_web::routes::agent_heartbeat::*;
 }
 #[allow(unused_imports)]
+pub mod agents {
+    pub use llama_chat_web::routes::agents::*;
+}
+#[allow(unused_imports)]
 pub mod openai_compat_server {
     pub use llama_chat_web::routes::openai_compat_server::*;
 }

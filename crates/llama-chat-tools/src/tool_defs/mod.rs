@@ -2,7 +2,7 @@
 //!
 //! Tool data lives in `tool_defs_categories/` split by domain:
 //!   - `file_tools`          — file I/O, search, execute_command, lsp_query
-//!   - `browser_tools`       — browser_*, camofox_*, open_url
+//!   - `browser_tools`       — browser_*, open_url, open_browser_view, close_browser_view
 //!   - `screenshot_tools`    — screenshots, OCR, screen recording, GIF
 //!   - `window_tools`        — window management, get_ui_tree, fill_form, run_action_sequence
 //!   - `input_tools`         — click_screen, type_text, press_key, scroll, drag (with verify params)

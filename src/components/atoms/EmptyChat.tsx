@@ -1,4 +1,4 @@
-import { Download, Zap, Loader2, X, CheckCircle } from 'lucide-react';
+import { Download, Bot, Loader2, X, CheckCircle } from 'lucide-react';
 import React, { useCallback, useEffect, useState } from 'react';
 
 import { useModelContext } from '../../contexts/ModelContext';
@@ -23,7 +23,7 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
     activeProvider,
     activeProviderModel,
   } = useModelContext();
-  const { openProviderSelector } = useUIContext();
+  const { openAgentSelector } = useUIContext();
   const remoteProviderLabel = getProviderLabel(activeProvider);
   const remoteHeading = `${remoteProviderLabel} (${activeProviderModel})`;
 
@@ -104,20 +104,25 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
     } else if (hasProgress) {
       text = `Loading model... ${progress}%`;
     }
+    const progressBarClass = isWarmup ? 'animate-pulse' : 'transition-all duration-300 ease-out';
+    const progressBarWidth = isWarmup ? '100%' : `${progress}%`;
+    const loadingIndicator =
+      hasProgress || isWarmup ? (
+        <div className="w-48 h-1.5 bg-foreground/20 rounded-full overflow-hidden">
+          <div
+            className={`h-full bg-foreground rounded-full ${progressBarClass}`}
+            style={{ width: progressBarWidth }}
+          />
+        </div>
+      ) : (
+        <Loader2 className="h-6 w-6 text-foreground animate-spin" />
+      );
+
     return (
       <div className="flex-1 flex flex-col items-center justify-center">
-        {hasProgress || isWarmup ? (
-          <div className="w-48 h-1.5 bg-foreground/20 rounded-full overflow-hidden">
-            <div
-              className={`h-full bg-foreground rounded-full ${isWarmup ? 'animate-pulse' : 'transition-all duration-300 ease-out'}`}
-              style={{ width: isWarmup ? '100%' : `${progress}%` }}
-            />
-          </div>
-        ) : (
-          <Loader2 className="h-6 w-6 text-foreground animate-spin" />
-        )}
+        {loadingIndicator}
         <p className="text-foreground text-sm mt-3">{text}</p>
-        {loadingAction === 'loading' ? (
+        {loadingAction === 'loading' && (
           <button
             type="button"
             onClick={forceUnload}
@@ -127,17 +132,16 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
             <X className="h-3.5 w-3.5" />
             Cancel
           </button>
-        ) : null}
+        )}
       </div>
     );
   }
 
   if ((status.loaded && modelName) || activeProvider !== 'local') {
+    const headingText = activeProvider !== 'local' ? remoteHeading : modelName;
     return (
       <div className="flex-1 flex flex-col items-center justify-center">
-        <h2 className="text-xl font-semibold mb-6">
-          {activeProvider !== 'local' ? remoteHeading : modelName}
-        </h2>
+        <h2 className="text-xl font-semibold mb-6">{headingText}</h2>
         {children}
       </div>
     );
@@ -147,20 +151,18 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
     <div className="flex-1 flex flex-col items-center justify-center gap-3">
       <button
         type="button"
-        onClick={openProviderSelector}
+        onClick={openAgentSelector}
         className="flat-card flex flex-col items-center gap-3 px-10 py-8 bg-muted/50 hover:bg-muted transition-colors cursor-pointer"
       >
-        <Zap className="h-8 w-8 text-foreground" />
-        <span className="text-sm font-medium text-foreground">
-          Choose a provider to start chatting
-        </span>
+        <Bot className="h-8 w-8 text-foreground" />
+        <span className="text-sm font-medium text-foreground">Select an agent to start</span>
       </button>
-      {cudaBanner ? (
+      {!!cudaBanner && (
         <div className="max-w-sm p-3 rounded-lg bg-primary/10 border border-primary/30 text-center space-y-2">
           <p className="text-xs text-foreground">
             NVIDIA GPU detected but CUDA acceleration is not installed.
           </p>
-          {installState === 'idle' ? (
+          {installState === 'idle' && (
             <button
               type="button"
               onClick={handleInstallGpu}
@@ -169,8 +171,8 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
               <Download className="h-3.5 w-3.5" />
               Install GPU Acceleration
             </button>
-          ) : null}
-          {installState === 'installing' ? (
+          )}
+          {installState === 'installing' && (
             <div className="space-y-1.5">
               <div className="flex items-center justify-center gap-2">
                 <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
@@ -183,16 +185,16 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
                 />
               </div>
             </div>
-          ) : null}
-          {installState === 'done' ? (
+          )}
+          {installState === 'done' && (
             <div className="flex items-center justify-center gap-1.5">
               <CheckCircle className="h-3.5 w-3.5 text-green-500" />
               <span className="text-xs text-green-500">
                 Installed! Restart the app to activate.
               </span>
             </div>
-          ) : null}
-          {installState === 'error' ? (
+          )}
+          {installState === 'error' && (
             <div className="space-y-1">
               <p className="text-xs text-red-400">{installError}</p>
               <button
@@ -203,8 +205,8 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
                 Retry
               </button>
             </div>
-          ) : null}
-          {installState === 'idle' ? (
+          )}
+          {installState === 'idle' && (
             <p className="text-[10px] text-muted-foreground">
               Downloads ~170MB GPU backend. Requires CUDA Toolkit from{' '}
               <a
@@ -217,9 +219,9 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
               </a>
               .
             </p>
-          ) : null}
+          )}
         </div>
-      ) : null}
+      )}
     </div>
   );
 };

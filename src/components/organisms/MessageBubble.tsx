@@ -45,28 +45,31 @@ const SystemMessage: React.FC<{ message: Message; cleanContent: string; isError:
   message,
   cleanContent,
   isError,
-}) => (
-  <div
-    className="w-full flex justify-center"
-    data-testid={`message-${message.role}`}
-    data-message-id={message.id}
-  >
+}) => {
+  const label = isError ? '❌ SYSTEM ERROR' : '⚠️ SYSTEM';
+  return (
     <div
-      className={`max-w-[90%] w-full px-4 py-2 rounded-lg ${
-        isError ? 'bg-red-950 border-2 border-red-500' : 'bg-yellow-950 border-2 border-yellow-500'
-      }`}
+      className="w-full flex justify-center"
+      data-testid={`message-${message.role}`}
+      data-message-id={message.id}
     >
-      <div className="flex items-center gap-2">
-        <span className="text-sm font-bold text-white">
-          {isError ? '❌ SYSTEM ERROR' : '⚠️ SYSTEM'}
-        </span>
-        <span className={`text-sm ${isError ? 'text-red-200' : 'text-yellow-200'}`}>
-          {cleanContent}
-        </span>
+      <div
+        className={`max-w-[90%] w-full px-4 py-2 rounded-lg ${
+          isError
+            ? 'bg-red-950 border-2 border-red-500'
+            : 'bg-yellow-950 border-2 border-yellow-500'
+        }`}
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-bold text-white">{label}</span>
+          <span className={`text-sm ${isError ? 'text-red-200' : 'text-yellow-200'}`}>
+            {cleanContent}
+          </span>
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 /**
  * Collapsed system prompt display.
@@ -124,6 +127,7 @@ const UserMessage: React.FC<{
     if (!trimmed || messageIndex == null || !onEditMessage) return;
     setIsEditing(false);
     onEditMessage(messageIndex, trimmed);
+    window.dispatchEvent(new CustomEvent('edit-message-submitted'));
   };
 
   const handleCancel = () => {
@@ -185,7 +189,7 @@ const UserMessage: React.FC<{
       data-message-id={message.id}
     >
       {/* Edit button — appears on hover */}
-      {canEdit ? (
+      {!!canEdit && (
         <button
           onClick={handleStartEdit}
           className="opacity-0 group-hover:opacity-100 mt-3 p-1 rounded text-foreground/30 hover:text-foreground/70 transition-all"
@@ -194,11 +198,11 @@ const UserMessage: React.FC<{
         >
           <Pencil size={14} />
         </button>
-      ) : null}
-      <div className="max-w-[85%]">
+      )}
+      <div className="max-w-[85%] min-w-0">
         <div className="flat-message-user px-4 py-3">
           {/* Attached images */}
-          {message.image_data && message.image_data.length > 0 ? (
+          {!!message.image_data?.length && (
             <div className="mb-2 flex flex-wrap gap-2">
               {/* eslint-disable react/no-array-index-key -- base64 images have no stable ID */}
               {message.image_data.map((img, i) => (
@@ -211,7 +215,7 @@ const UserMessage: React.FC<{
               ))}
               {/* eslint-enable react/no-array-index-key */}
             </div>
-          ) : null}
+          )}
           {(() => {
             if (viewMode === 'raw') {
               return (
@@ -228,7 +232,7 @@ const UserMessage: React.FC<{
             }
             return (
               <p
-                className="text-sm whitespace-pre-wrap leading-relaxed"
+                className="text-sm whitespace-pre-wrap leading-relaxed [overflow-wrap:anywhere]"
                 data-testid="message-content"
               >
                 {cleanContent}
@@ -236,11 +240,11 @@ const UserMessage: React.FC<{
             );
           })()}
         </div>
-        {formatTimestamp(message.timestamp) ? (
+        {!!formatTimestamp(message.timestamp) && (
           <div className="text-[10px] text-white/50 mt-0.5 text-right pr-1">
             {formatTimestamp(message.timestamp)}
           </div>
-        ) : null}
+        )}
       </div>
     </div>
   );
@@ -275,15 +279,17 @@ const AssistantMessage: React.FC<{
 }) => {
   const { status, activeProvider } = useModelContext();
   const modelReady = status.loaded || activeProvider !== 'local';
+  const ariaLive = isStreaming ? ('polite' as const) : undefined;
+  const thinkingStreamingProp = isThinkingStreaming ? isStreaming : undefined;
   return (
     <div
       className="w-full flex justify-start"
       data-testid={`message-${message.role}`}
       data-message-id={message.id}
-      aria-live={isStreaming ? 'polite' : undefined}
+      aria-live={ariaLive}
     >
       <div className="w-full space-y-3 overflow-hidden">
-        {viewMode === 'raw' ? (
+        {viewMode === 'raw' && (
           /* Raw mode: show unprocessed content with no parsing */
           <pre
             className="text-xs whitespace-pre-wrap leading-relaxed font-mono"
@@ -291,26 +297,26 @@ const AssistantMessage: React.FC<{
           >
             {message.content}
           </pre>
-        ) : (
+        )}
+        {viewMode !== 'raw' && (
           <>
             {/* Thinking process — only when not already placed chronologically in segments */}
-            {thinkingContent != null && !segments.some((s) => s.type === 'thinking') ? (
-              <ThinkingBlock
-                content={thinkingContent}
-                isStreaming={isThinkingStreaming ? isStreaming : undefined}
-              />
-            ) : null}
+            {thinkingContent != null && !segments.some((s) => s.type === 'thinking') && (
+              <ThinkingBlock content={thinkingContent} isStreaming={thinkingStreamingProp} />
+            )}
 
             {/* Interleaved text, command blocks, tool calls, and thinking in chronological order */}
             {/* eslint-disable react/no-array-index-key -- segments are positional with no stable ID */}
             {segments.map((segment, index) => {
               if (segment.type === 'thinking') {
                 const isLastSeg = index === segments.length - 1;
+                const segThinkStreamProp =
+                  isLastSeg && isThinkingStreaming ? isStreaming : undefined;
                 return (
                   <ThinkingBlock
                     key={`seg-think-${index}`}
                     content={segment.content}
-                    isStreaming={isLastSeg && isThinkingStreaming ? isStreaming : undefined}
+                    isStreaming={segThinkStreamProp}
                   />
                 );
               }
@@ -324,6 +330,9 @@ const AssistantMessage: React.FC<{
                 );
               }
               if (segment.type === 'tool_call_pending') {
+                // Only show while actively streaming — persisted messages with incomplete
+                // tool calls (e.g. worker died mid-generation) should not show a spinner.
+                if (!isStreaming) return null;
                 return (
                   <div
                     key={`seg-tcp-${index}`}
@@ -338,29 +347,27 @@ const AssistantMessage: React.FC<{
               // Text segment — no bubble, just text on background
               const text = segment.content;
               if (!text.trim()) return null;
-              return (
-                <div key={`seg-txt-${index}`}>
-                  {viewMode === 'markdown' ? (
-                    <MarkdownContent content={text} testId="message-content" />
-                  ) : (
-                    <p
-                      className="text-sm whitespace-pre-wrap leading-relaxed"
-                      data-testid="message-content"
-                    >
-                      {text}
-                    </p>
-                  )}
-                </div>
-              );
+              const textContent =
+                viewMode === 'markdown' ? (
+                  <MarkdownContent content={text} testId="message-content" />
+                ) : (
+                  <p
+                    className="text-sm whitespace-pre-wrap leading-relaxed"
+                    data-testid="message-content"
+                  >
+                    {text}
+                  </p>
+                );
+              return <div key={`seg-txt-${index}`}>{textContent}</div>;
             })}
             {/* eslint-enable react/no-array-index-key */}
-            {isStreaming ? <LoadingIndicator /> : null}
+            {!!isStreaming && <LoadingIndicator />}
           </>
         )}
-        {!isStreaming && formatTimestamp(message.timestamp) ? (
+        {!isStreaming && !!formatTimestamp(message.timestamp) && (
           <div className="flex items-center gap-2 mt-0.5 pl-1">
             <span className="text-[10px] text-white/50">{formatTimestamp(message.timestamp)}</span>
-            {isLastAssistant && !isGenerating && modelReady && onContinue ? (
+            {!!isLastAssistant && !isGenerating && !!modelReady && !!onContinue && (
               <button
                 onClick={onContinue}
                 className="text-white/30 hover:text-white/70 transition-colors p-0.5"
@@ -368,8 +375,8 @@ const AssistantMessage: React.FC<{
               >
                 <Play className="h-3 w-3" />
               </button>
-            ) : null}
-            {isLastAssistant && !isGenerating && modelReady && onRegenerate ? (
+            )}
+            {!!isLastAssistant && !isGenerating && !!modelReady && !!onRegenerate && (
               <button
                 onClick={onRegenerate}
                 className="text-white/30 hover:text-white/70 transition-colors p-0.5"
@@ -377,9 +384,9 @@ const AssistantMessage: React.FC<{
               >
                 <RefreshCw className="h-3 w-3" />
               </button>
-            ) : null}
+            )}
           </div>
-        ) : null}
+        )}
       </div>
     </div>
   );
@@ -432,6 +439,10 @@ export const MessageBubble: React.FC<MessageBubbleProps> = React.memo(
     }
 
     // Assistant messages
+    const onContinueProp =
+      onContinue && messageIndex != null ? () => onContinue(messageIndex) : undefined;
+    const onRegenerateProp =
+      onRegenerate && messageIndex != null ? () => onRegenerate(messageIndex) : undefined;
     return (
       <AssistantMessage
         message={message}
@@ -442,10 +453,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = React.memo(
         isStreaming={isStreaming}
         isGenerating={isGenerating}
         isLastAssistant={isLastMessage}
-        onContinue={onContinue && messageIndex != null ? () => onContinue(messageIndex) : undefined}
-        onRegenerate={
-          onRegenerate && messageIndex != null ? () => onRegenerate(messageIndex) : undefined
-        }
+        onContinue={onContinueProp}
+        onRegenerate={onRegenerateProp}
       />
     );
   },

@@ -23,6 +23,7 @@ const AUTO_CONTINUE_REASONS = new Set(['length', 'yn_continue', 'loop_recovery',
 export function useChat() {
   const { connected } = useConnection();
   const connectedRef = useRef(connected);
+  // eslint-disable-next-line react-hooks/refs
   connectedRef.current = connected;
 
   // Provider state (synced from ModelContext via App.tsx)
@@ -103,7 +104,9 @@ export function useChat() {
   useEffect(() => {
     if (!isLoading && queuedMessage) {
       const msg = queuedMessage;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setQueuedMessage(null);
+      // eslint-disable-next-line react-hooks/immutability
       sendMessage(msg.content, msg.images, true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -119,6 +122,18 @@ export function useChat() {
       }
     }
   }, [messages, isStreamingRef]);
+
+  // When the server reconnects after a disconnect, clear any stale streaming state.
+  // The server restarted — there's no active generation to resume — so we abort locally
+  // to unblock the UI immediately rather than waiting for a timeout.
+  const prevConnectedRef = useRef(connected);
+  useEffect(() => {
+    const wasDisconnected = !prevConnectedRef.current;
+    prevConnectedRef.current = connected;
+    if (wasDisconnected && connected && isStreamingRef.current) {
+      abortGeneration();
+    }
+  }, [connected, abortGeneration, isStreamingRef]);
 
   // ─── Load conversation ─────────────────────────────────────────────────
 
@@ -218,7 +233,9 @@ export function useChat() {
 
   // ─── Send message ──────────────────────────────────────────────────────
 
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const sendMessage = useCallback(
+    // eslint-disable-next-line react-hooks/preserve-manual-memoization
     async (content: string, imageData?: string[], bypassLoadingCheck = false) => {
       if (!connectedRef.current) {
         toast.error('Server is unreachable — please wait for reconnection', {

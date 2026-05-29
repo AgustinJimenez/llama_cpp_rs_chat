@@ -1,15 +1,17 @@
-import { Menu } from 'lucide-react';
+import { Bot, Menu } from 'lucide-react';
 import React, { useCallback, useEffect, Suspense } from 'react';
 import toast, { Toaster, ToastBar } from 'react-hot-toast';
 
 import { WelcomeMessage, ErrorBoundary } from './components/atoms';
 import { ConnectionBanner, MessageInput } from './components/molecules';
 import { ChatHeader, Sidebar } from './components/organisms';
+import { AgentSelector } from './components/organisms/AgentSelector';
 import { BrowserView } from './components/organisms/BrowserView';
 import { ConversationLog } from './components/organisms/ConversationLog';
 import { DownloadFloat } from './components/organisms/DownloadFloat';
 import { ProviderSelector } from './components/organisms/ProviderSelector';
 import { MessagesArea } from './components/templates';
+import { useAgentContext } from './contexts/AgentContext';
 import { useChatContext } from './contexts/ChatContext';
 import { useModelContext } from './contexts/ModelContext';
 import { useUIContext } from './hooks/useUIContext';
@@ -195,7 +197,7 @@ const App = () => {
               <>
                 {icon}
                 {message}
-                {t.type === 'error' ? (
+                {t.type === 'error' && (
                   <button
                     onClick={() => toast.dismiss(t.id)}
                     className="ml-2 text-white/70 hover:text-white text-lg leading-none"
@@ -203,7 +205,7 @@ const App = () => {
                   >
                     ✕
                   </button>
-                ) : null}
+                )}
               </>
             )}
           </ToastBar>
@@ -214,6 +216,7 @@ const App = () => {
 };
 
 /** Main content area: header + messages/welcome + input */
+// eslint-disable-next-line max-lines-per-function
 const MainContent = ({
   handleModelUnload,
   handleForceUnload,
@@ -237,25 +240,59 @@ const MainContent = ({
     streamStatus,
     providerRef,
     providerParamsRef,
+    currentConversationId,
   } = useChatContext();
   const {
     isProviderSelectorOpen,
     closeProviderSelector,
+    isAgentSelectorOpen,
+    closeAgentSelector,
+    openAgentSelector,
     openModelConfig,
     toggleMobileSidebar,
     isBrowserViewOpen,
     sidebarWidth,
   } = useUIContext();
 
-  // Poll for CAPTCHA status + agent browser view — auto-opens browser view when detected
+  const {
+    loadConversationAgent,
+    conversationAgent,
+    stagedAgent,
+    setStagedAgent,
+    setConversationAgent,
+  } = useAgentContext();
 
-  // Sync provider ref with model context
-  if (providerRef) {
-    providerRef.current = { provider: activeProvider, model: activeProviderModel };
-  }
-  if (providerParamsRef) {
-    providerParamsRef.current = activeProviderParams;
-  }
+  // Load agent when conversation changes; auto-assign staged agent only if conversation has none
+  useEffect(() => {
+    if (!currentConversationId) return;
+    loadConversationAgent(currentConversationId)
+      .then((existing) => {
+        if (!existing && stagedAgent) {
+          return setConversationAgent(currentConversationId, stagedAgent.id).then(() =>
+            setStagedAgent(null),
+          );
+        }
+      })
+      .catch(() => {});
+  }, [
+    currentConversationId,
+    loadConversationAgent,
+    stagedAgent,
+    setConversationAgent,
+    setStagedAgent,
+  ]);
+
+  // Sync provider refs with model context (in effect to avoid updating refs during render)
+  useEffect(() => {
+    if (providerRef) {
+      providerRef.current = { provider: activeProvider, model: activeProviderModel };
+    }
+    if (providerParamsRef) {
+      providerParamsRef.current = activeProviderParams;
+    }
+  }, [providerRef, providerParamsRef, activeProvider, activeProviderModel, activeProviderParams]);
+
+  const browserViewClass = isBrowserViewOpen ? 'flex flex-col flex-1 overflow-hidden' : 'hidden';
 
   return (
     <div
@@ -264,6 +301,12 @@ const MainContent = ({
     >
       <div className="flex flex-col h-full">
         <ConnectionBanner />
+        {/* Agent selector modal */}
+        <AgentSelector
+          isOpen={isAgentSelectorOpen}
+          onClose={closeAgentSelector}
+          conversationId={currentConversationId ?? undefined}
+        />
         {/* Global provider selector — accessible from welcome screen and header */}
         <ProviderSelector
           isOpen={isProviderSelectorOpen}
@@ -279,9 +322,13 @@ const MainContent = ({
           }}
           currentProvider={activeProvider}
         />
-        <ChatHeader onModelUnload={handleModelUnload} onForceUnload={handleForceUnload} />
+        <ChatHeader
+          onModelUnload={handleModelUnload}
+          onForceUnload={handleForceUnload}
+          showAgentSelector
+        />
         {/* Mobile hamburger when header is not visible on small screens */}
-        {!messages.length && !modelStatus.loaded && activeProvider === 'local' ? (
+        {!messages.length && !modelStatus.loaded && activeProvider === 'local' && (
           <button
             onClick={toggleMobileSidebar}
             className="absolute top-3 left-3 z-30 p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors md:hidden"
@@ -290,31 +337,49 @@ const MainContent = ({
           >
             <Menu className="h-5 w-5" />
           </button>
-        ) : null}
+        )}
 
         {/* BrowserView stays mounted (hidden via CSS) so the Tauri native panel isn't destroyed on toggle */}
-        <div className={isBrowserViewOpen ? 'flex flex-col flex-1 overflow-hidden' : 'hidden'}>
+        <div className={browserViewClass}>
           <BrowserView />
         </div>
         {!isBrowserViewOpen && messages.length === 0 && (
           <WelcomeMessage>
-            {modelStatus.loaded || activeProvider !== 'local' ? (
-              <div className="w-full max-w-2xl px-3 md:px-6">
+            {!!(modelStatus.loaded || activeProvider !== 'local') && (
+              <div className="w-full max-w-2xl px-3 md:px-6 space-y-1">
+                {!!conversationAgent && (
+                  <button
+                    onClick={openAgentSelector}
+                    className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors border border-border/50"
+                  >
+                    <Bot className="h-3 w-3" />
+                    {conversationAgent.name}
+                  </button>
+                )}
                 <MessageInput />
               </div>
-            ) : null}
+            )}
           </WelcomeMessage>
         )}
         {!isBrowserViewOpen && messages.length > 0 && (
           <>
             <MessagesArea />
             <ConversationLog />
-            {modelStatus.loaded || activeProvider !== 'local' ? (
+            {!!(modelStatus.loaded || activeProvider !== 'local') && (
               <div
                 className="px-3 md:px-6 pb-4 pt-2 animate-in slide-in-from-bottom-4 duration-300"
                 data-testid="input-container"
               >
-                <div className="max-w-3xl mx-auto">
+                <div className="max-w-3xl mx-auto space-y-1">
+                  {!!conversationAgent && (
+                    <button
+                      onClick={openAgentSelector}
+                      className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors border border-border/50"
+                    >
+                      <Bot className="h-3 w-3" />
+                      {conversationAgent.name}
+                    </button>
+                  )}
                   <MessageInput
                     timings={lastTimings}
                     tokensUsed={tokensUsed}
@@ -323,7 +388,7 @@ const MainContent = ({
                   />
                 </div>
               </div>
-            ) : null}
+            )}
           </>
         )}
       </div>
@@ -350,21 +415,21 @@ const Overlays = ({
 
   return (
     <>
-      {isRightSidebarOpen ? (
+      {!!isRightSidebarOpen && (
         <ErrorBoundary>
           <Suspense fallback={null}>
             <RightSidebar isOpen={isRightSidebarOpen} onClose={closeRightSidebar} />
           </Suspense>
         </ErrorBoundary>
-      ) : null}
-      {isAppSettingsOpen ? (
+      )}
+      {!!isAppSettingsOpen && (
         <ErrorBoundary>
           <Suspense fallback={null}>
             <AppSettingsModal isOpen={isAppSettingsOpen} onClose={closeAppSettings} />
           </Suspense>
         </ErrorBoundary>
-      ) : null}
-      {isModelConfigOpen ? (
+      )}
+      {!!isModelConfigOpen && (
         <ErrorBoundary>
           <Suspense fallback={null}>
             <ModelConfigModal
@@ -375,7 +440,7 @@ const Overlays = ({
             />
           </Suspense>
         </ErrorBoundary>
-      ) : null}
+      )}
       <DownloadFloat />
     </>
   );

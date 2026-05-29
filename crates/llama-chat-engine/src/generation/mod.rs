@@ -410,6 +410,16 @@ pub async fn generate_llama_response(
         finish_reason: "stop".to_string(),
         tool_response_tokens: 0,
         loop_recoveries: 0,
+        eos_continue_count: 0,
+    };
+
+    // Snapshot the first ~300 chars of user message for the EOS continuation check.
+    let user_message_snapshot: String = if user_message.len() > 300 {
+        let mut end = 300;
+        while end < user_message.len() && !user_message.is_char_boundary(end) { end += 1; }
+        format!("{}...", &user_message[..end])
+    } else {
+        user_message.to_string()
     };
 
     let cfg = TokenGenConfig {
@@ -428,6 +438,7 @@ pub async fn generate_llama_response(
         chat_template_string: chat_template_string.as_deref(),
         proactive_compaction: config.proactive_compaction,
         safe_tool_injection: config.safe_tool_injection,
+        user_message: &user_message_snapshot,
     };
 
     #[cfg(feature = "vision")]
@@ -515,7 +526,7 @@ pub async fn generate_llama_response(
         );
     }
 
-    let mut output = build_generation_output(
+    let output = build_generation_output(
         &gen, token_pos, context_size,
         prompt_tok_per_sec, gen_tok_per_sec,
         gen_eval_ms, n_eval, prompt_eval_ms_internal, n_p_eval,
@@ -543,43 +554,9 @@ pub async fn generate_llama_response(
     );
 
     log_event(&conversation_id, "task_check", &format!(
-        "finish_reason={}, tool_response_tokens={}, commands={}",
-        gen.finish_reason, gen.tool_response_tokens, gen.recent_commands.len()
+        "finish_reason={}, tool_response_tokens={}, commands={}, eos_continues={}",
+        gen.finish_reason, gen.tool_response_tokens, gen.recent_commands.len(), gen.eos_continue_count
     ));
-
-    // If the model stopped naturally (EOS) but was in an agentic task (tool calls made),
-    // do a quick Y/N check to see if the task is actually complete.
-    // This catches cases where the model emits EOS mid-task (like the Spring Boot example
-    // where it stopped with an incomplete bullet list after 20 tool calls).
-    if gen.finish_reason == "stop" && gen.tool_response_tokens > 0 {
-        let user_prefix = if user_message.len() > 300 {
-            let mut end = 300;
-            while end < user_message.len() && !user_message.is_char_boundary(end) { end += 1; }
-            format!("{}...", &user_message[..end])
-        } else {
-            user_message.to_string()
-        };
-        let response_tail = if gen.response.len() > 800 {
-            let mut start = gen.response.len() - 800;
-            while start > 0 && !gen.response.is_char_boundary(start) { start += 1; }
-            &gen.response[start..]
-        } else {
-            &gen.response
-        };
-        let check_text = format!("USER REQUEST: {user_prefix}\n\nASSISTANT RESPONSE TAIL:\n{response_tail}");
-        let is_complete = super::sub_checks::quick_task_completion_check(
-            model, &state.backend, state.chat_template_string.as_deref(),
-            &conversation_id, &check_text,
-        );
-        if !is_complete {
-            eprintln!("[TASK_CHECK] Y/N check said NO → setting finish_reason=yn_continue for auto-continue");
-            log_event(&conversation_id, "yn_check", "NO → auto-continue");
-            gen.finish_reason = "yn_continue".to_string();
-        } else {
-            log_event(&conversation_id, "yn_check", "YES → task complete");
-        }
-        output.finish_reason = gen.finish_reason.clone();
-    }
 
     llama_chat_db::event_log::clear_global_status();
 

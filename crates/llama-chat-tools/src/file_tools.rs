@@ -290,22 +290,17 @@ pub fn tool_read_file(args: &Value) -> String {
     let offset = args.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
     let limit = args.get("limit").and_then(|v| v.as_u64()).map(|v| v as usize);
 
-    // Duplicate read detection: if full re-read (no offset/limit) and file unchanged, return stub
-    if offset == 0 && limit.is_none() {
+    // Duplicate read detection: track whether this is a re-read of unchanged content
+    // (used only to annotate the header — we always return the full content so context
+    // compression cannot leave the model without the file it asked for)
+    let is_duplicate_read = if offset == 0 && limit.is_none() {
         let current_mtime = get_file_mtime(path);
         if let Ok(cache) = read_file_cache().lock() {
-            if let Some(&(cached_mtime, cached_lines)) = cache.get(path) {
-                if current_mtime == Some(cached_mtime) {
-                    return format!(
-                        "File unchanged since last read ({} lines, ~{} tokens). \
-                         The content from the earlier read is still current — use offset/limit \
-                         to read specific sections, or search_files to find specific content.",
-                        cached_lines, cached_lines * 10 / 4
-                    );
-                }
-            }
-        }
-    }
+            if let Some(&(cached_mtime, _)) = cache.get(path) {
+                current_mtime == Some(cached_mtime)
+            } else { false }
+        } else { false }
+    } else { false };
 
     // Use LRU cache for file content (handles binary detection internally)
     let content = match read_file_cached(path) {
@@ -356,9 +351,10 @@ pub fn tool_read_file(args: &Value) -> String {
     } else {
         String::new()
     };
+    let unchanged_note = if is_duplicate_read { " | unchanged since last read" } else { "" };
     let header = format!(
-        "[File: {} | {} lines{} | ~{} tokens]",
-        path, total_lines, range_info, estimated_tokens
+        "[File: {} | {} lines{} | ~{} tokens{}]",
+        path, total_lines, range_info, estimated_tokens, unchanged_note
     );
 
     // Format with line numbers (cat -n style)

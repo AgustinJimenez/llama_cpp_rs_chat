@@ -60,7 +60,9 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
 
   useEffect(() => {
     if (isOpen) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       fetchFiles(currentPath);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedFile(null);
     }
   }, [isOpen, currentPath]);
@@ -102,9 +104,8 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
             {title}
           </DialogTitle>
           <DialogDescription>
-            {mode === 'directory'
-              ? 'Navigate to a folder and click "Select This Folder"'
-              : `Browse and select a model file (${filter} files)`}
+            {mode === 'directory' && 'Navigate to a folder and click "Select This Folder"'}
+            {mode !== 'directory' && `Browse and select a model file (${filter} files)`}
           </DialogDescription>
         </DialogHeader>
 
@@ -116,7 +117,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
 
           {/* Navigation */}
           <div className="flex gap-2">
-            {parentPath ? (
+            {!!parentPath && (
               <Button
                 variant="outline"
                 size="sm"
@@ -126,7 +127,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                 <ArrowLeft className="h-4 w-4" />
                 Back
               </Button>
-            ) : null}
+            )}
           </div>
 
           {/* File List */}
@@ -171,24 +172,23 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                           if (e.key === 'Enter' || e.key === ' ') handleFileClick(file);
                         }}
                       >
-                        {file.is_directory ? (
-                          <Folder className="h-4 w-4 text-blue-500" />
-                        ) : (
+                        {!!file.is_directory && <Folder className="h-4 w-4 text-blue-500" />}
+                        {!file.is_directory && (
                           <File
                             className={`h-4 w-4 ${isSelectable ? 'text-green-500' : 'text-gray-400'}`}
                           />
                         )}
                         <div className="flex-1 min-w-0">
                           <div className="text-sm font-medium truncate">{file.name}</div>
-                          {!file.is_directory && file.size ? (
+                          {!file.is_directory && !!file.size && (
                             <div className="text-xs text-muted-foreground">
                               {formatFileSize(file.size)}
                             </div>
-                          ) : null}
+                          )}
                         </div>
-                        {isSelected ? (
+                        {!!isSelected && (
                           <div className="text-xs text-primary font-medium">Selected</div>
-                        ) : null}
+                        )}
                       </div>
                     );
                   })}
@@ -198,19 +198,19 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
           </div>
 
           {/* Selected File Display */}
-          {selectedFile ? (
+          {!!selectedFile && (
             <div className="p-3 bg-primary/5 border border-primary/20 rounded-md">
               <div className="text-sm font-medium">Selected file:</div>
               <div className="text-sm font-mono text-muted-foreground mt-1">{selectedFile}</div>
             </div>
-          ) : null}
+          )}
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          {mode === 'directory' ? (
+          {mode === 'directory' && (
             <Button
               onClick={() => {
                 onSelectFile(currentPath);
@@ -219,7 +219,8 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
             >
               Select This Folder
             </Button>
-          ) : (
+          )}
+          {mode !== 'directory' && (
             <Button onClick={handleSelectFile} disabled={!selectedFile}>
               Select File
             </Button>

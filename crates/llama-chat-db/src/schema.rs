@@ -30,6 +30,7 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
         ("message_queue_conversation_index", CREATE_MESSAGE_QUEUE_CONVERSATION_INDEX),
         ("compaction_summaries", CREATE_COMPACTION_SUMMARIES_TABLE),
         ("compaction_summaries_index", CREATE_COMPACTION_SUMMARIES_INDEX),
+        ("agents", CREATE_AGENTS_TABLE),
     ];
 
     for (name, sql) in statements.iter() {
@@ -162,6 +163,17 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
     );
     let _ = conn.execute(
         "ALTER TABLE conversations ADD COLUMN worker_id TEXT",
+        [],
+    );
+
+    // Agent-based config: conversations reference an agent by ID.
+    // overrides = sparse JSON of per-conversation param deltas from the agent baseline.
+    let _ = conn.execute(
+        "ALTER TABLE conversations ADD COLUMN agent_id TEXT",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE conversations ADD COLUMN overrides TEXT",
         [],
     );
 

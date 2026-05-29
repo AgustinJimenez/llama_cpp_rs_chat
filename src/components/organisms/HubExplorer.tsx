@@ -168,20 +168,20 @@ const FileRow = ({
 
   return (
     <div className="flex items-center gap-2 py-1.5 px-1 rounded hover:bg-accent/30 transition-colors relative overflow-hidden">
-      {isDownloading ? (
+      {!!isDownloading && (
         <div
           className="absolute inset-y-0 left-0 bg-emerald-500/20 rounded transition-all duration-500 ease-out"
           style={{ width: `${pct}%` }}
         />
-      ) : null}
-      {isPaused && pendingRecord.file_size > 0 ? (
+      )}
+      {!!isPaused && pendingRecord.file_size > 0 && (
         <div
           className="absolute inset-0 bg-yellow-500/10 rounded"
           style={{
             width: `${Math.round((pendingRecord.bytes_downloaded / pendingRecord.file_size) * 100)}%`,
           }}
         />
-      ) : null}
+      )}
       <div className="flex-1 min-w-0 relative z-10">
         <a
           href={hfUrl}
@@ -193,34 +193,34 @@ const FileRow = ({
           {shortName}
         </a>
         <div className="flex items-center gap-2 mt-0.5">
-          {quant ? (
+          {!!quant && (
             <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-primary/15 text-primary">
               {quant}
             </span>
-          ) : null}
+          )}
           {type !== 'model' && (
             <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
               {type}
             </span>
           )}
           <span className="text-xs text-muted-foreground">{formatSize(file.size)}</span>
-          {isDownloading ? (
+          {!!isDownloading && (
             <span className="text-xs text-primary font-medium">
               {pct}% &middot; {formatSize((progress.speed_kbps ?? 0) * 1024)}/s
             </span>
-          ) : null}
-          {isPaused ? (
+          )}
+          {!!isPaused && (
             <span className="text-xs text-yellow-600 font-medium">
               Paused &middot; {formatSize(pendingRecord.bytes_downloaded)} /{' '}
               {formatSize(pendingRecord.file_size)}
             </span>
-          ) : null}
-          {isDone ? <span className="text-xs text-green-500 font-medium">Downloaded</span> : null}
-          {isError ? (
+          )}
+          {!!isDone && <span className="text-xs text-green-500 font-medium">Downloaded</span>}
+          {!!isError && (
             <span className="text-xs text-destructive font-medium truncate max-w-[200px]">
               {progress.message}
             </span>
-          ) : null}
+          )}
         </div>
       </div>
       <button
@@ -234,11 +234,8 @@ const FileRow = ({
         title={downloadTitle}
         aria-label={downloadAriaLabel}
       >
-        {isDownloading ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          <ArrowDownToLine className="h-4 w-4" />
-        )}
+        {!!isDownloading && <Loader2 className="h-4 w-4 animate-spin" />}
+        {!isDownloading && <ArrowDownToLine className="h-4 w-4" />}
       </button>
     </div>
   );
@@ -311,22 +308,18 @@ const ModelCard = ({
           >
             <ExternalLink className="h-4 w-4" />
           </a>
-          {ggufCount > 0 &&
-            (expanded ? (
-              <ChevronDown className="h-4 w-4 text-muted-foreground" />
-            ) : (
-              <ChevronRight className="h-4 w-4 text-muted-foreground" />
-            ))}
+          {ggufCount > 0 && !!expanded && <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+          {ggufCount > 0 && !expanded && <ChevronRight className="h-4 w-4 text-muted-foreground" />}
         </div>
       </button>
 
-      {expanded ? (
+      {!!expanded && (
         <div className="mt-2 border-t pt-2 space-y-0.5">
-          {loadingFiles ? (
+          {!!loadingFiles && (
             <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
               <Loader2 className="h-3 w-3 animate-spin" /> Loading file details...
             </div>
-          ) : null}
+          )}
           {!loadingFiles &&
             [...files]
               .sort((a, b) => {
@@ -361,7 +354,7 @@ const ModelCard = ({
                 );
               })}
         </div>
-      ) : null}
+      )}
     </div>
   );
 };
@@ -400,24 +393,24 @@ const DownloadRow = ({
   return (
     <div className="flex items-center gap-2 py-2 px-2 rounded hover:bg-accent/30 transition-colors relative overflow-hidden">
       {/* Progress bar background */}
-      {isDownloading ? (
+      {!!isDownloading && (
         <div
           className="absolute inset-y-0 left-0 bg-emerald-500/20 rounded transition-all duration-500 ease-out"
           style={{ width: `${pct}%` }}
         />
-      ) : null}
-      {!isCompleted && !isDownloading && record.file_size > 0 ? (
+      )}
+      {!isCompleted && !isDownloading && record.file_size > 0 && (
         <div className="absolute inset-0 bg-yellow-500/10 rounded" style={{ width: `${pct}%` }} />
-      ) : null}
+      )}
 
       <div className="flex-1 min-w-0 relative z-10">
         <div className="text-sm font-medium truncate">{shortName}</div>
         <div className="flex items-center gap-2 mt-0.5">
-          {quant ? (
+          {!!quant && (
             <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-primary/15 text-primary">
               {quant}
             </span>
-          ) : null}
+          )}
           <span className="text-xs text-muted-foreground truncate">{record.model_id}</span>
           <span className="text-xs text-muted-foreground">{formatSize(record.file_size)}</span>
           {(() => {
@@ -443,12 +436,12 @@ const DownloadRow = ({
             );
           })()}
         </div>
-        {isCompleted ? (
+        {!!isCompleted && (
           <div className="flex items-center gap-1 mt-0.5">
             <FolderOpen className="h-3 w-3 text-muted-foreground shrink-0" />
             <span className="text-[11px] text-muted-foreground truncate">{record.dest_path}</span>
           </div>
-        ) : null}
+        )}
       </div>
 
       <div className="relative z-10 shrink-0 flex items-center gap-1">
@@ -538,7 +531,7 @@ const DownloadsTab = ({
 
   return (
     <div className="space-y-3">
-      {pendingList.length > 0 ? (
+      {pendingList.length > 0 && (
         <div>
           <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5 px-1">
             Pending ({pendingList.length})
@@ -560,9 +553,9 @@ const DownloadsTab = ({
             })}
           </div>
         </div>
-      ) : null}
+      )}
 
-      {completedList.length > 0 ? (
+      {completedList.length > 0 && (
         <div>
           <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5 px-1">
             Completed ({completedList.length})
@@ -584,14 +577,14 @@ const DownloadsTab = ({
             })}
           </div>
         </div>
-      ) : null}
+      )}
     </div>
   );
 };
 
 // ─── Main HubExplorer ───────────────────────────────────────────────
 
-// eslint-disable-next-line max-lines-per-function
+// eslint-disable-next-line max-lines-per-function, complexity
 export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => {
   const [activeTab, setActiveTab] = useState<TabId>('explore');
   const [query, setQuery] = useState('');
@@ -731,7 +724,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
             aria-selected={activeTab === 'downloads'}
           >
             Downloads
-            {totalDownloads > 0 ? (
+            {totalDownloads > 0 && (
               <span
                 className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full ${
                   pendingCount > 0
@@ -741,12 +734,12 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
               >
                 {totalDownloads}
               </span>
-            ) : null}
+            )}
           </button>
         </div>
 
         {/* Explore tab */}
-        {activeTab === 'explore' ? (
+        {activeTab === 'explore' && (
           <>
             {/* Models directory picker */}
             <button
@@ -757,26 +750,25 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
                 isPicking ? 'opacity-60' : 'cursor-pointer hover:bg-accent/50 transition-colors'
               }`}
             >
-              {isPicking ? (
-                <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-              ) : (
-                <FolderOpen className="h-4 w-4 text-foreground shrink-0" />
-              )}
-              {modelsDirectory ? (
+              {!!isPicking && <Loader2 className="h-4 w-4 animate-spin shrink-0" />}
+              {!isPicking && <FolderOpen className="h-4 w-4 text-foreground shrink-0" />}
+              {!!modelsDirectory && (
                 <span className="font-mono text-xs truncate">{modelsDirectory}</span>
-              ) : (
+              )}
+              {!modelsDirectory && (
                 <span className="text-foreground/60">
                   Click to set models download directory...
                 </span>
               )}
             </button>
 
-            {!modelsDirectory ? (
+            {!modelsDirectory && (
               <div className="text-center py-12 text-muted-foreground text-sm">
                 <FolderOpen className="h-8 w-8 mx-auto mb-3 opacity-40" />
                 <p>Set a download directory to browse and download models.</p>
               </div>
-            ) : (
+            )}
+            {!!modelsDirectory && (
               <>
                 <div className="flex items-center gap-2">
                   <div className="relative flex-1">
@@ -811,26 +803,23 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
                   className="relative flex-1 min-h-0 overflow-y-auto space-y-2"
                   style={{ maxHeight: '400px' }}
                 >
-                  {isLoading ? (
+                  {!!isLoading && (
                     <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60 rounded-md">
                       <Loader2 className="h-5 w-5 animate-spin mr-2 text-muted-foreground" />
                       <span className="text-muted-foreground text-sm">Searching...</span>
                     </div>
-                  ) : null}
+                  )}
 
-                  {error ? (
+                  {!!error && (
                     <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-md text-sm text-destructive">
                       {error}
                     </div>
-                  ) : null}
+                  )}
 
                   {!error && models.length === 0 && !isLoading && (
                     <div className="text-center py-8 text-muted-foreground text-sm">
-                      {query ? (
-                        <>No GGUF models found for &ldquo;{query}&rdquo;</>
-                      ) : (
-                        'No models found'
-                      )}
+                      {!!query && <>No GGUF models found for &ldquo;{query}&rdquo;</>}
+                      {!query && 'No models found'}
                     </div>
                   )}
 
@@ -848,10 +837,10 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
               </>
             )}
           </>
-        ) : null}
+        )}
 
         {/* Downloads tab */}
-        {activeTab === 'downloads' ? (
+        {activeTab === 'downloads' && (
           <div className="relative flex-1 min-h-0 overflow-y-auto" style={{ maxHeight: '400px' }}>
             <DownloadsTab
               completedDownloads={completedDownloads}
@@ -863,7 +852,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
               onCancel={cancelDownload}
             />
           </div>
-        ) : null}
+        )}
 
         <div className="flex justify-end pt-2 border-t">
           <Button variant="outline" onClick={onClose}>

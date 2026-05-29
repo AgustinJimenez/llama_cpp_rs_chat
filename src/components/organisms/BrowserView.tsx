@@ -30,7 +30,7 @@ async function tauriInvoke<T = unknown>(cmd: string, args?: Record<string, unkno
  * be embedded (Google, Twitter, Facebook, banks). For those we offer an
  * "Open in new tab" fallback link.
  */
-/* eslint-disable max-lines-per-function, no-nested-ternary */
+/* eslint-disable max-lines-per-function */
 export const BrowserView = React.memo(() => {
   const { browserViewUrl, openBrowserView, isBrowserViewOpen } = useUIContext();
   const [urlInput, setUrlInput] = useState(browserViewUrl ?? '');
@@ -321,17 +321,68 @@ export const BrowserView = React.memo(() => {
     }
   }, [findQuery]);
 
+  let contentArea: React.ReactNode;
+  if (!browserViewUrl) {
+    contentArea = (
+      <div className="h-full flex items-center justify-center text-foreground">
+        <div className="text-center">
+          <Globe className="h-10 w-10 mx-auto mb-3 opacity-70" />
+          <p className="text-sm">Enter a URL above to start browsing</p>
+          <p className="text-xs mt-1 text-muted-foreground">
+            Real iframe — interact normally with the page
+          </p>
+        </div>
+      </div>
+    );
+  } else if (TAURI) {
+    // Tauri: native webview overlay positioned over this placeholder
+    contentArea = <div ref={panelRef} className="w-full h-full bg-background" />;
+  } else {
+    contentArea = (
+      <>
+        <iframe
+          key={iframeKey}
+          ref={iframeRef}
+          src={browserViewUrl}
+          onLoad={handleIframeLoad}
+          onError={handleIframeError}
+          className="w-full h-full border-none bg-white"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals"
+          title="Browser View"
+        />
+        {!!loadFailed && (
+          <div className="absolute inset-0 flex items-center justify-center bg-background/95 text-foreground p-6">
+            <div className="text-center max-w-md">
+              <p className="text-sm mb-3">
+                This site refuses to be embedded (X-Frame-Options or CSP).
+              </p>
+              <a
+                href={browserViewUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+              >
+                <ExternalLink className="h-4 w-4" />
+                Open in new tab
+              </a>
+            </div>
+          </div>
+        )}
+      </>
+    );
+  }
+
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
       {/* Loading bar */}
-      {isPageLoading ? (
+      {!!isPageLoading && (
         <div className="h-0.5 bg-primary/30 overflow-hidden">
           <div
             className="h-full bg-primary animate-pulse"
             style={{ width: '60%', animation: 'loading-bar 1.5s ease-in-out infinite' }}
           />
         </div>
-      ) : null}
+      )}
       {/* URL bar */}
       <div className="flex items-center gap-1 px-3 py-2 border-b border-border bg-muted/30">
         <button
@@ -377,7 +428,7 @@ export const BrowserView = React.memo(() => {
         >
           <ArrowRight className="h-3.5 w-3.5" />
         </button>
-        {browserViewUrl ? (
+        {!!browserViewUrl && (
           <>
             <button onClick={handleReload} className="btn-icon" title="Reload">
               <RefreshCw className="h-3.5 w-3.5" />
@@ -408,10 +459,10 @@ export const BrowserView = React.memo(() => {
               <Search className="h-3.5 w-3.5" />
             </button>
           </>
-        ) : null}
+        )}
       </div>
       {/* Find bar */}
-      {showFind ? (
+      {!!showFind && (
         <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-muted/50">
           <Search className="h-3.5 w-3.5 text-muted-foreground" />
           <input
@@ -433,56 +484,10 @@ export const BrowserView = React.memo(() => {
             <X className="h-3 w-3" />
           </button>
         </div>
-      ) : null}
+      )}
 
       {/* Content area */}
-      <div className="flex-1 overflow-hidden bg-background">
-        {!browserViewUrl ? (
-          <div className="h-full flex items-center justify-center text-foreground">
-            <div className="text-center">
-              <Globe className="h-10 w-10 mx-auto mb-3 opacity-70" />
-              <p className="text-sm">Enter a URL above to start browsing</p>
-              <p className="text-xs mt-1 text-muted-foreground">
-                Real iframe — interact normally with the page
-              </p>
-            </div>
-          </div>
-        ) : TAURI ? (
-          // Tauri: native webview overlay positioned over this placeholder
-          <div ref={panelRef} className="w-full h-full bg-background" />
-        ) : (
-          <>
-            <iframe
-              key={iframeKey}
-              ref={iframeRef}
-              src={browserViewUrl}
-              onLoad={handleIframeLoad}
-              onError={handleIframeError}
-              className="w-full h-full border-none bg-white"
-              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals"
-              title="Browser View"
-            />
-            {loadFailed ? (
-              <div className="absolute inset-0 flex items-center justify-center bg-background/95 text-foreground p-6">
-                <div className="text-center max-w-md">
-                  <p className="text-sm mb-3">
-                    This site refuses to be embedded (X-Frame-Options or CSP).
-                  </p>
-                  <a
-                    href={browserViewUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                    Open in new tab
-                  </a>
-                </div>
-              </div>
-            ) : null}
-          </>
-        )}
-      </div>
+      <div className="flex-1 overflow-hidden bg-background">{contentArea}</div>
     </div>
   );
 });

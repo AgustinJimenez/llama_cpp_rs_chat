@@ -61,11 +61,11 @@ export const SystemUsage = ({ expanded = false }: SystemUsageProps) => {
 
     return (
       <div className="relative">
-        {gbText ? (
+        {!!gbText && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <span className="text-lg font-bold text-foreground">{gbText}</span>
           </div>
-        ) : null}
+        )}
         <svg className="w-full h-24 relative" viewBox="0 0 100 100" preserveAspectRatio="none">
           <line
             x1="0"

@@ -89,6 +89,26 @@ export const ConversationLog = () => {
 
   if (!isEventLogOpen) return null;
 
+  const eventsContent =
+    events.length === 0 ? (
+      <p className="text-muted-foreground italic">
+        No events yet — events appear during generation (stalls, compaction, context limits, Y/N
+        checks)
+      </p>
+    ) : (
+      events.map((ev) => (
+        <div key={`${ev.timestamp}-${ev.event_type}`} className="flex items-start gap-2">
+          <span className="text-muted-foreground flex-shrink-0">{formatTime(ev.timestamp)}</span>
+          <span
+            className={`px-1.5 py-0.5 rounded text-[10px] font-medium flex-shrink-0 ${TYPE_COLORS[ev.event_type] || 'text-muted-foreground'} ${TYPE_BG[ev.event_type] || 'bg-muted'}`}
+          >
+            {ev.event_type}
+          </span>
+          <span className="text-foreground/80">{ev.message}</span>
+        </div>
+      ))
+    );
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
@@ -117,26 +137,7 @@ export const ConversationLog = () => {
           ref={scrollRef}
           className="flex-1 overflow-y-auto px-4 py-3 font-mono text-xs space-y-1 min-h-[200px]"
         >
-          {events.length === 0 ? (
-            <p className="text-muted-foreground italic">
-              No events yet — events appear during generation (stalls, compaction, context limits,
-              Y/N checks)
-            </p>
-          ) : (
-            events.map((ev) => (
-              <div key={`${ev.timestamp}-${ev.event_type}`} className="flex items-start gap-2">
-                <span className="text-muted-foreground flex-shrink-0">
-                  {formatTime(ev.timestamp)}
-                </span>
-                <span
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-medium flex-shrink-0 ${TYPE_COLORS[ev.event_type] || 'text-muted-foreground'} ${TYPE_BG[ev.event_type] || 'bg-muted'}`}
-                >
-                  {ev.event_type}
-                </span>
-                <span className="text-foreground/80">{ev.message}</span>
-              </div>
-            ))
-          )}
+          {eventsContent}
         </div>
       </div>
     </div>

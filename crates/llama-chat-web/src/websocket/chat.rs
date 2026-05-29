@@ -182,6 +182,11 @@ pub async fn handle_websocket(
                 };
                 // Heartbeat: send a keepalive every 15s during long-running silent commands.
                 let mut heartbeat_deadline = Instant::now() + Duration::from_secs(15);
+                // Worker silence watchdog: if no token arrives for 3 minutes, the worker
+                // is stuck (blocked thread, IPC overflow, crashed without dropping sender).
+                // Reset on every token; fire → synthetic error so the UI recovers.
+                const WORKER_SILENCE_TIMEOUT: Duration = Duration::from_secs(180);
+                let mut worker_silence_deadline = Instant::now() + WORKER_SILENCE_TIMEOUT;
 
                 'gen_loop: loop {
                     let skip_user_log = server_auto_continue_count > 0 || chat_request.auto_continue;
@@ -248,6 +253,7 @@ pub async fn handle_websocket(
                                             pending_gen_tokens = token_data.gen_tokens;
                                         }
                                         heartbeat_deadline = Instant::now() + Duration::from_secs(15);
+                                        worker_silence_deadline = Instant::now() + WORKER_SILENCE_TIMEOUT;
 
                                         if pending_tokens.len() >= WS_TOKEN_FLUSH_MAX_CHARS
                                             && flush_pending_tokens(
@@ -354,6 +360,22 @@ pub async fn handle_websocket(
                                     break 'gen_loop;
                                 }
                                 heartbeat_deadline = Instant::now() + Duration::from_secs(15);
+                            }
+                            // Worker silence watchdog: no token for 3 min → worker is stuck
+                            _ = tokio::time::sleep_until(worker_silence_deadline) => {
+                                eprintln!("[WS_CHAT] Worker silent for {}s — sending error to frontend", WORKER_SILENCE_TIMEOUT.as_secs());
+                                let _ = flush_pending_tokens(
+                                    &mut ws_sender, &mut pending_tokens,
+                                    &mut pending_tokens_used, &mut pending_max_tokens,
+                                    &mut pending_gen_tok_per_sec, &mut pending_gen_tokens,
+                                    &mut next_flush, &mut debug,
+                                ).await;
+                                let error_msg = serde_json::json!({
+                                    "type": "error",
+                                    "error": "Generation timed out — worker stopped responding. Please try again."
+                                });
+                                let _ = ws_sender.send(WsMessage::Text(error_msg.to_string())).await;
+                                break 'gen_loop;
                             }
                             // Handle client disconnection or close messages
                             ws_msg = ws_receiver.next() => {

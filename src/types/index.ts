@@ -117,6 +117,55 @@ export interface SamplerConfig {
   thinking_mode?: boolean | null;
 }
 
+/** A named, reusable model+config preset. Conversations reference one agent by ID. */
+export interface Agent {
+  id: string;
+  name: string;
+  /** 'local' | 'anthropic' | 'groq' | 'gemini' | etc. */
+  provider_id: string;
+  model_path?: string;
+  provider_model?: string;
+  system_prompt?: string;
+  system_prompt_type?: string;
+  sampler_type?: string;
+  temperature?: number;
+  top_p?: number;
+  top_k?: number;
+  mirostat_tau?: number;
+  mirostat_eta?: number;
+  repeat_penalty?: number;
+  min_p?: number;
+  typical_p?: number;
+  frequency_penalty?: number;
+  presence_penalty?: number;
+  dry_multiplier?: number;
+  flash_attention?: boolean;
+  cache_type_k?: string;
+  cache_type_v?: string;
+  context_size?: number;
+  seed?: number;
+  n_threads?: number;
+  rope_freq_base?: number;
+  use_mlock?: boolean;
+  use_mmap?: boolean;
+  main_gpu?: number;
+  split_mode?: string;
+  stop_tokens?: string[];
+  tag_pairs?: string;
+  tool_tag_exec_open?: string;
+  tool_tag_exec_close?: string;
+  tool_tag_output_open?: string;
+  tool_tag_output_close?: string;
+  proactive_compaction?: boolean;
+  safe_tool_injection?: boolean;
+  thinking_mode?: boolean | null;
+  heartbeat_enabled?: boolean;
+  heartbeat_interval_minutes?: number;
+  heartbeat_prompt?: string;
+  created_at?: number;
+  updated_at?: number;
+}
+
 export type SamplerType =
   | 'Greedy'
   | 'Temperature'

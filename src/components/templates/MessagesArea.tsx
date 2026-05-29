@@ -46,6 +46,7 @@ export const MessagesArea = () => {
   const showLoadingRow = isCrashRecovery;
   const itemCount = messages.length + (showLoadingRow ? 1 : 0);
 
+  // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: itemCount,
     getScrollElement: () => containerRef.current,
@@ -132,6 +133,15 @@ export const MessagesArea = () => {
     el.scrollTop = el.scrollHeight;
   }, []);
 
+  // Force-scroll when a user message edit is submitted (user may have scrolled up).
+  useEffect(() => {
+    const handler = () => {
+      requestAnimationFrame(scrollToBottom);
+    };
+    window.addEventListener('edit-message-submitted', handler);
+    return () => window.removeEventListener('edit-message-submitted', handler);
+  }, [scrollToBottom]);
+
   return (
     <div className="relative flex-1 overflow-hidden">
       <div
@@ -162,19 +172,25 @@ export const MessagesArea = () => {
                 }}
               >
                 <div className="pb-6">
-                  {virtualRow.index < messages.length ? (
-                    <MessageBubble
-                      message={messages[virtualRow.index]}
-                      viewMode={viewMode}
-                      isStreaming={isLoading ? virtualRow.index === messages.length - 1 : undefined}
-                      messageIndex={virtualRow.index}
-                      onEditMessage={editMessage}
-                      onRegenerate={regenerateFrom}
-                      onContinue={continueFrom}
-                      isGenerating={isLoading ? virtualRow.index === messages.length - 1 : false}
-                      isLastMessage={virtualRow.index === messages.length - 1}
-                    />
-                  ) : (
+                  {virtualRow.index < messages.length &&
+                    (() => {
+                      const isLastRow = virtualRow.index === messages.length - 1;
+                      const isStreamingRow = (isLoading && isLastRow) || undefined;
+                      return (
+                        <MessageBubble
+                          message={messages[virtualRow.index]}
+                          viewMode={viewMode}
+                          isStreaming={isStreamingRow}
+                          messageIndex={virtualRow.index}
+                          onEditMessage={editMessage}
+                          onRegenerate={regenerateFrom}
+                          onContinue={continueFrom}
+                          isGenerating={!!isLoading && isLastRow}
+                          isLastMessage={isLastRow}
+                        />
+                      );
+                    })()}
+                  {virtualRow.index >= messages.length && (
                     <RecoveryOrLoading
                       isCrashRecovery={isCrashRecovery}
                       isModelLoading={isModelLoading}
@@ -187,7 +203,7 @@ export const MessagesArea = () => {
         </div>
       </div>
 
-      {showScrollDown ? (
+      {!!showScrollDown && (
         <button
           onClick={scrollToBottom}
           className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10
@@ -199,7 +215,7 @@ export const MessagesArea = () => {
         >
           <ArrowDown size={18} />
         </button>
-      ) : null}
+      )}
     </div>
   );
 };

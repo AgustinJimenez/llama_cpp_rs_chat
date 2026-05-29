@@ -186,6 +186,7 @@ const ChartBlock: React.FC<{ code: string }> = ({ code }) => {
     try {
       spec = JSON.parse(code);
     } catch {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setError('Invalid JSON chart spec');
       return;
     }
@@ -373,44 +374,43 @@ const ImageWithControls: React.FC<React.ImgHTMLAttributes<HTMLImageElement>> = (
         </div>
         <ThreeDotMenu actions={[{ label: 'Download', onClick: handleDownload }]} />
       </div>
-      {isOpen
-        ? createPortal(
-            <div
-              className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center cursor-pointer"
-              role="button"
-              tabIndex={0}
+      {!!isOpen &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center cursor-pointer"
+            role="button"
+            tabIndex={0}
+            onClick={() => setIsOpen(false)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === 'Escape') setIsOpen(false);
+            }}
+          >
+            <img
+              src={src}
+              alt={alt}
+              className="w-full h-full object-contain p-2"
+              role="presentation"
+              onClick={(e) => e.stopPropagation()}
+            />
+            <button
               onClick={() => setIsOpen(false)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === 'Escape') setIsOpen(false);
-              }}
+              className="absolute top-4 right-4 p-2 bg-white/20 text-white rounded-full hover:bg-white/30 transition-colors backdrop-blur"
+              title="Close"
             >
-              <img
-                src={src}
-                alt={alt}
-                className="w-full h-full object-contain p-2"
-                role="presentation"
-                onClick={(e) => e.stopPropagation()}
-              />
-              <button
-                onClick={() => setIsOpen(false)}
-                className="absolute top-4 right-4 p-2 bg-white/20 text-white rounded-full hover:bg-white/30 transition-colors backdrop-blur"
-                title="Close"
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
               >
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 20 20"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path d="M5 5l10 10M15 5L5 15" />
-                </svg>
-              </button>
-            </div>,
-            document.body,
-          )
-        : null}
+                <path d="M5 5l10 10M15 5L5 15" />
+              </svg>
+            </button>
+          </div>,
+          document.body,
+        )}
     </>
   );
 };
@@ -420,7 +420,7 @@ const MarkdownPre = ({ children }: { children?: React.ReactNode }) => (
   <div className="my-2">{children}</div>
 );
 const MarkdownP = ({ children }: { children?: React.ReactNode }) => (
-  <p className="my-2">{children}</p>
+  <p className="my-2 [overflow-wrap:anywhere]">{children}</p>
 );
 const MarkdownH1 = ({ children }: { children?: React.ReactNode }) => (
   <h1 className="font-bold text-2xl my-3 border-b border-border pb-2">{children}</h1>

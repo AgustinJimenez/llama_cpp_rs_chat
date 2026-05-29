@@ -19,14 +19,16 @@ export interface UIContextValue {
   isProviderSelectorOpen: boolean;
   openProviderSelector: () => void;
   closeProviderSelector: () => void;
+  isAgentSelectorOpen: boolean;
+  openAgentSelector: () => void;
+  closeAgentSelector: () => void;
   isMobileSidebarOpen: boolean;
   toggleMobileSidebar: () => void;
   closeMobileSidebar: () => void;
-  /** Browser view state — URL or Camofox tab ID to display */
+  /** Browser view state */
   browserViewUrl: string | null;
-  browserViewTabId: string | null;
   isBrowserViewOpen: boolean;
-  openBrowserView: (url: string, camofoxTabId?: string) => void;
+  openBrowserView: (url: string) => void;
   setBrowserViewUrlOnly: (url: string) => void;
   closeBrowserView: () => void;
   clearBrowserView: () => void;

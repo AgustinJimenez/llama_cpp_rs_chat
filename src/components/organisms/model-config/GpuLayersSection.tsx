@@ -49,7 +49,7 @@ export const GpuLayersSection: React.FC<GpuLayersSectionProps> = ({
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">{gpuLabel}</span>
-          {loaded ? (
+          {!!loaded && (
             <div className="flex gap-1">
               {backends.map((b) => (
                 <span
@@ -64,14 +64,14 @@ export const GpuLayersSection: React.FC<GpuLayersSectionProps> = ({
                 </span>
               ))}
             </div>
-          ) : null}
+          )}
         </div>
         <span className="text-sm font-mono text-foreground" data-testid="gpu-layers-display">
           {gpuLayers || 0} / {maxLayers}
         </span>
       </div>
 
-      {hasGpu ? (
+      {!!hasGpu && (
         <>
           <input
             type="range"
@@ -88,13 +88,14 @@ export const GpuLayersSection: React.FC<GpuLayersSectionProps> = ({
             usage. 0 = CPU only. Model has ~{maxLayers} layers total.
           </p>
         </>
-      ) : (
+      )}
+      {!hasGpu && (
         <p className="text-xs text-amber-400">
           No GPU backend detected. All layers will run on CPU.
         </p>
       )}
 
-      {showCudaBanner ? (
+      {!!showCudaBanner && (
         <div className="mt-2 p-3 rounded-lg bg-blue-500/10 border border-blue-500/30">
           <p className="text-xs text-blue-300 mb-2">
             NVIDIA GPU detected but CUDA acceleration is not installed.
@@ -111,7 +112,7 @@ export const GpuLayersSection: React.FC<GpuLayersSectionProps> = ({
             Download the GPU files, place them next to the app, and restart.
           </p>
         </div>
-      ) : null}
+      )}
     </div>
   );
 };

@@ -347,6 +347,38 @@ async fn handle_request_impl(
             web::routes::mcp::handle_list_mcp_tools(bridge.clone()).await?
         }
 
+        // Agent management
+        (&Method::GET, "/api/agents") => {
+            web::routes::agents::handle_list_agents(db.clone()).await?
+        }
+        (&Method::POST, "/api/agents") => {
+            web::routes::agents::handle_create_agent(req, db.clone()).await?
+        }
+        (&Method::GET, path) if path.starts_with("/api/agents/") => {
+            let id = &path["/api/agents/".len()..];
+            web::routes::agents::handle_get_agent(id, db.clone()).await?
+        }
+        (&Method::PUT, path) if path.starts_with("/api/agents/") => {
+            let id = &path["/api/agents/".len()..];
+            web::routes::agents::handle_update_agent(req, id, db.clone()).await?
+        }
+        (&Method::DELETE, path) if path.starts_with("/api/agents/") => {
+            let id = &path["/api/agents/".len()..];
+            web::routes::agents::handle_delete_agent(id, db.clone()).await?
+        }
+        (&Method::GET, path) if path.starts_with("/api/conversations/") && path.ends_with("/agent") => {
+            let conv_id = &path["/api/conversations/".len()..path.len() - "/agent".len()];
+            web::routes::agents::handle_get_conversation_agent(conv_id, db.clone()).await?
+        }
+        (&Method::POST, path) if path.starts_with("/api/conversations/") && path.ends_with("/agent") => {
+            let conv_id = &path["/api/conversations/".len()..path.len() - "/agent".len()];
+            web::routes::agents::handle_set_conversation_agent(req, conv_id, db.clone()).await?
+        }
+        (&Method::PATCH, path) if path.starts_with("/api/conversations/") && path.ends_with("/overrides") => {
+            let conv_id = &path["/api/conversations/".len()..path.len() - "/overrides".len()];
+            web::routes::agents::handle_set_conversation_overrides(req, conv_id, db.clone()).await?
+        }
+
         // File operations
         (&Method::GET, "/api/browse") => web::routes::files::handle_get_browse(req, bridge.clone()).await?,
         (&Method::POST, "/api/browse/pick-directory") => web::routes::files::handle_post_pick_directory(bridge.clone(), db.clone()).await?,

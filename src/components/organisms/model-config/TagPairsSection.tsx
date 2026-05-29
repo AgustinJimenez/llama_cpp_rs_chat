@@ -106,11 +106,11 @@ const AddPairForm: React.FC<{
           Add
         </button>
       </div>
-      {isDuplicate ? (
+      {!!isDuplicate && (
         <p className="text-[10px] text-red-400 pl-1">
           Name &quot;{nameTrimmed}&quot; already exists
         </p>
-      ) : null}
+      )}
     </div>
   );
 };
@@ -126,7 +126,7 @@ export const TagPairsSection: React.FC<TagPairsSectionProps> = ({
     <div className="rounded-md border border-border px-3 py-2 space-y-2">
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium">Tag Pairs ({tagPairs.length})</span>
-        {detectedTagPairs?.length ? (
+        {!!detectedTagPairs?.length && (
           <button
             type="button"
             className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
@@ -135,7 +135,7 @@ export const TagPairsSection: React.FC<TagPairsSectionProps> = ({
           >
             <RotateCcw className="h-3 w-3" /> Reset
           </button>
-        ) : null}
+        )}
       </div>
 
       <div className="space-y-0.5">
@@ -159,13 +159,14 @@ export const TagPairsSection: React.FC<TagPairsSectionProps> = ({
         </p>
       )}
 
-      {showAdd ? (
+      {!!showAdd && (
         <AddPairForm
           existingNames={new Set(tagPairs.map((p) => p.name.trim().toLowerCase()))}
           onAdd={(p) => onTagPairsChange([...tagPairs, p])}
           onCancel={() => setShowAdd(false)}
         />
-      ) : (
+      )}
+      {!showAdd && (
         <button
           type="button"
           className="flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300 transition-colors"

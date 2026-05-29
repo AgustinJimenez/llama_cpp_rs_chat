@@ -21,7 +21,7 @@ export const RightSidebar = ({ isOpen, onClose }: RightSidebarProps) => {
   return (
     <>
       {/* Overlay for mobile */}
-      {isOpen ? (
+      {!!isOpen && (
         <div
           className="fixed inset-0 bg-black/50 z-40 md:hidden"
           role="button"
@@ -31,7 +31,7 @@ export const RightSidebar = ({ isOpen, onClose }: RightSidebarProps) => {
             if (e.key === 'Enter' || e.key === ' ') onClose();
           }}
         />
-      ) : null}
+      )}
 
       {/* Sidebar */}
       <div

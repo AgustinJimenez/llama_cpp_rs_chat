@@ -38,6 +38,11 @@ export const ConversationItem = React.memo(
   }: ConversationItemProps) => {
     const [menuOpen, setMenuOpen] = useState(false);
     const displayName = conversation.title || conversation.display_name || conversation.name;
+    const selectIcon = isSelected ? (
+      <CheckSquare size={14} className="text-white" />
+    ) : (
+      <Square size={14} className="text-white/40" />
+    );
 
     return (
       <div
@@ -60,18 +65,18 @@ export const ConversationItem = React.memo(
         data-testid={`conversation-${flatIndex}`}
       >
         <div className="flex items-center gap-1 truncate flex-1 min-w-0">
-          {isGenerating ? (
+          {!!isGenerating && (
             <span className="relative flex h-2.5 w-2.5 flex-shrink-0">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500" />
             </span>
-          ) : null}
+          )}
           <span className="truncate" title={displayName}>
             {displayName}
           </span>
         </div>
 
-        {selectMode ? (
+        {!!selectMode && (
           <button
             className="p-0.5 ml-1 flex-shrink-0"
             onClick={(e) => {
@@ -79,17 +84,13 @@ export const ConversationItem = React.memo(
               onToggleSelect(conversation.name);
             }}
           >
-            {isSelected ? (
-              <CheckSquare size={14} className="text-white" />
-            ) : (
-              <Square size={14} className="text-white/40" />
-            )}
+            {selectIcon}
           </button>
-        ) : null}
+        )}
 
         <div className="flex items-center gap-1 flex-shrink-0 ml-2">
           <span className="text-xs text-foreground/50">{relativeTime(conversation.timestamp)}</span>
-          {!selectMode ? (
+          {!selectMode && (
             <div className="relative">
               <button
                 className={`opacity-0 group-hover:opacity-100 p-0.5 rounded transition-all ${
@@ -105,7 +106,7 @@ export const ConversationItem = React.memo(
               >
                 <MoreVertical size={12} />
               </button>
-              {menuOpen ? (
+              {!!menuOpen && (
                 <ContextMenu
                   onClose={() => setMenuOpen(false)}
                   onDelete={(e) => {
@@ -119,9 +120,9 @@ export const ConversationItem = React.memo(
                     onToggleSelect(conversation.name);
                   }}
                 />
-              ) : null}
+              )}
             </div>
-          ) : null}
+          )}
         </div>
       </div>
     );

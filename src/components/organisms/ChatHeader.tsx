@@ -44,145 +44,160 @@ const ViewModeToggle = ({
 interface ChatHeaderProps {
   onModelUnload: () => void;
   onForceUnload: () => void;
+  showAgentSelector: boolean;
 }
 
-export const ChatHeader = React.memo(({ onModelUnload, onForceUnload }: ChatHeaderProps) => {
-  const {
-    status: modelStatus,
-    isLoading: isModelLoading,
-    loadingAction,
-    hasStatusError,
-    activeProvider,
-    activeProviderModel,
-  } = useModelContext();
-  const {
-    viewMode,
-    setViewMode,
-    isRightSidebarOpen,
-    toggleRightSidebar,
-    isModelConfigOpen,
-    openModelConfig,
-    isEventLogOpen,
-    toggleEventLog,
-    openProviderSelector,
-    toggleMobileSidebar,
-    isBrowserViewOpen,
-    toggleBrowserView,
-    closeBrowserView,
-    browserViewUrl,
-  } = useUIContext();
+const HeaderAgentControls = ({
+  onModelUnload,
+  onForceUnload,
+}: Pick<ChatHeaderProps, 'onModelUnload' | 'onForceUnload'>) => {
+  const { status, isLoading, loadingAction, hasStatusError, activeProvider, activeProviderModel } =
+    useModelContext();
+  const { openAgentSelector } = useUIContext();
 
-  // When user clicks MD/TXT/RAW, close browser view to show the chat
-  const handleSetViewMode = (mode: ViewMode) => {
-    if (isBrowserViewOpen) closeBrowserView();
-    setViewMode(mode);
-  };
-
-  const modelLoaded = modelStatus.loaded || activeProvider !== 'local';
+  const modelLoaded = status.loaded || activeProvider !== 'local';
   const remoteProviderLabel = getProviderLabel(activeProvider);
 
+  const currentModelPath =
+    activeProvider !== 'local'
+      ? `${remoteProviderLabel} (${activeProviderModel})`
+      : (status.model_path ?? undefined);
+
   return (
-    <div
-      className="flex items-center justify-between px-4 py-2 border-b border-border"
-      data-testid="chat-header"
-    >
-      {/* Left: hamburger (mobile) + model selector + unload */}
-      <div className="flex items-center gap-1 min-w-0">
+    <>
+      <ModelSelector
+        currentModelPath={currentModelPath}
+        isLoading={isLoading}
+        loadingAction={loadingAction}
+        loadingProgress={status.loading_progress}
+        onOpen={openAgentSelector}
+      />
+      {!!isLoading && loadingAction === 'loading' && (
         <button
-          onClick={toggleMobileSidebar}
-          className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors md:hidden"
-          title="Toggle sidebar"
-          aria-label="Toggle sidebar"
+          onClick={onForceUnload}
+          className="p-1.5 rounded-md text-muted-foreground hover:bg-muted transition-colors"
+          title="Cancel model loading"
+          aria-label="Cancel model loading"
         >
-          <Menu className="h-4 w-4" />
+          <X className="h-3.5 w-3.5" />
         </button>
-        <ModelSelector
-          currentModelPath={
-            activeProvider !== 'local'
-              ? `${remoteProviderLabel} (${activeProviderModel})`
-              : (modelStatus.model_path ?? undefined)
-          }
-          isLoading={isModelLoading}
-          loadingAction={loadingAction}
-          loadingProgress={modelStatus.loading_progress}
-          onOpen={openProviderSelector}
-        />
-        {isModelLoading && loadingAction === 'loading' ? (
-          <button
-            onClick={onForceUnload}
-            className="p-1.5 rounded-md text-muted-foreground hover:bg-muted transition-colors"
-            title="Cancel model loading"
-            aria-label="Cancel model loading"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        ) : null}
-        {!isModelLoading && modelLoaded ? (
-          <button
-            onClick={onModelUnload}
-            className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-            title="Unload model"
-          >
-            <Unplug className="h-3.5 w-3.5" />
-          </button>
-        ) : null}
-        {!isModelLoading && !modelLoaded && hasStatusError ? (
-          <button
-            onClick={onForceUnload}
-            className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-            title="Force unload"
-          >
-            <Unplug className="h-3.5 w-3.5" />
-          </button>
-        ) : null}
-      </div>
-
-      {/* Right: browser (always) + view toggle + monitor (when loaded) */}
-      <div className="flex items-center gap-1.5 md:gap-3">
-        {modelLoaded ? (
-          <div className="hidden md:block">
-            <ViewModeToggle viewMode={viewMode} onChange={handleSetViewMode} />
-          </div>
-        ) : null}
-
+      )}
+      {!isLoading && !!modelLoaded && (
         <button
-          onClick={toggleBrowserView}
-          className={`btn-icon ${isBrowserViewOpen ? 'active' : ''} ${browserViewUrl && !isBrowserViewOpen ? 'animate-pulse text-foreground' : ''}`}
-          title="Toggle browser view"
+          onClick={onModelUnload}
+          className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+          title="Unload model"
         >
-          <Globe className="h-3.5 w-3.5" />
+          <Unplug className="h-3.5 w-3.5" />
         </button>
-
-        {modelLoaded ? (
-          <>
-            <button
-              onClick={toggleEventLog}
-              className={`btn-icon ${isEventLogOpen ? 'active' : ''}`}
-              title="Event log"
-            >
-              <ScrollText className="h-3.5 w-3.5" />
-            </button>
-
-            <button
-              onClick={openModelConfig}
-              disabled={isModelLoading}
-              className={`btn-icon ${isModelConfigOpen ? 'active' : ''} ${isModelLoading ? 'opacity-30 cursor-not-allowed' : ''}`}
-              title="Model settings"
-            >
-              <SlidersHorizontal className="h-3.5 w-3.5" />
-            </button>
-          </>
-        ) : null}
-
+      )}
+      {!isLoading && !modelLoaded && !!hasStatusError && (
         <button
-          onClick={toggleRightSidebar}
-          className={`btn-icon ${isRightSidebarOpen ? 'active' : ''}`}
-          title="Toggle system monitor"
+          onClick={onForceUnload}
+          className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+          title="Force unload"
         >
-          <Activity className="h-3.5 w-3.5" />
+          <Unplug className="h-3.5 w-3.5" />
         </button>
-      </div>
-    </div>
+      )}
+    </>
   );
-});
+};
+
+export const ChatHeader = React.memo(
+  ({ onModelUnload, onForceUnload, showAgentSelector }: ChatHeaderProps) => {
+    const { status: modelStatus, isLoading: isModelLoading, activeProvider } = useModelContext();
+    const {
+      viewMode,
+      setViewMode,
+      isRightSidebarOpen,
+      toggleRightSidebar,
+      isModelConfigOpen,
+      openModelConfig,
+      isEventLogOpen,
+      toggleEventLog,
+      toggleMobileSidebar,
+      isBrowserViewOpen,
+      toggleBrowserView,
+      closeBrowserView,
+      browserViewUrl,
+    } = useUIContext();
+
+    // When user clicks MD/TXT/RAW, close browser view to show the chat
+    const handleSetViewMode = (mode: ViewMode) => {
+      if (isBrowserViewOpen) closeBrowserView();
+      setViewMode(mode);
+    };
+
+    const modelLoaded = modelStatus.loaded || activeProvider !== 'local';
+
+    return (
+      <div
+        className="flex items-center justify-between px-4 py-2 border-b border-border"
+        data-testid="chat-header"
+      >
+        {/* Left: hamburger (mobile) + model selector + unload */}
+        <div className="flex items-center gap-1 min-w-0">
+          <button
+            onClick={toggleMobileSidebar}
+            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors md:hidden"
+            title="Toggle sidebar"
+            aria-label="Toggle sidebar"
+          >
+            <Menu className="h-4 w-4" />
+          </button>
+          {!!showAgentSelector && (
+            <HeaderAgentControls onModelUnload={onModelUnload} onForceUnload={onForceUnload} />
+          )}
+        </div>
+
+        {/* Right: browser (always) + view toggle + monitor (when loaded) */}
+        <div className="flex items-center gap-1.5 md:gap-3">
+          {!!modelLoaded && (
+            <div className="hidden md:block">
+              <ViewModeToggle viewMode={viewMode} onChange={handleSetViewMode} />
+            </div>
+          )}
+
+          <button
+            onClick={toggleBrowserView}
+            className={`btn-icon ${isBrowserViewOpen ? 'active' : ''} ${browserViewUrl && !isBrowserViewOpen ? 'animate-pulse text-foreground' : ''}`}
+            title="Toggle browser view"
+          >
+            <Globe className="h-3.5 w-3.5" />
+          </button>
+
+          {!!modelLoaded && (
+            <>
+              <button
+                onClick={toggleEventLog}
+                className={`btn-icon ${isEventLogOpen ? 'active' : ''}`}
+                title="Event log"
+              >
+                <ScrollText className="h-3.5 w-3.5" />
+              </button>
+
+              <button
+                onClick={openModelConfig}
+                disabled={isModelLoading}
+                className={`btn-icon ${isModelConfigOpen ? 'active' : ''} ${isModelLoading ? 'opacity-30 cursor-not-allowed' : ''}`}
+                title="Model settings"
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+              </button>
+            </>
+          )}
+
+          <button
+            onClick={toggleRightSidebar}
+            className={`btn-icon ${isRightSidebarOpen ? 'active' : ''}`}
+            title="Toggle system monitor"
+          >
+            <Activity className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+    );
+  },
+);
 ChatHeader.displayName = 'ChatHeader';

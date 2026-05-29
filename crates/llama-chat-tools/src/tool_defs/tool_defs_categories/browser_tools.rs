@@ -1,4 +1,4 @@
-//! Browser, web search, and Camofox tool definitions.
+//! Browser, web search, and in-app browser tool definitions.
 
 use super::{p, Params, ToolDef};
 
@@ -12,35 +12,10 @@ pub static BROWSER_TOOLS: &[ToolDef] = &[
         ]),
         required: &["url"],
     },
-    // ─── Camofox CAPTCHA interaction tools ───
-    ToolDef {
-        name: "camofox_click",
-        description: "Click an element on the active Camofox browser tab (used after a CAPTCHA is detected during web_search). Provide the element ref shown in the page snapshot (e.g. 'e1', 'e3'). Returns a screenshot of the updated page.",
-        params: Params::Simple(&[
-            p("ref", "string", "Element reference to click (e.g. 'e1', 'e3')"),
-        ]),
-        required: &["ref"],
-    },
-    ToolDef {
-        name: "camofox_screenshot",
-        description: "Take a screenshot of the active Camofox browser tab. Use this to see the current state of a CAPTCHA page after interacting with it.",
-        params: Params::Simple(&[]),
-        required: &[],
-    },
-    ToolDef {
-        name: "camofox_type",
-        description: "Type text into an input field on the active Camofox browser tab. Used during CAPTCHA solving if text input is needed.",
-        params: Params::Simple(&[
-            p("ref", "string", "Element reference of the input field (e.g. 'e2')"),
-            p("text", "string", "Text to type"),
-            p("press_enter", "boolean", "Whether to press Enter after typing (default: false)"),
-        ]),
-        required: &["ref", "text"],
-    },
     // ─── Browser view control (visible to user in chat UI) ───
     ToolDef {
         name: "open_browser_view",
-        description: "Open the in-app browser view with a URL, visible to the user. Use this when you want to show the user a webpage directly in the chat interface. The user can see the page and interact with it. Useful for: showing search results, showing an article, or asking the user to solve a CAPTCHA. Creates a new Camofox tab and displays it live.",
+        description: "Open the in-app browser view with a URL, visible to the user. Use this when you want to show the user a webpage directly in the chat interface. The user can see the page and interact with it. Useful for: showing search results, showing an article, or asking the user to solve a CAPTCHA.",
         params: Params::Simple(&[
             p("url", "string", "Full URL to navigate to (e.g. 'https://example.com')"),
         ]),

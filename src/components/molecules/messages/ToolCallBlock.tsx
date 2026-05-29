@@ -232,22 +232,23 @@ const ExecutingHeader: React.FC<{
 }> = ({ name, summary, elapsed, isExpanded, onToggle }) => {
   const elapsedStr = formatElapsed(elapsed);
   const isDesktop = DESKTOP_TOOLS.has(name);
+  const execChevron = isExpanded ? (
+    <ChevronDown className="h-3.5 w-3.5 text-foreground flex-shrink-0" />
+  ) : (
+    <ChevronRight className="h-3.5 w-3.5 text-foreground flex-shrink-0" />
+  );
   return (
     <div className="w-full bg-muted px-3 py-2 flex items-center gap-2 hover:bg-accent transition-colors">
       <button onClick={onToggle} className="flex items-center gap-2 text-left flex-1 min-w-0">
         <span className="inline-block w-3 h-3 border-2 border-foreground/50 border-t-transparent rounded-full animate-spin flex-shrink-0" />
         <span className="text-xs font-medium text-foreground whitespace-nowrap">
           {formatToolName(name)}
-          {elapsedStr ? ` (${elapsedStr})` : null}
+          {!!elapsedStr && ` (${elapsedStr})`}
         </span>
         <span className="text-xs text-foreground truncate flex-1">{summary}</span>
-        {isExpanded ? (
-          <ChevronDown className="h-3.5 w-3.5 text-foreground flex-shrink-0" />
-        ) : (
-          <ChevronRight className="h-3.5 w-3.5 text-foreground flex-shrink-0" />
-        )}
+        {execChevron}
       </button>
-      {isDesktop ? (
+      {!!isDesktop && (
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -259,7 +260,7 @@ const ExecutingHeader: React.FC<{
           <Square className="h-2.5 w-2.5 fill-current" />
           Abort
         </button>
-      ) : null}
+      )}
     </div>
   );
 };
@@ -278,31 +279,32 @@ const CompletedHeader: React.FC<{
     else if (durationMs < 1000) durationStr = `${durationMs}ms`;
     else durationStr = `${(durationMs / 1000).toFixed(1)}s`;
   }
+  const completedChevron = isExpanded ? (
+    <ChevronDown className="h-3.5 w-3.5 text-foreground flex-shrink-0" />
+  ) : (
+    <ChevronRight className="h-3.5 w-3.5 text-foreground flex-shrink-0" />
+  );
+  const isError = resultStatus === 'error';
+  const buttonBgClass = isError ? 'bg-red-500/10 border-l-2 border-red-500' : 'bg-muted';
+  const statusDotClass = isError ? 'bg-red-500' : 'bg-green-500';
+  const statusTitle = isError ? 'Tool call returned an error' : 'Tool call succeeded';
   return (
     <button
       onClick={onToggle}
-      className={`w-full px-3 py-2 flex items-center gap-2 text-left hover:bg-accent transition-colors ${
-        resultStatus === 'error' ? 'bg-red-500/10 border-l-2 border-red-500' : 'bg-muted'
-      }`}
+      className={`w-full px-3 py-2 flex items-center gap-2 text-left hover:bg-accent transition-colors ${buttonBgClass}`}
     >
-      {resultStatus ? (
+      {!!resultStatus && (
         <span
-          className={`w-2 h-2 rounded-full flex-shrink-0 ${resultStatus === 'error' ? 'bg-red-500' : 'bg-green-500'}`}
-          title={resultStatus === 'error' ? 'Tool call returned an error' : 'Tool call succeeded'}
+          className={`w-2 h-2 rounded-full flex-shrink-0 ${statusDotClass}`}
+          title={statusTitle}
         />
-      ) : null}
+      )}
       <span className="text-xs font-medium text-foreground">
         {formatToolName(name)}
-        {durationStr ? (
-          <span className="text-foreground/50 font-normal"> ({durationStr})</span>
-        ) : null}
+        {!!durationStr && <span className="text-foreground/50 font-normal"> ({durationStr})</span>}
       </span>
       <span className="text-xs text-foreground truncate flex-1">{summary}</span>
-      {isExpanded ? (
-        <ChevronDown className="h-3.5 w-3.5 text-foreground flex-shrink-0" />
-      ) : (
-        <ChevronRight className="h-3.5 w-3.5 text-foreground flex-shrink-0" />
-      )}
+      {completedChevron}
     </button>
   );
 };
@@ -379,33 +381,36 @@ const CompletedOutput: React.FC<{
   onToggle: () => void;
   language?: string | null;
   isStreaming?: boolean;
-}> = ({ output, isExpanded, onToggle, language, isStreaming }) => (
-  <>
-    <button
-      onClick={onToggle}
-      className="w-full bg-muted px-3 py-1.5 flex items-center gap-2 text-left hover:bg-accent transition-colors border-t border-border"
-    >
-      <span className="text-xs font-medium text-foreground">Output</span>
-      <span className="text-xs text-foreground truncate flex-1">
-        {(() => {
-          if (isStreaming) return 'Streaming...';
-          if (output.length > TOOL_SUMMARY_MAX_LENGTH) {
-            return `${output.slice(0, TOOL_SUMMARY_MAX_LENGTH)}...`;
-          }
-          return output;
-        })()}
-      </span>
-      {isExpanded ? (
-        <ChevronDown className="h-3.5 w-3.5 text-foreground flex-shrink-0" />
-      ) : (
-        <ChevronRight className="h-3.5 w-3.5 text-foreground flex-shrink-0" />
+}> = ({ output, isExpanded, onToggle, language, isStreaming }) => {
+  const outputChevron = isExpanded ? (
+    <ChevronDown className="h-3.5 w-3.5 text-foreground flex-shrink-0" />
+  ) : (
+    <ChevronRight className="h-3.5 w-3.5 text-foreground flex-shrink-0" />
+  );
+  return (
+    <>
+      <button
+        onClick={onToggle}
+        className="w-full bg-muted px-3 py-1.5 flex items-center gap-2 text-left hover:bg-accent transition-colors border-t border-border"
+      >
+        <span className="text-xs font-medium text-foreground">Output</span>
+        <span className="text-xs text-foreground truncate flex-1">
+          {(() => {
+            if (isStreaming) return 'Streaming...';
+            if (output.length > TOOL_SUMMARY_MAX_LENGTH) {
+              return `${output.slice(0, TOOL_SUMMARY_MAX_LENGTH)}...`;
+            }
+            return output;
+          })()}
+        </span>
+        {outputChevron}
+      </button>
+      {!!isExpanded && (
+        <ScrollableOutput output={output} isStreaming={isStreaming} language={language} />
       )}
-    </button>
-    {isExpanded ? (
-      <ScrollableOutput output={output} isStreaming={isStreaming} language={language} />
-    ) : null}
-  </>
-);
+    </>
+  );
+};
 
 /**
  * Renders a colored inline diff for edit_file tool calls.
@@ -489,29 +494,32 @@ const SingleToolCall: React.FC<{ toolCall: ToolCall; isGenerating?: boolean }> =
     </pre>
   );
 
+  const headerEl = isExecuting ? (
+    <ExecutingHeader
+      name={toolCall.name}
+      summary={summary}
+      hasOutput={!!toolCall.output}
+      elapsed={elapsed}
+      isExpanded={isExpanded}
+      onToggle={() => setIsExpanded(!isExpanded)}
+    />
+  ) : (
+    <CompletedHeader
+      name={toolCall.name}
+      summary={summary}
+      isExpanded={isExpanded}
+      onToggle={() => setIsExpanded(!isExpanded)}
+      resultStatus={toolResultStatus}
+      durationMs={toolCall.duration_ms}
+    />
+  );
+  const hasCleanOutput = hasOutput && (cleanOutput ?? '').trim().length > 0;
+
   return (
     <div className="flat-card overflow-hidden" style={{ contain: 'content' }}>
-      {isExecuting ? (
-        <ExecutingHeader
-          name={toolCall.name}
-          summary={summary}
-          hasOutput={!!toolCall.output}
-          elapsed={elapsed}
-          isExpanded={isExpanded}
-          onToggle={() => setIsExpanded(!isExpanded)}
-        />
-      ) : (
-        <CompletedHeader
-          name={toolCall.name}
-          summary={summary}
-          isExpanded={isExpanded}
-          onToggle={() => setIsExpanded(!isExpanded)}
-          resultStatus={toolResultStatus}
-          durationMs={toolCall.duration_ms}
-        />
-      )}
-      {isExpanded ? expandedContent : null}
-      {hasOutput && (cleanOutput ?? '').trim().length > 0 ? (
+      {headerEl}
+      {!!isExpanded && expandedContent}
+      {!!hasCleanOutput && (
         <CompletedOutput
           output={cleanOutput ?? ''}
           isExpanded={isOutputExpanded}
@@ -519,7 +527,7 @@ const SingleToolCall: React.FC<{ toolCall: ToolCall; isGenerating?: boolean }> =
           language={outputLanguage}
           isStreaming={isExecuting}
         />
-      ) : null}
+      )}
     </div>
   );
 };

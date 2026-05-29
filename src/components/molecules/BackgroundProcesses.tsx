@@ -30,6 +30,7 @@ export const BackgroundProcesses = () => {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refresh();
     const interval = setInterval(refresh, BACKGROUND_POLL_INTERVAL_MS);
     return () => clearInterval(interval);
@@ -46,11 +47,17 @@ export const BackgroundProcesses = () => {
         >
           <Terminal className="h-3 w-3 animate-pulse" />
           <span>
-            {aliveCount} background process{aliveCount !== 1 ? 'es' : ''}
+            {aliveCount} background process{aliveCount !== 1 && 'es'}
           </span>
         </button>
       </div>
-      <BackgroundProcessesModal isOpen={modalOpen} onClose={() => { setModalOpen(false); refresh(); }} />
+      <BackgroundProcessesModal
+        isOpen={modalOpen}
+        onClose={() => {
+          setModalOpen(false);
+          refresh();
+        }}
+      />
     </>
   );
 };

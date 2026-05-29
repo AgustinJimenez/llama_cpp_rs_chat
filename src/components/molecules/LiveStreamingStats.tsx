@@ -35,9 +35,9 @@ const LiveTokenCounter = ({
         <Database className="h-3 w-3" />
         {fmt(tokensUsed)}/{fmt(maxTokens)}
       </button>
-      {showModal ? (
+      {!!showModal && (
         <TokenBreakdownModal onClose={() => setShowModal(false)} modelContextSize={maxTokens} />
-      ) : null}
+      )}
     </>
   );
 };
@@ -138,35 +138,35 @@ export const LiveStreamingStats = ({
   if (!hasContext && !displayStatus && !isPromptEval) return null;
   return (
     <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono">
-      {/* eslint-disable-next-line no-nested-ternary */}
-      {displayStatus ? (
+      {!!displayStatus && (
         <span className="inline-flex items-center gap-1 text-cyan-400">
           <Loader2 className="h-3 w-3 animate-spin" />
           {displayStatus}
         </span>
-      ) : isPromptEval ? (
+      )}
+      {!displayStatus && !!isPromptEval && (
         <span className="inline-flex items-center gap-1 text-muted-foreground/60">
           <Loader2 className="h-3 w-3 animate-spin" />
           Evaluating…
         </span>
-      ) : null}
-      {tokenCount > 0 ? (
+      )}
+      {tokenCount > 0 && (
         <span className="inline-flex items-center gap-1" title="Tokens generated this turn">
           # {tokenCount.toLocaleString()}
         </span>
-      ) : null}
-      {tokPerSec ? (
+      )}
+      {!!tokPerSec && (
         <span
           className="inline-flex items-center gap-1"
           title="Generation speed (excluding tool execution time)"
         >
           {tokPerSec} tok/s
         </span>
-      ) : null}
+      )}
       {/* Elapsed time removed — shown by LoadingIndicator below the chat bubble */}
-      {hasContext ? (
+      {!!hasContext && (
         <LiveTokenCounter tokensUsed={tokensUsed ?? 0} maxTokens={maxTokens ?? 0} pct={pct} />
-      ) : null}
+      )}
     </div>
   );
 };
@@ -246,6 +246,14 @@ const CompactButton = ({
   const pctMatch = pctSource?.match(/\((\d+)%\)/);
   const pct = pctMatch ? pctMatch[1] : null;
 
+  const compactIcon = compacting ? (
+    <Loader2 className="h-3 w-3 animate-spin" />
+  ) : (
+    <PackageOpen className="h-3 w-3" />
+  );
+  const compactLabel = compacting
+    ? `Compacting${pct ? ` ${pct}%` : '…'} ${fmtElapsed(elapsedSec)}`
+    : 'Compact';
   return (
     <button
       type="button"
@@ -254,12 +262,8 @@ const CompactButton = ({
       className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-muted hover:bg-accent text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       title={`Summarize old messages to free context (${ctxPct}% used)`}
     >
-      {compacting ? (
-        <Loader2 className="h-3 w-3 animate-spin" />
-      ) : (
-        <PackageOpen className="h-3 w-3" />
-      )}
-      {compacting ? `Compacting${pct ? ` ${pct}%` : '…'} ${fmtElapsed(elapsedSec)}` : 'Compact'}
+      {compactIcon}
+      {compactLabel}
     </button>
   );
 };
@@ -297,7 +301,7 @@ const BreakdownRow = ({
     <span className="text-muted-foreground">{label}</span>
     <span className="font-mono tabular-nums">
       {value}
-      {sub ? <span className="text-muted-foreground text-[10px] ml-1">{sub}</span> : null}
+      {!!sub && <span className="text-muted-foreground text-[10px] ml-1">{sub}</span>}
     </span>
   </div>
 );
@@ -406,43 +410,45 @@ const TokenBreakdownModal = ({
           <div className="pb-2 space-y-0.5">
             <BreakdownRow label="System prompt" value={fmt(systemPromptTokens)} sub="tokens" />
             <BreakdownRow label="Tool definitions" value={fmt(toolTokens)} sub="tokens" />
-            {summaryEst > 0 ? (
+            {summaryEst > 0 && (
               <BreakdownRow label="Compaction summary" value={`~${fmt(summaryEst)}`} sub="est." />
-            ) : null}
+            )}
             <BreakdownRow label="Messages" value={`~${fmt(activeMsgEst)}`} sub="est." />
-            {lastTokenBreakdown?.tool_calls_and_results != null ? (
+            {lastTokenBreakdown?.tool_calls_and_results != null && (
               <BreakdownRow
                 label="Tool output"
                 value={fmt(lastTokenBreakdown.tool_calls_and_results)}
                 sub="measured"
               />
-            ) : (
+            )}
+            {lastTokenBreakdown?.tool_calls_and_results == null && (
               <BreakdownRow label="Tool output" value={`~${fmt(activeToolEst)}`} sub="est." />
             )}
-            {lastTokenBreakdown?.tool_calls_and_results != null && activeToolEst > 0 ? (
+            {lastTokenBreakdown?.tool_calls_and_results != null && activeToolEst > 0 && (
               <BreakdownRow
                 label="Tool output (raw est.)"
                 value={`~${fmt(activeToolEst)}`}
                 sub={`${Math.round((1 - lastTokenBreakdown.tool_calls_and_results / activeToolEst) * 100)}% RTK`}
               />
-            ) : null}
-            {compactedEst > 0 ? (
+            )}
+            {compactedEst > 0 && (
               <BreakdownRow
                 label="Compacted history"
                 value={`~${fmt(compactedEst)}`}
                 sub="not in ctx"
               />
-            ) : null}
+            )}
           </div>
           <div className="py-2 space-y-0.5">
-            {measuredTotal != null ? (
+            {measuredTotal != null && (
               <BreakdownRow
                 label="Last measured total"
                 value={fmt(measuredTotal)}
                 sub="actual"
                 highlight
               />
-            ) : (
+            )}
+            {measuredTotal == null && (
               <BreakdownRow
                 label="Estimated total"
                 value={`~${fmt(estimatedTotal)}`}
@@ -459,11 +465,11 @@ const TokenBreakdownModal = ({
           </div>
         </div>
 
-        {measuredTotal != null ? (
+        {measuredTotal != null && (
           <p className="text-[10px] text-muted-foreground mt-2">
             Measured total = prompt + response tokens from last generation.
           </p>
-        ) : null}
+        )}
       </div>
     </div>
   );
@@ -480,6 +486,7 @@ const ContextUsageInfo = ({
 }) => {
   const [showModal, setShowModal] = useState(false);
   const CONTEXT_HIGH_PCT = 70;
+  const ctxSpanClass = ctxPct > CONTEXT_HIGH_PCT ? 'text-yellow-400' : '';
   return (
     <>
       <button
@@ -489,19 +496,19 @@ const ContextUsageInfo = ({
         title="Click for token breakdown"
       >
         <Database className="h-3 w-3" />
-        <span className={ctxPct > CONTEXT_HIGH_PCT ? 'text-yellow-400' : ''}>
+        <span className={ctxSpanClass}>
           ~{(estimatedConvTokens / 1000).toFixed(1)}K / {(modelContextSize / 1000).toFixed(1)}K
         </span>
-        {ctxPct > CONTEXT_HIGH_PCT ? (
+        {ctxPct > CONTEXT_HIGH_PCT && (
           <span className="text-yellow-400 text-[10px]">({ctxPct}%)</span>
-        ) : null}
+        )}
       </button>
-      {showModal ? (
+      {!!showModal && (
         <TokenBreakdownModal
           onClose={() => setShowModal(false)}
           modelContextSize={modelContextSize}
         />
-      ) : null}
+      )}
     </>
   );
 };
@@ -526,21 +533,21 @@ const StatsLeft = ({
   ctxPct: number;
 }) => (
   <div className="flex-1 flex items-center gap-3 flex-wrap">
-    {timings?.genTokPerSec && !isLoading ? <MessageStatistics timings={timings} /> : null}
-    {isLoading ? (
+    {!!timings?.genTokPerSec && !isLoading && <MessageStatistics timings={timings} />}
+    {!!isLoading && (
       <LiveStreamingStats
         tokensUsed={tokensUsed}
         maxTokens={maxTokens}
         streamStatus={streamStatus}
       />
-    ) : null}
-    {!isLoading && estimatedConvTokens && modelContextSize ? (
+    )}
+    {!isLoading && !!estimatedConvTokens && !!modelContextSize && (
       <ContextUsageInfo
         estimatedConvTokens={estimatedConvTokens}
         modelContextSize={modelContextSize}
         ctxPct={ctxPct}
       />
-    ) : null}
+    )}
   </div>
 );
 
@@ -578,6 +585,8 @@ export const StatsBar = ({
   const showCompact =
     ((!isLoading && hasContextInfo && ctxPct >= COMPACT_THRESHOLD_PCT) || isAutoCompacting) &&
     !!currentConversationId;
+  const statsLeftEstTokens = hasContextInfo ? estimatedConvTokens : undefined;
+  const statsLeftCtxSize = hasContextInfo ? modelContextSize : undefined;
 
   return (
     <div className="flex items-center justify-between mb-1">
@@ -587,19 +596,19 @@ export const StatsBar = ({
         maxTokens={maxTokens}
         streamStatus={streamStatus}
         isLoading={isLoading}
-        estimatedConvTokens={hasContextInfo ? estimatedConvTokens : undefined}
-        modelContextSize={hasContextInfo ? modelContextSize : undefined}
+        estimatedConvTokens={statsLeftEstTokens}
+        modelContextSize={statsLeftCtxSize}
         ctxPct={ctxPct}
       />
       <div className="flex items-center gap-2">
-        {showCompact ? (
+        {!!showCompact && (
           <CompactButton
             ctxPct={ctxPct}
             conversationId={currentConversationId}
             streamStatus={streamStatus}
           />
-        ) : null}
-        {isLoading && stopGeneration ? (
+        )}
+        {!!isLoading && !!stopGeneration && (
           <button
             type="button"
             onClick={stopGeneration}
@@ -610,7 +619,7 @@ export const StatsBar = ({
             <Square className="h-3 w-3 fill-current" />
             Stop
           </button>
-        ) : null}
+        )}
       </div>
     </div>
   );

@@ -62,6 +62,7 @@ export const HeartbeatModal = ({ isOpen, onClose, conversationId }: Props) => {
 
   useEffect(() => {
     if (isOpen) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       void load();
     }
   }, [isOpen, load]);
@@ -124,6 +125,8 @@ export const HeartbeatModal = ({ isOpen, onClose, conversationId }: Props) => {
 
   if (!isOpen) return null;
 
+  const fireNowTitle = !modelLoaded ? 'Load a model or provider first' : undefined;
+
   return (
     <>
       <div
@@ -157,15 +160,15 @@ export const HeartbeatModal = ({ isOpen, onClose, conversationId }: Props) => {
             </button>
           </div>
 
-          {!conversationId ? (
+          {!conversationId && (
             <div className="p-8 text-center text-muted-foreground text-sm">
               Select a conversation to configure its heartbeat.
             </div>
-          ) : null}
-          {conversationId && cfg === null ? (
+          )}
+          {!!conversationId && cfg === null && (
             <div className="p-8 text-center text-muted-foreground text-sm">Loading…</div>
-          ) : null}
-          {conversationId && cfg !== null ? (
+          )}
+          {!!conversationId && cfg !== null && (
             <div className="p-5 space-y-5">
               {/* Enable toggle */}
               <div className="flex items-center justify-between">
@@ -237,7 +240,8 @@ export const HeartbeatModal = ({ isOpen, onClose, conversationId }: Props) => {
                 disabled={saving}
                 className="w-full py-2 text-sm font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
               >
-                {saving ? 'Saving…' : 'Save settings'}
+                {!!saving && 'Saving…'}
+                {!saving && 'Save settings'}
               </button>
 
               {/* Status */}
@@ -266,15 +270,16 @@ export const HeartbeatModal = ({ isOpen, onClose, conversationId }: Props) => {
                 <button
                   onClick={fireNow}
                   disabled={firing || !modelLoaded}
-                  title={!modelLoaded ? 'Load a model or provider first' : undefined}
+                  title={fireNowTitle}
                   className="w-full flex items-center justify-center gap-2 py-2 text-sm border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Play className="h-3.5 w-3.5" />
-                  {firing ? 'Firing…' : 'Fire now'}
+                  {!!firing && 'Firing…'}
+                  {!firing && 'Fire now'}
                 </button>
               </div>
             </div>
-          ) : null}
+          )}
         </div>
       </div>
     </>

@@ -119,6 +119,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     return namedPreset;
   }, [generalName, recommendedParams]);
 
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const maxContextSize = useMemo(() => {
     if (!modelInfo?.context_length) return DEFAULT_MAX_CONTEXT;
     const parsed = parseInt(modelInfo.context_length.toString().replace(/,/g, ''));
@@ -152,6 +153,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   // Reset and re-set modelPath when modal opens to force metadata re-fetch
   useEffect(() => {
     if (isOpen && initialModelPath) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setModelPath('');
       requestAnimationFrame(() => setModelPath(initialModelPath));
     }
@@ -199,6 +201,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
 
   useEffect(() => {
     if (modelPath) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setConfig((prev) => ({
         ...prev,
         model_path: modelPath,
@@ -213,6 +216,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     if (modelInfo?.context_length) {
       const maxContext = parseInt(modelInfo.context_length.toString().replace(/,/g, ''));
       if (!isNaN(maxContext)) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setContextSize(maxContext);
       }
     }
@@ -256,6 +260,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
         model_path: prev.model_path,
       }));
       if (presetContextSize) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setContextSize(presetContextSize);
       }
     }
@@ -266,6 +271,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   // Auto-enable mmproj when detected in model directory, clear on model change
   useEffect(() => {
     if (modelInfo?.mmproj_files?.length) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMmprojEnabled(true);
       setMmprojPath(modelInfo.mmproj_files[0].path);
     } else {
@@ -278,6 +284,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   // Stale pairs from a previous model would cause wrong tool format in prompts
   useEffect(() => {
     if (!modelInfo?.detected_tag_pairs?.length) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setConfig((prev) => {
       // eslint-disable-next-line no-console
       console.log(
@@ -419,6 +426,9 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     const fileName = modelPath.split('/').pop() || modelPath;
     return fileName;
   };
+  const dialogDescription = modelPath
+    ? `Model: ${getModelFileName()}`
+    : 'Select a model file to load';
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -426,7 +436,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
         <DialogHeader className="px-6 pt-6">
           <DialogTitle className="flex items-center gap-2">Load Model</DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground">
-            {modelPath ? `Model: ${getModelFileName()}` : 'Select a model file to load'}
+            {dialogDescription}
           </DialogDescription>
         </DialogHeader>
 
@@ -451,7 +461,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                 handleBrowseFile={handleBrowseFile}
               />
 
-              {isCheckingFile ? (
+              {!!isCheckingFile && (
                 <Card className="mt-3">
                   <CardContent className="pt-4">
                     <div className="flex items-center gap-2">
@@ -460,12 +470,12 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                     </div>
                   </CardContent>
                 </Card>
-              ) : null}
+              )}
 
-              {modelInfo ? <ModelMetadataDisplay modelInfo={modelInfo} /> : null}
+              {!!modelInfo && <ModelMetadataDisplay modelInfo={modelInfo} />}
 
               {/* Vision Projector (mmproj) - checkbox + file input */}
-              {modelPath && fileExists === true ? (
+              {!!modelPath && fileExists === true && (
                 <div className="mt-3 space-y-2">
                   <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
                     <input
@@ -486,7 +496,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                     <span className="font-medium">Vision Projector (mmproj)</span>
                   </label>
 
-                  {mmprojEnabled ? (
+                  {!!mmprojEnabled && (
                     <div className="space-y-1.5 pl-6">
                       <div className="relative">
                         <button
@@ -500,19 +510,20 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                           } cursor-pointer hover:bg-accent/50 transition-colors`}
                         >
                           <FolderOpen className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-                          {mmprojPath ? (
+                          {!!mmprojPath && (
                             <span className="font-mono text-xs truncate">{mmprojPath}</span>
-                          ) : (
+                          )}
+                          {!mmprojPath && (
                             <span className="text-muted-foreground text-xs">
                               Click to select mmproj .gguf file...
                             </span>
                           )}
                         </button>
-                        {mmprojPath ? (
+                        {!!mmprojPath && (
                           <div className="absolute right-2 top-1/2 transform -translate-y-1/2 pointer-events-none">
                             <CheckCircle className="h-3.5 w-3.5 text-green-500" />
                           </div>
-                        ) : null}
+                        )}
                       </div>
                       {(() => {
                         const autoFile = modelInfo?.mmproj_files?.find(
@@ -535,14 +546,14 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                         return null;
                       })()}
                     </div>
-                  ) : null}
+                  )}
                 </div>
-              ) : null}
+              )}
             </CardContent>
           </Card>
 
           {/* Configuration Options - Only show when model is valid */}
-          {modelPath && fileExists === true ? (
+          {!!modelPath && fileExists === true && (
             <Card>
               <CardHeader className="p-0">
                 <button
@@ -555,16 +566,17 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                   data-testid="config-expand-button"
                 >
                   <CardTitle className="text-sm flex items-center gap-2 text-white">
-                    {isConfigExpanded ? (
+                    {!!isConfigExpanded && (
                       <ChevronDown className="h-5 w-5 text-white stroke-[3]" />
-                    ) : (
+                    )}
+                    {!isConfigExpanded && (
                       <ChevronRight className="h-5 w-5 text-white stroke-[3]" />
                     )}
                     Model Configurations
                   </CardTitle>
                 </button>
               </CardHeader>
-              {isConfigExpanded ? (
+              {!!isConfigExpanded && (
                 <CardContent className="space-y-4 pt-6">
                   {/* Backend detection — shows GPU badges and warns when
                       NVIDIA hardware is detected but the CUDA backend isn't
@@ -572,7 +584,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                       it shows "No GPU backend detected" so the user knows
                       why all layers will run on CPU. */}
                   {/* Memory Visualization - Real-time VRAM/RAM usage (includes GPU layers slider) */}
-                  {modelInfo ? (
+                  {!!modelInfo && (
                     <MemoryVisualization
                       memory={memoryBreakdown}
                       overheadGb={overheadGb}
@@ -586,7 +598,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                       systemPromptTokens={modelStatus.system_prompt_tokens}
                       toolDefinitionsTokens={modelStatus.tool_definitions_tokens}
                     />
-                  ) : null}
+                  )}
 
                   <ModelConfigSystemPrompt
                     systemPromptMode={systemPromptMode}
@@ -618,29 +630,34 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                     }
                   />
                 </CardContent>
-              ) : null}
+              )}
             </Card>
-          ) : null}
+          )}
         </div>
 
         <DialogFooter className="px-6 py-4 border-t">
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button
-            data-testid="load-model-button"
-            onClick={handleSave}
-            disabled={!modelPath.trim() || isCheckingFile}
-          >
-            {isCheckingFile ? (
+          {(() => {
+            const buttonContent = isCheckingFile ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
                 Reading file...
               </>
             ) : (
               'Load Model'
-            )}
-          </Button>
+            );
+            return (
+              <Button
+                data-testid="load-model-button"
+                onClick={handleSave}
+                disabled={!modelPath.trim() || isCheckingFile}
+              >
+                {buttonContent}
+              </Button>
+            );
+          })()}
         </DialogFooter>
       </DialogContent>
     </Dialog>

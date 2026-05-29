@@ -198,8 +198,9 @@ function handleWsUpdate(
 
   setIsLoading(false);
 
-  if (message.tokens_used !== undefined && message.tokens_used !== null) {
-    setTokensUsed(message.tokens_used);
+  if (message.tokens_used !== undefined) {
+    // null means "not yet known" — show 0 so the stats bar at least renders with the context ceiling
+    setTokensUsed(message.tokens_used ?? 0);
   }
   if (message.max_tokens !== undefined && message.max_tokens !== null) {
     setMaxTokens(message.max_tokens);
@@ -222,6 +223,7 @@ export function useConversationWatcher({
   setMaxTokens,
   setIsLoading,
 }: UseConversationWatcherOptions) {
+  // eslint-disable-next-line react-hooks/purity
   const lastWsUpdateAtRef = useRef<number>(Date.now());
   const lastPolledAssistantContentRef = useRef<string>('');
   const stablePollsRef = useRef(0);

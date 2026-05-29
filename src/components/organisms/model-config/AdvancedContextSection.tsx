@@ -231,63 +231,66 @@ export const AdvancedContextSection: React.FC<AdvancedContextSectionProps> = ({
   config,
   onConfigChange,
   supportsThinking,
-}) => (
-  <div className="flex flex-wrap gap-3">
-    <KvCacheGroup config={config} onConfigChange={onConfigChange} />
-    {supportsThinking ? (
-      <ParamGroup title="Thinking">
-        <Toggle
-          label={config.thinking_mode === false ? 'Disabled' : 'Enabled'}
-          checked={config.thinking_mode !== false}
-          onChange={(v) => onConfigChange('thinking_mode', v ? null : false)}
+}) => {
+  const thinkingLabel = config.thinking_mode === false ? 'Disabled' : 'Enabled';
+  return (
+    <div className="flex flex-wrap gap-3">
+      <KvCacheGroup config={config} onConfigChange={onConfigChange} />
+      {!!supportsThinking && (
+        <ParamGroup title="Thinking">
+          <Toggle
+            label={thinkingLabel}
+            checked={config.thinking_mode !== false}
+            onChange={(v) => onConfigChange('thinking_mode', v ? null : false)}
+          />
+        </ParamGroup>
+      )}
+      <ParamGroup title="Batch">
+        <div className="flex gap-1">
+          {BATCH_PRESETS.map((size) => (
+            <button
+              key={size}
+              type="button"
+              className={`px-2.5 py-0.5 text-xs rounded border transition-colors ${
+                (config.n_batch ?? BATCH_SIZE_2048) === size
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'bg-background hover:bg-muted border-border'
+              }`}
+              onClick={() => onConfigChange('n_batch', size)}
+            >
+              {size}
+            </button>
+          ))}
+        </div>
+        <NumInput
+          label="uBatch"
+          value={config.n_ubatch ?? BATCH_SIZE_512}
+          onChange={(v) => onConfigChange('n_ubatch', v)}
+          min={32}
+          max={8192}
+          step={64}
+          integer
         />
       </ParamGroup>
-    ) : null}
-    <ParamGroup title="Batch">
-      <div className="flex gap-1">
-        {BATCH_PRESETS.map((size) => (
-          <button
-            key={size}
-            type="button"
-            className={`px-2.5 py-0.5 text-xs rounded border transition-colors ${
-              (config.n_batch ?? BATCH_SIZE_2048) === size
-                ? 'bg-primary text-primary-foreground border-primary'
-                : 'bg-background hover:bg-muted border-border'
-            }`}
-            onClick={() => onConfigChange('n_batch', size)}
-          >
-            {size}
-          </button>
-        ))}
-      </div>
-      <NumInput
-        label="uBatch"
-        value={config.n_ubatch ?? BATCH_SIZE_512}
-        onChange={(v) => onConfigChange('n_ubatch', v)}
-        min={32}
-        max={8192}
-        step={64}
-        integer
-      />
-    </ParamGroup>
-    <ParamGroup title="Context">
-      <NumInput
-        label="RoPE Base"
-        value={config.rope_freq_base ?? 0}
-        onChange={(v) => onConfigChange('rope_freq_base', v)}
-        min={0}
-        max={10000000}
-        step={1000}
-      />
-      <NumInput
-        label="RoPE Scale"
-        value={config.rope_freq_scale ?? 0}
-        onChange={(v) => onConfigChange('rope_freq_scale', v)}
-        min={0}
-        max={32}
-        step={0.1}
-      />
-    </ParamGroup>
-    <HardwareGroup config={config} onConfigChange={onConfigChange} />
-  </div>
-);
+      <ParamGroup title="Context">
+        <NumInput
+          label="RoPE Base"
+          value={config.rope_freq_base ?? 0}
+          onChange={(v) => onConfigChange('rope_freq_base', v)}
+          min={0}
+          max={10000000}
+          step={1000}
+        />
+        <NumInput
+          label="RoPE Scale"
+          value={config.rope_freq_scale ?? 0}
+          onChange={(v) => onConfigChange('rope_freq_scale', v)}
+          min={0}
+          max={32}
+          step={0.1}
+        />
+      </ParamGroup>
+      <HardwareGroup config={config} onConfigChange={onConfigChange} />
+    </div>
+  );
+};

@@ -104,6 +104,7 @@ export const McpSettingsSection: React.FC = () => {
   };
 
   const getStatus = (id: string) => statuses.find((s) => s.id === id);
+  const refreshLabel = isRefreshing ? 'Refreshing...' : 'Refresh';
 
   return (
     <div className="space-y-3">
@@ -119,7 +120,7 @@ export const McpSettingsSection: React.FC = () => {
             disabled={isRefreshing}
           >
             <RefreshCw className={`h-3 w-3 ${isRefreshing ? 'animate-spin' : ''}`} />
-            {isRefreshing ? 'Refreshing...' : 'Refresh'}
+            {refreshLabel}
           </button>
           <button
             className="flat-button bg-muted px-3 py-1 text-xs flex items-center gap-1"
@@ -137,7 +138,7 @@ export const McpSettingsSection: React.FC = () => {
       </p>
 
       {/* Add Server Form */}
-      {showAddForm ? (
+      {!!showAddForm && (
         <div className="space-y-2 p-3 rounded-lg border border-border bg-muted/50">
           <div className="space-y-1">
             <label htmlFor="mcp-server-name" className="text-xs font-medium text-foreground">
@@ -167,7 +168,7 @@ export const McpSettingsSection: React.FC = () => {
             </select>
           </div>
 
-          {formTransport === 'Stdio' ? (
+          {formTransport === 'Stdio' && (
             <>
               <div className="space-y-1">
                 <label htmlFor="mcp-command" className="text-xs font-medium text-foreground">
@@ -194,7 +195,8 @@ export const McpSettingsSection: React.FC = () => {
                 />
               </div>
             </>
-          ) : (
+          )}
+          {formTransport !== 'Stdio' && (
             <div className="space-y-1">
               <label htmlFor="mcp-url" className="text-xs font-medium text-foreground">
                 URL
@@ -224,7 +226,7 @@ export const McpSettingsSection: React.FC = () => {
             </button>
           </div>
         </div>
-      ) : null}
+      )}
 
       {/* Server List */}
       {servers.length === 0 && !showAddForm && (
@@ -240,6 +242,14 @@ export const McpSettingsSection: React.FC = () => {
             ? `${server.transport.command} ${server.transport.args.join(' ')}`
             : server.transport.url;
 
+        const toggleIcon = server.enabled ? (
+          <ToggleRight className="h-4 w-4 text-green-500" />
+        ) : (
+          <ToggleLeft className="h-4 w-4" />
+        );
+        const toggleTitle = server.enabled ? 'Disable' : 'Enable';
+        const toolCountSuffix = status && status.tool_count !== 1 ? 's' : '';
+
         return (
           <div
             key={server.id}
@@ -248,32 +258,28 @@ export const McpSettingsSection: React.FC = () => {
             <button
               className="mt-0.5 text-muted-foreground hover:text-foreground"
               onClick={() => handleToggle(server)}
-              title={server.enabled ? 'Disable' : 'Enable'}
+              title={toggleTitle}
             >
-              {server.enabled ? (
-                <ToggleRight className="h-4 w-4 text-green-500" />
-              ) : (
-                <ToggleLeft className="h-4 w-4" />
-              )}
+              {toggleIcon}
             </button>
 
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-foreground">{server.name}</span>
-                {status ? (
+                {!!status && (
                   <span className="text-xs text-green-500">
-                    {status.tool_count} tool{status.tool_count !== 1 ? 's' : ''}
+                    {status.tool_count} tool{toolCountSuffix}
                   </span>
-                ) : null}
+                )}
               </div>
               <div className="text-xs text-muted-foreground truncate" title={transportLabel}>
                 {server.transport.type}: {transportLabel}
               </div>
-              {status && status.tools.length > 0 ? (
+              {!!status && status.tools.length > 0 && (
                 <div className="text-xs text-muted-foreground mt-1">
                   Tools: {status.tools.map((t) => t.replace(/^mcp__[^_]+__/, '')).join(', ')}
                 </div>
-              ) : null}
+              )}
             </div>
 
             <button

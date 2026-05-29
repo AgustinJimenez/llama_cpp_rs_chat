@@ -39,6 +39,7 @@ export const TokenBreakdownPopover = ({
   }, [open]);
 
   const free = maxTokens - tokensUsed;
+  const freePct = maxTokens > 0 ? ((free / maxTokens) * 100).toFixed(1) : '0.0';
 
   return (
     <div ref={ref} className="relative inline-flex">
@@ -50,7 +51,7 @@ export const TokenBreakdownPopover = ({
         <Database className="h-3 w-3" />
         {formatNumber(tokensUsed)}/{formatNumber(maxTokens)}
       </button>
-      {open ? (
+      {!!open && (
         <div className="absolute bottom-full mb-2 right-0 w-72 bg-card border border-border rounded-lg shadow-xl p-3 z-50">
           <div className="text-xs font-semibold text-foreground mb-2">Context Usage</div>
           {/* Stacked bar */}
@@ -91,12 +92,10 @@ export const TokenBreakdownPopover = ({
             <div className="w-2 h-2 rounded-full flex-shrink-0 bg-muted-foreground" />
             <span className="text-muted-foreground flex-1">Free</span>
             <span className="text-foreground/80 tabular-nums">{formatNumber(free)}</span>
-            <span className="text-muted-foreground w-12 text-right tabular-nums">
-              {maxTokens > 0 ? ((free / maxTokens) * 100).toFixed(1) : '0.0'}%
-            </span>
+            <span className="text-muted-foreground w-12 text-right tabular-nums">{freePct}%</span>
           </div>
         </div>
-      ) : null}
+      )}
     </div>
   );
 };

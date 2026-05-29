@@ -213,6 +213,61 @@ pub(crate) fn run_generation_loop(
                     "EOS token detected at position {} (in_exec_block: {})",
                     gen.total_tokens_generated, gen.exec_tracker.is_inside()
                 );
+
+                // Inline EOS interception: for agentic turns (tool calls were made),
+                // ask the model if the response is complete. If not, it returns the
+                // next few tokens directly — we inject those and continue seamlessly.
+                // Cap at 3 retries to avoid infinite loops.
+                if gen.tool_response_tokens > 0 && gen.eos_continue_count < 3 {
+                    let check = super::sub_checks::inline_eos_probe(
+                        model, context,
+                        gen.token_pos, cfg.conversation_id,
+                    );
+
+                    if !check.is_complete && !check.continuation_tokens.is_empty() {
+                        gen.eos_continue_count += 1;
+
+                        // Push continuation text to response and stream it
+                        gen.response.push_str(&check.continuation_text);
+                        if let Some(ref sender) = token_sender {
+                            let _ = sender.send(TokenData {
+                                token: check.continuation_text.clone(),
+                                tokens_used: gen.token_pos,
+                                max_tokens: cfg.context_size as i32,
+                                ..Default::default()
+                            });
+                        }
+
+                        // Inject continuation tokens into the main KV cache
+                        let mut injection_ok = true;
+                        for &cont_tok in &check.continuation_tokens {
+                            batch.clear();
+                            if batch.add(cont_tok, gen.token_pos, &[0], true).is_err() {
+                                injection_ok = false; break;
+                            }
+                            if context.decode(batch).is_err() {
+                                injection_ok = false; break;
+                            }
+                            gen.token_pos += 1;
+                            gen.total_tokens_generated += 1;
+                        }
+
+                        if injection_ok {
+                            watchdog.ping();
+                            stall_checkpoint = Instant::now();
+                            continue 'token; // resume generation from continuation
+                        }
+                        // If injection failed, fall through and accept EOS below
+                        log_event(cfg.conversation_id, "eos_inject_failed", "KV injection error — accepting EOS");
+                    }
+                } else if gen.eos_continue_count >= 3 {
+                    log_event(cfg.conversation_id, "eos_accept", &format!(
+                        "max retries ({}) reached", gen.eos_continue_count
+                    ));
+                    log_info!(cfg.conversation_id, "⚠️ EOS accepted: max continuation retries reached");
+                }
+
+                // Accept EOS — end generation
                 #[allow(deprecated)]
                 if let Ok(eos_str) = model.token_to_str(next_token, Special::Tokenize) {
                     gen.response.push_str(&eos_str);
@@ -565,21 +620,6 @@ pub(crate) fn run_generation_loop(
         } // 'token
 
         if hit_stop_condition {
-            // If the model stopped immediately after a tool call without generating
-            // any meaningful text (< 20 chars since last tool injection), force a
-            // yn_continue so the model writes its final response to the user.
-            // This handles models that emit EOS/<|im_end|> right after "terminal"
-            // tool calls like browser_close instead of continuing with a summary.
-            if !gen.recent_commands.is_empty()
-                && gen.finish_reason.is_empty()
-                && gen.response.len().saturating_sub(gen.last_exec_scan_pos) < 20
-            {
-                eprintln!(
-                    "[TOKEN_LOOP] Stopped immediately after tool call with only {} new chars — forcing yn_continue",
-                    gen.response.len().saturating_sub(gen.last_exec_scan_pos)
-                );
-                gen.finish_reason = "yn_continue".to_string();
-            }
             break;
         }
         if gen.total_tokens_generated >= cfg.max_total_tokens {

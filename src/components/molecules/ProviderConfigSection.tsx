@@ -195,7 +195,9 @@ export const ProviderConfigSection = ({ providerId }: ProviderConfigSectionProps
     [providerId, currentParams, setProviderParamsFor],
   );
 
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const handleAddOptional = useCallback(
+    // eslint-disable-next-line react-hooks/preserve-manual-memoization
     (key: string) => {
       const schema = optionalSchemas.find((s) => s.key === key);
       if (schema?.default !== undefined) {
@@ -204,6 +206,7 @@ export const ProviderConfigSection = ({ providerId }: ProviderConfigSectionProps
       setEnabledOptional((prev) => new Set(prev).add(key));
       setAddMenuOpen(false);
     },
+    // eslint-disable-next-line react-hooks/preserve-manual-memoization
     [providerId, currentParams, optionalSchemas, setProviderParamsFor],
   );
 
@@ -243,7 +246,7 @@ export const ProviderConfigSection = ({ providerId }: ProviderConfigSectionProps
             <Plus className="h-3 w-3" />
             {t('provider.addParameter')}
           </button>
-          {addMenuOpen ? (
+          {!!addMenuOpen && (
             <div className="absolute left-0 top-6 z-10 bg-card border border-border rounded-md shadow-lg py-1 min-w-[180px]">
               {availableOptional.map((s) => (
                 <button
@@ -252,13 +255,13 @@ export const ProviderConfigSection = ({ providerId }: ProviderConfigSectionProps
                   className="w-full text-left px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors"
                 >
                   {s.label}
-                  {s.description ? (
+                  {!!s.description && (
                     <span className="block text-[10px] text-muted-foreground">{s.description}</span>
-                  ) : null}
+                  )}
                 </button>
               ))}
             </div>
-          ) : null}
+          )}
         </div>
       )}
     </div>

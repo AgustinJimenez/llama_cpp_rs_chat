@@ -8,6 +8,7 @@ extern crate llama_chat_types;
 pub mod config;
 pub mod conversation;
 pub mod logger;
+pub mod agents;
 pub mod conversation_config;
 pub mod conversation_context;
 pub mod hub_downloads;

@@ -38,12 +38,14 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
   const [errorsLoading, setErrorsLoading] = useState(false);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (config) setLocalConfig(config);
   }, [config]);
 
   useEffect(() => {
     if (!isOpen || activeTab !== 'Errors') return;
     let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setErrorsLoading(true);
     const MAX_ERRORS = 150;
     getAppErrors(MAX_ERRORS)
@@ -116,30 +118,33 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
               <div className="space-y-2">
                 <span className="text-sm font-medium text-foreground">Theme</span>
                 <div className="flex gap-2">
-                  {(['dark', 'light'] as const).map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => {
-                        const html = document.documentElement;
-                        if (t === 'dark') {
-                          html.classList.add('dark');
-                        } else {
-                          html.classList.remove('dark');
-                        }
-                        localStorage.setItem('theme', t);
-                      }}
-                      className={`px-4 py-2 text-sm rounded-lg border transition-colors ${
-                        (typeof window !== 'undefined' &&
-                          document.documentElement.classList.contains('dark')) ===
-                        (t === 'dark')
-                          ? 'bg-primary text-primary-foreground border-primary'
-                          : 'bg-muted border-border text-muted-foreground hover:text-foreground'
-                      }`}
-                    >
-                      {t === 'dark' ? 'Dark' : 'Light'}
-                    </button>
-                  ))}
+                  {(['dark', 'light'] as const).map((t) => {
+                    const themeLabel = t === 'dark' ? 'Dark' : 'Light';
+                    return (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => {
+                          const html = document.documentElement;
+                          if (t === 'dark') {
+                            html.classList.add('dark');
+                          } else {
+                            html.classList.remove('dark');
+                          }
+                          localStorage.setItem('theme', t);
+                        }}
+                        className={`px-4 py-2 text-sm rounded-lg border transition-colors ${
+                          (typeof window !== 'undefined' &&
+                            document.documentElement.classList.contains('dark')) ===
+                          (t === 'dark')
+                            ? 'bg-primary text-primary-foreground border-primary'
+                            : 'bg-muted border-border text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        {themeLabel}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -271,12 +276,13 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
                 </button>
               </div>
 
-              {/* eslint-disable-next-line no-nested-ternary */}
-              {errorsLoading ? (
+              {!!errorsLoading && (
                 <div className="text-sm text-muted-foreground">Loading errors...</div>
-              ) : appErrors.length === 0 ? (
+              )}
+              {!errorsLoading && appErrors.length === 0 && (
                 <div className="text-sm text-muted-foreground">No app errors recorded.</div>
-              ) : (
+              )}
+              {!errorsLoading && appErrors.length > 0 && (
                 <div className="space-y-2">
                   {appErrors.map((error) => (
                     <div
@@ -299,11 +305,11 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
                       <div className="text-[11px] text-muted-foreground">
                         Source: {error.source}
                       </div>
-                      {error.details ? (
+                      {!!error.details && (
                         <pre className="whitespace-pre-wrap break-words text-[11px] text-foreground/80 bg-background/60 rounded p-2 overflow-x-auto">
                           {error.details}
                         </pre>
-                      ) : null}
+                      )}
                     </div>
                   ))}
                 </div>
