@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import { Database, Loader2, Square, PackageOpen, X } from 'lucide-react';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { toast } from 'react-hot-toast';
@@ -54,10 +55,12 @@ export const LiveStreamingStats = ({
   const [elapsed, setElapsed] = useState(0);
   const [tokenCount, setTokenCount] = useState(0);
   const [liveTokPerSec, setLiveTokPerSec] = useState(0);
+  // eslint-disable-next-line react-hooks/purity
   const startRef = useRef(Date.now());
   const firstTokensUsedRef = useRef<number | null>(null);
   const lastTokensRef = useRef<number>(0);
   const genTimeRef = useRef(0); // accumulated generation-only time (ms)
+  // eslint-disable-next-line react-hooks/purity
   const lastTickRef = useRef(Date.now());
   const pct = tokensUsed && maxTokens ? Math.round((tokensUsed / maxTokens) * 100) : 0;
 
@@ -65,7 +68,9 @@ export const LiveStreamingStats = ({
     startRef.current = Date.now();
     lastTickRef.current = Date.now();
     genTimeRef.current = 0;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTokenCount(0);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLiveTokPerSec(0);
     firstTokensUsedRef.current = null;
     lastTokensRef.current = 0;
@@ -99,6 +104,7 @@ export const LiveStreamingStats = ({
 
   useEffect(() => {
     if (streamStatus) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPolledStatus(undefined);
       return;
     }
@@ -126,13 +132,22 @@ export const LiveStreamingStats = ({
   const tokPerSec = liveTokPerSec > 0 ? liveTokPerSec.toFixed(1) : null;
   void elapsed; // elapsed time display moved to LoadingIndicator
 
-  if (!hasContext && !displayStatus) return null;
+  // tokenCount === 0 means we're still in prompt eval (LiveStreamingStats only mounts while loading)
+  const isPromptEval = tokenCount === 0 && !displayStatus;
+
+  if (!hasContext && !displayStatus && !isPromptEval) return null;
   return (
     <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono">
+      {/* eslint-disable-next-line no-nested-ternary */}
       {displayStatus ? (
         <span className="inline-flex items-center gap-1 text-cyan-400">
           <Loader2 className="h-3 w-3 animate-spin" />
           {displayStatus}
+        </span>
+      ) : isPromptEval ? (
+        <span className="inline-flex items-center gap-1 text-muted-foreground/60">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          Evaluating…
         </span>
       ) : null}
       {tokenCount > 0 ? (
@@ -150,11 +165,7 @@ export const LiveStreamingStats = ({
       ) : null}
       {/* Elapsed time removed — shown by LoadingIndicator below the chat bubble */}
       {hasContext ? (
-        <LiveTokenCounter
-          tokensUsed={tokensUsed ?? 0}
-          maxTokens={maxTokens ?? 0}
-          pct={pct}
-        />
+        <LiveTokenCounter tokensUsed={tokensUsed ?? 0} maxTokens={maxTokens ?? 0} pct={pct} />
       ) : null}
     </div>
   );
@@ -179,9 +190,18 @@ const CompactButton = ({
   const compacting = isCompacting || isAutoCompacting;
 
   useEffect(() => {
-    if (!compacting) { setElapsedSec(0); setPolledProgress(null); return; }
+    if (!compacting) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setElapsedSec(0);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setPolledProgress(null);
+      return;
+    }
     startRef.current = Date.now();
-    const id = setInterval(() => setElapsedSec(Math.floor((Date.now() - startRef.current) / 1000)), 1000);
+    const id = setInterval(
+      () => setElapsedSec(Math.floor((Date.now() - startRef.current) / 1000)),
+      1000,
+    );
     // Poll server progress only for manual compaction; auto uses streamStatus directly.
     if (!isAutoCompacting) {
       const pollId = setInterval(async () => {
@@ -191,14 +211,20 @@ const CompactButton = ({
             const data = await resp.json();
             if (data.status_message) setPolledProgress(data.status_message);
           }
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       }, 1000);
-      return () => { clearInterval(id); clearInterval(pollId); };
+      return () => {
+        clearInterval(id);
+        clearInterval(pollId);
+      };
     }
     return () => clearInterval(id);
   }, [compacting, isAutoCompacting]);
 
-  const fmtElapsed = (s: number) => s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${s % 60 < 10 ? '0' : ''}${s % 60}s`;
+  const fmtElapsed = (s: number) =>
+    s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${s % 60 < 10 ? '0' : ''}${s % 60}s`;
 
   const handleCompact = useCallback(async () => {
     if (compacting) return;
@@ -233,9 +259,7 @@ const CompactButton = ({
       ) : (
         <PackageOpen className="h-3 w-3" />
       )}
-      {compacting
-        ? `Compacting${pct ? ` ${pct}%` : '…'} ${fmtElapsed(elapsedSec)}`
-        : 'Compact'}
+      {compacting ? `Compacting${pct ? ` ${pct}%` : '…'} ${fmtElapsed(elapsedSec)}` : 'Compact'}
     </button>
   );
 };
@@ -284,6 +308,7 @@ function barColor(pct: number) {
   return 'bg-primary';
 }
 
+// eslint-disable-next-line complexity
 const TokenBreakdownModal = ({
   onClose,
   modelContextSize,
@@ -334,7 +359,8 @@ const TokenBreakdownModal = ({
   const compactedEst = Math.round(compactedChars / CHARS_PER_TOKEN);
   const measuredTotal =
     lastPromptTokens != null && lastGenTokens != null ? lastPromptTokens + lastGenTokens : null;
-  const estimatedTotal = systemPromptTokens + toolTokens + summaryEst + activeMsgEst + activeToolEst;
+  const estimatedTotal =
+    systemPromptTokens + toolTokens + summaryEst + activeMsgEst + activeToolEst;
   const displayTotal = measuredTotal ?? estimatedTotal;
   const freeSpace = modelContextSize - displayTotal;
   const usedPct = Math.round((displayTotal / modelContextSize) * 100);
@@ -500,9 +526,7 @@ const StatsLeft = ({
   ctxPct: number;
 }) => (
   <div className="flex-1 flex items-center gap-3 flex-wrap">
-    {timings?.genTokPerSec && !isLoading ? (
-      <MessageStatistics timings={timings} />
-    ) : null}
+    {timings?.genTokPerSec && !isLoading ? <MessageStatistics timings={timings} /> : null}
     {isLoading ? (
       <LiveStreamingStats
         tokensUsed={tokensUsed}
