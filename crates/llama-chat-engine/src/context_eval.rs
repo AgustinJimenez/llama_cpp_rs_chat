@@ -12,8 +12,6 @@ use llama_chat_types::*;
 // Constants for LLaMA configuration
 pub(crate) const CONTEXT_SIZE: u32 = 32768;
 
-pub(crate) const MODEL_PATH: &str =
-    "/app/models/lmstudio-community/granite-4.0-h-tiny-GGUF/granite-4.0-h-tiny-Q4_K_M.gguf";
 
 /// Parse a KV cache type string (from config) into the llama-cpp-2 enum.
 pub(crate) fn parse_kv_cache_type(s: &str) -> KvCacheType {

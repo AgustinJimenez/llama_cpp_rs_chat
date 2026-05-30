@@ -23,7 +23,7 @@ use llama_chat_db::event_log::log_event;
 // Re-export submodule items used by sibling modules
 pub(crate) use super::context_eval::create_fresh_context;
 
-use super::context_eval::{evaluate_text_prompt, CONTEXT_SIZE, MODEL_PATH};
+use super::context_eval::{evaluate_text_prompt, CONTEXT_SIZE};
 #[cfg(feature = "vision")]
 use super::context_eval::build_context_params;
 use super::prompt_builder::{resolve_tool_tags, snapshot_context_overhead};
@@ -70,13 +70,30 @@ pub async fn generate_llama_response(
     }
 
     let config = load_config_for_conversation(&db, &conversation_id);
-    let model_path = config.model_path.as_deref().unwrap_or(MODEL_PATH);
     let stop_tokens = config
         .stop_tokens
         .clone()
         .unwrap_or_else(get_common_stop_tokens);
 
-    load_model(llama_state.clone(), model_path, None, None, None, None).await?;
+    // Determine model path: prefer conversation/agent config; fall back to
+    // whatever is currently loaded rather than a hardcoded default.
+    let model_path_owned: String;
+    let (model_path, need_load): (&str, bool) = match config.model_path.as_deref() {
+        Some(path) => (path, true),
+        None => {
+            let state_guard = llama_state
+                .lock()
+                .map_err(|_| "Failed to lock LLaMA state")?;
+            let current = state_guard.as_ref().and_then(|s| s.current_model_path.clone());
+            drop(state_guard);
+            model_path_owned = current
+                .ok_or_else(|| "No model loaded and no model configured for this conversation".to_string())?;
+            (&model_path_owned, false)
+        }
+    };
+    if need_load {
+        load_model(llama_state.clone(), model_path, None, None, None, None).await?;
+    }
 
     let mut state_guard = llama_state
         .lock()
