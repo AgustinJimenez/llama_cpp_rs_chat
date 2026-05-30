@@ -168,3 +168,50 @@ Most conversations will have `overrides = NULL` (pure agent config).
 - **Multiple simultaneous agents** already works — each conversation has its own worker process.
 - **Backward compat** — existing DBs without `agents` table get auto-migrated on first launch.
 - **`config` table** stays as app-level settings only; no sampler params.
+
+---
+
+# Code Quality Backlog
+
+Improvements similar to the JSX ternary ban (add ESLint rule + fix all violations).
+
+## High Impact
+
+### 1. `react/no-unstable-nested-components` → error
+Components defined inside render reset their state on every render (real correctness bug, not just style).
+Currently `warn`. Upgrade to `error` and move inline component definitions outside their parent.
+Example: `SectionHeader` was defined inside `ProviderSelector` render body.
+
+### 2. `@typescript-eslint/no-explicit-any` → error
+Currently `warn`. Forces `unknown` or proper types — catches real bugs at the type level.
+~20-40 uses across the codebase to fix.
+
+### 3. Ban `react/jsx-no-bind` (inline arrow functions on event handlers)
+`onClick={() => doSomething(arg)}` creates a new function on every render.
+Rule: `'react/jsx-no-bind': ['warn', { allowArrowFunctions: false }]`
+Requires extracting to `useCallback` or named handlers defined outside JSX.
+
+## Medium Impact
+
+### 4. `no-nested-ternary` → error (everywhere)
+We banned JSX ternaries but `no-nested-ternary` is still `warn` for regular JS.
+Same principle: extract nested ternaries to variables or if/else blocks.
+
+### 5. `jsx-a11y` rules → error
+All accessibility rules are currently `warn`. Upgrading forces real structural fixes
+(missing ARIA labels, keyboard nav, label associations). Relevant since the app
+has desktop-tool and agent use cases where keyboard nav matters.
+
+### 6. `import/no-default-export`
+Most components already use named exports. Enforcing named-only improves
+tree-shaking and makes imports predictable (no guessing the export name).
+
+## Low Effort, Cleanup Value
+
+### 7. `@typescript-eslint/consistent-type-imports` → error
+Currently `warn`. Ensures `import type` is used for type-only imports — better
+for build performance and avoids accidental value imports.
+
+### 8. `no-console` → error
+Currently allows `console.warn` and `console.error`. Strict enforcement removes
+debug noise; all logging should go through a structured logger or be removed.
