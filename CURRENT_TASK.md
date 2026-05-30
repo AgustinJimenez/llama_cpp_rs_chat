@@ -142,8 +142,7 @@ Most conversations will have `overrides = NULL` (pure agent config).
 - [x] `DELETE /api/agents/:id`
 - [x] `POST /conversations/:id/agent`
 - [x] `PATCH /conversations/:id/overrides`
-- [ ] **Wire routes into HTTP router** — handlers exist in `routes/agents.rs` but `routes/mod.rs` doesn't
-  dispatch requests to them yet, so all agent API calls return 404
+- [x] **Wire routes into HTTP router** — all agent routes dispatched in `src/main_web.rs` (lines 351–379)
 
 ### Step 3 — Wire config resolution
 - [ ] **Call `load_effective_config()` in the engine** — this is the core of the whole migration: without it,
