@@ -4,6 +4,11 @@ import type { Agent } from '../types';
 
 type AgentPayload = Partial<Agent> & { name: string; provider_id: string };
 
+export type AgentStatus = {
+  status: 'idle' | 'active' | 'generating';
+  worker_id?: string;
+};
+
 async function parseJsonResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const body = await response.json().catch(() => null);
@@ -46,6 +51,25 @@ async function deleteAgentRequest(id: string): Promise<void> {
   await parseJsonResponse(response);
 }
 
+async function fetchAgentStatusesRequest(): Promise<Record<string, AgentStatus>> {
+  const response = await fetch('/api/agents/statuses');
+  return parseJsonResponse<Record<string, AgentStatus>>(response);
+}
+
+async function activateAgentRequest(id: string): Promise<AgentStatus> {
+  const response = await fetch(`/api/agents/${encodeURIComponent(id)}/activate`, {
+    method: 'POST',
+  });
+  return parseJsonResponse<AgentStatus>(response);
+}
+
+async function stopAgentRequest(id: string): Promise<void> {
+  const response = await fetch(`/api/agents/${encodeURIComponent(id)}/stop`, {
+    method: 'POST',
+  });
+  await parseJsonResponse(response);
+}
+
 async function getConversationAgentRequest(conversationId: string): Promise<Agent | null> {
   const response = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/agent`);
   const body = await parseJsonResponse<{ agent: Agent | null }>(response);
@@ -76,6 +100,11 @@ interface AgentContextValue {
   createAgent: (agent: AgentPayload) => Promise<Agent>;
   updateAgent: (id: string, agent: AgentPayload) => Promise<void>;
   deleteAgent: (id: string) => Promise<void>;
+  /** Live status for each agent (idle / active / generating). */
+  agentStatuses: Record<string, AgentStatus>;
+  fetchAgentStatuses: () => Promise<void>;
+  activateAgent: (id: string) => Promise<void>;
+  stopAgent: (id: string) => Promise<void>;
 }
 
 const AgentContext = createContext<AgentContextValue | null>(null);
@@ -84,6 +113,7 @@ export const AgentProvider = ({ children }: { children: ReactNode }) => {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [activeConversationAgent, setActiveConversationAgent] = useState<Agent | null>(null);
   const [stagedAgent, setStagedAgent] = useState<Agent | null>(null);
+  const [agentStatuses, setAgentStatuses] = useState<Record<string, AgentStatus>>({});
 
   const loadAgents = useCallback(async () => {
     const list = await listAgentsRequest();
@@ -126,6 +156,31 @@ export const AgentProvider = ({ children }: { children: ReactNode }) => {
     await deleteAgentRequest(id);
     setAgents((prev) => prev.filter((a) => a.id !== id));
     setActiveConversationAgent((prev) => (prev?.id === id ? null : prev));
+    setAgentStatuses((prev) => {
+      const { [id]: _removed, ...rest } = prev;
+      return rest;
+    });
+  }, []);
+
+  const fetchAgentStatuses = useCallback(async () => {
+    const statuses = await fetchAgentStatusesRequest();
+    setAgentStatuses(statuses);
+  }, []);
+
+  const activateAgent = useCallback(async (id: string) => {
+    setAgentStatuses((prev) => ({ ...prev, [id]: { status: 'active' } }));
+    try {
+      const result = await activateAgentRequest(id);
+      setAgentStatuses((prev) => ({ ...prev, [id]: result }));
+    } catch (err) {
+      setAgentStatuses((prev) => ({ ...prev, [id]: { status: 'idle' } }));
+      throw err;
+    }
+  }, []);
+
+  const stopAgent = useCallback(async (id: string) => {
+    await stopAgentRequest(id);
+    setAgentStatuses((prev) => ({ ...prev, [id]: { status: 'idle' } }));
   }, []);
 
   const value = useMemo<AgentContextValue>(
@@ -140,6 +195,10 @@ export const AgentProvider = ({ children }: { children: ReactNode }) => {
       createAgent,
       updateAgent,
       deleteAgent,
+      agentStatuses,
+      fetchAgentStatuses,
+      activateAgent,
+      stopAgent,
     }),
     [
       agents,
@@ -152,6 +211,10 @@ export const AgentProvider = ({ children }: { children: ReactNode }) => {
       createAgent,
       updateAgent,
       deleteAgent,
+      agentStatuses,
+      fetchAgentStatuses,
+      activateAgent,
+      stopAgent,
     ],
   );
 

@@ -14,7 +14,7 @@ use uuid::Uuid;
 use crate::request_parsing::parse_json_body;
 use crate::response_helpers::{json_error, json_raw, json_success};
 #[cfg(not(feature = "mock"))]
-use crate::worker_pool::{resolve_bridge_for_conversation, WorkerPool};
+use crate::worker_pool::WorkerPool;
 
 // ─── JSON DTOs ───────────────────────────────────────────────────────────────
 
@@ -514,33 +514,23 @@ pub async fn handle_delete_agent(
 pub async fn handle_set_conversation_agent(
     req: Request<Body>,
     conversation_id: &str,
-    #[cfg(not(feature = "mock"))] pool: WorkerPool,
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     #[derive(Deserialize)]
-    struct Body {
+    struct AgentBody {
         agent_id: Option<String>,
     }
 
-    let body: Body = match parse_json_body(req.into_body()).await {
+    let body: AgentBody = match parse_json_body(req.into_body()).await {
         Ok(v) => v,
         Err(err_resp) => return Ok(err_resp),
     };
 
-    let agent = if let Some(ref aid) = body.agent_id {
+    if let Some(ref aid) = body.agent_id {
         match db.get_agent(aid) {
             Ok(None) => return Ok(json_error(StatusCode::NOT_FOUND, "Agent not found")),
             Err(e) => return Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &e)),
-            Ok(Some(agent)) => Some(agent),
-        }
-    } else {
-        None
-    };
-
-    #[cfg(not(feature = "mock"))]
-    if let Some(ref agent) = agent {
-        if let Err(e) = reload_worker_for_agent_switch(&pool, &db, conversation_id, agent).await {
-            return Ok(json_error(StatusCode::CONFLICT, &e));
+            Ok(Some(_)) => {}
         }
     }
 
@@ -548,38 +538,6 @@ pub async fn handle_set_conversation_agent(
         Ok(()) => Ok(json_success("Conversation agent updated")),
         Err(e) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &e)),
     }
-}
-
-#[cfg(not(feature = "mock"))]
-async fn reload_worker_for_agent_switch(
-    pool: &WorkerPool,
-    db: &SharedDatabase,
-    conversation_id: &str,
-    agent: &AgentRecord,
-) -> Result<(), String> {
-    let bridge = resolve_bridge_for_conversation(pool, db, Some(conversation_id))?;
-    if bridge.is_generating().await {
-        return Err("Cannot switch agent while this worker is generating".to_string());
-    }
-
-    if agent.provider_id == "local" {
-        let Some(model_path) = agent
-            .model_path
-            .as_deref()
-            .map(str::trim)
-            .filter(|p| !p.is_empty())
-        else {
-            return Err("Local agent has no model_path configured".to_string());
-        };
-        let gpu_layers = u32::try_from(agent.main_gpu)
-            .ok()
-            .filter(|layers| *layers > 0);
-        bridge.load_model(model_path, gpu_layers, None).await?;
-    } else if bridge.model_status().await.is_some() {
-        bridge.force_unload().await?;
-    }
-
-    Ok(())
 }
 
 /// PATCH /api/conversations/:id/overrides — update per-conversation param overrides
@@ -667,6 +625,121 @@ pub async fn handle_get_conversation_agent(
 
     let json = AgentJson::from(agent);
     match serde_json::to_string(&serde_json::json!({ "agent": json })) {
+        Ok(s) => Ok(json_raw(StatusCode::OK, s)),
+        Err(e) => Ok(json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Serialize error: {e}"),
+        )),
+    }
+}
+
+// ─── Agent lifecycle: activate / stop / statuses ─────────────────────────────
+
+/// POST /api/agents/:id/activate
+///
+/// For local agents: spawns a dedicated worker process and loads the model.
+/// For remote agents: no-op (remote providers are stateless).
+/// Returns `{"status": "active"|"idle", "worker_id": "..."}`.
+#[cfg(not(feature = "mock"))]
+pub async fn handle_activate_agent(
+    id: &str,
+    pool: WorkerPool,
+    db: SharedDatabase,
+) -> Result<Response<Body>, Infallible> {
+    let agent = match db.get_agent(id) {
+        Ok(Some(a)) => a,
+        Ok(None) => return Ok(json_error(StatusCode::NOT_FOUND, "Agent not found")),
+        Err(e) => return Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &e)),
+    };
+
+    if agent.provider_id != "local" {
+        // Remote/CLI agents don't need a worker process.
+        let s = serde_json::json!({ "status": "active" }).to_string();
+        return Ok(json_raw(StatusCode::OK, s));
+    }
+
+    // Already activated?
+    if let Some(existing_worker_id) = pool.get_worker_for_agent(id) {
+        let s = serde_json::json!({ "status": "active", "worker_id": existing_worker_id }).to_string();
+        return Ok(json_raw(StatusCode::OK, s));
+    }
+
+    let Some(model_path) = agent.model_path.as_deref().map(str::trim).filter(|p| !p.is_empty()) else {
+        return Ok(json_error(StatusCode::BAD_REQUEST, "Agent has no model_path configured"));
+    };
+
+    let gpu_layers = u32::try_from(agent.main_gpu).ok().filter(|&l| l > 0);
+
+    match pool.spawn_worker_for_agent(id, model_path, gpu_layers, None).await {
+        Ok(worker_id) => {
+            let s = serde_json::json!({ "status": "active", "worker_id": worker_id }).to_string();
+            Ok(json_raw(StatusCode::CREATED, s))
+        }
+        Err(e) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &e)),
+    }
+}
+
+/// POST /api/agents/:id/stop
+///
+/// Stops the dedicated worker for a local agent and releases its resources.
+#[cfg(not(feature = "mock"))]
+pub async fn handle_stop_agent(
+    id: &str,
+    pool: WorkerPool,
+    db: SharedDatabase,
+) -> Result<Response<Body>, Infallible> {
+    let agent = match db.get_agent(id) {
+        Ok(Some(a)) => a,
+        Ok(None) => return Ok(json_error(StatusCode::NOT_FOUND, "Agent not found")),
+        Err(e) => return Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &e)),
+    };
+
+    if agent.provider_id != "local" {
+        return Ok(json_success("Remote agents do not have a worker to stop"));
+    }
+
+    match pool.stop_agent_worker(id).await {
+        Ok(()) => Ok(json_success("Agent stopped")),
+        Err(e) => Ok(json_error(StatusCode::BAD_REQUEST, &e)),
+    }
+}
+
+/// GET /api/agents/statuses
+///
+/// Returns a map of agent_id → `{status, worker_id?}` for all agents.
+/// Status values: `"idle"` | `"active"` | `"generating"`.
+#[cfg(not(feature = "mock"))]
+pub async fn handle_get_agent_statuses(
+    pool: WorkerPool,
+    db: SharedDatabase,
+) -> Result<Response<Body>, Infallible> {
+    let agents = match db.list_agents() {
+        Ok(a) => a,
+        Err(e) => return Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &e)),
+    };
+
+    let mut statuses = serde_json::Map::new();
+
+    for agent in &agents {
+        let entry = if agent.provider_id != "local" {
+            // Remote agents are always "active" (no dedicated process needed).
+            serde_json::json!({ "status": "active" })
+        } else if let Some(worker_id) = pool.get_worker_for_agent(&agent.id) {
+            let is_generating = match pool.get(&worker_id) {
+                Some(bridge) => bridge.is_generating().await,
+                None => false,
+            };
+
+            let status = if is_generating { "generating" } else { "active" };
+            serde_json::json!({ "status": status, "worker_id": worker_id })
+        } else {
+            serde_json::json!({ "status": "idle" })
+        };
+
+        statuses.insert(agent.id.clone(), entry);
+    }
+
+    match serde_json::to_string(&statuses) {
         Ok(s) => Ok(json_raw(StatusCode::OK, s)),
         Err(e) => Ok(json_error(
             StatusCode::INTERNAL_SERVER_ERROR,

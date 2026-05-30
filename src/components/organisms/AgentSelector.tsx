@@ -6,6 +6,8 @@ import {
   Plus,
   Pencil,
   Play,
+  Power,
+  PowerOff,
   Trash2,
   X,
   ChevronLeft,
@@ -138,10 +140,15 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
     createAgent,
     updateAgent,
     deleteAgent,
+    agentStatuses,
+    fetchAgentStatuses,
+    activateAgent,
+    stopAgent,
   } = useAgentContext();
 
   // ── Navigation ────────────────────────────────────────────────────────────
   const [view, setView] = useState<'list' | 'pick' | 'config'>('list');
+  const [togglingAgentId, setTogglingAgentId] = useState<string | null>(null);
   const [providerMode, setProviderMode] = useState<ProviderMode | null>(null);
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
 
@@ -238,6 +245,7 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
   useEffect(() => {
     if (!isOpen) return;
     loadAgents().catch(() => {});
+    fetchAgentStatuses().catch(() => {});
     const loadFormData = async () => {
       const history = await getModelHistory().catch(() => []);
       setModelHistory(history);
@@ -273,7 +281,7 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
       setApiKeyInputs(parseApiKeys(keys));
     };
     loadFormData().catch(() => {});
-  }, [isOpen, loadAgents]);
+  }, [isOpen, loadAgents, fetchAgentStatuses]);
 
   // ── Reset on close ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -281,6 +289,7 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
       setView('list');
       setProviderMode(null);
       setEditingAgent(null);
+      setTogglingAgentId(null);
       setAgentName('');
       setModelPath('');
       setProviderId('local');
@@ -657,6 +666,23 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
     }
   };
 
+  const handleToggleAgent = async (agent: Agent) => {
+    const currentStatus = agentStatuses[agent.id]?.status ?? 'idle';
+    setTogglingAgentId(agent.id);
+    try {
+      if (currentStatus === 'idle') {
+        await activateAgent(agent.id);
+      } else {
+        await stopAgent(agent.id);
+      }
+      await fetchAgentStatuses();
+    } catch {
+      toast.error(currentStatus === 'idle' ? 'Failed to activate agent' : 'Failed to stop agent');
+    } finally {
+      setTogglingAgentId(null);
+    }
+  };
+
   const handleDelete = async (id: string) => {
     if (confirmDeleteId !== id) {
       setConfirmDeleteId(id);
@@ -839,30 +865,44 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
               )}
               {agents.length > 0 &&
                 agents.map((agent) => {
-                  const isGeneratingForConversation =
-                    modelStatus.generating === true &&
-                    modelStatus.active_conversation_id != null &&
-                    modelStatus.active_conversation_id === conversationId &&
-                    agent.model_path != null &&
-                    modelStatus.model_path === agent.model_path;
-                  const isActive = isGeneratingForConversation;
+                  const agentStatus = agentStatuses[agent.id]?.status ?? 'idle';
+                  const isRunning = agentStatus === 'active' || agentStatus === 'generating';
+                  const isToggling = togglingAgentId === agent.id;
+                  let statusDotClass = 'bg-muted-foreground/30';
+                  if (agentStatus === 'generating') statusDotClass = 'bg-amber-400 animate-pulse';
+                  else if (isRunning) statusDotClass = 'bg-emerald-400';
+
+                  let toggleIcon = <Power className="h-4 w-4" />;
+                  if (isToggling) toggleIcon = <Loader2 className="h-4 w-4 animate-spin" />;
+                  else if (isRunning) toggleIcon = <PowerOff className="h-4 w-4" />;
                   const isConfirmDelete = confirmDeleteId === agent.id;
                   const deleteTitle = isConfirmDelete
                     ? 'Click again to confirm delete'
                     : 'Delete agent';
+                  const toggleTitle = isRunning ? 'Stop agent' : 'Activate agent';
+
                   return (
                     <div
                       key={agent.id}
-                      className={`rounded-lg border transition-colors ${isActive ? 'border-primary bg-primary/10' : 'border-border'}`}
+                      className={`rounded-lg border transition-colors ${isRunning ? 'border-primary/50 bg-primary/5' : 'border-border'}`}
                     >
                       <div className="flex items-center gap-3 p-3">
                         {providerIcon(agent.provider_id)}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
+                            {/* Status dot */}
+                            <span
+                              className={`flex-shrink-0 h-2 w-2 rounded-full ${statusDotClass}`}
+                            />
                             <span className="font-medium text-foreground text-sm truncate">
                               {agent.name}
                             </span>
-                            {!!isActive && (
+                            {!!(agentStatus === 'generating') && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 flex-shrink-0">
+                                running
+                              </span>
+                            )}
+                            {!!(agentStatus === 'active') && (
                               <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary flex-shrink-0">
                                 active
                               </span>
@@ -873,10 +913,22 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
                           </div>
                         </div>
                         <div className="flex items-center gap-1 flex-shrink-0">
+                          {/* Activate / stop — local agents only */}
+                          {!!(agent.provider_id === 'local') && (
+                            <button
+                              onClick={() => handleToggleAgent(agent)}
+                              disabled={isToggling}
+                              title={toggleTitle}
+                              className={`p-1.5 rounded transition-colors ${isRunning ? 'text-primary hover:bg-primary/10' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
+                            >
+                              {toggleIcon}
+                            </button>
+                          )}
+                          {/* Use this agent for the current conversation */}
                           <button
                             onClick={() => handleSelect(agent)}
                             title="Use this agent"
-                            className={`p-1.5 rounded transition-colors ${isActive ? 'text-primary' : 'hover:bg-muted text-muted-foreground hover:text-foreground'}`}
+                            className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
                           >
                             <Play className="h-4 w-4" />
                           </button>

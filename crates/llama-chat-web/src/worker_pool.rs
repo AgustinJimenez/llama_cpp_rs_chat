@@ -20,6 +20,8 @@ pub struct WorkerEntry {
 #[derive(Clone)]
 pub struct WorkerPool {
     workers: Arc<RwLock<HashMap<WorkerId, WorkerEntry>>>,
+    /// Maps agent_id → worker_id for agents with dedicated workers.
+    agent_workers: Arc<RwLock<HashMap<String, WorkerId>>>,
     db_path: String,
 }
 
@@ -37,6 +39,7 @@ impl WorkerPool {
 
         Self {
             workers: Arc::new(RwLock::new(workers)),
+            agent_workers: Arc::new(RwLock::new(HashMap::new())),
             db_path: db_path.into(),
         }
     }
@@ -134,6 +137,67 @@ impl WorkerPool {
         workers.remove(worker_id);
         Ok(())
     }
+
+    // ─── Agent binding ─────────────────────────────────────────────────────
+
+    /// Bind an agent to a specific worker (creates dedicated routing for the agent).
+    pub fn bind_agent_worker(&self, agent_id: &str, worker_id: WorkerId) -> Result<(), String> {
+        self.agent_workers
+            .write()
+            .map_err(|_| "AgentWorkers lock poisoned".to_string())?
+            .insert(agent_id.to_string(), worker_id);
+        Ok(())
+    }
+
+    /// Remove the agent → worker binding (does not kill the worker).
+    pub fn unbind_agent_worker(&self, agent_id: &str) -> Result<(), String> {
+        self.agent_workers
+            .write()
+            .map_err(|_| "AgentWorkers lock poisoned".to_string())?
+            .remove(agent_id);
+        Ok(())
+    }
+
+    /// Look up the worker_id bound to an agent, if any.
+    pub fn get_worker_for_agent(&self, agent_id: &str) -> Option<WorkerId> {
+        self.agent_workers
+            .read()
+            .ok()
+            .and_then(|m| m.get(agent_id).cloned())
+    }
+
+    /// List all active agent→worker bindings.
+    pub fn list_agent_bindings(&self) -> Vec<(String, WorkerId)> {
+        self.agent_workers
+            .read()
+            .map(|m| m.iter().map(|(a, w)| (a.clone(), w.clone())).collect())
+            .unwrap_or_default()
+    }
+
+    /// Spawn a new worker, load the model, and bind it to the agent.
+    pub async fn spawn_worker_for_agent(
+        &self,
+        agent_id: &str,
+        model_path: &str,
+        gpu_layers: Option<u32>,
+        mmproj_path: Option<String>,
+    ) -> Result<WorkerId, String> {
+        let worker_id = self
+            .spawn_worker_with_options(model_path, gpu_layers, mmproj_path)
+            .await?;
+        self.bind_agent_worker(agent_id, worker_id.clone())?;
+        Ok(worker_id)
+    }
+
+    /// Stop and remove the worker bound to an agent, and unbind it.
+    pub async fn stop_agent_worker(&self, agent_id: &str) -> Result<(), String> {
+        let worker_id = self
+            .get_worker_for_agent(agent_id)
+            .ok_or_else(|| format!("Agent {agent_id} has no active worker"))?;
+
+        self.unbind_agent_worker(agent_id)?;
+        remove_worker_and_rebind_no_db(self, &worker_id).await
+    }
 }
 
 pub fn lookup_worker_id_for_conversation(
@@ -148,9 +212,29 @@ pub fn resolve_bridge_for_conversation(
     db: &SharedDatabase,
     conversation_id: Option<&str>,
 ) -> Result<SharedWorkerBridge, String> {
+    // First: if the conversation has an agent with a dedicated worker, use it.
+    if let Some(conv_id) = conversation_id {
+        if let Ok(Some(agent_id)) = db.get_conversation_agent_id(conv_id) {
+            if let Some(worker_id) = pool.get_worker_for_agent(&agent_id) {
+                if let Some(bridge) = pool.get(&worker_id) {
+                    return Ok(bridge);
+                }
+            }
+        }
+    }
+
+    // Fallback: conversation's own worker_id (legacy), then default.
     let worker_id = conversation_id.and_then(|id| lookup_worker_id_for_conversation(db, id));
     pool.get_or_default(worker_id.as_deref())
         .ok_or_else(|| "No worker bridge available".to_string())
+}
+
+/// Remove a worker from the pool without touching the DB (for agent stop).
+async fn remove_worker_and_rebind_no_db(pool: &WorkerPool, worker_id: &str) -> Result<(), String> {
+    if worker_id == "default" {
+        return Err("Default worker cannot be removed".to_string());
+    }
+    pool.remove_worker(worker_id).await
 }
 
 pub async fn remove_worker_and_rebind_conversations(

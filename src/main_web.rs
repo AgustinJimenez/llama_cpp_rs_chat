@@ -432,6 +432,10 @@ async fn handle_request_impl(
         (&Method::POST, "/api/agents") => {
             web::routes::agents::handle_create_agent(req, db.clone()).await?
         }
+        // Agent statuses — must be before /api/agents/:id catch-all
+        (&Method::GET, "/api/agents/statuses") => {
+            web::routes::agents::handle_get_agent_statuses(pool.clone(), db.clone()).await?
+        }
         (&Method::GET, path) if path.starts_with("/api/agents/") => {
             let id = &path["/api/agents/".len()..];
             web::routes::agents::handle_get_agent(id, db.clone()).await?
@@ -444,6 +448,19 @@ async fn handle_request_impl(
             let id = &path["/api/agents/".len()..];
             web::routes::agents::handle_delete_agent(id, db.clone()).await?
         }
+        // Agent lifecycle (activate/stop) — must be before /api/agents/:id PUT catch-all
+        (&Method::POST, path)
+            if path.starts_with("/api/agents/") && path.ends_with("/activate") =>
+        {
+            let id = &path["/api/agents/".len()..path.len() - "/activate".len()];
+            web::routes::agents::handle_activate_agent(id, pool.clone(), db.clone()).await?
+        }
+        (&Method::POST, path)
+            if path.starts_with("/api/agents/") && path.ends_with("/stop") =>
+        {
+            let id = &path["/api/agents/".len()..path.len() - "/stop".len()];
+            web::routes::agents::handle_stop_agent(id, pool.clone(), db.clone()).await?
+        }
         (&Method::GET, path)
             if path.starts_with("/api/conversations/") && path.ends_with("/agent") =>
         {
@@ -454,13 +471,7 @@ async fn handle_request_impl(
             if path.starts_with("/api/conversations/") && path.ends_with("/agent") =>
         {
             let conv_id = &path["/api/conversations/".len()..path.len() - "/agent".len()];
-            web::routes::agents::handle_set_conversation_agent(
-                req,
-                conv_id,
-                pool.clone(),
-                db.clone(),
-            )
-            .await?
+            web::routes::agents::handle_set_conversation_agent(req, conv_id, db.clone()).await?
         }
         (&Method::PATCH, path)
             if path.starts_with("/api/conversations/") && path.ends_with("/overrides") =>
