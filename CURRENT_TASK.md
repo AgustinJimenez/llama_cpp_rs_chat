@@ -126,38 +126,39 @@ Most conversations will have `overrides = NULL` (pure agent config).
 
 ---
 
-## Implementation Order
+## Implementation Status
 
 ### Step 1 — DB layer
-- [ ] Add `agents` table to `sql.rs` + `schema.rs`
-- [ ] Add `agent_id`, `overrides`, heartbeat columns to `conversations`
-- [ ] Write `AgentRecord` Rust struct + CRUD methods in `llama-chat-db`
-- [ ] Write config resolution fn: `resolve_conversation_config(agent, overrides) -> ConversationConfig`
-- [ ] Write migration: existing `conversation_config` rows → anonymous agents
+- [x] Add `agents` table to `sql.rs` + `schema.rs`
+- [x] Add `agent_id`, `overrides` columns to `conversations`
+- [x] Write `AgentRecord` Rust struct + CRUD methods in `llama-chat-db`
+- [x] Config resolution fn: `load_effective_config()` in `agents.rs` (agent → conversation_config → global fallback)
+- [ ] Migration: existing `conversation_config` rows → anonymous agents
 
 ### Step 2 — Backend API
-- [ ] `GET /agents` — list agents
-- [ ] `POST /agents` — create agent
-- [ ] `PUT /agents/:id` — update agent
-- [ ] `DELETE /agents/:id` — delete agent
-- [ ] `POST /conversations/:id/agent` — switch agent on conversation (triggers model reload)
-- [ ] `PATCH /conversations/:id/overrides` — update per-conversation overrides
+- [x] `GET /api/agents`
+- [x] `POST /api/agents`
+- [x] `PUT /api/agents/:id`
+- [x] `DELETE /api/agents/:id`
+- [x] `POST /conversations/:id/agent`
+- [x] `PATCH /conversations/:id/overrides`
+- [ ] **Wire routes into HTTP router** (`routes/mod.rs` imports the module but handlers aren't dispatched)
 
 ### Step 3 — Wire config resolution
-- [ ] Replace `load_conversation_config()` reads with `resolve_conversation_config()`
-- [ ] Worker: on agent switch, unload + reload with new agent params
-- [ ] `save_conversation_config()` writes → write to `conversations.overrides` (sparse)
+- [ ] Call `load_effective_config()` in the engine instead of direct `load_conversation_config()` reads
+- [ ] Worker: unload + reload model when agent switches via `POST /conversations/:id/agent`
+- [x] Sparse overrides stored and merged (`set_conversation_overrides` + `apply_overrides`)
 
 ### Step 4 — Frontend
-- [ ] Replace "Select provider/model" modal with Agent selector modal
-- [ ] Agent creation form (local + remote paths)
-- [ ] Edit agent flow
-- [ ] Per-conversation overrides panel (writes to overrides JSON)
-- [ ] Show active agent name in conversation header
+- [x] Agent selector modal (create, edit, delete, local/remote/CLI)
+- [x] Agent creation + edit form
+- [ ] **Fix `apiClient` import** — `AgentContext.tsx` imports from `../utils/apiClient` which was deleted
+- [ ] Per-conversation overrides panel
+- [ ] Show active agent name in chat header
 
-### Step 5 — Cleanup
-- [ ] Drop `conversation_config` table (after migration verified)
-- [ ] Remove `ConversationConfig` Rust struct (replace with `AgentConfig` + `overrides` merge)
+### Step 5 — Cleanup (after steps 2–4 verified working)
+- [ ] Drop `conversation_config` table
+- [ ] Remove `ConversationConfig` Rust struct
 - [ ] Strip model/sampler columns from `config` table
 
 ---
