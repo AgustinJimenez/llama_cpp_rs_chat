@@ -54,6 +54,22 @@ interface ConversationContentResponse {
   tool_timings?: Array<{ name: string; duration_ms: number }>;
 }
 
+export interface WorkerSummary {
+  id: string;
+  created_at_secs?: number;
+  loaded: boolean;
+  loading: boolean;
+  generating: boolean;
+  active_conversation_id?: string | null;
+  model_path?: string | null;
+  general_name?: string | null;
+  context_size?: number | null;
+}
+
+export interface WorkersResponse {
+  workers: WorkerSummary[];
+}
+
 interface FileItem {
   name: string;
   path: string;
@@ -200,6 +216,28 @@ export async function saveConversationConfig(
     body: JSON.stringify(config),
   });
   if (!response.ok) throw new Error('Failed to save conversation configuration');
+}
+
+export type ConversationOverrides = Record<string, string | number | boolean | null>;
+
+export async function getConversationOverrides(
+  conversationId: string,
+): Promise<ConversationOverrides | null> {
+  const response = await fetchJson<{ overrides: ConversationOverrides | null }>(
+    `/api/conversations/${encodeURIComponent(conversationId)}/overrides`,
+  );
+  return response.overrides;
+}
+
+export async function saveConversationOverrides(
+  conversationId: string,
+  overrides: ConversationOverrides | null,
+): Promise<void> {
+  await fetchJson(`/api/conversations/${encodeURIComponent(conversationId)}/overrides`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(overrides),
+  });
 }
 
 // ─── Model ────────────────────────────────────────────────────────────
@@ -380,6 +418,54 @@ export async function queueMessage(conversationId: string, content: string): Pro
     body: JSON.stringify({ content }),
   });
   if (!response.ok) throw new Error('Failed to queue message');
+}
+
+// ─── Workers ──────────────────────────────────────────────────────────
+
+function assertWebWorkersAvailable(): void {
+  if (isTauriEnv()) {
+    throw new Error('Multi-worker management is only available in web mode');
+  }
+}
+
+export async function listWorkers(): Promise<WorkersResponse> {
+  assertWebWorkersAvailable();
+  return fetchJson<WorkersResponse>('/api/workers');
+}
+
+export async function getWorkerStatus(workerId: string): Promise<WorkerSummary> {
+  assertWebWorkersAvailable();
+  return fetchJson<WorkerSummary>(`/api/workers/${encodeURIComponent(workerId)}/status`);
+}
+
+export async function createWorker(request: {
+  model_path: string;
+  gpu_layers?: number;
+  mmproj_path?: string;
+}): Promise<{ worker_id: string }> {
+  assertWebWorkersAvailable();
+  return fetchJson<{ worker_id: string }>('/api/workers', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+}
+
+export async function deleteWorker(workerId: string): Promise<void> {
+  assertWebWorkersAvailable();
+  await fetchJson(`/api/workers/${encodeURIComponent(workerId)}`, { method: 'DELETE' });
+}
+
+export async function bindConversationWorker(
+  conversationId: string,
+  workerId: string | null,
+): Promise<void> {
+  assertWebWorkersAvailable();
+  await fetchJson(`/api/conversations/${encodeURIComponent(conversationId)}/worker`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ worker_id: workerId }),
+  });
 }
 
 // ─── Chat ─────────────────────────────────────────────────────────────

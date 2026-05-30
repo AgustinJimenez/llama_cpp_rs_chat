@@ -27,6 +27,13 @@ module.exports = {
     },
   },
   rules: {
+    // React compiler rules — only meaningful when using the React compiler (we're not).
+    // These fire on valid patterns (async fetches in effects, Date.now() in useRef, etc.)
+    'react-hooks/set-state-in-effect': 'off',
+    'react-hooks/purity': 'off',
+    'react-hooks/preserve-manual-memoization': 'off',
+    'react-hooks/incompatible-library': 'off',
+
     // File & function size limits
     'max-lines': ['warn', { max: 500, skipBlankLines: true, skipComments: true }],
     'max-lines-per-function': ['warn', { max: 160, skipBlankLines: true, skipComments: true }],

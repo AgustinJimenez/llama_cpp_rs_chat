@@ -45,7 +45,6 @@ export const WorkerStatusPanel = ({ enabled }: WorkerStatusPanelProps) => {
 
   useEffect(() => {
     if (!enabled || isTauriEnv()) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void refreshWorkers();
     const interval = setInterval(() => {
       void refreshWorkers();

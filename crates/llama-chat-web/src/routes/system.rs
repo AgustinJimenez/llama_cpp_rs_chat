@@ -3,8 +3,8 @@
 use hyper::{Body, Request, Response, StatusCode};
 use std::convert::Infallible;
 
+use crate::response_helpers::{json_error, json_raw, json_response};
 use llama_chat_db::SharedDatabase;
-use crate::response_helpers::{json_raw, json_response, json_error};
 #[cfg(target_os = "windows")]
 use std::sync::Mutex;
 #[cfg(target_os = "windows")]
@@ -42,41 +42,141 @@ pub async fn handle_api_docs() -> Result<Response<Body>, Infallible> {
         e("GET", "/api/info", "App and system info"),
         e("GET", "/api/docs", "This endpoint — API documentation"),
         e("POST", "/api/chat", "Send message (local model)"),
-        e("POST", "/api/chat/stream", "Send message with SSE streaming (local model)"),
+        e(
+            "POST",
+            "/api/chat/stream",
+            "Send message with SSE streaming (local model)",
+        ),
         e("POST", "/api/chat/cancel", "Cancel current generation"),
-        e("GET", "/api/conversations", "List all conversations (optional ?q=term to search)"),
-        e("POST", "/api/conversations", "Create new conversation (optional worker_id)"),
+        e(
+            "GET",
+            "/api/conversations",
+            "List all conversations (optional ?q=term to search)",
+        ),
+        e(
+            "POST",
+            "/api/conversations",
+            "Create new conversation (optional worker_id)",
+        ),
         e("GET", "/api/conversation/{id}", "Get conversation messages"),
         e("DELETE", "/api/conversations/{id}", "Delete a conversation"),
-        e("DELETE", "/api/conversations/batch", "Delete multiple conversations"),
-        e("PATCH", "/api/conversations/{id}/title", "Rename a conversation"),
-        e("PATCH", "/api/conversations/{id}/worker", "Bind conversation to worker (null/default clears to default)"),
-        e("POST", "/api/conversations/{id}/truncate", "Truncate conversation at message"),
-        e("GET", "/api/conversations/{id}/events", "Get conversation event log"),
-        e("GET", "/api/conversations/{id}/metrics", "Get conversation metrics"),
-        e("GET", "/api/conversations/{id}/token-analysis", "Token usage breakdown"),
-        e("GET", "/api/conversation/{id}/export", "Export as markdown or JSON (?format=md|json)"),
+        e(
+            "DELETE",
+            "/api/conversations/batch",
+            "Delete multiple conversations",
+        ),
+        e(
+            "PATCH",
+            "/api/conversations/{id}/title",
+            "Rename a conversation",
+        ),
+        e(
+            "PATCH",
+            "/api/conversations/{id}/worker",
+            "Bind conversation to worker (null/default clears to default)",
+        ),
+        e(
+            "POST",
+            "/api/conversations/{id}/truncate",
+            "Truncate conversation at message",
+        ),
+        e(
+            "GET",
+            "/api/conversations/{id}/events",
+            "Get conversation event log",
+        ),
+        e(
+            "GET",
+            "/api/conversations/{id}/metrics",
+            "Get conversation metrics",
+        ),
+        e(
+            "GET",
+            "/api/conversations/{id}/token-analysis",
+            "Token usage breakdown",
+        ),
+        e(
+            "GET",
+            "/api/conversation/{id}/export",
+            "Export as markdown or JSON (?format=md|json)",
+        ),
         e("GET", "/api/workers", "List active local workers"),
-        e("POST", "/api/workers", "Spawn new worker and load model (model_path + optional gpu_layers/mmproj_path)"),
-        e("GET", "/api/workers/{id}/status", "Get per-worker model status"),
-        e("DELETE", "/api/workers/{id}", "Remove worker and rebind its conversations to default"),
+        e(
+            "POST",
+            "/api/workers",
+            "Spawn new worker and load model (model_path + optional gpu_layers/mmproj_path)",
+        ),
+        e(
+            "GET",
+            "/api/workers/{id}/status",
+            "Get per-worker model status",
+        ),
+        e(
+            "DELETE",
+            "/api/workers/{id}",
+            "Remove worker and rebind its conversations to default",
+        ),
         e("GET", "/api/model/status", "Current model status"),
-        e("GET", "/api/model/info", "Detailed model info (GGUF metadata)"),
+        e(
+            "GET",
+            "/api/model/info",
+            "Detailed model info (GGUF metadata)",
+        ),
         e("POST", "/api/model/load", "Load a GGUF model"),
         e("POST", "/api/model/unload", "Unload current model"),
-        e("POST", "/api/model/hard-unload", "Force-kill worker to reclaim all VRAM"),
+        e(
+            "POST",
+            "/api/model/hard-unload",
+            "Force-kill worker to reclaim all VRAM",
+        ),
         e("GET", "/api/model/history", "Recently used model paths"),
-        e("GET", "/api/providers", "List all providers with availability"),
-        e("GET", "/api/providers/{id}/models", "Fetch available models from provider API"),
-        e("POST", "/api/providers/{id}/generate", "Generate with cloud provider (blocking)"),
-        e("POST", "/api/providers/{id}/stream", "Generate with cloud provider (SSE streaming)"),
+        e(
+            "GET",
+            "/api/providers",
+            "List all providers with availability",
+        ),
+        e(
+            "GET",
+            "/api/providers/{id}/models",
+            "Fetch available models from provider API",
+        ),
+        e(
+            "POST",
+            "/api/providers/{id}/generate",
+            "Generate with cloud provider (blocking)",
+        ),
+        e(
+            "POST",
+            "/api/providers/{id}/stream",
+            "Generate with cloud provider (SSE streaming)",
+        ),
         e("GET", "/api/config", "Get sampler/app configuration"),
         e("POST", "/api/config", "Update configuration"),
-        e("GET", "/api/config/provider-keys", "Get configured provider API keys (masked)"),
-        e("POST", "/api/config/provider-keys", "Set a provider API key"),
-        e("GET", "/api/config/active-provider", "Get active provider and model"),
-        e("POST", "/api/config/active-provider", "Set active provider and model"),
-        e("GET", "/api/tools/available", "List available tools with schemas"),
+        e(
+            "GET",
+            "/api/config/provider-keys",
+            "Get configured provider API keys (masked)",
+        ),
+        e(
+            "POST",
+            "/api/config/provider-keys",
+            "Set a provider API key",
+        ),
+        e(
+            "GET",
+            "/api/config/active-provider",
+            "Get active provider and model",
+        ),
+        e(
+            "POST",
+            "/api/config/active-provider",
+            "Set active provider and model",
+        ),
+        e(
+            "GET",
+            "/api/tools/available",
+            "List available tools with schemas",
+        ),
         e("POST", "/api/tools/execute", "Execute a tool call"),
         e("GET", "/api/tools/web-fetch", "Fetch web page as text"),
         e("GET", "/api/agents", "List all agents"),
@@ -84,19 +184,48 @@ pub async fn handle_api_docs() -> Result<Response<Body>, Infallible> {
         e("GET", "/api/agents/{id}", "Get agent by ID"),
         e("PUT", "/api/agents/{id}", "Update an agent"),
         e("DELETE", "/api/agents/{id}", "Delete an agent"),
-        e("GET", "/api/conversations/{id}/agent", "Get active agent for conversation"),
-        e("POST", "/api/conversations/{id}/agent", "Assign agent to conversation"),
-        e("PATCH", "/api/conversations/{id}/overrides", "Update per-conversation param overrides"),
+        e(
+            "GET",
+            "/api/conversations/{id}/agent",
+            "Get active agent for conversation",
+        ),
+        e(
+            "POST",
+            "/api/conversations/{id}/agent",
+            "Assign agent to conversation",
+        ),
+        e(
+            "PATCH",
+            "/api/conversations/{id}/overrides",
+            "Update per-conversation param overrides",
+        ),
+        e(
+            "GET",
+            "/api/conversations/{id}/overrides",
+            "Get per-conversation param overrides",
+        ),
         e("GET", "/api/mcp/servers", "List MCP servers"),
         e("POST", "/api/mcp/servers", "Add MCP server"),
         e("DELETE", "/api/mcp/servers/{id}", "Remove MCP server"),
-        e("POST", "/api/mcp/servers/{id}/toggle", "Enable/disable MCP server"),
+        e(
+            "POST",
+            "/api/mcp/servers/{id}/toggle",
+            "Enable/disable MCP server",
+        ),
         e("POST", "/api/mcp/refresh", "Refresh MCP connections"),
         e("GET", "/api/mcp/tools", "List discovered MCP tools"),
         e("GET", "/api/system/usage", "CPU/memory/GPU usage"),
         e("GET", "/api/system/processes", "List background processes"),
-        e("POST", "/api/system/processes/kill", "Kill a background process"),
-        e("POST", "/api/desktop/abort", "Abort current desktop automation"),
+        e(
+            "POST",
+            "/api/system/processes/kill",
+            "Kill a background process",
+        ),
+        e(
+            "POST",
+            "/api/desktop/abort",
+            "Abort current desktop automation",
+        ),
         e("GET", "/api/browse", "Browse filesystem for model files"),
         e("POST", "/api/upload", "Upload a model file"),
         e("GET", "/api/hub/search", "Search HuggingFace Hub"),
@@ -104,7 +233,11 @@ pub async fn handle_api_docs() -> Result<Response<Body>, Infallible> {
         e("POST", "/api/hub/download", "Download model from Hub"),
         e("GET", "/api/hub/downloads", "List active downloads"),
         e("DELETE", "/api/hub/downloads", "Cancel a download"),
-        e("POST", "/api/hub/downloads/verify", "Verify downloaded file integrity"),
+        e(
+            "POST",
+            "/api/hub/downloads/verify",
+            "Verify downloaded file integrity",
+        ),
     ];
     let docs = serde_json::json!({"endpoints": endpoints});
     Ok(json_raw(
@@ -161,11 +294,28 @@ pub async fn handle_system_usage() -> Result<Response<Body>, Infallible> {
     let (total_ram_gb, total_vram_gb, cpu_cores, cpu_base_mhz) = get_hardware_totals();
     #[cfg(target_os = "macos")]
     let (total_ram_gb, total_vram_gb, cpu_cores, _cpu_base_mhz) = {
-        let ram = silent_command("sysctl").args(["-n", "hw.memsize"]).output()
-            .ok().and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<u64>().ok())
-            .map(|b| b as f32 / 1_073_741_824.0).unwrap_or(0.0);
-        let cores = silent_command("sysctl").args(["-n", "hw.ncpu"]).output()
-            .ok().and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<u32>().ok())
+        let ram = silent_command("sysctl")
+            .args(["-n", "hw.memsize"])
+            .output()
+            .ok()
+            .and_then(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .trim()
+                    .parse::<u64>()
+                    .ok()
+            })
+            .map(|b| b as f32 / 1_073_741_824.0)
+            .unwrap_or(0.0);
+        let cores = silent_command("sysctl")
+            .args(["-n", "hw.ncpu"])
+            .output()
+            .ok()
+            .and_then(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .trim()
+                    .parse::<u32>()
+                    .ok()
+            })
             .unwrap_or(0);
         // macOS unified memory — GPU shares RAM
         (ram, ram, cores, 0_u32)
@@ -241,7 +391,10 @@ pub fn get_windows_system_usage() -> (f32, f32, f32, f32) {
             .lines()
             .filter_map(|l| l.trim().parse::<f32>().ok())
             .collect();
-        (lines.first().copied().unwrap_or(0.0), lines.get(1).copied().unwrap_or(100.0))
+        (
+            lines.first().copied().unwrap_or(0.0),
+            lines.get(1).copied().unwrap_or(100.0),
+        )
     } else {
         (0.0, 100.0)
     };
@@ -301,11 +454,18 @@ pub fn get_windows_system_usage() -> (f32, f32, f32, f32) {
         if hw.0 == 0.0 {
             // Total RAM via WMI (returns KB)
             if let Ok(output) = silent_command("powershell")
-                .args(["-NoProfile", "-NonInteractive", "-Command",
-                    "gwmi Win32_OperatingSystem | % { $_.TotalVisibleMemorySize }"])
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    "gwmi Win32_OperatingSystem | % { $_.TotalVisibleMemorySize }",
+                ])
                 .output()
             {
-                if let Ok(kb) = String::from_utf8_lossy(&output.stdout).trim().parse::<f64>() {
+                if let Ok(kb) = String::from_utf8_lossy(&output.stdout)
+                    .trim()
+                    .parse::<f64>()
+                {
                     hw.0 = (kb / 1_048_576.0) as f32; // KB → GB
                 }
             }
@@ -333,18 +493,29 @@ pub fn get_windows_system_usage() -> (f32, f32, f32, f32) {
                 .output()
             {
                 if let Some(mb) = String::from_utf8_lossy(&output.stdout)
-                    .lines().next()
+                    .lines()
+                    .next()
                     .and_then(|l| l.trim().parse::<f64>().ok())
                 {
                     hw.1 = (mb / 1024.0) as f32; // MB → GB
                 }
             }
-            sys_debug!("[SYSTEM] Detected hardware: {:.1} GB RAM, {:.1} GB VRAM", hw.0, hw.1);
+            sys_debug!(
+                "[SYSTEM] Detected hardware: {:.1} GB RAM, {:.1} GB VRAM",
+                hw.0,
+                hw.1
+            );
         }
     }
 
     // Update cache
-    *last = (Instant::now(), cpu_usage, ram_usage, gpu_usage, cpu_perf_pct);
+    *last = (
+        Instant::now(),
+        cpu_usage,
+        ram_usage,
+        gpu_usage,
+        cpu_perf_pct,
+    );
 
     (cpu_usage, ram_usage, gpu_usage, cpu_perf_pct)
 }
@@ -367,9 +538,7 @@ pub fn get_hardware_totals() -> (f32, f32, u32, u32) {
 
 // ── Background process endpoints ────────────────────────────────────────────
 
-pub async fn handle_background_processes(
-    db: SharedDatabase,
-) -> Result<Response<Body>, Infallible> {
+pub async fn handle_background_processes(db: SharedDatabase) -> Result<Response<Body>, Infallible> {
     let result = tokio::task::spawn_blocking(move || {
         let conn = db.connection();
 
@@ -456,7 +625,10 @@ pub async fn handle_kill_process(
 
         // Remove from DB regardless (stale entries get cleaned on next list)
         let conn = db.connection();
-        let _ = conn.execute("DELETE FROM background_processes WHERE pid = ?1", [pid as i64]);
+        let _ = conn.execute(
+            "DELETE FROM background_processes WHERE pid = ?1",
+            [pid as i64],
+        );
 
         !still_alive
     })
@@ -464,8 +636,14 @@ pub async fn handle_kill_process(
     .unwrap_or(false);
 
     if result {
-        Ok(json_response(StatusCode::OK, &serde_json::json!({"success": true, "message": "Process killed"})))
+        Ok(json_response(
+            StatusCode::OK,
+            &serde_json::json!({"success": true, "message": "Process killed"}),
+        ))
     } else {
-        Ok(json_response(StatusCode::OK, &serde_json::json!({"success": false, "message": "Process may not have been killed. It might require elevated permissions."})))
+        Ok(json_response(
+            StatusCode::OK,
+            &serde_json::json!({"success": false, "message": "Process may not have been killed. It might require elevated permissions."}),
+        ))
     }
 }

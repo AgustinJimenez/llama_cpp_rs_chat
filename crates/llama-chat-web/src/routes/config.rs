@@ -3,15 +3,18 @@
 use hyper::{Body, Request, Response, StatusCode};
 use std::convert::Infallible;
 
-use llama_chat_config::{db_config_to_sampler_config, load_config_for_conversation, sampler_config_to_db};
+use crate::request_parsing::parse_json_body;
+use crate::response_helpers::{json_error, json_raw};
+use llama_chat_config::{
+    db_config_to_sampler_config, load_config_for_conversation, sampler_config_to_db,
+};
 use llama_chat_db::SharedDatabase;
 use llama_chat_types::logger::LOGGER;
 use llama_chat_types::models::SamplerConfig;
-use crate::request_parsing::parse_json_body;
-use crate::response_helpers::{json_error, json_raw};
 
 pub async fn handle_get_config(
-    #[cfg(not(feature = "mock"))] _bridge: llama_chat_worker::worker::worker_bridge::SharedWorkerBridge,
+    #[cfg(not(feature = "mock"))]
+    _bridge: llama_chat_worker::worker::worker_bridge::SharedWorkerBridge,
     #[cfg(feature = "mock")] _bridge: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
@@ -29,7 +32,8 @@ pub async fn handle_get_config(
 
 pub async fn handle_post_config(
     req: Request<Body>,
-    #[cfg(not(feature = "mock"))] _bridge: llama_chat_worker::worker::worker_bridge::SharedWorkerBridge,
+    #[cfg(not(feature = "mock"))]
+    _bridge: llama_chat_worker::worker::worker_bridge::SharedWorkerBridge,
     #[cfg(feature = "mock")] _bridge: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
@@ -92,14 +96,18 @@ fn extract_conversation_id_from_config_path(path: &str) -> Option<String> {
 /// GET /api/conversations/:id/config
 pub async fn handle_get_conversation_config(
     path: &str,
-    #[cfg(not(feature = "mock"))] _bridge: llama_chat_worker::worker::worker_bridge::SharedWorkerBridge,
+    #[cfg(not(feature = "mock"))]
+    _bridge: llama_chat_worker::worker::worker_bridge::SharedWorkerBridge,
     #[cfg(feature = "mock")] _bridge: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     let conversation_id = match extract_conversation_id_from_config_path(path) {
         Some(id) => id,
         None => {
-            return Ok(json_error(StatusCode::BAD_REQUEST, "Invalid conversation ID"));
+            return Ok(json_error(
+                StatusCode::BAD_REQUEST,
+                "Invalid conversation ID",
+            ));
         }
     };
 
@@ -118,14 +126,18 @@ pub async fn handle_get_conversation_config(
 pub async fn handle_post_conversation_config(
     req: Request<Body>,
     path: &str,
-    #[cfg(not(feature = "mock"))] _bridge: llama_chat_worker::worker::worker_bridge::SharedWorkerBridge,
+    #[cfg(not(feature = "mock"))]
+    _bridge: llama_chat_worker::worker::worker_bridge::SharedWorkerBridge,
     #[cfg(feature = "mock")] _bridge: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     let conversation_id = match extract_conversation_id_from_config_path(path) {
         Some(id) => id,
         None => {
-            return Ok(json_error(StatusCode::BAD_REQUEST, "Invalid conversation ID"));
+            return Ok(json_error(
+                StatusCode::BAD_REQUEST,
+                "Invalid conversation ID",
+            ));
         }
     };
 
@@ -148,24 +160,32 @@ pub async fn handle_post_conversation_config(
         ));
     }
 
-    let db_config = sampler_config_to_db(&incoming);
+    let overrides_json = match serde_json::to_string(&incoming) {
+        Ok(json) => json,
+        Err(_) => {
+            return Ok(json_error(
+                StatusCode::BAD_REQUEST,
+                "Failed to serialize conversation overrides",
+            ));
+        }
+    };
 
-    match db.save_conversation_config(&conversation_id, &db_config) {
+    match db.set_conversation_overrides(&conversation_id, Some(&overrides_json)) {
         Ok(_) => Ok(json_raw(StatusCode::OK, r#"{"success":true}"#.to_string())),
         Err(e) => Ok(json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("Failed to save conversation config: {e}"),
+            &format!("Failed to save conversation overrides: {e}"),
         )),
     }
 }
 
 /// GET /api/config/provider-keys — get configured provider API keys (masked)
-pub async fn handle_get_provider_keys(
-    db: SharedDatabase,
-) -> Result<Response<Body>, Infallible> {
+pub async fn handle_get_provider_keys(db: SharedDatabase) -> Result<Response<Body>, Infallible> {
     let conn = db.connection();
     let keys_json: String = conn
-        .query_row("SELECT provider_api_keys FROM config LIMIT 1", [], |row| row.get(0))
+        .query_row("SELECT provider_api_keys FROM config LIMIT 1", [], |row| {
+            row.get(0)
+        })
         .unwrap_or_else(|_| "{}".to_string());
 
     // Mask API key values for security (show first 4 + last 4 chars)
@@ -176,7 +196,10 @@ pub async fn handle_get_provider_keys(
                 let mut entry = serde_json::Map::new();
                 if let Some(key) = val.get("api_key").and_then(|k| k.as_str()) {
                     if key.len() > 12 {
-                        entry.insert("api_key".into(), serde_json::json!(format!("{}...{}", &key[..4], &key[key.len()-4..])));
+                        entry.insert(
+                            "api_key".into(),
+                            serde_json::json!(format!("{}...{}", &key[..4], &key[key.len() - 4..])),
+                        );
                     } else if !key.is_empty() {
                         entry.insert("api_key".into(), serde_json::json!("****"));
                     }
@@ -184,7 +207,10 @@ pub async fn handle_get_provider_keys(
                 } else if let Some(key) = val.as_str() {
                     entry.insert("configured".into(), serde_json::json!(!key.is_empty()));
                     if key.len() > 12 {
-                        entry.insert("api_key".into(), serde_json::json!(format!("{}...{}", &key[..4], &key[key.len()-4..])));
+                        entry.insert(
+                            "api_key".into(),
+                            serde_json::json!(format!("{}...{}", &key[..4], &key[key.len() - 4..])),
+                        );
                     }
                 }
                 if let Some(url) = val.get("base_url").and_then(|u| u.as_str()) {
@@ -224,10 +250,13 @@ pub async fn handle_set_provider_key(
     // Load existing keys
     let conn = db.connection();
     let existing: String = conn
-        .query_row("SELECT provider_api_keys FROM config LIMIT 1", [], |row| row.get(0))
+        .query_row("SELECT provider_api_keys FROM config LIMIT 1", [], |row| {
+            row.get(0)
+        })
         .unwrap_or_else(|_| "{}".to_string());
 
-    let mut keys: serde_json::Value = serde_json::from_str(&existing).unwrap_or(serde_json::json!({}));
+    let mut keys: serde_json::Value =
+        serde_json::from_str(&existing).unwrap_or(serde_json::json!({}));
 
     if api_key.is_empty() && base_url.is_none() {
         // Remove provider
@@ -246,16 +275,18 @@ pub async fn handle_set_provider_key(
     match conn.execute("UPDATE config SET provider_api_keys = ?1", [&updated]) {
         Ok(_) => Ok(json_raw(
             StatusCode::OK,
-            serde_json::to_string(&serde_json::json!({"success": true, "provider": provider})).unwrap(),
+            serde_json::to_string(&serde_json::json!({"success": true, "provider": provider}))
+                .unwrap(),
         )),
-        Err(e) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Failed: {e}"))),
+        Err(e) => Ok(json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed: {e}"),
+        )),
     }
 }
 
 /// GET /api/config/active-provider — get active provider and model
-pub async fn handle_get_active_provider(
-    db: SharedDatabase,
-) -> Result<Response<Body>, Infallible> {
+pub async fn handle_get_active_provider(db: SharedDatabase) -> Result<Response<Body>, Infallible> {
     let conn = db.connection();
     let result: (String, Option<String>) = conn
         .query_row(
@@ -270,7 +301,8 @@ pub async fn handle_get_active_provider(
         serde_json::to_string(&serde_json::json!({
             "provider": result.0,
             "model": result.1,
-        })).unwrap(),
+        }))
+        .unwrap(),
     ))
 }
 
@@ -288,7 +320,10 @@ pub async fn handle_set_active_provider(
         Err(_) => return Ok(json_error(StatusCode::BAD_REQUEST, "Invalid JSON")),
     };
 
-    let provider = json.get("provider").and_then(|p| p.as_str()).unwrap_or("local");
+    let provider = json
+        .get("provider")
+        .and_then(|p| p.as_str())
+        .unwrap_or("local");
     let model = json.get("model").and_then(|m| m.as_str());
 
     let conn = db.connection();
@@ -302,8 +337,12 @@ pub async fn handle_set_active_provider(
                 "success": true,
                 "provider": provider,
                 "model": model,
-            })).unwrap(),
+            }))
+            .unwrap(),
         )),
-        Err(e) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Failed: {e}"))),
+        Err(e) => Ok(json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed: {e}"),
+        )),
     }
 }

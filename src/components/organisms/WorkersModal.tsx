@@ -32,7 +32,6 @@ export const WorkersModal: React.FC<WorkersModalProps> = ({
   }, []);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (isOpen) void fetchWorkers();
   }, [isOpen, fetchWorkers]);
 

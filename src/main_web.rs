@@ -3,9 +3,9 @@
 #[macro_use]
 extern crate llama_chat_types;
 
-mod web; // Declare web module for model capabilities and utilities
-mod vlm_ocr;
 mod server;
+mod vlm_ocr;
+mod web; // Declare web module for model capabilities and utilities
 
 // Import all types and functions from web modules
 use web::database::SharedDatabase;
@@ -69,12 +69,17 @@ async fn handle_request_impl(
         (&Method::GET, "/api/info") => web::routes::system::handle_app_info().await?,
         (&Method::GET, "/api/docs") => web::routes::system::handle_api_docs().await?,
 
-
         // System monitoring
         (&Method::GET, "/api/system/usage") => web::routes::system::handle_system_usage().await?,
-        (&Method::GET, "/api/system/processes") => web::routes::system::handle_background_processes(db.clone()).await?,
-        (&Method::POST, "/api/system/processes/kill") => web::routes::system::handle_kill_process(req, db.clone()).await?,
-        (&Method::POST, "/api/desktop/abort") => web::routes::system::handle_desktop_abort().await?,
+        (&Method::GET, "/api/system/processes") => {
+            web::routes::system::handle_background_processes(db.clone()).await?
+        }
+        (&Method::POST, "/api/system/processes/kill") => {
+            web::routes::system::handle_kill_process(req, db.clone()).await?
+        }
+        (&Method::POST, "/api/desktop/abort") => {
+            web::routes::system::handle_desktop_abort().await?
+        }
 
         // Frontend log ingestion (web-only)
         (&Method::POST, "/api/logs/frontend") => {
@@ -110,14 +115,18 @@ async fn handle_request_impl(
         }
 
         (&Method::GET, path) if path.starts_with("/ws/conversation/watch/") => {
-            web::routes::chat::handle_conversation_watch_websocket(req, path, pool.clone(), db.clone())
-                .await?
+            web::routes::chat::handle_conversation_watch_websocket(
+                req,
+                path,
+                pool.clone(),
+                db.clone(),
+            )
+            .await?
         }
 
         (&Method::GET, "/ws/status") => {
             web::routes::status::handle_status_websocket(req, bridge.clone()).await?
         }
-
 
         // Configuration endpoints
         (&Method::GET, "/api/config") => {
@@ -143,84 +152,132 @@ async fn handle_request_impl(
         }
 
         // Conversation config (must be before the catch-all /api/conversation/ route)
-        (&Method::GET, path) if path.starts_with("/api/conversations/") && path.ends_with("/config") => {
-            web::routes::config::handle_get_conversation_config(path, bridge.clone(), db.clone()).await?
+        (&Method::GET, path)
+            if path.starts_with("/api/conversations/") && path.ends_with("/config") =>
+        {
+            web::routes::config::handle_get_conversation_config(path, bridge.clone(), db.clone())
+                .await?
         }
 
-        (&Method::POST, path) if path.starts_with("/api/conversations/") && path.ends_with("/config") => {
-            web::routes::config::handle_post_conversation_config(req, path, bridge.clone(), db.clone()).await?
+        (&Method::POST, path)
+            if path.starts_with("/api/conversations/") && path.ends_with("/config") =>
+        {
+            web::routes::config::handle_post_conversation_config(
+                req,
+                path,
+                bridge.clone(),
+                db.clone(),
+            )
+            .await?
         }
 
         // Conversation event log (in-memory debug events)
-        (&Method::GET, path) if path.starts_with("/api/conversations/") && path.ends_with("/events") => {
-            web::routes::conversation::handle_get_conversation_events(path, pool.clone(), db.clone()).await?
+        (&Method::GET, path)
+            if path.starts_with("/api/conversations/") && path.ends_with("/events") =>
+        {
+            web::routes::conversation::handle_get_conversation_events(
+                path,
+                pool.clone(),
+                db.clone(),
+            )
+            .await?
         }
 
         // Conversation token analysis
-        (&Method::GET, path) if path.starts_with("/api/conversations/") && path.ends_with("/token-analysis") => {
-            let id = &path["/api/conversations/".len()..path.len()-"/token-analysis".len()];
+        (&Method::GET, path)
+            if path.starts_with("/api/conversations/") && path.ends_with("/token-analysis") =>
+        {
+            let id = &path["/api/conversations/".len()..path.len() - "/token-analysis".len()];
             web::routes::conversation::handle_conversation_token_analysis(id, db.clone()).await?
         }
 
         // Conversation metrics
-        (&Method::GET, path) if path.starts_with("/api/conversations/") && path.ends_with("/metrics") => {
+        (&Method::GET, path)
+            if path.starts_with("/api/conversations/") && path.ends_with("/metrics") =>
+        {
             web::routes::conversation::handle_get_conversation_metrics(path, db.clone()).await?
         }
 
         // Conversation truncate (for message editing)
-        (&Method::POST, path) if path.starts_with("/api/conversations/") && path.ends_with("/truncate") => {
+        (&Method::POST, path)
+            if path.starts_with("/api/conversations/") && path.ends_with("/truncate") =>
+        {
             web::routes::conversation::handle_truncate_conversation(req, path, db.clone()).await?
         }
 
         // Conversation compact (manual compaction from UI)
-        (&Method::POST, path) if path.starts_with("/api/conversations/") && path.ends_with("/compact") => {
-            let id = &path["/api/conversations/".len()..path.len()-"/compact".len()];
-            web::routes::conversation::handle_compact_conversation(id, pool.clone(), db.clone()).await?
+        (&Method::POST, path)
+            if path.starts_with("/api/conversations/") && path.ends_with("/compact") =>
+        {
+            let id = &path["/api/conversations/".len()..path.len() - "/compact".len()];
+            web::routes::conversation::handle_compact_conversation(id, pool.clone(), db.clone())
+                .await?
         }
 
         // Summary edit/delete (PATCH/DELETE must be before generic catch-alls)
-        (&Method::PATCH, path) if path.starts_with("/api/conversations/") && path.ends_with("/summary") => {
+        (&Method::PATCH, path)
+            if path.starts_with("/api/conversations/") && path.ends_with("/summary") =>
+        {
             let id = &path["/api/conversations/".len()..path.len() - "/summary".len()];
             web::routes::conversation::handle_update_summary(req, id, db.clone()).await?
         }
-        (&Method::DELETE, path) if path.starts_with("/api/conversations/") && path.ends_with("/summary") => {
+        (&Method::DELETE, path)
+            if path.starts_with("/api/conversations/") && path.ends_with("/summary") =>
+        {
             let id = &path["/api/conversations/".len()..path.len() - "/summary".len()];
             web::routes::conversation::handle_delete_summary(id, db.clone()).await?
         }
 
         // Conversation rename (PATCH must be before DELETE catch-all)
-        (&Method::PATCH, path) if path.starts_with("/api/conversations/") && path.ends_with("/title") => {
+        (&Method::PATCH, path)
+            if path.starts_with("/api/conversations/") && path.ends_with("/title") =>
+        {
             let id = &path["/api/conversations/".len()..path.len() - "/title".len()];
             web::routes::conversation::handle_rename_conversation(req, id, db.clone()).await?
         }
 
         // Conversation export (must be before generic /api/conversation/{id})
-        (&Method::GET, path) if path.starts_with("/api/conversation/") && path.ends_with("/export") => {
-            let id = &path["/api/conversation/".len()..path.len()-"/export".len()];
+        (&Method::GET, path)
+            if path.starts_with("/api/conversation/") && path.ends_with("/export") =>
+        {
+            let id = &path["/api/conversation/".len()..path.len() - "/export".len()];
             web::routes::conversation::handle_export_conversation(&req, id, db.clone()).await?
         }
 
         // Conversation endpoints
-        (&Method::POST, path) if path.starts_with("/api/conversation/") && path.ends_with("/queue") => {
-            let id = &path["/api/conversation/".len()..path.len()-"/queue".len()];
+        (&Method::POST, path)
+            if path.starts_with("/api/conversation/") && path.ends_with("/queue") =>
+        {
+            let id = &path["/api/conversation/".len()..path.len() - "/queue".len()];
             web::routes::providers::handle_queue_message(req, db.clone(), id).await?
         }
 
         (&Method::GET, path) if path.starts_with("/api/conversation/") => {
-            web::routes::conversation::handle_get_conversation(path, bridge.clone(), db.clone()).await?
+            web::routes::conversation::handle_get_conversation(path, bridge.clone(), db.clone())
+                .await?
         }
 
         (&Method::GET, "/api/conversations") => {
-            web::routes::conversation::handle_get_conversations(&req, bridge.clone(), db.clone()).await?
+            web::routes::conversation::handle_get_conversations(&req, bridge.clone(), db.clone())
+                .await?
         }
 
         (&Method::POST, "/api/conversations") => {
-            web::routes::conversation::handle_create_conversation(req, pool.clone(), db.clone()).await?
+            web::routes::conversation::handle_create_conversation(req, pool.clone(), db.clone())
+                .await?
         }
 
-        (&Method::PATCH, path) if path.starts_with("/api/conversations/") && path.ends_with("/worker") => {
+        (&Method::PATCH, path)
+            if path.starts_with("/api/conversations/") && path.ends_with("/worker") =>
+        {
             let id = &path["/api/conversations/".len()..path.len() - "/worker".len()];
-            web::routes::workers::handle_patch_conversation_worker(req, id, pool.clone(), db.clone()).await?
+            web::routes::workers::handle_patch_conversation_worker(
+                req,
+                id,
+                pool.clone(),
+                db.clone(),
+            )
+            .await?
         }
 
         // Batch delete (must be before single delete /api/conversations/{id})
@@ -229,7 +286,8 @@ async fn handle_request_impl(
         }
 
         (&Method::DELETE, path) if path.starts_with("/api/conversations/") => {
-            web::routes::conversation::handle_delete_conversation(path, bridge.clone(), db.clone()).await?
+            web::routes::conversation::handle_delete_conversation(path, bridge.clone(), db.clone())
+                .await?
         }
 
         // Provider endpoints
@@ -242,21 +300,27 @@ async fn handle_request_impl(
         (&Method::GET, "/api/providers/cli-status") => {
             web::routes::providers::handle_list_cli_providers().await?
         }
-        (&Method::GET, path) if path.starts_with("/api/providers/") && path.ends_with("/models") => {
+        (&Method::GET, path)
+            if path.starts_with("/api/providers/") && path.ends_with("/models") =>
+        {
             let provider_id = path
                 .trim_start_matches("/api/providers/")
                 .trim_end_matches("/models")
                 .trim_end_matches('/');
             web::routes::providers::handle_provider_models(provider_id, db.clone()).await?
         }
-        (&Method::POST, path) if path.starts_with("/api/providers/") && path.ends_with("/stream") => {
+        (&Method::POST, path)
+            if path.starts_with("/api/providers/") && path.ends_with("/stream") =>
+        {
             let provider_id = path
                 .trim_start_matches("/api/providers/")
                 .trim_end_matches("/stream")
                 .trim_end_matches('/');
             web::routes::providers::handle_provider_stream(req, db.clone(), provider_id).await?
         }
-        (&Method::POST, path) if path.starts_with("/api/providers/") && path.ends_with("/generate") => {
+        (&Method::POST, path)
+            if path.starts_with("/api/providers/") && path.ends_with("/generate") =>
+        {
             let provider_id = path
                 .trim_start_matches("/api/providers/")
                 .trim_end_matches("/generate")
@@ -273,7 +337,11 @@ async fn handle_request_impl(
         }
         (&Method::GET, path) if path.starts_with("/api/workers/") && path.ends_with("/status") => {
             let worker_id = &path["/api/workers/".len()..path.len() - "/status".len()];
-            web::routes::workers::handle_get_worker_status(worker_id.trim_end_matches('/'), pool.clone()).await?
+            web::routes::workers::handle_get_worker_status(
+                worker_id.trim_end_matches('/'),
+                pool.clone(),
+            )
+            .await?
         }
         (&Method::DELETE, path) if path.starts_with("/api/workers/") => {
             let worker_id = &path["/api/workers/".len()..];
@@ -320,10 +388,18 @@ async fn handle_request_impl(
         // HuggingFace Hub search & download
         (&Method::GET, "/api/hub/search") => web::routes::hub::handle_search(req).await?,
         (&Method::GET, "/api/hub/tree") => web::routes::hub::handle_tree(req).await?,
-        (&Method::POST, "/api/hub/download") => web::routes::download::handle_post_download(req, db.clone()).await?,
-        (&Method::GET, "/api/hub/downloads") => web::routes::download::handle_get_downloads(db.clone()).await?,
-        (&Method::DELETE, "/api/hub/downloads") => web::routes::download::handle_delete_download(req, db.clone()).await?,
-        (&Method::POST, "/api/hub/downloads/verify") => web::routes::download::handle_post_verify(db.clone()).await?,
+        (&Method::POST, "/api/hub/download") => {
+            web::routes::download::handle_post_download(req, db.clone()).await?
+        }
+        (&Method::GET, "/api/hub/downloads") => {
+            web::routes::download::handle_get_downloads(db.clone()).await?
+        }
+        (&Method::DELETE, "/api/hub/downloads") => {
+            web::routes::download::handle_delete_download(req, db.clone()).await?
+        }
+        (&Method::POST, "/api/hub/downloads/verify") => {
+            web::routes::download::handle_post_verify(db.clone()).await?
+        }
 
         // MCP (Model Context Protocol) server management
         (&Method::GET, "/api/mcp/servers") => {
@@ -336,7 +412,9 @@ async fn handle_request_impl(
             let id = &path["/api/mcp/servers/".len()..];
             web::routes::mcp::handle_delete_mcp_server(id, db.clone()).await?
         }
-        (&Method::POST, path) if path.starts_with("/api/mcp/servers/") && path.ends_with("/toggle") => {
+        (&Method::POST, path)
+            if path.starts_with("/api/mcp/servers/") && path.ends_with("/toggle") =>
+        {
             let id = &path["/api/mcp/servers/".len()..path.len() - "/toggle".len()];
             web::routes::mcp::handle_toggle_mcp_server(req, id, db.clone()).await?
         }
@@ -366,23 +444,47 @@ async fn handle_request_impl(
             let id = &path["/api/agents/".len()..];
             web::routes::agents::handle_delete_agent(id, db.clone()).await?
         }
-        (&Method::GET, path) if path.starts_with("/api/conversations/") && path.ends_with("/agent") => {
+        (&Method::GET, path)
+            if path.starts_with("/api/conversations/") && path.ends_with("/agent") =>
+        {
             let conv_id = &path["/api/conversations/".len()..path.len() - "/agent".len()];
             web::routes::agents::handle_get_conversation_agent(conv_id, db.clone()).await?
         }
-        (&Method::POST, path) if path.starts_with("/api/conversations/") && path.ends_with("/agent") => {
+        (&Method::POST, path)
+            if path.starts_with("/api/conversations/") && path.ends_with("/agent") =>
+        {
             let conv_id = &path["/api/conversations/".len()..path.len() - "/agent".len()];
-            web::routes::agents::handle_set_conversation_agent(req, conv_id, db.clone()).await?
+            web::routes::agents::handle_set_conversation_agent(
+                req,
+                conv_id,
+                pool.clone(),
+                db.clone(),
+            )
+            .await?
         }
-        (&Method::PATCH, path) if path.starts_with("/api/conversations/") && path.ends_with("/overrides") => {
+        (&Method::PATCH, path)
+            if path.starts_with("/api/conversations/") && path.ends_with("/overrides") =>
+        {
             let conv_id = &path["/api/conversations/".len()..path.len() - "/overrides".len()];
             web::routes::agents::handle_set_conversation_overrides(req, conv_id, db.clone()).await?
         }
+        (&Method::GET, path)
+            if path.starts_with("/api/conversations/") && path.ends_with("/overrides") =>
+        {
+            let conv_id = &path["/api/conversations/".len()..path.len() - "/overrides".len()];
+            web::routes::agents::handle_get_conversation_overrides(conv_id, db.clone()).await?
+        }
 
         // File operations
-        (&Method::GET, "/api/browse") => web::routes::files::handle_get_browse(req, bridge.clone()).await?,
-        (&Method::POST, "/api/browse/pick-directory") => web::routes::files::handle_post_pick_directory(bridge.clone(), db.clone()).await?,
-        (&Method::POST, "/api/browse/pick-file") => web::routes::files::handle_post_pick_file(bridge.clone()).await?,
+        (&Method::GET, "/api/browse") => {
+            web::routes::files::handle_get_browse(req, bridge.clone()).await?
+        }
+        (&Method::POST, "/api/browse/pick-directory") => {
+            web::routes::files::handle_post_pick_directory(bridge.clone(), db.clone()).await?
+        }
+        (&Method::POST, "/api/browse/pick-file") => {
+            web::routes::files::handle_post_pick_file(bridge.clone()).await?
+        }
 
         (&Method::POST, "/api/upload") => {
             web::routes::files::handle_post_upload(req, bridge.clone()).await?
@@ -410,7 +512,11 @@ async fn handle_request_impl(
         (&Method::GET, path) if path.starts_with("/api/images/") => {
             let rel_path = &path["/api/images/".len()..];
             let file_path = std::path::PathBuf::from("assets/images").join(rel_path);
-            if file_path.exists() && file_path.extension().map_or(false, |e| e == "jpg" || e == "jpeg" || e == "png") {
+            if file_path.exists()
+                && file_path
+                    .extension()
+                    .map_or(false, |e| e == "jpg" || e == "jpeg" || e == "png")
+            {
                 let bytes = std::fs::read(&file_path).unwrap_or_default();
                 let content_type = if file_path.extension().map_or(false, |e| e == "png") {
                     "image/png"
@@ -432,19 +538,28 @@ async fn handle_request_impl(
         }
 
         // Per-conversation agent heartbeat
-        (&Method::GET, path) if path.starts_with("/api/conversations/") && path.ends_with("/heartbeat") => {
+        (&Method::GET, path)
+            if path.starts_with("/api/conversations/") && path.ends_with("/heartbeat") =>
+        {
             let id = &path["/api/conversations/".len()..path.len() - "/heartbeat".len()];
             web::routes::agent_heartbeat::handle_get_heartbeat(id, db.clone()).await?
         }
-        (&Method::POST, path) if path.starts_with("/api/conversations/") && path.ends_with("/heartbeat") => {
+        (&Method::POST, path)
+            if path.starts_with("/api/conversations/") && path.ends_with("/heartbeat") =>
+        {
             let id = &path["/api/conversations/".len()..path.len() - "/heartbeat".len()];
             web::routes::agent_heartbeat::handle_post_heartbeat(req, id, db.clone()).await?
         }
-        (&Method::POST, path) if path.starts_with("/api/conversations/") && path.ends_with("/heartbeat/fire") => {
+        (&Method::POST, path)
+            if path.starts_with("/api/conversations/") && path.ends_with("/heartbeat/fire") =>
+        {
             let id = &path["/api/conversations/".len()..path.len() - "/heartbeat/fire".len()];
-            web::routes::agent_heartbeat::handle_fire_heartbeat(id, pool.clone(), db.clone()).await?
+            web::routes::agent_heartbeat::handle_fire_heartbeat(id, pool.clone(), db.clone())
+                .await?
         }
-        (&Method::POST, path) if path.starts_with("/api/conversations/") && path.ends_with("/heartbeat/clear") => {
+        (&Method::POST, path)
+            if path.starts_with("/api/conversations/") && path.ends_with("/heartbeat/clear") =>
+        {
             let id = &path["/api/conversations/".len()..path.len() - "/heartbeat/clear".len()];
             web::routes::agent_heartbeat::handle_clear_heartbeat(id, db.clone()).await?
         }
@@ -454,7 +569,8 @@ async fn handle_request_impl(
             web::routes::openai_compat_server::handle_get_models(bridge.clone()).await?
         }
         (&Method::POST, "/v1/chat/completions") => {
-            web::routes::openai_compat_server::handle_post_chat_completions(req, bridge.clone()).await?
+            web::routes::openai_compat_server::handle_post_chat_completions(req, bridge.clone())
+                .await?
         }
 
         // CORS preflight

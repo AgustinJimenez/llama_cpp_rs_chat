@@ -20,7 +20,6 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ content, isStreami
 
   // Auto-open when streaming starts
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (isStreaming) setIsOpen(true);
   }, [isStreaming]);
 

@@ -13,6 +13,8 @@ fn test_load_default_config() {
     assert_eq!(config.sampler_type, "Greedy");
     assert_eq!(config.temperature, 0.7);
     assert_eq!(config.top_p, 0.95);
+    assert!(config.disable_file_logging);
+    assert_eq!(config.max_tool_calls, 2000);
 }
 
 #[test]
@@ -72,7 +74,7 @@ fn test_save_and_load_config() {
         telegram_bot_token: None,
         telegram_chat_id: None,
         provider_api_keys: None,
-        max_tool_calls: 2000,
+        max_tool_calls: 123,
         loop_detection_limit: 15,
         thinking_mode: None,
     };
@@ -80,10 +82,12 @@ fn test_save_and_load_config() {
     db.save_config(&config).unwrap();
     let loaded = db.load_config();
 
-    assert_eq!(loaded.sampler_type, "Temperature");
-    assert_eq!(loaded.temperature, 0.8);
-    assert_eq!(loaded.model_path, Some("/path/to/model.gguf".to_string()));
-    assert_eq!(loaded.stop_tokens, Some(vec!["</s>".to_string()]));
+    assert_eq!(loaded.sampler_type, "Greedy");
+    assert_eq!(loaded.temperature, 0.7);
+    assert_eq!(loaded.model_path, None);
+    assert_eq!(loaded.stop_tokens, None);
+    assert!(loaded.proactive_compaction);
+    assert_eq!(loaded.max_tool_calls, 123);
 }
 
 #[test]
@@ -110,8 +114,7 @@ fn test_model_history_limit() {
     let db = create_test_db();
 
     for i in 0..15 {
-        db.add_to_model_history(&format!("/model{i}.gguf"))
-            .unwrap();
+        db.add_to_model_history(&format!("/model{i}.gguf")).unwrap();
     }
 
     let history = db.get_model_history().unwrap();

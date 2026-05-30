@@ -72,7 +72,6 @@ export const WorkerSelectorModal = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedWorkerId(currentWorkerId);
     void refreshWorkers();
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -22,6 +22,9 @@ export interface UIContextValue {
   isAgentSelectorOpen: boolean;
   openAgentSelector: () => void;
   closeAgentSelector: () => void;
+  isConversationOverridesOpen: boolean;
+  openConversationOverrides: () => void;
+  closeConversationOverrides: () => void;
   isMobileSidebarOpen: boolean;
   toggleMobileSidebar: () => void;
   closeMobileSidebar: () => void;

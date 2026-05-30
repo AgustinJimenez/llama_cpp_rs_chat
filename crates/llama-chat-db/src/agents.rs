@@ -5,8 +5,8 @@
 // Conversations reference an agent by `agent_id`; per-conversation tweaks are stored
 // as a sparse JSON blob in `conversations.overrides`.
 
-use super::{current_timestamp_millis, db_error, Database};
 use super::config::DbSamplerConfig;
+use super::{current_timestamp_millis, db_error, Database};
 use llama_chat_types::SystemPromptType;
 use rusqlite::params;
 use uuid::Uuid;
@@ -228,12 +228,18 @@ fn row_to_agent(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRecord> {
     Ok(AgentRecord {
         id: row.get(0)?,
         name: row.get(1)?,
-        provider_id: row.get::<_, Option<String>>(2)?.unwrap_or_else(|| "local".to_string()),
+        provider_id: row
+            .get::<_, Option<String>>(2)?
+            .unwrap_or_else(|| "local".to_string()),
         model_path: row.get(3)?,
         provider_model: row.get(4)?,
         system_prompt: row.get(5)?,
-        system_prompt_type: row.get::<_, Option<String>>(6)?.unwrap_or_else(|| "Custom".to_string()),
-        sampler_type: row.get::<_, Option<String>>(7)?.unwrap_or_else(|| "Greedy".to_string()),
+        system_prompt_type: row
+            .get::<_, Option<String>>(6)?
+            .unwrap_or_else(|| "Custom".to_string()),
+        sampler_type: row
+            .get::<_, Option<String>>(7)?
+            .unwrap_or_else(|| "Greedy".to_string()),
         temperature: row.get::<_, Option<f64>>(8)?.unwrap_or(0.7),
         top_p: row.get::<_, Option<f64>>(9)?.unwrap_or(0.95),
         top_k: row.get::<_, Option<u32>>(10)?.unwrap_or(20),
@@ -251,8 +257,12 @@ fn row_to_agent(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRecord> {
         dry_penalty_last_n: row.get::<_, Option<i32>>(22)?.unwrap_or(-1),
         top_n_sigma: row.get::<_, Option<f64>>(23)?.unwrap_or(-1.0),
         flash_attention: row.get::<_, Option<i32>>(24)?.unwrap_or(1) != 0,
-        cache_type_k: row.get::<_, Option<String>>(25)?.unwrap_or_else(|| "f16".to_string()),
-        cache_type_v: row.get::<_, Option<String>>(26)?.unwrap_or_else(|| "f16".to_string()),
+        cache_type_k: row
+            .get::<_, Option<String>>(25)?
+            .unwrap_or_else(|| "f16".to_string()),
+        cache_type_v: row
+            .get::<_, Option<String>>(26)?
+            .unwrap_or_else(|| "f16".to_string()),
         n_batch: row.get::<_, Option<u32>>(27)?.unwrap_or(2048),
         context_size: row.get(28)?,
         seed: row.get::<_, Option<i32>>(29)?.unwrap_or(-1),
@@ -264,7 +274,9 @@ fn row_to_agent(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRecord> {
         use_mlock: row.get::<_, Option<i32>>(35)?.unwrap_or(0) != 0,
         use_mmap: row.get::<_, Option<i32>>(36)?.unwrap_or(1) != 0,
         main_gpu: row.get::<_, Option<i32>>(37)?.unwrap_or(0),
-        split_mode: row.get::<_, Option<String>>(38)?.unwrap_or_else(|| "layer".to_string()),
+        split_mode: row
+            .get::<_, Option<String>>(38)?
+            .unwrap_or_else(|| "layer".to_string()),
         stop_tokens,
         tag_pairs: row.get(40)?,
         tool_tag_exec_open: row.get(41)?,
@@ -286,7 +298,9 @@ impl Database {
     /// Create a new agent. Returns the new agent ID.
     pub fn create_agent(&self, agent: &AgentRecord) -> Result<String, String> {
         let conn = self.connection();
-        let stop_tokens_json = agent.stop_tokens.as_ref()
+        let stop_tokens_json = agent
+            .stop_tokens
+            .as_ref()
             .map(|t| serde_json::to_string(t).unwrap_or_default());
         conn.execute(
             "INSERT INTO agents (
@@ -355,7 +369,9 @@ impl Database {
     pub fn list_agents(&self) -> Result<Vec<AgentRecord>, String> {
         let conn = self.connection();
         let mut stmt = conn
-            .prepare(&format!("SELECT {SELECT_AGENT_COLS} FROM agents ORDER BY created_at DESC"))
+            .prepare(&format!(
+                "SELECT {SELECT_AGENT_COLS} FROM agents ORDER BY created_at DESC"
+            ))
             .map_err(db_error("prepare list agents"))?;
         let agents = stmt
             .query_map([], row_to_agent)
@@ -368,11 +384,14 @@ impl Database {
     /// Update an existing agent. Returns error if not found.
     pub fn update_agent(&self, agent: &AgentRecord) -> Result<(), String> {
         let conn = self.connection();
-        let stop_tokens_json = agent.stop_tokens.as_ref()
+        let stop_tokens_json = agent
+            .stop_tokens
+            .as_ref()
             .map(|t| serde_json::to_string(t).unwrap_or_default());
         let now = current_timestamp_millis();
-        let changed = conn.execute(
-            "UPDATE agents SET
+        let changed = conn
+            .execute(
+                "UPDATE agents SET
                 name = ?1, provider_id = ?2, model_path = ?3, provider_model = ?4,
                 system_prompt = ?5, system_prompt_type = ?6,
                 sampler_type = ?7, temperature = ?8, top_p = ?9, top_k = ?10,
@@ -391,31 +410,62 @@ impl Database {
                 heartbeat_enabled = ?48, heartbeat_interval_minutes = ?49, heartbeat_prompt = ?50,
                 updated_at = ?51
              WHERE id = ?52",
-            params![
-                agent.name, agent.provider_id, agent.model_path, agent.provider_model,
-                agent.system_prompt, agent.system_prompt_type,
-                agent.sampler_type, agent.temperature, agent.top_p, agent.top_k,
-                agent.mirostat_tau, agent.mirostat_eta, agent.repeat_penalty, agent.min_p,
-                agent.typical_p, agent.frequency_penalty, agent.presence_penalty,
-                agent.penalty_last_n, agent.dry_multiplier, agent.dry_base,
-                agent.dry_allowed_length, agent.dry_penalty_last_n, agent.top_n_sigma,
-                agent.flash_attention as i32,
-                agent.cache_type_k, agent.cache_type_v, agent.n_batch, agent.context_size,
-                agent.seed, agent.n_ubatch, agent.n_threads, agent.n_threads_batch,
-                agent.rope_freq_base as f64, agent.rope_freq_scale as f64,
-                agent.use_mlock as i32, agent.use_mmap as i32, agent.main_gpu, agent.split_mode,
-                stop_tokens_json, agent.tag_pairs,
-                agent.tool_tag_exec_open, agent.tool_tag_exec_close,
-                agent.tool_tag_output_open, agent.tool_tag_output_close,
-                agent.proactive_compaction as i32, agent.safe_tool_injection as i32,
-                agent.thinking_mode.map(|v| v as i32),
-                agent.heartbeat_enabled as i32, agent.heartbeat_interval_minutes,
-                agent.heartbeat_prompt,
-                now,
-                agent.id,
-            ],
-        )
-        .map_err(db_error("update agent"))?;
+                params![
+                    agent.name,
+                    agent.provider_id,
+                    agent.model_path,
+                    agent.provider_model,
+                    agent.system_prompt,
+                    agent.system_prompt_type,
+                    agent.sampler_type,
+                    agent.temperature,
+                    agent.top_p,
+                    agent.top_k,
+                    agent.mirostat_tau,
+                    agent.mirostat_eta,
+                    agent.repeat_penalty,
+                    agent.min_p,
+                    agent.typical_p,
+                    agent.frequency_penalty,
+                    agent.presence_penalty,
+                    agent.penalty_last_n,
+                    agent.dry_multiplier,
+                    agent.dry_base,
+                    agent.dry_allowed_length,
+                    agent.dry_penalty_last_n,
+                    agent.top_n_sigma,
+                    agent.flash_attention as i32,
+                    agent.cache_type_k,
+                    agent.cache_type_v,
+                    agent.n_batch,
+                    agent.context_size,
+                    agent.seed,
+                    agent.n_ubatch,
+                    agent.n_threads,
+                    agent.n_threads_batch,
+                    agent.rope_freq_base as f64,
+                    agent.rope_freq_scale as f64,
+                    agent.use_mlock as i32,
+                    agent.use_mmap as i32,
+                    agent.main_gpu,
+                    agent.split_mode,
+                    stop_tokens_json,
+                    agent.tag_pairs,
+                    agent.tool_tag_exec_open,
+                    agent.tool_tag_exec_close,
+                    agent.tool_tag_output_open,
+                    agent.tool_tag_output_close,
+                    agent.proactive_compaction as i32,
+                    agent.safe_tool_injection as i32,
+                    agent.thinking_mode.map(|v| v as i32),
+                    agent.heartbeat_enabled as i32,
+                    agent.heartbeat_interval_minutes,
+                    agent.heartbeat_prompt,
+                    now,
+                    agent.id,
+                ],
+            )
+            .map_err(db_error("update agent"))?;
         if changed == 0 {
             return Err(format!("Agent {} not found", agent.id));
         }
@@ -425,8 +475,11 @@ impl Database {
     /// Delete an agent. Conversations referencing it will have agent_id set to NULL.
     pub fn delete_agent(&self, id: &str) -> Result<(), String> {
         let conn = self.connection();
-        conn.execute("UPDATE conversations SET agent_id = NULL WHERE agent_id = ?1", [id])
-            .map_err(db_error("unlink conversations from agent"))?;
+        conn.execute(
+            "UPDATE conversations SET agent_id = NULL WHERE agent_id = ?1",
+            [id],
+        )
+        .map_err(db_error("unlink conversations from agent"))?;
         conn.execute("DELETE FROM agents WHERE id = ?1", [id])
             .map_err(db_error("delete agent"))?;
         Ok(())
@@ -435,7 +488,10 @@ impl Database {
     // ─── Conversation ↔ Agent binding ───────────────────────────────────────
 
     /// Get the agent_id assigned to a conversation (None = no agent set).
-    pub fn get_conversation_agent_id(&self, conversation_id: &str) -> Result<Option<String>, String> {
+    pub fn get_conversation_agent_id(
+        &self,
+        conversation_id: &str,
+    ) -> Result<Option<String>, String> {
         let conn = self.connection();
         let result = conn.query_row(
             "SELECT agent_id FROM conversations WHERE id = ?1",
@@ -497,8 +553,7 @@ impl Database {
     ///
     /// Resolution order:
     /// 1. If conversation has an `agent_id`, load that agent + merge `overrides` JSON
-    /// 2. Fall back to `conversation_config` table (pre-agent conversations)
-    /// 3. Final fallback: global config
+    /// 2. Final fallback: global config
     pub fn load_effective_config(&self, conversation_id: &str) -> DbSamplerConfig {
         // Try agent path
         if let Ok(Some(agent_id)) = self.get_conversation_agent_id(conversation_id) {
@@ -512,10 +567,6 @@ impl Database {
                 return config;
             }
         }
-        // Fall back to old conversation_config table
-        if let Some(config) = self.load_conversation_config(conversation_id) {
-            return config;
-        }
         // Final fallback
         self.load_config()
     }
@@ -524,7 +575,8 @@ impl Database {
 /// Apply a sparse JSON overrides blob onto a DbSamplerConfig.
 /// Only keys present in the JSON are overridden; absent keys keep the agent baseline.
 fn apply_overrides(config: &mut DbSamplerConfig, overrides_json: &str) {
-    let Ok(map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(overrides_json)
+    let Ok(map) =
+        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(overrides_json)
     else {
         return;
     };
@@ -617,11 +669,7 @@ fn apply_overrides(config: &mut DbSamplerConfig, overrides_json: &str) {
         };
     }
     if let Some(v) = map.get("thinking_mode") {
-        config.thinking_mode = if v.is_null() {
-            None
-        } else {
-            v.as_bool()
-        };
+        config.thinking_mode = if v.is_null() { None } else { v.as_bool() };
     }
 }
 
@@ -674,8 +722,12 @@ mod tests {
         let conv_id = db.create_conversation().unwrap();
         let agent = AgentRecord::from_db_sampler_config("A", &DbSamplerConfig::default());
         db.create_agent(&agent).unwrap();
-        db.set_conversation_agent_id(&conv_id, Some(&agent.id)).unwrap();
-        assert_eq!(db.get_conversation_agent_id(&conv_id).unwrap(), Some(agent.id.clone()));
+        db.set_conversation_agent_id(&conv_id, Some(&agent.id))
+            .unwrap();
+        assert_eq!(
+            db.get_conversation_agent_id(&conv_id).unwrap(),
+            Some(agent.id.clone())
+        );
         db.delete_agent(&agent.id).unwrap();
         assert_eq!(db.get_conversation_agent_id(&conv_id).unwrap(), None);
     }
@@ -688,7 +740,8 @@ mod tests {
         config.temperature = 1.5;
         let agent = AgentRecord::from_db_sampler_config("Hot", &config);
         db.create_agent(&agent).unwrap();
-        db.set_conversation_agent_id(&conv_id, Some(&agent.id)).unwrap();
+        db.set_conversation_agent_id(&conv_id, Some(&agent.id))
+            .unwrap();
         let eff = db.load_effective_config(&conv_id);
         assert_eq!(eff.temperature, 1.5);
     }
@@ -700,8 +753,10 @@ mod tests {
         let config = DbSamplerConfig::default(); // temperature = 0.7
         let agent = AgentRecord::from_db_sampler_config("Base", &config);
         db.create_agent(&agent).unwrap();
-        db.set_conversation_agent_id(&conv_id, Some(&agent.id)).unwrap();
-        db.set_conversation_overrides(&conv_id, Some(r#"{"temperature": 0.42}"#)).unwrap();
+        db.set_conversation_agent_id(&conv_id, Some(&agent.id))
+            .unwrap();
+        db.set_conversation_overrides(&conv_id, Some(r#"{"temperature": 0.42}"#))
+            .unwrap();
         let eff = db.load_effective_config(&conv_id);
         assert!((eff.temperature - 0.42).abs() < 1e-9);
     }
@@ -710,9 +765,8 @@ mod tests {
     fn test_load_effective_config_fallback() {
         let db = test_db();
         let conv_id = db.create_conversation().unwrap();
-        // No agent set — falls back through conversation_config → global
+        // No agent set — falls back to global
         let eff = db.load_effective_config(&conv_id);
-        // Should return something (conversation_config was snapshot from global at creation)
         assert!(eff.temperature >= 0.0);
     }
 }

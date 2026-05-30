@@ -62,7 +62,6 @@ export const HeartbeatModal = ({ isOpen, onClose, conversationId }: Props) => {
 
   useEffect(() => {
     if (isOpen) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       void load();
     }
   }, [isOpen, load]);

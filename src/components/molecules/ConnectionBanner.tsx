@@ -17,7 +17,6 @@ export const ConnectionBanner: React.FC = () => {
 
   useEffect(() => {
     if (!disconnectedAt) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setElapsed('');
       return;
     }

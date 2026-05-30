@@ -82,6 +82,28 @@ export const ModelProvider = ({ children }: { children: ReactNode }) => {
     ? (status.model_path.split(/[/\\]/).pop() || '').replace(/\.gguf$/i, '')
     : '';
 
+  // Provider state — persisted in localStorage
+  const [activeProvider, setActiveProvider] = useState<ActiveProvider>(
+    () => (localStorage.getItem('activeProvider') as ActiveProvider) || 'local',
+  );
+  const [activeProviderModel, setActiveProviderModel] = useState(() => {
+    const provider = (localStorage.getItem('activeProvider') as ActiveProvider) || 'local';
+    const saved =
+      localStorage.getItem('activeProviderModel') || localStorage.getItem('activeClaudeModel');
+    if (saved) return saved;
+    return provider === 'codex' ? 'gpt-5' : 'sonnet';
+  });
+
+  // Provider params — persisted in localStorage per provider
+  const [providerParams, setProviderParams] = useState<ProviderParamsMap>(() => {
+    try {
+      const raw = localStorage.getItem('providerParams');
+      return raw ? (JSON.parse(raw) as ProviderParamsMap) : {};
+    } catch {
+      return {};
+    }
+  });
+
   const loadModel = useCallback(
     async (modelPath: string, config?: SamplerConfig) => {
       const result = await loadModelRaw(modelPath, config);
@@ -125,28 +147,6 @@ export const ModelProvider = ({ children }: { children: ReactNode }) => {
     await hardUnload();
     toast(t('toast.forceUnloaded'), { icon: '🧹' });
   }, [hardUnload, t]);
-
-  // Provider state — persisted in localStorage
-  const [activeProvider, setActiveProvider] = useState<ActiveProvider>(
-    () => (localStorage.getItem('activeProvider') as ActiveProvider) || 'local',
-  );
-  const [activeProviderModel, setActiveProviderModel] = useState(() => {
-    const provider = (localStorage.getItem('activeProvider') as ActiveProvider) || 'local';
-    const saved =
-      localStorage.getItem('activeProviderModel') || localStorage.getItem('activeClaudeModel');
-    if (saved) return saved;
-    return provider === 'codex' ? 'gpt-5' : 'sonnet';
-  });
-
-  // Provider params — persisted in localStorage per provider
-  const [providerParams, setProviderParams] = useState<ProviderParamsMap>(() => {
-    try {
-      const raw = localStorage.getItem('providerParams');
-      return raw ? (JSON.parse(raw) as ProviderParamsMap) : {};
-    } catch {
-      return {};
-    }
-  });
 
   const setProviderParamsFor = useCallback(
     (providerId: string, params: Record<string, unknown>) => {

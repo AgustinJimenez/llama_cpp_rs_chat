@@ -63,7 +63,9 @@ export const SystemResourcesProvider = ({ children }: { children: ReactNode }) =
 
   const { connected } = useConnection();
   const connectedRef = useRef(connected);
-  connectedRef.current = connected;
+  useEffect(() => {
+    connectedRef.current = connected;
+  }, [connected]);
 
   const isFetchingRef = useRef(false);
   const activeRef = useRef(false);

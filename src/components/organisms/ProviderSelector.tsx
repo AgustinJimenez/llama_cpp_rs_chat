@@ -178,7 +178,6 @@ export const ProviderSelector = ({
   useEffect(() => {
     if (!isOpen) return;
     const cancelled = { v: false };
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setProviders([]);
     setLoadingCli(true);
     setProviderSearch('');

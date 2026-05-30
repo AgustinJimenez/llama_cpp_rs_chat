@@ -45,32 +45,6 @@ pub async fn handle_post_model_load(
             Err(error_response) => return Ok(error_response),
         };
 
-        {
-            let mut db_config = db.load_config();
-            let mut updated = false;
-            if let Some(ctx) = load_request.context_size {
-                db_config.context_size = Some(ctx);
-                updated = true;
-            }
-            if let Some(fa) = load_request.flash_attention {
-                db_config.flash_attention = fa;
-                updated = true;
-            }
-            if let Some(ref k) = load_request.cache_type_k {
-                db_config.cache_type_k = k.clone();
-                updated = true;
-            }
-            if let Some(ref v) = load_request.cache_type_v {
-                db_config.cache_type_v = v.clone();
-                updated = true;
-            }
-            if updated {
-                if let Err(e) = db.update_config(&db_config) {
-                    eprintln!("[WARN] Failed to persist load params to config: {}", e);
-                }
-            }
-        }
-
         match bridge
             .load_model(
                 &load_request.model_path,
@@ -255,7 +229,10 @@ pub async fn handle_get_backends(
                     "nvidia_gpu_detected": nvidia_detected,
                     "cuda_backend_loaded": has_cuda,
                 });
-                Ok(json_raw(StatusCode::OK, serde_json::to_string(&body).unwrap()))
+                Ok(json_raw(
+                    StatusCode::OK,
+                    serde_json::to_string(&body).unwrap(),
+                ))
             }
             Err(e) => Ok(json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -271,6 +248,9 @@ pub async fn handle_get_backends(
             "nvidia_gpu_detected": nvidia_detected,
             "cuda_backend_loaded": false,
         });
-        Ok(json_raw(StatusCode::OK, serde_json::to_string(&body).unwrap()))
+        Ok(json_raw(
+            StatusCode::OK,
+            serde_json::to_string(&body).unwrap(),
+        ))
     }
 }

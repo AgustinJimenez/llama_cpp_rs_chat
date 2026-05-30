@@ -5,19 +5,18 @@
 #[macro_use]
 extern crate llama_chat_types;
 
+pub mod agent_heartbeat;
+pub mod agents;
+pub mod app_errors;
 pub mod config;
 pub mod conversation;
-pub mod logger;
-pub mod agents;
-pub mod conversation_config;
 pub mod conversation_context;
+pub mod event_log;
 pub mod hub_downloads;
-pub mod app_errors;
+pub mod logger;
 #[allow(dead_code)]
 pub mod mcp;
 pub mod schema;
-pub mod event_log;
-pub mod agent_heartbeat;
 
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
@@ -154,9 +153,7 @@ pub fn generate_conversation_id() -> String {
 
     let day = remaining_days + 1;
 
-    format!(
-        "chat_{year:04}-{month:02}-{day:02}-{hours:02}-{minutes:02}-{seconds:02}-{millis:03}"
-    )
+    format!("chat_{year:04}-{month:02}-{day:02}-{hours:02}-{minutes:02}-{seconds:02}-{millis:03}")
 }
 
 fn is_leap_year(year: i64) -> bool {

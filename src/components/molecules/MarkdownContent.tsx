@@ -186,7 +186,6 @@ const ChartBlock: React.FC<{ code: string }> = ({ code }) => {
     try {
       spec = JSON.parse(code);
     } catch {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setError('Invalid JSON chart spec');
       return;
     }

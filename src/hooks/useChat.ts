@@ -104,7 +104,6 @@ export function useChat() {
   useEffect(() => {
     if (!isLoading && queuedMessage) {
       const msg = queuedMessage;
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setQueuedMessage(null);
       // eslint-disable-next-line react-hooks/immutability
       sendMessage(msg.content, msg.images, true);
@@ -233,9 +232,7 @@ export function useChat() {
 
   // ─── Send message ──────────────────────────────────────────────────────
 
-  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const sendMessage = useCallback(
-    // eslint-disable-next-line react-hooks/preserve-manual-memoization
     async (content: string, imageData?: string[], bypassLoadingCheck = false) => {
       if (!connectedRef.current) {
         toast.error('Server is unreachable — please wait for reconnection', {

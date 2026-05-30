@@ -10,9 +10,10 @@ use llama_chat_types::TagPair;
 
 /// Convert DbSamplerConfig to the JSON-serializable SamplerConfig
 pub fn db_config_to_sampler_config(db_config: &DbSamplerConfig) -> SamplerConfig {
-    let tag_pairs: Option<Vec<TagPair>> = db_config.tag_pairs.as_ref().and_then(|json_str| {
-        serde_json::from_str(json_str).ok()
-    });
+    let tag_pairs: Option<Vec<TagPair>> = db_config
+        .tag_pairs
+        .as_ref()
+        .and_then(|json_str| serde_json::from_str(json_str).ok());
 
     SamplerConfig {
         sampler_type: db_config.sampler_type.clone(),
@@ -74,9 +75,10 @@ pub fn db_config_to_sampler_config(db_config: &DbSamplerConfig) -> SamplerConfig
 
 /// Convert SamplerConfig to DbSamplerConfig
 pub fn sampler_config_to_db(config: &SamplerConfig) -> DbSamplerConfig {
-    let tag_pairs_json: Option<String> = config.tag_pairs.as_ref().and_then(|pairs| {
-        serde_json::to_string(pairs).ok()
-    });
+    let tag_pairs_json: Option<String> = config
+        .tag_pairs
+        .as_ref()
+        .and_then(|pairs| serde_json::to_string(pairs).ok());
 
     DbSamplerConfig {
         sampler_type: config.sampler_type.clone(),
@@ -144,23 +146,15 @@ pub fn load_config(db: &Database) -> SamplerConfig {
 }
 
 /// Load configuration for a specific conversation.
-/// Falls back to global config if no per-conversation config exists.
-pub fn load_config_for_conversation(db: &Database, _conversation_id: &str) -> SamplerConfig {
-    // Always use the global config from Load Model modal.
-    // Per-conversation overrides were removed — one config for all conversations.
-    load_config(db)
+/// Resolves agent config + sparse overrides, then falls back to app-level defaults.
+pub fn load_config_for_conversation(db: &Database, conversation_id: &str) -> SamplerConfig {
+    let db_config = db.load_effective_config(conversation_id);
+    db_config_to_sampler_config(&db_config)
 }
 
 // Helper function to add a model path to history
 pub fn add_to_model_history(db: &Database, model_path: &str) {
     if let Err(e) = db.add_to_model_history(model_path) {
         sys_warn!("Failed to add to model history: {}", e);
-    }
-
-    // Also update model_path in config
-    let mut db_config = db.load_config();
-    db_config.model_path = Some(model_path.to_string());
-    if let Err(e) = db.update_config(&db_config) {
-        sys_warn!("Failed to update model_path in config: {}", e);
     }
 }

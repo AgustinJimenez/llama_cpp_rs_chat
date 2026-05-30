@@ -46,7 +46,6 @@ export const MessagesArea = () => {
   const showLoadingRow = isCrashRecovery;
   const itemCount = messages.length + (showLoadingRow ? 1 : 0);
 
-  // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: itemCount,
     getScrollElement: () => containerRef.current,

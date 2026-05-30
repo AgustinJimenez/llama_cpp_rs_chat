@@ -119,7 +119,6 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     return namedPreset;
   }, [generalName, recommendedParams]);
 
-  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const maxContextSize = useMemo(() => {
     if (!modelInfo?.context_length) return DEFAULT_MAX_CONTEXT;
     const parsed = parseInt(modelInfo.context_length.toString().replace(/,/g, ''));
@@ -153,7 +152,6 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   // Reset and re-set modelPath when modal opens to force metadata re-fetch
   useEffect(() => {
     if (isOpen && initialModelPath) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setModelPath('');
       requestAnimationFrame(() => setModelPath(initialModelPath));
     }
@@ -201,7 +199,6 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
 
   useEffect(() => {
     if (modelPath) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setConfig((prev) => ({
         ...prev,
         model_path: modelPath,
@@ -216,7 +213,6 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
     if (modelInfo?.context_length) {
       const maxContext = parseInt(modelInfo.context_length.toString().replace(/,/g, ''));
       if (!isNaN(maxContext)) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
         setContextSize(maxContext);
       }
     }
@@ -260,7 +256,6 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
         model_path: prev.model_path,
       }));
       if (presetContextSize) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
         setContextSize(presetContextSize);
       }
     }
@@ -271,7 +266,6 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   // Auto-enable mmproj when detected in model directory, clear on model change
   useEffect(() => {
     if (modelInfo?.mmproj_files?.length) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMmprojEnabled(true);
       setMmprojPath(modelInfo.mmproj_files[0].path);
     } else {
@@ -284,7 +278,6 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   // Stale pairs from a previous model would cause wrong tool format in prompts
   useEffect(() => {
     if (!modelInfo?.detected_tag_pairs?.length) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setConfig((prev) => {
       // eslint-disable-next-line no-console
       console.log(

@@ -15,6 +15,7 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
   const [isEventLogOpen, setIsEventLogOpen] = useState(false);
   const [isProviderSelectorOpen, setIsProviderSelectorOpen] = useState(false);
   const [isAgentSelectorOpen, setIsAgentSelectorOpen] = useState(false);
+  const [isConversationOverridesOpen, setIsConversationOverridesOpen] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [browserViewUrl, setBrowserViewUrl] = useState<string | null>(null);
   const [isBrowserViewOpen, setIsBrowserViewOpen] = useState(false);
@@ -45,6 +46,8 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
   const closeProviderSelector = useCallback(() => setIsProviderSelectorOpen(false), []);
   const openAgentSelector = useCallback(() => setIsAgentSelectorOpen(true), []);
   const closeAgentSelector = useCallback(() => setIsAgentSelectorOpen(false), []);
+  const openConversationOverrides = useCallback(() => setIsConversationOverridesOpen(true), []);
+  const closeConversationOverrides = useCallback(() => setIsConversationOverridesOpen(false), []);
   const toggleMobileSidebar = useCallback(() => setIsMobileSidebarOpen((p) => !p), []);
   const closeMobileSidebar = useCallback(() => setIsMobileSidebarOpen(false), []);
   const openBrowserView = useCallback((url: string) => {
@@ -83,6 +86,9 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
       isAgentSelectorOpen,
       openAgentSelector,
       closeAgentSelector,
+      isConversationOverridesOpen,
+      openConversationOverrides,
+      closeConversationOverrides,
       isMobileSidebarOpen,
       toggleMobileSidebar,
       closeMobileSidebar,
@@ -116,6 +122,9 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
       isAgentSelectorOpen,
       openAgentSelector,
       closeAgentSelector,
+      isConversationOverridesOpen,
+      openConversationOverrides,
+      closeConversationOverrides,
       isMobileSidebarOpen,
       toggleMobileSidebar,
       closeMobileSidebar,

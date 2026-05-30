@@ -13,6 +13,8 @@ use uuid::Uuid;
 
 use crate::request_parsing::parse_json_body;
 use crate::response_helpers::{json_error, json_raw, json_success};
+#[cfg(not(feature = "mock"))]
+use crate::worker_pool::{resolve_bridge_for_conversation, WorkerPool};
 
 // ─── JSON DTOs ───────────────────────────────────────────────────────────────
 
@@ -151,7 +153,9 @@ impl AgentJson {
             model_path: self.model_path,
             provider_model: self.provider_model,
             system_prompt: self.system_prompt,
-            system_prompt_type: self.system_prompt_type.unwrap_or_else(|| "Custom".to_string()),
+            system_prompt_type: self
+                .system_prompt_type
+                .unwrap_or_else(|| "Custom".to_string()),
             sampler_type: self.sampler_type.unwrap_or_else(|| "Greedy".to_string()),
             temperature: self.temperature.unwrap_or(0.7),
             top_p: self.top_p.unwrap_or(0.95),
@@ -209,50 +213,122 @@ impl AgentJson {
         existing.model_path = self.model_path;
         existing.provider_model = self.provider_model;
         existing.system_prompt = self.system_prompt;
-        if let Some(v) = self.system_prompt_type { existing.system_prompt_type = v; }
-        if let Some(v) = self.sampler_type { existing.sampler_type = v; }
-        if let Some(v) = self.temperature { existing.temperature = v; }
-        if let Some(v) = self.top_p { existing.top_p = v; }
-        if let Some(v) = self.top_k { existing.top_k = v; }
-        if let Some(v) = self.mirostat_tau { existing.mirostat_tau = v; }
-        if let Some(v) = self.mirostat_eta { existing.mirostat_eta = v; }
-        if let Some(v) = self.repeat_penalty { existing.repeat_penalty = v; }
-        if let Some(v) = self.min_p { existing.min_p = v; }
-        if let Some(v) = self.typical_p { existing.typical_p = v; }
-        if let Some(v) = self.frequency_penalty { existing.frequency_penalty = v; }
-        if let Some(v) = self.presence_penalty { existing.presence_penalty = v; }
-        if let Some(v) = self.penalty_last_n { existing.penalty_last_n = v; }
-        if let Some(v) = self.dry_multiplier { existing.dry_multiplier = v; }
-        if let Some(v) = self.dry_base { existing.dry_base = v; }
-        if let Some(v) = self.dry_allowed_length { existing.dry_allowed_length = v; }
-        if let Some(v) = self.dry_penalty_last_n { existing.dry_penalty_last_n = v; }
-        if let Some(v) = self.top_n_sigma { existing.top_n_sigma = v; }
-        if let Some(v) = self.flash_attention { existing.flash_attention = v; }
-        if let Some(v) = self.cache_type_k { existing.cache_type_k = v; }
-        if let Some(v) = self.cache_type_v { existing.cache_type_v = v; }
-        if let Some(v) = self.n_batch { existing.n_batch = v; }
+        if let Some(v) = self.system_prompt_type {
+            existing.system_prompt_type = v;
+        }
+        if let Some(v) = self.sampler_type {
+            existing.sampler_type = v;
+        }
+        if let Some(v) = self.temperature {
+            existing.temperature = v;
+        }
+        if let Some(v) = self.top_p {
+            existing.top_p = v;
+        }
+        if let Some(v) = self.top_k {
+            existing.top_k = v;
+        }
+        if let Some(v) = self.mirostat_tau {
+            existing.mirostat_tau = v;
+        }
+        if let Some(v) = self.mirostat_eta {
+            existing.mirostat_eta = v;
+        }
+        if let Some(v) = self.repeat_penalty {
+            existing.repeat_penalty = v;
+        }
+        if let Some(v) = self.min_p {
+            existing.min_p = v;
+        }
+        if let Some(v) = self.typical_p {
+            existing.typical_p = v;
+        }
+        if let Some(v) = self.frequency_penalty {
+            existing.frequency_penalty = v;
+        }
+        if let Some(v) = self.presence_penalty {
+            existing.presence_penalty = v;
+        }
+        if let Some(v) = self.penalty_last_n {
+            existing.penalty_last_n = v;
+        }
+        if let Some(v) = self.dry_multiplier {
+            existing.dry_multiplier = v;
+        }
+        if let Some(v) = self.dry_base {
+            existing.dry_base = v;
+        }
+        if let Some(v) = self.dry_allowed_length {
+            existing.dry_allowed_length = v;
+        }
+        if let Some(v) = self.dry_penalty_last_n {
+            existing.dry_penalty_last_n = v;
+        }
+        if let Some(v) = self.top_n_sigma {
+            existing.top_n_sigma = v;
+        }
+        if let Some(v) = self.flash_attention {
+            existing.flash_attention = v;
+        }
+        if let Some(v) = self.cache_type_k {
+            existing.cache_type_k = v;
+        }
+        if let Some(v) = self.cache_type_v {
+            existing.cache_type_v = v;
+        }
+        if let Some(v) = self.n_batch {
+            existing.n_batch = v;
+        }
         existing.context_size = self.context_size;
-        if let Some(v) = self.seed { existing.seed = v; }
-        if let Some(v) = self.n_ubatch { existing.n_ubatch = v; }
-        if let Some(v) = self.n_threads { existing.n_threads = v; }
-        if let Some(v) = self.n_threads_batch { existing.n_threads_batch = v; }
-        if let Some(v) = self.rope_freq_base { existing.rope_freq_base = v; }
-        if let Some(v) = self.rope_freq_scale { existing.rope_freq_scale = v; }
-        if let Some(v) = self.use_mlock { existing.use_mlock = v; }
-        if let Some(v) = self.use_mmap { existing.use_mmap = v; }
-        if let Some(v) = self.main_gpu { existing.main_gpu = v; }
-        if let Some(v) = self.split_mode { existing.split_mode = v; }
+        if let Some(v) = self.seed {
+            existing.seed = v;
+        }
+        if let Some(v) = self.n_ubatch {
+            existing.n_ubatch = v;
+        }
+        if let Some(v) = self.n_threads {
+            existing.n_threads = v;
+        }
+        if let Some(v) = self.n_threads_batch {
+            existing.n_threads_batch = v;
+        }
+        if let Some(v) = self.rope_freq_base {
+            existing.rope_freq_base = v;
+        }
+        if let Some(v) = self.rope_freq_scale {
+            existing.rope_freq_scale = v;
+        }
+        if let Some(v) = self.use_mlock {
+            existing.use_mlock = v;
+        }
+        if let Some(v) = self.use_mmap {
+            existing.use_mmap = v;
+        }
+        if let Some(v) = self.main_gpu {
+            existing.main_gpu = v;
+        }
+        if let Some(v) = self.split_mode {
+            existing.split_mode = v;
+        }
         existing.stop_tokens = self.stop_tokens;
         existing.tag_pairs = self.tag_pairs;
         existing.tool_tag_exec_open = self.tool_tag_exec_open;
         existing.tool_tag_exec_close = self.tool_tag_exec_close;
         existing.tool_tag_output_open = self.tool_tag_output_open;
         existing.tool_tag_output_close = self.tool_tag_output_close;
-        if let Some(v) = self.proactive_compaction { existing.proactive_compaction = v; }
-        if let Some(v) = self.safe_tool_injection { existing.safe_tool_injection = v; }
+        if let Some(v) = self.proactive_compaction {
+            existing.proactive_compaction = v;
+        }
+        if let Some(v) = self.safe_tool_injection {
+            existing.safe_tool_injection = v;
+        }
         existing.thinking_mode = self.thinking_mode;
-        if let Some(v) = self.heartbeat_enabled { existing.heartbeat_enabled = v; }
-        if let Some(v) = self.heartbeat_interval_minutes { existing.heartbeat_interval_minutes = v; }
+        if let Some(v) = self.heartbeat_enabled {
+            existing.heartbeat_enabled = v;
+        }
+        if let Some(v) = self.heartbeat_interval_minutes {
+            existing.heartbeat_interval_minutes = v;
+        }
         existing.heartbeat_prompt = self.heartbeat_prompt;
     }
 }
@@ -326,7 +402,10 @@ pub async fn handle_list_agents(db: SharedDatabase) -> Result<Response<Body>, In
             let json_list: Vec<AgentJson> = agents.into_iter().map(AgentJson::from).collect();
             match serde_json::to_string(&json_list) {
                 Ok(json) => Ok(json_raw(StatusCode::OK, json)),
-                Err(e) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Serialize error: {e}"))),
+                Err(e) => Ok(json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &format!("Serialize error: {e}"),
+                )),
             }
         }
         Err(e) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &e)),
@@ -340,7 +419,10 @@ pub async fn handle_get_agent(id: &str, db: SharedDatabase) -> Result<Response<B
             let json = AgentJson::from(agent);
             match serde_json::to_string(&json) {
                 Ok(s) => Ok(json_raw(StatusCode::OK, s)),
-                Err(e) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Serialize error: {e}"))),
+                Err(e) => Ok(json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &format!("Serialize error: {e}"),
+                )),
             }
         }
         Ok(None) => Ok(json_error(StatusCode::NOT_FOUND, "Agent not found")),
@@ -373,7 +455,10 @@ pub async fn handle_create_agent(
                     let json = AgentJson::from(agent);
                     match serde_json::to_string(&json) {
                         Ok(s) => Ok(json_raw(StatusCode::CREATED, s)),
-                        Err(e) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Serialize error: {e}"))),
+                        Err(e) => Ok(json_error(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            &format!("Serialize error: {e}"),
+                        )),
                     }
                 }
                 _ => Ok(json_raw(StatusCode::CREATED, format!(r#"{{"id":"{id}"}}"#))),
@@ -413,7 +498,10 @@ pub async fn handle_update_agent(
 }
 
 /// DELETE /api/agents/:id — delete an agent (unlinks conversations)
-pub async fn handle_delete_agent(id: &str, db: SharedDatabase) -> Result<Response<Body>, Infallible> {
+pub async fn handle_delete_agent(
+    id: &str,
+    db: SharedDatabase,
+) -> Result<Response<Body>, Infallible> {
     match db.delete_agent(id) {
         Ok(()) => Ok(json_success("Agent deleted")),
         Err(e) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &e)),
@@ -426,6 +514,7 @@ pub async fn handle_delete_agent(id: &str, db: SharedDatabase) -> Result<Respons
 pub async fn handle_set_conversation_agent(
     req: Request<Body>,
     conversation_id: &str,
+    #[cfg(not(feature = "mock"))] pool: WorkerPool,
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     #[derive(Deserialize)]
@@ -438,12 +527,20 @@ pub async fn handle_set_conversation_agent(
         Err(err_resp) => return Ok(err_resp),
     };
 
-    // Validate agent exists if provided
-    if let Some(ref aid) = body.agent_id {
+    let agent = if let Some(ref aid) = body.agent_id {
         match db.get_agent(aid) {
             Ok(None) => return Ok(json_error(StatusCode::NOT_FOUND, "Agent not found")),
             Err(e) => return Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &e)),
-            Ok(Some(_)) => {}
+            Ok(Some(agent)) => Some(agent),
+        }
+    } else {
+        None
+    };
+
+    #[cfg(not(feature = "mock"))]
+    if let Some(ref agent) = agent {
+        if let Err(e) = reload_worker_for_agent_switch(&pool, &db, conversation_id, agent).await {
+            return Ok(json_error(StatusCode::CONFLICT, &e));
         }
     }
 
@@ -451,6 +548,38 @@ pub async fn handle_set_conversation_agent(
         Ok(()) => Ok(json_success("Conversation agent updated")),
         Err(e) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &e)),
     }
+}
+
+#[cfg(not(feature = "mock"))]
+async fn reload_worker_for_agent_switch(
+    pool: &WorkerPool,
+    db: &SharedDatabase,
+    conversation_id: &str,
+    agent: &AgentRecord,
+) -> Result<(), String> {
+    let bridge = resolve_bridge_for_conversation(pool, db, Some(conversation_id))?;
+    if bridge.is_generating().await {
+        return Err("Cannot switch agent while this worker is generating".to_string());
+    }
+
+    if agent.provider_id == "local" {
+        let Some(model_path) = agent
+            .model_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+        else {
+            return Err("Local agent has no model_path configured".to_string());
+        };
+        let gpu_layers = u32::try_from(agent.main_gpu)
+            .ok()
+            .filter(|layers| *layers > 0);
+        bridge.load_model(model_path, gpu_layers, None).await?;
+    } else if bridge.model_status().await.is_some() {
+        bridge.force_unload().await?;
+    }
+
+    Ok(())
 }
 
 /// PATCH /api/conversations/:id/overrides — update per-conversation param overrides
@@ -471,7 +600,12 @@ pub async fn handle_set_conversation_overrides(
     // Validate it's valid JSON (either null or an object)
     let overrides_json: serde_json::Value = match serde_json::from_str(body_str) {
         Ok(v) => v,
-        Err(_) => return Ok(json_error(StatusCode::BAD_REQUEST, "Body must be valid JSON")),
+        Err(_) => {
+            return Ok(json_error(
+                StatusCode::BAD_REQUEST,
+                "Body must be valid JSON",
+            ))
+        }
     };
 
     let overrides = if overrides_json.is_null() {
@@ -479,12 +613,34 @@ pub async fn handle_set_conversation_overrides(
     } else if overrides_json.is_object() {
         Some(overrides_json.to_string())
     } else {
-        return Ok(json_error(StatusCode::BAD_REQUEST, "Body must be a JSON object or null"));
+        return Ok(json_error(
+            StatusCode::BAD_REQUEST,
+            "Body must be a JSON object or null",
+        ));
     };
 
     match db.set_conversation_overrides(conversation_id, overrides.as_deref()) {
         Ok(()) => Ok(json_success("Overrides saved")),
         Err(e) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &e)),
+    }
+}
+
+/// GET /api/conversations/:id/overrides — get raw sparse overrides for a conversation
+pub async fn handle_get_conversation_overrides(
+    conversation_id: &str,
+    db: SharedDatabase,
+) -> Result<Response<Body>, Infallible> {
+    let overrides = db
+        .get_conversation_overrides(conversation_id)
+        .and_then(|json| serde_json::from_str::<serde_json::Value>(&json).ok())
+        .unwrap_or(serde_json::Value::Null);
+
+    match serde_json::to_string(&serde_json::json!({ "overrides": overrides })) {
+        Ok(s) => Ok(json_raw(StatusCode::OK, s)),
+        Err(e) => Ok(json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Serialize error: {e}"),
+        )),
     }
 }
 
@@ -512,6 +668,9 @@ pub async fn handle_get_conversation_agent(
     let json = AgentJson::from(agent);
     match serde_json::to_string(&serde_json::json!({ "agent": json })) {
         Ok(s) => Ok(json_raw(StatusCode::OK, s)),
-        Err(e) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Serialize error: {e}"))),
+        Err(e) => Ok(json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Serialize error: {e}"),
+        )),
     }
 }

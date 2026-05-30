@@ -133,7 +133,7 @@ Most conversations will have `overrides = NULL` (pure agent config).
 - [x] Add `agent_id`, `overrides` columns to `conversations`
 - [x] Write `AgentRecord` Rust struct + CRUD methods in `llama-chat-db`
 - [x] Config resolution fn: `load_effective_config()` in `agents.rs` (agent → conversation_config → global fallback)
-- [ ] Migration: existing `conversation_config` rows → anonymous agents
+- [x] Migration: existing `conversation_config` rows → anonymous agents
 
 ### Step 2 — Backend API
 - [x] `GET /api/agents`
@@ -145,26 +145,26 @@ Most conversations will have `overrides = NULL` (pure agent config).
 - [x] **Wire routes into HTTP router** — all agent routes dispatched in `src/main_web.rs` (lines 351–379)
 
 ### Step 3 — Wire config resolution
-- [ ] **Call `load_effective_config()` in the engine** — this is the core of the whole migration: without it,
+- [x] **Call `load_effective_config()` in the engine** — this is the core of the whole migration: without it,
   an agent's system_prompt and sampler params are saved to DB but never actually used during generation;
   the engine still reads the old global config
-- [ ] **Worker: reload on agent switch** — `POST /conversations/:id/agent` saves the agent_id but doesn't
+- [x] **Worker: reload on agent switch** — `POST /conversations/:id/agent` saves the agent_id but doesn't
   trigger a model unload/reload, so switching agents has no effect on the running inference
 - [x] Sparse overrides stored and merged (`set_conversation_overrides` + `apply_overrides`)
 
 ### Step 4 — Frontend
 - [x] Agent selector modal (create, edit, delete, local/remote/CLI)
 - [x] Agent creation + edit form
-- [ ] **Fix `apiClient` import** — `AgentContext.tsx` imports from `../utils/apiClient` which was deleted
+- [x] **Fix `apiClient` import** — `AgentContext.tsx` imports from `../utils/apiClient` which was deleted
   in the last refactor; the agent UI is broken until this is replaced with direct `fetch` calls
-- [ ] Per-conversation overrides panel — lets users tweak individual params per conversation without
+- [x] Per-conversation overrides panel — lets users tweak individual params per conversation without
   editing the agent; writes sparse JSON to `conversations.overrides`
-- [ ] Show active agent name in chat header — user feedback so they know which agent is loaded
+- [x] Show active agent name in chat header — user feedback so they know which agent is loaded
 
 ### Step 5 — Cleanup (after steps 2–4 verified working)
-- [ ] Drop `conversation_config` table
-- [ ] Remove `ConversationConfig` Rust struct
-- [ ] Strip model/sampler columns from `config` table
+- [x] Drop `conversation_config` table
+- [x] Remove `ConversationConfig` Rust struct
+- [x] Strip model/sampler columns from `config` table
 
 ---
 

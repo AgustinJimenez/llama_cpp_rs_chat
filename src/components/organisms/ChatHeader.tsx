@@ -1,6 +1,8 @@
-import { Unplug, Activity, SlidersHorizontal, ScrollText, X, Menu, Globe } from 'lucide-react';
+import { Unplug, Activity, SlidersHorizontal, ScrollText, X, Menu, Globe, Bot } from 'lucide-react';
 import React from 'react';
 
+import { useAgentContext } from '../../contexts/AgentContext';
+import { useChatContext } from '../../contexts/ChatContext';
 import { useModelContext } from '../../contexts/ModelContext';
 import { useUIContext } from '../../hooks/useUIContext';
 import type { ViewMode } from '../../types';
@@ -53,10 +55,13 @@ const HeaderAgentControls = ({
 }: Pick<ChatHeaderProps, 'onModelUnload' | 'onForceUnload'>) => {
   const { status, isLoading, loadingAction, hasStatusError, activeProvider, activeProviderModel } =
     useModelContext();
-  const { openAgentSelector } = useUIContext();
+  const { currentConversationId } = useChatContext();
+  const { conversationAgent, stagedAgent } = useAgentContext();
+  const { openAgentSelector, openConversationOverrides } = useUIContext();
 
   const modelLoaded = status.loaded || activeProvider !== 'local';
   const remoteProviderLabel = getProviderLabel(activeProvider);
+  const activeAgent = conversationAgent ?? stagedAgent;
 
   const currentModelPath =
     activeProvider !== 'local'
@@ -72,6 +77,26 @@ const HeaderAgentControls = ({
         loadingProgress={status.loading_progress}
         onOpen={openAgentSelector}
       />
+      {!!activeAgent && (
+        <button
+          onClick={openAgentSelector}
+          className="hidden sm:flex items-center gap-1.5 max-w-[180px] px-2 py-1 rounded-md border border-border/60 bg-muted/35 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          title={`Active agent: ${activeAgent.name}`}
+        >
+          <Bot className="h-3.5 w-3.5 flex-shrink-0" />
+          <span className="truncate">{activeAgent.name}</span>
+        </button>
+      )}
+      {!!currentConversationId && !!activeAgent && (
+        <button
+          onClick={openConversationOverrides}
+          className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          title="Conversation overrides"
+          aria-label="Conversation overrides"
+        >
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+        </button>
+      )}
       {!!isLoading && loadingAction === 'loading' && (
         <button
           onClick={onForceUnload}

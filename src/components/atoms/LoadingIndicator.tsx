@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 
 export const LoadingIndicator: React.FC = () => {
   const [elapsed, setElapsed] = useState(0);
-  const startRef = useRef(Date.now());
+  const startRef = useRef(0);
 
   useEffect(() => {
     startRef.current = Date.now();

@@ -57,7 +57,6 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
 
   useEffect(() => {
     if (!isOpen) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     refresh();
     const id = setInterval(refresh, MODAL_POLL_INTERVAL_MS);
     return () => clearInterval(id);

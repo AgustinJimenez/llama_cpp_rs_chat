@@ -67,13 +67,7 @@ export const useModelPathValidation = ({
 
   // Debounced file existence check
   useEffect(() => {
-    if (!modelPath.trim()) {
-      setFileExists(null);
-      setModelInfo(null);
-      setDirectoryError(null);
-      setDirectorySuggestions([]);
-      return;
-    }
+    if (!modelPath.trim()) return;
 
     // eslint-disable-next-line complexity
     const checkFileExists = async () => {
@@ -191,12 +185,13 @@ export const useModelPathValidation = ({
     return () => clearTimeout(timeoutId);
   }, [modelPath, debounceMs, onPathChange, saveToHistory]);
 
+  const empty = !modelPath.trim();
   return {
-    fileExists,
-    isCheckingFile,
-    directoryError,
-    directorySuggestions,
-    modelInfo,
+    fileExists: empty ? null : fileExists,
+    isCheckingFile: empty ? false : isCheckingFile,
+    directoryError: empty ? null : directoryError,
+    directorySuggestions: empty ? [] : directorySuggestions,
+    modelInfo: empty ? null : modelInfo,
     maxLayers,
     isTauri: isTauriEnv(),
   };

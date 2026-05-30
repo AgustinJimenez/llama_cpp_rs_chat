@@ -223,7 +223,6 @@ export function useConversationWatcher({
   setMaxTokens,
   setIsLoading,
 }: UseConversationWatcherOptions) {
-  // eslint-disable-next-line react-hooks/purity
   const lastWsUpdateAtRef = useRef<number>(Date.now());
   const lastPolledAssistantContentRef = useRef<string>('');
   const stablePollsRef = useRef(0);

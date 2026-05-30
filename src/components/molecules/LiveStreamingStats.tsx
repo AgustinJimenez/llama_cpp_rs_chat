@@ -55,12 +55,10 @@ export const LiveStreamingStats = ({
   const [elapsed, setElapsed] = useState(0);
   const [tokenCount, setTokenCount] = useState(0);
   const [liveTokPerSec, setLiveTokPerSec] = useState(0);
-  // eslint-disable-next-line react-hooks/purity
   const startRef = useRef(Date.now());
   const firstTokensUsedRef = useRef<number | null>(null);
   const lastTokensRef = useRef<number>(0);
   const genTimeRef = useRef(0); // accumulated generation-only time (ms)
-  // eslint-disable-next-line react-hooks/purity
   const lastTickRef = useRef(Date.now());
   const pct = tokensUsed && maxTokens ? Math.round((tokensUsed / maxTokens) * 100) : 0;
 
@@ -68,9 +66,7 @@ export const LiveStreamingStats = ({
     startRef.current = Date.now();
     lastTickRef.current = Date.now();
     genTimeRef.current = 0;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTokenCount(0);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLiveTokPerSec(0);
     firstTokensUsedRef.current = null;
     lastTokensRef.current = 0;
@@ -104,7 +100,6 @@ export const LiveStreamingStats = ({
 
   useEffect(() => {
     if (streamStatus) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPolledStatus(undefined);
       return;
     }
@@ -191,9 +186,7 @@ const CompactButton = ({
 
   useEffect(() => {
     if (!compacting) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setElapsedSec(0);
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPolledProgress(null);
       return;
     }

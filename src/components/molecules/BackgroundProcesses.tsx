@@ -30,7 +30,6 @@ export const BackgroundProcesses = () => {
   }, []);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     refresh();
     const interval = setInterval(refresh, BACKGROUND_POLL_INTERVAL_MS);
     return () => clearInterval(interval);

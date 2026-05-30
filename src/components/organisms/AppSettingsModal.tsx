@@ -38,14 +38,12 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
   const [errorsLoading, setErrorsLoading] = useState(false);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (config) setLocalConfig(config);
   }, [config]);
 
   useEffect(() => {
     if (!isOpen || activeTab !== 'Errors') return;
     let cancelled = false;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setErrorsLoading(true);
     const MAX_ERRORS = 150;
     getAppErrors(MAX_ERRORS)

@@ -25,6 +25,11 @@ const RightSidebar = React.lazy(() =>
 const AppSettingsModal = React.lazy(() =>
   import('./components/organisms/AppSettingsModal').then((m) => ({ default: m.AppSettingsModal })),
 );
+const ConversationOverridesModal = React.lazy(() =>
+  import('./components/organisms/ConversationOverridesModal').then((m) => ({
+    default: m.ConversationOverridesModal,
+  })),
+);
 const ModelConfigModal = React.lazy(() =>
   import('./components/organisms/model-config').then((m) => ({ default: m.ModelConfigModal })),
 );
@@ -411,7 +416,10 @@ const Overlays = ({
     closeAppSettings,
     isModelConfigOpen,
     closeModelConfig,
+    isConversationOverridesOpen,
+    closeConversationOverrides,
   } = useUIContext();
+  const { currentConversationId } = useChatContext();
 
   return (
     <>
@@ -437,6 +445,17 @@ const Overlays = ({
               onClose={closeModelConfig}
               onSave={onModelConfigSave}
               initialModelPath={modelPath}
+            />
+          </Suspense>
+        </ErrorBoundary>
+      )}
+      {!!isConversationOverridesOpen && (
+        <ErrorBoundary>
+          <Suspense fallback={null}>
+            <ConversationOverridesModal
+              isOpen={isConversationOverridesOpen}
+              onClose={closeConversationOverrides}
+              conversationId={currentConversationId}
             />
           </Suspense>
         </ErrorBoundary>

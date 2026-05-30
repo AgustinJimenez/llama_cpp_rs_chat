@@ -195,9 +195,7 @@ export const ProviderConfigSection = ({ providerId }: ProviderConfigSectionProps
     [providerId, currentParams, setProviderParamsFor],
   );
 
-  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const handleAddOptional = useCallback(
-    // eslint-disable-next-line react-hooks/preserve-manual-memoization
     (key: string) => {
       const schema = optionalSchemas.find((s) => s.key === key);
       if (schema?.default !== undefined) {
@@ -206,7 +204,6 @@ export const ProviderConfigSection = ({ providerId }: ProviderConfigSectionProps
       setEnabledOptional((prev) => new Set(prev).add(key));
       setAddMenuOpen(false);
     },
-    // eslint-disable-next-line react-hooks/preserve-manual-memoization
     [providerId, currentParams, optionalSchemas, setProviderParamsFor],
   );
 

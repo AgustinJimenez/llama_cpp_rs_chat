@@ -207,7 +207,6 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
     return namedPreset;
   }, [generalName, recommendedParams]);
 
-  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const maxContextSize = useMemo(() => {
     if (!modelInfo?.context_length) return DEFAULT_MAX_CONTEXT;
     const parsed = parseInt(modelInfo.context_length.toString().replace(/,/g, ''));
@@ -279,7 +278,6 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
   // ── Reset on close ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!isOpen) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setView('list');
       setProviderMode(null);
       setEditingAgent(null);
@@ -344,7 +342,6 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
     const { context_size: presetCtx, ...samplerPreset } = merged as Partial<SamplerConfig> & {
       context_size?: number;
     };
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLocalConfig((prev) => ({ ...prev, ...samplerPreset, model_path: prev.model_path }));
     if (presetCtx) setContextSize(presetCtx);
   }, [modelInfo, providerMode, editingAgent]);
@@ -353,14 +350,12 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
   useEffect(() => {
     if (editingAgent || !modelInfo?.context_length) return;
     const max = parseInt(modelInfo.context_length.toString().replace(/,/g, ''));
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!isNaN(max)) setContextSize(max);
   }, [modelInfo, editingAgent]);
 
   // ── Auto-enable mmproj ────────────────────────────────────────────────────
   useEffect(() => {
     if (modelInfo?.mmproj_files?.length) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMmprojEnabled(true);
       setMmprojPath(modelInfo.mmproj_files[0].path);
     } else {
@@ -372,7 +367,6 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
   // ── Tag pairs from model ──────────────────────────────────────────────────
   useEffect(() => {
     if (!modelInfo?.detected_tag_pairs?.length) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLocalConfig((prev) => ({ ...prev, tag_pairs: modelInfo.detected_tag_pairs }));
   }, [modelInfo?.detected_tag_pairs]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -380,7 +374,6 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
   useEffect(() => {
     if (optimized.ready && modelPath && autoOptimizedForPath.current !== modelPath) {
       autoOptimizedForPath.current = modelPath;
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLocalConfig((prev) => ({ ...prev, gpu_layers: optimized.optimalGpuLayers }));
     }
   }, [optimized, modelPath]);

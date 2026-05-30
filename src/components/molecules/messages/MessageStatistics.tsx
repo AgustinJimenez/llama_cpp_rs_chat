@@ -80,7 +80,6 @@ export const MessageStatistics = ({ timings, tokensUsed, maxTokens }: MessageSta
   }, []);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshProcesses();
     const id = setInterval(refreshProcesses, PROCESS_POLL_INTERVAL_MS);
     return () => clearInterval(id);

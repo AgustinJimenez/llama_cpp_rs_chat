@@ -105,12 +105,10 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
   };
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (connected) fetchConversations();
   }, [connected]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (currentConversationId && connected) fetchConversations();
   }, [currentConversationId, connected]);
 

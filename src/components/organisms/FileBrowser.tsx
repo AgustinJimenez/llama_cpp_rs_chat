@@ -60,9 +60,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
 
   useEffect(() => {
     if (isOpen) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       fetchFiles(currentPath);
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedFile(null);
     }
   }, [isOpen, currentPath]);

@@ -125,7 +125,9 @@ impl Default for DbSamplerConfig {
             split_mode: "layer".to_string(),
             use_rtk: true,
             use_htmd: false,
-            tag_pairs: None, proactive_compaction: true, safe_tool_injection: false,
+            tag_pairs: None,
+            proactive_compaction: true,
+            safe_tool_injection: false,
             telegram_bot_token: None,
             telegram_chat_id: None,
             provider_api_keys: None,
@@ -136,116 +138,40 @@ impl Default for DbSamplerConfig {
     }
 }
 
-fn parse_system_prompt_type(s: Option<String>) -> SystemPromptType {
-    match s.as_deref() {
-        // "UserDefined" was removed — map legacy DB values to Custom
-        _ => SystemPromptType::Custom,
-    }
-}
-
-fn system_prompt_type_to_str(_spt: &SystemPromptType) -> &'static str {
-    "Custom"
-}
-
 impl Database {
     /// Load configuration from database
     pub fn load_config(&self) -> DbSamplerConfig {
-        // Query config table - use a block to release the lock before calling get_model_history
         let result = {
             let conn = self.connection();
             conn.query_row(
-                "SELECT sampler_type, temperature, top_p, top_k, mirostat_tau,
-                        mirostat_eta, model_path, system_prompt, system_prompt_type,
-                        context_size, stop_tokens, disable_file_logging, repeat_penalty, min_p,
-                        flash_attention, cache_type_k, cache_type_v, n_batch,
-                        typical_p, frequency_penalty, presence_penalty, penalty_last_n,
-                        dry_multiplier, dry_base, dry_allowed_length, dry_penalty_last_n,
-                        top_n_sigma,
-                        tool_tag_exec_open, tool_tag_exec_close, tool_tag_output_open, tool_tag_output_close,
+                "SELECT disable_file_logging,
                         web_browser_backend,
                         models_directory,
-                        seed, n_ubatch, n_threads, n_threads_batch,
-                        rope_freq_base, rope_freq_scale,
-                        use_mlock, use_mmap, main_gpu, split_mode,
                         use_rtk,
                         use_htmd,
-                        tag_pairs,
-                        proactive_compaction,
-                        safe_tool_injection,
                         telegram_bot_token,
                         telegram_chat_id,
                         provider_api_keys,
                         max_tool_calls,
-                        loop_detection_limit,
-                        thinking_mode
+                        loop_detection_limit
                  FROM config WHERE id = 1",
                 [],
                 |row| {
-                    let stop_tokens_json: Option<String> = row.get(10)?;
-                    let stop_tokens = stop_tokens_json.and_then(|j| serde_json::from_str(&j).ok());
-
-                    Ok(DbSamplerConfig {
-                        sampler_type: row
-                            .get::<_, Option<String>>(0)?
-                            .unwrap_or_else(|| "Greedy".to_string()),
-                        temperature: row.get::<_, Option<f64>>(1)?.unwrap_or(0.7),
-                        top_p: row.get::<_, Option<f64>>(2)?.unwrap_or(0.95),
-                        top_k: row.get::<_, Option<u32>>(3)?.unwrap_or(20),
-                        mirostat_tau: row.get::<_, Option<f64>>(4)?.unwrap_or(5.0),
-                        mirostat_eta: row.get::<_, Option<f64>>(5)?.unwrap_or(0.1),
-                        model_path: row.get(6)?,
-                        system_prompt: row.get(7)?,
-                        system_prompt_type: parse_system_prompt_type(row.get(8)?),
-                        context_size: row.get(9)?,
-                        stop_tokens,
-                        model_history: Vec::new(), // Loaded separately
-                        disable_file_logging: row.get::<_, Option<i32>>(11)?.unwrap_or(1) != 0,
-                        repeat_penalty: row.get::<_, Option<f64>>(12)?.unwrap_or(1.0),
-                        min_p: row.get::<_, Option<f64>>(13)?.unwrap_or(0.0),
-                        flash_attention: row.get::<_, Option<i32>>(14)?.unwrap_or(0) != 0,
-                        cache_type_k: row.get::<_, Option<String>>(15)?.unwrap_or_else(|| "f16".to_string()),
-                        cache_type_v: row.get::<_, Option<String>>(16)?.unwrap_or_else(|| "f16".to_string()),
-                        n_batch: row.get::<_, Option<u32>>(17)?.unwrap_or(2048),
-                        typical_p: row.get::<_, Option<f64>>(18)?.unwrap_or(1.0),
-                        frequency_penalty: row.get::<_, Option<f64>>(19)?.unwrap_or(0.0),
-                        presence_penalty: row.get::<_, Option<f64>>(20)?.unwrap_or(0.0),
-                        penalty_last_n: row.get::<_, Option<i32>>(21)?.unwrap_or(64),
-                        dry_multiplier: row.get::<_, Option<f64>>(22)?.unwrap_or(0.0),
-                        dry_base: row.get::<_, Option<f64>>(23)?.unwrap_or(1.75),
-                        dry_allowed_length: row.get::<_, Option<i32>>(24)?.unwrap_or(2),
-                        dry_penalty_last_n: row.get::<_, Option<i32>>(25)?.unwrap_or(-1),
-                        top_n_sigma: row.get::<_, Option<f64>>(26)?.unwrap_or(-1.0),
-                        tool_tag_exec_open: row.get(27)?,
-                        tool_tag_exec_close: row.get(28)?,
-                        tool_tag_output_open: row.get(29)?,
-                        tool_tag_output_close: row.get(30)?,
-                        web_browser_backend: row.get(31)?,
-                        models_directory: row.get(32)?,
-                        seed: row.get::<_, Option<i32>>(33)?.unwrap_or(-1),
-                        n_ubatch: row.get::<_, Option<u32>>(34)?.unwrap_or(512),
-                        n_threads: row.get::<_, Option<i32>>(35)?.unwrap_or(0),
-                        n_threads_batch: row.get::<_, Option<i32>>(36)?.unwrap_or(0),
-                        rope_freq_base: row.get::<_, Option<f64>>(37)?.unwrap_or(0.0) as f32,
-                        rope_freq_scale: row.get::<_, Option<f64>>(38)?.unwrap_or(0.0) as f32,
-                        use_mlock: row.get::<_, Option<i32>>(39)?.unwrap_or(0) != 0,
-                        use_mmap: row.get::<_, Option<i32>>(40)?.unwrap_or(1) != 0,
-                        main_gpu: row.get::<_, Option<i32>>(41)?.unwrap_or(0),
-                        split_mode: row.get::<_, Option<String>>(42)?.unwrap_or_else(|| "layer".to_string()),
-                        use_rtk: row.get::<_, Option<i32>>(43)?.unwrap_or(0) != 0,
-                        use_htmd: row.get::<_, Option<i32>>(44)?.unwrap_or(0) != 0,
-                        tag_pairs: row.get(45)?,
-                        proactive_compaction: row.get::<_, Option<i32>>(46)?.unwrap_or(0) != 0,
-                        safe_tool_injection: row.get::<_, Option<i32>>(47)?.unwrap_or(0) != 0,
-                        telegram_bot_token: row.get(48)?,
-                        telegram_chat_id: row.get(49)?,
-                        provider_api_keys: row.get(50)?,
-                        max_tool_calls: row.get::<_, Option<i32>>(51)?.unwrap_or(2000),
-                        loop_detection_limit: row.get::<_, Option<i32>>(52)?.unwrap_or(15),
-                        thinking_mode: row.get::<_, Option<i32>>(53)?.map(|v| v != 0),
-                    })
+                    let mut config = DbSamplerConfig::default();
+                    config.disable_file_logging = row.get::<_, Option<i32>>(0)?.unwrap_or(1) != 0;
+                    config.web_browser_backend = row.get(1)?;
+                    config.models_directory = row.get(2)?;
+                    config.use_rtk = row.get::<_, Option<i32>>(3)?.unwrap_or(1) != 0;
+                    config.use_htmd = row.get::<_, Option<i32>>(4)?.unwrap_or(0) != 0;
+                    config.telegram_bot_token = row.get(5)?;
+                    config.telegram_chat_id = row.get(6)?;
+                    config.provider_api_keys = row.get(7)?;
+                    config.max_tool_calls = row.get::<_, Option<i32>>(8)?.unwrap_or(2000);
+                    config.loop_detection_limit = row.get::<_, Option<i32>>(9)?.unwrap_or(15);
+                    Ok(config)
                 },
             )
-        }; // Connection lock is released here
+        };
 
         let mut config = result.unwrap_or_else(|_| DbSamplerConfig::default());
 
@@ -258,104 +184,57 @@ impl Database {
     /// Save configuration to database
     pub fn save_config(&self, config: &DbSamplerConfig) -> Result<(), String> {
         let conn = self.connection();
-        let stop_tokens_json = config
-            .stop_tokens
-            .as_ref()
-            .map(|t| serde_json::to_string(t).unwrap_or_default());
-
-        let tag_pairs_json = config
-            .tag_pairs
-            .as_ref()
-            .cloned();
 
         conn.execute(
-            "INSERT OR REPLACE INTO config
-             (id, sampler_type, temperature, top_p, top_k, mirostat_tau,
-              mirostat_eta, repeat_penalty, min_p, model_path, system_prompt, system_prompt_type,
-              context_size, stop_tokens, disable_file_logging, flash_attention,
-              cache_type_k, cache_type_v, n_batch,
-              typical_p, frequency_penalty, presence_penalty, penalty_last_n,
-              dry_multiplier, dry_base, dry_allowed_length, dry_penalty_last_n,
-              top_n_sigma,
-              tool_tag_exec_open, tool_tag_exec_close, tool_tag_output_open, tool_tag_output_close,
-              web_browser_backend,
-              models_directory,
-              seed, n_ubatch, n_threads, n_threads_batch,
-              rope_freq_base, rope_freq_scale,
-              use_mlock, use_mmap, main_gpu, split_mode,
-              use_rtk,
-              use_htmd,
-              tag_pairs,
-              proactive_compaction,
-              safe_tool_injection,
-              telegram_bot_token,
-              telegram_chat_id,
-              provider_api_keys,
-              max_tool_calls,
-              loop_detection_limit,
-              thinking_mode,
-              updated_at)
-             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
-                     ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34,
-                     ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50, ?51, ?52, ?53, ?54, ?55)",
+            "INSERT INTO config
+             (id, disable_file_logging, web_browser_backend, models_directory,
+              use_rtk, use_htmd, telegram_bot_token, telegram_chat_id,
+              provider_api_keys, max_tool_calls, loop_detection_limit, updated_at)
+             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
-                config.sampler_type,
-                config.temperature,
-                config.top_p,
-                config.top_k,
-                config.mirostat_tau,
-                config.mirostat_eta,
-                config.repeat_penalty,
-                config.min_p,
-                config.model_path,
-                config.system_prompt,
-                system_prompt_type_to_str(&config.system_prompt_type),
-                config.context_size,
-                stop_tokens_json,
                 config.disable_file_logging as i32,
-                config.flash_attention as i32,
-                config.cache_type_k,
-                config.cache_type_v,
-                config.n_batch,
-                config.typical_p,
-                config.frequency_penalty,
-                config.presence_penalty,
-                config.penalty_last_n,
-                config.dry_multiplier,
-                config.dry_base,
-                config.dry_allowed_length,
-                config.dry_penalty_last_n,
-                config.top_n_sigma,
-                config.tool_tag_exec_open,
-                config.tool_tag_exec_close,
-                config.tool_tag_output_open,
-                config.tool_tag_output_close,
                 config.web_browser_backend,
                 config.models_directory,
-                config.seed,
-                config.n_ubatch,
-                config.n_threads,
-                config.n_threads_batch,
-                config.rope_freq_base as f64,
-                config.rope_freq_scale as f64,
-                config.use_mlock as i32,
-                config.use_mmap as i32,
-                config.main_gpu,
-                config.split_mode,
                 config.use_rtk as i32,
                 config.use_htmd as i32,
-                tag_pairs_json,
-                config.proactive_compaction as i32,
-                config.safe_tool_injection as i32,
                 config.telegram_bot_token,
                 config.telegram_chat_id,
                 config.provider_api_keys,
                 config.max_tool_calls,
                 config.loop_detection_limit,
-                config.thinking_mode.map(|v| v as i32),
                 current_timestamp_millis(),
             ],
         )
+        .or_else(|_| {
+            conn.execute(
+                "UPDATE config SET
+                 disable_file_logging = ?1,
+                 web_browser_backend = ?2,
+                 models_directory = ?3,
+                 use_rtk = ?4,
+                 use_htmd = ?5,
+                 telegram_bot_token = ?6,
+                 telegram_chat_id = ?7,
+                 provider_api_keys = ?8,
+                 max_tool_calls = ?9,
+                 loop_detection_limit = ?10,
+                 updated_at = ?11
+                 WHERE id = 1",
+                params![
+                    config.disable_file_logging as i32,
+                    config.web_browser_backend,
+                    config.models_directory,
+                    config.use_rtk as i32,
+                    config.use_htmd as i32,
+                    config.telegram_bot_token,
+                    config.telegram_chat_id,
+                    config.provider_api_keys,
+                    config.max_tool_calls,
+                    config.loop_detection_limit,
+                    current_timestamp_millis(),
+                ],
+            )
+        })
         .map_err(db_error("save config"))?;
 
         Ok(())
@@ -363,107 +242,7 @@ impl Database {
 
     /// Update specific config fields (preserves model_history)
     pub fn update_config(&self, config: &DbSamplerConfig) -> Result<(), String> {
-        let conn = self.connection();
-        let stop_tokens_json = config
-            .stop_tokens
-            .as_ref()
-            .map(|t| serde_json::to_string(t).unwrap_or_default());
-        let tag_pairs_json = config
-            .tag_pairs
-            .as_ref()
-            .cloned();
-
-        conn.execute(
-            "UPDATE config SET
-             sampler_type = ?1, temperature = ?2, top_p = ?3, top_k = ?4,
-             mirostat_tau = ?5, mirostat_eta = ?6, repeat_penalty = ?7, min_p = ?8,
-             model_path = ?9, system_prompt = ?10, system_prompt_type = ?11, context_size = ?12,
-             stop_tokens = ?13, disable_file_logging = ?14,
-             flash_attention = ?15, cache_type_k = ?16, cache_type_v = ?17, n_batch = ?18,
-             typical_p = ?19, frequency_penalty = ?20, presence_penalty = ?21, penalty_last_n = ?22,
-             dry_multiplier = ?23, dry_base = ?24, dry_allowed_length = ?25, dry_penalty_last_n = ?26,
-             top_n_sigma = ?27,
-             tool_tag_exec_open = ?28, tool_tag_exec_close = ?29,
-             tool_tag_output_open = ?30, tool_tag_output_close = ?31,
-             web_browser_backend = ?32,
-             models_directory = ?33,
-             seed = ?34, n_ubatch = ?35, n_threads = ?36, n_threads_batch = ?37,
-             rope_freq_base = ?38, rope_freq_scale = ?39,
-             use_mlock = ?40, use_mmap = ?41, main_gpu = ?42, split_mode = ?43,
-             use_rtk = ?44,
-             use_htmd = ?45,
-             tag_pairs = ?46,
-             proactive_compaction = ?47,
-             safe_tool_injection = ?48,
-             telegram_bot_token = ?49,
-             telegram_chat_id = ?50,
-             provider_api_keys = ?51,
-             max_tool_calls = ?52,
-             loop_detection_limit = ?53,
-             thinking_mode = ?54,
-             updated_at = ?55
-             WHERE id = 1",
-            params![
-                config.sampler_type,
-                config.temperature,
-                config.top_p,
-                config.top_k,
-                config.mirostat_tau,
-                config.mirostat_eta,
-                config.repeat_penalty,
-                config.min_p,
-                config.model_path,
-                config.system_prompt,
-                system_prompt_type_to_str(&config.system_prompt_type),
-                config.context_size,
-                stop_tokens_json,
-                config.disable_file_logging as i32,
-                config.flash_attention as i32,
-                config.cache_type_k,
-                config.cache_type_v,
-                config.n_batch,
-                config.typical_p,
-                config.frequency_penalty,
-                config.presence_penalty,
-                config.penalty_last_n,
-                config.dry_multiplier,
-                config.dry_base,
-                config.dry_allowed_length,
-                config.dry_penalty_last_n,
-                config.top_n_sigma,
-                config.tool_tag_exec_open,
-                config.tool_tag_exec_close,
-                config.tool_tag_output_open,
-                config.tool_tag_output_close,
-                config.web_browser_backend,
-                config.models_directory,
-                config.seed,
-                config.n_ubatch,
-                config.n_threads,
-                config.n_threads_batch,
-                config.rope_freq_base as f64,
-                config.rope_freq_scale as f64,
-                config.use_mlock as i32,
-                config.use_mmap as i32,
-                config.main_gpu,
-                config.split_mode,
-                config.use_rtk as i32,
-                config.use_htmd as i32,
-                tag_pairs_json,
-                config.proactive_compaction as i32,
-                config.safe_tool_injection as i32,
-                config.telegram_bot_token,
-                config.telegram_chat_id,
-                config.provider_api_keys,
-                config.max_tool_calls,
-                config.loop_detection_limit,
-                config.thinking_mode.map(|v| v as i32),
-                current_timestamp_millis(),
-            ],
-        )
-        .map_err(db_error("update config"))?;
-
-        Ok(())
+        self.save_config(config)
     }
 
     /// Add model to history (MRU list)
