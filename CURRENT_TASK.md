@@ -142,19 +142,25 @@ Most conversations will have `overrides = NULL` (pure agent config).
 - [x] `DELETE /api/agents/:id`
 - [x] `POST /conversations/:id/agent`
 - [x] `PATCH /conversations/:id/overrides`
-- [ ] **Wire routes into HTTP router** (`routes/mod.rs` imports the module but handlers aren't dispatched)
+- [ ] **Wire routes into HTTP router** — handlers exist in `routes/agents.rs` but `routes/mod.rs` doesn't
+  dispatch requests to them yet, so all agent API calls return 404
 
 ### Step 3 — Wire config resolution
-- [ ] Call `load_effective_config()` in the engine instead of direct `load_conversation_config()` reads
-- [ ] Worker: unload + reload model when agent switches via `POST /conversations/:id/agent`
+- [ ] **Call `load_effective_config()` in the engine** — this is the core of the whole migration: without it,
+  an agent's system_prompt and sampler params are saved to DB but never actually used during generation;
+  the engine still reads the old global config
+- [ ] **Worker: reload on agent switch** — `POST /conversations/:id/agent` saves the agent_id but doesn't
+  trigger a model unload/reload, so switching agents has no effect on the running inference
 - [x] Sparse overrides stored and merged (`set_conversation_overrides` + `apply_overrides`)
 
 ### Step 4 — Frontend
 - [x] Agent selector modal (create, edit, delete, local/remote/CLI)
 - [x] Agent creation + edit form
 - [ ] **Fix `apiClient` import** — `AgentContext.tsx` imports from `../utils/apiClient` which was deleted
-- [ ] Per-conversation overrides panel
-- [ ] Show active agent name in chat header
+  in the last refactor; the agent UI is broken until this is replaced with direct `fetch` calls
+- [ ] Per-conversation overrides panel — lets users tweak individual params per conversation without
+  editing the agent; writes sparse JSON to `conversations.overrides`
+- [ ] Show active agent name in chat header — user feedback so they know which agent is loaded
 
 ### Step 5 — Cleanup (after steps 2–4 verified working)
 - [ ] Drop `conversation_config` table
