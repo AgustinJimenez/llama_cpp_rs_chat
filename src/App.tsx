@@ -35,7 +35,7 @@ const ModelConfigModal = React.lazy(() =>
 );
 
 // eslint-disable-next-line max-lines-per-function
-const App = () => {
+export const App = () => {
   const { status: modelStatus, loadModel, unloadModel, forceUnload } = useModelContext();
   const { clearMessages } = useChatContext();
   const {
@@ -464,5 +464,3 @@ const Overlays = ({
     </>
   );
 };
-
-export default App;

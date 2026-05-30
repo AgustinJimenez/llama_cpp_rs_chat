@@ -411,4 +411,4 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
   );
 };
 
-export default React.memo(Sidebar);
+export const SidebarComponent = React.memo(Sidebar);
