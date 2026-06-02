@@ -5,6 +5,50 @@ use std::convert::Infallible;
 
 use crate::response_helpers::{json_error, json_raw, json_response};
 use llama_chat_db::SharedDatabase;
+
+/// POST /api/browser/navigate — open/navigate the wry browser window (web mode).
+pub async fn handle_browser_navigate(req: Request<Body>) -> Result<Response<Body>, Infallible> {
+    let body = hyper::body::to_bytes(req.into_body()).await.unwrap_or_default();
+    let url = serde_json::from_slice::<serde_json::Value>(&body)
+        .ok()
+        .and_then(|v| v.get("url").and_then(|u| u.as_str()).map(|s| s.to_string()));
+    let Some(url) = url else {
+        return Ok(json_response(
+            StatusCode::BAD_REQUEST,
+            &serde_json::json!({"success": false, "error": "url required"}),
+        ));
+    };
+    match tokio::task::spawn_blocking(move || {
+        llama_chat_tools::browser_session::notify_tauri_browser_navigate(&url)
+    })
+    .await
+    {
+        Ok(Ok(())) => Ok(json_response(
+            StatusCode::OK,
+            &serde_json::json!({"success": true}),
+        )),
+        Ok(Err(e)) => Ok(json_response(
+            StatusCode::OK,
+            &serde_json::json!({"success": false, "error": e}),
+        )),
+        Err(e) => Ok(json_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &serde_json::json!({"success": false, "error": format!("task failed: {e}")}),
+        )),
+    }
+}
+
+/// POST /api/browser/close — close the wry browser window (web mode).
+pub async fn handle_browser_close() -> Result<Response<Body>, Infallible> {
+    let _ = tokio::task::spawn_blocking(|| {
+        llama_chat_tools::browser_session::notify_tauri_browser_close()
+    })
+    .await;
+    Ok(json_response(
+        StatusCode::OK,
+        &serde_json::json!({"success": true}),
+    ))
+}
 #[cfg(target_os = "windows")]
 use std::sync::Mutex;
 #[cfg(target_os = "windows")]
@@ -194,16 +238,6 @@ pub async fn handle_api_docs() -> Result<Response<Body>, Infallible> {
             "/api/conversations/{id}/agent",
             "Assign agent to conversation",
         ),
-        e(
-            "PATCH",
-            "/api/conversations/{id}/overrides",
-            "Update per-conversation param overrides",
-        ),
-        e(
-            "GET",
-            "/api/conversations/{id}/overrides",
-            "Get per-conversation param overrides",
-        ),
         e("GET", "/api/mcp/servers", "List MCP servers"),
         e("POST", "/api/mcp/servers", "Add MCP server"),
         e("DELETE", "/api/mcp/servers/{id}", "Remove MCP server"),
@@ -262,10 +296,10 @@ pub async fn handle_desktop_abort() -> Result<Response<Body>, Infallible> {
 pub async fn handle_system_usage() -> Result<Response<Body>, Infallible> {
     // Get system usage using Windows-native commands
     #[cfg(target_os = "windows")]
-    let (cpu_usage, ram_usage, gpu_usage, cpu_perf_pct) = {
+    let (cpu_usage, ram_usage, gpu_usage, cpu_perf_pct, app_ram_gb, vram_used_gb) = {
         let started = Instant::now();
         let result = timeout(
-            Duration::from_millis(1500),
+            Duration::from_millis(3000),
             spawn_blocking(get_windows_system_usage),
         )
         .await;
@@ -287,7 +321,7 @@ pub async fn handle_system_usage() -> Result<Response<Body>, Infallible> {
     };
 
     #[cfg(not(target_os = "windows"))]
-    let (cpu_usage, ram_usage, gpu_usage, _cpu_perf_pct) = (0.0_f32, 0.0_f32, 0.0_f32, 100.0_f32);
+    let (cpu_usage, ram_usage, gpu_usage, _cpu_perf_pct, app_ram_gb, vram_used_gb) = (0.0_f32, 0.0_f32, 0.0_f32, 100.0_f32, 0.0_f32, 0.0_f32);
 
     // Get hardware totals (cached alongside usage)
     #[cfg(target_os = "windows")]
@@ -337,6 +371,8 @@ pub async fn handle_system_usage() -> Result<Response<Body>, Infallible> {
         "total_vram_gb": total_vram_gb,
         "cpu_cores": cpu_cores,
         "cpu_ghz": cpu_ghz,
+        "app_ram_gb": app_ram_gb,
+        "vram_used_gb": vram_used_gb,
     });
 
     Ok(json_raw(
@@ -347,43 +383,55 @@ pub async fn handle_system_usage() -> Result<Response<Body>, Infallible> {
 
 #[cfg(target_os = "windows")]
 lazy_static::lazy_static! {
-    /// Cached usage: (timestamp, cpu%, ram%, gpu%, cpu_perf_pct)
-    static ref LAST_USAGE: Mutex<(Instant, f32, f32, f32, f32)> =
-        Mutex::new((Instant::now(), 0.0, 0.0, 0.0, 100.0));
+    /// Cached usage: (timestamp, cpu%, ram%, gpu%, cpu_perf_pct, app_ram_gb, vram_used_gb)
+    static ref LAST_USAGE: Mutex<(Instant, f32, f32, f32, f32, f32, f32)> =
+        Mutex::new((Instant::now(), 0.0, 0.0, 0.0, 100.0, 0.0, 0.0));
     /// Cached hardware totals: (total_ram_gb, total_vram_gb, cpu_cores, cpu_base_mhz)
     static ref HARDWARE_TOTALS: Mutex<(f32, f32, u32, u32)> = Mutex::new((0.0, 0.0, 0, 0));
 }
 
 #[cfg(target_os = "windows")]
-pub fn get_cached_windows_system_usage() -> (f32, f32, f32, f32) {
+pub fn get_cached_windows_system_usage() -> (f32, f32, f32, f32, f32, f32) {
     let last = LAST_USAGE.lock().unwrap();
-    (last.1, last.2, last.3, last.4)
+    (last.1, last.2, last.3, last.4, last.5, last.6)
 }
 
 use llama_chat_engine::utils::silent_command;
 
 #[cfg(target_os = "windows")]
-pub fn get_windows_system_usage() -> (f32, f32, f32, f32) {
+pub fn get_windows_system_usage() -> (f32, f32, f32, f32, f32, f32) {
     // Cache for 500ms to allow smooth real-time updates
     let mut last = LAST_USAGE.lock().unwrap();
     if last.0.elapsed() < Duration::from_millis(500) {
-        return (last.1, last.2, last.3, last.4);
+        return (last.1, last.2, last.3, last.4, last.5, last.6);
     }
 
-    // Get CPU usage + performance percentage via PowerShell (single call)
-    let cpu_output = silent_command("powershell")
+    // Get CPU + RAM + app process RAM via CIM (instant — no Get-Counter 1 s sample wait).
+    // Force InvariantCulture so numeric output always uses a period as the
+    // decimal separator regardless of the system locale (e.g. Spanish uses comma).
+    // Output: line 0 = cpu%, line 1 = perf% (fixed 100), line 2 = ram%, line 3 = app_ram_gb
+    let app_pid = std::process::id();
+    let ps_command = format!(
+        "[System.Threading.Thread]::CurrentThread.CurrentCulture=[System.Globalization.CultureInfo]::InvariantCulture; \
+        $cpu=(Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor -Filter \"Name='_Total'\").PercentProcessorTime; \
+        $os=Get-CimInstance Win32_OperatingSystem; \
+        $ram=[math]::Round((($os.TotalVisibleMemorySize-$os.FreePhysicalMemory)/$os.TotalVisibleMemorySize)*100,2); \
+        $appRam=[math]::Round((Get-Process -Id {app_pid} -ErrorAction SilentlyContinue).WorkingSet64/1073741824,3); \
+        $cpu; 100; $ram; $appRam"
+    );
+    let cpu_ram_output = silent_command("powershell")
         .args([
             "-NoProfile",
             "-NonInteractive",
             "-Command",
-            "(Get-Counter @('\\Processor(_Total)\\% Processor Time','\\Processor Information(_Total)\\% Processor Performance')).CounterSamples | ForEach-Object { $_.CookedValue }"
+            &ps_command,
         ])
         .output();
 
-    let (cpu_usage, cpu_perf_pct) = if let Ok(output) = cpu_output {
+    let (cpu_usage, cpu_perf_pct, ram_usage, app_ram_gb) = if let Ok(output) = cpu_ram_output {
         if !output.status.success() {
             sys_debug!(
-                "[SYSTEM USAGE] CPU command failed: {}",
+                "[SYSTEM USAGE] CPU/RAM command failed: {}",
                 String::from_utf8_lossy(&output.stderr).trim()
             );
         }
@@ -394,71 +442,49 @@ pub fn get_windows_system_usage() -> (f32, f32, f32, f32) {
         (
             lines.first().copied().unwrap_or(0.0),
             lines.get(1).copied().unwrap_or(100.0),
+            lines.get(2).copied().unwrap_or(0.0),
+            lines.get(3).copied().unwrap_or(0.0),
         )
     } else {
-        (0.0, 100.0)
+        (0.0, 100.0, 0.0, 0.0)
     };
 
-    // Get RAM usage via PowerShell (using WMI)
-    let ram_output = silent_command("powershell")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "gwmi Win32_OperatingSystem | % { [math]::Round((($_.TotalVisibleMemorySize - $_.FreePhysicalMemory) / $_.TotalVisibleMemorySize) * 100, 2) }"
-        ])
-        .output();
-
-    let ram_usage = if let Ok(output) = ram_output {
-        if !output.status.success() {
-            sys_debug!(
-                "[SYSTEM USAGE] RAM command failed: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            );
-        }
-        String::from_utf8_lossy(&output.stdout)
-            .trim()
-            .parse::<f32>()
-            .unwrap_or(0.0)
-    } else {
-        0.0
-    };
-
-    // Get GPU usage via nvidia-smi (if available)
+    // Get GPU usage + VRAM used via nvidia-smi (if available)
+    // Queries both utilization% and memory.used in one call to avoid two process spawns.
     let gpu_output = silent_command("nvidia-smi")
         .args([
-            "--query-gpu=utilization.gpu",
+            "--query-gpu=utilization.gpu,memory.used",
             "--format=csv,noheader,nounits",
         ])
         .output();
 
-    let gpu_usage = if let Ok(output) = gpu_output {
+    let (gpu_usage, vram_used_gb) = if let Ok(output) = gpu_output {
         if !output.status.success() {
             sys_debug!(
                 "[SYSTEM USAGE] GPU command failed: {}",
                 String::from_utf8_lossy(&output.stderr).trim()
             );
         }
-        String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .next()
-            .and_then(|line| line.trim().parse::<f32>().ok())
-            .unwrap_or(0.0)
+        let line = String::from_utf8_lossy(&output.stdout);
+        let mut parts = line.lines().next().unwrap_or("").split(',');
+        let gpu_pct = parts.next().and_then(|s| s.trim().parse::<f32>().ok()).unwrap_or(0.0);
+        let vram_mb = parts.next().and_then(|s| s.trim().parse::<f32>().ok()).unwrap_or(0.0);
+        (gpu_pct, vram_mb / 1024.0)
     } else {
-        0.0
+        (0.0, 0.0)
     };
 
     // Detect hardware totals (only once, when still at defaults)
     {
         let mut hw = HARDWARE_TOTALS.lock().unwrap();
         if hw.0 == 0.0 {
-            // Total RAM via WMI (returns KB)
+            // Total RAM via CIM (returns KB)
             if let Ok(output) = silent_command("powershell")
                 .args([
                     "-NoProfile",
                     "-NonInteractive",
                     "-Command",
-                    "gwmi Win32_OperatingSystem | % { $_.TotalVisibleMemorySize }",
+                    "(Get-CimInstance Win32_OperatingSystem).TotalVisibleMemorySize",
                 ])
                 .output()
             {
@@ -515,16 +541,18 @@ pub fn get_windows_system_usage() -> (f32, f32, f32, f32) {
         ram_usage,
         gpu_usage,
         cpu_perf_pct,
+        app_ram_gb,
+        vram_used_gb,
     );
 
-    (cpu_usage, ram_usage, gpu_usage, cpu_perf_pct)
+    (cpu_usage, ram_usage, gpu_usage, cpu_perf_pct, app_ram_gb, vram_used_gb)
 }
 
 #[cfg(not(target_os = "windows"))]
 #[allow(dead_code)]
-pub fn get_windows_system_usage() -> (f32, f32, f32, f32) {
+pub fn get_windows_system_usage() -> (f32, f32, f32, f32, f32, f32) {
     // Return placeholder values on non-Windows platforms
-    (0.0, 0.0, 0.0, 100.0)
+    (0.0, 0.0, 0.0, 100.0, 0.0, 0.0)
 }
 
 /// Returns cached hardware totals: (total_ram_gb, total_vram_gb, cpu_cores, cpu_base_mhz).

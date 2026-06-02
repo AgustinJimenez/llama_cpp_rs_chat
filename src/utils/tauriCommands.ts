@@ -91,6 +91,8 @@ export interface SystemUsageData {
   total_vram_gb?: number;
   cpu_cores?: number;
   cpu_ghz?: number;
+  app_ram_gb?: number;
+  vram_used_gb?: number;
 }
 
 export interface HubFile {
@@ -195,48 +197,6 @@ export async function clearAppErrors(): Promise<{ success: boolean; deleted: num
   }
   return fetchJson<{ success: boolean; deleted: number }>('/api/errors', {
     method: 'DELETE',
-  });
-}
-
-// ─── Per-Conversation Config ──────────────────────────────────────────
-
-export async function getConversationConfig(conversationId: string): Promise<SamplerConfig> {
-  return fetchJson<SamplerConfig>(
-    `/api/conversations/${encodeURIComponent(conversationId)}/config`,
-  );
-}
-
-export async function saveConversationConfig(
-  conversationId: string,
-  config: SamplerConfig,
-): Promise<void> {
-  const response = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/config`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(config),
-  });
-  if (!response.ok) throw new Error('Failed to save conversation configuration');
-}
-
-export type ConversationOverrides = Record<string, string | number | boolean | null>;
-
-export async function getConversationOverrides(
-  conversationId: string,
-): Promise<ConversationOverrides | null> {
-  const response = await fetchJson<{ overrides: ConversationOverrides | null }>(
-    `/api/conversations/${encodeURIComponent(conversationId)}/overrides`,
-  );
-  return response.overrides;
-}
-
-export async function saveConversationOverrides(
-  conversationId: string,
-  overrides: ConversationOverrides | null,
-): Promise<void> {
-  await fetchJson(`/api/conversations/${encodeURIComponent(conversationId)}/overrides`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(overrides),
   });
 }
 

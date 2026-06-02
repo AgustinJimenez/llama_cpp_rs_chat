@@ -22,6 +22,8 @@ export interface UsageData {
   total_vram_gb?: number;
   cpu_cores?: number;
   cpu_ghz?: number;
+  app_ram_gb?: number;
+  vram_used_gb?: number;
 }
 
 interface SystemResourcesValue {

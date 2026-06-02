@@ -10,7 +10,7 @@ use crate::web::database::SharedDatabase;
 #[tauri::command]
 pub async fn get_system_usage() -> Result<serde_json::Value, String> {
     #[cfg(target_os = "windows")]
-    let (cpu, ram, gpu, cpu_perf_pct, _app_ram_gb) = {
+    let (cpu, ram, gpu, cpu_perf_pct, _app_ram_gb, vram_used_gb) = {
         let result = tokio::time::timeout(
             std::time::Duration::from_millis(1500),
             tokio::task::spawn_blocking(crate::web::routes::system::get_windows_system_usage),
@@ -23,7 +23,7 @@ pub async fn get_system_usage() -> Result<serde_json::Value, String> {
     };
 
     #[cfg(not(target_os = "windows"))]
-    let (cpu, ram, gpu, cpu_perf_pct, _app_ram_gb) = (0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32);
+    let (cpu, ram, gpu, cpu_perf_pct, _app_ram_gb, vram_used_gb) = (0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32);
 
     // Hardware totals — populated by get_windows_system_usage on its first call.
     // Without these the frontend can't tell GPU-equipped machines from CPU-only ones,
@@ -45,6 +45,7 @@ pub async fn get_system_usage() -> Result<serde_json::Value, String> {
         "total_vram_gb": total_vram_gb,
         "cpu_cores": cpu_cores,
         "cpu_ghz": cpu_ghz,
+        "vram_used_gb": vram_used_gb,
     }))
 }
 
