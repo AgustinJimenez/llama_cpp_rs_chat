@@ -1,6 +1,6 @@
 import type { ChatRequest } from '../types';
 
-import { isTauriEnv } from './tauri';
+import { isTauriEnv, notifyIfUnfocused } from './tauri';
 
 export interface TokenBreakdown {
   system_prompt: number;
@@ -401,6 +401,9 @@ class TauriChatTransport implements ChatTransport {
           payload.max_tokens,
           timings,
         );
+        const tokenCount = payload.gen_tokens ?? payload.tokens_used;
+        const body = tokenCount ? `${tokenCount} tokens` : 'Response ready';
+        notifyIfUnfocused('LLaMA Chat', body);
         settle();
       } else if (payload.type === 'error') {
         const errorMessage = payload.error || 'Unknown error';
