@@ -13,7 +13,7 @@ export default defineConfig({
       typescript: true,
       ...(process.env.NODE_ENV !== 'production' ? {
         eslint: {
-          lintCommand: "eslint ./src --rule 'i18next/no-literal-string: off'",
+          lintCommand: "eslint './src/**/*.{ts,tsx}' --rule 'i18next/no-literal-string: off'",
           useFlatConfig: false,
         },
       } : {}),
