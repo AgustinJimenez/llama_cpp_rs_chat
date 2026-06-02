@@ -184,6 +184,12 @@ pub async fn generate_llama_response(
         .map(|t| super::jinja_templates::detect_thinking_support(t))
         .unwrap_or(false);
     let enable_thinking = config.thinking_mode.unwrap_or(supports_thinking);
+    // Resolve agent's custom system prompt: None and "__AGENTIC__" both mean
+    // "use the default universal agentic prompt"; any other string is used as-is.
+    let custom_system_prompt = match config.system_prompt.as_deref() {
+        Some("__AGENTIC__") | None => None,
+        Some(custom) => Some(custom),
+    };
     let prompt = apply_system_prompt_by_type_with_tags(
         &conversation_content,
         template_type.as_deref(),
@@ -193,6 +199,7 @@ pub async fn generate_llama_response(
         &eos_text,
         mcp_tools_ref,
         enable_thinking,
+        custom_system_prompt,
     )?;
     log_info!(&conversation_id, "=== FINAL PROMPT BEING SENT TO MODEL ===");
     log_info!(&conversation_id, "{}", prompt);

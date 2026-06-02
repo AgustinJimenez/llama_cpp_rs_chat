@@ -28,8 +28,12 @@ fn try_jinja_render(
     eos_token: &str,
     mcp_tools: Option<&[McpToolDef]>,
     enable_thinking: bool,
+    custom_system_prompt: Option<&str>,
 ) -> Result<String, String> {
-    let system_prompt = get_behavioral_system_prompt();
+    let system_prompt = match custom_system_prompt {
+        Some(custom) => custom.to_string(),
+        None => get_behavioral_system_prompt(),
+    };
     let messages = parse_conversation_for_jinja(conversation, &system_prompt);
     let tools = get_available_tools_openai_with_mcp(mcp_tools);
 
@@ -49,6 +53,10 @@ fn try_jinja_render(
 ///
 /// Primary path: render using the model's native Jinja2 chat template.
 /// Fallback: hardcoded template branches with tool tags in system prompt.
+///
+/// `custom_system_prompt`: when `Some`, overrides the default agentic system prompt
+/// (e.g. from an agent's configured `system_prompt`). `None` uses the universal
+/// agentic prompt.
 pub fn apply_system_prompt_by_type_with_tags(
     conversation: &str,
     template_type: Option<&str>,
@@ -58,10 +66,11 @@ pub fn apply_system_prompt_by_type_with_tags(
     eos_token: &str,
     mcp_tools: Option<&[McpToolDef]>,
     enable_thinking: bool,
+    custom_system_prompt: Option<&str>,
 ) -> Result<String, String> {
     if let Some(template_str) = chat_template_string {
         sys_info!("Trying Jinja template rendering (primary path, template len={})", template_str.len());
-        match try_jinja_render(template_str, conversation, bos_token, eos_token, mcp_tools, enable_thinking) {
+        match try_jinja_render(template_str, conversation, bos_token, eos_token, mcp_tools, enable_thinking, custom_system_prompt) {
             Ok(prompt) => {
                 sys_info!("Jinja template rendered successfully ({} chars)", prompt.len());
                 return Ok(prompt);
@@ -74,5 +83,5 @@ pub fn apply_system_prompt_by_type_with_tags(
         sys_info!("No Jinja template available, using hardcoded path");
     }
     sys_info!("Using hardcoded template (type={:?})", template_type);
-    apply_model_chat_template_with_tags(conversation, template_type, tags, mcp_tools)
+    apply_model_chat_template_with_tags(conversation, template_type, tags, mcp_tools, custom_system_prompt)
 }

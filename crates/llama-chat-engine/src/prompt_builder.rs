@@ -85,6 +85,7 @@ pub fn warmup_system_prompt(
         &eos_text,
         None,
         false,
+        None,
     )?;
 
     // Tokenize

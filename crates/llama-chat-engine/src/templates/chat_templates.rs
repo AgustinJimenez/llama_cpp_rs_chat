@@ -9,7 +9,7 @@ pub fn apply_model_chat_template(
     template_type: Option<&str>,
 ) -> Result<String, String> {
     use crate::tool_tags;
-    apply_model_chat_template_with_tags(conversation, template_type, &tool_tags::default_tags(), None)
+    apply_model_chat_template_with_tags(conversation, template_type, &tool_tags::default_tags(), None, None)
 }
 
 /// Apply chat template formatting to conversation history.
@@ -18,6 +18,7 @@ pub fn apply_model_chat_template_with_tags(
     template_type: Option<&str>,
     tags: &ToolTags,
     mcp_tools: Option<&[McpToolDef]>,
+    custom_system_prompt: Option<&str>,
 ) -> Result<String, String> {
     let mut user_messages = Vec::new();
     let mut assistant_messages = Vec::new();
@@ -67,7 +68,10 @@ pub fn apply_model_chat_template_with_tags(
         }
     }
 
-    let universal_prompt = get_universal_system_prompt_with_tags(tags);
+    let universal_prompt = match custom_system_prompt {
+        Some(custom) => custom.to_string(),
+        None => get_universal_system_prompt_with_tags(tags),
+    };
 
     let mut final_system_message = universal_prompt;
     for summary in &compaction_summaries {
