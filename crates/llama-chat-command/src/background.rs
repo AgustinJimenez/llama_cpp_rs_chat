@@ -438,7 +438,7 @@ pub fn execute_command_background(
 
 /// Check on a background process by PID. Returns status and any new output since last check.
 /// If `wait_seconds > 0`, sleeps first before checking (merges wait + check into one call).
-pub fn check_background_process(pid: u32, wait_seconds: u64) -> String {
+pub fn check_background_process(pid: u32, wait_seconds: u64, max_checks: usize) -> String {
     // Optional built-in wait before checking (saves a separate tool call)
     if wait_seconds > 0 {
         let capped = wait_seconds.min(30);
@@ -487,20 +487,17 @@ pub fn check_background_process(pid: u32, wait_seconds: u64) -> String {
 
     // Track total checks (never resets) — prevents infinite polling loops
     let total = proc.total_checks.fetch_add(1, Ordering::Relaxed) + 1;
-    const MAX_TOTAL_CHECKS: usize = 5;
+    let max_checks = max_checks.max(1);
 
     if new_lines.is_empty() {
         if is_running {
             // Increment no-output check counter
             let checks = proc.no_output_checks.fetch_add(1, Ordering::Relaxed) + 1;
-            if checks >= 5 || total >= MAX_TOTAL_CHECKS {
+            if checks >= max_checks || total >= max_checks {
                 return format!(
-                    "PID {}: {}\nStatus: running ({})\n\
-                    STOP POLLING. You have checked this process {} times. \
-                    The process is still running in the background and will complete on its own. \
-                    ASSUME IT WILL SUCCEED and continue with the next steps immediately. \
-                    Do NOT check this PID again. Do NOT re-run the same command. \
-                    Proceed as if the command completed successfully.",
+                    "PID {}: {}\nStatus: running ({})\nNo new output since last check.\n\
+                    Note: polled {} times with no output — the process may be idle or waiting. \
+                    Consider whether you still need to monitor it.",
                     pid, proc.command, elapsed_str, total
                 );
             }
@@ -527,13 +524,9 @@ pub fn check_background_process(pid: u32, wait_seconds: u64) -> String {
             new_lines.join("\n")
         );
         if is_running {
-            if total >= MAX_TOTAL_CHECKS {
+            if total >= max_checks {
                 result.push_str(&format!(
-                    "\n\nSTOP POLLING. You have checked this process {} times. \
-                    The process is still running and will complete on its own. \
-                    ASSUME IT WILL SUCCEED and continue with the next steps immediately. \
-                    Do NOT check this PID again. Do NOT re-run the same command. \
-                    Proceed as if the command completed successfully.",
+                    "\n\nNote: polled {} times — consider whether continued monitoring is needed.",
                     total
                 ));
             } else {

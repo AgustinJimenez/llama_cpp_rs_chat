@@ -35,10 +35,11 @@ pub static SYSTEM_TOOLS: &[ToolDef] = &[
     // ─── check_background_process ───
     ToolDef {
         name: "check_background_process",
-        description: "Check on a background process launched with execute_command(background=true). Returns whether it is still running and any new output since last check. Use wait_seconds to pause before checking (combines wait + check in one call).",
+        description: "Check on a background process launched with execute_command(background=true). Returns whether it is still running and any new output since last check. Use wait_seconds to pause before checking (combines wait + check in one call). Use max_checks to allow more polls for long-running servers (default 5).",
         params: Params::Simple(&[
             p("pid", "integer", "The PID returned by execute_command with background=true"),
             p("wait_seconds", "integer", "Seconds to wait before checking (1-30). Use this instead of calling wait separately."),
+            p("max_checks", "integer", "Maximum number of times this process can be polled before the stop-polling warning fires (default 5). Set higher (e.g. 20) for long-running servers you need to monitor."),
         ]),
         required: &["pid"],
     },

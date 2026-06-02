@@ -67,7 +67,14 @@ pub(super) fn dispatch_text_tool(
                         .or_else(|| v.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
                 })
                 .unwrap_or(0);
-            llama_chat_command::background::check_background_process(pid, wait_seconds)
+            let max_checks = args
+                .get("max_checks")
+                .and_then(|v| {
+                    v.as_u64()
+                        .or_else(|| v.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
+                })
+                .unwrap_or(5) as usize;
+            llama_chat_command::background::check_background_process(pid, wait_seconds, max_checks)
         }
         "wait" => {
             let seconds = args

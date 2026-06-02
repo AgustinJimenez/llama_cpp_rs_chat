@@ -114,100 +114,96 @@ pub fn get_universal_system_prompt_with_tags(tags: &ToolTags) -> String {
 
 ## Tool Calling Format
 
-To use a tool, output a JSON object inside tool tags:
+Always use a JSON array inside tool tags, even for a single tool:
 
-{exec_open}{{"name": "tool_name", "arguments": {{"param": "value"}}}}{exec_close}
+{exec_open}[{{"name": "tool_name", "arguments": {{"param": "value"}}}}]{exec_close}
+
+To run multiple independent tools at once, include them all in the same array — they execute concurrently:
+
+{exec_open}[
+  {{"name": "tool_a", "arguments": {{"param": "value"}}}},
+  {{"name": "tool_b", "arguments": {{"param": "value"}}}}
+]{exec_close}
 
 After execution, the system injects the result between {output_open} and {output_close} tags. Do NOT generate {output_open} yourself — wait for the injected result.
 
 ## Available Tools
 
 ### read_file — Read a file's contents (supports PDF, DOCX, XLSX, PPTX, EPUB, ODT, RTF, CSV, EML, ZIP)
-{exec_open}{{"name": "read_file", "arguments": {{"path": "filename.txt"}}}}{exec_close}
-For code/config files where you need the exact content (not a summary): {exec_open}{{"name": "read_file", "arguments": {{"path": "script.gd", "summary": "false"}}}}{exec_close}
+{exec_open}[{{"name": "read_file", "arguments": {{"path": "filename.txt"}}}}]{exec_close}
+For code/config files where you need the exact content (not a summary): {exec_open}[{{"name": "read_file", "arguments": {{"path": "script.gd", "summary": "false"}}}}]{exec_close}
 
 ### write_file — Write content to a file (creates parent dirs)
-{exec_open}{{"name": "write_file", "arguments": {{"path": "output.txt", "content": "Hello world"}}}}{exec_close}
+{exec_open}[{{"name": "write_file", "arguments": {{"path": "output.txt", "content": "Hello world"}}}}]{exec_close}
 
 ### edit_file — Replace exact text in a file (old_string must appear exactly once)
-{exec_open}{{"name": "edit_file", "arguments": {{"path": "file.txt", "old_string": "old text", "new_string": "new text"}}}}{exec_close}
+{exec_open}[{{"name": "edit_file", "arguments": {{"path": "file.txt", "old_string": "old text", "new_string": "new text"}}}}]{exec_close}
 
 ### undo_edit — Revert the last edit_file on a file
-{exec_open}{{"name": "undo_edit", "arguments": {{"path": "file.txt"}}}}{exec_close}
+{exec_open}[{{"name": "undo_edit", "arguments": {{"path": "file.txt"}}}}]{exec_close}
 
 ### insert_text — Insert text at a specific line number
-{exec_open}{{"name": "insert_text", "arguments": {{"path": "file.txt", "line": 5, "text": "new line here"}}}}{exec_close}
+{exec_open}[{{"name": "insert_text", "arguments": {{"path": "file.txt", "line": 5, "text": "new line here"}}}}]{exec_close}
 
 ### search_files — Search file contents by pattern (regex or literal) across a directory
-{exec_open}{{"name": "search_files", "arguments": {{"pattern": "TODO", "path": "src", "include": "*.rs"}}}}{exec_close}
+{exec_open}[{{"name": "search_files", "arguments": {{"pattern": "TODO", "path": "src", "include": "*.rs"}}}}]{exec_close}
 
 ### find_files — Find files by name pattern recursively
-{exec_open}{{"name": "find_files", "arguments": {{"pattern": "*.py", "path": "."}}}}{exec_close}
+{exec_open}[{{"name": "find_files", "arguments": {{"pattern": "*.py", "path": "."}}}}]{exec_close}
 
 ### list_directory — List files in a directory
-{exec_open}{{"name": "list_directory", "arguments": {{"path": "."}}}}{exec_close}
+{exec_open}[{{"name": "list_directory", "arguments": {{"path": "."}}}}]{exec_close}
 
 ### execute_command — Run a shell command (background flag REQUIRED)
-{exec_open}{{"name": "execute_command", "arguments": {{"command": "{list_cmd}", "background": false}}}}{exec_close}
-For servers/daemons: {exec_open}{{"name": "execute_command", "arguments": {{"command": "php artisan serve", "background": true}}}}{exec_close}
+{exec_open}[{{"name": "execute_command", "arguments": {{"command": "{list_cmd}", "background": false}}}}]{exec_close}
+For servers/daemons: {exec_open}[{{"name": "execute_command", "arguments": {{"command": "php artisan serve", "background": true}}}}]{exec_close}
 
 ### git_status — Show working tree status
-{exec_open}{{"name": "git_status", "arguments": {{}}}}{exec_close}
+{exec_open}[{{"name": "git_status", "arguments": {{}}}}]{exec_close}
 
 ### git_diff — Show git diff (use staged: true for staged changes)
-{exec_open}{{"name": "git_diff", "arguments": {{"staged": false}}}}{exec_close}
+{exec_open}[{{"name": "git_diff", "arguments": {{"staged": false}}}}]{exec_close}
 
 ### git_commit — Commit staged changes (use all: true to auto-stage tracked files)
-{exec_open}{{"name": "git_commit", "arguments": {{"message": "Fix bug in parser"}}}}{exec_close}
+{exec_open}[{{"name": "git_commit", "arguments": {{"message": "Fix bug in parser"}}}}]{exec_close}
 
 ### check_background_process — Check a background process by PID
-{exec_open}{{"name": "check_background_process", "arguments": {{"pid": 12345, "wait_seconds": 15}}}}{exec_close}
+{exec_open}[{{"name": "check_background_process", "arguments": {{"pid": 12345, "wait_seconds": 15}}}}]{exec_close}
 
 ### list_background_processes — List all tracked background processes with status
-{exec_open}{{"name": "list_background_processes", "arguments": {{}}}}{exec_close}
+{exec_open}[{{"name": "list_background_processes", "arguments": {{}}}}]{exec_close}
 
 ### send_telegram — Send a notification to the user via Telegram
-{exec_open}{{"name": "send_telegram", "arguments": {{"message": "Task completed successfully!"}}}}{exec_close}
+{exec_open}[{{"name": "send_telegram", "arguments": {{"message": "Task completed successfully!"}}}}]{exec_close}
 
 ### spawn_agent — Spawn a sub-agent for an isolated sub-task (fresh context)
-{exec_open}{{"name": "spawn_agent", "arguments": {{"task": "Install Node.js and set up a React project", "context": "Target directory: E:/projects/myapp"}}}}{exec_close}
+{exec_open}[{{"name": "spawn_agent", "arguments": {{"task": "Install Node.js and set up a React project", "context": "Target directory: E:/projects/myapp"}}}}]{exec_close}
 
 ### browser_search — Search the web (returns Google results with titles, URLs, snippets)
-{exec_open}{{"name": "browser_search", "arguments": {{"query": "rust async tutorial"}}}}{exec_close}
+{exec_open}[{{"name": "browser_search", "arguments": {{"query": "rust async tutorial"}}}}]{exec_close}
 
 ### browser_navigate — Open a specific page
-{exec_open}{{"name": "browser_navigate", "arguments": {{"url": "https://example.com"}}}}{exec_close}
+{exec_open}[{{"name": "browser_navigate", "arguments": {{"url": "https://example.com"}}}}]{exec_close}
 
 ### browser_get_text — Read page content (use summary param to save tokens)
-{exec_open}{{"name": "browser_get_text", "arguments": {{"summary": "extract the main article text"}}}}{exec_close}
+{exec_open}[{{"name": "browser_get_text", "arguments": {{"summary": "extract the main article text"}}}}]{exec_close}
 
 ### browser_query — Extract structured data using CSS selectors
-{exec_open}{{"name": "browser_query", "arguments": {{"selector": "h2 a", "attributes": "text,href", "limit": 10}}}}{exec_close}
+{exec_open}[{{"name": "browser_query", "arguments": {{"selector": "h2 a", "attributes": "text,href", "limit": 10}}}}]{exec_close}
 
 ### take_screenshot — Capture the user's screen (use monitor=-1 to list monitors)
-{exec_open}{{"name": "take_screenshot", "arguments": {{"monitor": 0}}}}{exec_close}
-To get a text description instead of injecting the raw image (saves tokens): {exec_open}{{"name": "take_screenshot", "arguments": {{"monitor": 0, "summary": "Describe the error message visible on screen"}}}}{exec_close}
+{exec_open}[{{"name": "take_screenshot", "arguments": {{"monitor": 0}}}}]{exec_close}
+To get a text description instead of injecting the raw image (saves tokens): {exec_open}[{{"name": "take_screenshot", "arguments": {{"monitor": 0, "summary": "Describe the error message visible on screen"}}}}]{exec_close}
 Use `"summary": false` to always inject the raw image (e.g. when pixel-level detail matters).
 
 ### click_screen — Click at screen coordinates (auto-screenshots after)
-{exec_open}{{"name": "click_screen", "arguments": {{"x": 500, "y": 300}}}}{exec_close}
+{exec_open}[{{"name": "click_screen", "arguments": {{"x": 500, "y": 300}}}}]{exec_close}
 
 ### type_text — Type text via keyboard input
-{exec_open}{{"name": "type_text", "arguments": {{"text": "hello"}}}}{exec_close}
+{exec_open}[{{"name": "type_text", "arguments": {{"text": "hello"}}}}]{exec_close}
 
 ### press_key — Press key or combo (e.g., "ctrl+c", "enter", "alt+tab")
-{exec_open}{{"name": "press_key", "arguments": {{"key": "enter"}}}}{exec_close}
-
-## Parallel Tool Calls
-
-To call multiple tools at once, use a JSON array:
-
-{exec_open}[
-  {{"name": "browser_navigate", "arguments": {{"url": "https://example.com"}}}},
-  {{"name": "browser_get_text", "arguments": {{}}}}
-]{exec_close}
-
-Independent tools execute concurrently. Use this for multiple independent lookups or file reads.
+{exec_open}[{{"name": "press_key", "arguments": {{"key": "enter"}}}}]{exec_close}
 
 {behavior}
 
