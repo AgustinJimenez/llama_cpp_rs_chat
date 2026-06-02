@@ -73,6 +73,16 @@ pub async fn generate_stream(
         "conversation_id": &conversation_id,
     }));
 
+    // Prevent OS sleep/screen-off during inference. Dropped automatically when the
+    // spawned task below completes (i.e. when generation finishes or is cancelled).
+    let _wake_guard = keepawake::Builder::default()
+        .display(false)
+        .idle(true)
+        .sleep(true)
+        .create()
+        .map_err(|e| log::warn!("keepawake: {e}"))
+        .ok();
+
     // Start generation (skip_user_logging since we logged above)
     let (mut token_rx, done_rx) = bridge
         .generate(
@@ -86,6 +96,8 @@ pub async fn generate_stream(
     // Spawn task to forward tokens as Tauri events
     let conv_id = conversation_id.clone();
     tokio::spawn(async move {
+        // Keep OS awake for the duration of inference; drops when this task ends.
+        let _wake = _wake_guard;
         while let Some(token_data) = token_rx.recv().await {
             let _ = app.emit(
                 "chat-token",

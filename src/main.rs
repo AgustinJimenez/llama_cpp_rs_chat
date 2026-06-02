@@ -26,6 +26,7 @@ use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use tauri::{Emitter, Manager, WindowEvent};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 // WebviewBuilder, LogicalPosition, LogicalSize, WebviewUrl moved to commands::browser_panel
 
 mod mcp_ui;
@@ -105,6 +106,19 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, shortcut, event| {
+                    if event.state() == ShortcutState::Pressed {
+                        log::info!("Global shortcut triggered: {:?}", shortcut.id());
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                })
+                .build(),
+        )
         .setup(|app| {
             // Resolve app data directory for persistent storage
             let data_dir = app.path().app_data_dir()
@@ -244,6 +258,12 @@ fn main() {
                 .build(app)?;
 
             eprintln!("[TAURI] Menu and tray icon initialized");
+
+            // Register global shortcut: CmdOrCtrl+Shift+Space → show/focus window
+            match app.global_shortcut().register("CommandOrControl+Shift+Space") {
+                Ok(_) => eprintln!("[TAURI] Global shortcut registered: CmdOrCtrl+Shift+Space"),
+                Err(e) => eprintln!("[TAURI] Failed to register global shortcut (may be in use): {e}"),
+            }
 
             Ok(())
         })

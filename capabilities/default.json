@@ -11,6 +11,9 @@
     "window-state:default",
     "notification:default",
     "updater:default",
-    "deep-link:default"
+    "deep-link:default",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "global-shortcut:allow-is-registered"
   ]
 }
