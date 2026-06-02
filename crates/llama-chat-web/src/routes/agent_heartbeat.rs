@@ -78,7 +78,7 @@ pub async fn handle_fire_heartbeat(
 ) -> Result<Response<Body>, Infallible> {
     #[cfg(not(feature = "mock"))]
     {
-        let bridge = match resolve_bridge_for_conversation(&pool, &db, Some(conversation_id)) {
+        let bridge = match resolve_bridge_for_conversation(&pool, &db, Some(conversation_id)).await {
             Ok(bridge) => bridge,
             Err(e) => return Ok(json_error(StatusCode::SERVICE_UNAVAILABLE, &e)),
         };

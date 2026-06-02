@@ -57,14 +57,14 @@ fn resolve_system_prompt(
 }
 
 #[cfg(not(feature = "mock"))]
-fn resolve_bridge_for_request(
+async fn resolve_bridge_for_request(
     pool: &WorkerPool,
     db: &SharedDatabase,
     conversation_id: Option<&str>,
     requested_worker_id: Option<&str>,
 ) -> Result<SharedWorkerBridge, String> {
     if let Some(conversation_id) = conversation_id {
-        return resolve_bridge_for_conversation(pool, db, Some(conversation_id));
+        return resolve_bridge_for_conversation(pool, db, Some(conversation_id)).await;
     }
 
     let worker_id = requested_worker_id
@@ -94,7 +94,9 @@ pub async fn handle_post_chat(
             &db,
             chat_request.conversation_id.as_deref(),
             chat_request.worker_id.as_deref(),
-        ) {
+        )
+        .await
+        {
             Ok(bridge) => bridge,
             Err(e) => return Ok(json_error(StatusCode::SERVICE_UNAVAILABLE, &e)),
         };
@@ -287,7 +289,9 @@ pub async fn handle_post_chat_stream(
             &db,
             chat_request.conversation_id.as_deref(),
             chat_request.worker_id.as_deref(),
-        ) {
+        )
+        .await
+        {
             Ok(bridge) => bridge,
             Err(e) => return Ok(json_error(StatusCode::SERVICE_UNAVAILABLE, &e)),
         };
@@ -569,7 +573,7 @@ pub async fn handle_conversation_watch_websocket(
 
     #[cfg(not(feature = "mock"))]
     {
-        let bridge_ws = match resolve_bridge_for_conversation(&pool, &db, Some(&conversation_id)) {
+        let bridge_ws = match resolve_bridge_for_conversation(&pool, &db, Some(&conversation_id)).await {
             Ok(bridge) => bridge,
             Err(e) => return Ok(build_json_error_response(StatusCode::SERVICE_UNAVAILABLE, &e)),
         };

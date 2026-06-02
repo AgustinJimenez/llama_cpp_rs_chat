@@ -505,6 +505,25 @@ impl Database {
         }
     }
 
+    /// List all conversation IDs that have the given agent assigned.
+    pub fn list_conversation_ids_by_agent(
+        &self,
+        agent_id: &str,
+    ) -> Result<Vec<String>, String> {
+        let conn = self.connection();
+        let mut stmt = conn
+            .prepare("SELECT id FROM conversations WHERE agent_id = ?1")
+            .map_err(db_error("prepare list conversations by agent"))?;
+        let rows = stmt
+            .query_map([agent_id], |row| row.get::<_, String>(0))
+            .map_err(db_error("query list conversations by agent"))?;
+        let mut ids = Vec::new();
+        for row in rows {
+            ids.push(row.map_err(db_error("read conversation id"))?);
+        }
+        Ok(ids)
+    }
+
     /// Assign (or clear) an agent on a conversation.
     pub fn set_conversation_agent_id(
         &self,
@@ -520,158 +539,24 @@ impl Database {
         Ok(())
     }
 
-    /// Get the per-conversation overrides JSON blob (sparse delta from agent baseline).
-    pub fn get_conversation_overrides(&self, conversation_id: &str) -> Option<String> {
-        let conn = self.connection();
-        conn.query_row(
-            "SELECT overrides FROM conversations WHERE id = ?1",
-            [conversation_id],
-            |row| row.get::<_, Option<String>>(0),
-        )
-        .ok()
-        .flatten()
-    }
-
-    /// Persist per-conversation overrides (sparse JSON delta).
-    pub fn set_conversation_overrides(
-        &self,
-        conversation_id: &str,
-        overrides_json: Option<&str>,
-    ) -> Result<(), String> {
-        let conn = self.connection();
-        conn.execute(
-            "UPDATE conversations SET overrides = ?1 WHERE id = ?2",
-            params![overrides_json, conversation_id],
-        )
-        .map_err(db_error("set conversation overrides"))?;
-        Ok(())
-    }
-
     // ─── Effective config resolution ────────────────────────────────────────
 
     /// Load the effective config for a conversation.
     ///
     /// Resolution order:
-    /// 1. If conversation has an `agent_id`, load that agent + merge `overrides` JSON
-    /// 2. Final fallback: global config
+    /// 1. If conversation has an `agent_id`, use that agent's config.
+    /// 2. Final fallback: global config.
     pub fn load_effective_config(&self, conversation_id: &str) -> DbSamplerConfig {
-        // Try agent path
         if let Ok(Some(agent_id)) = self.get_conversation_agent_id(conversation_id) {
             if let Ok(Some(agent)) = self.get_agent(&agent_id) {
                 let global = self.load_config();
-                let mut config = agent.to_db_sampler_config(&global);
-                // Apply sparse overrides if any
-                if let Some(overrides_json) = self.get_conversation_overrides(conversation_id) {
-                    apply_overrides(&mut config, &overrides_json);
-                }
-                return config;
+                return agent.to_db_sampler_config(&global);
             }
         }
-        // Final fallback
         self.load_config()
     }
 }
 
-/// Apply a sparse JSON overrides blob onto a DbSamplerConfig.
-/// Only keys present in the JSON are overridden; absent keys keep the agent baseline.
-fn apply_overrides(config: &mut DbSamplerConfig, overrides_json: &str) {
-    let Ok(map) =
-        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(overrides_json)
-    else {
-        return;
-    };
-    macro_rules! apply_f64 {
-        ($field:ident, $key:expr) => {
-            if let Some(v) = map.get($key).and_then(|v| v.as_f64()) {
-                config.$field = v;
-            }
-        };
-    }
-    macro_rules! apply_u32 {
-        ($field:ident, $key:expr) => {
-            if let Some(v) = map.get($key).and_then(|v| v.as_u64()) {
-                config.$field = v as u32;
-            }
-        };
-    }
-    macro_rules! apply_i32 {
-        ($field:ident, $key:expr) => {
-            if let Some(v) = map.get($key).and_then(|v| v.as_i64()) {
-                config.$field = v as i32;
-            }
-        };
-    }
-    macro_rules! apply_bool {
-        ($field:ident, $key:expr) => {
-            if let Some(v) = map.get($key).and_then(|v| v.as_bool()) {
-                config.$field = v;
-            }
-        };
-    }
-    macro_rules! apply_str {
-        ($field:ident, $key:expr) => {
-            if let Some(v) = map.get($key).and_then(|v| v.as_str()) {
-                config.$field = v.to_string();
-            }
-        };
-    }
-    macro_rules! apply_opt_str {
-        ($field:ident, $key:expr) => {
-            if let Some(v) = map.get($key) {
-                config.$field = if v.is_null() {
-                    None
-                } else {
-                    v.as_str().map(|s| s.to_string())
-                };
-            }
-        };
-    }
-
-    apply_f64!(temperature, "temperature");
-    apply_f64!(top_p, "top_p");
-    apply_u32!(top_k, "top_k");
-    apply_f64!(mirostat_tau, "mirostat_tau");
-    apply_f64!(mirostat_eta, "mirostat_eta");
-    apply_f64!(repeat_penalty, "repeat_penalty");
-    apply_f64!(min_p, "min_p");
-    apply_f64!(typical_p, "typical_p");
-    apply_f64!(frequency_penalty, "frequency_penalty");
-    apply_f64!(presence_penalty, "presence_penalty");
-    apply_i32!(penalty_last_n, "penalty_last_n");
-    apply_f64!(dry_multiplier, "dry_multiplier");
-    apply_f64!(dry_base, "dry_base");
-    apply_i32!(dry_allowed_length, "dry_allowed_length");
-    apply_i32!(dry_penalty_last_n, "dry_penalty_last_n");
-    apply_f64!(top_n_sigma, "top_n_sigma");
-    apply_str!(sampler_type, "sampler_type");
-    apply_bool!(flash_attention, "flash_attention");
-    apply_str!(cache_type_k, "cache_type_k");
-    apply_str!(cache_type_v, "cache_type_v");
-    apply_u32!(n_batch, "n_batch");
-    apply_i32!(seed, "seed");
-    apply_u32!(n_ubatch, "n_ubatch");
-    apply_i32!(n_threads, "n_threads");
-    apply_i32!(n_threads_batch, "n_threads_batch");
-    apply_bool!(use_mlock, "use_mlock");
-    apply_bool!(use_mmap, "use_mmap");
-    apply_i32!(main_gpu, "main_gpu");
-    apply_str!(split_mode, "split_mode");
-    apply_bool!(proactive_compaction, "proactive_compaction");
-    apply_bool!(safe_tool_injection, "safe_tool_injection");
-    apply_opt_str!(system_prompt, "system_prompt");
-    apply_opt_str!(model_path, "model_path");
-
-    if let Some(v) = map.get("context_size") {
-        config.context_size = if v.is_null() {
-            None
-        } else {
-            v.as_u64().map(|n| n as u32)
-        };
-    }
-    if let Some(v) = map.get("thinking_mode") {
-        config.thinking_mode = if v.is_null() { None } else { v.as_bool() };
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -744,21 +629,6 @@ mod tests {
             .unwrap();
         let eff = db.load_effective_config(&conv_id);
         assert_eq!(eff.temperature, 1.5);
-    }
-
-    #[test]
-    fn test_load_effective_config_overrides() {
-        let db = test_db();
-        let conv_id = db.create_conversation().unwrap();
-        let config = DbSamplerConfig::default(); // temperature = 0.7
-        let agent = AgentRecord::from_db_sampler_config("Base", &config);
-        db.create_agent(&agent).unwrap();
-        db.set_conversation_agent_id(&conv_id, Some(&agent.id))
-            .unwrap();
-        db.set_conversation_overrides(&conv_id, Some(r#"{"temperature": 0.42}"#))
-            .unwrap();
-        let eff = db.load_effective_config(&conv_id);
-        assert!((eff.temperature - 0.42).abs() < 1e-9);
     }
 
     #[test]

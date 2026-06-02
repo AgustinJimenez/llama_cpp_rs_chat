@@ -132,7 +132,7 @@ pub async fn handle_websocket(
                 sys_debug!("[WS_CHAT] User message: {}", chat_request.message);
 
                 let bridge = match if let Some(conversation_id) = chat_request.conversation_id.as_deref() {
-                    resolve_bridge_for_conversation(&pool, &db, Some(conversation_id))
+                    resolve_bridge_for_conversation(&pool, &db, Some(conversation_id)).await
                 } else {
                     let worker_id = chat_request
                         .worker_id

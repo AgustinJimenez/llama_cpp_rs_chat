@@ -118,6 +118,12 @@ impl WorkerBridge {
         }
     }
 
+    /// Kill the underlying worker process and set the shutdown flag.
+    /// The stdout reader task will not restart the process after this.
+    pub fn kill(&self) {
+        self.process_manager.kill();
+    }
+
     /// Send a command and wait for the response.
     async fn send_and_wait(&self, command: WorkerCommand) -> Result<WorkerPayload, String> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);

@@ -1,4 +1,30 @@
 //! Multi-worker pool for local model worker processes.
+//!
+//! # Worker lifecycle
+//!
+//! There are two kinds of workers:
+//!
+//! **Global agent workers** (`agent_workers`):
+//!   One per agent, created when the user clicks "Activate" in the agents modal.
+//!   Keeps the model warm in VRAM so the first conversation is instant.
+//!   Shared across conversations that use this agent — as long as only one is
+//!   active at a time.
+//!
+//! **Per-conversation overflow workers** (`conversation_workers`):
+//!   Spawned automatically when a second conversation tries to use an agent
+//!   whose global worker is already generating. Each overflow conversation gets
+//!   its own dedicated process, enabling true parallel inference.
+//!   Cleaned up when the agent is stopped or the conversation is removed.
+//!
+//! # Routing (`resolve_bridge_for_conversation`)
+//!
+//! 1. Conversation already has an overflow worker → use it.
+//! 2. Conversation has a local agent with a global worker:
+//!    a. Global worker is free → use it.
+//!    b. Global worker is busy → spawn overflow worker, bind to conversation.
+//! 3. Conversation has a local agent but no global worker → spawn lazily.
+//! 4. Legacy `worker_id` on conversation → use that worker.
+//! 5. Default worker.
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -20,8 +46,11 @@ pub struct WorkerEntry {
 #[derive(Clone)]
 pub struct WorkerPool {
     workers: Arc<RwLock<HashMap<WorkerId, WorkerEntry>>>,
-    /// Maps agent_id → worker_id for agents with dedicated workers.
+    /// agent_id → worker_id: one pre-loaded global worker per agent (Activate button).
     agent_workers: Arc<RwLock<HashMap<String, WorkerId>>>,
+    /// conversation_id → worker_id: overflow workers for parallel conversations.
+    /// Only populated when a second conversation needs the same agent simultaneously.
+    conversation_workers: Arc<RwLock<HashMap<String, WorkerId>>>,
     db_path: String,
 }
 
@@ -40,6 +69,7 @@ impl WorkerPool {
         Self {
             workers: Arc::new(RwLock::new(workers)),
             agent_workers: Arc::new(RwLock::new(HashMap::new())),
+            conversation_workers: Arc::new(RwLock::new(HashMap::new())),
             db_path: db_path.into(),
         }
     }
@@ -87,9 +117,10 @@ impl WorkerPool {
 
         let pm = Arc::new(ProcessManager::spawn(&self.db_path)?);
         let bridge = Arc::new(WorkerBridge::new(pm));
-        bridge
-            .load_model(model_path, gpu_layers, mmproj_path)
-            .await?;
+        if let Err(e) = bridge.load_model(model_path, gpu_layers, mmproj_path).await {
+            bridge.kill();
+            return Err(e);
+        }
 
         let entry = WorkerEntry {
             id: worker_id.clone(),
@@ -105,7 +136,7 @@ impl WorkerPool {
         Ok(worker_id)
     }
 
-    /// In-memory half only — removes the worker entry from the pool.
+    /// In-memory half only — removes the worker entry from the pool and kills the process.
     pub async fn remove_worker(&self, worker_id: &str) -> Result<(), String> {
         if worker_id == "default" {
             return Err("Cannot remove default worker from pool".to_string());
@@ -117,7 +148,10 @@ impl WorkerPool {
             .map_err(|_| "WorkerPool lock poisoned".to_string())?
             .remove(worker_id);
 
-        if removed.is_some() {
+        if let Some(entry) = removed {
+            // Explicitly kill the process before dropping the Arc so the stdout
+            // reader task sees the shutdown flag and doesn't respawn the worker.
+            entry.bridge.kill();
             Ok(())
         } else {
             Err(format!("Worker not found: {worker_id}"))
@@ -138,9 +172,9 @@ impl WorkerPool {
         Ok(())
     }
 
-    // ─── Agent binding ─────────────────────────────────────────────────────
+    // ─── Global agent workers (Activate / Stop) ────────────────────────────────
 
-    /// Bind an agent to a specific worker (creates dedicated routing for the agent).
+    /// Bind an agent to its global pre-loaded worker.
     pub fn bind_agent_worker(&self, agent_id: &str, worker_id: WorkerId) -> Result<(), String> {
         self.agent_workers
             .write()
@@ -158,7 +192,7 @@ impl WorkerPool {
         Ok(())
     }
 
-    /// Look up the worker_id bound to an agent, if any.
+    /// Look up the global worker_id for an agent, if activated.
     pub fn get_worker_for_agent(&self, agent_id: &str) -> Option<WorkerId> {
         self.agent_workers
             .read()
@@ -174,7 +208,7 @@ impl WorkerPool {
             .unwrap_or_default()
     }
 
-    /// Spawn a new worker, load the model, and bind it to the agent.
+    /// Spawn a global worker for an agent and bind it.
     pub async fn spawn_worker_for_agent(
         &self,
         agent_id: &str,
@@ -189,14 +223,78 @@ impl WorkerPool {
         Ok(worker_id)
     }
 
-    /// Stop and remove the worker bound to an agent, and unbind it.
+    /// Stop the global worker for an agent (unbind + kill).
     pub async fn stop_agent_worker(&self, agent_id: &str) -> Result<(), String> {
         let worker_id = self
             .get_worker_for_agent(agent_id)
             .ok_or_else(|| format!("Agent {agent_id} has no active worker"))?;
-
         self.unbind_agent_worker(agent_id)?;
-        remove_worker_and_rebind_no_db(self, &worker_id).await
+        self.remove_worker(&worker_id).await
+    }
+
+    // ─── Per-conversation overflow workers ─────────────────────────────────────
+
+    /// Bind a conversation to its own overflow worker.
+    pub fn bind_conversation_worker(
+        &self,
+        conversation_id: &str,
+        worker_id: WorkerId,
+    ) -> Result<(), String> {
+        self.conversation_workers
+            .write()
+            .map_err(|_| "ConversationWorkers lock poisoned".to_string())?
+            .insert(conversation_id.to_string(), worker_id);
+        Ok(())
+    }
+
+    /// Remove the conversation → overflow worker binding (does not kill the worker).
+    pub fn unbind_conversation_worker(&self, conversation_id: &str) -> Result<(), String> {
+        self.conversation_workers
+            .write()
+            .map_err(|_| "ConversationWorkers lock poisoned".to_string())?
+            .remove(conversation_id);
+        Ok(())
+    }
+
+    /// Look up the overflow worker_id bound to a conversation, if any.
+    pub fn get_worker_for_conversation(&self, conversation_id: &str) -> Option<WorkerId> {
+        self.conversation_workers
+            .read()
+            .ok()
+            .and_then(|m| m.get(conversation_id).cloned())
+    }
+
+    /// List all active conversation→overflow worker bindings.
+    pub fn list_conversation_workers(&self) -> Vec<(String, WorkerId)> {
+        self.conversation_workers
+            .read()
+            .map(|m| m.iter().map(|(c, w)| (c.clone(), w.clone())).collect())
+            .unwrap_or_default()
+    }
+
+    /// Spawn an overflow worker for a conversation and bind it.
+    pub async fn spawn_worker_for_conversation(
+        &self,
+        conversation_id: &str,
+        model_path: &str,
+        gpu_layers: Option<u32>,
+        mmproj_path: Option<String>,
+    ) -> Result<WorkerId, String> {
+        let worker_id = self
+            .spawn_worker_with_options(model_path, gpu_layers, mmproj_path)
+            .await?;
+        self.bind_conversation_worker(conversation_id, worker_id.clone())?;
+        Ok(worker_id)
+    }
+
+    /// Stop all overflow workers for conversations in the given list.
+    pub async fn stop_overflow_workers_for_conversations(&self, conversation_ids: &[String]) {
+        for conv_id in conversation_ids {
+            if let Some(worker_id) = self.get_worker_for_conversation(conv_id) {
+                let _ = self.unbind_conversation_worker(conv_id);
+                let _ = self.remove_worker(&worker_id).await;
+            }
+        }
     }
 }
 
@@ -207,34 +305,96 @@ pub fn lookup_worker_id_for_conversation(
     db.get_conversation_worker_id(conversation_id).ok().flatten()
 }
 
-pub fn resolve_bridge_for_conversation(
+/// Resolve (or auto-spawn) the worker bridge for a conversation.
+///
+/// See module-level doc for routing order.
+pub async fn resolve_bridge_for_conversation(
     pool: &WorkerPool,
     db: &SharedDatabase,
     conversation_id: Option<&str>,
 ) -> Result<SharedWorkerBridge, String> {
-    // First: if the conversation has an agent with a dedicated worker, use it.
     if let Some(conv_id) = conversation_id {
+        // 1. Conversation already has its own overflow worker.
+        if let Some(worker_id) = pool.get_worker_for_conversation(conv_id) {
+            if let Some(bridge) = pool.get(&worker_id) {
+                return Ok(bridge);
+            }
+            // Overflow worker died — clean up and fall through.
+            let _ = pool.unbind_conversation_worker(conv_id);
+        }
+
+        // 2 & 3. Conversation has a local agent.
         if let Ok(Some(agent_id)) = db.get_conversation_agent_id(conv_id) {
-            if let Some(worker_id) = pool.get_worker_for_agent(&agent_id) {
-                if let Some(bridge) = pool.get(&worker_id) {
-                    return Ok(bridge);
+            if let Ok(Some(agent)) = db.get_agent(&agent_id) {
+                if agent.provider_id == "local" {
+                    if let Some(model_path) = agent
+                        .model_path
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|p| !p.is_empty())
+                    {
+                        let gpu_layers =
+                            u32::try_from(agent.main_gpu).ok().filter(|&l| l > 0);
+
+                        // 2a. Global agent worker exists and is free → use it.
+                        if let Some(global_wid) = pool.get_worker_for_agent(&agent_id) {
+                            if let Some(bridge) = pool.get(&global_wid) {
+                                if !bridge.is_generating().await {
+                                    return Ok(bridge);
+                                }
+                                // 2b. Global worker is busy → spawn overflow worker.
+                                match pool
+                                    .spawn_worker_for_conversation(
+                                        conv_id,
+                                        model_path,
+                                        gpu_layers,
+                                        None,
+                                    )
+                                    .await
+                                {
+                                    Ok(wid) => {
+                                        if let Some(b) = pool.get(&wid) {
+                                            return Ok(b);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        return Err(format!(
+                                            "Failed to spawn overflow worker: {e}"
+                                        ))
+                                    }
+                                }
+                            }
+                        }
+
+                        // 3. No global worker — spawn lazily for this conversation.
+                        match pool
+                            .spawn_worker_for_conversation(
+                                conv_id,
+                                model_path,
+                                gpu_layers,
+                                None,
+                            )
+                            .await
+                        {
+                            Ok(wid) => {
+                                if let Some(b) = pool.get(&wid) {
+                                    return Ok(b);
+                                }
+                            }
+                            Err(e) => {
+                                return Err(format!("Failed to spawn agent worker: {e}"))
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 
-    // Fallback: conversation's own worker_id (legacy), then default.
+    // 4 & 5. Legacy conversation worker_id or default.
     let worker_id = conversation_id.and_then(|id| lookup_worker_id_for_conversation(db, id));
     pool.get_or_default(worker_id.as_deref())
         .ok_or_else(|| "No worker bridge available".to_string())
-}
-
-/// Remove a worker from the pool without touching the DB (for agent stop).
-async fn remove_worker_and_rebind_no_db(pool: &WorkerPool, worker_id: &str) -> Result<(), String> {
-    if worker_id == "default" {
-        return Err("Default worker cannot be removed".to_string());
-    }
-    pool.remove_worker(worker_id).await
 }
 
 pub async fn remove_worker_and_rebind_conversations(

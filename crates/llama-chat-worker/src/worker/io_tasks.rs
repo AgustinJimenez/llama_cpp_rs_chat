@@ -196,6 +196,13 @@ pub async fn stdout_reader_task(
         }
     }
 
+    // Worker died — check if this was an intentional shutdown (not a crash).
+    // If so, skip all crash recovery to prevent zombie respawns.
+    if process_manager.is_shutdown() {
+        eprintln!("[BRIDGE] Worker was shut down intentionally — skipping crash recovery");
+        return;
+    }
+
     // Worker died — check generation before running crash recovery.
     // If the generation has advanced, a newer reader already owns the process;
     // this reader is stale and should exit without restarting anything.

@@ -224,7 +224,7 @@ impl TauriHttpSession {
         std::thread::sleep(std::time::Duration::from_millis(1500));
         let _ = eval_in_browser_panel(cookie_js);
 
-        // Read the page HTML via eval_in_browser_panel (uses Tauri → wry → CDP fallback chain)
+        // Read the page HTML via eval_in_browser_panel (Tauri WebView or wry window)
         match eval_in_browser_panel("document.documentElement ? document.documentElement.outerHTML : ''") {
             Ok(html) if html.len() >= 50 || html.contains('<') => {
                 eprintln!("[BROWSER_HTTP] eval OK: {} bytes ({:.1}s)",
@@ -236,35 +236,14 @@ impl TauriHttpSession {
                 return Ok(html);
             }
             Ok(html) => {
-                eprintln!("[BROWSER_HTTP] eval returned non-HTML ({} bytes), falling back to curl", html.len());
+                eprintln!("[BROWSER_HTTP] eval returned short/non-HTML ({} bytes)", html.len());
+                return Err(format!("Browser eval returned no content ({} bytes) — page may not have loaded yet", html.len()));
             }
             Err(e) => {
-                eprintln!("[BROWSER_HTTP] eval failed: {e}, falling back to curl");
+                eprintln!("[BROWSER_HTTP] eval failed: {e}");
+                return Err(format!("Browser eval failed: {e}"));
             }
         }
-
-        Self::curl_fetch(&self.current_url)
-    }
-
-    /// Fallback: fetch via curl (for web mode where Tauri webview isn't available).
-    fn curl_fetch(url: &str) -> Result<String, String> {
-        let mut cmd = std::process::Command::new("curl");
-        cmd.args(["-sL", "--max-time", "15",
-                "-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                url])
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null());
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000);
-        }
-        let output = cmd.output().map_err(|e| format!("curl failed: {e}"))?;
-        if !output.status.success() {
-            return Err(format!("curl status {}", output.status));
-        }
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 
     /// Get text — from cache (instant) or fetch.

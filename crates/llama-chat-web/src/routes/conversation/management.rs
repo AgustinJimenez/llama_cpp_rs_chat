@@ -68,7 +68,7 @@ pub async fn handle_compact_conversation(
     pool: WorkerPool,
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
-    let bridge = match resolve_bridge_for_conversation(&pool, &db, Some(conversation_id)) {
+    let bridge = match resolve_bridge_for_conversation(&pool, &db, Some(conversation_id)).await {
         Ok(bridge) => bridge,
         Err(e) => return Ok(json_error(StatusCode::SERVICE_UNAVAILABLE, &e)),
     };

@@ -81,6 +81,14 @@ async fn handle_request_impl(
             web::routes::system::handle_desktop_abort().await?
         }
 
+        // Browser panel (web mode — opens wry native WebView window)
+        (&Method::POST, "/api/browser/navigate") => {
+            web::routes::system::handle_browser_navigate(req).await?
+        }
+        (&Method::POST, "/api/browser/close") => {
+            web::routes::system::handle_browser_close().await?
+        }
+
         // Frontend log ingestion (web-only)
         (&Method::POST, "/api/logs/frontend") => {
             web::routes::frontend_logs::handle_post_frontend_logs(req).await?
@@ -157,18 +165,6 @@ async fn handle_request_impl(
         {
             web::routes::config::handle_get_conversation_config(path, bridge.clone(), db.clone())
                 .await?
-        }
-
-        (&Method::POST, path)
-            if path.starts_with("/api/conversations/") && path.ends_with("/config") =>
-        {
-            web::routes::config::handle_post_conversation_config(
-                req,
-                path,
-                bridge.clone(),
-                db.clone(),
-            )
-            .await?
         }
 
         // Conversation event log (in-memory debug events)
@@ -471,21 +467,13 @@ async fn handle_request_impl(
             if path.starts_with("/api/conversations/") && path.ends_with("/agent") =>
         {
             let conv_id = &path["/api/conversations/".len()..path.len() - "/agent".len()];
-            web::routes::agents::handle_set_conversation_agent(req, conv_id, db.clone()).await?
+            {
+                #[cfg(not(feature = "mock"))]
+                { web::routes::agents::handle_set_conversation_agent(req, conv_id, pool.clone(), db.clone()).await? }
+                #[cfg(feature = "mock")]
+                { web::routes::agents::handle_set_conversation_agent(req, conv_id, db.clone()).await? }
+            }
         }
-        (&Method::PATCH, path)
-            if path.starts_with("/api/conversations/") && path.ends_with("/overrides") =>
-        {
-            let conv_id = &path["/api/conversations/".len()..path.len() - "/overrides".len()];
-            web::routes::agents::handle_set_conversation_overrides(req, conv_id, db.clone()).await?
-        }
-        (&Method::GET, path)
-            if path.starts_with("/api/conversations/") && path.ends_with("/overrides") =>
-        {
-            let conv_id = &path["/api/conversations/".len()..path.len() - "/overrides".len()];
-            web::routes::agents::handle_get_conversation_overrides(conv_id, db.clone()).await?
-        }
-
         // File operations
         (&Method::GET, "/api/browse") => {
             web::routes::files::handle_get_browse(req, bridge.clone()).await?

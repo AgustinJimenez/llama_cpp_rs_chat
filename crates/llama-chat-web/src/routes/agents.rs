@@ -508,12 +508,17 @@ pub async fn handle_delete_agent(
     }
 }
 
-/// POST /api/conversations/:id/agent — assign or clear an agent on a conversation
+/// POST /api/conversations/:id/agent — assign or clear an agent on a conversation.
 ///
-/// Body: `{"agent_id": "agent_xxx"}` to assign, `{"agent_id": null}` to clear
+/// Body: `{"agent_id": "agent_xxx"}` to assign, `{"agent_id": null}` to clear.
+///
+/// After reassignment, if the previous agent is no longer assigned to any conversation
+/// its workers are automatically stopped to free VRAM.
+#[cfg(not(feature = "mock"))]
 pub async fn handle_set_conversation_agent(
     req: Request<Body>,
     conversation_id: &str,
+    pool: WorkerPool,
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     #[derive(Deserialize)]
@@ -534,71 +539,58 @@ pub async fn handle_set_conversation_agent(
         }
     }
 
-    match db.set_conversation_agent_id(conversation_id, body.agent_id.as_deref()) {
-        Ok(()) => Ok(json_success("Conversation agent updated")),
-        Err(e) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &e)),
+    // Remember the old agent before reassigning.
+    let old_agent_id = db
+        .get_conversation_agent_id(conversation_id)
+        .ok()
+        .flatten();
+
+    if let Err(e) = db.set_conversation_agent_id(conversation_id, body.agent_id.as_deref()) {
+        return Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &e));
     }
+
+    // Also stop the overflow worker for this conversation (it was tied to the old agent).
+    if let Some(wid) = pool.get_worker_for_conversation(conversation_id) {
+        let _ = pool.unbind_conversation_worker(conversation_id);
+        let _ = pool.remove_worker(&wid).await;
+    }
+
+    // If the old agent is no longer assigned to any conversation, stop its workers.
+    if let Some(old_id) = old_agent_id {
+        let new_id = body.agent_id.as_deref().unwrap_or("");
+        if old_id != new_id {
+            let remaining = db
+                .list_conversation_ids_by_agent(&old_id)
+                .unwrap_or_default();
+            if remaining.is_empty() {
+                // No conversations left — stop global worker and any overflow workers.
+                if pool.get_worker_for_agent(&old_id).is_some() {
+                    let _ = pool.stop_agent_worker(&old_id).await;
+                }
+            }
+        }
+    }
+
+    Ok(json_success("Conversation agent updated"))
 }
 
-/// PATCH /api/conversations/:id/overrides — update per-conversation param overrides
-///
-/// Body: sparse JSON object of params to override (e.g. `{"temperature": 0.9}`).
-/// Send `null` body to clear all overrides.
-pub async fn handle_set_conversation_overrides(
+#[cfg(feature = "mock")]
+pub async fn handle_set_conversation_agent(
     req: Request<Body>,
     conversation_id: &str,
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
-    let body_bytes = match hyper::body::to_bytes(req.into_body()).await {
-        Ok(b) => b,
-        Err(_) => return Ok(json_error(StatusCode::BAD_REQUEST, "Failed to read body")),
-    };
-    let body_str = std::str::from_utf8(&body_bytes).unwrap_or("null");
-
-    // Validate it's valid JSON (either null or an object)
-    let overrides_json: serde_json::Value = match serde_json::from_str(body_str) {
-        Ok(v) => v,
-        Err(_) => {
-            return Ok(json_error(
-                StatusCode::BAD_REQUEST,
-                "Body must be valid JSON",
-            ))
-        }
-    };
-
-    let overrides = if overrides_json.is_null() {
-        None
-    } else if overrides_json.is_object() {
-        Some(overrides_json.to_string())
-    } else {
-        return Ok(json_error(
-            StatusCode::BAD_REQUEST,
-            "Body must be a JSON object or null",
-        ));
-    };
-
-    match db.set_conversation_overrides(conversation_id, overrides.as_deref()) {
-        Ok(()) => Ok(json_success("Overrides saved")),
-        Err(e) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &e)),
+    #[derive(Deserialize)]
+    struct AgentBody {
+        agent_id: Option<String>,
     }
-}
-
-/// GET /api/conversations/:id/overrides — get raw sparse overrides for a conversation
-pub async fn handle_get_conversation_overrides(
-    conversation_id: &str,
-    db: SharedDatabase,
-) -> Result<Response<Body>, Infallible> {
-    let overrides = db
-        .get_conversation_overrides(conversation_id)
-        .and_then(|json| serde_json::from_str::<serde_json::Value>(&json).ok())
-        .unwrap_or(serde_json::Value::Null);
-
-    match serde_json::to_string(&serde_json::json!({ "overrides": overrides })) {
-        Ok(s) => Ok(json_raw(StatusCode::OK, s)),
-        Err(e) => Ok(json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("Serialize error: {e}"),
-        )),
+    let body: AgentBody = match parse_json_body(req.into_body()).await {
+        Ok(v) => v,
+        Err(err_resp) => return Ok(err_resp),
+    };
+    match db.set_conversation_agent_id(conversation_id, body.agent_id.as_deref()) {
+        Ok(()) => Ok(json_success("Conversation agent updated")),
+        Err(e) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &e)),
     }
 }
 
@@ -634,12 +626,18 @@ pub async fn handle_get_conversation_agent(
 }
 
 // ─── Agent lifecycle: activate / stop / statuses ─────────────────────────────
+//
+// Each agent has one global pre-loaded worker (Activate button). When a
+// conversation uses the agent and the global worker is free, it routes there.
+// If the global worker is busy generating for another conversation, an overflow
+// worker is auto-spawned for the new conversation (transparent parallelism).
+//
+// Stop kills both the global worker and any overflow conversation workers.
 
 /// POST /api/agents/:id/activate
 ///
-/// For local agents: spawns a dedicated worker process and loads the model.
-/// For remote agents: no-op (remote providers are stateless).
-/// Returns `{"status": "active"|"idle", "worker_id": "..."}`.
+/// Spawns the global pre-loaded worker for a local agent. If already active,
+/// returns immediately. For remote agents: no-op.
 #[cfg(not(feature = "mock"))]
 pub async fn handle_activate_agent(
     id: &str,
@@ -653,7 +651,6 @@ pub async fn handle_activate_agent(
     };
 
     if agent.provider_id != "local" {
-        // Remote/CLI agents don't need a worker process.
         let s = serde_json::json!({ "status": "active" }).to_string();
         return Ok(json_raw(StatusCode::OK, s));
     }
@@ -681,7 +678,8 @@ pub async fn handle_activate_agent(
 
 /// POST /api/agents/:id/stop
 ///
-/// Stops the dedicated worker for a local agent and releases its resources.
+/// Kills the global worker for a local agent plus any overflow conversation
+/// workers, releasing all VRAM used by this agent.
 #[cfg(not(feature = "mock"))]
 pub async fn handle_stop_agent(
     id: &str,
@@ -695,19 +693,28 @@ pub async fn handle_stop_agent(
     };
 
     if agent.provider_id != "local" {
-        return Ok(json_success("Remote agents do not have a worker to stop"));
+        return Ok(json_success("Remote agents do not have workers to stop"));
     }
 
-    match pool.stop_agent_worker(id).await {
-        Ok(()) => Ok(json_success("Agent stopped")),
-        Err(e) => Ok(json_error(StatusCode::BAD_REQUEST, &e)),
+    // Stop global worker.
+    if pool.get_worker_for_agent(id).is_some() {
+        let _ = pool.stop_agent_worker(id).await;
     }
+
+    // Stop any overflow conversation workers for this agent's conversations.
+    let conversation_ids = db.list_conversation_ids_by_agent(id).unwrap_or_default();
+    pool.stop_overflow_workers_for_conversations(&conversation_ids).await;
+
+    Ok(json_success("Agent stopped"))
 }
 
 /// GET /api/agents/statuses
 ///
 /// Returns a map of agent_id → `{status, worker_id?}` for all agents.
 /// Status values: `"idle"` | `"active"` | `"generating"`.
+///
+/// Status reflects the global worker. Overflow conversation workers are
+/// transparent to the UI — the global worker status is what matters.
 #[cfg(not(feature = "mock"))]
 pub async fn handle_get_agent_statuses(
     pool: WorkerPool,
@@ -722,14 +729,12 @@ pub async fn handle_get_agent_statuses(
 
     for agent in &agents {
         let entry = if agent.provider_id != "local" {
-            // Remote agents are always "active" (no dedicated process needed).
             serde_json::json!({ "status": "active" })
         } else if let Some(worker_id) = pool.get_worker_for_agent(&agent.id) {
             let is_generating = match pool.get(&worker_id) {
                 Some(bridge) => bridge.is_generating().await,
                 None => false,
             };
-
             let status = if is_generating { "generating" } else { "active" };
             serde_json::json!({ "status": status, "worker_id": worker_id })
         } else {

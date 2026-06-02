@@ -238,7 +238,7 @@ pub async fn handle_get_conversation_events(
         None => return Ok(json_error(StatusCode::BAD_REQUEST, "Invalid path")),
     };
 
-    let bridge = match resolve_bridge_for_conversation(&pool, &db, Some(conv_id)) {
+    let bridge = match resolve_bridge_for_conversation(&pool, &db, Some(conv_id)).await {
         Ok(bridge) => bridge,
         Err(e) => return Ok(json_error(StatusCode::SERVICE_UNAVAILABLE, &e)),
     };
