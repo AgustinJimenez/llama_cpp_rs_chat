@@ -5,9 +5,6 @@ import {
   Cloud,
   Plus,
   Pencil,
-  Play,
-  Power,
-  PowerOff,
   Trash2,
   X,
   ChevronLeft,
@@ -47,7 +44,6 @@ const DEFAULT_MAX_CONTEXT = 131072;
 interface AgentSelectorProps {
   isOpen: boolean;
   onClose: () => void;
-  conversationId?: string;
 }
 
 interface Provider {
@@ -94,8 +90,8 @@ function parseApiKeys(raw: unknown): ApiKeyMap {
 }
 
 function providerIcon(providerId: string) {
-  if (providerId === 'local') return <Cpu className="h-4 w-4 text-emerald-400 flex-shrink-0" />;
-  return <Cloud className="h-4 w-4 text-cyan-400 flex-shrink-0" />;
+  if (providerId === 'local') return <Cpu className="h-4 w-4 flex-shrink-0 text-emerald-400" />;
+  return <Cloud className="h-4 w-4 flex-shrink-0 text-cyan-400" />;
 }
 
 function agentLabel(agent: Agent): string {
@@ -129,26 +125,19 @@ const BLANK_LOCAL_CONFIG: SamplerConfig = {
 };
 
 // eslint-disable-next-line max-lines-per-function, complexity
-export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelectorProps) => {
+export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
   const {
     agents,
-    conversationAgent: _conversationAgent,
-    stagedAgent: _stagedAgent,
-    setStagedAgent,
     loadAgents,
-    setConversationAgent,
     createAgent,
     updateAgent,
     deleteAgent,
     agentStatuses,
     fetchAgentStatuses,
-    activateAgent,
-    stopAgent,
   } = useAgentContext();
 
   // ── Navigation ────────────────────────────────────────────────────────────
   const [view, setView] = useState<'list' | 'pick' | 'config'>('list');
-  const [togglingAgentId, setTogglingAgentId] = useState<string | null>(null);
   const [providerMode, setProviderMode] = useState<ProviderMode | null>(null);
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
 
@@ -182,7 +171,7 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   // ── Hooks (must be called unconditionally) ────────────────────────────────
-  const { status: modelStatus, loadModel } = useModelContext();
+  const { status: modelStatus } = useModelContext();
   const { totalVramGb: availableVramGb, totalRamGb: availableRamGb } = useSystemResources();
 
   const {
@@ -289,7 +278,6 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
       setView('list');
       setProviderMode(null);
       setEditingAgent(null);
-      setTogglingAgentId(null);
       setAgentName('');
       setModelPath('');
       setProviderId('local');
@@ -477,62 +465,6 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
     setView('config');
   };
 
-  // eslint-disable-next-line complexity
-  const handleSelect = async (agent: Agent) => {
-    // Load model for local agents
-    if (agent.provider_id === 'local' && agent.model_path) {
-      const config: SamplerConfig = {
-        model_path: agent.model_path,
-        context_size: agent.context_size,
-        sampler_type: agent.sampler_type ?? 'Temperature',
-        // eslint-disable-next-line @typescript-eslint/no-magic-numbers
-        temperature: agent.temperature ?? 0.7,
-        // eslint-disable-next-line @typescript-eslint/no-magic-numbers
-        top_p: agent.top_p ?? 0.9,
-        // eslint-disable-next-line @typescript-eslint/no-magic-numbers
-        top_k: agent.top_k ?? 40,
-        repeat_penalty: agent.repeat_penalty ?? 1.0,
-        mirostat_tau: agent.mirostat_tau ?? 5.0,
-        // eslint-disable-next-line @typescript-eslint/no-magic-numbers
-        mirostat_eta: agent.mirostat_eta ?? 0.1,
-        min_p: agent.min_p ?? 0,
-        flash_attention: agent.flash_attention ?? true,
-        cache_type_k: agent.cache_type_k ?? 'f16',
-        cache_type_v: agent.cache_type_v ?? 'f16',
-        thinking_mode: agent.thinking_mode,
-        typical_p: agent.typical_p,
-        frequency_penalty: agent.frequency_penalty,
-        presence_penalty: agent.presence_penalty,
-        dry_multiplier: agent.dry_multiplier,
-        seed: agent.seed,
-        n_threads: agent.n_threads,
-        rope_freq_base: agent.rope_freq_base,
-        use_mlock: agent.use_mlock,
-        use_mmap: agent.use_mmap,
-        main_gpu: agent.main_gpu,
-        split_mode: agent.split_mode,
-        system_prompt: agent.system_prompt_type !== 'custom' ? undefined : agent.system_prompt,
-        tool_tag_exec_open: agent.tool_tag_exec_open,
-        tool_tag_exec_close: agent.tool_tag_exec_close,
-        tool_tag_output_open: agent.tool_tag_output_open,
-        tool_tag_output_close: agent.tool_tag_output_close,
-      };
-      loadModel(agent.model_path, config).catch(() => {});
-    }
-
-    if (!conversationId) {
-      setStagedAgent(agent);
-      onClose();
-      return;
-    }
-    try {
-      await setConversationAgent(conversationId, agent.id);
-      onClose();
-    } catch {
-      toast.error('Failed to set agent');
-    }
-  };
-
   // ── Derived validation ────────────────────────────────────────────────────
   const trimmedName = agentName.trim();
   const isDuplicateName =
@@ -663,23 +595,6 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
       toast.error(editingAgent ? 'Failed to update agent' : 'Failed to create agent');
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleToggleAgent = async (agent: Agent) => {
-    const currentStatus = agentStatuses[agent.id]?.status ?? 'idle';
-    setTogglingAgentId(agent.id);
-    try {
-      if (currentStatus === 'idle') {
-        await activateAgent(agent.id);
-      } else {
-        await stopAgent(agent.id);
-      }
-      await fetchAgentStatuses();
-    } catch {
-      toast.error(currentStatus === 'idle' ? 'Failed to activate agent' : 'Failed to stop agent');
-    } finally {
-      setTogglingAgentId(null);
     }
   };
 
@@ -827,16 +742,16 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
     >
       {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
       <div
-        className={`bg-card border border-border rounded-lg shadow-2xl ${modalWidth} max-h-[90vh] flex flex-col`}
+        className={`rounded-lg border border-border bg-card shadow-2xl ${modalWidth} flex max-h-[90vh] flex-col`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-shrink-0">
+        <div className="flex flex-shrink-0 items-center justify-between border-b border-border px-5 py-4">
           <div className="flex items-center gap-2">
             {!!headerBack && (
               <button
                 onClick={headerBack}
-                className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 aria-label="Back"
               >
                 <ChevronLeft className="h-4 w-4" />
@@ -847,7 +762,7 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+            className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
             <X className="h-4 w-4" />
           </button>
@@ -857,9 +772,9 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
         <div className="flex-1 overflow-y-auto">
           {/* ── LIST ── */}
           {view === 'list' && (
-            <div className="p-5 space-y-2">
+            <div className="space-y-2 p-5">
               {agents.length === 0 && (
-                <div className="text-center py-10 text-muted-foreground text-sm">
+                <div className="py-10 text-center text-sm text-muted-foreground">
                   No agents yet. Create one to get started.
                 </div>
               )}
@@ -867,19 +782,14 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
                 agents.map((agent) => {
                   const agentStatus = agentStatuses[agent.id]?.status ?? 'idle';
                   const isRunning = agentStatus === 'active' || agentStatus === 'generating';
-                  const isToggling = togglingAgentId === agent.id;
                   let statusDotClass = 'bg-muted-foreground/30';
                   if (agentStatus === 'generating') statusDotClass = 'bg-amber-400 animate-pulse';
                   else if (isRunning) statusDotClass = 'bg-emerald-400';
 
-                  let toggleIcon = <Power className="h-4 w-4" />;
-                  if (isToggling) toggleIcon = <Loader2 className="h-4 w-4 animate-spin" />;
-                  else if (isRunning) toggleIcon = <PowerOff className="h-4 w-4" />;
                   const isConfirmDelete = confirmDeleteId === agent.id;
                   const deleteTitle = isConfirmDelete
                     ? 'Click again to confirm delete'
                     : 'Delete agent';
-                  const toggleTitle = isRunning ? 'Stop agent' : 'Activate agent';
 
                   return (
                     <div
@@ -888,54 +798,35 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
                     >
                       <div className="flex items-center gap-3 p-3">
                         {providerIcon(agent.provider_id)}
-                        <div className="flex-1 min-w-0">
+                        <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             {/* Status dot */}
                             <span
-                              className={`flex-shrink-0 h-2 w-2 rounded-full ${statusDotClass}`}
+                              className={`h-2 w-2 flex-shrink-0 rounded-full ${statusDotClass}`}
                             />
-                            <span className="font-medium text-foreground text-sm truncate">
+                            <span className="truncate text-sm font-medium text-foreground">
                               {agent.name}
                             </span>
                             {!!(agentStatus === 'generating') && (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 flex-shrink-0">
+                              <span className="flex-shrink-0 rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] text-amber-400">
                                 running
                               </span>
                             )}
                             {!!(agentStatus === 'active') && (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary flex-shrink-0">
+                              <span className="flex-shrink-0 rounded bg-primary/20 px-1.5 py-0.5 text-[10px] text-primary">
                                 active
                               </span>
                             )}
                           </div>
-                          <div className="text-xs text-muted-foreground truncate mt-0.5">
+                          <div className="mt-0.5 truncate text-xs text-muted-foreground">
                             {agentLabel(agent)}
                           </div>
                         </div>
-                        <div className="flex items-center gap-1 flex-shrink-0">
-                          {/* Activate / stop — local agents only */}
-                          {!!(agent.provider_id === 'local') && (
-                            <button
-                              onClick={() => handleToggleAgent(agent)}
-                              disabled={isToggling}
-                              title={toggleTitle}
-                              className={`p-1.5 rounded transition-colors ${isRunning ? 'text-primary hover:bg-primary/10' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
-                            >
-                              {toggleIcon}
-                            </button>
-                          )}
-                          {/* Use this agent for the current conversation */}
-                          <button
-                            onClick={() => handleSelect(agent)}
-                            title="Use this agent"
-                            className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-                          >
-                            <Play className="h-4 w-4" />
-                          </button>
+                        <div className="flex flex-shrink-0 items-center gap-1">
                           <button
                             onClick={() => openEdit(agent)}
                             title="Edit agent"
-                            className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                            className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
@@ -943,7 +834,7 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
                             onClick={() => handleDelete(agent.id)}
                             disabled={deletingId === agent.id}
                             title={deleteTitle}
-                            className={`p-1.5 rounded transition-colors ${isConfirmDelete ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' : 'hover:bg-muted text-muted-foreground hover:text-red-400'}`}
+                            className={`rounded p-1.5 transition-colors ${isConfirmDelete ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' : 'text-muted-foreground hover:bg-muted hover:text-red-400'}`}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
@@ -957,10 +848,10 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
 
           {/* ── STEP 1: name + provider type ── */}
           {view === 'pick' && (
-            <div className="p-5 space-y-4">
+            <div className="space-y-4 p-5">
               <div className="space-y-1.5">
                 {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
-                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                   Name
                 </label>
                 <input
@@ -969,15 +860,15 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
                   placeholder="e.g. Fast Local, Claude Sonnet..."
                   value={agentName}
                   onChange={(e) => setAgentName(e.target.value)}
-                  className="w-full px-3 py-1.5 text-sm bg-muted border border-border rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
+                  className="w-full rounded-md border border-border bg-muted px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
                 />
               </div>
               <div className="space-y-2">
                 {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
-                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                   Provider
                 </label>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                   {(
                     [
                       {
@@ -1007,13 +898,13 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
                       key={mode}
                       type="button"
                       onClick={() => handleSelectProvider(mode)}
-                      className="text-left rounded-md border border-border p-4 hover:border-primary/60 hover:bg-muted/50 transition-colors"
+                      className="rounded-md border border-border p-4 text-left transition-colors hover:border-primary/60 hover:bg-muted/50"
                     >
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="mb-1 flex items-center gap-2">
                         <Icon className={`h-4 w-4 ${iconClass}`} />
                         <span className="text-sm font-medium text-foreground">{title}</span>
                       </div>
-                      <p className="text-xs text-muted-foreground leading-snug">{desc}</p>
+                      <p className="text-xs leading-snug text-muted-foreground">{desc}</p>
                     </button>
                   ))}
                 </div>
@@ -1023,21 +914,21 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
 
           {/* ── STEP 2: provider config ── */}
           {view === 'config' && (
-            <div className="px-6 py-4 space-y-4">
+            <div className="space-y-4 px-6 py-4">
               {/* Agent name inline */}
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground flex-shrink-0">Agent:</span>
+                  <span className="flex-shrink-0 text-xs text-muted-foreground">Agent:</span>
                   <input
                     type="text"
                     placeholder="Name..."
                     value={agentName}
                     onChange={(e) => setAgentName(e.target.value)}
-                    className={`flex-1 px-2 py-1 text-sm bg-muted border rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary ${isDuplicateName ? 'border-red-500/70' : 'border-border'}`}
+                    className={`flex-1 rounded-md border bg-muted px-2 py-1 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none ${isDuplicateName ? 'border-red-500/70' : 'border-border'}`}
                   />
                 </div>
                 {!!isDuplicateName && (
-                  <p className="text-xs text-red-400 pl-12">
+                  <p className="pl-12 text-xs text-red-400">
                     An agent with this name already exists.
                   </p>
                 )}
@@ -1081,7 +972,7 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
                       {/* mmproj */}
                       {!!modelPath && fileExists === true && (
                         <div className="mt-2 space-y-2">
-                          <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                          <label className="flex cursor-pointer select-none items-center gap-2 text-sm">
                             <input
                               type="checkbox"
                               checked={mmprojEnabled}
@@ -1106,20 +997,20 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
                                     const p = await pickFile();
                                     if (p) setMmprojPath(p);
                                   }}
-                                  className={`w-full px-3 py-1.5 pr-8 text-sm border rounded-md bg-background text-left flex items-center gap-2 ${mmprojPath ? 'border-green-500/50' : 'border-input'} cursor-pointer hover:bg-accent/50 transition-colors`}
+                                  className={`flex w-full items-center gap-2 rounded-md border bg-background px-3 py-1.5 pr-8 text-left text-sm ${mmprojPath ? 'border-green-500/50' : 'border-input'} cursor-pointer transition-colors hover:bg-accent/50`}
                                 >
-                                  <FolderOpen className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                                  <FolderOpen className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
                                   {!!mmprojPath && (
-                                    <span className="font-mono text-xs truncate">{mmprojPath}</span>
+                                    <span className="truncate font-mono text-xs">{mmprojPath}</span>
                                   )}
                                   {!mmprojPath && (
-                                    <span className="text-muted-foreground text-xs">
+                                    <span className="text-xs text-muted-foreground">
                                       Click to select mmproj .gguf file...
                                     </span>
                                   )}
                                 </button>
                                 {!!mmprojPath && (
-                                  <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
+                                  <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2">
                                     <CheckCircle className="h-3.5 w-3.5 text-green-500" />
                                   </div>
                                 )}
@@ -1136,16 +1027,16 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
                     <Card>
                       <CardHeader className="p-0">
                         <button
-                          className={`flex items-center justify-between w-full text-left bg-primary text-white px-6 py-3 hover:opacity-90 transition-opacity ${isConfigExpanded ? 'rounded-t-lg' : 'rounded-lg'}`}
+                          className={`flex w-full items-center justify-between bg-primary px-6 py-3 text-left text-white transition-opacity hover:opacity-90 ${isConfigExpanded ? 'rounded-t-lg' : 'rounded-lg'}`}
                           onClick={() => setIsConfigExpanded(!isConfigExpanded)}
                           type="button"
                         >
-                          <CardTitle className="text-sm flex items-center gap-2 text-white">
+                          <CardTitle className="flex items-center gap-2 text-sm text-white">
                             {!!isConfigExpanded && (
-                              <ChevronDown className="h-5 w-5 text-white stroke-[3]" />
+                              <ChevronDown className="h-5 w-5 stroke-[3] text-white" />
                             )}
                             {!isConfigExpanded && (
-                              <ChevronRight className="h-5 w-5 text-white stroke-[3]" />
+                              <ChevronRight className="h-5 w-5 stroke-[3] text-white" />
                             )}
                             Model Configurations
                           </CardTitle>
@@ -1215,13 +1106,13 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
                 <div className="space-y-3">
                   <div className="space-y-1.5">
                     {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
-                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                       Provider
                     </label>
                     <select
                       value={remoteProviderSelectValue}
                       onChange={(e) => handleProviderChange(e.target.value)}
-                      className="w-full px-3 py-1.5 text-sm bg-muted border border-border rounded-md text-foreground focus:outline-none focus:border-primary"
+                      className="w-full rounded-md border border-border bg-muted px-3 py-1.5 text-sm text-foreground focus:border-primary focus:outline-none"
                     >
                       {cloudProviders.map((p) => {
                         const configuredSuffix = p.available ? '' : ' (not configured)';
@@ -1240,7 +1131,7 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
                         placeholder="Provider ID (e.g. openai, groq)"
                         value={customProviderInputValue}
                         onChange={(e) => setProviderId(e.target.value)}
-                        className="w-full px-3 py-1.5 text-sm bg-muted border border-border rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary font-mono"
+                        className="w-full rounded-md border border-border bg-muted px-3 py-1.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
                       />
                     )}
                   </div>
@@ -1256,10 +1147,10 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
                     </div>
                   )}
                   {!!needsApiKey && (
-                    <div className="rounded-md border border-border p-3 space-y-2">
+                    <div className="space-y-2 rounded-md border border-border p-3">
                       <div className="space-y-1">
                         {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
-                        <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                        <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                           API Key
                         </label>
                         <input
@@ -1272,12 +1163,12 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
                               [providerId]: { ...prev[providerId], api_key: e.target.value },
                             }))
                           }
-                          className="w-full px-3 py-1.5 text-xs bg-muted border border-border rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary font-mono"
+                          className="w-full rounded-md border border-border bg-muted px-3 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
                         />
                       </div>
                       <div className="space-y-1">
                         {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
-                        <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                        <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                           Base URL
                         </label>
                         <input
@@ -1292,14 +1183,14 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
                               [providerId]: { ...prev[providerId], base_url: e.target.value },
                             }))
                           }
-                          className="w-full px-3 py-1.5 text-xs bg-muted border border-border rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary font-mono"
+                          className="w-full rounded-md border border-border bg-muted px-3 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
                         />
                       </div>
                       <button
                         type="button"
                         onClick={() => saveApiKey(providerId)}
                         disabled={savingProvider === providerId}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                        className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
                       >
                         {savingProvider === providerId && (
                           <Loader2 className="h-3 w-3 animate-spin" />
@@ -1310,14 +1201,14 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
                   )}
                   <div className="space-y-1.5">
                     {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
-                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                       Model
                     </label>
                     {!!selectedProvider?.models?.length && (
                       <select
                         value={providerModel || selectedProvider.models[0]}
                         onChange={(e) => setProviderModel(e.target.value)}
-                        className="w-full px-3 py-1.5 text-sm bg-muted border border-border rounded-md text-foreground focus:outline-none focus:border-primary font-mono"
+                        className="w-full rounded-md border border-border bg-muted px-3 py-1.5 font-mono text-sm text-foreground focus:border-primary focus:outline-none"
                       >
                         {selectedProvider.models.map((m) => (
                           <option key={m} value={m}>
@@ -1331,7 +1222,7 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
                       placeholder="Or type a model name..."
                       value={providerModel}
                       onChange={(e) => setProviderModel(e.target.value)}
-                      className="w-full px-3 py-1.5 text-sm bg-muted border border-border rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary font-mono"
+                      className="w-full rounded-md border border-border bg-muted px-3 py-1.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
                     />
                   </div>
                   <ModelConfigSystemPrompt
@@ -1348,13 +1239,13 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
                 <div className="space-y-3">
                   <div className="space-y-1.5">
                     {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
-                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                       CLI Provider
                     </label>
                     <select
                       value={providerId}
                       onChange={(e) => handleProviderChange(e.target.value)}
-                      className="w-full px-3 py-1.5 text-sm bg-muted border border-border rounded-md text-foreground focus:outline-none focus:border-primary"
+                      className="w-full rounded-md border border-border bg-muted px-3 py-1.5 text-sm text-foreground focus:border-primary focus:outline-none"
                     >
                       {cliProviders.map((p) => {
                         const detectedSuffix = p.available ? '' : ' (not detected)';
@@ -1380,7 +1271,7 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-5 py-4 border-t border-border flex-shrink-0">
+        <div className="flex flex-shrink-0 items-center justify-between border-t border-border px-5 py-4">
           {view === 'list' && (
             <>
               <span className="text-xs text-muted-foreground">
@@ -1388,7 +1279,7 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
               </span>
               <button
                 onClick={openCreate}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
               >
                 <Plus className="h-3.5 w-3.5" /> New Agent
               </button>
@@ -1397,7 +1288,7 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
           {view === 'pick' && (
             <button
               onClick={() => setView('list')}
-              className="ml-auto px-3 py-1.5 rounded-md text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              className="ml-auto rounded-md px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
               Cancel
             </button>
@@ -1406,7 +1297,7 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
             <>
               <button
                 onClick={() => setView('pick')}
-                className="px-3 py-1.5 rounded-md text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                className="rounded-md px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               >
                 Back
               </button>
@@ -1417,7 +1308,7 @@ export const AgentSelector = ({ isOpen, onClose, conversationId }: AgentSelector
                   <button
                     onClick={handleSave}
                     disabled={!canSave}
-                    className="px-4 py-1.5 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                    className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
                   >
                     {saveLabel}
                   </button>

@@ -167,57 +167,57 @@ const FileRow = ({
   }
 
   return (
-    <div className="flex items-center gap-2 py-1.5 px-1 rounded hover:bg-accent/30 transition-colors relative overflow-hidden">
+    <div className="relative flex items-center gap-2 overflow-hidden rounded px-1 py-1.5 transition-colors hover:bg-accent/30">
       {!!isDownloading && (
         <div
-          className="absolute inset-y-0 left-0 bg-emerald-500/20 rounded transition-all duration-500 ease-out"
+          className="absolute inset-y-0 left-0 rounded bg-emerald-500/20 transition-all duration-500 ease-out"
           style={{ width: `${pct}%` }}
         />
       )}
       {!!isPaused && pendingRecord.file_size > 0 && (
         <div
-          className="absolute inset-0 bg-yellow-500/10 rounded"
+          className="absolute inset-0 rounded bg-yellow-500/10"
           style={{
             width: `${Math.round((pendingRecord.bytes_downloaded / pendingRecord.file_size) * 100)}%`,
           }}
         />
       )}
-      <div className="flex-1 min-w-0 relative z-10">
+      <div className="relative z-10 min-w-0 flex-1">
         <a
           href={hfUrl}
           target="_blank"
           rel="noopener noreferrer"
           onClick={(e) => e.stopPropagation()}
-          className="text-sm hover:underline truncate block"
+          className="block truncate text-sm hover:underline"
         >
           {shortName}
         </a>
-        <div className="flex items-center gap-2 mt-0.5">
+        <div className="mt-0.5 flex items-center gap-2">
           {!!quant && (
-            <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-primary/15 text-primary">
+            <span className="rounded bg-primary/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-primary">
               {quant}
             </span>
           )}
           {type !== 'model' && (
-            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+            <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
               {type}
             </span>
           )}
           <span className="text-xs text-muted-foreground">{formatSize(file.size)}</span>
           {!!isDownloading && (
-            <span className="text-xs text-primary font-medium">
+            <span className="text-xs font-medium text-primary">
               {pct}% &middot; {formatSize((progress.speed_kbps ?? 0) * 1024)}/s
             </span>
           )}
           {!!isPaused && (
-            <span className="text-xs text-yellow-600 font-medium">
+            <span className="text-xs font-medium text-yellow-600">
               Paused &middot; {formatSize(pendingRecord.bytes_downloaded)} /{' '}
               {formatSize(pendingRecord.file_size)}
             </span>
           )}
-          {!!isDone && <span className="text-xs text-green-500 font-medium">Downloaded</span>}
+          {!!isDone && <span className="text-xs font-medium text-green-500">Downloaded</span>}
           {!!isError && (
-            <span className="text-xs text-destructive font-medium truncate max-w-[200px]">
+            <span className="max-w-[200px] truncate text-xs font-medium text-destructive">
               {progress.message}
             </span>
           )}
@@ -230,7 +230,7 @@ const FileRow = ({
           onDownload(modelId, file, pendingRecord?.dest_path);
         }}
         disabled={isDownloading}
-        className="text-muted-foreground hover:text-foreground shrink-0 relative z-10 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+        className="relative z-10 shrink-0 cursor-pointer text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
         title={downloadTitle}
         aria-label={downloadAriaLabel}
       >
@@ -279,15 +279,15 @@ const ModelCard = ({
   const files = detailedFiles ?? model.files;
 
   return (
-    <div className="border rounded-lg p-3 hover:bg-accent/50 transition-colors">
+    <div className="rounded-lg border p-3 transition-colors hover:bg-accent/50">
       <button
         type="button"
-        className="flex items-start justify-between cursor-pointer w-full text-left"
+        className="flex w-full cursor-pointer items-start justify-between text-left"
         onClick={handleExpand}
       >
-        <div className="flex-1 min-w-0">
-          <div className="font-medium text-sm truncate">{model.id}</div>
-          <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-medium">{model.id}</div>
+          <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
             <span className="flex items-center gap-1">
               <Download className="h-3 w-3" /> {formatNumber(model.downloads)}
             </span>
@@ -297,7 +297,7 @@ const ModelCard = ({
             <span>{formatFileCount(ggufCount)}</span>
           </div>
         </div>
-        <div className="flex items-center gap-2 ml-2 shrink-0">
+        <div className="ml-2 flex shrink-0 items-center gap-2">
           <a
             href={`https://huggingface.co/${model.id}`}
             target="_blank"
@@ -314,7 +314,7 @@ const ModelCard = ({
       </button>
 
       {!!expanded && (
-        <div className="mt-2 border-t pt-2 space-y-0.5">
+        <div className="mt-2 space-y-0.5 border-t pt-2">
           {!!loadingFiles && (
             <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
               <Loader2 className="h-3 w-3 animate-spin" /> Loading file details...
@@ -391,45 +391,45 @@ const DownloadRow = ({
   }
 
   return (
-    <div className="flex items-center gap-2 py-2 px-2 rounded hover:bg-accent/30 transition-colors relative overflow-hidden">
+    <div className="relative flex items-center gap-2 overflow-hidden rounded px-2 py-2 transition-colors hover:bg-accent/30">
       {/* Progress bar background */}
       {!!isDownloading && (
         <div
-          className="absolute inset-y-0 left-0 bg-emerald-500/20 rounded transition-all duration-500 ease-out"
+          className="absolute inset-y-0 left-0 rounded bg-emerald-500/20 transition-all duration-500 ease-out"
           style={{ width: `${pct}%` }}
         />
       )}
       {!isCompleted && !isDownloading && record.file_size > 0 && (
-        <div className="absolute inset-0 bg-yellow-500/10 rounded" style={{ width: `${pct}%` }} />
+        <div className="absolute inset-0 rounded bg-yellow-500/10" style={{ width: `${pct}%` }} />
       )}
 
-      <div className="flex-1 min-w-0 relative z-10">
-        <div className="text-sm font-medium truncate">{shortName}</div>
-        <div className="flex items-center gap-2 mt-0.5">
+      <div className="relative z-10 min-w-0 flex-1">
+        <div className="truncate text-sm font-medium">{shortName}</div>
+        <div className="mt-0.5 flex items-center gap-2">
           {!!quant && (
-            <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-primary/15 text-primary">
+            <span className="rounded bg-primary/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-primary">
               {quant}
             </span>
           )}
-          <span className="text-xs text-muted-foreground truncate">{record.model_id}</span>
+          <span className="truncate text-xs text-muted-foreground">{record.model_id}</span>
           <span className="text-xs text-muted-foreground">{formatSize(record.file_size)}</span>
           {(() => {
             if (isCompleted) {
               return (
-                <span className="text-xs text-green-500 font-medium">
+                <span className="text-xs font-medium text-green-500">
                   {formatRelativeTime(record.downloaded_at)}
                 </span>
               );
             }
             if (isDownloading) {
               return (
-                <span className="text-xs text-primary font-medium">
+                <span className="text-xs font-medium text-primary">
                   {pct}% &middot; {formatSize((progress.speed_kbps ?? 0) * 1024)}/s
                 </span>
               );
             }
             return (
-              <span className="text-xs text-yellow-600 font-medium">
+              <span className="text-xs font-medium text-yellow-600">
                 Paused &middot; {formatSize(record.bytes_downloaded)} /{' '}
                 {formatSize(record.file_size)}
               </span>
@@ -437,14 +437,14 @@ const DownloadRow = ({
           })()}
         </div>
         {!!isCompleted && (
-          <div className="flex items-center gap-1 mt-0.5">
-            <FolderOpen className="h-3 w-3 text-muted-foreground shrink-0" />
-            <span className="text-[11px] text-muted-foreground truncate">{record.dest_path}</span>
+          <div className="mt-0.5 flex items-center gap-1">
+            <FolderOpen className="h-3 w-3 shrink-0 text-muted-foreground" />
+            <span className="truncate text-[11px] text-muted-foreground">{record.dest_path}</span>
           </div>
         )}
       </div>
 
-      <div className="relative z-10 shrink-0 flex items-center gap-1">
+      <div className="relative z-10 flex shrink-0 items-center gap-1">
         {(() => {
           if (isCompleted) {
             return (
@@ -521,10 +521,10 @@ const DownloadsTab = ({
 
   if (isEmpty) {
     return (
-      <div className="text-center py-12 text-muted-foreground text-sm">
-        <ArrowDownToLine className="h-8 w-8 mx-auto mb-3 opacity-40" />
+      <div className="py-12 text-center text-sm text-muted-foreground">
+        <ArrowDownToLine className="mx-auto mb-3 h-8 w-8 opacity-40" />
         <p>No downloads yet</p>
-        <p className="text-xs mt-1">Search and download models from the Explore tab</p>
+        <p className="mt-1 text-xs">Search and download models from the Explore tab</p>
       </div>
     );
   }
@@ -533,7 +533,7 @@ const DownloadsTab = ({
     <div className="space-y-3">
       {pendingList.length > 0 && (
         <div>
-          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5 px-1">
+          <div className="mb-1.5 px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
             Pending ({pendingList.length})
           </div>
           <div className="space-y-0.5">
@@ -557,7 +557,7 @@ const DownloadsTab = ({
 
       {completedList.length > 0 && (
         <div>
-          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5 px-1">
+          <div className="mb-1.5 px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
             Completed ({completedList.length})
           </div>
           <div className="space-y-0.5">
@@ -692,7 +692,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+      <DialogContent className="flex max-h-[80vh] max-w-2xl flex-col">
         <DialogHeader>
           <DialogTitle>Explore GGUF Models</DialogTitle>
         </DialogHeader>
@@ -702,7 +702,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
           <button
             type="button"
             onClick={() => setActiveTab('explore')}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            className={`border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
               activeTab === 'explore'
                 ? 'border-primary text-foreground'
                 : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -715,7 +715,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
           <button
             type="button"
             onClick={() => setActiveTab('downloads')}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+            className={`flex items-center gap-1.5 border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
               activeTab === 'downloads'
                 ? 'border-primary text-foreground'
                 : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -726,7 +726,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
             Downloads
             {totalDownloads > 0 && (
               <span
-                className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full ${
+                className={`rounded-full px-1.5 py-0.5 font-mono text-[10px] ${
                   pendingCount > 0
                     ? 'bg-yellow-500/20 text-yellow-600'
                     : 'bg-muted text-muted-foreground'
@@ -746,14 +746,14 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
               type="button"
               onClick={handlePickDirectory}
               disabled={isPicking}
-              className={`w-full px-3 py-2 text-sm border rounded-md bg-background text-left flex items-center gap-2 border-input ${
-                isPicking ? 'opacity-60' : 'cursor-pointer hover:bg-accent/50 transition-colors'
+              className={`flex w-full items-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-left text-sm ${
+                isPicking ? 'opacity-60' : 'cursor-pointer transition-colors hover:bg-accent/50'
               }`}
             >
-              {!!isPicking && <Loader2 className="h-4 w-4 animate-spin shrink-0" />}
-              {!isPicking && <FolderOpen className="h-4 w-4 text-foreground shrink-0" />}
+              {!!isPicking && <Loader2 className="h-4 w-4 shrink-0 animate-spin" />}
+              {!isPicking && <FolderOpen className="h-4 w-4 shrink-0 text-foreground" />}
               {!!modelsDirectory && (
-                <span className="font-mono text-xs truncate">{modelsDirectory}</span>
+                <span className="truncate font-mono text-xs">{modelsDirectory}</span>
               )}
               {!modelsDirectory && (
                 <span className="text-foreground/60">
@@ -763,8 +763,8 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
             </button>
 
             {!modelsDirectory && (
-              <div className="text-center py-12 text-muted-foreground text-sm">
-                <FolderOpen className="h-8 w-8 mx-auto mb-3 opacity-40" />
+              <div className="py-12 text-center text-sm text-muted-foreground">
+                <FolderOpen className="mx-auto mb-3 h-8 w-8 opacity-40" />
                 <p>Set a download directory to browse and download models.</p>
               </div>
             )}
@@ -772,23 +772,23 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
               <>
                 <div className="flex items-center gap-2">
                   <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <input
                       value={query}
                       onChange={handleChange}
                       onKeyDown={handleKeyDown}
                       placeholder="Search models or paste repo ID (e.g. unsloth/gemma-4-26B-A4B-it-GGUF)..."
-                      className="w-full pl-9 pr-3 py-2 border rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                      className="w-full rounded-md border bg-background py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                       // eslint-disable-next-line jsx-a11y/no-autofocus
                       autoFocus
                     />
                   </div>
                   <div className="relative shrink-0">
-                    <ArrowUpDown className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                    <ArrowUpDown className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                     <select
                       value={sort}
                       onChange={(e) => changeSort(e.target.value as HubSortField, query)}
-                      className="pl-8 pr-2 py-2 border rounded-md bg-background text-sm appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring"
+                      className="cursor-pointer appearance-none rounded-md border bg-background py-2 pl-8 pr-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                     >
                       {SORT_OPTIONS.map((opt) => (
                         <option key={opt.value} value={opt.value}>
@@ -800,24 +800,24 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
                 </div>
 
                 <div
-                  className="relative flex-1 min-h-0 overflow-y-auto space-y-2"
+                  className="relative min-h-0 flex-1 space-y-2 overflow-y-auto"
                   style={{ maxHeight: '400px' }}
                 >
                   {!!isLoading && (
-                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60 rounded-md">
-                      <Loader2 className="h-5 w-5 animate-spin mr-2 text-muted-foreground" />
-                      <span className="text-muted-foreground text-sm">Searching...</span>
+                    <div className="absolute inset-0 z-10 flex items-center justify-center rounded-md bg-background/60">
+                      <Loader2 className="mr-2 h-5 w-5 animate-spin text-muted-foreground" />
+                      <span className="text-sm text-muted-foreground">Searching...</span>
                     </div>
                   )}
 
                   {!!error && (
-                    <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-md text-sm text-destructive">
+                    <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
                       {error}
                     </div>
                   )}
 
                   {!error && models.length === 0 && !isLoading && (
-                    <div className="text-center py-8 text-muted-foreground text-sm">
+                    <div className="py-8 text-center text-sm text-muted-foreground">
                       {!!query && <>No GGUF models found for &ldquo;{query}&rdquo;</>}
                       {!query && 'No models found'}
                     </div>
@@ -841,7 +841,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
 
         {/* Downloads tab */}
         {activeTab === 'downloads' && (
-          <div className="relative flex-1 min-h-0 overflow-y-auto" style={{ maxHeight: '400px' }}>
+          <div className="relative min-h-0 flex-1 overflow-y-auto" style={{ maxHeight: '400px' }}>
             <DownloadsTab
               completedDownloads={completedDownloads}
               pendingDownloads={pendingDownloads}
@@ -854,7 +854,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
           </div>
         )}
 
-        <div className="flex justify-end pt-2 border-t">
+        <div className="flex justify-end border-t pt-2">
           <Button variant="outline" onClick={onClose}>
             Close
           </Button>

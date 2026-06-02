@@ -57,13 +57,13 @@ export const SystemPromptSection: React.FC<SystemPromptSectionProps> = ({
     <div className="space-y-1">
       <div className="flex items-center gap-2">
         <span className="text-xs font-medium">System Prompt</span>
-        <div className="flex rounded-full border border-input overflow-hidden">
+        <div className="flex overflow-hidden rounded-full border border-input">
           <button
             type="button"
             className={`px-3 py-0.5 text-xs transition-colors ${
               systemPromptMode === 'system'
                 ? 'bg-primary text-primary-foreground'
-                : 'bg-background hover:bg-muted text-muted-foreground'
+                : 'bg-background text-muted-foreground hover:bg-muted'
             }`}
             onClick={() => setSystemPromptMode('system')}
           >
@@ -74,7 +74,7 @@ export const SystemPromptSection: React.FC<SystemPromptSectionProps> = ({
             className={`px-3 py-0.5 text-xs transition-colors ${
               systemPromptMode === 'custom'
                 ? 'bg-primary text-primary-foreground'
-                : 'bg-background hover:bg-muted text-muted-foreground'
+                : 'bg-background text-muted-foreground hover:bg-muted'
             }`}
             onClick={() => setSystemPromptMode('custom')}
           >
@@ -84,7 +84,7 @@ export const SystemPromptSection: React.FC<SystemPromptSectionProps> = ({
         <button
           type="button"
           onClick={() => setIsExpanded(!isExpanded)}
-          className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+          className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
           {expandIcon}
         </button>
@@ -95,11 +95,11 @@ export const SystemPromptSection: React.FC<SystemPromptSectionProps> = ({
           value={customSystemPrompt}
           onChange={(e) => setCustomSystemPrompt(e.target.value)}
           placeholder="Enter your custom system prompt..."
-          className="w-full px-2 py-1.5 text-xs border rounded-md min-h-[80px] resize-y bg-background"
+          className="min-h-[80px] w-full resize-y rounded-md border bg-background px-2 py-1.5 text-xs"
         />
       )}
       {!!isExpanded && systemPromptMode !== 'custom' && (
-        <pre className="w-full px-2 py-1.5 text-xs border rounded-md max-h-[150px] overflow-y-auto whitespace-pre-wrap bg-muted text-foreground">
+        <pre className="max-h-[150px] w-full overflow-y-auto whitespace-pre-wrap rounded-md border bg-muted px-2 py-1.5 text-xs text-foreground">
           {AGENTIC_SYSTEM_PROMPT}
         </pre>
       )}

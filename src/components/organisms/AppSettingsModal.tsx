@@ -92,13 +92,13 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
           <DialogDescription className="sr-only">Application settings</DialogDescription>
         </DialogHeader>
 
-        <div className="flex border-b border-border mb-4">
+        <div className="mb-4 flex border-b border-border">
           {TABS.map((tab) => (
             <button
               key={tab}
               type="button"
               onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              className={`border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
                 activeTab === tab
                   ? 'border-primary text-foreground'
                   : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -109,7 +109,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
           ))}
         </div>
 
-        <div className="py-2 max-h-[60vh] overflow-y-auto">
+        <div className="max-h-[60vh] overflow-y-auto py-2">
           {activeTab === 'General' && (
             <div className="space-y-4">
               {/* Theme Toggle */}
@@ -131,12 +131,12 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
                           }
                           localStorage.setItem('theme', t);
                         }}
-                        className={`px-4 py-2 text-sm rounded-lg border transition-colors ${
+                        className={`rounded-lg border px-4 py-2 text-sm transition-colors ${
                           (typeof window !== 'undefined' &&
                             document.documentElement.classList.contains('dark')) ===
                           (t === 'dark')
-                            ? 'bg-primary text-primary-foreground border-primary'
-                            : 'bg-muted border-border text-muted-foreground hover:text-foreground'
+                            ? 'border-primary bg-primary text-primary-foreground'
+                            : 'border-border bg-muted text-muted-foreground hover:text-foreground'
                         }`}
                       >
                         {themeLabel}
@@ -160,7 +160,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
                   type="number"
                   min={1}
                   max={10000}
-                  className="w-32 px-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground"
+                  className="w-32 rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground"
                   // eslint-disable-next-line @typescript-eslint/no-magic-numbers
                   value={localConfig?.max_tool_calls ?? 2000}
                   onChange={(e) =>
@@ -190,7 +190,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
                   type="number"
                   min={3}
                   max={100}
-                  className="w-32 px-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground"
+                  className="w-32 rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground"
                   // eslint-disable-next-line @typescript-eslint/no-magic-numbers
                   value={localConfig?.loop_detection_limit ?? 15}
                   onChange={(e) =>
@@ -226,7 +226,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
                   id="telegram-bot-token"
                   type="text"
                   placeholder="Bot Token (from @BotFather)"
-                  className="w-full px-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground placeholder:text-muted-foreground"
+                  className="w-full rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground"
                   value={localConfig?.telegram_bot_token || ''}
                   onChange={(e) =>
                     setLocalConfig((prev) =>
@@ -237,7 +237,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
                 <input
                   type="text"
                   placeholder="Chat ID (send /start to your bot, then check)"
-                  className="w-full px-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground placeholder:text-muted-foreground"
+                  className="w-full rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground"
                   value={localConfig?.telegram_chat_id || ''}
                   onChange={(e) =>
                     setLocalConfig((prev) =>
@@ -268,7 +268,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
                 <button
                   type="button"
                   onClick={handleClearErrors}
-                  className="text-xs px-3 py-1.5 rounded-lg bg-muted hover:bg-muted/80 text-foreground border border-border whitespace-nowrap"
+                  className="whitespace-nowrap rounded-lg border border-border bg-muted px-3 py-1.5 text-xs text-foreground hover:bg-muted/80"
                 >
                   Clear Errors
                 </button>
@@ -285,18 +285,18 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
                   {appErrors.map((error) => (
                     <div
                       key={error.id}
-                      className="rounded-lg border border-border bg-muted/30 p-3 space-y-2"
+                      className="space-y-2 rounded-lg border border-border bg-muted/30 p-3"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="text-xs text-muted-foreground">
                             {formatErrorTime(error.timestamp)}
                           </div>
-                          <div className="text-sm font-medium text-foreground break-words">
+                          <div className="break-words text-sm font-medium text-foreground">
                             {error.message}
                           </div>
                         </div>
-                        <div className="shrink-0 text-[10px] uppercase tracking-wide rounded px-2 py-1 bg-red-500/15 text-red-400">
+                        <div className="shrink-0 rounded bg-red-500/15 px-2 py-1 text-[10px] uppercase tracking-wide text-red-400">
                           {error.level}
                         </div>
                       </div>
@@ -304,7 +304,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
                         Source: {error.source}
                       </div>
                       {!!error.details && (
-                        <pre className="whitespace-pre-wrap break-words text-[11px] text-foreground/80 bg-background/60 rounded p-2 overflow-x-auto">
+                        <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded bg-background/60 p-2 text-[11px] text-foreground/80">
                           {error.details}
                         </pre>
                       )}
@@ -320,7 +320,10 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
           <button className="flat-button bg-muted px-6 py-2" onClick={onClose}>
             Cancel
           </button>
-          <button className="flat-button bg-primary text-white px-6 py-2" onClick={handleSave}>
+          <button
+            className="flat-button bg-primary px-6 py-2 text-primary-foreground"
+            onClick={handleSave}
+          >
             Save
           </button>
         </DialogFooter>

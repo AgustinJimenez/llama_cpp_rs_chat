@@ -113,17 +113,17 @@ const MermaidBlock: React.FC<{ code: string }> = ({ code }) => {
 
   if (error) {
     return (
-      <div className="my-2 p-3 bg-red-900/30 border border-red-700 rounded text-sm">
-        <div className="text-red-400 font-medium mb-1">Mermaid Error</div>
-        <pre className="text-xs text-red-300 whitespace-pre-wrap">{error}</pre>
-        <pre className="text-xs text-muted-foreground mt-2 whitespace-pre-wrap">{code}</pre>
+      <div className="my-2 rounded border border-red-700 bg-red-900/30 p-3 text-sm">
+        <div className="mb-1 font-medium text-red-400">Mermaid Error</div>
+        <pre className="whitespace-pre-wrap text-xs text-red-300">{error}</pre>
+        <pre className="mt-2 whitespace-pre-wrap text-xs text-muted-foreground">{code}</pre>
       </div>
     );
   }
 
   if (!svg) {
     return (
-      <div className="my-2 p-4 bg-muted rounded animate-pulse text-sm text-muted-foreground">
+      <div className="my-2 animate-pulse rounded bg-muted p-4 text-sm text-muted-foreground">
         Rendering diagram...
       </div>
     );
@@ -133,7 +133,7 @@ const MermaidBlock: React.FC<{ code: string }> = ({ code }) => {
     <ExpandableBlock actions={[{ label: 'Export PNG', onClick: handleExport }]}>
       <div
         ref={containerRef}
-        className="bg-muted/50 dark:bg-[#1a1a2e] rounded-lg p-4 overflow-x-auto w-full [&_.nodeLabel]:!text-gray-900 [&_.edgeLabel]:!text-gray-700 dark:[&_.edgeLabel]:!text-gray-200 [&_.label]:!text-gray-900 [&_text]:!fill-gray-700 dark:[&_text]:!fill-gray-200 [&_.flowchart-link]:!stroke-gray-400"
+        className="w-full overflow-x-auto rounded-lg bg-muted/50 p-4 dark:bg-[#1a1a2e] [&_.edgeLabel]:!text-gray-700 dark:[&_.edgeLabel]:!text-gray-200 [&_.flowchart-link]:!stroke-gray-400 [&_.label]:!text-gray-900 [&_.nodeLabel]:!text-gray-900 [&_text]:!fill-gray-700 dark:[&_text]:!fill-gray-200"
         style={{ ['--mermaid-node-text' as string]: '#1a202c' }}
         dangerouslySetInnerHTML={{ __html: svg }}
       />
@@ -288,9 +288,9 @@ const ChartBlock: React.FC<{ code: string }> = ({ code }) => {
 
   if (error) {
     return (
-      <div className="my-2 p-3 bg-red-900/30 border border-red-700 rounded text-sm">
-        <div className="text-red-400 font-medium mb-1">Chart Error</div>
-        <pre className="text-xs text-red-300 whitespace-pre-wrap">{error}</pre>
+      <div className="my-2 rounded border border-red-700 bg-red-900/30 p-3 text-sm">
+        <div className="mb-1 font-medium text-red-400">Chart Error</div>
+        <pre className="whitespace-pre-wrap text-xs text-red-300">{error}</pre>
       </div>
     );
   }
@@ -302,7 +302,7 @@ const ChartBlock: React.FC<{ code: string }> = ({ code }) => {
         { label: 'Export CSV', onClick: () => handleExport('csv') },
       ]}
     >
-      <div className="bg-muted/50 dark:bg-[#1a1a2e] rounded-lg p-4 w-full">
+      <div className="w-full rounded-lg bg-muted/50 p-4 dark:bg-[#1a1a2e]">
         <canvas ref={canvasRef} />
       </div>
     </ExpandableBlock>
@@ -333,7 +333,7 @@ const CodeBlock = ({ inline, className, children }: CodeBlockProps) => {
       {content}
     </SyntaxHighlighter>
   ) : (
-    <code className={`${className ?? ''} bg-muted px-2 py-1 rounded font-mono text-sm`}>
+    <code className={`${className ?? ''} rounded bg-muted px-2 py-1 font-mono text-sm`}>
       {content}
     </code>
   );
@@ -354,7 +354,7 @@ const ImageWithControls: React.FC<React.ImgHTMLAttributes<HTMLImageElement>> = (
 
   return (
     <>
-      <div className="my-2 inline-block relative group">
+      <div className="group relative my-2 inline-block">
         <div
           className="cursor-pointer"
           onClick={() => setIsOpen(true)}
@@ -367,7 +367,7 @@ const ImageWithControls: React.FC<React.ImgHTMLAttributes<HTMLImageElement>> = (
           <img
             src={src}
             alt={alt}
-            className="rounded-lg max-w-full max-h-[400px] border border-border/50 hover:border-primary/50 transition-colors"
+            className="max-h-[400px] max-w-full rounded-lg border border-border/50 transition-colors hover:border-primary/50"
             loading="lazy"
           />
         </div>
@@ -376,7 +376,7 @@ const ImageWithControls: React.FC<React.ImgHTMLAttributes<HTMLImageElement>> = (
       {!!isOpen &&
         createPortal(
           <div
-            className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center cursor-pointer"
+            className="fixed inset-0 z-[9999] flex cursor-pointer items-center justify-center bg-black/95"
             role="button"
             tabIndex={0}
             onClick={() => setIsOpen(false)}
@@ -387,13 +387,13 @@ const ImageWithControls: React.FC<React.ImgHTMLAttributes<HTMLImageElement>> = (
             <img
               src={src}
               alt={alt}
-              className="w-full h-full object-contain p-2"
+              className="h-full w-full object-contain p-2"
               role="presentation"
               onClick={(e) => e.stopPropagation()}
             />
             <button
               onClick={() => setIsOpen(false)}
-              className="absolute top-4 right-4 p-2 bg-white/20 text-white rounded-full hover:bg-white/30 transition-colors backdrop-blur"
+              className="absolute right-4 top-4 rounded-full bg-white/20 p-2 text-white backdrop-blur transition-colors hover:bg-white/30"
               title="Close"
             >
               <svg
@@ -422,19 +422,19 @@ const MarkdownP = ({ children }: { children?: React.ReactNode }) => (
   <p className="my-2 [overflow-wrap:anywhere]">{children}</p>
 );
 const MarkdownH1 = ({ children }: { children?: React.ReactNode }) => (
-  <h1 className="font-bold text-2xl my-3 border-b border-border pb-2">{children}</h1>
+  <h1 className="my-3 border-b border-border pb-2 text-2xl font-bold">{children}</h1>
 );
 const MarkdownH2 = ({ children }: { children?: React.ReactNode }) => (
-  <h2 className="font-bold text-xl my-3 border-b border-border pb-2">{children}</h2>
+  <h2 className="my-3 border-b border-border pb-2 text-xl font-bold">{children}</h2>
 );
 const MarkdownH3 = ({ children }: { children?: React.ReactNode }) => (
-  <h3 className="font-semibold text-lg my-2">{children}</h3>
+  <h3 className="my-2 text-lg font-semibold">{children}</h3>
 );
 const MarkdownUl = ({ children }: { children?: React.ReactNode }) => (
-  <ul className="list-disc ml-4 my-2">{children}</ul>
+  <ul className="my-2 ml-4 list-disc">{children}</ul>
 );
 const MarkdownOl = ({ children }: { children?: React.ReactNode }) => (
-  <ol className="list-decimal ml-4 my-2">{children}</ol>
+  <ol className="my-2 ml-4 list-decimal">{children}</ol>
 );
 const MarkdownLi = ({ children }: { children?: React.ReactNode }) => <li>{children}</li>;
 const MarkdownStrong = ({ children }: { children?: React.ReactNode }) => (
@@ -444,7 +444,7 @@ const MarkdownEm = ({ children }: { children?: React.ReactNode }) => (
   <em className="italic">{children}</em>
 );
 const MarkdownBlockquote = ({ children }: { children?: React.ReactNode }) => (
-  <blockquote className="border-l-4 border-border pl-4 my-2 italic">{children}</blockquote>
+  <blockquote className="my-2 border-l-4 border-border pl-4 italic">{children}</blockquote>
 );
 
 const markdownComponents: Components = {
@@ -465,7 +465,7 @@ const markdownComponents: Components = {
 
 export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, testId }) => {
   return (
-    <div className="text-sm prose prose-sm max-w-none dark:prose-invert" data-testid={testId}>
+    <div className="prose prose-sm max-w-none text-sm dark:prose-invert" data-testid={testId}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
         {content}
       </ReactMarkdown>

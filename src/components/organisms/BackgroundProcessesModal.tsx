@@ -104,9 +104,9 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-2 py-2 max-h-[50vh] overflow-y-auto">
+        <div className="max-h-[50vh] space-y-2 overflow-y-auto py-2">
           {processes.length === 0 && (
-            <p className="text-sm text-muted-foreground text-center py-6">
+            <p className="py-6 text-center text-sm text-muted-foreground">
               No background processes running
             </p>
           )}
@@ -114,19 +114,19 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
             processes.map((proc) => (
               <div
                 key={proc.pid}
-                className="flex items-center gap-3 px-3 py-2 rounded-lg bg-muted/50 text-sm"
+                className="flex items-center gap-3 rounded-lg bg-muted/50 px-3 py-2 text-sm"
               >
-                <div className="flex-1 min-w-0">
-                  <div className="font-mono text-xs truncate" title={proc.command}>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-mono text-xs" title={proc.command}>
                     {truncateCommand(proc.command)}
                   </div>
-                  <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
+                  <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
                     <span>PID {proc.pid}</span>
                     <span>·</span>
                     <span>{formatElapsed(proc.startedAt)}</span>
                     {!!proc.alive && (
                       <span className="inline-flex items-center gap-1 text-green-400">
-                        <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-400" />
                         alive
                       </span>
                     )}
@@ -137,7 +137,7 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
                   <button
                     onClick={() => handleKill(proc.pid)}
                     disabled={killing.has(proc.pid)}
-                    className="flex-shrink-0 p-1.5 rounded-md hover:bg-accent text-foreground transition-colors disabled:opacity-50"
+                    className="flex-shrink-0 rounded-md p-1.5 text-foreground transition-colors hover:bg-accent disabled:opacity-50"
                     title="Kill process"
                   >
                     <X className="h-4 w-4" />
@@ -151,7 +151,7 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
           <div className="flex justify-end pt-1">
             <button
               onClick={handleKillAll}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors"
+              className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
             >
               <Trash2 className="h-3.5 w-3.5" />
               Kill All

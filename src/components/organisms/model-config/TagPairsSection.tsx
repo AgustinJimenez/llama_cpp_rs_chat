@@ -14,7 +14,7 @@ const TagPairRow: React.FC<{
   onUpdate: (field: keyof TagPair, value: string | boolean) => void;
   onDelete: () => void;
 }> = ({ pair, onUpdate, onDelete }) => (
-  <div className="flex items-center gap-1.5 group">
+  <div className="group flex items-center gap-1.5">
     <input
       type="checkbox"
       className="h-3 w-3 rounded border-border accent-blue-500"
@@ -22,26 +22,26 @@ const TagPairRow: React.FC<{
       onChange={(e) => onUpdate('enabled', e.target.checked)}
     />
     <span
-      className={`text-[10px] w-24 truncate shrink-0 ${pair.enabled ? 'text-foreground' : 'text-muted-foreground'}`}
+      className={`w-24 shrink-0 truncate text-[10px] ${pair.enabled ? 'text-foreground' : 'text-muted-foreground'}`}
     >
       {pair.name}
     </span>
     <input
       type="text"
-      className="flex-1 h-5 rounded border border-input bg-background px-1 text-[10px] font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+      className="h-5 flex-1 rounded border border-input bg-background px-1 font-mono text-[10px] focus:outline-none focus:ring-1 focus:ring-ring"
       value={pair.open_tag}
       onChange={(e) => onUpdate('open_tag', e.target.value)}
     />
     <input
       type="text"
-      className="flex-1 h-5 rounded border border-input bg-background px-1 text-[10px] font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+      className="h-5 flex-1 rounded border border-input bg-background px-1 font-mono text-[10px] focus:outline-none focus:ring-1 focus:ring-ring"
       placeholder="(none)"
       value={pair.close_tag}
       onChange={(e) => onUpdate('close_tag', e.target.value)}
     />
     <button
       type="button"
-      className="text-muted-foreground hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 shrink-0"
+      className="shrink-0 text-muted-foreground opacity-0 transition-colors hover:text-red-400 group-hover:opacity-100"
       title="Delete tag pair"
       onClick={onDelete}
     >
@@ -75,31 +75,31 @@ const AddPairForm: React.FC<{
 
   return (
     <div className="space-y-1">
-      <div className="flex items-center gap-1.5 bg-muted/50 rounded p-1.5">
+      <div className="flex items-center gap-1.5 rounded bg-muted/50 p-1.5">
         <input
           type="text"
-          className={`w-20 h-6 rounded border bg-background px-1.5 text-[10px] focus:outline-none focus:ring-1 focus:ring-ring ${isDuplicate ? 'border-red-500' : 'border-input'}`}
+          className={`h-6 w-20 rounded border bg-background px-1.5 text-[10px] focus:outline-none focus:ring-1 focus:ring-ring ${isDuplicate ? 'border-red-500' : 'border-input'}`}
           placeholder="Name *"
           value={pair.name}
           onChange={(e) => setPair((p) => ({ ...p, name: e.target.value }))}
         />
         <input
           type="text"
-          className="flex-1 h-6 rounded border border-input bg-background px-1.5 text-[10px] font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+          className="h-6 flex-1 rounded border border-input bg-background px-1.5 font-mono text-[10px] focus:outline-none focus:ring-1 focus:ring-ring"
           placeholder="Open tag *"
           value={pair.open_tag}
           onChange={(e) => setPair((p) => ({ ...p, open_tag: e.target.value }))}
         />
         <input
           type="text"
-          className="flex-1 h-6 rounded border border-input bg-background px-1.5 text-[10px] font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+          className="h-6 flex-1 rounded border border-input bg-background px-1.5 font-mono text-[10px] focus:outline-none focus:ring-1 focus:ring-ring"
           placeholder="Close tag"
           value={pair.close_tag}
           onChange={(e) => setPair((p) => ({ ...p, close_tag: e.target.value }))}
         />
         <button
           type="button"
-          className="h-6 px-2 rounded bg-blue-600 hover:bg-blue-500 text-[10px] text-white transition-colors disabled:opacity-50"
+          className="h-6 rounded bg-blue-600 px-2 text-[10px] text-white transition-colors hover:bg-blue-500 disabled:opacity-50"
           disabled={!canAdd}
           onClick={handleAdd}
         >
@@ -107,7 +107,7 @@ const AddPairForm: React.FC<{
         </button>
       </div>
       {!!isDuplicate && (
-        <p className="text-[10px] text-red-400 pl-1">
+        <p className="pl-1 text-[10px] text-red-400">
           Name &quot;{nameTrimmed}&quot; already exists
         </p>
       )}
@@ -123,13 +123,13 @@ export const TagPairsSection: React.FC<TagPairsSectionProps> = ({
   const [showAdd, setShowAdd] = useState(false);
 
   return (
-    <div className="rounded-md border border-border px-3 py-2 space-y-2">
+    <div className="space-y-2 rounded-md border border-border px-3 py-2">
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium">Tag Pairs ({tagPairs.length})</span>
         {!!detectedTagPairs?.length && (
           <button
             type="button"
-            className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+            className="flex items-center gap-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
             title="Reset to auto-detected tag pairs"
             onClick={() => onTagPairsChange([...detectedTagPairs])}
           >
@@ -154,7 +154,7 @@ export const TagPairsSection: React.FC<TagPairsSectionProps> = ({
       </div>
 
       {tagPairs.length === 0 && (
-        <p className="text-[10px] text-muted-foreground italic">
+        <p className="text-[10px] italic text-muted-foreground">
           No tag pairs configured. Select a model to auto-detect, or add manually.
         </p>
       )}
@@ -169,7 +169,7 @@ export const TagPairsSection: React.FC<TagPairsSectionProps> = ({
       {!showAdd && (
         <button
           type="button"
-          className="flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300 transition-colors"
+          className="flex items-center gap-1 text-[10px] text-blue-400 transition-colors hover:text-blue-300"
           onClick={() => setShowAdd(true)}
         >
           <Plus className="h-3 w-3" /> Add

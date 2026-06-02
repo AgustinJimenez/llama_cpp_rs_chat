@@ -425,7 +425,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="w-[95vw] max-w-7xl h-[90vh] max-h-[90vh] flex flex-col p-0">
+      <DialogContent className="flex h-[90vh] max-h-[90vh] w-[95vw] max-w-7xl flex-col p-0">
         <DialogHeader className="px-6 pt-6">
           <DialogTitle className="flex items-center gap-2">Load Model</DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground">
@@ -433,7 +433,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
+        <div className="flex-1 space-y-6 overflow-y-auto px-6 py-4">
           {/* Model File Selection */}
           <Card>
             <CardHeader>
@@ -470,7 +470,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
               {/* Vision Projector (mmproj) - checkbox + file input */}
               {!!modelPath && fileExists === true && (
                 <div className="mt-3 space-y-2">
-                  <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                  <label className="flex cursor-pointer select-none items-center gap-2 text-sm">
                     <input
                       type="checkbox"
                       checked={mmprojEnabled}
@@ -498,22 +498,22 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                             const filePath = await pickFile();
                             if (filePath) setMmprojPath(filePath);
                           }}
-                          className={`w-full px-3 py-1.5 pr-8 text-sm border rounded-md bg-background text-left flex items-center gap-2 ${
+                          className={`flex w-full items-center gap-2 rounded-md border bg-background px-3 py-1.5 pr-8 text-left text-sm ${
                             mmprojPath ? 'border-green-500/50' : 'border-input'
-                          } cursor-pointer hover:bg-accent/50 transition-colors`}
+                          } cursor-pointer transition-colors hover:bg-accent/50`}
                         >
-                          <FolderOpen className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                          <FolderOpen className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
                           {!!mmprojPath && (
-                            <span className="font-mono text-xs truncate">{mmprojPath}</span>
+                            <span className="truncate font-mono text-xs">{mmprojPath}</span>
                           )}
                           {!mmprojPath && (
-                            <span className="text-muted-foreground text-xs">
+                            <span className="text-xs text-muted-foreground">
                               Click to select mmproj .gguf file...
                             </span>
                           )}
                         </button>
                         {!!mmprojPath && (
-                          <div className="absolute right-2 top-1/2 transform -translate-y-1/2 pointer-events-none">
+                          <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 transform">
                             <CheckCircle className="h-3.5 w-3.5 text-green-500" />
                           </div>
                         )}
@@ -550,7 +550,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
             <Card>
               <CardHeader className="p-0">
                 <button
-                  className={`flex items-center justify-between w-full text-left bg-primary text-white px-6 py-3 hover:opacity-90 transition-opacity ${
+                  className={`flex w-full items-center justify-between bg-primary px-6 py-3 text-left text-white transition-opacity hover:opacity-90 ${
                     isConfigExpanded ? 'rounded-t-lg' : 'rounded-lg'
                   }`}
                   onClick={() => setIsConfigExpanded(!isConfigExpanded)}
@@ -558,12 +558,12 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                   aria-expanded={isConfigExpanded}
                   data-testid="config-expand-button"
                 >
-                  <CardTitle className="text-sm flex items-center gap-2 text-white">
+                  <CardTitle className="flex items-center gap-2 text-sm text-white">
                     {!!isConfigExpanded && (
-                      <ChevronDown className="h-5 w-5 text-white stroke-[3]" />
+                      <ChevronDown className="h-5 w-5 stroke-[3] text-white" />
                     )}
                     {!isConfigExpanded && (
-                      <ChevronRight className="h-5 w-5 text-white stroke-[3]" />
+                      <ChevronRight className="h-5 w-5 stroke-[3] text-white" />
                     )}
                     Model Configurations
                   </CardTitle>
@@ -628,14 +628,14 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
           )}
         </div>
 
-        <DialogFooter className="px-6 py-4 border-t">
+        <DialogFooter className="border-t px-6 py-4">
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
           {(() => {
             const buttonContent = isCheckingFile ? (
               <>
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Reading file...
               </>
             ) : (

@@ -29,7 +29,7 @@ const LiveTokenCounter = ({
       <button
         type="button"
         onClick={() => setShowModal(true)}
-        className={`inline-flex items-center gap-1 cursor-pointer hover:text-foreground transition-colors ${pct > CONTEXT_WARNING_THRESHOLD_PCT ? 'text-yellow-400' : ''}`}
+        className={`inline-flex cursor-pointer items-center gap-1 transition-colors hover:text-foreground ${pct > CONTEXT_WARNING_THRESHOLD_PCT ? 'text-yellow-400' : ''}`}
         title="Click for token breakdown"
       >
         <Database className="h-3 w-3" />
@@ -132,7 +132,7 @@ export const LiveStreamingStats = ({
 
   if (!hasContext && !displayStatus && !isPromptEval) return null;
   return (
-    <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono">
+    <div className="flex items-center gap-3 font-mono text-xs text-muted-foreground">
       {!!displayStatus && (
         <span className="inline-flex items-center gap-1 text-cyan-400">
           <Loader2 className="h-3 w-3 animate-spin" />
@@ -252,7 +252,7 @@ const CompactButton = ({
       type="button"
       onClick={handleCompact}
       disabled={compacting}
-      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-muted hover:bg-accent text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+      className="flex items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
       title={`Summarize old messages to free context (${ctxPct}% used)`}
     >
       {compactIcon}
@@ -294,7 +294,7 @@ const BreakdownRow = ({
     <span className="text-muted-foreground">{label}</span>
     <span className="font-mono tabular-nums">
       {value}
-      {!!sub && <span className="text-muted-foreground text-[10px] ml-1">{sub}</span>}
+      {!!sub && <span className="ml-1 text-[10px] text-muted-foreground">{sub}</span>}
     </span>
   </div>
 );
@@ -374,12 +374,12 @@ const TokenBreakdownModal = ({
       {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
       <div
         role="document"
-        className="bg-background border border-border rounded-xl shadow-2xl w-80 p-4 text-sm"
+        className="w-80 rounded-xl border border-border bg-background p-4 text-sm shadow-2xl"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between mb-3">
-          <span className="font-semibold flex items-center gap-1.5">
+        <div className="mb-3 flex items-center justify-between">
+          <span className="flex items-center gap-1.5 font-semibold">
             <Database className="h-3.5 w-3.5" />
             Context breakdown
           </span>
@@ -392,7 +392,7 @@ const TokenBreakdownModal = ({
           </button>
         </div>
 
-        <div className="w-full h-2 rounded-full bg-muted mb-3 overflow-hidden">
+        <div className="mb-3 h-2 w-full overflow-hidden rounded-full bg-muted">
           <div
             className={`h-full rounded-full ${barColor(usedPct)}`}
             style={{ width: `${Math.min(usedPct, 100)}%` }}
@@ -400,7 +400,7 @@ const TokenBreakdownModal = ({
         </div>
 
         <div className="divide-y divide-border">
-          <div className="pb-2 space-y-0.5">
+          <div className="space-y-0.5 pb-2">
             <BreakdownRow label="System prompt" value={fmt(systemPromptTokens)} sub="tokens" />
             <BreakdownRow label="Tool definitions" value={fmt(toolTokens)} sub="tokens" />
             {summaryEst > 0 && (
@@ -432,7 +432,7 @@ const TokenBreakdownModal = ({
               />
             )}
           </div>
-          <div className="py-2 space-y-0.5">
+          <div className="space-y-0.5 py-2">
             {measuredTotal != null && (
               <BreakdownRow
                 label="Last measured total"
@@ -459,7 +459,7 @@ const TokenBreakdownModal = ({
         </div>
 
         {measuredTotal != null && (
-          <p className="text-[10px] text-muted-foreground mt-2">
+          <p className="mt-2 text-[10px] text-muted-foreground">
             Measured total = prompt + response tokens from last generation.
           </p>
         )}
@@ -485,7 +485,7 @@ const ContextUsageInfo = ({
       <button
         type="button"
         onClick={() => setShowModal(true)}
-        className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono hover:text-foreground transition-colors cursor-pointer"
+        className="flex cursor-pointer items-center gap-1.5 font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
         title="Click for token breakdown"
       >
         <Database className="h-3 w-3" />
@@ -493,7 +493,7 @@ const ContextUsageInfo = ({
           ~{(estimatedConvTokens / 1000).toFixed(1)}K / {(modelContextSize / 1000).toFixed(1)}K
         </span>
         {ctxPct > CONTEXT_HIGH_PCT && (
-          <span className="text-yellow-400 text-[10px]">({ctxPct}%)</span>
+          <span className="text-[10px] text-yellow-400">({ctxPct}%)</span>
         )}
       </button>
       {!!showModal && (
@@ -525,7 +525,7 @@ const StatsLeft = ({
   modelContextSize?: number;
   ctxPct: number;
 }) => (
-  <div className="flex-1 flex items-center gap-3 flex-wrap">
+  <div className="flex flex-1 flex-wrap items-center gap-3">
     {!!timings?.genTokPerSec && !isLoading && <MessageStatistics timings={timings} />}
     {!!isLoading && (
       <LiveStreamingStats
@@ -582,7 +582,7 @@ export const StatsBar = ({
   const statsLeftCtxSize = hasContextInfo ? modelContextSize : undefined;
 
   return (
-    <div className="flex items-center justify-between mb-1">
+    <div className="mb-1 flex items-center justify-between">
       <StatsLeft
         timings={timings}
         tokensUsed={tokensUsed}
@@ -605,7 +605,7 @@ export const StatsBar = ({
           <button
             type="button"
             onClick={stopGeneration}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-muted hover:bg-accent text-foreground transition-colors"
+            className="flex items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
             data-testid="stop-button"
             title="Stop generation"
           >

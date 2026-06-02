@@ -49,12 +49,12 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
   else if (fileExists === false) borderClass = 'border-red-500';
 
   const fileIcon = isCheckingFile ? (
-    <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />
+    <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin" />
   ) : (
-    <FolderOpen className="h-4 w-4 text-foreground flex-shrink-0" />
+    <FolderOpen className="h-4 w-4 flex-shrink-0 text-foreground" />
   );
   const pathLabel = modelPath ? (
-    <span className="font-mono text-xs truncate">{modelPath}</span>
+    <span className="truncate font-mono text-xs">{modelPath}</span>
   ) : (
     <span className="text-foreground/60">Click to select a .gguf model file...</span>
   );
@@ -70,14 +70,14 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
           data-testid="model-path-input"
           onClick={handleBrowseFile}
           disabled={isCheckingFile}
-          className={`w-full px-3 py-2 pr-8 text-sm border rounded-md bg-background text-left flex items-center gap-2 ${borderClass} ${buttonStateClass}`}
+          className={`flex w-full items-center gap-2 rounded-md border bg-background px-3 py-2 pr-8 text-left text-sm ${borderClass} ${buttonStateClass}`}
         >
           {fileIcon}
           {pathLabel}
         </button>
         {modelPath.trim() && (
-          <div className="absolute right-2 top-1/2 transform -translate-y-1/2 pointer-events-none">
-            {!!isCheckingFile && <Clock className="h-4 w-4 text-muted-foreground animate-pulse" />}
+          <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 transform">
+            {!!isCheckingFile && <Clock className="h-4 w-4 animate-pulse text-muted-foreground" />}
             {!isCheckingFile && fileExists === true && (
               <CheckCircle className="h-4 w-4 text-green-500" />
             )}
@@ -90,10 +90,10 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
 
       {/* File existence status */}
       {modelPath.trim() && (
-        <div className="text-xs space-y-2">
+        <div className="space-y-2 text-xs">
           {!!isCheckingFile && (
             <span
-              className="text-muted-foreground flex items-center gap-1"
+              className="flex items-center gap-1 text-muted-foreground"
               data-testid="file-checking"
             >
               <Clock className="h-3 w-3" />
@@ -102,7 +102,7 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
           )}
           {!isCheckingFile && fileExists === true && (
             <span
-              className="text-green-600 flex items-center gap-1"
+              className="flex items-center gap-1 text-green-600"
               data-testid="file-found-label"
               id="file-found-label"
             >
@@ -112,12 +112,12 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
           )}
           {!isCheckingFile && fileExists === false && !!directoryError && (
             <div className="space-y-2">
-              <span className="text-amber-600 flex items-center gap-1">
+              <span className="flex items-center gap-1 text-amber-600">
                 <XCircle className="h-3 w-3" />
                 {directoryError}
               </span>
               {directorySuggestions.length > 0 && (
-                <div className="pl-4 space-y-1">
+                <div className="space-y-1 pl-4">
                   {directorySuggestions.map((suggestion) => (
                     <button
                       key={suggestion}
@@ -130,7 +130,7 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
                             : `${basePath}\\${suggestion}`;
                         setModelPath(newPath);
                       }}
-                      className="block w-full text-left px-3 py-2 text-xs bg-muted hover:bg-accent rounded border border-border transition-colors"
+                      className="block w-full rounded border border-border bg-muted px-3 py-2 text-left text-xs transition-colors hover:bg-accent"
                     >
                       {suggestion}
                     </button>
@@ -140,7 +140,7 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
             </div>
           )}
           {!isCheckingFile && fileExists === false && !directoryError && (
-            <span className="text-red-600 flex items-center gap-1">
+            <span className="flex items-center gap-1 text-red-600">
               <XCircle className="h-3 w-3" />
               File not found or inaccessible
             </span>
@@ -150,11 +150,11 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
 
       {/* Model history — collapsible below input */}
       {modelHistory.length > 0 && (
-        <div className="border border-input rounded-md overflow-hidden">
+        <div className="overflow-hidden rounded-md border border-input">
           <button
             type="button"
             onClick={() => setHistoryExpanded(!historyExpanded)}
-            className="w-full px-3 py-1.5 text-xs text-foreground bg-muted/50 flex items-center gap-1.5 hover:bg-muted transition-colors"
+            className="flex w-full items-center gap-1.5 bg-muted/50 px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-muted"
           >
             {historyChevron}
             <Clock className="h-3 w-3" />
@@ -166,9 +166,9 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
                 key={path}
                 type="button"
                 onClick={() => setModelPath(path)}
-                className="block w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors border-t border-input"
+                className="block w-full border-t border-input px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
               >
-                <div className="font-mono text-xs truncate">{path}</div>
+                <div className="truncate font-mono text-xs">{path}</div>
               </button>
             ))}
         </div>

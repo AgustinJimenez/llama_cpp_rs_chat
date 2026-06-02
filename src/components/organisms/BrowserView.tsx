@@ -2,7 +2,6 @@ import {
   RefreshCw,
   ArrowRight,
   Globe,
-  ExternalLink,
   ChevronLeft,
   ChevronRight,
   ZoomIn,
@@ -16,6 +15,8 @@ import { useUIContext } from '../../hooks/useUIContext';
 import { isTauriEnv } from '../../utils/tauri';
 
 const TAURI = isTauriEnv();
+// Web-mode backend (port 18080) — used to open the wry browser window when not in Tauri.
+const WEB_BACKEND = 'http://127.0.0.1:18080';
 
 async function tauriInvoke<T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   const { invoke } = await import('@tauri-apps/api/core');
@@ -23,22 +24,23 @@ async function tauriInvoke<T = unknown>(cmd: string, args?: Record<string, unkno
 }
 
 /**
- * Real iframe-based browser view. The user interacts with the page natively
- * (clicks, types, scrolls — same as any browser tab).
+ * Browser view panel.
  *
- * Limitation: sites that send `X-Frame-Options: DENY` or strict CSP cannot
- * be embedded (Google, Twitter, Facebook, banks). For those we offer an
- * "Open in new tab" fallback link.
+ * Desktop (Tauri): a native WebView2 child window overlaid inside the app.
+ * Both the user and the agent share the same `browser-panel` WebView — the user
+ * sees what the agent is browsing in real time. Google works fine (no bot detection).
+ *
+ * Web/server mode: iframes cannot be used because sites like Google block embedding
+ * via X-Frame-Options. Instead, navigating posts to the backend which opens a standalone
+ * wry (WebView2) window — a real isolated browser, same engine, no bot detection.
+ * The panel shows which URL is open and lets the user control navigation.
  */
 /* eslint-disable max-lines-per-function */
 export const BrowserView = React.memo(() => {
   const { browserViewUrl, openBrowserView, isBrowserViewOpen } = useUIContext();
   const [urlInput, setUrlInput] = useState(browserViewUrl ?? '');
-  const [iframeKey, setIframeKey] = useState(0);
-  const [loadFailed, setLoadFailed] = useState(false);
   const [history, setHistory] = useState<string[]>(browserViewUrl ? [browserViewUrl] : []);
   const [historyIdx, setHistoryIdx] = useState(browserViewUrl ? 0 : -1);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const skipHistoryPushRef = useRef(false);
   const panelOpenedRef = useRef(false);
@@ -57,8 +59,6 @@ export const BrowserView = React.memo(() => {
     // External URL change (agent navigation) — navigate the panel
     if (TAURI && panelOpenedRef.current) pendingNavigateRef.current = true;
     setUrlInput(browserViewUrl);
-    setLoadFailed(false);
-    setIframeKey((k) => k + 1);
     if (skipHistoryPushRef.current) {
       skipHistoryPushRef.current = false;
       return;
@@ -188,38 +188,51 @@ export const BrowserView = React.memo(() => {
     }
   }, [browserViewUrl, isBrowserViewOpen]);
 
-  // Detect iframes that fail to load (X-Frame-Options / CSP)
-  useEffect(() => {
-    if (!browserViewUrl) return undefined;
-    setLoadFailed(false);
-    // Heuristic: if iframe doesn't fire `load` within 5s, treat as blocked.
-    // (X-Frame-Options doesn't fire onerror — the request just hangs.)
-    const LOAD_CHECK_MS = 5000;
-    const timer = setTimeout(() => {
-      try {
-        void iframeRef.current?.contentWindow?.location?.href;
-        setLoadFailed(false);
-      } catch {
-        setLoadFailed(false);
-      }
-    }, LOAD_CHECK_MS);
-    return () => clearTimeout(timer);
-  }, [browserViewUrl, iframeKey]);
+  // ─── Web mode: open wry browser window via backend ───
+  // In web/server mode (no Tauri), navigation is sent to the backend which opens
+  // a standalone wry (WebView2) window — a real browser, not an iframe.
+  const webNavigate = useCallback(async (url: string) => {
+    try {
+      await fetch(`${WEB_BACKEND}/api/browser/navigate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+    } catch {
+      // Backend not reachable — ignore
+    }
+  }, []);
 
   const navigateToUrl = (rawUrl: string) => {
     const url = rawUrl.trim();
     if (!url) return;
     const fullUrl =
       url.startsWith('http://') || url.startsWith('https://') ? url : `https://${url}`;
+
+    if (!TAURI) {
+      // Web mode: tell backend to open/navigate the wry browser window
+      openBrowserView(fullUrl);
+      webNavigate(fullUrl);
+      showLoading();
+      return;
+    }
+
     // Force navigation even if URL looks the same (user may want to reload)
-    if (fullUrl === browserViewUrl && TAURI && panelOpenedRef.current) {
+    if (fullUrl === browserViewUrl && panelOpenedRef.current) {
       tauriInvoke('browser_panel_navigate', { url: fullUrl }).catch(() => {});
     }
-    if (TAURI && browserViewUrl) setHasGoBack(true);
+    if (browserViewUrl) setHasGoBack(true);
     setHasGoForward(false);
     pendingNavigateRef.current = true; // Tell the effect to navigate
     openBrowserView(fullUrl);
   };
+
+  // Web mode: when browserViewUrl changes (e.g. agent navigation), open wry window
+  useEffect(() => {
+    if (TAURI || !browserViewUrl || !isBrowserViewOpen) return;
+    webNavigate(browserViewUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [browserViewUrl, isBrowserViewOpen]);
 
   const handleUrlKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
@@ -234,13 +247,12 @@ export const BrowserView = React.memo(() => {
       // which may be stale if the user clicked links inside the webview)
       tauriInvoke('browser_panel_reload').catch(() => {});
       showLoading();
-    } else {
-      setIframeKey((k) => k + 1);
+    } else if (!TAURI) {
+      // In web mode re-navigate the wry window
+      if (browserViewUrl) webNavigate(browserViewUrl);
+      showLoading();
     }
   };
-
-  const handleIframeLoad = () => setLoadFailed(false);
-  const handleIframeError = () => setLoadFailed(true);
 
   // Loading indicator — shows briefly when navigating
   const [isPageLoading, setIsPageLoading] = useState(false);
@@ -256,7 +268,7 @@ export const BrowserView = React.memo(() => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [browserViewUrl]);
 
-  // ─── URL bar sync: poll webview for actual current URL + title ───
+  // ─── URL bar sync: poll webview for actual current URL ───
   const URL_POLL_MS = 2000;
   useEffect(() => {
     if (!TAURI || !isBrowserViewOpen || !panelOpenedRef.current) return undefined;
@@ -324,73 +336,55 @@ export const BrowserView = React.memo(() => {
   let contentArea: React.ReactNode;
   if (!browserViewUrl) {
     contentArea = (
-      <div className="h-full flex items-center justify-center text-foreground">
+      <div className="flex h-full items-center justify-center text-foreground">
         <div className="text-center">
-          <Globe className="h-10 w-10 mx-auto mb-3 opacity-70" />
+          <Globe className="mx-auto mb-3 h-10 w-10 opacity-70" />
           <p className="text-sm">Enter a URL above to start browsing</p>
-          <p className="text-xs mt-1 text-muted-foreground">
-            Real iframe — interact normally with the page
+          <p className="mt-1 text-xs text-muted-foreground">
+            {!!TAURI && 'Browser opens inside the app'}
+            {!TAURI && 'Browser opens in a separate window'}
           </p>
         </div>
       </div>
     );
   } else if (TAURI) {
     // Tauri: native webview overlay positioned over this placeholder
-    contentArea = <div ref={panelRef} className="w-full h-full bg-background" />;
+    contentArea = <div ref={panelRef} className="h-full w-full bg-background" />;
   } else {
+    // Web mode: wry browser window is open separately — show URL + status here
     contentArea = (
-      <>
-        <iframe
-          key={iframeKey}
-          ref={iframeRef}
-          src={browserViewUrl}
-          onLoad={handleIframeLoad}
-          onError={handleIframeError}
-          className="w-full h-full border-none bg-white"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals"
-          title="Browser View"
-        />
-        {!!loadFailed && (
-          <div className="absolute inset-0 flex items-center justify-center bg-background/95 text-foreground p-6">
-            <div className="text-center max-w-md">
-              <p className="text-sm mb-3">
-                This site refuses to be embedded (X-Frame-Options or CSP).
-              </p>
-              <a
-                href={browserViewUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
-              >
-                <ExternalLink className="h-4 w-4" />
-                Open in new tab
-              </a>
-            </div>
-          </div>
-        )}
-      </>
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-foreground">
+        <Globe className="h-10 w-10 opacity-60" />
+        <p className="text-sm font-medium">Browser window opened</p>
+        <p className="max-w-xs break-all text-center text-xs text-muted-foreground">
+          {browserViewUrl}
+        </p>
+        <p className="text-center text-xs text-muted-foreground">
+          The browser is running in a separate native window. Use the URL bar above to navigate.
+        </p>
+      </div>
     );
   }
 
   return (
-    <div className="flex flex-col flex-1 overflow-hidden">
+    <div className="flex flex-1 flex-col overflow-hidden">
       {/* Loading bar */}
       {!!isPageLoading && (
-        <div className="h-0.5 bg-primary/30 overflow-hidden">
+        <div className="h-0.5 overflow-hidden bg-primary/30">
           <div
-            className="h-full bg-primary animate-pulse"
+            className="h-full animate-pulse bg-primary"
             style={{ width: '60%', animation: 'loading-bar 1.5s ease-in-out infinite' }}
           />
         </div>
       )}
       {/* URL bar */}
-      <div className="flex items-center gap-1 px-3 py-2 border-b border-border bg-muted/30">
+      <div className="flex items-center gap-1 border-b border-border bg-muted/30 px-3 py-2">
         <button
           onClick={goBack}
-          className={`p-1.5 rounded-md transition-colors ${
+          className={`rounded-md p-1.5 transition-colors ${
             canGoBack
               ? 'text-foreground hover:bg-muted'
-              : 'text-muted-foreground/30 cursor-not-allowed'
+              : 'cursor-not-allowed text-muted-foreground/30'
           }`}
           title="Back"
           disabled={!canGoBack}
@@ -400,10 +394,10 @@ export const BrowserView = React.memo(() => {
         </button>
         <button
           onClick={goForward}
-          className={`p-1.5 rounded-md transition-colors ${
+          className={`rounded-md p-1.5 transition-colors ${
             canGoForward
               ? 'text-foreground hover:bg-muted'
-              : 'text-muted-foreground/30 cursor-not-allowed'
+              : 'cursor-not-allowed text-muted-foreground/30'
           }`}
           title="Forward"
           disabled={!canGoForward}
@@ -411,14 +405,14 @@ export const BrowserView = React.memo(() => {
         >
           <ChevronRight className="h-4 w-4" />
         </button>
-        <Globe className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0 ml-1" />
+        <Globe className="ml-1 h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
         <input
           type="text"
           value={urlInput}
           onChange={(e) => setUrlInput(e.target.value)}
           onKeyDown={handleUrlKeyDown}
           placeholder="Enter URL..."
-          className="flex-1 bg-background border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+          className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
         />
         <button
           onClick={() => navigateToUrl(urlInput)}
@@ -433,37 +427,41 @@ export const BrowserView = React.memo(() => {
             <button onClick={handleReload} className="btn-icon" title="Reload">
               <RefreshCw className="h-3.5 w-3.5" />
             </button>
-            <div className="border-l border-border h-4 mx-1" />
-            <button onClick={handleZoomOut} className="btn-icon" title="Zoom out">
-              <ZoomOut className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={handleZoomReset}
-              className="text-xs text-muted-foreground hover:text-foreground px-1 min-w-[3rem] text-center"
-              title="Reset zoom"
-            >
-              {Math.round(zoomLevel * 100)}%
-            </button>
-            <button onClick={handleZoomIn} className="btn-icon" title="Zoom in">
-              <ZoomIn className="h-3.5 w-3.5" />
-            </button>
-            <div className="border-l border-border h-4 mx-1" />
-            <button
-              onClick={() => {
-                setShowFind((p) => !p);
-                if (!showFind) setTimeout(() => findInputRef.current?.focus(), 100);
-              }}
-              className="btn-icon"
-              title="Find in page (Ctrl+F)"
-            >
-              <Search className="h-3.5 w-3.5" />
-            </button>
+            {!!TAURI && (
+              <>
+                <div className="mx-1 h-4 border-l border-border" />
+                <button onClick={handleZoomOut} className="btn-icon" title="Zoom out">
+                  <ZoomOut className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={handleZoomReset}
+                  className="min-w-[3rem] px-1 text-center text-xs text-muted-foreground hover:text-foreground"
+                  title="Reset zoom"
+                >
+                  {Math.round(zoomLevel * 100)}%
+                </button>
+                <button onClick={handleZoomIn} className="btn-icon" title="Zoom in">
+                  <ZoomIn className="h-3.5 w-3.5" />
+                </button>
+                <div className="mx-1 h-4 border-l border-border" />
+                <button
+                  onClick={() => {
+                    setShowFind((p) => !p);
+                    if (!showFind) setTimeout(() => findInputRef.current?.focus(), 100);
+                  }}
+                  className="btn-icon"
+                  title="Find in page (Ctrl+F)"
+                >
+                  <Search className="h-3.5 w-3.5" />
+                </button>
+              </>
+            )}
           </>
         )}
       </div>
-      {/* Find bar */}
-      {!!showFind && (
-        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-muted/50">
+      {/* Find bar (Tauri only) */}
+      {!!TAURI && !!showFind && (
+        <div className="flex items-center gap-2 border-b border-border bg-muted/50 px-3 py-1.5">
           <Search className="h-3.5 w-3.5 text-muted-foreground" />
           <input
             ref={findInputRef}
@@ -475,7 +473,7 @@ export const BrowserView = React.memo(() => {
               if (e.key === 'Escape') setShowFind(false);
             }}
             placeholder="Find in page..."
-            className="flex-1 bg-transparent text-sm outline-none text-foreground placeholder:text-muted-foreground"
+            className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
           />
           <button onClick={handleFind} className="btn-icon text-xs" title="Find next">
             <ArrowRight className="h-3 w-3" />

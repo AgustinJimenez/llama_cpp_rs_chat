@@ -1,4 +1,12 @@
-import { createContext, useContext, useCallback, useMemo, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
 
 import type { Agent } from '../types';
 
@@ -119,6 +127,11 @@ export const AgentProvider = ({ children }: { children: ReactNode }) => {
     const list = await listAgentsRequest();
     setAgents(list);
   }, []);
+
+  // Fetch agents on mount so the AgentPicker dropdown is populated immediately
+  useEffect(() => {
+    loadAgents().catch(() => {});
+  }, [loadAgents]);
 
   const loadConversationAgent = useCallback(async (conversationId: string) => {
     const agent = await getConversationAgentRequest(conversationId);

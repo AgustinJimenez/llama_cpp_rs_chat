@@ -1,6 +1,7 @@
 import { Download, Bot, Loader2, X, CheckCircle } from 'lucide-react';
 import React, { useCallback, useEffect, useState } from 'react';
 
+import { useAgentContext } from '../../contexts/AgentContext';
 import { useModelContext } from '../../contexts/ModelContext';
 import { useUIContext } from '../../hooks/useUIContext';
 import { getProviderLabel } from '../../utils/providerLabels';
@@ -24,6 +25,7 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
     activeProviderModel,
   } = useModelContext();
   const { openAgentSelector } = useUIContext();
+  const { stagedAgent } = useAgentContext();
   const remoteProviderLabel = getProviderLabel(activeProvider);
   const remoteHeading = `${remoteProviderLabel} (${activeProviderModel})`;
 
@@ -108,25 +110,25 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
     const progressBarWidth = isWarmup ? '100%' : `${progress}%`;
     const loadingIndicator =
       hasProgress || isWarmup ? (
-        <div className="w-48 h-1.5 bg-foreground/20 rounded-full overflow-hidden">
+        <div className="h-1.5 w-48 overflow-hidden rounded-full bg-foreground/20">
           <div
-            className={`h-full bg-foreground rounded-full ${progressBarClass}`}
+            className={`h-full rounded-full bg-foreground ${progressBarClass}`}
             style={{ width: progressBarWidth }}
           />
         </div>
       ) : (
-        <Loader2 className="h-6 w-6 text-foreground animate-spin" />
+        <Loader2 className="h-6 w-6 animate-spin text-foreground" />
       );
 
     return (
-      <div className="flex-1 flex flex-col items-center justify-center">
+      <div className="flex flex-1 flex-col items-center justify-center">
         {loadingIndicator}
-        <p className="text-foreground text-sm mt-3">{text}</p>
+        <p className="mt-3 text-sm text-foreground">{text}</p>
         {loadingAction === 'loading' && (
           <button
             type="button"
             onClick={forceUnload}
-            className="mt-4 flex items-center gap-1.5 px-3 py-1.5 text-sm text-foreground hover:bg-muted rounded-md transition-colors"
+            className="mt-4 flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-foreground transition-colors hover:bg-muted"
             aria-label="Cancel model loading"
           >
             <X className="h-3.5 w-3.5" />
@@ -140,25 +142,44 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
   if ((status.loaded && modelName) || activeProvider !== 'local') {
     const headingText = activeProvider !== 'local' ? remoteHeading : modelName;
     return (
-      <div className="flex-1 flex flex-col items-center justify-center">
-        <h2 className="text-xl font-semibold mb-6">{headingText}</h2>
+      <div className="flex flex-1 flex-col items-center justify-center">
+        <h2 className="mb-6 text-xl font-semibold">{headingText}</h2>
         {children}
       </div>
     );
   }
 
+  // Remote agent selected — model not needed, show agent name and input
+  if (stagedAgent && stagedAgent.provider_id !== 'local') {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center">
+        <h2 className="mb-6 text-xl font-semibold">{stagedAgent.name}</h2>
+        {children}
+      </div>
+    );
+  }
+
+  // Local agent selected but model not yet loaded — show name without input
+  if (stagedAgent) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center">
+        <h2 className="mb-6 text-xl font-semibold">{stagedAgent.name}</h2>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-3">
+    <div className="flex flex-1 flex-col items-center justify-center gap-3">
       <button
         type="button"
         onClick={openAgentSelector}
-        className="flat-card flex flex-col items-center gap-3 px-10 py-8 bg-muted/50 hover:bg-muted transition-colors cursor-pointer"
+        className="flat-card flex cursor-pointer flex-col items-center gap-3 bg-muted/50 px-10 py-8 transition-colors hover:bg-muted"
       >
         <Bot className="h-8 w-8 text-foreground" />
         <span className="text-sm font-medium text-foreground">Select an agent to start</span>
       </button>
       {!!cudaBanner && (
-        <div className="max-w-sm p-3 rounded-lg bg-primary/10 border border-primary/30 text-center space-y-2">
+        <div className="max-w-sm space-y-2 rounded-lg border border-primary/30 bg-primary/10 p-3 text-center">
           <p className="text-xs text-foreground">
             NVIDIA GPU detected but CUDA acceleration is not installed.
           </p>
@@ -166,7 +187,7 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
             <button
               type="button"
               onClick={handleInstallGpu}
-              className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded bg-primary hover:bg-primary/90 text-primary-foreground transition-colors"
+              className="inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
               <Download className="h-3.5 w-3.5" />
               Install GPU Acceleration
@@ -178,9 +199,9 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
                 <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
                 <span className="text-xs text-foreground">Downloading... {installProgress}%</span>
               </div>
-              <div className="w-full h-1.5 bg-foreground/20 rounded-full overflow-hidden">
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-foreground/20">
                 <div
-                  className="h-full bg-primary rounded-full transition-all duration-300 ease-out"
+                  className="h-full rounded-full bg-primary transition-all duration-300 ease-out"
                   style={{ width: `${installProgress}%` }}
                 />
               </div>

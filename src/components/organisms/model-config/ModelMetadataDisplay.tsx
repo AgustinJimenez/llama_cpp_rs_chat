@@ -20,13 +20,13 @@ const MetadataField = ({
 }) => (
   <p>
     <strong>{label}:</strong>{' '}
-    <span className={`text-muted-foreground${mono ? ' font-mono' : ''}`}>{value}</span>
+    <span className={`text-muted-foreground${mono ? 'font-mono' : ''}`}>{value}</span>
   </p>
 );
 
 const BasicInfoSection = ({ modelInfo }: { modelInfo: ModelMetadata }) => (
   <div className="space-y-1">
-    <h4 className="font-semibold text-sm mb-2">Basic Information</h4>
+    <h4 className="mb-2 text-sm font-semibold">Basic Information</h4>
     <MetadataField label="File Name" value={modelInfo.name} />
     {!!modelInfo.general_name && (
       <MetadataField label="Model Name" value={modelInfo.general_name} />
@@ -42,7 +42,7 @@ const BasicInfoSection = ({ modelInfo }: { modelInfo: ModelMetadata }) => (
     {!!modelInfo.has_vision && (
       <p className="flex items-center gap-1.5">
         <Eye className="h-3.5 w-3.5 text-violet-400" />
-        <strong>Vision:</strong> <span className="text-violet-400 font-medium">Supported</span>
+        <strong>Vision:</strong> <span className="font-medium text-violet-400">Supported</span>
         <span className="text-muted-foreground">
           ({modelInfo.mmproj_files?.length} mmproj file
           {(modelInfo.mmproj_files?.length ?? 0) > 1 && 's'} found)
@@ -61,8 +61,8 @@ const ModelDetailsSection = ({ modelInfo }: { modelInfo: ModelMetadata }) => {
     modelInfo.license;
   if (!hasDetails) return null;
   return (
-    <div className="space-y-1 pt-2 border-t">
-      <h4 className="font-semibold text-sm mb-2">Model Details</h4>
+    <div className="space-y-1 border-t pt-2">
+      <h4 className="mb-2 text-sm font-semibold">Model Details</h4>
       {!!modelInfo.description && (
         <MetadataField label="Description" value={modelInfo.description} />
       )}
@@ -79,7 +79,7 @@ const ModelDetailsSection = ({ modelInfo }: { modelInfo: ModelMetadata }) => {
             href={modelInfo.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-primary hover:underline break-all"
+            className="break-all text-primary hover:underline"
           >
             {modelInfo.url}
           </a>
@@ -92,7 +92,7 @@ const ModelDetailsSection = ({ modelInfo }: { modelInfo: ModelMetadata }) => {
             href={modelInfo.repo_url}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-primary hover:underline break-all"
+            className="break-all text-primary hover:underline"
           >
             {modelInfo.repo_url}
           </a>
@@ -110,8 +110,8 @@ const ArchitectureSpecsSection = ({ modelInfo }: { modelInfo: ModelMetadata }) =
     modelInfo.feed_forward_length;
   if (!hasSpecs) return null;
   return (
-    <div className="space-y-1 pt-2 border-t">
-      <h4 className="font-semibold text-sm mb-2">Architecture Specifications</h4>
+    <div className="space-y-1 border-t pt-2">
+      <h4 className="mb-2 text-sm font-semibold">Architecture Specifications</h4>
       <MetadataField label="Context Length" value={modelInfo.context_length} />
       {!!modelInfo.block_count && (
         <MetadataField label="Block Count (Layers)" value={modelInfo.block_count} />
@@ -144,20 +144,20 @@ const ArchitectureSpecsSection = ({ modelInfo }: { modelInfo: ModelMetadata }) =
 const VisionSection = ({ modelInfo }: { modelInfo: ModelMetadata }) => {
   if (!modelInfo.has_vision || !modelInfo.mmproj_files) return null;
   return (
-    <div className="space-y-1 pt-2 border-t">
-      <h4 className="font-semibold text-sm mb-2 flex items-center gap-1.5">
+    <div className="space-y-1 border-t pt-2">
+      <h4 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
         <Eye className="h-3.5 w-3.5 text-violet-400" /> Vision Support
       </h4>
-      <p className="text-muted-foreground mb-2">
+      <p className="mb-2 text-muted-foreground">
         Multimodal projection (mmproj) companion file detected.
       </p>
       {modelInfo.mmproj_files.map((f) => (
         <div
           key={f.name}
-          className="flex items-center gap-2 px-2 py-1.5 bg-violet-500/10 rounded border border-violet-500/20"
+          className="flex items-center gap-2 rounded border border-violet-500/20 bg-violet-500/10 px-2 py-1.5"
         >
-          <span className="font-mono text-xs truncate flex-1">{f.name}</span>
-          <span className="text-muted-foreground text-xs whitespace-nowrap">{f.file_size}</span>
+          <span className="flex-1 truncate font-mono text-xs">{f.name}</span>
+          <span className="whitespace-nowrap text-xs text-muted-foreground">{f.file_size}</span>
         </div>
       ))}
     </div>
@@ -172,8 +172,8 @@ const TokenizerSection = ({ modelInfo }: { modelInfo: ModelMetadata }) => {
     modelInfo.chat_template;
   if (!hasTokenizer) return null;
   return (
-    <div className="space-y-1 pt-2 border-t">
-      <h4 className="font-semibold text-sm mb-2">Tokenizer Information</h4>
+    <div className="space-y-1 border-t pt-2">
+      <h4 className="mb-2 text-sm font-semibold">Tokenizer Information</h4>
       {!!modelInfo.tokenizer_model && (
         <MetadataField label="Tokenizer Type" value={modelInfo.tokenizer_model} />
       )}
@@ -191,7 +191,7 @@ const TokenizerSection = ({ modelInfo }: { modelInfo: ModelMetadata }) => {
           <p>
             <strong>Chat Template:</strong>
           </p>
-          <pre className="mt-1 p-2 bg-muted rounded text-xs overflow-x-auto whitespace-pre-wrap break-words max-h-32 overflow-y-auto">
+          <pre className="mt-1 max-h-32 overflow-x-auto overflow-y-auto whitespace-pre-wrap break-words rounded bg-muted p-2 text-xs">
             {modelInfo.chat_template}
           </pre>
         </div>
@@ -209,15 +209,15 @@ function formatGgufValue(value: unknown): string {
 const GgufMetadataSection = ({ modelInfo }: { modelInfo: ModelMetadata }) => {
   if (!modelInfo.gguf_metadata || Object.keys(modelInfo.gguf_metadata).length === 0) return null;
   return (
-    <div className="space-y-1 pt-2 border-t">
-      <h4 className="font-semibold text-sm mb-2">All GGUF Metadata</h4>
+    <div className="space-y-1 border-t pt-2">
+      <h4 className="mb-2 text-sm font-semibold">All GGUF Metadata</h4>
       <div className="space-y-1">
         {Object.entries(modelInfo.gguf_metadata)
           .sort(([a], [b]) => a.localeCompare(b))
           .map(([key, value]) => (
             <p key={key} className="text-xs">
               <strong className="font-mono text-muted-foreground">{key}:</strong>{' '}
-              <span className="text-muted-foreground font-mono">{formatGgufValue(value)}</span>
+              <span className="font-mono text-muted-foreground">{formatGgufValue(value)}</span>
             </p>
           ))}
       </div>
@@ -233,18 +233,18 @@ export const ModelMetadataDisplay: React.FC<ModelMetadataDisplayProps> = ({ mode
     freeLayout
     className="mt-3"
   >
-    <div className="space-y-3 text-xs max-h-96 overflow-y-auto">
+    <div className="max-h-96 space-y-3 overflow-y-auto text-xs">
       <BasicInfoSection modelInfo={modelInfo} />
       <ModelDetailsSection modelInfo={modelInfo} />
       <ArchitectureSpecsSection modelInfo={modelInfo} />
       <VisionSection modelInfo={modelInfo} />
       <TokenizerSection modelInfo={modelInfo} />
       <GgufMetadataSection modelInfo={modelInfo} />
-      <div className="pt-2 border-t">
+      <div className="border-t pt-2">
         <p className="text-xs">
           <strong>File Path:</strong>
         </p>
-        <p className="text-xs text-muted-foreground font-mono break-all mt-1">
+        <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
           {modelInfo.file_path}
         </p>
       </div>

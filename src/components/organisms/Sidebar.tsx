@@ -255,16 +255,17 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
         />
       )}
 
-      <div
-        className={`fixed top-0 left-0 h-screen bg-card border-r border-border z-50 flex flex-col transition-transform duration-200 md:translate-x-0 md:z-40 ${
+      <nav
+        aria-label="Conversations"
+        className={`fixed left-0 top-0 z-50 flex h-screen flex-col border-r border-border bg-card transition-transform duration-200 md:z-40 md:translate-x-0 ${
           isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
         style={{ width: `${sidebarWidth}px` }}
         data-testid="sidebar"
       >
-        <div className="px-3 pt-3 pb-2 space-y-0.5">
+        <div className="space-y-0.5 px-3 pb-2 pt-3">
           <button
-            className="flex items-center gap-2 w-full px-3 py-2 text-sm text-foreground/70 hover:text-foreground hover:bg-muted rounded-lg transition-colors"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
             onClick={handleNewChat}
             data-testid="new-chat-btn"
           >
@@ -272,24 +273,24 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
             New conversation
           </button>
           <button
-            className="flex items-center gap-2 w-full px-3 py-2 text-sm text-foreground/70 hover:text-foreground hover:bg-muted rounded-lg transition-colors"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
             onClick={() => setIsExplorerOpen(true)}
           >
             <Search size={16} />
             Explore models
             {downloadActiveCount > 0 && (
               <span className="ml-auto flex items-center gap-1 text-[10px] text-blue-400">
-                <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse" />
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
                 {downloadActiveCount}
               </span>
             )}
           </button>
         </div>
 
-        <div className="flex items-center justify-between px-4 pt-2 pb-1">
-          <span className="text-xs font-medium text-foreground/50">Conversations</span>
+        <div className="flex items-center justify-between px-4 pb-1 pt-2">
+          <span className="text-xs font-medium text-muted-foreground">Conversations</span>
           <button
-            className="p-1 rounded text-foreground/50 hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+            className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
             onClick={fetchConversations}
             disabled={loading}
             data-testid="refresh-conversations"
@@ -310,12 +311,12 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
               placeholder="Search conversations..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-7 pr-2 py-1.5 text-xs bg-muted border border-border rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              className="w-full rounded-md border border-border bg-muted py-1.5 pl-7 pr-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-2 pb-2 min-h-0" data-testid="conversations-list">
+        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2" data-testid="conversations-list">
           {(() => {
             if (filteredConversations.length === 0) {
               // Only show empty state when not loading — avoids replacing the list with a label
@@ -324,27 +325,29 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
                 ? `No results for "${searchTerm}"`
                 : 'No conversations yet';
               return (
-                <div className="text-center text-foreground/50 text-xs py-6">{emptyLabel}</div>
+                <div className="py-6 text-center text-xs text-muted-foreground">{emptyLabel}</div>
               );
             }
             return groupedEntries.map(({ group, items }) => (
               <div key={group}>
-                <p className="px-3 pt-3 pb-1 text-xs font-medium text-foreground/50">{group}</p>
-                {items.map(({ conversation, flatIndex }) => (
-                  <ConversationItem
-                    key={conversation.name}
-                    conversation={conversation}
-                    isActive={currentConversationId === conversation.name}
-                    isGenerating={activeGeneratingId === conversation.name}
-                    flatIndex={flatIndex}
-                    selectMode={selectMode}
-                    isSelected={selectedConversations.has(conversation.name)}
-                    onLoad={handleLoadConversation}
-                    onDelete={handleDeleteClick}
-                    onToggleSelect={toggleSelect}
-                    onEnterSelectMode={() => setSelectMode(true)}
-                  />
-                ))}
+                <p className="px-3 pb-1 pt-3 text-xs font-medium text-muted-foreground">{group}</p>
+                <ul className="m-0 list-none p-0">
+                  {items.map(({ conversation, flatIndex }) => (
+                    <ConversationItem
+                      key={conversation.name}
+                      conversation={conversation}
+                      isActive={currentConversationId === conversation.name}
+                      isGenerating={activeGeneratingId === conversation.name}
+                      flatIndex={flatIndex}
+                      selectMode={selectMode}
+                      isSelected={selectedConversations.has(conversation.name)}
+                      onLoad={handleLoadConversation}
+                      onDelete={handleDeleteClick}
+                      onToggleSelect={toggleSelect}
+                      onEnterSelectMode={() => setSelectMode(true)}
+                    />
+                  ))}
+                </ul>
               </div>
             ));
           })()}
@@ -361,9 +364,9 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
           />
         )}
 
-        <div className="px-3 pb-3 pt-2 border-t border-border">
+        <div className="border-t border-border px-3 pb-3 pt-2">
           <button
-            className="flex items-center gap-2 w-full px-3 py-2 text-sm text-foreground/70 hover:text-foreground hover:bg-muted rounded-lg transition-colors"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
             onClick={onOpenAppSettings}
             aria-label="App Settings"
           >
@@ -375,7 +378,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
         {/* Resize handle */}
         {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions */}
         <div
-          className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-primary/30 active:bg-primary/50 hidden md:block"
+          className="absolute right-0 top-0 hidden h-full w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 md:block"
           onMouseDown={(e) => {
             e.preventDefault();
             dragRef.current = { startX: e.clientX, startWidth: sidebarWidth };
@@ -383,7 +386,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
             document.body.style.userSelect = 'none';
           }}
         />
-      </div>
+      </nav>
 
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <DialogContent>

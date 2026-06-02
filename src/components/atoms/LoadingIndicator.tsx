@@ -21,24 +21,24 @@ export const LoadingIndicator: React.FC = () => {
   return (
     <div className="py-4" data-testid="loading-indicator">
       <div className="inline-flex flex-col">
-        <div className="flex gap-2 items-center">
+        <div className="flex items-center gap-2">
           <div
-            className="w-3 h-3 bg-primary rounded-full flat-pulse"
+            className="flat-pulse h-3 w-3 rounded-full bg-primary"
             style={{ animationDelay: '0ms' }}
             data-testid="loading-dot-1"
           />
           <div
-            className="w-3 h-3 bg-primary rounded-full flat-pulse"
+            className="flat-pulse h-3 w-3 rounded-full bg-primary"
             style={{ animationDelay: '200ms' }}
             data-testid="loading-dot-2"
           />
           <div
-            className="w-3 h-3 bg-primary rounded-full flat-pulse"
+            className="flat-pulse h-3 w-3 rounded-full bg-primary"
             style={{ animationDelay: '400ms' }}
             data-testid="loading-dot-3"
           />
         </div>
-        <div className="text-[10px] text-white/50 mt-2 text-right">{timeLabel}</div>
+        <div className="mt-2 text-right text-[10px] text-white/50">{timeLabel}</div>
       </div>
     </div>
   );

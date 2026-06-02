@@ -80,31 +80,31 @@ export const CompactionSummary: React.FC<{ message: Message; cleanContent: strin
 
   return (
     <div
-      className="w-full flex justify-center my-2"
+      className="my-2 flex w-full justify-center"
       data-testid="compaction-summary"
       data-message-id={message.id}
     >
-      <div className="max-w-[90%] w-full">
-        <div className="group w-full flex items-center gap-2 px-3 py-1.5 text-xs text-white/70 border-t border-b border-white/10 hover:border-white/20">
+      <div className="w-full max-w-[90%]">
+        <div className="group flex w-full items-center gap-2 border-b border-t border-white/10 px-3 py-1.5 text-xs text-white/70 hover:border-white/20">
           <Archive className="h-3 w-3 shrink-0" />
           <button
             onClick={() => setExpanded(!expanded)}
-            className="flex-1 text-left hover:text-white transition-colors truncate"
+            className="flex-1 truncate text-left transition-colors hover:text-white"
           >
             Earlier messages summarized
           </button>
           {!!modelReady && (
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
               <button
                 onClick={handleStartEdit}
-                className="p-1 rounded hover:text-white/70 transition-colors"
+                className="rounded p-1 transition-colors hover:text-white/70"
                 title="Edit summary"
               >
                 <Pencil className="h-3 w-3" />
               </button>
               <button
                 onClick={handleDelete}
-                className="p-1 rounded hover:text-red-400 transition-colors"
+                className="rounded p-1 transition-colors hover:text-red-400"
                 title="Delete summary (reverts compaction)"
               >
                 <Trash2 className="h-3 w-3" />
@@ -113,34 +113,34 @@ export const CompactionSummary: React.FC<{ message: Message; cleanContent: strin
           )}
           <button
             onClick={() => setExpanded(!expanded)}
-            className="hover:text-white transition-colors"
+            className="transition-colors hover:text-white"
           >
             {expandChevron}
           </button>
         </div>
         {!!expanded && (
-          <div className="bg-white/5 border-b border-white/10">
+          <div className="border-b border-white/10 bg-white/5">
             {!!isEditing && (
-              <div className="p-2 space-y-2">
+              <div className="space-y-2 p-2">
                 <textarea
                   ref={textareaRef}
                   value={editText}
                   onChange={(e) => setEditText(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  className="w-full px-2 py-1.5 text-xs bg-black/20 border border-white/20 rounded text-white/70 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="w-full resize-none rounded border border-white/20 bg-black/20 px-2 py-1.5 text-xs text-white/70 focus:outline-none focus:ring-1 focus:ring-primary"
                   rows={Math.min(editText.split('\n').length + 1, MAX_EDIT_ROWS)}
                 />
                 <div className="flex justify-end gap-2">
                   <button
                     onClick={() => setIsEditing(false)}
-                    className="px-2 py-1 text-xs rounded text-white/50 hover:text-white/70 hover:bg-white/10 transition-colors"
+                    className="rounded px-2 py-1 text-xs text-white/50 transition-colors hover:bg-white/10 hover:text-white/70"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={handleSave}
                     disabled={isSaving || !editText.trim() || !modelReady}
-                    className="px-2 py-1 text-xs rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                    className="rounded bg-primary px-2 py-1 text-xs text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
                   >
                     {saveLabel}
                   </button>
@@ -148,7 +148,7 @@ export const CompactionSummary: React.FC<{ message: Message; cleanContent: strin
               </div>
             )}
             {!!summaryBody && !isEditing && (
-              <div className="px-3 py-2 text-xs text-white/80 whitespace-pre-wrap">
+              <div className="whitespace-pre-wrap px-3 py-2 text-xs text-white/80">
                 {summaryBody}
               </div>
             )}

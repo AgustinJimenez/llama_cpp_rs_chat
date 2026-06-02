@@ -110,11 +110,11 @@ export const VramBar: React.FC<{ vram: MemoryBreakdown['vram'] }> = ({ vram }) =
   if (vram.total <= 0) {
     return (
       <div className="space-y-2">
-        <div className="flex justify-between items-baseline">
+        <div className="flex items-baseline justify-between">
           <span className="text-sm font-medium text-foreground/80">GPU Memory (VRAM)</span>
-          <span className="text-sm font-mono text-muted-foreground">No GPU detected</span>
+          <span className="font-mono text-sm text-muted-foreground">No GPU detected</span>
         </div>
-        <div className="h-8 bg-muted/40 rounded-md flex items-center justify-center">
+        <div className="flex h-8 items-center justify-center rounded-md bg-muted/40">
           <span className="text-xs text-muted-foreground">Model will run on CPU only</span>
         </div>
       </div>
@@ -131,13 +131,13 @@ export const VramBar: React.FC<{ vram: MemoryBreakdown['vram'] }> = ({ vram }) =
 
   return (
     <div className="space-y-2">
-      <div className="flex justify-between items-baseline">
+      <div className="flex items-baseline justify-between">
         <span className="text-sm font-medium text-foreground/80">GPU Memory (VRAM)</span>
-        <span className={`text-sm font-mono ${statusColor}`}>
+        <span className={`font-mono text-sm ${statusColor}`}>
           {used.toFixed(2)} / {vram.total.toFixed(2)} GB ({utilization.toFixed(1)}%)
         </span>
       </div>
-      <div className="h-8 bg-muted rounded-md overflow-hidden flex relative">
+      <div className="relative flex h-8 overflow-hidden rounded-md bg-muted">
         <BarSegment
           color="bg-green-600"
           widthPct={Math.min(modelPct, 100)}
@@ -168,8 +168,8 @@ export const VramBar: React.FC<{ vram: MemoryBreakdown['vram'] }> = ({ vram }) =
           />
         )}
         {!!vram.overcommitted && (
-          <div className="absolute inset-0 bg-red-600/20 border-2 border-red-600 flex items-center justify-center">
-            <span className="text-xs text-foreground font-bold">OVERCOMMITTED</span>
+          <div className="absolute inset-0 flex items-center justify-center border-2 border-red-600 bg-red-600/20">
+            <span className="text-xs font-bold text-foreground">OVERCOMMITTED</span>
           </div>
         )}
       </div>
@@ -191,13 +191,13 @@ const RamBar: React.FC<{ ram: MemoryBreakdown['ram'] }> = ({ ram }) => {
 
   return (
     <div className="space-y-2">
-      <div className="flex justify-between items-baseline">
+      <div className="flex items-baseline justify-between">
         <span className="text-sm font-medium text-foreground/80">System Memory (RAM)</span>
-        <span className={`text-sm font-mono ${statusColor}`}>
+        <span className={`font-mono text-sm ${statusColor}`}>
           {used.toFixed(2)} / {ram.total.toFixed(2)} GB ({utilization.toFixed(1)}%)
         </span>
       </div>
-      <div className="h-8 bg-muted rounded-md overflow-hidden flex relative">
+      <div className="relative flex h-8 overflow-hidden rounded-md bg-muted">
         <BarSegment
           color="bg-cyan-600"
           widthPct={Math.min(modelPct, 100)}
@@ -223,8 +223,8 @@ const RamBar: React.FC<{ ram: MemoryBreakdown['ram'] }> = ({ ram }) => {
           />
         )}
         {!!ram.overcommitted && (
-          <div className="absolute inset-0 bg-red-600/20 border-2 border-red-600 flex items-center justify-center">
-            <span className="text-xs text-foreground font-bold">OVERCOMMITTED</span>
+          <div className="absolute inset-0 flex items-center justify-center border-2 border-red-600 bg-red-600/20">
+            <span className="text-xs font-bold text-foreground">OVERCOMMITTED</span>
           </div>
         )}
       </div>
@@ -244,15 +244,15 @@ export const MemoryLegend: React.FC<{
   return (
     <div className="grid grid-cols-3 gap-x-4 gap-y-1 text-xs text-muted-foreground">
       <div className="flex items-center gap-2">
-        <div className="w-3 h-3 bg-green-600 rounded-sm" />
+        <div className="h-3 w-3 rounded-sm bg-green-600" />
         <span>Model (GPU): {vram.modelGpu.toFixed(2)} GB</span>
       </div>
       <div className="flex items-center gap-2">
-        <div className="w-3 h-3 bg-orange-500 rounded-sm" />
+        <div className="h-3 w-3 rounded-sm bg-orange-500" />
         <span>KV Cache: {totalKv.toFixed(2)} GB</span>
       </div>
       <div className="flex items-center gap-2">
-        <div className="w-3 h-3 bg-cyan-600 rounded-sm" />
+        <div className="h-3 w-3 rounded-sm bg-cyan-600" />
         <span>Model (CPU): {ram.modelCpu.toFixed(2)} GB</span>
       </div>
     </div>
@@ -285,8 +285,8 @@ const SliderRow: React.FC<SliderRowProps> = ({
   const pct = max > min ? ((value - min) / (max - min)) * 100 : 0;
   return (
     <div className="flex items-center gap-3 text-xs text-muted-foreground">
-      <div className="flex items-center gap-2 shrink-0">
-        <div className={`w-3 h-3 ${color} rounded-sm`} />
+      <div className="flex shrink-0 items-center gap-2">
+        <div className={`h-3 w-3 ${color} rounded-sm`} />
         <span>{label}</span>
       </div>
       <input
@@ -295,7 +295,7 @@ const SliderRow: React.FC<SliderRowProps> = ({
         max={max}
         value={value}
         onChange={(e) => onChange(parseInt(e.target.value))}
-        className="flex-1 cursor-pointer h-2 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer"
+        className="h-2 flex-1 cursor-pointer appearance-none rounded-full [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full"
         style={{
           background: `linear-gradient(to right, ${hexColor} ${pct}%, ${document.documentElement.classList.contains('dark') ? '#3f3f46' : '#d1d5db'} ${pct}%)`,
           // @ts-expect-error CSS custom property for thumb color
@@ -317,7 +317,7 @@ const SliderRow: React.FC<SliderRowProps> = ({
           }
         }}
       />
-      <span className="font-mono shrink-0 w-14 text-right">{display}</span>
+      <span className="w-14 shrink-0 text-right font-mono">{display}</span>
     </div>
   );
 };
@@ -388,11 +388,11 @@ const MemorySliders: React.FC<MemorySlidersProps> = ({
         const pct = Math.min(100, (total / Math.max(contextSize, 1)) * 100);
         const available = Math.max(0, contextSize - total);
         return (
-          <div className="pl-1 -mt-0.5 mb-1">
+          <div className="-mt-0.5 mb-1 pl-1">
             <div className="flex items-center gap-1.5">
-              <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden flex">
+              <div className="flex h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
                 <div
-                  className="h-full bg-indigo-500 rounded-l-full"
+                  className="h-full rounded-l-full bg-indigo-500"
                   style={{
                     width: `${Math.min(100, ((systemPromptTokens || 0) / Math.max(contextSize, 1)) * 100)}%`,
                   }}
@@ -406,17 +406,17 @@ const MemorySliders: React.FC<MemorySlidersProps> = ({
                   title={`Tool definitions: ${(toolDefinitionsTokens || 0).toLocaleString()} tokens`}
                 />
               </div>
-              <span className="text-[9px] text-muted-foreground tabular-nums shrink-0">
+              <span className="shrink-0 text-[9px] tabular-nums text-muted-foreground">
                 {pct.toFixed(0)}% overhead
               </span>
             </div>
-            <div className="flex gap-3 mt-0.5 text-[9px] text-muted-foreground">
+            <div className="mt-0.5 flex gap-3 text-[9px] text-muted-foreground">
               <span>
-                <span className="inline-block w-1.5 h-1.5 bg-indigo-500 rounded-full mr-0.5" />
+                <span className="mr-0.5 inline-block h-1.5 w-1.5 rounded-full bg-indigo-500" />
                 System: {(systemPromptTokens || 0).toLocaleString()}
               </span>
               <span>
-                <span className="inline-block w-1.5 h-1.5 bg-purple-500 rounded-full mr-0.5" />
+                <span className="mr-0.5 inline-block h-1.5 w-1.5 rounded-full bg-purple-500" />
                 Tools: {(toolDefinitionsTokens || 0).toLocaleString()}
               </span>
               <span className="text-muted-foreground">Available: {available.toLocaleString()}</span>
@@ -449,10 +449,10 @@ const MemoryWarnings: React.FC<{ memory: MemoryBreakdown }> = ({ memory }) => {
   return (
     <>
       {!!(memory.vram.overcommitted || memory.ram.overcommitted) && (
-        <div className="bg-red-900/20 border border-red-600 rounded-md p-3 flex items-start gap-2">
-          <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+        <div className="flex items-start gap-2 rounded-md border border-red-600 bg-red-900/20 p-3">
+          <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-600" />
           <div className="text-sm text-red-600 dark:text-red-400">
-            <p className="font-semibold mb-1">Memory Overcommitted!</p>
+            <p className="mb-1 font-semibold">Memory Overcommitted!</p>
             {!!memory.vram.overcommitted && (
               <p className="text-xs">
                 VRAM usage exceeds available GPU memory. Reduce GPU layers or context size.
@@ -469,8 +469,8 @@ const MemoryWarnings: React.FC<{ memory: MemoryBreakdown }> = ({ memory }) => {
       {!memory.vram.overcommitted &&
         !memory.ram.overcommitted &&
         vramUtilization > UTILIZATION_HIGH_PCT && (
-          <div className="bg-yellow-900/20 border border-yellow-600 rounded-md p-3 flex items-start gap-2">
-            <Info className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+          <div className="flex items-start gap-2 rounded-md border border-yellow-600 bg-yellow-900/20 p-3">
+            <Info className="mt-0.5 h-5 w-5 flex-shrink-0 text-yellow-600" />
             <p className="text-xs text-yellow-600 dark:text-yellow-400">
               VRAM usage is high ({vramUtilization.toFixed(1)}%). Consider reducing context size if
               you experience crashes.
@@ -499,7 +499,7 @@ export const MemoryVisualization: React.FC<MemoryVisualizationProps> = ({
 }) => (
   <Card className="border-border bg-card">
     <CardHeader className="pb-3">
-      <CardTitle className="text-base font-medium flex items-center gap-2">
+      <CardTitle className="flex items-center gap-2 text-base font-medium">
         <Info className="h-4 w-4" />
         Memory Usage Estimate
       </CardTitle>

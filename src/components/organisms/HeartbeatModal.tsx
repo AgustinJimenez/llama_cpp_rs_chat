@@ -129,7 +129,7 @@ export const HeartbeatModal = ({ isOpen, onClose, conversationId }: Props) => {
   return (
     <>
       <div
-        className="fixed inset-0 bg-black/50 z-40"
+        className="fixed inset-0 z-40 bg-black/50"
         role="button"
         tabIndex={0}
         onClick={onClose}
@@ -137,43 +137,43 @@ export const HeartbeatModal = ({ isOpen, onClose, conversationId }: Props) => {
           if (e.key === 'Enter' || e.key === ' ') onClose();
         }}
       />
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
+      <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-4">
         {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
         <div
-          className="bg-card border border-border rounded-xl shadow-2xl w-full max-w-lg pointer-events-auto"
+          className="pointer-events-auto w-full max-w-lg rounded-xl border border-border bg-card shadow-2xl"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <div className="flex items-center justify-between border-b border-border px-5 py-4">
             <div className="flex items-center gap-2">
               <Zap className="h-4 w-4 text-yellow-500" />
               <h2 className="text-base font-semibold">Agent Heartbeat</h2>
               {!!cfg?.enabled && (
-                <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full">
+                <span className="rounded-full bg-green-500/20 px-2 py-0.5 text-xs text-green-400">
                   Active
                 </span>
               )}
             </div>
-            <button onClick={onClose} className="p-1.5 hover:bg-muted rounded-lg transition-colors">
+            <button onClick={onClose} className="rounded-lg p-1.5 transition-colors hover:bg-muted">
               <X className="h-4 w-4" />
             </button>
           </div>
 
           {!conversationId && (
-            <div className="p-8 text-center text-muted-foreground text-sm">
+            <div className="p-8 text-center text-sm text-muted-foreground">
               Select a conversation to configure its heartbeat.
             </div>
           )}
           {!!conversationId && cfg === null && (
-            <div className="p-8 text-center text-muted-foreground text-sm">Loading…</div>
+            <div className="p-8 text-center text-sm text-muted-foreground">Loading…</div>
           )}
           {!!conversationId && cfg !== null && (
-            <div className="p-5 space-y-5">
+            <div className="space-y-5 p-5">
               {/* Enable toggle */}
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-sm font-medium">Enable heartbeat</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">
+                  <div className="mt-0.5 text-xs text-muted-foreground">
                     Fires a message into this conversation on a timer
                   </div>
                 </div>
@@ -194,7 +194,7 @@ export const HeartbeatModal = ({ isOpen, onClose, conversationId }: Props) => {
 
               {/* Interval */}
               <div>
-                <label htmlFor="heartbeat-interval" className="block text-sm font-medium mb-1.5">
+                <label htmlFor="heartbeat-interval" className="mb-1.5 block text-sm font-medium">
                   Interval (minutes)
                 </label>
                 <div className="flex items-center gap-2">
@@ -207,7 +207,7 @@ export const HeartbeatModal = ({ isOpen, onClose, conversationId }: Props) => {
                     onChange={(e) =>
                       setInterval(Math.max(1, parseInt(e.target.value) || DEFAULT_INTERVAL_MINUTES))
                     }
-                    className="w-24 px-3 py-1.5 text-sm bg-muted border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary"
+                    className="w-24 rounded-lg border border-border bg-muted px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
                   />
                   <span className="text-xs text-muted-foreground">
                     Fires every {interval} min when model is loaded and idle
@@ -217,7 +217,7 @@ export const HeartbeatModal = ({ isOpen, onClose, conversationId }: Props) => {
 
               {/* Prompt */}
               <div>
-                <label htmlFor="heartbeat-prompt" className="block text-sm font-medium mb-1.5">
+                <label htmlFor="heartbeat-prompt" className="mb-1.5 block text-sm font-medium">
                   Heartbeat prompt
                 </label>
                 <textarea
@@ -225,10 +225,10 @@ export const HeartbeatModal = ({ isOpen, onClose, conversationId }: Props) => {
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
                   rows={4}
-                  className="w-full px-3 py-2 text-sm bg-muted border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary resize-none font-mono"
+                  className="w-full resize-none rounded-lg border border-border bg-muted px-3 py-2 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-primary"
                 />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Model responds <code className="bg-muted px-1 rounded">IDLE</code> to stay silent,
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Model responds <code className="rounded bg-muted px-1">IDLE</code> to stay silent,
                   or any other text to trigger a notification.
                 </p>
               </div>
@@ -237,20 +237,20 @@ export const HeartbeatModal = ({ isOpen, onClose, conversationId }: Props) => {
               <button
                 onClick={saveSettings}
                 disabled={saving}
-                className="w-full py-2 text-sm font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
+                className="w-full rounded-lg bg-primary py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
               >
                 {!!saving && 'Saving…'}
                 {!saving && 'Save settings'}
               </button>
 
               {/* Status */}
-              <div className="border-t border-border pt-4 space-y-3">
+              <div className="space-y-3 border-t border-border pt-4">
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>Last fired: {formatTime(cfg.last_fired_at)}</span>
                   {!!cfg.last_result && (
                     <button
                       onClick={resetLastResult}
-                      className="flex items-center gap-1 hover:text-foreground transition-colors"
+                      className="flex items-center gap-1 transition-colors hover:text-foreground"
                       title="Clear last result"
                     >
                       <RotateCcw className="h-3 w-3" />
@@ -260,8 +260,8 @@ export const HeartbeatModal = ({ isOpen, onClose, conversationId }: Props) => {
                 </div>
 
                 {!!cfg.last_result && (
-                  <div className="bg-muted/50 border border-border rounded-lg p-3 text-xs">
-                    <div className="text-muted-foreground mb-1 font-medium">Last report:</div>
+                  <div className="rounded-lg border border-border bg-muted/50 p-3 text-xs">
+                    <div className="mb-1 font-medium text-muted-foreground">Last report:</div>
                     <div className="whitespace-pre-wrap">{cfg.last_result}</div>
                   </div>
                 )}
@@ -270,7 +270,7 @@ export const HeartbeatModal = ({ isOpen, onClose, conversationId }: Props) => {
                   onClick={fireNow}
                   disabled={firing || !modelLoaded}
                   title={fireNowTitle}
-                  className="w-full flex items-center justify-center gap-2 py-2 text-sm border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-border py-2 text-sm transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Play className="h-3.5 w-3.5" />
                   {!!firing && 'Firing…'}

@@ -5,16 +5,16 @@
 
 @layer components {
   .btn-icon {
-    @apply p-1.5 rounded-md text-muted-foreground transition-colors;
+    @apply rounded-md p-1.5 text-muted-foreground transition-colors;
   }
   .btn-icon:hover {
-    @apply text-foreground bg-muted;
+    @apply bg-muted text-foreground;
   }
   .btn-icon.active {
     @apply bg-muted text-foreground;
   }
   .input-base {
-    @apply w-full px-3 py-2 border rounded-md bg-background text-sm;
+    @apply w-full rounded-md border bg-background px-3 py-2 text-sm;
   }
   .input-base:focus {
     @apply outline-none ring-2 ring-ring;
@@ -62,12 +62,12 @@
     --card-foreground: 220 13% 85%;
     --popover: 220 13% 13%;
     --popover-foreground: 220 13% 85%;
-    --primary: 220 13% 50%;
+    --primary: 220 13% 46%;
     --primary-foreground: 0 0% 100%;
     --secondary: 220 13% 14%;
     --secondary-foreground: 220 13% 85%;
     --muted: 220 13% 14%;
-    --muted-foreground: 220 10% 50%;
+    --muted-foreground: 220 10% 58%;
     --accent: 220 13% 14%;
     --accent-foreground: 220 13% 85%;
     --destructive: 0 72% 51%;
@@ -95,12 +95,12 @@
 /* Flat Design Utilities */
 @layer components {
   .flat-card {
-    @apply bg-card border-0;
+    @apply border-0 bg-card;
     box-shadow: none;
   }
 
   .flat-button {
-    @apply font-medium px-6 py-3 rounded-lg border-0;
+    @apply rounded-lg border-0 px-6 py-3 font-medium;
     transition: all 0.2s ease;
   }
 
@@ -114,7 +114,7 @@
   }
 
   .flat-input {
-    @apply border border-input px-4 py-3 rounded-lg;
+    @apply rounded-lg border border-input px-4 py-3;
     background: hsl(var(--card));
   }
 

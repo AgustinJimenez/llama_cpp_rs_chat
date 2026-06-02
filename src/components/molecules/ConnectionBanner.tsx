@@ -34,7 +34,7 @@ export const ConnectionBanner: React.FC = () => {
   return (
     <div
       role="alert"
-      className="flex items-center justify-center gap-2 px-4 py-2 bg-red-900/80 border-b border-red-700 text-red-100 text-sm"
+      className="flex items-center justify-center gap-2 border-b border-red-700 bg-red-900/80 px-4 py-2 text-sm text-red-100"
     >
       {!!reconnecting && (
         <>

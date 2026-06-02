@@ -96,7 +96,7 @@ export const MessageStatistics = ({ timings, tokensUsed, maxTokens }: MessageSta
   const processLabel = bgProcesses.length === 1 ? 'process' : 'processes';
 
   return (
-    <div className="flex items-center gap-3 text-xs text-foreground font-mono">
+    <div className="flex items-center gap-3 font-mono text-xs text-foreground">
       {!!genTokens && (
         <span className="inline-flex items-center gap-1" title={tokenTitle}>
           <Hash className="h-3 w-3" />
@@ -136,7 +136,7 @@ export const MessageStatistics = ({ timings, tokensUsed, maxTokens }: MessageSta
         <>
           <button
             onClick={() => setModalOpen(true)}
-            className="inline-flex items-center gap-1 text-emerald-400 hover:text-emerald-300 transition-colors cursor-pointer"
+            className="inline-flex cursor-pointer items-center gap-1 text-emerald-400 transition-colors hover:text-emerald-300"
             title="Click to manage background processes"
           >
             <Terminal className="h-3 w-3" />

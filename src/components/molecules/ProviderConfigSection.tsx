@@ -34,13 +34,13 @@ const ParamControl = ({
   if (schema.type === 'select') {
     return (
       <div className="flex items-center gap-2">
-        <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider min-w-[100px] flex-shrink-0">
+        <label className="min-w-[100px] flex-shrink-0 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
           {schema.label}
         </label>
         <select
           value={String(value ?? schema.default ?? '')}
           onChange={(e) => onChange(schema.key, e.target.value)}
-          className="flex-1 px-2 py-1 text-xs bg-muted border border-border rounded-md text-foreground focus:outline-none focus:border-primary"
+          className="flex-1 rounded-md border border-border bg-muted px-2 py-1 text-xs text-foreground focus:border-primary focus:outline-none"
         >
           {(schema.options ?? []).map((opt) => (
             <option key={opt.value} value={opt.value}>
@@ -51,7 +51,7 @@ const ParamControl = ({
         {onRemove != null && (
           <button
             onClick={onRemove}
-            className="p-0.5 text-muted-foreground hover:text-red-400 transition-colors"
+            className="p-0.5 text-muted-foreground transition-colors hover:text-red-400"
             title="Remove"
           >
             <X className="h-3 w-3" />
@@ -64,7 +64,7 @@ const ParamControl = ({
   if (schema.type === 'boolean') {
     return (
       <div className="flex items-center gap-2">
-        <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider min-w-[100px] flex-shrink-0">
+        <label className="min-w-[100px] flex-shrink-0 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
           {schema.label}
         </label>
         <input
@@ -76,7 +76,7 @@ const ParamControl = ({
         {onRemove != null && (
           <button
             onClick={onRemove}
-            className="p-0.5 text-muted-foreground hover:text-red-400 transition-colors ml-auto"
+            className="ml-auto p-0.5 text-muted-foreground transition-colors hover:text-red-400"
             title="Remove"
           >
             <X className="h-3 w-3" />
@@ -90,7 +90,7 @@ const ParamControl = ({
     const numVal = typeof value === 'number' ? value : ((schema.default as number) ?? 0);
     return (
       <div className="flex items-center gap-2">
-        <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider min-w-[100px] flex-shrink-0">
+        <label className="min-w-[100px] flex-shrink-0 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
           {schema.label}
         </label>
         <input
@@ -100,15 +100,15 @@ const ParamControl = ({
           step={schema.step ?? 1}
           value={numVal}
           onChange={(e) => onChange(schema.key, parseFloat(e.target.value))}
-          className="flex-1 accent-primary h-1"
+          className="h-1 flex-1 accent-primary"
         />
-        <span className="text-xs text-muted-foreground tabular-nums w-[50px] text-right">
+        <span className="w-[50px] text-right text-xs tabular-nums text-muted-foreground">
           {numVal}
         </span>
         {onRemove != null && (
           <button
             onClick={onRemove}
-            className="p-0.5 text-muted-foreground hover:text-red-400 transition-colors"
+            className="p-0.5 text-muted-foreground transition-colors hover:text-red-400"
             title="Remove"
           >
             <X className="h-3 w-3" />
@@ -121,19 +121,19 @@ const ParamControl = ({
   // string type
   return (
     <div className="flex items-center gap-2">
-      <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider min-w-[100px] flex-shrink-0">
+      <label className="min-w-[100px] flex-shrink-0 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
         {schema.label}
       </label>
       <input
         type="text"
         value={String(value ?? schema.default ?? '')}
         onChange={(e) => onChange(schema.key, e.target.value)}
-        className="flex-1 px-2 py-1 text-xs bg-muted border border-border rounded-md text-foreground focus:outline-none focus:border-primary"
+        className="flex-1 rounded-md border border-border bg-muted px-2 py-1 text-xs text-foreground focus:border-primary focus:outline-none"
       />
       {onRemove != null && (
         <button
           onClick={onRemove}
-          className="p-0.5 text-muted-foreground hover:text-red-400 transition-colors"
+          className="p-0.5 text-muted-foreground transition-colors hover:text-red-400"
           title="Remove"
         >
           <X className="h-3 w-3" />
@@ -210,8 +210,8 @@ export const ProviderConfigSection = ({ providerId }: ProviderConfigSectionProps
   if (allSchemas.length === 0) return null;
 
   return (
-    <div className="space-y-2 pt-1 border-t border-border/40">
-      <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+    <div className="space-y-2 border-t border-border/40 pt-1">
+      <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
         {t('provider.parameters')}
       </p>
 
@@ -238,18 +238,18 @@ export const ProviderConfigSection = ({ providerId }: ProviderConfigSectionProps
         <div className="relative">
           <button
             onClick={() => setAddMenuOpen((v) => !v)}
-            className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+            className="flex items-center gap-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
           >
             <Plus className="h-3 w-3" />
             {t('provider.addParameter')}
           </button>
           {!!addMenuOpen && (
-            <div className="absolute left-0 top-6 z-10 bg-card border border-border rounded-md shadow-lg py-1 min-w-[180px]">
+            <div className="absolute left-0 top-6 z-10 min-w-[180px] rounded-md border border-border bg-card py-1 shadow-lg">
               {availableOptional.map((s) => (
                 <button
                   key={s.key}
                   onClick={() => handleAddOptional(s.key)}
-                  className="w-full text-left px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors"
+                  className="w-full px-3 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-muted"
                 >
                   {s.label}
                   {!!s.description && (

@@ -39,7 +39,7 @@ const NumericParam: React.FC<NumericParamProps> = ({
   const displayValue = format ? format(value) : value;
   return (
     <div className="flex items-center gap-1.5">
-      <label className="text-xs text-muted-foreground whitespace-nowrap">{label}</label>
+      <label className="whitespace-nowrap text-xs text-muted-foreground">{label}</label>
       <input
         type="number"
         value={displayValue}
@@ -56,7 +56,7 @@ const NumericParam: React.FC<NumericParamProps> = ({
         min={min}
         max={max}
         step={step}
-        className="w-16 h-6 px-1.5 text-xs font-mono text-right rounded border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+        className="h-6 w-16 rounded border border-input bg-background px-1.5 text-right font-mono text-xs focus:outline-none focus:ring-1 focus:ring-ring"
       />
     </div>
   );
@@ -92,7 +92,7 @@ const SamplerGroup = ({
       <div className="flex items-center gap-1.5">
         <label
           htmlFor="sampler-type-select"
-          className="text-xs text-muted-foreground whitespace-nowrap"
+          className="whitespace-nowrap text-xs text-muted-foreground"
         >
           Sampler
         </label>
@@ -100,7 +100,7 @@ const SamplerGroup = ({
           value={config.sampler_type}
           onValueChange={(value) => onConfigChange('sampler_type', value)}
         >
-          <SelectTrigger id="sampler-type-select" className="w-36 h-6 text-xs">
+          <SelectTrigger id="sampler-type-select" className="h-6 w-36 text-xs">
             <SelectValue placeholder="Select type" />
           </SelectTrigger>
           <SelectContent>

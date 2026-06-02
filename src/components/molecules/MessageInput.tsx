@@ -29,7 +29,7 @@ const ImagePreviews = ({
 }) => {
   if (images.length === 0) return null;
   return (
-    <div className="px-5 pt-2 pb-1 flex flex-wrap gap-2">
+    <div className="flex flex-wrap gap-2 px-5 pb-1 pt-2">
       {images.map((img, i) => (
         <div key={`img-${img.slice(-IMG_KEY_SUFFIX_LEN)}`} className="relative inline-block">
           <img
@@ -40,7 +40,7 @@ const ImagePreviews = ({
           <button
             type="button"
             onClick={() => onRemove(i)}
-            className="absolute -top-2 -right-2 w-5 h-5 flex items-center justify-center rounded-full bg-red-500 text-white hover:bg-red-600 transition-colors"
+            className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-white transition-colors hover:bg-red-600"
             title="Remove image"
           >
             <X className="h-3 w-3" />
@@ -60,21 +60,21 @@ const FilePreviews = ({
 }) => {
   if (files.length === 0) return null;
   return (
-    <div className="px-5 pt-2 pb-1 flex flex-wrap gap-2">
+    <div className="flex flex-wrap gap-2 px-5 pb-1 pt-2">
       {files.map((file) => (
         <div
           key={file.id}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-muted/60 border border-border text-xs"
+          className="flex items-center gap-1.5 rounded-lg border border-border bg-muted/60 px-2.5 py-1.5 text-xs"
         >
-          <FileText className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-          <span className="font-medium truncate max-w-[150px]" title={file.name}>
+          <FileText className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+          <span className="max-w-[150px] truncate font-medium" title={file.name}>
             {file.name}
           </span>
           <span className="text-muted-foreground">{formatCharCount(file.text.length)} chars</span>
           <button
             type="button"
             onClick={() => onRemove(file.id)}
-            className="ml-0.5 w-4 h-4 flex items-center justify-center rounded-full hover:bg-red-500/20 text-muted-foreground hover:text-red-500 transition-colors"
+            className="ml-0.5 flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-red-500/20 hover:text-red-500"
             title="Remove file"
           >
             <X className="h-3 w-3" />
@@ -86,7 +86,7 @@ const FilePreviews = ({
 };
 
 const DragOverlay = () => (
-  <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary/50 bg-primary/5 backdrop-blur-sm pointer-events-none">
+  <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary/50 bg-primary/5 backdrop-blur-sm">
     <div className="flex items-center gap-2 text-sm font-medium text-primary">
       <FileText className="h-5 w-5" />
       Drop files here
@@ -96,7 +96,7 @@ const DragOverlay = () => (
 
 const ExtractingIndicator = ({ count }: { count: number }) =>
   count > 0 ? (
-    <div className="px-5 pt-1 pb-1 flex items-center gap-2 text-xs text-muted-foreground">
+    <div className="flex items-center gap-2 px-5 pb-1 pt-1 text-xs text-muted-foreground">
       <Loader2 className="h-3 w-3 animate-spin" />
       Extracting text from {count} file{count > 1 && 's'}...
     </div>
@@ -111,7 +111,7 @@ const QueuedMessageIndicator = ({
 }) => {
   const displayContent = content.length > 60 ? `${content.slice(0, 60)}…` : content;
   return (
-    <div className="px-5 pt-1 pb-1 flex items-center gap-2 text-xs text-muted-foreground">
+    <div className="flex items-center gap-2 px-5 pb-1 pt-1 text-xs text-muted-foreground">
       <Clock className="h-3 w-3 flex-shrink-0" />
       <span className="flex-1 truncate">
         Queued: <span className="text-foreground">{displayContent}</span>
@@ -119,7 +119,7 @@ const QueuedMessageIndicator = ({
       <button
         type="button"
         onClick={onCancel}
-        className="flex-shrink-0 hover:text-foreground transition-colors"
+        className="flex-shrink-0 transition-colors hover:text-foreground"
         title="Cancel queued message"
         aria-label="Cancel queued message"
       >
@@ -166,7 +166,7 @@ const InputRow = ({
       <button
         type="button"
         onClick={onFileClick}
-        className="flex-shrink-0 flex items-center py-1 opacity-40 hover:opacity-70 transition-opacity"
+        className="flex flex-shrink-0 items-center py-1 opacity-40 transition-opacity hover:opacity-70"
         title="Attach files"
         aria-label="Attach files"
       >
@@ -180,7 +180,7 @@ const InputRow = ({
         onPaste={onPaste}
         placeholder={placeholder}
         disabled={disabled}
-        className="flex-1 bg-transparent border-none outline-none resize-none text-sm text-foreground placeholder:text-muted-foreground min-h-[28px] py-1 overflow-y-auto"
+        className="min-h-[28px] flex-1 resize-none overflow-y-auto border-none bg-transparent py-1 text-sm text-foreground outline-none placeholder:text-muted-foreground"
         rows={1}
         data-testid="message-input"
         aria-disabled={disabled}
@@ -189,7 +189,7 @@ const InputRow = ({
       <button
         type="submit"
         disabled={disabled || !hasContent || isExtracting > 0 || queuedMessage}
-        className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-foreground text-background hover:opacity-80 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-colors hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-30"
         data-testid="send-button"
         aria-label="Send message"
       >

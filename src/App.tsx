@@ -25,11 +25,6 @@ const RightSidebar = React.lazy(() =>
 const AppSettingsModal = React.lazy(() =>
   import('./components/organisms/AppSettingsModal').then((m) => ({ default: m.AppSettingsModal })),
 );
-const ConversationOverridesModal = React.lazy(() =>
-  import('./components/organisms/ConversationOverridesModal').then((m) => ({
-    default: m.ConversationOverridesModal,
-  })),
-);
 const ModelConfigModal = React.lazy(() =>
   import('./components/organisms/model-config').then((m) => ({ default: m.ModelConfigModal })),
 );
@@ -141,7 +136,7 @@ export const App = () => {
   }, [forceUnload, clearMessages]);
 
   return (
-    <div className="h-screen bg-background flex" data-testid="chat-app">
+    <div className="flex h-screen bg-background" data-testid="chat-app">
       <Sidebar onNewChat={handleNewConversation} />
 
       <ErrorBoundary>
@@ -205,7 +200,7 @@ export const App = () => {
                 {t.type === 'error' && (
                   <button
                     onClick={() => toast.dismiss(t.id)}
-                    className="ml-2 text-white/70 hover:text-white text-lg leading-none"
+                    className="ml-2 text-lg leading-none text-white/70 hover:text-white"
                     aria-label="Dismiss"
                   >
                     ✕
@@ -219,6 +214,20 @@ export const App = () => {
     </div>
   );
 };
+
+function isProviderReady(
+  modelLoaded: boolean,
+  activeProvider: string,
+  conversationAgent: { provider_id: string } | null,
+  stagedAgent: { provider_id: string } | null,
+): boolean {
+  return (
+    modelLoaded ||
+    activeProvider !== 'local' ||
+    conversationAgent?.provider_id !== 'local' ||
+    stagedAgent?.provider_id !== 'local'
+  );
+}
 
 /** Main content area: header + messages/welcome + input */
 // eslint-disable-next-line max-lines-per-function
@@ -298,20 +307,23 @@ const MainContent = ({
   }, [providerRef, providerParamsRef, activeProvider, activeProviderModel, activeProviderParams]);
 
   const browserViewClass = isBrowserViewOpen ? 'flex flex-col flex-1 overflow-hidden' : 'hidden';
+  const providerReady = isProviderReady(
+    modelStatus.loaded,
+    activeProvider,
+    conversationAgent,
+    stagedAgent,
+  );
 
   return (
-    <div
-      className="flex-1 ml-0 md:ml-[var(--sidebar-w)]"
+    <main
+      className="ml-0 flex-1 md:ml-[var(--sidebar-w)]"
       style={{ '--sidebar-w': `${sidebarWidth}px` } as React.CSSProperties}
     >
-      <div className="flex flex-col h-full">
+      <h1 className="sr-only">LLaMA Chat</h1>
+      <div className="flex h-full flex-col">
         <ConnectionBanner />
         {/* Agent selector modal */}
-        <AgentSelector
-          isOpen={isAgentSelectorOpen}
-          onClose={closeAgentSelector}
-          conversationId={currentConversationId ?? undefined}
-        />
+        <AgentSelector isOpen={isAgentSelectorOpen} onClose={closeAgentSelector} />
         {/* Global provider selector — accessible from welcome screen and header */}
         <ProviderSelector
           isOpen={isProviderSelectorOpen}
@@ -336,7 +348,7 @@ const MainContent = ({
         {!messages.length && !modelStatus.loaded && activeProvider === 'local' && (
           <button
             onClick={toggleMobileSidebar}
-            className="absolute top-3 left-3 z-30 p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors md:hidden"
+            className="absolute left-3 top-3 z-30 rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:hidden"
             title="Toggle sidebar"
             aria-label="Toggle sidebar"
           >
@@ -350,12 +362,12 @@ const MainContent = ({
         </div>
         {!isBrowserViewOpen && messages.length === 0 && (
           <WelcomeMessage>
-            {!!(modelStatus.loaded || activeProvider !== 'local') && (
-              <div className="w-full max-w-2xl px-3 md:px-6 space-y-1">
+            {!!providerReady && (
+              <div className="w-full max-w-2xl space-y-1 px-3 md:px-6">
                 {!!conversationAgent && (
                   <button
                     onClick={openAgentSelector}
-                    className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors border border-border/50"
+                    className="flex items-center gap-1.5 rounded-full border border-border/50 px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                   >
                     <Bot className="h-3 w-3" />
                     {conversationAgent.name}
@@ -370,16 +382,16 @@ const MainContent = ({
           <>
             <MessagesArea />
             <ConversationLog />
-            {!!(modelStatus.loaded || activeProvider !== 'local') && (
+            {!!providerReady && (
               <div
-                className="px-3 md:px-6 pb-4 pt-2 animate-in slide-in-from-bottom-4 duration-300"
+                className="animate-in slide-in-from-bottom-4 px-3 pb-4 pt-2 duration-300 md:px-6"
                 data-testid="input-container"
               >
-                <div className="max-w-3xl mx-auto space-y-1">
+                <div className="mx-auto max-w-3xl space-y-1">
                   {!!conversationAgent && (
                     <button
                       onClick={openAgentSelector}
-                      className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors border border-border/50"
+                      className="flex items-center gap-1.5 rounded-full border border-border/50 px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                     >
                       <Bot className="h-3 w-3" />
                       {conversationAgent.name}
@@ -397,7 +409,7 @@ const MainContent = ({
           </>
         )}
       </div>
-    </div>
+    </main>
   );
 };
 
@@ -416,10 +428,7 @@ const Overlays = ({
     closeAppSettings,
     isModelConfigOpen,
     closeModelConfig,
-    isConversationOverridesOpen,
-    closeConversationOverrides,
   } = useUIContext();
-  const { currentConversationId } = useChatContext();
 
   return (
     <>
@@ -445,17 +454,6 @@ const Overlays = ({
               onClose={closeModelConfig}
               onSave={onModelConfigSave}
               initialModelPath={modelPath}
-            />
-          </Suspense>
-        </ErrorBoundary>
-      )}
-      {!!isConversationOverridesOpen && (
-        <ErrorBoundary>
-          <Suspense fallback={null}>
-            <ConversationOverridesModal
-              isOpen={isConversationOverridesOpen}
-              onClose={closeConversationOverrides}
-              conversationId={currentConversationId}
             />
           </Suspense>
         </ErrorBoundary>

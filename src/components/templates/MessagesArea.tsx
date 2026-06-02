@@ -18,8 +18,8 @@ const RecoveryOrLoading: React.FC<{ isCrashRecovery: boolean; isModelLoading: bo
   if (!isCrashRecovery) return <LoadingIndicator />;
   const label = isModelLoading ? 'Reloading model...' : 'Resuming generation...';
   return (
-    <div className="py-4 flex items-center gap-3 text-sm text-muted-foreground">
-      <span className="inline-block w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+    <div className="flex items-center gap-3 py-4 text-sm text-muted-foreground">
+      <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
       {label}
     </div>
   );
@@ -149,7 +149,7 @@ export const MessagesArea = () => {
         data-testid="messages-container"
         onScroll={handleScroll}
       >
-        <div className="max-w-3xl mx-auto px-6 py-6">
+        <div className="mx-auto max-w-3xl px-6 py-6">
           <div
             style={{
               height: virtualizer.getTotalSize(),
@@ -205,11 +205,7 @@ export const MessagesArea = () => {
       {!!showScrollDown && (
         <button
           onClick={scrollToBottom}
-          className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10
-            flex items-center justify-center w-9 h-9 rounded-full
-            bg-muted hover:bg-accent border border-border
-            text-muted-foreground hover:text-foreground
-            shadow-lg transition-opacity duration-200 cursor-pointer"
+          className="absolute bottom-6 left-1/2 z-10 flex h-9 w-9 -translate-x-1/2 cursor-pointer items-center justify-center rounded-full border border-border bg-muted text-muted-foreground shadow-lg transition-opacity duration-200 hover:bg-accent hover:text-foreground"
           aria-label="Scroll to bottom"
         >
           <ArrowDown size={18} />

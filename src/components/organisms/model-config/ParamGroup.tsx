@@ -34,7 +34,7 @@ export const ParamGroup: React.FC<ParamGroupProps> = ({
   const titleEl = collapsible ? (
     <button
       type="button"
-      className="flex items-center justify-between w-full text-left"
+      className="flex w-full items-center justify-between text-left"
       onClick={() => setExpanded(!expanded)}
     >
       <span className="text-xs font-medium">{title}</span>
@@ -49,13 +49,13 @@ export const ParamGroup: React.FC<ParamGroupProps> = ({
           if (freeLayout) {
             return <div className="mt-1">{children}</div>;
           }
-          return <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1">{children}</div>;
+          return <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1">{children}</div>;
         })()
       : null;
 
   return (
     <div
-      className={`rounded-md border border-border px-3 py-2 ${disabled ? 'opacity-40 pointer-events-none' : ''} ${className}`}
+      className={`rounded-md border border-border px-3 py-2 ${disabled ? 'pointer-events-none opacity-40' : ''} ${className}`}
     >
       {titleEl}
       {childrenEl}

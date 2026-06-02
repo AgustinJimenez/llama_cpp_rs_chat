@@ -58,9 +58,9 @@ export const WorkersModal: React.FC<WorkersModalProps> = ({
           if (e.key === 'Enter' || e.key === ' ') onClose();
         }}
       />
-      <div className="relative bg-card border border-border rounded-xl shadow-xl w-full max-w-lg mx-4 overflow-hidden">
+      <div className="relative mx-4 w-full max-w-lg overflow-hidden rounded-xl border border-border bg-card shadow-xl">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <div className="flex items-center gap-2">
             <Cpu className="h-4 w-4 text-muted-foreground" />
             <h2 className="text-sm font-semibold">Active Agents</h2>
@@ -68,14 +68,14 @@ export const WorkersModal: React.FC<WorkersModalProps> = ({
           <div className="flex items-center gap-2">
             <button
               onClick={fetchWorkers}
-              className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               title="Refresh"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
             </button>
             <button
               onClick={onClose}
-              className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
               <X className="h-4 w-4" />
             </button>
@@ -83,12 +83,12 @@ export const WorkersModal: React.FC<WorkersModalProps> = ({
         </div>
 
         {/* Body */}
-        <div className="p-4 space-y-2 max-h-96 overflow-y-auto">
+        <div className="max-h-96 space-y-2 overflow-y-auto p-4">
           {!!loading && workers.length === 0 && (
-            <p className="text-sm text-muted-foreground text-center py-6">Loading...</p>
+            <p className="py-6 text-center text-sm text-muted-foreground">Loading...</p>
           )}
           {!loading && workers.length === 0 && (
-            <p className="text-sm text-muted-foreground text-center py-6">No active agents</p>
+            <p className="py-6 text-center text-sm text-muted-foreground">No active agents</p>
           )}
           {workers.length > 0 &&
             workers.map((w) => {
@@ -109,21 +109,21 @@ export const WorkersModal: React.FC<WorkersModalProps> = ({
               return (
                 <div
                   key={w.id}
-                  className={`flex items-center justify-between px-3 py-2.5 rounded-lg border ${
+                  className={`flex items-center justify-between rounded-lg border px-3 py-2.5 ${
                     isCurrent ? 'border-primary/40 bg-primary/5' : 'border-border bg-muted/30'
                   }`}
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${dotColor}`} />
-                      <span className="text-sm font-medium truncate">{modelLabel}</span>
+                      <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${dotColor}`} />
+                      <span className="truncate text-sm font-medium">{modelLabel}</span>
                       {!!isCurrent && (
-                        <span className="text-[10px] text-primary font-medium flex-shrink-0">
+                        <span className="flex-shrink-0 text-[10px] font-medium text-primary">
                           current
                         </span>
                       )}
                     </div>
-                    <div className="text-xs text-muted-foreground mt-0.5 ml-3.5">
+                    <div className="ml-3.5 mt-0.5 text-xs text-muted-foreground">
                       {w.id}
                       {!!w.active_conversation_id && (
                         <span className="ml-2 opacity-60">
@@ -138,7 +138,7 @@ export const WorkersModal: React.FC<WorkersModalProps> = ({
                   <button
                     onClick={() => handleDelete(w.id)}
                     disabled={deletingId === w.id}
-                    className="ml-3 p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-40"
+                    className="ml-3 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
                     title="Stop agent"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
