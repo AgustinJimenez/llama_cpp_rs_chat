@@ -126,6 +126,16 @@ pub static FILE_TOOLS: &[ToolDef] = &[
         ]),
         required: &["command", "background"],
     },
+    // ─── execute_pty ───
+    ToolDef {
+        name: "execute_pty",
+        description: "Execute a shell command inside a real pseudo-terminal (PTY). Programs see a real TTY — this prevents stdout buffering in Python, Node.js, and similar runtimes. Use this instead of execute_command when a program's output is being buffered or swallowed (e.g. 'python server.py' that doesn't flush, interactive installers). Same timeout semantics as execute_command. Does not support background=true (use execute_command for daemons).",
+        params: Params::Simple(&[
+            p("command", "string", "The shell command to execute inside a PTY"),
+            p("timeout", "integer", "Max seconds of inactivity before the command is killed (default 120)"),
+        ]),
+        required: &["command"],
+    },
     // ─── list_directory ───
     ToolDef {
         name: "list_directory",

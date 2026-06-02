@@ -18,6 +18,7 @@ pub use execution::{
     execute_command,
     execute_command_streaming,
     execute_command_streaming_with_timeout,
+    execute_command_pty,
     kill_process_tree,
 };
 #[cfg(windows)]

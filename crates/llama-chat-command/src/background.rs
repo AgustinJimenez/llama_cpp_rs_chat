@@ -181,6 +181,43 @@ pub fn kill_background_process_by_pid(pid: u32) {
     unpersist_bg_process(pid);
 }
 
+/// Kill all alive processes tracked in the DB, regardless of session.
+///
+/// Called by the server-side ProcessManager immediately before killing the worker
+/// process so that background processes don't outlive their worker.
+/// The worker normally handles this via `BgProcessGuard::drop()`, but force-kills
+/// bypass Rust destructors — this provides a server-side safety net.
+pub fn kill_all_db_processes(db_path: &str) {
+    let conn = match rusqlite::Connection::open(db_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[BGCLEAN] Cannot open DB {db_path}: {e}");
+            return;
+        }
+    };
+    let mut stmt = match conn.prepare("SELECT pid, command FROM background_processes") {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let procs: Vec<(u32, String)> = stmt
+        .query_map([], |row| {
+            let pid: i64 = row.get(0)?;
+            let cmd: String = row.get(1)?;
+            Ok((pid as u32, cmd))
+        })
+        .ok()
+        .map(|rows| rows.filter_map(|r| r.ok()).collect())
+        .unwrap_or_default();
+
+    for (pid, cmd) in &procs {
+        if is_process_alive(*pid) {
+            eprintln!("[BGCLEAN] Killing orphan PID {pid}: {cmd}");
+            crate::kill_process_tree(*pid);
+        }
+    }
+    let _ = conn.execute("DELETE FROM background_processes", []);
+}
+
 /// Kill all background processes for the current session and clean up DB.
 pub fn kill_all_session_processes() {
     let db = match BG_DB_REF.lock().ok().and_then(|r| r.clone()) {

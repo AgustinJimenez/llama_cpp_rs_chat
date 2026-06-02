@@ -54,8 +54,14 @@ impl ProcessManager {
 
     /// Kill the worker process immediately. OS reclaims all memory.
     /// Sets the shutdown flag so the stdout reader task won't auto-restart.
+    ///
+    /// Also kills all background processes tracked in the DB before killing the
+    /// worker, because force-kill bypasses the worker's `BgProcessGuard::drop()`.
     pub fn kill(&self) {
         self.is_shutdown.store(true, Ordering::SeqCst);
+        // Clean up worker's background processes before killing it.
+        // The worker's BgProcessGuard won't fire on force-kill.
+        llama_chat_command::background::kill_all_db_processes(&self.db_path);
         if let Ok(mut guard) = self.child.lock() {
             if let Some(ref mut child) = *guard {
                 eprintln!("[PROCESS_MGR] Killing worker process");

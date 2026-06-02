@@ -47,6 +47,14 @@ pub(super) fn dispatch_text_tool(
                 )
             }
         }
+        "execute_pty" => {
+            let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
+            if command.is_empty() {
+                return Some("Error: 'command' argument is required".to_string());
+            }
+            let command = format!("rtk {}", command);
+            llama_chat_command::execute_command_pty(&command, None, |_: &str| {})
+        }
         "check_background_process" => {
             let pid = args
                 .get("pid")
