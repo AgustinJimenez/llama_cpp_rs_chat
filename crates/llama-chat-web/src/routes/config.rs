@@ -122,71 +122,23 @@ pub async fn handle_get_conversation_config(
     }
 }
 
-/// POST /api/conversations/:id/config
-pub async fn handle_post_conversation_config(
-    req: Request<Body>,
-    path: &str,
-    #[cfg(not(feature = "mock"))]
-    _bridge: llama_chat_worker::worker::worker_bridge::SharedWorkerBridge,
-    #[cfg(feature = "mock")] _bridge: (),
-    db: SharedDatabase,
-) -> Result<Response<Body>, Infallible> {
-    let conversation_id = match extract_conversation_id_from_config_path(path) {
-        Some(id) => id,
-        None => {
-            return Ok(json_error(
-                StatusCode::BAD_REQUEST,
-                "Invalid conversation ID",
-            ));
-        }
-    };
-
-    let incoming: SamplerConfig = match parse_json_body(req.into_body()).await {
-        Ok(config) => config,
-        Err(error_response) => return Ok(error_response),
-    };
-
-    // Same validation as global config
-    if !(0.0..=2.0).contains(&incoming.temperature) {
-        return Ok(json_error(
-            StatusCode::BAD_REQUEST,
-            "temperature must be between 0.0 and 2.0",
-        ));
-    }
-    if !(0.0..=1.0).contains(&incoming.top_p) {
-        return Ok(json_error(
-            StatusCode::BAD_REQUEST,
-            "top_p must be between 0.0 and 1.0",
-        ));
-    }
-
-    let overrides_json = match serde_json::to_string(&incoming) {
-        Ok(json) => json,
-        Err(_) => {
-            return Ok(json_error(
-                StatusCode::BAD_REQUEST,
-                "Failed to serialize conversation overrides",
-            ));
-        }
-    };
-
-    match db.set_conversation_overrides(&conversation_id, Some(&overrides_json)) {
-        Ok(_) => Ok(json_raw(StatusCode::OK, r#"{"success":true}"#.to_string())),
-        Err(e) => Ok(json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("Failed to save conversation overrides: {e}"),
-        )),
-    }
-}
 
 /// GET /api/config/provider-keys — get configured provider API keys (masked)
 pub async fn handle_get_provider_keys(db: SharedDatabase) -> Result<Response<Body>, Infallible> {
     let conn = db.connection();
-    let keys_json: String = conn
+    let db_val: String = conn
         .query_row("SELECT provider_api_keys FROM config LIMIT 1", [], |row| {
             row.get(0)
         })
         .unwrap_or_else(|_| "{}".to_string());
+    let (resolved, should_migrate) = crate::keychain::resolve(&db_val);
+    if should_migrate {
+        let _ = conn.execute(
+            "UPDATE config SET provider_api_keys = ?1",
+            [crate::keychain::KEYCHAIN_MARKER],
+        );
+    }
+    let keys_json = resolved.unwrap_or_else(|| "{}".to_string());
 
     // Mask API key values for security (show first 4 + last 4 chars)
     let mut result = serde_json::Map::new();
@@ -247,13 +199,15 @@ pub async fn handle_set_provider_key(
     let api_key = json.get("api_key").and_then(|k| k.as_str()).unwrap_or("");
     let base_url = json.get("base_url").and_then(|u| u.as_str());
 
-    // Load existing keys
+    // Load existing keys (resolving from keychain if needed)
     let conn = db.connection();
-    let existing: String = conn
+    let db_val: String = conn
         .query_row("SELECT provider_api_keys FROM config LIMIT 1", [], |row| {
             row.get(0)
         })
         .unwrap_or_else(|_| "{}".to_string());
+    let (resolved, _) = crate::keychain::resolve(&db_val);
+    let existing = resolved.unwrap_or_else(|| "{}".to_string());
 
     let mut keys: serde_json::Value =
         serde_json::from_str(&existing).unwrap_or(serde_json::json!({}));
@@ -272,7 +226,20 @@ pub async fn handle_set_provider_key(
     }
 
     let updated = serde_json::to_string(&keys).unwrap_or_else(|_| "{}".to_string());
-    match conn.execute("UPDATE config SET provider_api_keys = ?1", [&updated]) {
+
+    // Delete keychain entry if all keys removed, otherwise store in keychain
+    let all_empty = keys.as_object().map_or(true, |m| m.is_empty());
+    let store_in_db = if all_empty {
+        crate::keychain::delete();
+        "{}".to_string()
+    } else if crate::keychain::set(&updated) {
+        crate::keychain::KEYCHAIN_MARKER.to_string()
+    } else {
+        // Keychain unavailable — store raw in SQLite as fallback
+        updated
+    };
+
+    match conn.execute("UPDATE config SET provider_api_keys = ?1", [&store_in_db]) {
         Ok(_) => Ok(json_raw(
             StatusCode::OK,
             serde_json::to_string(&serde_json::json!({"success": true, "provider": provider}))

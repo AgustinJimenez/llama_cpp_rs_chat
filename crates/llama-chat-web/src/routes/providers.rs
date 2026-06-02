@@ -75,13 +75,23 @@ fn display_model_name(provider_id: &str, model: Option<&str>) -> String {
 
 fn load_api_keys_json(db: &llama_chat_db::SharedDatabase) -> Option<String> {
     let conn = db.connection();
-    conn.query_row(
-        "SELECT provider_api_keys FROM config WHERE id = 1",
-        [],
-        |row| row.get::<_, Option<String>>(0),
-    )
-    .ok()
-    .flatten()
+    let db_val: String = conn
+        .query_row(
+            "SELECT provider_api_keys FROM config WHERE id = 1",
+            [],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    let (keys, should_migrate) = crate::keychain::resolve(&db_val);
+    if should_migrate {
+        let _ = conn.execute(
+            "UPDATE config SET provider_api_keys = ?1",
+            [crate::keychain::KEYCHAIN_MARKER],
+        );
+    }
+    keys
 }
 
 fn ensure_conversation(

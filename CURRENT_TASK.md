@@ -20,7 +20,7 @@
 |---|---|
 | `tauri-plugin-notification` wiring | Notify user when inference / agent run completes |
 | `tauri-plugin-clipboard` (extended) | Read images from clipboard → vision pipeline |
-| `tauri-plugin-keyring` | Store API keys in OS Credential Manager |
+| `tauri-plugin-keyring` | Store API keys in OS Credential Manager ✅ (keyring v3 crate, transparent migration) |
 | `tauri-plugin-pty` | Real PTY/terminal instead of `execute_command` |
 | `tauri-plugin-store` | Lightweight key-value settings complement to SQLite |
 
