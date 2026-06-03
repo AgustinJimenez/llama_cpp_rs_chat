@@ -572,13 +572,19 @@ impl WorkerBridge {
         }
     }
 
-    /// Get all MCP tool definitions (for injecting into OpenAI function-call tools list).
+    /// Get all MCP tool definitions with full JSON schemas (for OpenAI function-call tools list).
     pub async fn get_mcp_tool_definitions(&self) -> Vec<llama_chat_tools::McpToolDefInfo> {
-        // We don't have a dedicated IPC message for full definitions,
-        // so we use GetMcpStatus which returns server names + tool names only.
-        // Return empty for now — tools are included via the bridge proxy using is_mcp_tool/call_tool.
-        // Full definitions are available from the worker's McpManager but not exposed via IPC yet.
-        Vec::new()
+        match self.send_and_wait(WorkerCommand::GetMcpToolDefinitions).await {
+            Ok(WorkerPayload::McpToolDefinitions { tools }) => {
+                tools.into_iter().map(|t| llama_chat_tools::McpToolDefInfo {
+                    qualified_name: t.qualified_name,
+                    description: t.description,
+                    input_schema: t.input_schema,
+                    server_name: t.server_name,
+                }).collect()
+            }
+            _ => Vec::new(),
+        }
     }
 
     /// Call an MCP tool by qualified name. Blocks the current thread.

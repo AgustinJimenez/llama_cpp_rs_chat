@@ -59,6 +59,8 @@ pub enum WorkerCommand {
     CompactConversation { conversation_id: String },
     /// Call an MCP tool by qualified name from the server side (for remote providers).
     CallMcpTool { name: String, args_json: String },
+    /// Get full MCP tool definitions (with JSON schemas) for all connected servers.
+    GetMcpToolDefinitions,
     /// Health check.
     Ping,
     /// Graceful shutdown.
@@ -173,6 +175,8 @@ pub enum WorkerPayload {
     StatusUpdate { message: String },
     /// Result of a CallMcpTool command.
     McpToolResult { result: Option<String>, error: Option<String> },
+    /// Full MCP tool definitions with schemas.
+    McpToolDefinitions { tools: Vec<McpToolDefPayload> },
     /// An error occurred.
     Error { message: String },
 }
@@ -192,6 +196,15 @@ pub struct BackendDeviceInfo {
     pub description: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vram_mb: Option<u64>,
+}
+
+/// A full MCP tool definition sent via IPC (includes JSON schema for parameters).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct McpToolDefPayload {
+    pub qualified_name: String,
+    pub description: String,
+    pub input_schema: serde_json::Value,
+    pub server_name: String,
 }
 
 /// Status of an individual MCP server.

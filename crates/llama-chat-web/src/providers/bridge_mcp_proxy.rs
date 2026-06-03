@@ -20,13 +20,12 @@ pub struct BridgeMcpProxy {
 }
 
 impl BridgeMcpProxy {
-    /// Build a proxy from a bridge. Fetches the current tool list synchronously.
+    /// Build a proxy from a bridge. Fetches the current tool list + schemas synchronously.
     /// Must be called from a `spawn_blocking` context (or any thread with a tokio handle).
     pub fn new_blocking(bridge: SharedWorkerBridge) -> Self {
         let handle = Handle::current();
-        let tool_names = handle.block_on(bridge.get_mcp_tool_names());
-        // Full definitions not yet available via IPC; tools are still callable via call_tool.
-        let tool_defs = Vec::new();
+        let tool_defs = handle.block_on(bridge.get_mcp_tool_definitions());
+        let tool_names: Vec<String> = tool_defs.iter().map(|t| t.qualified_name.clone()).collect();
         eprintln!("[BRIDGE_MCP_PROXY] Built proxy: {} MCP tools available", tool_names.len());
         BridgeMcpProxy { bridge, tool_names, tool_defs }
     }
