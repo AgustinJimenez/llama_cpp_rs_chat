@@ -167,14 +167,25 @@ pub(super) fn summarize_tool_output(output: &str, tool_name: &str, url: &str, ap
 }
 
 /// Get the subset of tool definitions suitable for cloud provider agentic loops.
-/// Returns tools in OpenAI function-calling format.
-pub(super) fn get_agentic_tools() -> Vec<Value> {
+/// Returns tools in OpenAI function-calling format, including MCP tools when available.
+pub(super) fn get_agentic_tools(mcp: Option<&dyn llama_chat_tools::McpManagerOps>) -> Vec<Value> {
     use llama_chat_engine::jinja_templates::get_available_tools_openai;
-    get_available_tools_openai()
+    let mut tools = get_available_tools_openai();
+    if let Some(mgr) = mcp {
+        for td in mgr.get_tool_definitions() {
+            tools.push(td.to_openai_function());
+        }
+    }
+    tools
 }
 
 /// Execute a tool call using the full native tool dispatch system.
-pub(super) fn execute_openai_tool(name: &str, arguments_json: &str, db: Option<&llama_chat_db::SharedDatabase>) -> String {
+pub(super) fn execute_openai_tool(
+    name: &str,
+    arguments_json: &str,
+    db: Option<&llama_chat_db::SharedDatabase>,
+    mcp: Option<&dyn llama_chat_tools::McpManagerOps>,
+) -> String {
     // Build the JSON format that dispatch_native_tool expects
     let args: Value = match serde_json::from_str(arguments_json) {
         Ok(v) => v,
@@ -192,10 +203,10 @@ pub(super) fn execute_openai_tool(name: &str, arguments_json: &str, db: Option<&
         }
         let nav_json = json!({"name": "browser_navigate", "arguments": {"url": url}}).to_string();
         let ctx = crate::native_tools_bridge::make_dispatch_context();
-        let _ = llama_chat_tools::dispatch_native_tool(&nav_json, true, None, db, &ctx);
+        let _ = llama_chat_tools::dispatch_native_tool(&nav_json, true, mcp, db, &ctx);
         std::thread::sleep(std::time::Duration::from_millis(2000));
         let read_json = json!({"name": "browser_get_text", "arguments": {}}).to_string();
-        return match llama_chat_tools::dispatch_native_tool(&read_json, true, None, db, &ctx) {
+        return match llama_chat_tools::dispatch_native_tool(&read_json, true, mcp, db, &ctx) {
             Some(r) => r.text,
             None => "Failed to read page content".to_string(),
         };
@@ -217,7 +228,7 @@ pub(super) fn execute_openai_tool(name: &str, arguments_json: &str, db: Option<&
     match llama_chat_tools::dispatch_native_tool(
         &tool_json,
         true,
-        None, // mcp_manager
+        mcp,
         db,
         &ctx,
     ) {

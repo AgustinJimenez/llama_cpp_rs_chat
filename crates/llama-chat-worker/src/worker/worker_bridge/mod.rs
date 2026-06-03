@@ -562,6 +562,40 @@ impl WorkerBridge {
         self.send_and_wait(WorkerCommand::GetMcpStatus).await
     }
 
+    /// Get the qualified tool names of all connected MCP tools.
+    pub async fn get_mcp_tool_names(&self) -> Vec<String> {
+        match self.send_and_wait(WorkerCommand::GetMcpStatus).await {
+            Ok(WorkerPayload::McpStatus { servers }) => {
+                servers.into_iter().flat_map(|s| s.tools).collect()
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// Get all MCP tool definitions (for injecting into OpenAI function-call tools list).
+    pub async fn get_mcp_tool_definitions(&self) -> Vec<llama_chat_tools::McpToolDefInfo> {
+        // We don't have a dedicated IPC message for full definitions,
+        // so we use GetMcpStatus which returns server names + tool names only.
+        // Return empty for now — tools are included via the bridge proxy using is_mcp_tool/call_tool.
+        // Full definitions are available from the worker's McpManager but not exposed via IPC yet.
+        Vec::new()
+    }
+
+    /// Call an MCP tool by qualified name. Blocks the current thread.
+    /// Intended for use inside `spawn_blocking` contexts (remote provider agentic loop).
+    pub async fn call_mcp_tool(&self, name: &str, args: serde_json::Value) -> Result<String, String> {
+        let args_json = serde_json::to_string(&args).map_err(|e| format!("Serialize args: {e}"))?;
+        match self.send_and_wait(WorkerCommand::CallMcpTool {
+            name: name.to_string(),
+            args_json,
+        }).await? {
+            WorkerPayload::McpToolResult { result: Some(r), .. } => Ok(r),
+            WorkerPayload::McpToolResult { error: Some(e), .. } => Err(e),
+            WorkerPayload::Error { message } => Err(message),
+            _ => Err("Unexpected response to CallMcpTool".to_string()),
+        }
+    }
+
     /// Get available compute backends from the worker.
     pub async fn get_available_backends(
         &self,

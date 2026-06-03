@@ -57,6 +57,8 @@ pub enum WorkerCommand {
     GetAvailableBackends,
     /// Force compact a conversation (manual user action).
     CompactConversation { conversation_id: String },
+    /// Call an MCP tool by qualified name from the server side (for remote providers).
+    CallMcpTool { name: String, args_json: String },
     /// Health check.
     Ping,
     /// Graceful shutdown.
@@ -169,6 +171,8 @@ pub enum WorkerPayload {
     CompactionDone { conversation_id: String },
     /// Intermediate status update (id=0, no pending request needed).
     StatusUpdate { message: String },
+    /// Result of a CallMcpTool command.
+    McpToolResult { result: Option<String>, error: Option<String> },
     /// An error occurred.
     Error { message: String },
 }

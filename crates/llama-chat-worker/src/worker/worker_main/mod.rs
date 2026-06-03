@@ -229,6 +229,10 @@ pub fn run_worker(db_path: &str) {
                 other_commands::handle_get_mcp_status(req_id, &mcp_manager, &mut ipc_writer);
             }
 
+            WorkerCommand::CallMcpTool { name, args_json } => {
+                other_commands::handle_call_mcp_tool(req_id, &name, &args_json, &mcp_manager, &mut ipc_writer);
+            }
+
             WorkerCommand::GetConversationEvents { conversation_id } => {
                 other_commands::handle_get_conversation_events(req_id, &conversation_id, &mut ipc_writer);
             }

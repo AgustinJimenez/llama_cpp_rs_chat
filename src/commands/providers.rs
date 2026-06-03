@@ -114,6 +114,7 @@ fn save_provider_turn_tauri(
 pub async fn stream_provider(
     app: AppHandle,
     db: tauri::State<'_, SharedDatabase>,
+    bridge: tauri::State<'_, crate::web::worker::worker_bridge::SharedWorkerBridge>,
     provider: String,
     model: Option<String>,
     prompt: String,
@@ -144,6 +145,7 @@ pub async fn stream_provider(
         Some(&conv_id),
         Some(db.inner()),
         params.as_ref(),
+        Some(bridge.inner().clone()),
     )
     .await
     .map_err(|e| format!("Failed to start provider: {e}"))?;

@@ -132,6 +132,7 @@ pub async fn handle_provider_stream(
     req: hyper::Request<Body>,
     db: llama_chat_db::SharedDatabase,
     provider_id: &str,
+    bridge: Option<llama_chat_worker::worker::worker_bridge::SharedWorkerBridge>,
 ) -> Result<Response<Body>, Infallible> {
     let request = match parse_provider_request(req).await {
         Ok(r) => r,
@@ -159,6 +160,7 @@ pub async fn handle_provider_stream(
         Some(&conv_id),
         Some(&db),
         request.params.as_ref(),
+        bridge,
     )
     .await
     {
@@ -262,6 +264,7 @@ pub async fn handle_provider_generate(
     req: hyper::Request<Body>,
     db: llama_chat_db::SharedDatabase,
     provider_id: &str,
+    bridge: Option<llama_chat_worker::worker::worker_bridge::SharedWorkerBridge>,
 ) -> Result<Response<Body>, Infallible> {
     let request = match parse_provider_request(req).await {
         Ok(r) => r,
@@ -286,6 +289,7 @@ pub async fn handle_provider_generate(
         if conv_id_for_history.is_empty() { None } else { Some(conv_id_for_history) },
         Some(&db),
         request.params.as_ref(),
+        bridge,
     )
     .await
     {

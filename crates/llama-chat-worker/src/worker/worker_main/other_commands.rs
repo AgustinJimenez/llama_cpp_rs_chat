@@ -145,6 +145,36 @@ pub fn handle_compact_conversation(
     }
 }
 
+/// Handle CallMcpTool command (called by the server when a remote provider needs to run an MCP tool).
+pub fn handle_call_mcp_tool(
+    req_id: u64,
+    name: &str,
+    args_json: &str,
+    mcp_manager: &McpManager,
+    ipc_writer: &mut impl Write,
+) {
+    let args: serde_json::Value = match serde_json::from_str(args_json) {
+        Ok(v) => v,
+        Err(e) => {
+            write_response(ipc_writer, &WorkerResponse::ok(req_id, WorkerPayload::McpToolResult {
+                result: None,
+                error: Some(format!("Invalid args JSON: {e}")),
+            }));
+            return;
+        }
+    };
+    match mcp_manager.call_tool(name, args) {
+        Ok(result) => write_response(ipc_writer, &WorkerResponse::ok(req_id, WorkerPayload::McpToolResult {
+            result: Some(result),
+            error: None,
+        })),
+        Err(e) => write_response(ipc_writer, &WorkerResponse::ok(req_id, WorkerPayload::McpToolResult {
+            result: None,
+            error: Some(e),
+        })),
+    }
+}
+
 /// Handle GenerateTitle command.
 pub fn handle_generate_title(
     req_id: u64,

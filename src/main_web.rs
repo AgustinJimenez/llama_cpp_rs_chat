@@ -312,7 +312,7 @@ async fn handle_request_impl(
                 .trim_start_matches("/api/providers/")
                 .trim_end_matches("/stream")
                 .trim_end_matches('/');
-            web::routes::providers::handle_provider_stream(req, db.clone(), provider_id).await?
+            web::routes::providers::handle_provider_stream(req, db.clone(), provider_id, Some(bridge.clone())).await?
         }
         (&Method::POST, path)
             if path.starts_with("/api/providers/") && path.ends_with("/generate") =>
@@ -321,7 +321,7 @@ async fn handle_request_impl(
                 .trim_start_matches("/api/providers/")
                 .trim_end_matches("/generate")
                 .trim_end_matches('/');
-            web::routes::providers::handle_provider_generate(req, db.clone(), provider_id).await?
+            web::routes::providers::handle_provider_generate(req, db.clone(), provider_id, Some(bridge.clone())).await?
         }
 
         // Multi-worker management

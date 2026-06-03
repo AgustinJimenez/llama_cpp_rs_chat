@@ -49,6 +49,7 @@ pub async fn generate(
     conversation_id: Option<&str>,
     db: Option<&llama_chat_db::SharedDatabase>,
     user_params: Option<&serde_json::Value>,
+    mcp_bridge: Option<llama_chat_worker::worker::worker_bridge::SharedWorkerBridge>,
 ) -> Result<mpsc::UnboundedReceiver<CliTokenData>, String> {
     let (tx, rx) = mpsc::unbounded_channel();
     let model_name = resolve_model(provider_id, model);
@@ -85,8 +86,14 @@ pub async fn generate(
             set_remote_generating(cid, &provider_id_owned);
         }
 
+        // Build MCP proxy if a bridge was provided and MCP tools are available.
+        let mcp_proxy: Option<crate::providers::bridge_mcp_proxy::BridgeMcpProxy> =
+            mcp_bridge.map(crate::providers::bridge_mcp_proxy::BridgeMcpProxy::new_blocking);
+        let mcp_ops: Option<&dyn llama_chat_tools::McpManagerOps> =
+            mcp_proxy.as_ref().map(|p| p as &dyn llama_chat_tools::McpManagerOps);
+
         // Get tool definitions for the agentic loop
-        let tools = get_agentic_tools();
+        let tools = get_agentic_tools(mcp_ops);
         let has_tools = !tools.is_empty();
 
         provider_log(&conv_id_owned, "provider_start",
@@ -375,7 +382,7 @@ pub async fn generate(
                 });
                 eprintln!("[OPENAI_COMPAT] Executing tool: {} args={}", tc.name, &tc.arguments.chars().take(200).collect::<String>());
                 let tool_start = std::time::Instant::now();
-                let result_text = execute_openai_tool(&tc.name, &tc.arguments, db_owned.as_ref());
+                let result_text = execute_openai_tool(&tc.name, &tc.arguments, db_owned.as_ref(), mcp_ops);
                 let tool_duration_ms = tool_start.elapsed().as_millis() as u64;
                 let safe = if result_text.len() > 50_000 {
                     format!("{}\n\n[... truncated at 50KB, total {} bytes]", &result_text[..50_000], result_text.len())
