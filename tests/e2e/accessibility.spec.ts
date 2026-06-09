@@ -9,7 +9,10 @@ const axeBuilder = (page: Parameters<typeof AxeBuilder>[0]['page']) =>
 test.describe('Accessibility', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    // Use 'load' (not 'networkidle') so CI passes without a live backend.
+    // The app polls /api/* continuously; networkidle never fires when those
+    // connections are refused.
+    await page.waitForLoadState('load');
   });
 
   test('main page', async ({ page }) => {

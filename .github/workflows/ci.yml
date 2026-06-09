@@ -53,7 +53,9 @@ jobs:
       - run: npm ci
       # The full `lint` script also runs react-doctor which can fail on CI
       # because it tries to open a browser. Run ESLint directly instead.
-      - run: npx eslint --max-warnings 0 "src/**/*.{ts,tsx}"
+      # Disable i18next/no-literal-string (warn-only, not a code-quality gate)
+      # to match the lint-staged behavior.
+      - run: npx eslint --max-warnings 0 --rule 'i18next/no-literal-string:0' "src/**/*.{ts,tsx}"
 
   # ── cargo check (no GPU features, excludes Tauri root to avoid webkit dep) ──
   cargo-check:
@@ -78,7 +80,9 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libappindicator3-dev \
             librsvg2-dev \
-            patchelf
+            patchelf \
+            libpipewire-0.3-dev \
+            libspa-0.2-dev
 
       - name: Cache cargo registry + build artifacts
         uses: actions/cache@v4
@@ -123,7 +127,9 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libappindicator3-dev \
             librsvg2-dev \
-            patchelf
+            patchelf \
+            libpipewire-0.3-dev \
+            libspa-0.2-dev
 
       - name: Cache cargo registry + build artifacts
         uses: actions/cache@v4
@@ -162,7 +168,9 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libappindicator3-dev \
             librsvg2-dev \
-            patchelf
+            patchelf \
+            libpipewire-0.3-dev \
+            libspa-0.2-dev
 
       - name: Cache cargo registry + build artifacts
         uses: actions/cache@v4
