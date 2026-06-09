@@ -16,6 +16,7 @@ use llama_chat_db::{
 };
 use crate::request_parsing::parse_json_body;
 use crate::response_helpers::{json_error, json_response};
+#[cfg(not(feature = "mock"))]
 use crate::worker_pool::{resolve_bridge_for_conversation, WorkerPool};
 
 // ── GET /api/conversations/:id/heartbeat ─────────────────────────────────────
@@ -91,6 +92,7 @@ pub async fn handle_fire_heartbeat(
     }
     #[cfg(feature = "mock")]
     {
+        let _ = (conversation_id, &db);
         Ok(json_response(
             StatusCode::OK,
             &serde_json::json!({ "status": "mock" }),
