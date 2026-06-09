@@ -9,12 +9,7 @@ use serde_json::Value;
 use super::NativeToolResult;
 use super::{parse_int, gpu_app_db};
 
-#[cfg(windows)]
 use super::win32;
-#[cfg(target_os = "macos")]
-use super::macos as win32;
-#[cfg(target_os = "linux")]
-use super::linux as win32;
 
 // ─── Shared helper ────────────────────────────────────────────────────────────
 

@@ -698,7 +698,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
         </DialogHeader>
 
         {/* Tab bar */}
-        <div className="flex border-b">
+        <div className="flex border-b" role="tablist" aria-label="Hub sections">
           <button
             type="button"
             onClick={() => setActiveTab('explore')}

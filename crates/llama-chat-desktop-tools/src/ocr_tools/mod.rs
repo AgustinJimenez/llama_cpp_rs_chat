@@ -18,12 +18,14 @@ mod ocr_winrt;
 #[cfg(target_os = "macos")]
 mod ocr_macos;
 
+#[allow(unused_imports)]
 pub(super) use ocr_common::{
     OcrCaptureTarget, OcrCachePayload,
     ocr_cache_settings, get_cached_ocr_payload, update_cached_ocr_payload,
     capture_ocr_target, upscale_for_ocr,
     ocr_find_text, ocr_png_and_search,
 };
+#[allow(unused_imports)]
 pub(super) use ocr_ocrs::{ocr_image_ocrs, ocr_find_text_ocrs, ocr_image_vlm};
 pub(super) use ocr_tesseract::{ocr_image_tesseract, ocr_find_text_tesseract};
 #[cfg(windows)]

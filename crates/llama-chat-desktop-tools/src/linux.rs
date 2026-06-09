@@ -2,7 +2,6 @@
 //! Provides the same public API as win32.rs using wmctrl, xdotool, arboard, and sysinfo.
 #![allow(dead_code)]
 
-use enigo::Key;
 use std::process::Command;
 
 #[path = "linux/system.rs"]
@@ -491,3 +490,14 @@ pub fn is_window_blocked(_hwnd: HWND) -> Option<HWND> {
 }
 
 pub fn find_child_window(_parent: HWND, _class_name: &str) -> HWND { 0 }
+
+pub unsafe fn GetForegroundWindow() -> HWND {
+    run_cmd("xdotool", &["getactivewindow"])
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .unwrap_or(0) as HWND
+}
+
+pub unsafe fn SetWindowPos(hwnd: HWND, _insert_after: HWND, x: i32, y: i32, cx: i32, cy: i32, _flags: u32) -> BOOL {
+    if resize_window(hwnd, Some(x), Some(y), Some(cx), Some(cy)) { 1 } else { 0 }
+}
