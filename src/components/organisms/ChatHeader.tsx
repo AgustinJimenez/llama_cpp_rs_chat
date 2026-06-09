@@ -145,8 +145,6 @@ const AgentPicker = () => {
   );
   const pickerLabel = busy ? 'Loading…' : (activeAgent?.name ?? 'No agent');
 
-  if (agents.length === 0) return null;
-
   return (
     <div ref={ref} className="relative hidden sm:block">
       <button
