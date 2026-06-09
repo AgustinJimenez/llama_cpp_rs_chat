@@ -45,7 +45,9 @@ test.describe('Accessibility', () => {
     expect(results.violations).toEqual([]);
   });
 
+  // Requires a live backend with conversations in the database — skip in CI.
   test('conversation context menu', async ({ page }) => {
+    test.skip(!!process.env.CI, 'Requires a live backend with conversation history');
     const firstConversation = page.locator('[data-testid="conversation-0"]');
     await firstConversation.hover();
     await page.getByRole('button', { name: 'Conversation options' }).first().click();

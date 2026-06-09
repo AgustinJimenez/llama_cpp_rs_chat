@@ -202,7 +202,7 @@ fn get_window_text_inner(_hwnd: isize, max_chars: usize) -> Result<String, Strin
         .or_else(|_| super::super::ocr_tools::ocr_image_tesseract(&img, None));
 
     #[cfg(target_os = "linux")]
-    let ocr_result = super::super::ocr_tools::ocr_image_tesseract(&img);
+    let ocr_result = super::super::ocr_tools::ocr_image_tesseract(&img, None);
 
     match ocr_result {
         Ok(text) => {

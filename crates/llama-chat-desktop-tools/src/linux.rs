@@ -462,8 +462,8 @@ pub fn get_monitor_work_area(_hwnd: HWND) -> Result<RECT, String> {
         Ok(RECT {
             left: m.x(),
             top: m.y(),
-            right: m.x() + m.width() as i32,
-            bottom: m.y() + m.height() as i32,
+            right: m.x() + m.width().unwrap_or(0) as i32,
+            bottom: m.y() + m.height().unwrap_or(0) as i32,
         })
     } else {
         Err("No monitors found".to_string())

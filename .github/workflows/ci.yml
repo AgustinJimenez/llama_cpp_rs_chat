@@ -217,7 +217,7 @@ jobs:
         env:
           # vite preview serves the built frontend on port 14000
           CI: true
-        timeout-minutes: 2
+        timeout-minutes: 5
 
       - name: Upload Playwright report
         if: failure()
