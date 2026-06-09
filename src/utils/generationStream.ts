@@ -45,6 +45,7 @@ export interface GenerationResult {
 export interface GenerationRequest {
   prompt: string;
   conversationId: string | null;
+  agentId?: string | null;
   imageData?: string[];
   autoContinue?: boolean;
 }
@@ -70,6 +71,7 @@ export class LocalGenerationStream implements GenerationStream {
     const chatRequest: ChatRequest = {
       message: request.prompt,
       conversation_id: request.conversationId || undefined,
+      agent_id: request.agentId || undefined,
       image_data: request.imageData,
       auto_continue: request.autoContinue,
     };
@@ -226,6 +228,7 @@ export class RemoteGenerationStream implements GenerationStream {
           prompt: request.prompt,
           conversationId: request.conversationId || null,
           sessionId: sessionRef.current || null,
+          imageData: request.imageData && request.imageData.length > 0 ? request.imageData : null,
           params: providerParams && Object.keys(providerParams).length > 0 ? providerParams : null,
         }).catch((err: unknown) => {
           settle(() => reject(err instanceof Error ? err : new Error(String(err))));
@@ -262,6 +265,9 @@ export class RemoteGenerationStream implements GenerationStream {
           max_turns: SSE_MAX_TURNS,
           session_id: sessionRef.current || undefined,
           conversation_id: request.conversationId || undefined,
+          ...(request.imageData && request.imageData.length > 0
+            ? { image_data: request.imageData }
+            : {}),
           ...(providerParams && Object.keys(providerParams).length > 0
             ? { params: providerParams }
             : {}),

@@ -120,6 +120,7 @@ pub async fn stream_provider(
     prompt: String,
     conversation_id: Option<String>,
     session_id: Option<String>,
+    image_data: Option<Vec<String>>,
     params: Option<serde_json::Value>,
 ) -> Result<serde_json::Value, String> {
     let api_keys = load_provider_api_keys_json(&db);
@@ -145,6 +146,7 @@ pub async fn stream_provider(
         Some(&conv_id),
         Some(db.inner()),
         params.as_ref(),
+        image_data.as_deref(),
         Some(bridge.inner().clone()),
     )
     .await

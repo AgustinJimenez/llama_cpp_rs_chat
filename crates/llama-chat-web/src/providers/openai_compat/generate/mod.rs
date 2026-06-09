@@ -49,6 +49,7 @@ pub async fn generate(
     conversation_id: Option<&str>,
     db: Option<&llama_chat_db::SharedDatabase>,
     user_params: Option<&serde_json::Value>,
+    image_data: Option<&[String]>,
     mcp_bridge: Option<llama_chat_worker::worker::worker_bridge::SharedWorkerBridge>,
 ) -> Result<mpsc::UnboundedReceiver<CliTokenData>, String> {
     let (tx, rx) = mpsc::unbounded_channel();
@@ -76,6 +77,7 @@ pub async fn generate(
     let conv_id_owned = conversation_id.map(|s| s.to_string());
     let db_owned = db.cloned();
     let user_params_owned = user_params.cloned();
+    let image_data_owned: Vec<String> = image_data.unwrap_or(&[]).to_vec();
 
     // Use ureq in a blocking task for the streaming HTTP request + agentic loop
     tokio::task::spawn_blocking(move || {
@@ -137,8 +139,22 @@ pub async fn generate(
             save_initial_messages(db, conv_id, &provider_id_owned, &prompt_owned, get_cloud_system_prompt());
         }
 
-        // Add current user message
-        messages.push(json!({"role": "user", "content": prompt_owned}));
+        // Add current user message (multimodal if images are present)
+        if image_data_owned.is_empty() {
+            messages.push(json!({"role": "user", "content": prompt_owned}));
+        } else {
+            let mut parts: Vec<Value> = vec![json!({"type": "text", "text": prompt_owned})];
+            for b64 in &image_data_owned {
+                // Detect image format from base64 prefix (data URLs) or default to jpeg
+                let url = if b64.starts_with("data:") {
+                    b64.clone()
+                } else {
+                    format!("data:image/jpeg;base64,{}", b64)
+                };
+                parts.push(json!({"type": "image_url", "image_url": {"url": url}}));
+            }
+            messages.push(json!({"role": "user", "content": parts}));
+        }
 
         // Track total tokens across all iterations
         let mut counters = LoopCounters {

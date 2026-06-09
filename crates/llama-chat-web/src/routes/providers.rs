@@ -14,6 +14,8 @@ struct ProviderRequest {
     cwd: Option<String>,
     session_id: Option<String>,
     conversation_id: Option<String>,
+    /// Base64-encoded images to include in this request (vision).
+    image_data: Option<Vec<String>>,
     /// User-configured provider parameters (temperature, thinking, etc.)
     params: Option<serde_json::Value>,
 }
@@ -160,6 +162,7 @@ pub async fn handle_provider_stream(
         Some(&conv_id),
         Some(&db),
         request.params.as_ref(),
+        request.image_data.as_deref(),
         bridge,
     )
     .await
@@ -289,6 +292,7 @@ pub async fn handle_provider_generate(
         if conv_id_for_history.is_empty() { None } else { Some(conv_id_for_history) },
         Some(&db),
         request.params.as_ref(),
+        request.image_data.as_deref(),
         bridge,
     )
     .await
