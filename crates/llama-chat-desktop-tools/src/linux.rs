@@ -63,6 +63,8 @@ pub const ERROR_SUCCESS: DWORD = 0;
 pub const INPUT_KEYBOARD: u32 = 1;
 pub const KEYEVENTF_UNICODE: u32 = 0x0004;
 pub const KEYEVENTF_KEYUP: u32 = 0x0002;
+pub const KEYEVENTF_SCANCODE: u32 = 0x0008;
+pub const MAPVK_VK_TO_VSC: u32 = 0;
 
 // Structs — match win32.rs layout
 #[repr(C)]
@@ -458,12 +460,11 @@ pub fn set_topmost(hwnd: HWND, topmost: bool) -> bool {
 pub fn get_monitor_work_area(_hwnd: HWND) -> Result<RECT, String> {
     let monitors = xcap::Monitor::all().map_err(|e| format!("xcap error: {e}"))?;
     if let Some(m) = monitors.first() {
-        Ok(RECT {
-            left: m.x(),
-            top: m.y(),
-            right: m.x() + m.width().unwrap_or(0) as i32,
-            bottom: m.y() + m.height().unwrap_or(0) as i32,
-        })
+        let mx = m.x().unwrap_or(0);
+        let my = m.y().unwrap_or(0);
+        let mw = m.width().unwrap_or(0) as i32;
+        let mh = m.height().unwrap_or(0) as i32;
+        Ok(RECT { left: mx, top: my, right: mx + mw, bottom: my + mh })
     } else {
         Err("No monitors found".to_string())
     }
@@ -501,3 +502,28 @@ pub unsafe fn GetForegroundWindow() -> HWND {
 pub unsafe fn SetWindowPos(hwnd: HWND, _insert_after: HWND, x: i32, y: i32, cx: i32, cy: i32, _flags: u32) -> BOOL {
     if resize_window(hwnd, Some(x), Some(y), Some(cx), Some(cy)) { 1 } else { 0 }
 }
+
+pub unsafe fn IsZoomed(_hwnd: HWND) -> BOOL { 0 }
+
+pub unsafe fn ShowWindow(hwnd: HWND, cmd_show: i32) -> BOOL {
+    let result = match cmd_show {
+        x if x == SW_MINIMIZE => minimize_window(hwnd),
+        x if x == SW_MAXIMIZE => maximize_window(hwnd),
+        x if x == SW_RESTORE  => {
+            let hex = format!("0x{:08x}", hwnd as u64);
+            run_cmd("wmctrl", &["-ir", &hex, "-b", "remove,maximized_vert,maximized_horz"]).is_ok()
+        }
+        _ => true,
+    };
+    if result { 1 } else { 0 }
+}
+
+pub unsafe fn PostMessageW(_hwnd: HWND, _msg: u32, _wparam: usize, _lparam: isize) -> BOOL { 1 }
+
+pub unsafe fn SetForegroundWindow(hwnd: HWND) -> BOOL {
+    if focus_window(hwnd) { 1 } else { 0 }
+}
+
+pub unsafe fn SendInput(_count: u32, _inputs: *const INPUT, _size: i32) -> u32 { 0 }
+
+pub unsafe fn MapVirtualKeyW(_code: u32, _map_type: u32) -> u32 { 0 }
