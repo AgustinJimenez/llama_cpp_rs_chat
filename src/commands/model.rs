@@ -53,6 +53,7 @@ pub async fn get_model_status(
                 context_size,
                 last_finish_reason: last_finish_reason.clone(),
                 supports_thinking: None,
+                is_agent_model: None,
             }
         }
         None => ModelStatus {
@@ -74,6 +75,7 @@ pub async fn get_model_status(
             context_size: None,
             last_finish_reason,
             supports_thinking: None,
+            is_agent_model: None,
         },
     };
 
@@ -95,7 +97,7 @@ pub async fn load_model(
     bridge: tauri::State<'_, SharedWorkerBridge>,
     db: tauri::State<'_, SharedDatabase>,
 ) -> Result<ModelResponse, String> {
-    match bridge.load_model(&request.model_path, request.gpu_layers, request.mmproj_path).await {
+    match bridge.load_model(&request.model_path, request.gpu_layers, request.mmproj_path, None).await {
         Ok(meta) => {
             add_to_model_history(&db, &request.model_path);
             let config = load_config(&db);
@@ -122,6 +124,7 @@ pub async fn load_model(
                     context_size,
                     last_finish_reason: None,
                     supports_thinking: None,
+                    is_agent_model: None,
                 }),
             })
         }
@@ -160,6 +163,7 @@ pub async fn unload_model(
                 context_size: None,
                 last_finish_reason: None,
                 supports_thinking: None,
+                is_agent_model: None,
             }),
         }),
         Err(e) => Ok(ModelResponse {

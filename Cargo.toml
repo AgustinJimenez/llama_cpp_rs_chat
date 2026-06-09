@@ -57,10 +57,6 @@ path = "src/main_web.rs"
 name = "test_sample_deadlock"
 path = "src/test_sample_deadlock.rs"
 
-# Temporary utility to check Gemma template
-[[bin]]
-name = "check_gemma_template"
-path = "check_gemma_template.rs"
 
 # Test binary for debugging model loading and tokenization
 [[bin]]

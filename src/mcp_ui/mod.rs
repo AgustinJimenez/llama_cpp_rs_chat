@@ -147,7 +147,7 @@ async fn rest_load_model(State(app): State<AppHandle>, body: Bytes) -> axum::res
     let msg = match path {
         Some(p) => {
             let bridge: SharedWorkerBridge = app.state::<SharedWorkerBridge>().inner().clone();
-            match bridge.load_model(&p, None, None).await {
+            match bridge.load_model(&p, None, None, None).await {
                 Ok(_) => format!("{{\"ok\":true,\"model\":\"{p}\"}}"),
                 Err(e) => format!("{{\"ok\":false,\"error\":\"{e}\"}}"),
             }

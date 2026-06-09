@@ -90,6 +90,7 @@ pub async fn generate_stream(
             Some(conversation_id.clone()),
             true,
             request.image_data.clone(),
+            None,
         )
         .await?;
 
