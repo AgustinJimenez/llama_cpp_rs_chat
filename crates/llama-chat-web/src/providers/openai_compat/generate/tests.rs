@@ -5,7 +5,7 @@
 mod tests {
     use super::super::super::*;
     // super::super::super = openai_compat module (via generate/mod.rs -> openai_compat/mod.rs)
-    use super::super::super::openai_compat_request::{
+    use crate::providers::openai_compat_request::{
         budget_trimmed_messages, execute_openai_tool, provider_cost_per_million,
         truncate_tool_output,
     };
@@ -50,7 +50,7 @@ mod tests {
 
     #[test]
     fn test_resolve_model() {
-        use super::super::super::openai_compat_request::resolve_model;
+        use crate::providers::openai_compat_request::resolve_model;
         assert_eq!(resolve_model("groq", Some("my-model")), "my-model");
         assert_eq!(resolve_model("groq", None), "llama-3.3-70b-versatile");
         assert_eq!(resolve_model("unknown", None), "default");
@@ -58,8 +58,8 @@ mod tests {
 
     #[test]
     fn test_get_agentic_tools() {
-        use super::super::super::openai_compat_request::get_agentic_tools;
-        let tools = get_agentic_tools();
+        use crate::providers::openai_compat_request::get_agentic_tools;
+        let tools = get_agentic_tools(None);
         assert!(!tools.is_empty());
         // All returned tools must have a valid function name
         for tool in &tools {
@@ -74,7 +74,7 @@ mod tests {
         std::fs::write(&path, "hello from test").unwrap();
 
         let args = serde_json::json!({"path": path.to_string_lossy()}).to_string();
-        let result = execute_openai_tool("read_file", &args, None);
+        let result = execute_openai_tool("read_file", &args, None, None);
         assert!(result.contains("hello from test"));
 
         std::fs::remove_file(&path).ok();
@@ -86,7 +86,7 @@ mod tests {
         let path = dir.join("openai_compat_test_write.txt");
 
         let args = serde_json::json!({"path": path.to_string_lossy(), "content": "written by test"}).to_string();
-        let result = execute_openai_tool("write_file", &args, None);
+        let result = execute_openai_tool("write_file", &args, None, None);
         assert!(result.contains("Successfully wrote"));
 
         let content = std::fs::read_to_string(&path).unwrap();
@@ -104,7 +104,7 @@ mod tests {
         let args =
             serde_json::json!({"path": path.to_string_lossy(), "old_string": "bar", "new_string": "qux"})
                 .to_string();
-        let result = execute_openai_tool("edit_file", &args, None);
+        let result = execute_openai_tool("edit_file", &args, None, None);
         assert!(result.contains("Successfully edited"));
 
         let content = std::fs::read_to_string(&path).unwrap();
@@ -116,14 +116,14 @@ mod tests {
     #[test]
     fn test_execute_openai_tool_list_directory() {
         let args = serde_json::json!({"path": "."}).to_string();
-        let result = execute_openai_tool("list_directory", &args, None);
+        let result = execute_openai_tool("list_directory", &args, None, None);
         // Should return something (at least Cargo.toml or src/)
         assert!(!result.is_empty());
     }
 
     #[test]
     fn test_execute_openai_tool_unknown() {
-        let result = execute_openai_tool("nonexistent_tool", "{}", None);
+        let result = execute_openai_tool("nonexistent_tool", "{}", None, None);
         assert!(result.contains("Unknown tool"));
     }
 
