@@ -51,10 +51,11 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ content, isStreami
         onClick={() => setIsOpen(!isOpen)}
         className="flex w-full items-center gap-2 bg-muted px-3 py-2 text-left transition-colors hover:bg-accent"
       >
-        {!!isStreaming && (
-          <span className="inline-block h-3 w-3 flex-shrink-0 animate-spin rounded-full border-2 border-foreground/50 border-t-transparent" />
-        )}
-        <span className="flex-1 text-xs font-medium text-foreground">{thinkingLabel}</span>
+        <span
+          className={`flex-1 text-xs font-medium ${isStreaming ? 'shimmer-text' : 'text-foreground'}`}
+        >
+          {thinkingLabel}
+        </span>
         {!!isOpen && <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 text-foreground" />}
         {!isOpen && <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-foreground" />}
       </button>

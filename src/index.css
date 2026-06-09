@@ -173,6 +173,63 @@
   animation: flat-pulse 1.5s ease-in-out infinite;
 }
 
+/* Token fade-in: newly arrived text materialises over 320ms */
+@keyframes tokenFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.token-fade-in {
+  animation: tokenFadeIn 0.32s ease-out forwards;
+}
+
+/* Blinking inline cursor shown during stream idle gaps */
+@keyframes cursorBlink {
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 0.1;
+  }
+}
+.streaming-cursor::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+  height: 0.8em;
+  background-color: currentColor;
+  vertical-align: text-bottom;
+  margin-left: 2px;
+  animation: cursorBlink 0.65s ease-in-out infinite;
+}
+
+/* Shimmer sweep for the "Thinking…" label */
+@keyframes shimmer {
+  0% {
+    background-position: -200% center;
+  }
+  100% {
+    background-position: 200% center;
+  }
+}
+.shimmer-text {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--foreground) / 0.35) 0%,
+    hsl(var(--foreground) / 1) 50%,
+    hsl(var(--foreground) / 0.35) 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 1.3s linear infinite;
+}
+
 /* Global scrollbar styling with primary color */
 *::-webkit-scrollbar {
   width: 8px;

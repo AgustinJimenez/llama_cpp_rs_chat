@@ -292,3 +292,16 @@ export function extractPartialToolName(tail: string): string | null {
   if (m?.[1]?.trim()) return m[1].trim();
   return null;
 }
+
+/**
+ * Wrap prefill-mode thinking: some models (e.g. Qwen3) inject the opening
+ * `<think>` tag via the chat template rather than emitting it as a token,
+ * so the raw stream begins with thought text followed by `</think>` with no
+ * preceding `<think>`.  This function normalises that to the standard form.
+ */
+export function wrapPrefillThinking(c: string): string {
+  const ci = c.indexOf('</think>');
+  const oi = c.indexOf('<think>');
+  if (ci === -1 || (oi !== -1 && oi <= ci)) return c;
+  return `<think>${c.slice(0, ci)}</think>${c.slice(ci + '</think>'.length)}`;
+}

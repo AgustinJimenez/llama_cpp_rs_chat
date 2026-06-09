@@ -8,6 +8,7 @@ import type { Message, ToolCall } from '../../types';
 import { LoadingIndicator } from '../atoms';
 import { MarkdownContent } from '../molecules/MarkdownContent';
 import { CompactionSummary, ThinkingBlock, ToolCallBlock } from '../molecules/messages';
+import { StreamingText } from '../molecules/messages/StreamingText';
 
 const MIN_VALID_TIMESTAMP_MS = 1_000_000_000_000;
 
@@ -431,16 +432,13 @@ const AssistantMessage: React.FC<{
                 // Text segment — no bubble, just text on background
                 const text = segment.content;
                 if (!text.trim()) return null;
+                const isLastTextSeg = index === segments.length - 1;
+                const segStreaming = isLastTextSeg ? isStreaming : undefined;
                 const textContent =
                   viewMode === 'markdown' ? (
                     <MarkdownContent content={text} testId="message-content" />
                   ) : (
-                    <p
-                      className="whitespace-pre-wrap text-sm leading-relaxed"
-                      data-testid="message-content"
-                    >
-                      {text}
-                    </p>
+                    <StreamingText content={text} isStreaming={segStreaming} />
                   );
                 return <div key={`seg-txt-${index}`}>{textContent}</div>;
               },
