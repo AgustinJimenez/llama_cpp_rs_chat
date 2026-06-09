@@ -254,6 +254,15 @@ pub fn kill_all_session_processes() {
     let _ = conn.execute("DELETE FROM background_processes WHERE session_id = ?1", [&session_id]);
 }
 
+/// Get all buffered output lines for a given background process PID.
+/// Returns `None` if the PID is not tracked.
+pub fn get_process_output(pid: u32) -> Option<Vec<String>> {
+    let procs = BACKGROUND_PROCESSES.lock().ok()?;
+    let proc = procs.iter().find(|p| p.pid == pid)?;
+    let buf = proc.output_buffer.lock().ok()?;
+    Some(buf.clone())
+}
+
 /// List all tracked background processes (in-memory + DB orphans).
 pub fn list_all_background_processes() -> Vec<(u32, String, bool, String)> {
     let mut result = Vec::new();

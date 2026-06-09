@@ -624,6 +624,19 @@ pub async fn handle_background_processes(db: SharedDatabase) -> Result<Response<
     Ok(json_response(StatusCode::OK, &result))
 }
 
+pub async fn handle_process_output(pid: u32) -> Result<Response<Body>, Infallible> {
+    let lines = tokio::task::spawn_blocking(move || {
+        llama_chat_command::get_process_output(pid)
+    })
+    .await
+    .unwrap_or(None);
+
+    match lines {
+        Some(lines) => Ok(json_response(StatusCode::OK, &serde_json::json!({ "pid": pid, "lines": lines }))),
+        None => Ok(json_error(StatusCode::NOT_FOUND, &format!("No tracked process with PID {pid}"))),
+    }
+}
+
 pub async fn handle_kill_process(
     req: Request<Body>,
     db: SharedDatabase,

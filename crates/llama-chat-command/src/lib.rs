@@ -8,6 +8,7 @@ mod parsing;
 mod execution;
 mod output;
 pub mod background;
+pub use background::get_process_output;
 mod utils;
 
 #[allow(unused_imports)]

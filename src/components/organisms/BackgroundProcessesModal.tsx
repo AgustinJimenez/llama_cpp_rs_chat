@@ -1,8 +1,10 @@
-import { Terminal, X, Trash2 } from 'lucide-react';
-import React, { useState, useEffect, useCallback } from 'react';
+import { Terminal, X, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 const SECONDS_PER_HOUR = 3600;
 const MODAL_POLL_INTERVAL_MS = 3000;
+const OUTPUT_POLL_INTERVAL_MS = 2000;
+const SCROLL_BOTTOM_THRESHOLD_PX = 40;
 
 import { getBackgroundProcesses, killBackgroundProcess } from '../../utils/tauriCommands';
 import type { BackgroundProcessInfo } from '../../utils/tauriCommands';
@@ -39,12 +41,73 @@ function truncateCommand(cmd: string, maxLen = 60): string {
   return cmd.length > maxLen ? `${cmd.slice(0, maxLen)}…` : cmd;
 }
 
+const ProcessOutputPanel = ({ pid, alive }: { pid: number; alive: boolean }) => {
+  const [lines, setLines] = useState<string[]>([]);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const [autoScroll, setAutoScroll] = useState(true);
+
+  const fetchOutput = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/system/processes/${pid}/output`);
+      if (!res.ok) return;
+      const data = (await res.json()) as { lines: string[] };
+      setLines(data.lines ?? []);
+    } catch {
+      // silent
+    }
+  }, [pid]);
+
+  useEffect(() => {
+    fetchOutput();
+    if (!alive) return;
+    const id = setInterval(fetchOutput, OUTPUT_POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [fetchOutput, alive]);
+
+  useEffect(() => {
+    if (autoScroll) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [lines, autoScroll]);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_BOTTOM_THRESHOLD_PX;
+    setAutoScroll(atBottom);
+  };
+
+  if (lines.length === 0) {
+    return (
+      <div className="mt-2 rounded bg-black/40 px-3 py-2 text-xs text-muted-foreground">
+        No output captured yet.
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="mt-2 max-h-52 overflow-y-auto rounded bg-black/40 px-3 py-2 font-mono text-xs text-green-300"
+      onScroll={handleScroll}
+    >
+      {/* eslint-disable react/no-array-index-key */}
+      {lines.map((line, i) => (
+        <div key={i} className="whitespace-pre-wrap break-all leading-relaxed">
+          {line}
+        </div>
+      ))}
+      {/* eslint-enable react/no-array-index-key */}
+      <div ref={bottomRef} />
+    </div>
+  );
+};
+
 export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> = ({
   isOpen,
   onClose,
 }) => {
   const [processes, setProcesses] = useState<BackgroundProcessInfo[]>([]);
   const [killing, setKilling] = useState<Set<number>>(new Set());
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
   const refresh = useCallback(async () => {
     try {
@@ -89,7 +152,89 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
     }
   };
 
+  const toggleExpanded = (pid: number) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(pid)) next.delete(pid);
+      else next.add(pid);
+      return next;
+    });
+  };
+
   const aliveCount = processes.filter((p) => p.alive).length;
+
+  const processList =
+    processes.length > 0
+      ? processes.map((proc) => {
+          const isExpanded = expanded.has(proc.pid);
+          const expandTitle = isExpanded ? 'Hide output' : 'Show output';
+          const expandIcon = isExpanded ? (
+            <ChevronDown className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5" />
+          );
+          const statusBadge = proc.alive ? (
+            <span className="inline-flex items-center gap-1 text-green-400">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-400" />
+              alive
+            </span>
+          ) : (
+            <span className="text-red-400">exited</span>
+          );
+          const killButton = proc.alive ? (
+            <button
+              onClick={() => handleKill(proc.pid)}
+              disabled={killing.has(proc.pid)}
+              className="flex-shrink-0 rounded-md p-1.5 text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+              title="Kill process"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          ) : null;
+          const outputPanel = isExpanded ? (
+            <ProcessOutputPanel pid={proc.pid} alive={proc.alive} />
+          ) : null;
+          return (
+            <div key={proc.pid} className="rounded-lg bg-muted/50 px-3 py-2 text-sm">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => toggleExpanded(proc.pid)}
+                  className="flex-shrink-0 text-muted-foreground hover:text-foreground"
+                  title={expandTitle}
+                >
+                  {expandIcon}
+                </button>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-mono text-xs" title={proc.command}>
+                    {truncateCommand(proc.command)}
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>PID {proc.pid}</span>
+                    <span>·</span>
+                    <span>{formatElapsed(proc.startedAt)}</span>
+                    {statusBadge}
+                  </div>
+                </div>
+                {killButton}
+              </div>
+              {outputPanel}
+            </div>
+          );
+        })
+      : null;
+
+  const killAllButton =
+    aliveCount > 1 ? (
+      <div className="flex justify-end pt-1">
+        <button
+          onClick={handleKillAll}
+          className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          Kill All
+        </button>
+      </div>
+    ) : null;
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -104,60 +249,16 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
           </DialogDescription>
         </DialogHeader>
 
-        <div className="max-h-[50vh] space-y-2 overflow-y-auto py-2">
+        <div className="max-h-[70vh] space-y-2 overflow-y-auto py-2">
           {processes.length === 0 && (
             <p className="py-6 text-center text-sm text-muted-foreground">
               No background processes running
             </p>
           )}
-          {processes.length > 0 &&
-            processes.map((proc) => (
-              <div
-                key={proc.pid}
-                className="flex items-center gap-3 rounded-lg bg-muted/50 px-3 py-2 text-sm"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-mono text-xs" title={proc.command}>
-                    {truncateCommand(proc.command)}
-                  </div>
-                  <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
-                    <span>PID {proc.pid}</span>
-                    <span>·</span>
-                    <span>{formatElapsed(proc.startedAt)}</span>
-                    {!!proc.alive && (
-                      <span className="inline-flex items-center gap-1 text-green-400">
-                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-400" />
-                        alive
-                      </span>
-                    )}
-                    {!proc.alive && <span className="text-red-400">exited</span>}
-                  </div>
-                </div>
-                {!!proc.alive && (
-                  <button
-                    onClick={() => handleKill(proc.pid)}
-                    disabled={killing.has(proc.pid)}
-                    className="flex-shrink-0 rounded-md p-1.5 text-foreground transition-colors hover:bg-accent disabled:opacity-50"
-                    title="Kill process"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-            ))}
+          {processList}
         </div>
 
-        {aliveCount > 1 && (
-          <div className="flex justify-end pt-1">
-            <button
-              onClick={handleKillAll}
-              className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Kill All
-            </button>
-          </div>
-        )}
+        {killAllButton}
       </DialogContent>
     </Dialog>
   );
