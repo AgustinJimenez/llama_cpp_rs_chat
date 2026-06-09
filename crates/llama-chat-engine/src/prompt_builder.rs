@@ -22,11 +22,16 @@ pub const WARMUP_CONVERSATION_ID: &str = "__warmup__";
 pub fn warmup_system_prompt(
     llama_state: SharedLlamaState,
     db: &llama_chat_db::Database,
+    agent_id: Option<&str>,
 ) -> Result<(), String> {
-    use llama_chat_config::load_config;
+    use llama_chat_config::{load_config, db_config_to_sampler_config};
     use crate::config_ext::get_resolved_system_prompt;
 
-    let config = load_config(db);
+    let config = if let Some(id) = agent_id {
+        db_config_to_sampler_config(&db.load_config_for_agent(id))
+    } else {
+        load_config(db)
+    };
     let system_prompt = get_resolved_system_prompt(db, &Some(llama_state.clone()));
 
     let system_prompt = match system_prompt {

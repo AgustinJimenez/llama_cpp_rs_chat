@@ -103,7 +103,7 @@ impl WorkerPool {
     }
 
     pub async fn spawn_worker(&self, model_path: &str) -> Result<WorkerId, String> {
-        self.spawn_worker_with_options(model_path, None, None).await
+        self.spawn_worker_with_options(model_path, None, None, None).await
     }
 
     pub async fn spawn_worker_with_options(
@@ -111,13 +111,14 @@ impl WorkerPool {
         model_path: &str,
         gpu_layers: Option<u32>,
         mmproj_path: Option<String>,
+        agent_id: Option<String>,
     ) -> Result<WorkerId, String> {
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let worker_id = format!("w{}", &suffix[..8]);
 
         let pm = Arc::new(ProcessManager::spawn(&self.db_path)?);
         let bridge = Arc::new(WorkerBridge::new(pm));
-        if let Err(e) = bridge.load_model(model_path, gpu_layers, mmproj_path).await {
+        if let Err(e) = bridge.load_model(model_path, gpu_layers, mmproj_path, agent_id).await {
             bridge.kill();
             return Err(e);
         }
@@ -217,7 +218,7 @@ impl WorkerPool {
         mmproj_path: Option<String>,
     ) -> Result<WorkerId, String> {
         let worker_id = self
-            .spawn_worker_with_options(model_path, gpu_layers, mmproj_path)
+            .spawn_worker_with_options(model_path, gpu_layers, mmproj_path, Some(agent_id.to_string()))
             .await?;
         self.bind_agent_worker(agent_id, worker_id.clone())?;
         Ok(worker_id)
@@ -279,9 +280,10 @@ impl WorkerPool {
         model_path: &str,
         gpu_layers: Option<u32>,
         mmproj_path: Option<String>,
+        agent_id: Option<String>,
     ) -> Result<WorkerId, String> {
         let worker_id = self
-            .spawn_worker_with_options(model_path, gpu_layers, mmproj_path)
+            .spawn_worker_with_options(model_path, gpu_layers, mmproj_path, agent_id)
             .await?;
         self.bind_conversation_worker(conversation_id, worker_id.clone())?;
         Ok(worker_id)
@@ -349,6 +351,7 @@ pub async fn resolve_bridge_for_conversation(
                                         model_path,
                                         gpu_layers,
                                         None,
+                                        Some(agent_id.clone()),
                                     )
                                     .await
                                 {
@@ -373,6 +376,7 @@ pub async fn resolve_bridge_for_conversation(
                                 model_path,
                                 gpu_layers,
                                 None,
+                                Some(agent_id.clone()),
                             )
                             .await
                         {
@@ -394,6 +398,39 @@ pub async fn resolve_bridge_for_conversation(
     // 4 & 5. Legacy conversation worker_id or default.
     let worker_id = conversation_id.and_then(|id| lookup_worker_id_for_conversation(db, id));
     pool.get_or_default(worker_id.as_deref())
+        .ok_or_else(|| "No worker bridge available".to_string())
+}
+
+/// Resolve the worker bridge for a new or existing request.
+///
+/// For new conversations (`conversation_id` is None), routes by `agent_id` first
+/// (to the agent's global worker), then falls back to `requested_worker_id`, then default.
+/// For existing conversations, delegates to `resolve_bridge_for_conversation`.
+pub async fn resolve_bridge_for_request(
+    pool: &WorkerPool,
+    db: &SharedDatabase,
+    conversation_id: Option<&str>,
+    requested_worker_id: Option<&str>,
+    agent_id: Option<&str>,
+) -> Result<SharedWorkerBridge, String> {
+    if let Some(conversation_id) = conversation_id {
+        return resolve_bridge_for_conversation(pool, db, Some(conversation_id)).await;
+    }
+
+    // New conversation: if a local agent is specified, use its global worker.
+    if let Some(aid) = agent_id.map(str::trim).filter(|id| !id.is_empty()) {
+        if let Some(worker_id) = pool.get_worker_for_agent(aid) {
+            if let Some(bridge) = pool.get(&worker_id) {
+                return Ok(bridge);
+            }
+        }
+    }
+
+    let worker_id = requested_worker_id
+        .map(str::trim)
+        .filter(|id| !id.is_empty() && *id != "default");
+
+    pool.get_or_default(worker_id)
         .ok_or_else(|| "No worker bridge available".to_string())
 }
 

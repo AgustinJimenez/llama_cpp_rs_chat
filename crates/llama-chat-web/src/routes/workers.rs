@@ -105,6 +105,7 @@ pub async fn handle_create_worker(
             &create.model_path,
             create.gpu_layers,
             create.mmproj_path,
+            None,
         )
         .await
     {

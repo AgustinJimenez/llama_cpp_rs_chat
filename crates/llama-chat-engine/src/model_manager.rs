@@ -46,6 +46,7 @@ pub fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
                         context_size: None,
                         last_finish_reason: None,
                         supports_thinking: None,
+                        is_agent_model: None,
                     }
                 }
                 None => ModelStatus {
@@ -66,6 +67,7 @@ pub fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
             context_size: None,
             last_finish_reason: None,
             supports_thinking: None,
+            is_agent_model: None,
                 },
             }
         }
@@ -87,6 +89,7 @@ pub fn get_model_status(llama_state: &SharedLlamaState) -> ModelStatus {
             context_size: None,
             last_finish_reason: None,
             supports_thinking: None,
+            is_agent_model: None,
         },
     }
 }

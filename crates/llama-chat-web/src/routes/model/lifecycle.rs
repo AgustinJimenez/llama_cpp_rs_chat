@@ -50,6 +50,7 @@ pub async fn handle_post_model_load(
                 &load_request.model_path,
                 load_request.gpu_layers,
                 load_request.mmproj_path,
+                None,
             )
             .await
         {
@@ -75,6 +76,7 @@ pub async fn handle_post_model_load(
                     context_size: None,
                     last_finish_reason: None,
                     supports_thinking: Some(meta.supports_thinking),
+                    is_agent_model: None,
                 };
                 let response = ModelResponse {
                     success: true,
@@ -109,7 +111,7 @@ pub async fn handle_post_model_load(
 
     #[cfg(feature = "mock")]
     {
-        let _ = req;
+        let _ = (req, &db);
         Ok(json_raw(
             StatusCode::SERVICE_UNAVAILABLE,
             r#"{"success":false,"message":"Model loading not available (mock feature enabled)"}"#
@@ -145,6 +147,7 @@ pub async fn handle_post_model_unload(
                     context_size: None,
                     last_finish_reason: None,
                     supports_thinking: None,
+                    is_agent_model: None,
                 };
                 let response = ModelResponse {
                     success: true,

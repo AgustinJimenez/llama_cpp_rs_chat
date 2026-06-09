@@ -60,6 +60,8 @@ async fn handle_request_impl(
 
     #[cfg(feature = "mock")]
     let bridge = ();
+    #[cfg(feature = "mock")]
+    let pool = ();
 
     let response = match (&method, path.as_str()) {
         // Health check
@@ -73,6 +75,18 @@ async fn handle_request_impl(
         (&Method::GET, "/api/system/usage") => web::routes::system::handle_system_usage().await?,
         (&Method::GET, "/api/system/processes") => {
             web::routes::system::handle_background_processes(db.clone()).await?
+        }
+        (&Method::GET, path)
+            if path.starts_with("/api/system/processes/") && path.ends_with("/output") =>
+        {
+            let pid_str = &path["/api/system/processes/".len()..path.len() - "/output".len()];
+            match pid_str.parse::<u32>() {
+                Ok(pid) => web::routes::system::handle_process_output(pid).await?,
+                Err(_) => Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .body(Body::from("Invalid PID"))
+                    .unwrap(),
+            }
         }
         (&Method::POST, "/api/system/processes/kill") => {
             web::routes::system::handle_kill_process(req, db.clone()).await?
@@ -350,7 +364,7 @@ async fn handle_request_impl(
         }
 
         (&Method::GET, "/api/model/status") => {
-            web::routes::model::handle_get_model_status(bridge.clone(), db.clone()).await?
+            web::routes::model::handle_get_model_status(pool.clone(), db.clone()).await?
         }
 
         (&Method::GET, "/api/model/history") => {

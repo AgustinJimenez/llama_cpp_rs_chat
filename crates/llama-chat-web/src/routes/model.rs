@@ -14,13 +14,17 @@ use llama_chat_engine::filename_patterns::{detect_architecture, detect_parameter
 use llama_chat_engine::gguf_utils::{
     value_to_display_string, MetadataExtractor,
 };
+#[cfg(not(feature = "mock"))]
 use llama_chat_engine::get_tool_tags_for_model;
+#[cfg(not(feature = "mock"))]
 use llama_chat_types::models::{ModelLoadRequest, ModelResponse};
 use crate::request_parsing::parse_json_body;
 use crate::response_helpers::{json_error, json_raw, serialize_with_fallback};
 
 #[cfg(not(feature = "mock"))]
 use llama_chat_worker::worker::worker_bridge::SharedWorkerBridge;
+#[cfg(not(feature = "mock"))]
+use crate::worker_pool::WorkerPool;
 
 mod backend_install;
 mod helpers;
@@ -277,12 +281,51 @@ pub async fn handle_get_model_info(
 }
 
 pub async fn handle_get_model_status(
-    #[cfg(not(feature = "mock"))] bridge: SharedWorkerBridge,
-    #[cfg(feature = "mock")] _bridge: (),
+    #[cfg(not(feature = "mock"))] pool: WorkerPool,
+    #[cfg(feature = "mock")] _pool: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     #[cfg(not(feature = "mock"))]
     {
+        // Select the best bridge: prefer any non-default worker with a loaded/generating model.
+        // Checks global agent workers (Activate button) first, then per-conversation overflow
+        // workers (lazy-spawned when an agent is staged but not activated).
+        // Falls back to the default worker when no other worker is active.
+        let (bridge, is_agent_model, active_agent_id): (SharedWorkerBridge, bool, Option<String>) = {
+            let mut chosen: Option<(SharedWorkerBridge, Option<String>)> = None;
+
+            // 1. Global agent workers (from Activate button)
+            for (agent_id, worker_id) in pool.list_agent_bindings() {
+                if let Some(b) = pool.get(&worker_id) {
+                    let loaded = b.model_status().await.map(|m| m.loaded).unwrap_or(false);
+                    if loaded || b.is_generating().await {
+                        chosen = Some((b, Some(agent_id)));
+                        break;
+                    }
+                }
+            }
+
+            // 2. Per-conversation overflow workers (lazy-spawned agents)
+            if chosen.is_none() {
+                for (conv_id, worker_id) in pool.list_conversation_workers() {
+                    if let Some(b) = pool.get(&worker_id) {
+                        let loaded = b.model_status().await.map(|m| m.loaded).unwrap_or(false);
+                        if loaded || b.is_generating().await {
+                            // Resolve agent_id for this conversation's overflow worker
+                            let agent_id = db.get_conversation_agent_id(&conv_id).ok().flatten();
+                            chosen = Some((b, agent_id));
+                            break;
+                        }
+                    }
+                }
+            }
+
+            match chosen {
+                Some((b, agent_id)) => (b, true, agent_id),
+                None => (pool.get("default").expect("Default worker missing"), false, None),
+            }
+        };
+
         // Get model status from worker bridge cached metadata (no IPC round-trip)
         let is_loading = bridge.is_loading();
         let is_generating = bridge.is_generating().await;
@@ -315,9 +358,12 @@ pub async fn handle_get_model_status(
                     None
                 };
                 let lp = if is_loading { Some(bridge.loading_progress()) } else { None };
-                // Get effective context size: config override or model's native context length
+                // Get effective context size: prefer agent config, then global config, then model native.
+                let agent_context_size = active_agent_id.as_deref()
+                    .and_then(|id| db.get_agent(id).ok().flatten())
+                    .and_then(|a| a.context_size);
                 let config = llama_chat_config::load_config(&db);
-                let context_size = config.context_size.or(meta.context_length);
+                let context_size = agent_context_size.or(config.context_size).or(meta.context_length);
                 llama_chat_types::models::ModelStatus {
                     loaded: meta.loaded,
                     loading: if is_loading { Some(true) } else { None },
@@ -336,6 +382,7 @@ pub async fn handle_get_model_status(
                     context_size,
                     last_finish_reason: last_finish_reason.clone(),
                     supports_thinking: if meta.loaded { Some(meta.supports_thinking) } else { None },
+                    is_agent_model: if is_agent_model { Some(true) } else { None },
                 }
             }
             None => {
@@ -366,6 +413,7 @@ pub async fn handle_get_model_status(
                     context_size: None,
                     last_finish_reason: last_finish_reason.clone(),
                     supports_thinking: None,
+                    is_agent_model: if is_agent_model { Some(true) } else { None },
                 }
             },
         };
@@ -391,6 +439,7 @@ pub async fn handle_get_model_status(
 
     #[cfg(feature = "mock")]
     {
+        let _ = &db;
         Ok(json_raw(
             StatusCode::OK,
             default_model_status_json(),
