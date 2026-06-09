@@ -5,6 +5,7 @@ import { toast } from 'react-hot-toast';
 
 const CLOUD_POLL_INTERVAL_MS = 2000;
 
+import { useAgentContext } from '../contexts/AgentContext';
 import type { Message } from '../types';
 import { createChatTransport } from '../utils/chatTransport';
 import type { TimingInfo } from '../utils/chatTransport';
@@ -23,6 +24,7 @@ const AUTO_CONTINUE_REASONS = new Set(['length', 'yn_continue', 'loop_recovery',
 export function useChat() {
   const { connected } = useConnection();
   const connectedRef = useRef(connected);
+  const { stagedAgent } = useAgentContext();
   // eslint-disable-next-line react-hooks/refs
   connectedRef.current = connected;
 
@@ -292,6 +294,8 @@ export function useChat() {
       ]);
       setIsLoading(true);
       setError(null);
+      setTokensUsed(undefined);
+      setMaxTokens(undefined);
 
       const assistantMessageId = crypto.randomUUID();
 
@@ -311,16 +315,26 @@ export function useChat() {
         }, NEW_CONV_SIDEBAR_DELAY_MS);
       }
 
+      const agentId =
+        !currentConversationId && stagedAgent?.provider_id === 'local' ? stagedAgent.id : undefined;
       await startGeneration(
         {
           prompt: trimmed,
           conversationId: currentConversationId,
+          agentId,
           imageData: hasImages ? imageData : undefined,
         },
         assistantMessageId,
       );
     },
-    [isLoading, currentConversationId, startGeneration, resetAutoContinue, abortControllerRef],
+    [
+      isLoading,
+      currentConversationId,
+      stagedAgent,
+      startGeneration,
+      resetAutoContinue,
+      abortControllerRef,
+    ],
   );
 
   // ─── URL persistence + watcher ─────────────────────────────────────────

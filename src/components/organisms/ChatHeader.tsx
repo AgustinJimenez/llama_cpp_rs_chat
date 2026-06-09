@@ -75,6 +75,7 @@ const AgentPicker = () => {
     fetchAgentStatuses,
   } = useAgentContext();
   const { currentConversationId } = useChatContext();
+  const { isLoading: isModelLoading } = useModelContext();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -144,11 +145,13 @@ const AgentPicker = () => {
   );
   const pickerLabel = busy ? 'Loading…' : (activeAgent?.name ?? 'No agent');
 
+  if (agents.length === 0) return null;
+
   return (
     <div ref={ref} className="relative hidden sm:block">
       <button
         onClick={() => setOpen((v) => !v)}
-        disabled={busy}
+        disabled={busy || isModelLoading}
         className={`flex max-w-[180px] items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors hover:bg-muted disabled:opacity-50 ${activeAgent ? 'border-border/80 bg-muted/50 text-foreground' : 'border-border/60 bg-muted/35 text-muted-foreground hover:text-foreground'}`}
         title={pickerTitle}
       >
@@ -215,9 +218,7 @@ const HeaderAgentControls = ({
   const remoteProviderLabel = getProviderLabel(activeProvider);
 
   const currentModelPath =
-    activeProvider !== 'local'
-      ? `${remoteProviderLabel} (${activeProviderModel})`
-      : (status.model_path ?? undefined);
+    activeProvider !== 'local' ? `${remoteProviderLabel} (${activeProviderModel})` : undefined;
 
   return (
     <>

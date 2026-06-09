@@ -110,6 +110,8 @@ interface AgentContextValue {
   deleteAgent: (id: string) => Promise<void>;
   /** Live status for each agent (idle / active / generating). */
   agentStatuses: Record<string, AgentStatus>;
+  /** ID of the agent currently being activated (worker spinning up), or null. */
+  activatingAgentId: string | null;
   fetchAgentStatuses: () => Promise<void>;
   activateAgent: (id: string) => Promise<void>;
   stopAgent: (id: string) => Promise<void>;
@@ -122,6 +124,7 @@ export const AgentProvider = ({ children }: { children: ReactNode }) => {
   const [activeConversationAgent, setActiveConversationAgent] = useState<Agent | null>(null);
   const [stagedAgent, setStagedAgent] = useState<Agent | null>(null);
   const [agentStatuses, setAgentStatuses] = useState<Record<string, AgentStatus>>({});
+  const [activatingAgentId, setActivatingAgentId] = useState<string | null>(null);
 
   const loadAgents = useCallback(async () => {
     const list = await listAgentsRequest();
@@ -181,6 +184,7 @@ export const AgentProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const activateAgent = useCallback(async (id: string) => {
+    setActivatingAgentId(id);
     setAgentStatuses((prev) => ({ ...prev, [id]: { status: 'active' } }));
     try {
       const result = await activateAgentRequest(id);
@@ -188,6 +192,8 @@ export const AgentProvider = ({ children }: { children: ReactNode }) => {
     } catch (err) {
       setAgentStatuses((prev) => ({ ...prev, [id]: { status: 'idle' } }));
       throw err;
+    } finally {
+      setActivatingAgentId((prev) => (prev === id ? null : prev));
     }
   }, []);
 
@@ -209,6 +215,7 @@ export const AgentProvider = ({ children }: { children: ReactNode }) => {
       updateAgent,
       deleteAgent,
       agentStatuses,
+      activatingAgentId,
       fetchAgentStatuses,
       activateAgent,
       stopAgent,
@@ -225,6 +232,7 @@ export const AgentProvider = ({ children }: { children: ReactNode }) => {
       updateAgent,
       deleteAgent,
       agentStatuses,
+      activatingAgentId,
       fetchAgentStatuses,
       activateAgent,
       stopAgent,

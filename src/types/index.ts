@@ -38,6 +38,8 @@ export interface ToolTags {
 export interface ChatRequest {
   message: string;
   conversation_id?: string;
+  /** Agent ID to use for new conversations (no conversation_id yet). */
+  agent_id?: string;
   /** Base64-encoded image data URIs for vision models. */
   image_data?: string[];
   tool_tags?: ToolTags;

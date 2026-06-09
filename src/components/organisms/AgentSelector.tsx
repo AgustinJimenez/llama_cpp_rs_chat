@@ -547,7 +547,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
           flash_attention: localConfig.flash_attention,
           cache_type_k: localConfig.cache_type_k,
           cache_type_v: localConfig.cache_type_v,
-          gpu_layers: localConfig.gpu_layers,
+          main_gpu: localConfig.gpu_layers,
           ...(localConfig.thinking_mode !== undefined
             ? { thinking_mode: localConfig.thinking_mode }
             : {}),
@@ -568,7 +568,6 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
             : {}),
           ...(localConfig.use_mlock !== undefined ? { use_mlock: localConfig.use_mlock } : {}),
           ...(localConfig.use_mmap !== undefined ? { use_mmap: localConfig.use_mmap } : {}),
-          ...(localConfig.main_gpu !== undefined ? { main_gpu: localConfig.main_gpu } : {}),
           ...(localConfig.split_mode ? { split_mode: localConfig.split_mode } : {}),
           ...(mmprojEnabled && mmprojPath ? { mmproj_path: mmprojPath } : {}),
           ...(execPair

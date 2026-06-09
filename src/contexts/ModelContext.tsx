@@ -28,6 +28,7 @@ interface ModelStatus {
   tool_definitions_tokens?: number;
   context_size?: number;
   supports_thinking?: boolean;
+  is_agent_model?: boolean;
 }
 
 // eslint-disable-next-line @typescript-eslint/ban-types

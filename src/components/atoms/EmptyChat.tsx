@@ -2,6 +2,7 @@ import { Download, Bot, Loader2, X, CheckCircle } from 'lucide-react';
 import React, { useCallback, useEffect, useState } from 'react';
 
 import { useAgentContext } from '../../contexts/AgentContext';
+import { useChatContext } from '../../contexts/ChatContext';
 import { useModelContext } from '../../contexts/ModelContext';
 import { useUIContext } from '../../hooks/useUIContext';
 import { getProviderLabel } from '../../utils/providerLabels';
@@ -25,7 +26,12 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
     activeProviderModel,
   } = useModelContext();
   const { openAgentSelector } = useUIContext();
-  const { stagedAgent } = useAgentContext();
+  const { currentConversationId } = useChatContext();
+  const { conversationAgent, stagedAgent, activatingAgentId, activateAgent } = useAgentContext();
+  // Mirror AgentPicker: for an existing conversation use conversationAgent, otherwise stage.
+  const activeAgent = currentConversationId
+    ? conversationAgent
+    : (conversationAgent ?? stagedAgent);
   const remoteProviderLabel = getProviderLabel(activeProvider);
   const remoteHeading = `${remoteProviderLabel} (${activeProviderModel})`;
 
@@ -91,9 +97,8 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
       });
   }, []);
 
-  // Show loading here only when the header is hidden (model not yet loaded).
-  // When status.loaded is true, the header is visible and its ModelSelector handles loading/unloading state — only one indicator at a time.
-  if (isLoading && !status.loaded) {
+  // Hide input whenever loading — covers both initial load and switching models/agents.
+  if (isLoading) {
     const progress = status.loading_progress;
     const isWarmup = loadingAction === 'loading' && progress != null && progress > 100;
     const hasProgress =
@@ -139,7 +144,7 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
     );
   }
 
-  if ((status.loaded && modelName) || activeProvider !== 'local') {
+  if (activeProvider !== 'local' || (status.loaded && modelName && !status.is_agent_model)) {
     const headingText = activeProvider !== 'local' ? remoteHeading : modelName;
     return (
       <div className="flex flex-1 flex-col items-center justify-center">
@@ -150,20 +155,40 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
   }
 
   // Remote agent selected — model not needed, show agent name and input
-  if (stagedAgent && stagedAgent.provider_id !== 'local') {
+  if (activeAgent && activeAgent.provider_id !== 'local') {
     return (
       <div className="flex flex-1 flex-col items-center justify-center">
-        <h2 className="mb-6 text-xl font-semibold">{stagedAgent.name}</h2>
+        <h2 className="mb-6 text-xl font-semibold">{activeAgent.name}</h2>
         {children}
       </div>
     );
   }
 
-  // Local agent selected but model not yet loaded — show name without input
-  if (stagedAgent) {
+  // Local agent selected — show name with input (disabled until agent worker is ready)
+  if (activeAgent) {
+    const agentActivating = activatingAgentId === activeAgent.id;
+    const agentStopped =
+      !agentActivating && activeAgent.provider_id === 'local' && !status.loaded && !isLoading;
+    let agentContent;
+    if (agentActivating) {
+      agentContent = <Loader2 className="h-6 w-6 animate-spin text-foreground" />;
+    } else if (agentStopped) {
+      agentContent = (
+        <button
+          type="button"
+          onClick={() => activateAgent(activeAgent.id)}
+          className="rounded-md border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          Start agent
+        </button>
+      );
+    } else {
+      agentContent = children;
+    }
     return (
       <div className="flex flex-1 flex-col items-center justify-center">
-        <h2 className="mb-6 text-xl font-semibold">{stagedAgent.name}</h2>
+        <h2 className="mb-6 text-xl font-semibold">{activeAgent.name}</h2>
+        {agentContent}
       </div>
     );
   }
