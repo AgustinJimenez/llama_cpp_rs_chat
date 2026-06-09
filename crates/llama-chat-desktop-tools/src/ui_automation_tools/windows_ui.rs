@@ -275,6 +275,7 @@ pub(crate) fn invalidate_ui_element_cache(hwnd: isize) {
 }
 
 #[cfg(not(windows))]
+#[allow(dead_code)]
 pub(crate) fn invalidate_ui_element_cache(_hwnd: isize) {}
 
 #[cfg(windows)]

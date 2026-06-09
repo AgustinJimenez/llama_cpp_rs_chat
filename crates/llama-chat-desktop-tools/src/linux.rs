@@ -492,6 +492,7 @@ pub fn is_window_blocked(_hwnd: HWND) -> Option<HWND> {
 
 pub fn find_child_window(_parent: HWND, _class_name: &str) -> HWND { 0 }
 
+#[allow(non_snake_case)]
 pub unsafe fn GetForegroundWindow() -> HWND {
     run_cmd("xdotool", &["getactivewindow"])
         .ok()
@@ -499,12 +500,15 @@ pub unsafe fn GetForegroundWindow() -> HWND {
         .unwrap_or(0) as HWND
 }
 
+#[allow(non_snake_case)]
 pub unsafe fn SetWindowPos(hwnd: HWND, _insert_after: HWND, x: i32, y: i32, cx: i32, cy: i32, _flags: u32) -> BOOL {
     if resize_window(hwnd, Some(x), Some(y), Some(cx), Some(cy)) { 1 } else { 0 }
 }
 
+#[allow(non_snake_case)]
 pub unsafe fn IsZoomed(_hwnd: HWND) -> BOOL { 0 }
 
+#[allow(non_snake_case)]
 pub unsafe fn ShowWindow(hwnd: HWND, cmd_show: i32) -> BOOL {
     let result = match cmd_show {
         x if x == SW_MINIMIZE => minimize_window(hwnd),
@@ -518,12 +522,16 @@ pub unsafe fn ShowWindow(hwnd: HWND, cmd_show: i32) -> BOOL {
     if result { 1 } else { 0 }
 }
 
+#[allow(non_snake_case)]
 pub unsafe fn PostMessageW(_hwnd: HWND, _msg: u32, _wparam: usize, _lparam: isize) -> BOOL { 1 }
 
+#[allow(non_snake_case)]
 pub unsafe fn SetForegroundWindow(hwnd: HWND) -> BOOL {
     if focus_window(hwnd) { 1 } else { 0 }
 }
 
+#[allow(non_snake_case)]
 pub unsafe fn SendInput(_count: u32, _inputs: *const INPUT, _size: i32) -> u32 { 0 }
 
+#[allow(non_snake_case)]
 pub unsafe fn MapVirtualKeyW(_code: u32, _map_type: u32) -> u32 { 0 }
