@@ -26,8 +26,8 @@ pub fn get_pixel_color(x: i32, y: i32) -> Result<(u8, u8, u8), String> {
     let img = monitor
         .capture_image()
         .map_err(|e| format!("capture error: {e}"))?;
-    let mx = (x - monitor.x()) as u32;
-    let my = (y - monitor.y()) as u32;
+    let mx = (x - monitor.x().unwrap_or(0)) as u32;
+    let my = (y - monitor.y().unwrap_or(0)) as u32;
     if mx < img.width() && my < img.height() {
         let pixel = img.get_pixel(mx, my);
         Ok((pixel[0], pixel[1], pixel[2]))
@@ -168,7 +168,7 @@ pub fn get_window_class_name(_hwnd: HWND) -> String {
 pub fn get_system_dpi_scale() -> f64 {
     if let Ok(monitors) = xcap::Monitor::all() {
         if let Some(m) = monitors.first() {
-            return m.scale_factor() as f64;
+            return m.scale_factor().unwrap_or(1.0) as f64;
         }
     }
     1.0

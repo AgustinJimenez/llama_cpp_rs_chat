@@ -10,9 +10,11 @@ use super::{parse_int, tool_click_screen};
 use super::gpu_app_db;
 use windows_ui::ui_tree_winrt;
 pub(crate) use windows_ui::{
-    control_type_name, find_raw_ui_element, find_ui_element,
+    find_ui_element,
     find_ui_elements_all,
 };
+#[cfg(windows)]
+pub(crate) use windows_ui::{control_type_name, find_raw_ui_element};
 #[cfg(windows)]
 pub(crate) use windows_ui::create_uiautomation_client;
 
