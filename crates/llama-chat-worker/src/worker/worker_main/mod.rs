@@ -279,7 +279,7 @@ pub fn run_worker(db_path: &str) {
                 break;
             }
 
-            WorkerCommand::LoadModel { model_path, gpu_layers, mmproj_path } => {
+            WorkerCommand::LoadModel { model_path, gpu_layers, mmproj_path, agent_id } => {
                 if generation_thread.is_some() {
                     write_response(
                         &mut ipc_writer,
@@ -292,6 +292,7 @@ pub fn run_worker(db_path: &str) {
                     model_path,
                     gpu_layers,
                     mmproj_path,
+                    agent_id,
                     llama_state.clone(),
                     &db,
                     &mut ipc_writer,
@@ -350,6 +351,7 @@ pub fn run_worker(db_path: &str) {
                 conversation_id,
                 skip_user_logging,
                 image_data,
+                agent_id,
             } => {
                 // Clean up finished generation thread before checking availability.
                 if let Some(handle) = generation_thread.take() {
@@ -409,6 +411,7 @@ pub fn run_worker(db_path: &str) {
                             conversation_id,
                             skip_user_logging,
                             image_data,
+                            agent_id,
                             llama_state: state,
                             db,
                             cancel,

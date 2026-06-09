@@ -27,6 +27,8 @@ pub struct ChatRequest {
     pub message: String,
     pub conversation_id: Option<String>,
     #[serde(default)]
+    pub agent_id: Option<String>,
+    #[serde(default)]
     pub worker_id: Option<String>,
     #[serde(default)]
     pub image_data: Option<Vec<String>>,
@@ -152,6 +154,10 @@ pub struct ModelStatus {
     pub last_finish_reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub supports_thinking: Option<bool>,
+    /// True when the status reflects an agent/conversation worker (not the default worker).
+    /// EmptyChat uses this to avoid showing the model-name heading when no agent is staged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_agent_model: Option<bool>,
 }
 
 #[derive(Deserialize)]

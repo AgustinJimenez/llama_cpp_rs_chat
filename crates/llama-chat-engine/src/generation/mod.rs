@@ -47,6 +47,7 @@ pub async fn generate_llama_response(
     cancel: Arc<AtomicBool>,
     image_data: Option<&[String]>,
     mcp_manager: Option<Arc<dyn llama_chat_tools::McpManagerOps>>,
+    agent_id: Option<&str>,
 ) -> Result<GenerationOutput, String> {
     sys_debug!(
         "[GENERATION] generate_llama_response called, token_sender is {}",
@@ -60,6 +61,13 @@ pub async fn generate_llama_response(
         logger.get_conversation_id()
     };
     sys_debug!("[GENERATION] Conversation ID: {}", conversation_id);
+
+    // Pin agent_id on the conversation row immediately so load_config_for_conversation
+    // returns agent-specific config (context size, KV cache types, flash attention, etc.).
+    // This is critical for new conversations where agent_id isn't set yet in the DB.
+    if let Some(aid) = agent_id {
+        let _ = db.set_conversation_agent_id(&conversation_id, Some(aid));
+    }
 
     if !skip_user_logging {
         let mut logger = conversation_logger

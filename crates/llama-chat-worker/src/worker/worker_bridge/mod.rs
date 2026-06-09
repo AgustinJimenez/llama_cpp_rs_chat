@@ -160,6 +160,7 @@ impl WorkerBridge {
         model_path: &str,
         gpu_layers: Option<u32>,
         mmproj_path: Option<String>,
+        agent_id: Option<String>,
     ) -> Result<ModelMeta, String> {
         // If the bridge is auto-recovering from a crash, don't accept external load requests
         // to avoid racing with the recovery thread's own LoadModel command.
@@ -181,6 +182,7 @@ impl WorkerBridge {
                 model_path: model_path.to_string(),
                 gpu_layers,
                 mmproj_path,
+                agent_id: agent_id.clone(),
             }),
         )
         .await
@@ -235,6 +237,8 @@ impl WorkerBridge {
                 };
                 *self.last_model_path.lock().await = Some(meta.model_path.clone());
                 *self.model_meta.lock().await = Some(meta.clone());
+                // Persist agent_id for crash-recovery so auto-reload uses the correct agent config.
+                self.recovery_ctx.lock().await.agent_id = agent_id;
                 Ok(meta)
             }
             WorkerPayload::Error { message } => Err(message),
@@ -490,6 +494,7 @@ impl WorkerBridge {
         conversation_id: Option<String>,
         skip_user_logging: bool,
         image_data: Option<Vec<String>>,
+        agent_id: Option<String>,
     ) -> Result<(mpsc::UnboundedReceiver<TokenData>, oneshot::Receiver<GenerationResult>), String>
     {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
@@ -534,6 +539,7 @@ impl WorkerBridge {
                 conversation_id,
                 skip_user_logging,
                 image_data,
+                agent_id,
             },
         };
         let json =

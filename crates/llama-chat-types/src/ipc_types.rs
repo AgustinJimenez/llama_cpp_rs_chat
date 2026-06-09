@@ -24,6 +24,9 @@ pub enum WorkerCommand {
         model_path: String,
         gpu_layers: Option<u32>,
         mmproj_path: Option<String>,
+        /// Agent ID to use for loading agent-specific config (KV cache, context size, etc.).
+        #[serde(default)]
+        agent_id: Option<String>,
     },
     /// Unload the current model (free memory within the process).
     UnloadModel,
@@ -37,6 +40,10 @@ pub enum WorkerCommand {
         /// Base64-encoded image data URIs for vision models (supports multiple).
         #[serde(default)]
         image_data: Option<Vec<String>>,
+        /// Agent ID to use for agent-specific config (context size, KV cache, etc.).
+        /// Set this for new conversations so the worker uses the correct config from the start.
+        #[serde(default)]
+        agent_id: Option<String>,
     },
     /// Cancel the in-progress generation.
     CancelGeneration,

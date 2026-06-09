@@ -23,6 +23,7 @@ pub struct CrashRecoveryCtx {
     pub model_path: Option<String>,
     pub gpu_layers: Option<u32>,
     pub conversation_id: Option<String>,
+    pub agent_id: Option<String>,
     pub crash_count: u32,
 }
 
@@ -382,6 +383,7 @@ pub async fn stdout_reader_task(
                                     model_path: model_path.clone(),
                                     gpu_layers: ctx.gpu_layers,
                                     mmproj_path: None,
+                                    agent_id: ctx.agent_id.clone(),
                                 },
                             };
                             if let Ok(json) = serde_json::to_string(&load_req) {
@@ -449,6 +451,7 @@ pub async fn stdout_reader_task(
                                                     conversation_id: Some(conv_id.clone()),
                                                     skip_user_logging: true,
                                                     image_data: None,
+                                                    agent_id: ctx.agent_id.clone(),
                                                 },
                                             };
                                             if let Ok(json) = serde_json::to_string(&gen_req) {

@@ -174,6 +174,7 @@ async fn run_test(model_path: &str, num_rounds: usize) {
                     cancel.clone(),
                     None,
                     None,
+                    None,
                 ),
             )
             .await;

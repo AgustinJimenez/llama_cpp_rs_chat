@@ -1,16 +1,28 @@
 // Chat route handlers
+#[cfg(not(feature = "mock"))]
 use hyper::body::Bytes;
 use hyper::{Body, Request, Response, StatusCode};
 use std::convert::Infallible;
+#[cfg(not(feature = "mock"))]
 use std::sync::{Arc, Mutex};
 
+#[cfg(not(feature = "mock"))]
 use llama_chat_engine::{get_universal_system_prompt_with_tags, tool_tags::{default_tags, derive_tool_tags_from_pairs, try_get_tool_tags_for_model}};
+#[cfg(not(feature = "mock"))]
 use llama_chat_config::load_config;
-use llama_chat_db::{conversation::ConversationLogger, SharedDatabase};
-use llama_chat_types::models::{ChatMessage, ChatRequest, ChatResponse};
+#[cfg(not(feature = "mock"))]
+use llama_chat_db::conversation::ConversationLogger;
+use llama_chat_db::SharedDatabase;
+use llama_chat_types::models::ChatRequest;
+#[cfg(not(feature = "mock"))]
+use llama_chat_types::models::{ChatMessage, ChatResponse};
 use crate::request_parsing::parse_json_body;
-use crate::response_helpers::{json_error, json_response};
-use crate::worker_pool::{resolve_bridge_for_conversation, WorkerPool};
+use crate::response_helpers::json_error;
+#[cfg(not(feature = "mock"))]
+use crate::response_helpers::json_response;
+#[cfg(not(feature = "mock"))]
+use crate::worker_pool::{resolve_bridge_for_conversation, resolve_bridge_for_request, WorkerPool};
+#[cfg(not(feature = "mock"))]
 use crate::websocket::{
     handle_conversation_watch, handle_websocket, make_server_continuation_message,
     should_server_auto_continue, spawn_title_generation, MAX_SERVER_AUTO_CONTINUES,
@@ -24,6 +36,7 @@ use crate::websocket_utils::{
 use llama_chat_worker::worker::worker_bridge::{GenerationResult, SharedWorkerBridge};
 
 // Helper function to get current timestamp for logging
+#[cfg(not(feature = "mock"))]
 fn timestamp_now() -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -57,23 +70,6 @@ fn resolve_system_prompt(
 }
 
 #[cfg(not(feature = "mock"))]
-async fn resolve_bridge_for_request(
-    pool: &WorkerPool,
-    db: &SharedDatabase,
-    conversation_id: Option<&str>,
-    requested_worker_id: Option<&str>,
-) -> Result<SharedWorkerBridge, String> {
-    if let Some(conversation_id) = conversation_id {
-        return resolve_bridge_for_conversation(pool, db, Some(conversation_id)).await;
-    }
-
-    let worker_id = requested_worker_id
-        .map(str::trim)
-        .filter(|id| !id.is_empty() && *id != "default");
-
-    pool.get_or_default(worker_id)
-        .ok_or_else(|| "No worker bridge available".to_string())
-}
 
 pub async fn handle_post_chat(
     req: Request<Body>,
@@ -94,6 +90,7 @@ pub async fn handle_post_chat(
             &db,
             chat_request.conversation_id.as_deref(),
             chat_request.worker_id.as_deref(),
+            chat_request.agent_id.as_deref(),
         )
         .await
         {
@@ -204,6 +201,7 @@ pub async fn handle_post_chat(
                 Some(conversation_id.clone()),
                 true, // skip_user_logging — already logged above
                 chat_request.image_data.clone(),
+                chat_request.agent_id.clone(),
             )
             .await
         {
@@ -244,6 +242,7 @@ pub async fn handle_post_chat(
 
     #[cfg(feature = "mock")]
     {
+        let _ = (&db, &chat_request);
         let mock_response = ChatResponse {
             message: ChatMessage {
                 id: "test".to_string(),
@@ -257,6 +256,7 @@ pub async fn handle_post_chat(
                 prompt_eval_ms: None,
                 prompt_tokens: None,
                 compacted: false,
+                sequence_order: None,
             },
             conversation_id: "test-conversation".to_string(),
             tokens_used: None,
@@ -289,6 +289,7 @@ pub async fn handle_post_chat_stream(
             &db,
             chat_request.conversation_id.as_deref(),
             chat_request.worker_id.as_deref(),
+            chat_request.agent_id.as_deref(),
         )
         .await
         {
@@ -300,6 +301,7 @@ pub async fn handle_post_chat_stream(
         let original_message = chat_request.message.clone();
         let is_new_conversation = chat_request.conversation_id.is_none();
         let initial_conv_id = chat_request.conversation_id.clone();
+        let initial_agent_id = chat_request.agent_id.clone();
         let requested_worker_id = chat_request
             .worker_id
             .as_deref()
@@ -329,6 +331,7 @@ pub async fn handle_post_chat_stream(
                         current_conv_id.clone(),
                         skip_user_log,
                         image_data,
+                        initial_agent_id.clone(),
                     )
                     .await
                 {
@@ -375,6 +378,9 @@ pub async fn handle_post_chat_stream(
                                 &conversation_id,
                                 requested_worker_id.as_deref(),
                             );
+                            if let Some(aid) = initial_agent_id.as_deref() {
+                                let _ = db_clone.set_conversation_agent_id(&conversation_id, Some(aid));
+                            }
                         }
 
                         bridge_clone
@@ -467,6 +473,7 @@ pub async fn handle_post_chat_stream(
 
     #[cfg(feature = "mock")]
     {
+        let _ = chat_request;
         Ok(json_error(
             StatusCode::OK,
             "Streaming not available (mock feature enabled)",

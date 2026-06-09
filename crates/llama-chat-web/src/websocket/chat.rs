@@ -9,7 +9,7 @@ use tokio_tungstenite::WebSocketStream;
 use llama_chat_db::SharedDatabase;
 use llama_chat_types::models::ChatRequest;
 use llama_chat_worker::worker::worker_bridge::GenerationResult;
-use crate::worker_pool::{resolve_bridge_for_conversation, WorkerPool};
+use crate::worker_pool::{resolve_bridge_for_request, WorkerPool};
 
 use super::{
     make_server_continuation_message, should_server_auto_continue, ACTIVE_WS_CONNECTIONS,
@@ -131,17 +131,13 @@ pub async fn handle_websocket(
 
                 sys_debug!("[WS_CHAT] User message: {}", chat_request.message);
 
-                let bridge = match if let Some(conversation_id) = chat_request.conversation_id.as_deref() {
-                    resolve_bridge_for_conversation(&pool, &db, Some(conversation_id)).await
-                } else {
-                    let worker_id = chat_request
-                        .worker_id
-                        .as_deref()
-                        .map(str::trim)
-                        .filter(|id| !id.is_empty() && *id != "default");
-                    pool.get_or_default(worker_id)
-                        .ok_or_else(|| "No worker bridge available".to_string())
-                } {
+                let bridge = match resolve_bridge_for_request(
+                    &pool,
+                    &db,
+                    chat_request.conversation_id.as_deref(),
+                    chat_request.worker_id.as_deref(),
+                    chat_request.agent_id.as_deref(),
+                ).await {
                     Ok(bridge) => bridge,
                     Err(e) => {
                         let error_msg = serde_json::json!({
@@ -198,6 +194,7 @@ pub async fn handle_websocket(
                             current_conv_id.clone(),
                             skip_user_log,
                             image_data,
+                            chat_request.agent_id.clone(),
                         )
                         .await
                     {

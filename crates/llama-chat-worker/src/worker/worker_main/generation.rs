@@ -17,6 +17,7 @@ pub(super) struct GenerationParams {
     pub(super) conversation_id: Option<String>,
     pub(super) skip_user_logging: bool,
     pub(super) image_data: Option<Vec<String>>,
+    pub(super) agent_id: Option<String>,
     pub(super) llama_state: SharedLlamaState,
     pub(super) db: SharedDatabase,
     pub(super) cancel: Arc<AtomicBool>,
@@ -49,6 +50,7 @@ pub(super) fn run_generation(params: GenerationParams) {
         conversation_id,
         skip_user_logging,
         image_data,
+        agent_id,
         llama_state,
         db,
         cancel,
@@ -133,6 +135,7 @@ pub(super) fn run_generation(params: GenerationParams) {
             cancel,
             image_data.as_deref(),
             Some(mcp_manager),
+            agent_id.as_deref(),
         )
         .await;
 

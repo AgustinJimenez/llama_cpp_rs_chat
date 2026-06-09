@@ -555,6 +555,15 @@ impl Database {
         }
         self.load_config()
     }
+
+    /// Load config for a specific agent, merging agent fields with global app-level fields.
+    pub fn load_config_for_agent(&self, agent_id: &str) -> DbSamplerConfig {
+        if let Ok(Some(agent)) = self.get_agent(agent_id) {
+            let global = self.load_config();
+            return agent.to_db_sampler_config(&global);
+        }
+        self.load_config()
+    }
 }
 
 
