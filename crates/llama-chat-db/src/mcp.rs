@@ -37,30 +37,28 @@ pub fn load_mcp_servers(db: &SharedDatabase) -> Vec<McpServerConfig> {
     };
 
     let mut configs = Vec::new();
-    for row in rows {
-        if let Ok((id, name, transport_type, command, args_json, env_json, url, enabled)) = row {
-            let transport = match transport_type.as_str() {
-                "stdio" => {
-                    let cmd = command.unwrap_or_default();
-                    let args: Vec<String> = args_json
-                        .and_then(|j| serde_json::from_str(&j).ok())
-                        .unwrap_or_default();
-                    let env_vars: HashMap<String, String> = env_json
-                        .and_then(|j| serde_json::from_str(&j).ok())
-                        .unwrap_or_default();
-                    McpTransport::Stdio { command: cmd, args, env_vars }
-                }
-                "http" => {
-                    McpTransport::Http { url: url.unwrap_or_default() }
-                }
-                other => {
-                    eprintln!("MCP: unknown transport type '{other}' for server '{name}'");
-                    continue;
-                }
-            };
+    for (id, name, transport_type, command, args_json, env_json, url, enabled) in rows.flatten() {
+        let transport = match transport_type.as_str() {
+            "stdio" => {
+                let cmd = command.unwrap_or_default();
+                let args: Vec<String> = args_json
+                    .and_then(|j| serde_json::from_str(&j).ok())
+                    .unwrap_or_default();
+                let env_vars: HashMap<String, String> = env_json
+                    .and_then(|j| serde_json::from_str(&j).ok())
+                    .unwrap_or_default();
+                McpTransport::Stdio { command: cmd, args, env_vars }
+            }
+            "http" => {
+                McpTransport::Http { url: url.unwrap_or_default() }
+            }
+            other => {
+                eprintln!("MCP: unknown transport type '{other}' for server '{name}'");
+                continue;
+            }
+        };
 
-            configs.push(McpServerConfig { id, name, transport, enabled });
-        }
+        configs.push(McpServerConfig { id, name, transport, enabled });
     }
 
     configs

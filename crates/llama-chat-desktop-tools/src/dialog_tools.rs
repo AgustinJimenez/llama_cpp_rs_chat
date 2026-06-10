@@ -166,8 +166,8 @@ pub fn tool_wait_for_element_state(args: &Value) -> NativeToolResult {
         }).and_then(|r| r);
 
         let state_matches = match target_state.as_str() {
-            "exists" | "visible" => found.as_ref().is_some_and(|v| !v.is_empty()),
-            "gone" | "hidden" => found.as_ref().is_none_or(|v| v.is_empty()),
+            "exists" | "visible" => found.as_ref().is_ok_and(|v| !v.is_empty()),
+            "gone" | "hidden" => found.as_ref().map_or(true, |v| v.is_empty()),
             _ => {
                 return NativeToolResult::text_only(format!(
                     "Unknown state '{target_state}'. Use: exists, gone, visible, hidden"

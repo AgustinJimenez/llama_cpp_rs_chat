@@ -157,19 +157,19 @@ impl Database {
                  FROM config WHERE id = 1",
                 [],
                 |row| {
-                    #[allow(clippy::field_reassign_with_default)]
-                    let mut config = DbSamplerConfig::default();
-                    config.disable_file_logging = row.get::<_, Option<i32>>(0)?.unwrap_or(1) != 0;
-                    config.web_browser_backend = row.get(1)?;
-                    config.models_directory = row.get(2)?;
-                    config.use_rtk = row.get::<_, Option<i32>>(3)?.unwrap_or(1) != 0;
-                    config.use_htmd = row.get::<_, Option<i32>>(4)?.unwrap_or(0) != 0;
-                    config.telegram_bot_token = row.get(5)?;
-                    config.telegram_chat_id = row.get(6)?;
-                    config.provider_api_keys = row.get(7)?;
-                    config.max_tool_calls = row.get::<_, Option<i32>>(8)?.unwrap_or(2000);
-                    config.loop_detection_limit = row.get::<_, Option<i32>>(9)?.unwrap_or(15);
-                    Ok(config)
+                    Ok(DbSamplerConfig {
+                        disable_file_logging: row.get::<_, Option<i32>>(0)?.unwrap_or(1) != 0,
+                        web_browser_backend: row.get(1)?,
+                        models_directory: row.get(2)?,
+                        use_rtk: row.get::<_, Option<i32>>(3)?.unwrap_or(1) != 0,
+                        use_htmd: row.get::<_, Option<i32>>(4)?.unwrap_or(0) != 0,
+                        telegram_bot_token: row.get(5)?,
+                        telegram_chat_id: row.get(6)?,
+                        provider_api_keys: row.get(7)?,
+                        max_tool_calls: row.get::<_, Option<i32>>(8)?.unwrap_or(2000),
+                        loop_detection_limit: row.get::<_, Option<i32>>(9)?.unwrap_or(15),
+                        ..Default::default()
+                    })
                 },
             )
         };
