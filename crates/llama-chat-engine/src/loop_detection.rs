@@ -94,9 +94,8 @@ pub(crate) fn check_loop(
         if similar_count >= 10 {
             // Escalate: block execution like exact match loop
             let output = format!(
-                "LOOP BLOCKED: You have run {} very similar commands. Execution REFUSED. \
-                 You MUST use a completely different tool or approach. Do NOT use the same tool with similar arguments.",
-                similar_count
+                "LOOP BLOCKED: You have run {similar_count} very similar commands. Execution REFUSED. \
+                 You MUST use a completely different tool or approach. Do NOT use the same tool with similar arguments."
             );
             let output_open = format!("\n{}\n", tags.output_open);
             let output_close = format!("\n{}\n", tags.output_close);
@@ -113,7 +112,7 @@ pub(crate) fn check_loop(
                 image_summary_prompt: None,
             }, consecutive_blocks));
         }
-        Some(format!("WARNING: You have run {} very similar commands. You may be stuck in a loop. Try a completely different approach.", similar_count))
+        Some(format!("WARNING: You have run {similar_count} very similar commands. You may be stuck in a loop. Try a completely different approach."))
     } else {
         None
     };
@@ -177,7 +176,7 @@ pub(crate) fn reset_after_write(recent_commands: &mut Vec<String>) {
     });
     let removed = before - recent_commands.len();
     if removed > 0 {
-        eprintln!("[LOOP] reset_after_write: cleared {} compile/execute entries from recent_commands", removed);
+        eprintln!("[LOOP] reset_after_write: cleared {removed} compile/execute entries from recent_commands");
     }
 }
 

@@ -109,8 +109,7 @@ pub(crate) fn run_generation_loop(
                         if let Some(ref sender) = token_sender {
                             let _ = sender.send(TokenData {
                                 token: format!(
-                                    "\n\n[Generation stalled — batch of 16 tokens took {}s. The model may be too large for your hardware.]",
-                                    secs
+                                    "\n\n[Generation stalled — batch of 16 tokens took {secs}s. The model may be too large for your hardware.]"
                                 ),
                                 tokens_used: gen.total_tokens_generated,
                                 max_tokens: cfg.max_total_tokens, status: None,
@@ -128,11 +127,11 @@ pub(crate) fn run_generation_loop(
             // Wall-clock stall check BEFORE sample() — catches GPU hangs where `i` never increments.
             if stall_checkpoint.elapsed() > TOKEN_STALL_TIMEOUT {
                 let secs = stall_checkpoint.elapsed().as_secs();
-                eprintln!("[STALL] Pre-sample stall: no progress for {}s", secs);
-                log_event(cfg.conversation_id, "stall", &format!("Pre-sample stall: {}s", secs));
+                eprintln!("[STALL] Pre-sample stall: no progress for {secs}s");
+                log_event(cfg.conversation_id, "stall", &format!("Pre-sample stall: {secs}s"));
                 if let Some(ref sender) = token_sender {
                     let _ = sender.send(TokenData {
-                        token: format!("\n\n[Generation stalled — no token produced for {}s]", secs),
+                        token: format!("\n\n[Generation stalled — no token produced for {secs}s]"),
                         tokens_used: gen.total_tokens_generated,
                         max_tokens: cfg.max_total_tokens, status: None,
                         ..Default::default()

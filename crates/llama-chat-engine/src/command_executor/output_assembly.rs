@@ -174,7 +174,7 @@ pub(crate) fn sanitize_and_summarize(
                         ..Default::default()
                     });
                 }
-                let display = format!("{}{}", sanitized, summary_block);
+                let display = format!("{sanitized}{summary_block}");
                 let model_summary = format!(
                     "[SUMMARIZED: {} → {} chars. Use summary=false to get raw output.]\n{}",
                     sanitized.len(), summary.len(), summary
@@ -204,13 +204,13 @@ pub(crate) fn assemble_output(
     let model_trimmed = model_text.trim();
     let mut model_text_with_warning = model_trimmed.to_string();
     if let Some(warning) = p.fuzzy_warning {
-        model_text_with_warning = format!("{}\n\n{}", warning, model_text_with_warning);
+        model_text_with_warning = format!("{warning}\n\n{model_text_with_warning}");
     }
     if let Some(hint) = http_error_hint {
-        model_text_with_warning = format!("{}\n\n{}", model_text_with_warning, hint);
+        model_text_with_warning = format!("{model_text_with_warning}\n\n{hint}");
     }
 
-    let model_injection_block = format!("{}{}{}", output_open, model_text_with_warning, output_close);
+    let model_injection_block = format!("{output_open}{model_text_with_warning}{output_close}");
     let model_block = wrap_output_for_model(&model_injection_block, p.template_type);
 
     let output_block = format!("{}{}{}", output_open, display_text.trim(), output_close);
@@ -234,7 +234,7 @@ pub(crate) fn append_image_links(output_block: &mut String, images: &[Vec<u8>], 
         let filepath = images_dir.join(&filename);
         match std::fs::write(&filepath, img_bytes) {
             Ok(()) => {
-                let img_url = format!("/api/images/{}/{}", conversation_id, filename);
+                let img_url = format!("/api/images/{conversation_id}/{filename}");
                 let size_kb = img_bytes.len() / 1024;
                 eprintln!("[IMAGES] Saved screenshot {}/{}: {} ({}KB)", i + 1, images.len(), filepath.display(), size_kb);
                 output_block.push_str(&format!("\n![screenshot]({img_url})"));

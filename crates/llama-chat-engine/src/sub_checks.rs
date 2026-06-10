@@ -632,6 +632,6 @@ pub fn generate_title_text(
     drop(state_guard);
 
     let result = title.trim().to_string();
-    eprintln!("[WORKER] Title generated: {:?}", result);
+    eprintln!("[WORKER] Title generated: {result:?}");
     Ok(result)
 }

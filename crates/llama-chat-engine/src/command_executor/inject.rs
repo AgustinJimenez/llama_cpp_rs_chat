@@ -95,8 +95,7 @@ pub fn inject_output_tokens(
 
     if *token_pos as u32 >= ctx_size.saturating_sub(ctx_size / 20) {
         eprintln!(
-            "[INJECT] Context 95% full after injection ({}/{})",
-            token_pos, ctx_size
+            "[INJECT] Context 95% full after injection ({token_pos}/{ctx_size})"
         );
         return Err("CONTEXT_EXHAUSTED".to_string());
     }

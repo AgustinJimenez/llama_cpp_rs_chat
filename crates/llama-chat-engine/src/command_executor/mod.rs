@@ -121,12 +121,12 @@ pub fn check_and_execute_command_with_tags(
     // Loop detection
     match loop_detection::check_loop(&command_text, recent_commands, consecutive_loop_blocks, tags, template_type, model, conversation_id)? {
         LoopCheckResult::ForceStop(mut result) => {
-            llama_chat_db::event_log::log_event(conversation_id, "infinite_loop", &format!("Force-stop after {} consecutive blocks", consecutive_loop_blocks));
+            llama_chat_db::event_log::log_event(conversation_id, "infinite_loop", &format!("Force-stop after {consecutive_loop_blocks} consecutive blocks"));
             result.output_block.push_str("\n[INFINITE_LOOP_DETECTED]\n");
             Ok(Some(result))
         }
         LoopCheckResult::Blocked(result) => {
-            llama_chat_db::event_log::log_event(conversation_id, "loop_blocked", &format!("{} blocked (consecutive: {})", tool_name_for_log, consecutive_loop_blocks));
+            llama_chat_db::event_log::log_event(conversation_id, "loop_blocked", &format!("{tool_name_for_log} blocked (consecutive: {consecutive_loop_blocks})"));
             Ok(Some(result))
         }
         LoopCheckResult::Continue(fuzzy_warning) => {

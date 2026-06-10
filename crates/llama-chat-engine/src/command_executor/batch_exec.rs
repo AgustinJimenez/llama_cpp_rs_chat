@@ -108,7 +108,7 @@ pub(crate) fn execute_batch_tools(
                             let duration_ms = tool_start.elapsed().as_millis() as u64;
                             let native_result = result.unwrap_or_else(|| {
                                 llama_chat_tools::NativeToolResult::text_only(
-                                    format!("Error: Tool '{}' returned no output", tool_name)
+                                    format!("Error: Tool '{tool_name}' returned no output")
                                 )
                             });
                             (idx, native_result.text, native_result.images, duration_ms)
@@ -174,7 +174,7 @@ pub(crate) fn execute_batch_tools(
         llama_chat_db::event_log::log_event(
             conversation_id,
             "tool_timing",
-            &format!("{{\"name\":\"{}\",\"duration_ms\":{}}}", name, dur),
+            &format!("{{\"name\":\"{name}\",\"duration_ms\":{dur}}}"),
         );
         if let Some(ref sender) = token_sender {
             let _ = sender.send(TokenData {

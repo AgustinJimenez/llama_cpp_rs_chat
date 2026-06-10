@@ -425,8 +425,7 @@ pub async fn generate_llama_response(
 
     log_info!(
         &conversation_id,
-        "Context size: {}, Prompt tokens: {}, Max tokens to generate: {}",
-        context_size, token_pos, max_total_tokens
+        "Context size: {context_size}, Prompt tokens: {token_pos}, Max tokens to generate: {max_total_tokens}"
     );
 
     let mut gen = TokenGenState {

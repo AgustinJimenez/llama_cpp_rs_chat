@@ -107,7 +107,7 @@ pub(crate) fn execute_single_call(
                 llama_chat_db::event_log::log_event(
                     conversation_id,
                     "tool_timing",
-                    &format!("{{\"name\":\"execute_command\",\"duration_ms\":{}}}", elapsed_ms),
+                    &format!("{{\"name\":\"execute_command\",\"duration_ms\":{elapsed_ms}}}"),
                 );
                 if let Some(ref sender) = token_sender {
                     let _ = sender.send(TokenData {
@@ -140,7 +140,7 @@ pub(crate) fn execute_single_call(
             llama_chat_db::event_log::log_event(
                 conversation_id,
                 "tool_timing",
-                &format!("{{\"name\":\"{}\",\"duration_ms\":{}}}", tool_name_for_log, native_duration_ms),
+                &format!("{{\"name\":\"{tool_name_for_log}\",\"duration_ms\":{native_duration_ms}}}"),
             );
             if let Some(ref sender) = token_sender {
                 let _ = sender.send(TokenData {
@@ -183,7 +183,7 @@ pub(crate) fn execute_single_call(
                 let prefix = if result_status.is_empty() {
                     String::new()
                 } else {
-                    format!("[TOOL_RESULT:{}]", result_status)
+                    format!("[TOOL_RESULT:{result_status}]")
                 };
                 let _ = sender.send(TokenData {
                     token: format!("{}{}", prefix, native_result.text.trim()),

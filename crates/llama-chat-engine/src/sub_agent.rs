@@ -101,9 +101,9 @@ pub fn run_sub_agent(
             ChatMessage { role: "user".into(), content: user_message, tool_calls: None },
         ];
         apply_native_chat_template(template_str, messages, Some(tools), None, true, &bos, &eos, false)
-            .unwrap_or_else(|_| format!("SYSTEM:\n{}\n\nUSER:\n{}\n\nASSISTANT:\n", system_prompt, task))
+            .unwrap_or_else(|_| format!("SYSTEM:\n{system_prompt}\n\nUSER:\n{task}\n\nASSISTANT:\n"))
     } else {
-        format!("SYSTEM:\n{}\n\nUSER:\n{}\n\nASSISTANT:\n", system_prompt, task)
+        format!("SYSTEM:\n{system_prompt}\n\nUSER:\n{task}\n\nASSISTANT:\n")
     };
 
     // Tokenize
