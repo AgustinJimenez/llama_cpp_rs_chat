@@ -211,8 +211,7 @@ pub fn execute_command_pty(
         output.push_str("\n[Cancelled by user]\n");
     } else if inactivity_killed {
         output.push_str(&format!(
-            "\n[Process killed: no output for {}s. TIP: Use \"background\": true for servers/daemons.]\n",
-            INACTIVITY_TIMEOUT_SECS
+            "\n[Process killed: no output for {INACTIVITY_TIMEOUT_SECS}s. TIP: Use \"background\": true for servers/daemons.]\n"
         ));
     }
 

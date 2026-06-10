@@ -128,7 +128,7 @@ pub fn execute_command_streaming_with_timeout(
                 loop {
                     if let Some(ref flag) = cancel {
                         if flag.load(Ordering::Relaxed) {
-                            eprintln!("[STREAM] Cancelled by user, killing pid={}", child_pid);
+                            eprintln!("[STREAM] Cancelled by user, killing pid={child_pid}");
                             kill_process_tree(child_pid);
                             was_cancelled = true;
                             break;
@@ -141,23 +141,20 @@ pub fn execute_command_streaming_with_timeout(
                         && elapsed_secs / 60 != (elapsed_secs - 1) / 60
                     {
                         eprintln!(
-                            "[STREAM] Still running: {}s elapsed, pid={}",
-                            elapsed_secs, child_pid
+                            "[STREAM] Still running: {elapsed_secs}s elapsed, pid={child_pid}"
                         );
                     }
 
                     let elapsed = wall_start.elapsed().as_secs();
                     if elapsed == 60 || elapsed == 110 {
                         eprintln!(
-                            "[STREAM] Wall-clock check: {}s / {}s limit, pid={}",
-                            elapsed, MAX_WALL_CLOCK_SECS, child_pid
+                            "[STREAM] Wall-clock check: {elapsed}s / {MAX_WALL_CLOCK_SECS}s limit, pid={child_pid}"
                         );
                     }
                     if elapsed >= MAX_WALL_CLOCK_SECS {
                         let pid = child_pid;
                         eprintln!(
-                            "[STREAM] Wall-clock limit ({}s) reached, detaching from pid={}",
-                            MAX_WALL_CLOCK_SECS, pid
+                            "[STREAM] Wall-clock limit ({MAX_WALL_CLOCK_SECS}s) reached, detaching from pid={pid}"
                         );
                         let lines: Vec<&str> = output.lines().collect();
                         if lines.len() > 40 {
@@ -168,8 +165,7 @@ pub fn execute_command_streaming_with_timeout(
                             );
                         }
                         output.push_str(&format!(
-                            "\n[Command still running after {}s (PID {}). It may be stuck or very slow. You can kill it with: taskkill /F /T /PID {}]\n",
-                            MAX_WALL_CLOCK_SECS, pid, pid
+                            "\n[Command still running after {MAX_WALL_CLOCK_SECS}s (PID {pid}). It may be stuck or very slow. You can kill it with: taskkill /F /T /PID {pid}]\n"
                         ));
                         kill_process_tree(pid);
                         unregister_streaming_process(pid);
@@ -196,8 +192,7 @@ pub fn execute_command_streaming_with_timeout(
                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                             if last_data.elapsed().as_secs() >= inactivity_timeout_secs {
                                 eprintln!(
-                                    "[STREAM] Inactivity timeout ({}s no output), killing pid={}",
-                                    inactivity_timeout_secs, child_pid
+                                    "[STREAM] Inactivity timeout ({inactivity_timeout_secs}s no output), killing pid={child_pid}"
                                 );
                                 kill_process_tree(child_pid);
                                 inactivity_killed = true;
@@ -205,11 +200,12 @@ pub fn execute_command_streaming_with_timeout(
                             }
                         }
                         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                            {
+                            let elapsed = wall_start.elapsed().as_secs();
                             eprintln!(
-                                "[STREAM] Pipe disconnected after {}s, pid={}",
-                                wall_start.elapsed().as_secs(),
-                                child_pid
+                                "[STREAM] Pipe disconnected after {elapsed}s, pid={child_pid}"
                             );
+                        }
                             break;
                         }
                     }
@@ -224,17 +220,20 @@ pub fn execute_command_streaming_with_timeout(
 
             const POST_PIPE_WALL_LIMIT: u64 = MAX_WALL_CLOCK_SECS;
             if wall_start.elapsed().as_secs() >= POST_PIPE_WALL_LIMIT {
+                {
+                let elapsed = wall_start.elapsed().as_secs();
                 eprintln!(
-                    "[STREAM] Wall-clock exceeded after pipe closed ({}s), killing pid={}",
-                    wall_start.elapsed().as_secs(),
-                    child_pid
+                    "[STREAM] Wall-clock exceeded after pipe closed ({elapsed}s), killing pid={child_pid}"
                 );
+            }
                 kill_process_tree(child_pid);
                 unregister_streaming_process(child_pid);
-                output.push_str(&format!(
-                    "\n[Command killed after {}s wall-clock limit]\n",
-                    wall_start.elapsed().as_secs()
-                ));
+                {
+                    let elapsed = wall_start.elapsed().as_secs();
+                    output.push_str(&format!(
+                        "\n[Command killed after {elapsed}s wall-clock limit]\n"
+                    ));
+                }
                 return output;
             }
 
@@ -262,7 +261,7 @@ pub fn execute_command_streaming_with_timeout(
                         std::thread::sleep(std::time::Duration::from_millis(200));
                     }
                     _ => {
-                        eprintln!("[STREAM] Killing unreaped child pid={}", child_pid);
+                        eprintln!("[STREAM] Killing unreaped child pid={child_pid}");
                         kill_process_tree(child_pid);
                         std::thread::sleep(std::time::Duration::from_millis(500));
                         if let Ok(Some(s)) = child.try_wait() {
@@ -280,11 +279,12 @@ pub fn execute_command_streaming_with_timeout(
             if was_cancelled {
                 output.push_str("\n[Cancelled by user]\n");
             } else if total_timeout_killed || inactivity_killed {
-                output.push_str(&format!(
-                    "\n[Process killed: no output for {}s. TIP: Use \"timeout\": {} in your tool call for slow commands, or \"background\": true for servers/daemons.]\n",
-                    inactivity_timeout_secs,
-                    inactivity_timeout_secs * 2
-                ));
+                {
+                    let double_timeout = inactivity_timeout_secs * 2;
+                    output.push_str(&format!(
+                        "\n[Process killed: no output for {inactivity_timeout_secs}s. TIP: Use \"timeout\": {double_timeout} in your tool call for slow commands, or \"background\": true for servers/daemons.]\n"
+                    ));
+                }
             }
 
             track_cwd_change(trimmed);

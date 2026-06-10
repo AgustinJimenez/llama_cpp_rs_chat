@@ -246,7 +246,7 @@ pub fn kill_all_session_processes() {
 
     for (pid, cmd) in &procs {
         if is_process_alive(*pid) {
-            eprintln!("[SHUTDOWN] Killing background process PID {}: {}", pid, cmd);
+            eprintln!("[SHUTDOWN] Killing background process PID {pid}: {cmd}");
             crate::kill_process_tree(*pid);
             unpersist_bg_process(*pid);
         }
@@ -272,13 +272,16 @@ pub fn list_all_background_processes() -> Vec<(u32, String, bool, String)> {
         for p in procs.iter() {
             let is_running = p.running.load(Ordering::Relaxed);
             let elapsed = p.started_at.elapsed();
-            let elapsed_str = if elapsed.as_secs() >= 60 {
-                format!("{}m{}s", elapsed.as_secs() / 60, elapsed.as_secs() % 60)
+            let elapsed_secs = elapsed.as_secs();
+            let elapsed_str = if elapsed_secs >= 60 {
+                let m = elapsed_secs / 60;
+                let s = elapsed_secs % 60;
+                format!("{m}m{s}s")
             } else {
-                format!("{}s", elapsed.as_secs())
+                format!("{elapsed_secs}s")
             };
             let status = if is_running { "running" } else { "exited" };
-            result.push((p.pid, p.command.clone(), is_running, format!("{} ({})", status, elapsed_str)));
+            result.push((p.pid, p.command.clone(), is_running, format!("{status} ({elapsed_str})")));
         }
     }
 
@@ -294,13 +297,17 @@ pub fn list_all_background_processes() -> Vec<(u32, String, bool, String)> {
             if result.iter().any(|(p, _, _, _)| *p == pid) { continue; }
             let age_secs = (now - started_at).max(0);
             let age_str = if age_secs >= 3600 {
-                format!("{}h{}m", age_secs / 3600, (age_secs % 3600) / 60)
+                let h = age_secs / 3600;
+                let m = (age_secs % 3600) / 60;
+                format!("{h}h{m}m")
             } else if age_secs >= 60 {
-                format!("{}m{}s", age_secs / 60, age_secs % 60)
+                let m = age_secs / 60;
+                let s = age_secs % 60;
+                format!("{m}m{s}s")
             } else {
-                format!("{}s", age_secs)
+                format!("{age_secs}s")
             };
-            result.push((pid, cmd, true, format!("orphaned (started {}ago)", age_str)));
+            result.push((pid, cmd, true, format!("orphaned (started {age_str}ago)")));
         }
     }
 
@@ -499,14 +506,13 @@ pub fn check_background_process(pid: u32, wait_seconds: u64, max_checks: usize) 
         Some(p) => p,
         None => {
             // List available PIDs for convenience
-            let available: Vec<String> = procs.iter().map(|p| format!("{}", p.pid)).collect();
+            let available: Vec<String> = procs.iter().map(|p| p.pid.to_string()).collect();
             if available.is_empty() {
-                return format!("No background process with PID {} found. No background processes are currently tracked.", pid);
+                return format!("No background process with PID {pid} found. No background processes are currently tracked.");
             }
+            let tracked = available.join(", ");
             return format!(
-                "No background process with PID {} found. Tracked PIDs: {}",
-                pid,
-                available.join(", ")
+                "No background process with PID {pid} found. Tracked PIDs: {tracked}"
             );
         }
     };
@@ -516,7 +522,7 @@ pub fn check_background_process(pid: u32, wait_seconds: u64, max_checks: usize) 
 
     let buf = match proc.output_buffer.lock() {
         Ok(b) => b,
-        Err(_) => return format!("PID {}: {}\nStatus: {}\nError: could not read output buffer", pid, proc.command, status),
+        Err(_) => return format!("PID {pid}: {}\nStatus: {status}\nError: could not read output buffer", proc.command),
     };
 
     let prev_cursor = proc.cursor.load(Ordering::Relaxed);
@@ -525,10 +531,13 @@ pub fn check_background_process(pid: u32, wait_seconds: u64, max_checks: usize) 
 
     // Track elapsed time since process started for context
     let elapsed = proc.started_at.elapsed();
-    let elapsed_str = if elapsed.as_secs() >= 60 {
-        format!("{}m{}s", elapsed.as_secs() / 60, elapsed.as_secs() % 60)
+    let elapsed_secs = elapsed.as_secs();
+    let elapsed_str = if elapsed_secs >= 60 {
+        let m = elapsed_secs / 60;
+        let s = elapsed_secs % 60;
+        format!("{m}m{s}s")
     } else {
-        format!("{}s", elapsed.as_secs())
+        format!("{elapsed_secs}s")
     };
 
     // Track total checks (never resets) — prevents infinite polling loops
@@ -541,16 +550,16 @@ pub fn check_background_process(pid: u32, wait_seconds: u64, max_checks: usize) 
             let checks = proc.no_output_checks.fetch_add(1, Ordering::Relaxed) + 1;
             if checks >= max_checks || total >= max_checks {
                 return format!(
-                    "PID {}: {}\nStatus: running ({})\nNo new output since last check.\n\
-                    Note: polled {} times with no output — the process may be idle or waiting. \
+                    "PID {pid}: {}\nStatus: running ({elapsed_str})\nNo new output since last check.\n\
+                    Note: polled {total} times with no output — the process may be idle or waiting. \
                     Consider whether you still need to monitor it.",
-                    pid, proc.command, elapsed_str, total
+                    proc.command
                 );
             }
         }
         let mut result = format!(
-            "PID {}: {}\nStatus: {} (running for {})\nNo new output since last check.",
-            pid, proc.command, status, elapsed_str
+            "PID {pid}: {}\nStatus: {status} (running for {elapsed_str})\nNo new output since last check.",
+            proc.command
         );
         if is_running {
             result.push_str("\n\nUse the `wait_seconds` parameter (e.g. 15) on your next check_background_process call to pause before checking again.");
@@ -560,20 +569,16 @@ pub fn check_background_process(pid: u32, wait_seconds: u64, max_checks: usize) 
         // New output found — reset the no-output counter (but NOT total_checks)
         proc.no_output_checks.store(0, Ordering::Relaxed);
 
+        let new_line_count = new_lines.len();
+        let new_lines_joined = new_lines.join("\n");
         let mut result = format!(
-            "PID {}: {}\nStatus: {} (running for {})\nNew output ({} lines):\n{}",
-            pid,
-            proc.command,
-            status,
-            elapsed_str,
-            new_lines.len(),
-            new_lines.join("\n")
+            "PID {pid}: {}\nStatus: {status} (running for {elapsed_str})\nNew output ({new_line_count} lines):\n{new_lines_joined}",
+            proc.command
         );
         if is_running {
             if total >= max_checks {
                 result.push_str(&format!(
-                    "\n\nNote: polled {} times — consider whether continued monitoring is needed.",
-                    total
+                    "\n\nNote: polled {total} times — consider whether continued monitoring is needed."
                 ));
             } else {
                 result.push_str("\n\nProcess is still running. Use `wait_seconds: 15` on your next check_background_process call to pause before checking.");

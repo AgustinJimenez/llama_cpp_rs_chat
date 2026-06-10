@@ -40,13 +40,13 @@ pub fn kill_process_tree(pid: u32) {
             .status()
         {
             Ok(status) if status.success() => {
-                eprintln!("[KILL] Process tree killed (pid={})", pid);
+                eprintln!("[KILL] Process tree killed (pid={pid})");
             }
             Ok(status) => {
-                eprintln!("[KILL] taskkill exited with {} for pid={}", status, pid);
+                eprintln!("[KILL] taskkill exited with {status} for pid={pid}");
             }
             Err(e) => {
-                eprintln!("[KILL] Failed to run taskkill for pid={}: {}", pid, e);
+                eprintln!("[KILL] Failed to run taskkill for pid={pid}: {e}");
             }
         }
     }
@@ -96,7 +96,7 @@ fn track_cwd_change(cmd: &str) {
                 }
             }
             Err(e) => {
-                eprintln!("[CWD] Failed to persist cd to '{}': {}", target, e);
+                eprintln!("[CWD] Failed to persist cd to '{target}': {e}");
             }
         }
     }

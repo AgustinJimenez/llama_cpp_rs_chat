@@ -76,7 +76,7 @@ pub fn truncate_command_output(text: &str) -> String {
         let omitted = lines.len() - HEAD_LINES - TAIL_LINES;
         let head = lines[..HEAD_LINES].join("\n");
         let tail = lines[lines.len() - TAIL_LINES..].join("\n");
-        format!("{}\n\n... ({} lines omitted) ...\n\n{}", head, omitted, tail)
+        format!("{head}\n\n... ({omitted} lines omitted) ...\n\n{tail}")
     } else {
         text.to_string()
     };
