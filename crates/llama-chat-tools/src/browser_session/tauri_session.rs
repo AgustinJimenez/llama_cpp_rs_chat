@@ -233,15 +233,15 @@ impl TauriHttpSession {
                 if html.len() > max {
                     return Ok(html[..max].to_string());
                 }
-                return Ok(html);
+                Ok(html)
             }
             Ok(html) => {
                 eprintln!("[BROWSER_HTTP] eval returned short/non-HTML ({} bytes)", html.len());
-                return Err(format!("Browser eval returned no content ({} bytes) — page may not have loaded yet", html.len()));
+                Err(format!("Browser eval returned no content ({} bytes) — page may not have loaded yet", html.len()))
             }
             Err(e) => {
                 eprintln!("[BROWSER_HTTP] eval failed: {e}");
-                return Err(format!("Browser eval failed: {e}"));
+                Err(format!("Browser eval failed: {e}"))
             }
         }
     }
@@ -304,18 +304,15 @@ impl BrowserSession for TauriHttpSession {
                 "selector": selector,
                 "target": "browser-panel"
             });
-            match ureq::post(&url)
+            if let Ok(resp) = ureq::post(&url)
                 .set("Content-Type", "application/json")
                 .timeout(std::time::Duration::from_secs(10))
                 .send_string(&body.to_string())
             {
-                Ok(resp) => {
-                    let text = resp.into_string().unwrap_or_default();
-                    if !text.contains("not found") && !text.contains("not open") {
-                        return Ok(());
-                    }
+                let text = resp.into_string().unwrap_or_default();
+                if !text.contains("not found") && !text.contains("not open") {
+                    return Ok(());
                 }
-                Err(_) => {} // Fall through to CDP
             }
         }
 
@@ -326,9 +323,9 @@ impl BrowserSession for TauriHttpSession {
                 "(() => {{ const el = document.querySelector({sel_json}); if (!el) return 'not found'; el.click(); return 'clicked'; }})()"
             );
             match eval_in_browser_panel(&js) {
-                Ok(r) if !r.contains("not found") => return Ok(()),
-                Ok(r) => return Err(format!("Element not found: {r}")),
-                Err(e) => return Err(format!("click failed: {e}")),
+                Ok(r) if !r.contains("not found") => Ok(()),
+                Ok(r) => Err(format!("Element not found: {r}")),
+                Err(e) => Err(format!("click failed: {e}")),
             }
         }
     }

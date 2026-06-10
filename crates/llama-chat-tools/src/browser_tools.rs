@@ -216,6 +216,7 @@ pub fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
         "get_links" => match session.html() {
             Ok(html) => {
                 let mut links = Vec::new();
+                let tag_re = regex::Regex::new(r"<[^>]+>").unwrap();
                 for cap in regex::Regex::new(r#"<a[^>]+href="([^"]*)"[^>]*>(.*?)</a>"#)
                     .unwrap()
                     .captures_iter(&html)
@@ -223,7 +224,7 @@ pub fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
                     if links.len() >= 200 { break; }
                     let href = cap.get(1).map(|m| m.as_str()).unwrap_or("");
                     let text = cap.get(2).map(|m| m.as_str()).unwrap_or("");
-                    let clean = regex::Regex::new(r"<[^>]+>").unwrap()
+                    let clean = tag_re
                         .replace_all(text, "").trim().chars().take(80).collect::<String>();
                     if !href.is_empty() && !clean.is_empty() {
                         links.push(serde_json::json!({"text": clean, "href": href}));

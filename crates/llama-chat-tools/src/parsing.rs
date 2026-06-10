@@ -298,10 +298,8 @@ pub fn try_parse_tool_call(text: &str) -> Option<(String, Value)> {
         Some(result)
     } else if let Some(result) = try_parse_glm_xml_format(trimmed) {
         Some(result)
-    } else if let Some(result) = try_parse_name_json_format(trimmed) {
-        Some(result)
     } else {
-        None
+        try_parse_name_json_format(trimmed)
     }
 }
 

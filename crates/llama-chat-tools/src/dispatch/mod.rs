@@ -179,9 +179,9 @@ fn validate_tool_args(tool_name: &str, args: &serde_json::Value) -> Result<(), S
                             return Err(type_error(field_name, tool_name, "string", value));
                         }
                         "number" | "integer"
-                            if !value.is_number()
-                                && !(value.is_string()
-                                    && value.as_str().unwrap_or("").parse::<f64>().is_ok()) =>
+                            if !(value.is_number()
+                                || (value.is_string()
+                                    && value.as_str().unwrap_or("").parse::<f64>().is_ok())) =>
                         {
                             return Err(type_error(field_name, tool_name, "number", value));
                         }
@@ -237,11 +237,7 @@ pub fn dispatch_native_tool(
 ) -> Option<NativeToolResult> {
     let trimmed = text.trim();
     let mut calls = parsing::try_parse_all_from_raw(trimmed);
-    let (name, args) = if let Some(first) = calls.drain(..).next() {
-        first
-    } else {
-        return None;
-    };
+    let (name, args) = calls.drain(..).next()?;
 
     if let Err(validation_error) = validate_tool_args(&name, &args) {
         return Some(NativeToolResult::text_only(validation_error));

@@ -112,7 +112,7 @@ fn run_event_loop(
     let pending: PendingReplies = Arc::new(Mutex::new(HashMap::new()));
     let pending_for_ipc = pending.clone();
     // Pending navigate reply — fulfilled when page fires the load event via IPC
-    let pending_nav: Arc<Mutex<Option<mpsc::Sender<Result<(), String>>>>> = Arc::new(Mutex::new(None));
+    let pending_nav = Arc::new(Mutex::new(None::<mpsc::Sender<Result<(), String>>>));
     let pending_nav_for_ipc = pending_nav.clone();
 
     // Persistent WebContext — stores cookies, cache, and session data across launches.

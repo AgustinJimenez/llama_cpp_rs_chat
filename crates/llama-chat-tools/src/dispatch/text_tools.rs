@@ -142,7 +142,7 @@ pub(super) fn dispatch_text_tool(
                         if let Some(ctags) = command_tools::get_ctags(target) {
                             let file_matches: Vec<&str> = ctags
                                 .lines()
-                                .filter(|line| file.map_or(true, |f| line.contains(f)))
+                                .filter(|line| file.is_none_or(|f| line.contains(f)))
                                 .take(50)
                                 .collect();
                             if !file_matches.is_empty() {
@@ -305,7 +305,7 @@ pub(super) fn dispatch_text_tool(
             let style = args.get("style").and_then(|v| v.as_str()).unwrap_or("detailed");
             match style {
                 "brief" => "Response style set to BRIEF. From now on: be concise, skip explanations, show only results and actions. No preamble or summaries.".to_string(),
-                "detailed" | _ => "Response style set to DETAILED. From now on: explain your reasoning, show context, and provide thorough responses.".to_string(),
+                _ => "Response style set to DETAILED. From now on: explain your reasoning, show context, and provide thorough responses.".to_string(),
             }
         }
         "open_url" => {

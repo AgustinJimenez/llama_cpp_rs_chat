@@ -218,10 +218,8 @@ pub fn extract_odt_text(bytes: &[u8], max_chars: usize) -> String {
                 // <text:p>, <text:h>, <text:span> contain text
                 if name == "p" || name == "h" || name == "span" {
                     in_text_element = true;
-                    if name == "p" || name == "h" {
-                        if !text.is_empty() && !text.ends_with('\n') {
-                            text.push('\n');
-                        }
+                    if (name == "p" || name == "h") && !text.is_empty() && !text.ends_with('\n') {
+                        text.push('\n');
                     }
                 }
                 // <text:tab/> → tab, <text:line-break/> → newline

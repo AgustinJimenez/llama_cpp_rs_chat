@@ -74,6 +74,7 @@ impl McpToolDefInfo {
 }
 
 /// External functions that the tools crate needs from the root crate.
+#[allow(clippy::type_complexity)]
 pub struct DispatchContext<'a> {
     pub get_tool_catalog: Option<&'a dyn Fn(&str) -> String>,
     pub get_tool_schema: Option<&'a dyn Fn(&str) -> Option<String>>,
