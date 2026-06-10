@@ -10,7 +10,7 @@ use super::sub_agent::{run_sub_agent};
 use super::tool_tags::ToolTags;
 /// Prefix a command with `rtk` for output compression (always enabled).
 pub(crate) fn rtk_prefix(cmd: &str) -> String {
-    format!("rtk {}", cmd)
+    format!("rtk {cmd}")
 }
 
 /// Check if a command is potentially destructive and return a warning.
@@ -131,7 +131,7 @@ pub(crate) fn run_native_tool_with_timeout(
     // Extract tool name for logging
     let tool_name = llama_chat_tools::extract_tool_name(&cmd).unwrap_or_else(|| "unknown".to_string());
     let tool_args_summary = llama_chat_tools::extract_tool_args_summary(&cmd);
-    llama_chat_db::event_log::log_event(conversation_id, "tool_start", &format!("{}: {}", tool_name, tool_args_summary));
+    llama_chat_db::event_log::log_event(conversation_id, "tool_start", &format!("{tool_name}: {tool_args_summary}"));
     let tool_start = std::time::Instant::now();
 
     let (tx, rx) = std::sync::mpsc::channel();
@@ -162,18 +162,17 @@ pub(crate) fn run_native_tool_with_timeout(
             let elapsed = tool_start.elapsed();
             let output_len = result.as_ref().map(|r| r.text.len()).unwrap_or(0);
             llama_chat_db::event_log::log_event(conversation_id, "tool_end", &format!(
-                "{}: {:.1}s, {} chars output", tool_name, elapsed.as_secs_f64(), output_len
+                "{tool_name}: {:.1}s, {output_len} chars output", elapsed.as_secs_f64()
             ));
             result
         }
         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
             llama_chat_db::event_log::log_event(conversation_id, "tool_timeout", &format!(
-                "{}: timed out after {}s", tool_name, timeout_secs
+                "{tool_name}: timed out after {timeout_secs}s"
             ));
-            log_info!(conversation_id, "⏱️ Native tool timed out after {}s", timeout_secs);
+            log_info!(conversation_id, "⏱️ Native tool timed out after {timeout_secs}s");
             Some(llama_chat_tools::NativeToolResult::text_only(format!(
-                "Error: Tool execution timed out after {} seconds. The network request may be slow or unresponsive. Please try again.",
-                timeout_secs
+                "Error: Tool execution timed out after {timeout_secs} seconds. The network request may be slow or unresponsive. Please try again."
             )))
         }
         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
@@ -224,7 +223,7 @@ pub(crate) fn execute_single_tool(
             token_sender,
         ) {
             Ok(result) => return (result, Vec::new(), t.elapsed().as_millis() as u64),
-            Err(e) => return (format!("Sub-agent error: {}", e), Vec::new(), t.elapsed().as_millis() as u64),
+            Err(e) => return (format!("Sub-agent error: {e}"), Vec::new(), t.elapsed().as_millis() as u64),
         }
     }
 
@@ -300,5 +299,5 @@ pub(crate) fn execute_single_tool(
     }
 
     // Fallback: unknown tool
-    (format!("Error: Unknown or unsupported tool '{}'", name), Vec::new(), 0)
+    (format!("Error: Unknown or unsupported tool '{name}'"), Vec::new(), 0)
 }

@@ -55,7 +55,7 @@ pub(crate) fn execute_single_call(
                 token_sender,
             ) {
                 Ok(result) => result,
-                Err(e) => format!("Sub-agent error: {}", e),
+                Err(e) => format!("Sub-agent error: {e}"),
             }
         }
     }

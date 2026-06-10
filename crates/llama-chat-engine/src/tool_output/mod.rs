@@ -28,30 +28,27 @@ pub(crate) fn wrap_output_for_model(output_block: &str, template_type: Option<&s
     match template_type {
         Some("ChatML") => {
             format!(
-                "<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n",
-                output_block
+                "<|im_end|>\n<|im_start|>user\n{output_block}<|im_end|>\n<|im_start|>assistant\n"
             )
         }
         Some("Llama3") => {
             format!(
-                "<|eot_id|><|start_header_id|>tool<|end_header_id|>\n\n{}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n",
-                output_block
+                "<|eot_id|><|start_header_id|>tool<|end_header_id|>\n\n{output_block}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
             )
         }
         Some("Gemma") => {
             format!(
-                "<end_of_turn>\n<start_of_turn>user\n{}<end_of_turn>\n<start_of_turn>model\n",
-                output_block
+                "<end_of_turn>\n<start_of_turn>user\n{output_block}<end_of_turn>\n<start_of_turn>model\n"
             )
         }
         Some("Harmony") => {
             format!(
-                "<|end|>\n{}\n<|start|>assistant<|channel|>analysis<|message|>",
-                output_block
+                "<|end|>\n{output_block}\n<|start|>assistant<|channel|>analysis<|message|>"
             )
         }
         Some("GLM") => {
-            format!("\n<|observation|>\n{}\n<|assistant|>\n", output_block.trim())
+            let output_block = output_block.trim();
+            format!("\n<|observation|>\n{output_block}\n<|assistant|>\n")
         }
         _ => {
             output_block.to_string()

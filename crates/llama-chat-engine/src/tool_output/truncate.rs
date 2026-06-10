@@ -25,18 +25,18 @@ pub fn tool_use_one_liner(tool_name: &str, args_hint: &str, output: &str, durati
         }
         "write_file" => {
             if let Some(bytes) = output.split("wrote ").nth(1).and_then(|s| s.split(' ').next()) {
-                format!("wrote {}", bytes)
+                format!("wrote {bytes}")
             } else {
                 output.lines().next().unwrap_or("done").to_string()
             }
         }
         "read_file" => {
             let lines = output.lines().count();
-            format!("{} lines", lines)
+            format!("{lines} lines")
         }
         "browser_search" => {
             let results = output.matches("URL:").count().max(output.matches("http").count().min(10));
-            format!("{} results", results)
+            format!("{results} results")
         }
         _ => {
             let first_line = output.lines().next().unwrap_or("done");
@@ -58,13 +58,13 @@ pub fn tool_use_one_liner(tool_name: &str, args_hint: &str, output: &str, durati
         } else {
             args_hint.to_string()
         };
-        format!(" {}", hint)
+        format!(" {hint}")
     };
 
     if duration_ms > 0 {
-        format!("[{}{} -> {} {} ({}ms)]", tool_name, args_part, status, detail, duration_ms)
+        format!("[{tool_name}{args_part} -> {status} {detail} ({duration_ms}ms)]")
     } else {
-        format!("[{}{} -> {} {}]", tool_name, args_part, status, detail)
+        format!("[{tool_name}{args_part} -> {status} {detail}]")
     }
 }
 
@@ -148,14 +148,13 @@ pub fn maybe_summarize_tool_output(
     };
 
     let system_prompt = format!(
-        "Summarize this {} tool output concisely. Extract ONLY:\n\
+        "Summarize this {tool_name} tool output concisely. Extract ONLY:\n\
          - Key results and status\n\
          - Error messages with file paths and line numbers\n\
          - Important warnings\n\
          - Actionable information\n\n\
          Remove verbose logs, progress bars, repeated output, boilerplate.\n\
-         Keep under 500 words.{extra_instructions}",
-        tool_name
+         Keep under 500 words.{extra_instructions}"
     );
 
     log_info!(conversation_id, "📝 [TOOL_SUMMARY] Summarizing {} output: {} chars", tool_name, output.len());
@@ -187,7 +186,7 @@ pub fn maybe_summarize_tool_output(
     let mut ctx = match create_fresh_context(model, backend, n_ctx, true, &config) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("[TOOL_SUMMARY] Failed to create summary context: {}", e);
+            eprintln!("[TOOL_SUMMARY] Failed to create summary context: {e}");
             return maybe_truncate_tool_output(output, tool_name, conversation_id);
         }
     };
@@ -236,7 +235,7 @@ fn map_reduce_summarize_tool_output(
                 summaries.push(summary);
             }
             Err(e) => {
-                eprintln!("[TOOL_SUMMARY] Chunk {} failed: {}, using truncated fallback", chunk_num, e);
+                eprintln!("[TOOL_SUMMARY] Chunk {chunk_num} failed: {e}, using truncated fallback");
                 summaries.push(chunk.chars().take(200).collect::<String>() + "...");
             }
         }

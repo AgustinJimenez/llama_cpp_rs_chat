@@ -92,8 +92,8 @@ pub(crate) fn run_generation_loop(
                 let batch_elapsed = stall_checkpoint.elapsed();
                 if batch_elapsed > TOKEN_STALL_TIMEOUT {
                     let secs = batch_elapsed.as_secs();
-                    eprintln!("[STALL] Generation stalled: 16 tokens took {}s (loop_recoveries={})", secs, gen.loop_recoveries);
-                    log_event(cfg.conversation_id, "stall", &format!("16 tokens took {}s", secs));
+                    eprintln!("[STALL] Generation stalled: 16 tokens took {secs}s (loop_recoveries={})", gen.loop_recoveries);
+                    log_event(cfg.conversation_id, "stall", &format!("16 tokens took {secs}s"));
                     if gen.loop_recoveries < 1 {
                         gen.loop_recoveries += 1;
                         if let Some(ref sender) = token_sender {
@@ -309,7 +309,7 @@ pub(crate) fn run_generation_loop(
 
             // Log generated token for crash reproduction
             if let Ok(dump_dir) = std::env::var("LLAMA_CHAT_DATA_DIR") {
-                let dump_path = format!("{}/logs/last_gen_tokens.txt", dump_dir);
+                let dump_path = format!("{dump_dir}/logs/last_gen_tokens.txt");
                 let entry = format!("{}\n", next_token.0);
                 let _ = std::fs::OpenOptions::new().create(true).append(true).open(&dump_path)
                     .and_then(|mut f| std::io::Write::write_all(&mut f, entry.as_bytes()));

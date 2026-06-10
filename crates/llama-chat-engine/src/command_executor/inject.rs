@@ -15,8 +15,8 @@ pub fn inject_output_tokens(
         conversation_id
     );
     if let Ok(dump_dir) = std::env::var("LLAMA_CHAT_DATA_DIR") {
-        let dump_path = format!("{}/logs/last_inject_dump.txt", dump_dir);
-        let entry = format!("[INJECT pos={} count={}] {:?}\n", token_pos, tokens.len(), tokens);
+        let dump_path = format!("{dump_dir}/logs/last_inject_dump.txt");
+        let entry = format!("[INJECT pos={token_pos} count={}] {tokens:?}\n", tokens.len());
         let _ = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -49,9 +49,7 @@ pub fn inject_output_tokens(
     for (i, &token) in tokens.iter().enumerate() {
         if *token_pos < 0 || *token_pos as u32 >= ctx_size {
             eprintln!(
-                "[INJECT] token_pos {} >= n_ctx {} — aborting injection (CONTEXT_EXHAUSTED)",
-                token_pos,
-                ctx_size
+                "[INJECT] token_pos {token_pos} >= n_ctx {ctx_size} — aborting injection (CONTEXT_EXHAUSTED)"
             );
             return Err("CONTEXT_EXHAUSTED".to_string());
         }
@@ -83,8 +81,7 @@ pub fn inject_output_tokens(
             }
             Err(_panic) => {
                 eprintln!(
-                    "[INJECT] decode() panicked/threw C++ exception during injection at pos {}",
-                    token_pos
+                    "[INJECT] decode() panicked/threw C++ exception during injection at pos {token_pos}"
                 );
                 return Err("Decode crashed during tool injection (C++ exception)".to_string());
             }

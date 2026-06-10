@@ -76,7 +76,7 @@ pub fn run_sub_agent(
         if ctx.is_empty() {
             task.to_string()
         } else {
-            format!("{}\n\n## Additional Context\n{}", task, ctx)
+            format!("{task}\n\n## Additional Context\n{ctx}")
         }
     } else {
         task.to_string()

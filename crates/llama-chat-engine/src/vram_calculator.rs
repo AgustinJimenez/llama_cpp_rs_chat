@@ -99,7 +99,7 @@ pub fn read_gguf_block_count(model_path: &str) -> Option<u32> {
 
     // Try {arch}.block_count first
     if let Some(ref arch_name) = arch {
-        let key = format!("{}.block_count", arch_name);
+        let key = format!("{arch_name}.block_count");
         if let Some(val) = metadata.get(&key) {
             return match val {
                 Value::Uint32(n) => Some(*n),
@@ -120,7 +120,7 @@ pub fn read_gguf_block_count(model_path: &str) -> Option<u32> {
         "mamba",
         "mistral",
     ] {
-        let key = format!("{}.block_count", prefix);
+        let key = format!("{prefix}.block_count");
         if let Some(val) = metadata.get(&key) {
             return match val {
                 Value::Uint32(n) => Some(*n),

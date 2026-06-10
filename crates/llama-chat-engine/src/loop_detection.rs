@@ -78,7 +78,7 @@ pub(crate) fn check_loop(
     let maybe_force_stop = |result: CommandExecutionResult, blocks: &mut usize| -> LoopCheckResult {
         *blocks += 1;
         if *blocks >= MAX_CONSECUTIVE_BLOCKS {
-            eprintln!("[LOOP] {} consecutive blocks — force-stopping generation", blocks);
+            eprintln!("[LOOP] {blocks} consecutive blocks — force-stopping generation");
             LoopCheckResult::ForceStop(result)
         } else {
             LoopCheckResult::Blocked(result)
@@ -90,7 +90,7 @@ pub(crate) fn check_loop(
     // commands are often valid (e.g. recompiling after each file edit). Exact repeats are caught
     // earlier by MAX_COMMAND_REPEATS.
     let fuzzy_warning = if !is_wait_or_poll && similar_count >= 3 && repeat_count < MAX_COMMAND_REPEATS {
-        eprintln!("[FUZZY_LOOP] {} similar commands detected", similar_count);
+        eprintln!("[FUZZY_LOOP] {similar_count} similar commands detected");
         if similar_count >= 10 {
             // Escalate: block execution like exact match loop
             let output = format!(

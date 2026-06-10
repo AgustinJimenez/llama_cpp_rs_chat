@@ -93,7 +93,7 @@ pub fn maybe_compact_conversation(
     // produce large outputs (e.g. nim compiler logs: ~500K chars → ~125K estimated tokens
     // but model only saw ~10K tokens of truncated output).
     let estimated_tokens = if let Some(pos) = actual_token_pos {
-        eprintln!("[COMPACTION] Using actual token_pos={} from last generation (raw DB would overcount)", pos);
+        eprintln!("[COMPACTION] Using actual token_pos={pos} from last generation (raw DB would overcount)");
         pos
     } else {
         // First turn: no prior generation, tokenize raw content as fallback

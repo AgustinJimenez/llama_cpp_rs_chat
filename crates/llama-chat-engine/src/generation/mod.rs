@@ -420,7 +420,7 @@ pub async fn generate_llama_response(
     log_event(&conversation_id, "gen_start", &format!(
         "ctx={}, prompt_tokens={}, remaining={}, flash_attn={}, kv_cache={}",
         context_size, token_pos, max_total_tokens, flash_attention,
-        if cache_type_k == "f16" && cache_type_v == "f16" { "f16".to_string() } else { format!("K={} V={}", cache_type_k, cache_type_v) }
+        if cache_type_k == "f16" && cache_type_v == "f16" { "f16".to_string() } else { format!("K={cache_type_k} V={cache_type_v}") }
     ));
 
     log_info!(

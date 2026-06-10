@@ -30,7 +30,7 @@ pub(super) fn strip_incomplete_tool_call_on_cancel(gen: &mut TokenGenState) {
             None => true,
         };
         if is_unclosed || is_fn_unclosed {
-            eprintln!("[CANCEL] Stripping incomplete tool call at pos {}", open_pos);
+            eprintln!("[CANCEL] Stripping incomplete tool call at pos {open_pos}");
             gen.response.truncate(open_pos);
             gen.logger_synced_len = gen.logger_synced_len.min(open_pos);
         }

@@ -56,7 +56,7 @@ pub fn warmup_system_prompt(
     });
 
     // Build a minimal conversation with just the system prompt
-    let conversation_content = format!("SYSTEM:\n{}\n\n", system_prompt);
+    let conversation_content = format!("SYSTEM:\n{system_prompt}\n\n");
 
     let template_type = state.chat_template_type.clone();
     let chat_template_string = state.chat_template_string.clone();
