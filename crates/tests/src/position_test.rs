@@ -83,7 +83,7 @@ enum TestResult {
 
 fn test_position(backend: &LlamaBackend, model: &LlamaModel, context_size: u32, target_pos: i32) -> TestResult {
     println!("╔══════════════════════════════════════╗");
-    println!("║  Testing position {:<19}║", target_pos);
+    println!("║  Testing position {target_pos:<19}║");
     println!("╚══════════════════════════════════════╝");
 
     // Create context
@@ -119,7 +119,7 @@ fn test_position(backend: &LlamaBackend, model: &LlamaModel, context_size: u32, 
     // Generate tokens to reach target position
     let tokens_to_gen = (target_pos - token_pos).max(0) as usize;
     if tokens_to_gen > 0 {
-        print!("  Generating {} tokens to reach pos {}...", tokens_to_gen, target_pos);
+        print!("  Generating {tokens_to_gen} tokens to reach pos {target_pos}...");
         let t = Instant::now();
         for i in 0..tokens_to_gen {
             let next = sampler.sample(&ctx, -1);
@@ -138,7 +138,7 @@ fn test_position(backend: &LlamaBackend, model: &LlamaModel, context_size: u32, 
         println!(" done ({:.1}s, {:.0} tok/s)", t.elapsed().as_secs_f64(),
             tokens_to_gen as f64 / t.elapsed().as_secs_f64());
     }
-    println!("  Current position: {}", token_pos);
+    println!("  Current position: {token_pos}");
 
     // Now inject a large tool output (like the app does after read_file)
     let fake_tool_output = build_injection_text(650); // ~650 tokens to match the crash scenario
@@ -158,7 +158,7 @@ fn test_position(backend: &LlamaBackend, model: &LlamaModel, context_size: u32, 
 
         let t = Instant::now();
         if let Err(e) = ctx.decode(&mut batch) {
-            return TestResult::Error(format!("Decode failed at token {}: {e}", i));
+            return TestResult::Error(format!("Decode failed at token {i}: {e}"));
         }
         let decode_ms = t.elapsed().as_millis();
 

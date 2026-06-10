@@ -78,9 +78,9 @@ pub fn run_worker(db_path: &str) {
             } else if age_secs >= 60 {
                 format!("{}m{}s ago", age_secs / 60, age_secs % 60)
             } else {
-                format!("{}s ago", age_secs)
+                format!("{age_secs}s ago")
             };
-            eprintln!("  Killing PID {}: {} (started {})", pid, cmd, age_str);
+            eprintln!("  Killing PID {pid}: {cmd} (started {age_str})");
             llama_chat_command::background::kill_background_process_by_pid(*pid);
         }
     }

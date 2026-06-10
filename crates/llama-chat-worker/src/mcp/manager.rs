@@ -166,7 +166,7 @@ impl McpManager {
             let clients = self.clients.lock().unwrap_or_else(|p| p.into_inner());
             clients.get(&server_id)
                 .cloned()
-                .ok_or_else(|| format!("MCP server '{}' not connected", server_id))?
+                .ok_or_else(|| format!("MCP server '{server_id}' not connected"))?
         };
 
         // Call the tool without holding the lock

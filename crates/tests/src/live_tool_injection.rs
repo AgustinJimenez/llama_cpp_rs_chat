@@ -247,7 +247,7 @@ fn main() {
     sampler.accept_many(inject_llama_tokens);
 
     println!("  Injection decode: {:.0}ms", t.elapsed().as_millis());
-    println!("  token_pos after injection: {}", token_pos);
+    println!("  token_pos after injection: {token_pos}");
 
     // Brief pause + synchronize (same as app)
     std::thread::sleep(std::time::Duration::from_millis(50));
@@ -260,7 +260,7 @@ fn main() {
     let t = Instant::now();
     let next = sampler.sample(&ctx, -1);
     let ms = t.elapsed().as_millis();
-    println!("  sample() returned in {}ms, token={:?}", ms, next);
+    println!("  sample() returned in {ms}ms, token={next:?}");
 
     if ms > 5000 {
         println!("\n  ⚠️  sample() took >5s — DEADLOCK LIKELY");
@@ -370,7 +370,7 @@ fn main() {
     }
 
     println!("\n=== PASSED — {} injection rounds, no deadlock ===", 10 + 1);
-    println!("Total token_pos: {}", token_pos);
+    println!("Total token_pos: {token_pos}");
 }
 
 fn eval_tokens(ctx: &mut llama_cpp_2::context::LlamaContext, batch: &mut LlamaBatch, tokens: &[LlamaToken], start: i32) {
@@ -391,5 +391,5 @@ fn chrono_like_timestamp() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs();
-    format!("{}", now)
+    format!("{now}")
 }

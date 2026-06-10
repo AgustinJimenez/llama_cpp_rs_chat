@@ -201,7 +201,7 @@ pub fn handle_generate_title(
     llama_state: SharedLlamaState,
     ipc_writer: &mut impl Write,
 ) {
-    eprintln!("[WORKER] Generating title for conv={}", conversation_id);
+    eprintln!("[WORKER] Generating title for conv={conversation_id}");
     match llama_chat_engine::generate_title_text(&llama_state, &prompt) {
         Ok(title) => {
             write_response(ipc_writer, &WorkerResponse::ok(

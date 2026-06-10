@@ -175,7 +175,7 @@ pub async fn stdout_reader_task(
                 block_count: *block_count,
                 supports_thinking,
             });
-            eprintln!("[BRIDGE] Model metadata cached: {}", model_path);
+            eprintln!("[BRIDGE] Model metadata cached: {model_path}");
         }
 
         // Handle model unloaded — clear cached metadata
