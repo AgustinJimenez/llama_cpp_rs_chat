@@ -160,7 +160,7 @@ pub async fn handle_insert_text(tool_arguments: &serde_json::Value) -> serde_jso
             lines.insert(insert_idx, text);
             let new_content = lines.join("\n");
             let new_content = if content.ends_with('\n') {
-                format!("{}\n", new_content)
+                format!("{new_content}\n")
             } else {
                 new_content
             };
@@ -228,7 +228,7 @@ pub async fn handle_search_files(tool_arguments: &serde_json::Value) -> serde_js
             if match_count >= 50 || output.len() >= 8000 { break; }
         }
         if match_count == 0 {
-            format!("No matches found for pattern '{}'", pattern_owned)
+            format!("No matches found for pattern '{pattern_owned}'")
         } else {
             format!("{} match{}\n{}", match_count, if match_count == 1 { "" } else { "es" }, output)
         }
@@ -275,7 +275,7 @@ pub async fn handle_find_files(tool_arguments: &serde_json::Value) -> serde_json
             }
         }
         if matches.is_empty() {
-            format!("No files matching '{}' found", pattern_owned)
+            format!("No files matching '{pattern_owned}' found")
         } else {
             format!("{} file{}\n{}", matches.len(), if matches.len() == 1 { "" } else { "s" }, matches.join("\n"))
         }

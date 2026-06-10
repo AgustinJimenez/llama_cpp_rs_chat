@@ -4,7 +4,7 @@ fn main() {
     let pdf_path = std::env::args().nth(1).unwrap_or_else(|| {
         "E:/repo/tmp_project/nemesis.pdf".to_string()
     });
-    println!("Testing PDF: {}\n", pdf_path);
+    println!("Testing PDF: {pdf_path}\n");
 
     // Test 1: pdf-extract (current)
     println!("=== pdf-extract (current) ===");
@@ -33,11 +33,11 @@ fn main() {
             for i in 0..page_count.min(10) {
                 match doc.extract_text(i) {
                     Ok(text) => total_text.push_str(&text),
-                    Err(e) => eprintln!("  Page {} error: {}", i, e),
+                    Err(e) => eprintln!("  Page {i} error: {e}"),
                 }
             }
             println!("Time: {}ms", start.elapsed().as_millis());
-            println!("Pages: {}", page_count);
+            println!("Pages: {page_count}");
             println!("First 10 pages: {} chars", total_text.len());
             let trimmed = total_text.trim();
             if trimmed.is_empty() {

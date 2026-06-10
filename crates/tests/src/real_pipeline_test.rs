@@ -213,7 +213,7 @@ async fn run_test(model_path: &str, num_rounds: usize) {
                     eprintln!("     Reason: {reason}");
                     eprintln!("     Tokens: {} gen, {}/{} ctx", gen_tokens, output.tokens_used, output.max_tokens);
                     if let Some(tps) = output.gen_tok_per_sec {
-                        eprintln!("     Speed: {:.1} tok/s", tps);
+                        eprintln!("     Speed: {tps:.1} tok/s");
                     }
                     let resp_preview = &output.response[..output.response.len().min(120)].replace('\n', " ");
                     eprintln!("     Response: {resp_preview}...");

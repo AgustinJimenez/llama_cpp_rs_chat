@@ -35,8 +35,7 @@ pub fn make_server_continuation_message(finish_reason: &str, original_message: &
             ""
         };
         format!(
-            "Continue working on this task: \"{}{}\". Pick up where you left off.",
-            preview, ellipsis
+            "Continue working on this task: \"{preview}{ellipsis}\". Pick up where you left off."
         )
     }
 }

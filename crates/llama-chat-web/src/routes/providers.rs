@@ -201,7 +201,7 @@ pub async fn handle_provider_stream(
                     "conversation_id": conv_id_clone,
                 });
                 let _ = sse_tx
-                    .send_data(hyper::body::Bytes::from(format!("data: {}\n\n", done_json)))
+                    .send_data(hyper::body::Bytes::from(format!("data: {done_json}\n\n")))
                     .await;
 
                 let now = std::time::SystemTime::now()
@@ -230,7 +230,7 @@ pub async fn handle_provider_stream(
                     "duration_ms": token_data.duration_ms,
                 });
                 let _ = sse_tx
-                    .send_data(hyper::body::Bytes::from(format!("data: {}\n\n", status_json)))
+                    .send_data(hyper::body::Bytes::from(format!("data: {status_json}\n\n")))
                     .await;
                 continue;
             }
@@ -242,7 +242,7 @@ pub async fn handle_provider_stream(
                 "token": token_data.token,
             });
             if sse_tx
-                .send_data(hyper::body::Bytes::from(format!("data: {}\n\n", token_json)))
+                .send_data(hyper::body::Bytes::from(format!("data: {token_json}\n\n")))
                 .await
                 .is_err()
             {

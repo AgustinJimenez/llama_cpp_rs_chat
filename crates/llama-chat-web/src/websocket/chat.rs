@@ -290,7 +290,7 @@ pub async fn handle_websocket(
                                                         requested_worker_id.as_deref(),
                                                     );
                                                 }
-                                                eprintln!("[WS_CHAT] Complete: conv={}, finish={:?}", conversation_id, finish_reason);
+                                                eprintln!("[WS_CHAT] Complete: conv={conversation_id}, finish={finish_reason:?}");
                                                 bridge.set_last_finish_reason(finish_reason.clone()).await;
                                                 // Store done — send after can_continue check so the frontend
                                                 // WS isn't closed before server auto-continue has a chance to run.
@@ -395,7 +395,7 @@ pub async fn handle_websocket(
                                         let _ = ws_sender.send(WsMessage::Pong(data)).await;
                                     }
                                     Some(Err(_e)) => {
-                                        eprintln!("[WS_CHAT] BREAK: client error: {}", _e);
+                                        eprintln!("[WS_CHAT] BREAK: client error: {_e}");
                                         break 'gen_loop;
                                     }
                                     _ => {}
@@ -413,8 +413,7 @@ pub async fn handle_websocket(
                         if can_continue {
                             server_auto_continue_count += 1;
                             eprintln!(
-                                "[WS_CHAT] Server auto-continue {}/{} (reason={})",
-                                server_auto_continue_count, MAX_SERVER_AUTO_CONTINUES, finish_str
+                                "[WS_CHAT] Server auto-continue {server_auto_continue_count}/{MAX_SERVER_AUTO_CONTINUES} (reason={finish_str})"
                             );
                             // Notify frontend to stay alive without completing.
                             // The frontend must NOT close the WS here — the next generation

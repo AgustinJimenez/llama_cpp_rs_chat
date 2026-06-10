@@ -284,7 +284,7 @@ pub async fn list_providers_with_keys(api_keys_json: Option<&str>) -> Vec<Provid
                         id: id.clone(),
                         name: display_name.to_string(),
                         available,
-                        description: format!("Custom: {}", base_url),
+                        description: format!("Custom: {base_url}"),
                         version: None,
                         models,
                         default_base_url: if base_url.is_empty() { None } else { Some(base_url.to_string()) },

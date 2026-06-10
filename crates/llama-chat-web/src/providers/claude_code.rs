@@ -126,7 +126,7 @@ pub async fn generate(
     let model = normalize_model(model);
     eprintln!("[CLAUDE_CODE] generate() called with prompt={:?} model={} cwd={:?}", &prompt[..prompt.len().min(50)], model, cwd);
     let resolved_cwd = resolve_cli_cwd(cwd)?;
-    eprintln!("[CLAUDE_CODE] resolved_cwd={:?}", resolved_cwd);
+    eprintln!("[CLAUDE_CODE] resolved_cwd={resolved_cwd:?}");
 
     // On Windows, use the npm-installed claude binary directly (not the .cmd wrapper)
     // to avoid batch file argument escaping issues with tokio::process::Command.
@@ -149,7 +149,7 @@ pub async fn generate(
         crate::providers::claude_bin().await.unwrap_or_else(|| "claude".to_string())
     };
 
-    eprintln!("[CLAUDE_CODE] Using binary: {}", claude_bin);
+    eprintln!("[CLAUDE_CODE] Using binary: {claude_bin}");
     let mut cmd = if claude_bin.ends_with(".js") {
         let mut c = Command::new("node");
         c.arg(&claude_bin);
@@ -193,7 +193,7 @@ pub async fn generate(
 
             match serde_json::from_str::<ClaudeEvent>(&line) {
                 Ok(ClaudeEvent::System { session_id, model, .. }) => {
-                    eprintln!("[CLAUDE_CODE] Session started: {:?}, model: {:?}", session_id, model);
+                    eprintln!("[CLAUDE_CODE] Session started: {session_id:?}, model: {model:?}");
                     actual_model_id = model;
                 }
                 Ok(ClaudeEvent::Assistant { message, .. }) => {
@@ -214,8 +214,7 @@ pub async fn generate(
                                 // Format as our app's tool call tags so the UI renders with native widgets
                                 let args = serde_json::to_string(input).unwrap_or_default();
                                 let tool_display = format!(
-                                    "\n<tool_call>{{\"name\": \"{}\", \"arguments\": {}}}</tool_call>\n",
-                                    name, args
+                                    "\n<tool_call>{{\"name\": \"{name}\", \"arguments\": {args}}}</tool_call>\n"
                                 );
                                 let _ = tx.send(CliTokenData {
                                     token: tool_display,
@@ -250,7 +249,7 @@ pub async fn generate(
                                 let truncated = if result_str.len() > 500 {
                                     format!("{}...", &result_str[..500])
                                 } else { result_str };
-                                let result_display = format!("\n<tool_response>\n{}\n</tool_response>\n", truncated);
+                                let result_display = format!("\n<tool_response>\n{truncated}\n</tool_response>\n");
                                 let _ = tx.send(CliTokenData {
                                     token: result_display,
                                     is_done: false,
@@ -284,7 +283,7 @@ pub async fn generate(
                     });
                 }
                 Ok(ClaudeEvent::RateLimit { rate_limit_info }) => {
-                    eprintln!("[CLAUDE_CODE] Rate limit: {:?}", rate_limit_info);
+                    eprintln!("[CLAUDE_CODE] Rate limit: {rate_limit_info:?}");
                 }
                 Ok(ClaudeEvent::Unknown) => {
                     // Ignore unknown event types

@@ -58,8 +58,7 @@ pub async fn generate(
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
 
     eprintln!(
-        "[OPENAI_COMPAT] generate() provider={} model={} url={}",
-        provider_id, model_name, url
+        "[OPENAI_COMPAT] generate() provider={provider_id} model={model_name} url={url}"
     );
 
     // Read max_tool_calls from config (default 2000)
@@ -150,7 +149,7 @@ pub async fn generate(
                 let url = if b64.starts_with("data:") {
                     b64.clone()
                 } else {
-                    format!("data:image/jpeg;base64,{}", b64)
+                    format!("data:image/jpeg;base64,{b64}")
                 };
                 parts.push(json!({"type": "image_url", "image_url": {"url": url}}));
             }
@@ -354,9 +353,9 @@ pub async fn generate(
                 }
                 if same_tool_count >= loop_limit {
                     provider_log(&conv_id_owned, "provider_error",
-                        &format!("Loop detected: {} called {} times in a row, stopping", current_tool, same_tool_count));
+                        &format!("Loop detected: {current_tool} called {same_tool_count} times in a row, stopping"));
                     let _ = tx.send(CliTokenData {
-                        token: format!("\n\n*Loop detected: tool called {} times in a row. Send a message to continue with a different approach.*", same_tool_count),
+                        token: format!("\n\n*Loop detected: tool called {same_tool_count} times in a row. Send a message to continue with a different approach.*"),
                         is_done: false, session_id: None, stop_reason: None, cost_usd: None,
                         duration_ms: None, model_id: counters.actual_model.clone(), input_tokens: None, output_tokens: None, cached_tokens: None,
                     });
@@ -423,7 +422,7 @@ pub async fn generate(
                     llama_chat_db::event_log::log_event(
                         conv_id,
                         "tool_timing",
-                        &format!("{{\"name\":\"{}\",\"duration_ms\":{}}}", name, duration_ms),
+                        &format!("{{\"name\":\"{name}\",\"duration_ms\":{duration_ms}}}"),
                     );
                 }
             }
