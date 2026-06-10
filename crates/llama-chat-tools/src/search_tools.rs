@@ -89,12 +89,12 @@ pub fn tool_search_files(args: &Value) -> String {
 
     for entry in walker.filter_map(|e| e.ok()) {
         if total_matches >= MAX_SEARCH_MATCHES { break; }
-        if !entry.file_type().map_or(false, |ft| ft.is_file()) { continue; }
+        if !entry.file_type().is_some_and(|ft| ft.is_file()) { continue; }
 
         let path = entry.path();
 
         // Skip large files (>2MB) to avoid memory issues
-        if std::fs::metadata(path).map_or(false, |m| m.len() > MAX_SEARCH_FILE_SIZE) { continue; }
+        if std::fs::metadata(path).is_ok_and(|m| m.len() > MAX_SEARCH_FILE_SIZE) { continue; }
         if is_binary_file(path) { continue; }
 
         if let Ok(content) = std::fs::read_to_string(path) {
@@ -120,9 +120,10 @@ pub fn tool_search_files(args: &Value) -> String {
                     if ctx_start > last_emitted && last_emitted > 0 {
                         results.push("--".to_string()); // gap separator
                     }
-                    for ci in ctx_start..i {
+                    for (offset, ci_line) in lines[ctx_start..i].iter().enumerate() {
+                        let ci = ctx_start + offset;
                         results.push(format!(
-                            "{display_path}-{}: {}", ci + 1, truncate_line(lines[ci], 200)
+                            "{display_path}-{}: {}", ci + 1, truncate_line(ci_line, 200)
                         ));
                     }
                 }
@@ -135,9 +136,10 @@ pub fn tool_search_files(args: &Value) -> String {
                 if context > 0 {
                     // After context
                     let end = (i + context).min(lines.len().saturating_sub(1));
-                    for ci in (i + 1)..=end {
+                    for (offset, ci_line) in lines[(i + 1)..=end].iter().enumerate() {
+                        let ci = (i + 1) + offset;
                         results.push(format!(
-                            "{display_path}-{}: {}", ci + 1, truncate_line(lines[ci], 200)
+                            "{display_path}-{}: {}", ci + 1, truncate_line(ci_line, 200)
                         ));
                     }
                     last_emitted = end + 1;
@@ -187,7 +189,7 @@ pub fn tool_find_files(args: &Value) -> String {
     let mut results = Vec::new();
     for entry in walker.filter_map(|e| e.ok()) {
         if results.len() >= MAX_FIND_RESULTS { break; }
-        if !entry.file_type().map_or(false, |ft| ft.is_file()) { continue; }
+        if !entry.file_type().is_some_and(|ft| ft.is_file()) { continue; }
         results.push(entry.path().to_string_lossy().to_string());
     }
 

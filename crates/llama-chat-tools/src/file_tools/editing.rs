@@ -1,10 +1,8 @@
 use super::*;
 
 fn normalize_quotes(s: &str) -> String {
-    s.replace('\u{2018}', "'")
-        .replace('\u{2019}', "'")
-        .replace('\u{201C}', "\"")
-        .replace('\u{201D}', "\"")
+    s.replace(['\u{2018}', '\u{2019}'], "'")
+        .replace(['\u{201C}', '\u{201D}'], "\"")
 }
 
 fn simple_diff(old: &str, new: &str, path: &str) -> String {
@@ -40,14 +38,14 @@ fn simple_diff(old: &str, new: &str, path: &str) -> String {
                 change_end += 1;
             }
 
-            for j in i..change_end.min(old_lines.len()) {
-                diff.push_str(&format!("-{}\n", old_lines[j]));
+            for line in &old_lines[i..change_end.min(old_lines.len())] {
+                diff.push_str(&format!("-{line}\n"));
             }
-            for j in i..change_end.min(new_lines.len()) {
-                diff.push_str(&format!("+{}\n", new_lines[j]));
+            for line in &new_lines[i..change_end.min(new_lines.len())] {
+                diff.push_str(&format!("+{line}\n"));
             }
-            for j in change_end..change_end.saturating_add(2).min(new_lines.len()) {
-                diff.push_str(&format!(" {}\n", new_lines[j]));
+            for line in &new_lines[change_end..change_end.saturating_add(2).min(new_lines.len())] {
+                diff.push_str(&format!(" {line}\n"));
             }
 
             i = change_end;

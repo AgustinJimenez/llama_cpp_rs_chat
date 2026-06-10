@@ -80,6 +80,7 @@ struct FileCacheEntry {
     access_order: u64,
 }
 
+#[allow(clippy::type_complexity)]
 static FILE_CONTENT_CACHE: OnceLock<StdMutex<(HashMap<String, FileCacheEntry>, u64, usize)>> = OnceLock::new();
 
 fn file_content_cache() -> &'static StdMutex<(HashMap<String, FileCacheEntry>, u64, usize)> {
@@ -334,16 +335,14 @@ pub fn tool_read_file(args: &Value) -> String {
     let was_truncated_by_cap = limit.is_none() && total_lines > MAX_LINES_DEFAULT;
 
     let start = if offset > 0 { (offset - 1).min(total_lines) } else { 0 };
-    let effective_limit = limit.unwrap_or_else(|| {
-        if total_lines > MAX_LINES_DEFAULT { MAX_LINES_DEFAULT } else { total_lines }
-    });
+    let effective_limit = limit.unwrap_or(if total_lines > MAX_LINES_DEFAULT { MAX_LINES_DEFAULT } else { total_lines });
     let end = (start + effective_limit).min(total_lines);
 
     let selected_lines = &lines[start..end];
     let selected_text: String = selected_lines.join("\n");
 
     // Estimate tokens (~4 chars per token)
-    let estimated_tokens = (selected_text.len() + 3) / 4;
+    let estimated_tokens = selected_text.len().div_ceil(4);
 
     // Build header
     let range_info = if offset > 0 || limit.is_some() {
