@@ -111,6 +111,7 @@ fn save_provider_turn_tauri(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn stream_provider(
     app: AppHandle,
     db: tauri::State<'_, SharedDatabase>,

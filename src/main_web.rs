@@ -41,6 +41,7 @@ async fn handle_request(
     handle_request_impl(req, None, db).await
 }
 
+#[allow(clippy::cognitive_complexity, clippy::too_many_lines)]
 async fn handle_request_impl(
     req: Request<Body>,
     #[cfg(not(feature = "mock"))] worker_pool: Option<WorkerPool>,

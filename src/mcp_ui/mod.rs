@@ -101,20 +101,18 @@ impl ServerHandler for AppUiServer {
         }))
     }
 
-    fn call_tool(
+    async fn call_tool(
         &self,
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
-    ) -> impl std::future::Future<Output = Result<CallToolResult, rmcp::ErrorData>> + Send + '_ {
-        async move {
-            let name = &request.name;
-            let args = request.arguments.as_ref()
-                .map(|m| Value::Object(m.clone()))
-                .unwrap_or(json!({}));
-            match dispatch_tool(self, name, &args).await {
-                Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
-                Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
-            }
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let name = &request.name;
+        let args = request.arguments.as_ref()
+            .map(|m| Value::Object(m.clone()))
+            .unwrap_or(json!({}));
+        match dispatch_tool(self, name, &args).await {
+            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
         }
     }
 }
@@ -219,7 +217,7 @@ async fn rest_browser_click(State(app): State<AppHandle>, body: Bytes) -> axum::
 async fn rest_browser_screenshot(State(app): State<AppHandle>) -> axum::response::Response {
     // Try browser-panel first (user-visible), fall back to agent-browser
     use tauri::Manager;
-    let target = if app.webviews().get("browser-panel").is_some() {
+    let target = if app.webviews().contains_key("browser-panel") {
         "browser-panel"
     } else {
         "agent-browser"
