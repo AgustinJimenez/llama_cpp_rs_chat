@@ -82,7 +82,8 @@ jobs:
             librsvg2-dev \
             patchelf \
             libpipewire-0.3-dev \
-            libspa-0.2-dev
+            libspa-0.2-dev \
+            libgbm-dev
 
       - name: Cache cargo registry + build artifacts
         uses: actions/cache@v4
@@ -129,7 +130,8 @@ jobs:
             librsvg2-dev \
             patchelf \
             libpipewire-0.3-dev \
-            libspa-0.2-dev
+            libspa-0.2-dev \
+            libgbm-dev
 
       - name: Cache cargo registry + build artifacts
         uses: actions/cache@v4
@@ -170,7 +172,8 @@ jobs:
             librsvg2-dev \
             patchelf \
             libpipewire-0.3-dev \
-            libspa-0.2-dev
+            libspa-0.2-dev \
+            libgbm-dev
 
       - name: Cache cargo registry + build artifacts
         uses: actions/cache@v4
