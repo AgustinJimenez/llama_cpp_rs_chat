@@ -45,7 +45,9 @@ pub fn extract_epub_text(bytes: &[u8], max_chars: usize) -> String {
         return "(EPUB contains no readable text)".to_string();
     }
 
-    eprintln!("[READ_FILE/EPUB] Extracted {} chars from {} content files", text.len(), content_files.len());
+    let text_len = text.len();
+    let file_count = content_files.len();
+    eprintln!("[READ_FILE/EPUB] Extracted {text_len} chars from {file_count} content files");
     crate::truncate_text_content(&text, max_chars)
 }
 
@@ -64,7 +66,8 @@ pub fn extract_rtf_text(bytes: &[u8], max_chars: usize) -> String {
             if text.is_empty() {
                 return "(RTF document contains no text)".to_string();
             }
-            eprintln!("[READ_FILE/RTF] Extracted {} chars", text.len());
+            let text_len = text.len();
+            eprintln!("[READ_FILE/RTF] Extracted {text_len} chars");
             crate::truncate_text_content(&text, max_chars)
         }
         Err(e) => format!("Error parsing RTF: {e}"),
@@ -79,7 +82,8 @@ pub fn extract_zip_listing(bytes: &[u8], max_chars: usize) -> String {
         Err(e) => return format!("Error reading ZIP archive: {e}"),
     };
 
-    let mut text = format!("ZIP archive: {} entries\n\n", archive.len());
+    let entry_count = archive.len();
+    let mut text = format!("ZIP archive: {entry_count} entries\n\n");
     let mut total_size: u64 = 0;
 
     for i in 0..archive.len() {
@@ -89,27 +93,33 @@ pub fn extract_zip_listing(bytes: &[u8], max_chars: usize) -> String {
             let kind = if entry.is_dir() { "DIR " } else { "FILE" };
             // Format size human-readable
             let size_str = if size >= 1_048_576 {
-                format!("{:.1}MB", size as f64 / 1_048_576.0)
+                let mb = size as f64 / 1_048_576.0;
+                format!("{mb:.1}MB")
             } else if size >= 1024 {
-                format!("{:.1}KB", size as f64 / 1024.0)
+                let kb = size as f64 / 1024.0;
+                format!("{kb:.1}KB")
             } else {
-                format!("{}B", size)
+                format!("{size}B")
             };
-            text.push_str(&format!("{} {:>8}  {}\n", kind, size_str, entry.name()));
+            let entry_name = entry.name();
+            text.push_str(&format!("{kind} {size_str:>8}  {entry_name}\n"));
         }
         if text.len() > max_chars { break; }
     }
 
     let total_str = if total_size >= 1_048_576 {
-        format!("{:.1}MB", total_size as f64 / 1_048_576.0)
+        let mb = total_size as f64 / 1_048_576.0;
+        format!("{mb:.1}MB")
     } else if total_size >= 1024 {
-        format!("{:.1}KB", total_size as f64 / 1024.0)
+        let kb = total_size as f64 / 1024.0;
+        format!("{kb:.1}KB")
     } else {
-        format!("{}B", total_size)
+        format!("{total_size}B")
     };
     text.push_str(&format!("\nTotal uncompressed: {total_str}"));
 
-    eprintln!("[READ_FILE/ZIP] Listed {} entries, total {}", archive.len(), total_str);
+    let zip_len = archive.len();
+    eprintln!("[READ_FILE/ZIP] Listed {zip_len} entries, total {total_str}");
     crate::truncate_text_content(&text, max_chars)
 }
 
@@ -154,7 +164,7 @@ pub fn extract_csv_structured(bytes: &[u8], max_chars: usize) -> String {
         return "(CSV file is empty)".to_string();
     }
 
-    eprintln!("[READ_FILE/CSV] Parsed {} rows", row_count);
+    eprintln!("[READ_FILE/CSV] Parsed {row_count} rows");
     crate::truncate_text_content(&text, max_chars)
 }
 
@@ -173,7 +183,7 @@ pub fn extract_eml_text(bytes: &[u8], max_chars: usize) -> String {
             if header.get_key().eq_ignore_ascii_case(key) {
                 let val = header.get_value();
                 if !val.is_empty() {
-                    text.push_str(&format!("{}: {}\n", key, val));
+                    text.push_str(&format!("{key}: {val}\n"));
                 }
                 break;
             }
@@ -211,7 +221,8 @@ pub fn extract_eml_text(bytes: &[u8], max_chars: usize) -> String {
             let name = disp.params.get("filename")
                 .cloned()
                 .unwrap_or_else(|| "(unnamed)".to_string());
-            atts.push(format!("{} ({})", name, part.ctype.mimetype));
+            let mimetype = &part.ctype.mimetype;
+            atts.push(format!("{name} ({mimetype})"));
         }
         for sub in &part.subparts {
             collect_attachments(sub, atts);
@@ -231,7 +242,9 @@ pub fn extract_eml_text(bytes: &[u8], max_chars: usize) -> String {
         return "(Email contains no readable content)".to_string();
     }
 
-    eprintln!("[READ_FILE/EML] Extracted {} chars, {} attachments", text.len(), attachments.len());
+    let text_len = text.len();
+    let att_count = attachments.len();
+    eprintln!("[READ_FILE/EML] Extracted {text_len} chars, {att_count} attachments");
     crate::truncate_text_content(&text, max_chars)
 }
 

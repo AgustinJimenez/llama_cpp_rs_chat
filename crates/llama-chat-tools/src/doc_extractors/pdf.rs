@@ -16,13 +16,14 @@ pub fn extract_pdf_text(bytes: &[u8], max_chars: usize) -> String {
             if text.is_empty() {
                 return "(PDF contains no extractable text — may be scanned/image-based)".to_string();
             }
-            eprintln!("[PDF] Fallback pdf-extract: {} chars", text.len());
+            let text_len = text.len();
+            eprintln!("[PDF] Fallback pdf-extract: {text_len} chars");
             if text.len() > max_chars {
                 let mut end = max_chars;
                 while end > 0 && !text.is_char_boundary(end) {
                     end -= 1;
                 }
-                format!("{}\n\n[PDF truncated at {} chars]", &text[..end], max_chars)
+                format!("{}\n\n[PDF truncated at {max_chars} chars]", &text[..end])
             } else {
                 text
             }
@@ -62,7 +63,8 @@ pub fn extract_pdf_with_pages(path: &str, pages_param: &str, max_chars: usize) -
         match doc.extract_text(i) {
             Ok(t) => {
                 if !t.trim().is_empty() {
-                    text.push_str(&format!("\n--- Page {} ---\n", i + 1));
+                    let page_num = i + 1;
+                    text.push_str(&format!("\n--- Page {page_num} ---\n"));
                     text.push_str(&t);
                     pages_read += 1;
                 }
@@ -73,17 +75,18 @@ pub fn extract_pdf_with_pages(path: &str, pages_param: &str, max_chars: usize) -
     }
 
     if text.trim().is_empty() {
-        return format!("(PDF contains no extractable text — may be scanned/image-based. Total pages: {})", total_pages);
+        return format!("(PDF contains no extractable text — may be scanned/image-based. Total pages: {total_pages})");
     }
 
-    let header = format!("[PDF: {} total pages, showing pages {}-{} ({} pages with text)]\n",
-        total_pages, start + 1, end, pages_read);
+    let page_start = start + 1;
+    let header = format!("[PDF: {total_pages} total pages, showing pages {page_start}-{end} ({pages_read} pages with text)]\n");
 
-    let result = format!("{}{}", header, text.trim());
+    let text_trimmed = text.trim();
+    let result = format!("{header}{text_trimmed}");
     if result.len() > max_chars {
         let mut end_pos = max_chars;
         while end_pos > 0 && !result.is_char_boundary(end_pos) { end_pos -= 1; }
-        format!("{}\n\n[Truncated at {} chars — use pages parameter to read specific sections]", &result[..end_pos], max_chars)
+        format!("{}\n\n[Truncated at {max_chars} chars — use pages parameter to read specific sections]", &result[..end_pos])
     } else {
         result
     }
@@ -92,7 +95,8 @@ pub fn extract_pdf_with_pages(path: &str, pages_param: &str, max_chars: usize) -
 /// Extract PDF text using pdf_oxide (writes to temp file since it only supports file paths).
 pub(super) fn extract_pdf_with_oxide(bytes: &[u8], max_chars: usize) -> Result<String, String> {
     // Write bytes to temp file
-    let tmp = std::env::temp_dir().join(format!("llama_pdf_{}.pdf", std::process::id()));
+    let pid = std::process::id();
+    let tmp = std::env::temp_dir().join(format!("llama_pdf_{pid}.pdf"));
     std::fs::write(&tmp, bytes).map_err(|e| format!("temp write: {e}"))?;
     let result: Result<String, String> = (|| -> Result<String, String> {
         let mut doc = pdf_oxide::PdfDocument::open(&tmp).map_err(|e| format!("open: {e}"))?;
@@ -113,11 +117,12 @@ pub(super) fn extract_pdf_with_oxide(bytes: &[u8], max_chars: usize) -> Result<S
     if trimmed.is_empty() {
         return Ok(String::new()); // Fall through to pdf-extract
     }
-    eprintln!("[PDF] pdf_oxide: {} chars extracted", trimmed.len());
+    let trimmed_len = trimmed.len();
+    eprintln!("[PDF] pdf_oxide: {trimmed_len} chars extracted");
     if trimmed.len() > max_chars {
         let mut end = max_chars;
         while end > 0 && !trimmed.is_char_boundary(end) { end -= 1; }
-        Ok(format!("{}\n\n[PDF truncated at {} chars]", &trimmed[..end], max_chars))
+        Ok(format!("{}\n\n[PDF truncated at {max_chars} chars]", &trimmed[..end]))
     } else {
         Ok(trimmed)
     }

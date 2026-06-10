@@ -15,13 +15,15 @@ pub fn ensure_mcp_connected(
     let statuses = mgr.get_server_statuses();
     let any_connected = statuses.iter().any(|s| s.connected);
     if !any_connected {
-        eprintln!("[MCP] Lazy connect: {} configured servers, connecting on first use...", configs.len());
+        let config_count = configs.len();
+        eprintln!("[MCP] Lazy connect: {config_count} configured servers, connecting on first use...");
         match mgr.refresh_connections(db) {
             Ok(()) => {
                 let connected = mgr.get_connected_server_names();
                 let tools = mgr.get_tool_definitions().len();
-                eprintln!("[MCP] Lazy connect complete: {} servers, {} tools ({})",
-                    connected.len(), tools, connected.join(", "));
+                let server_count = connected.len();
+                let connected_names = connected.join(", ");
+                eprintln!("[MCP] Lazy connect complete: {server_count} servers, {tools} tools ({connected_names})");
             }
             Err(e) => eprintln!("[MCP] Lazy connect failed: {e}"),
         }
@@ -56,12 +58,14 @@ pub fn tool_list_mcp_tools(
         if !cfg.enabled || !connected {
             continue;
         }
-        lines.push(format!("## {} (connected)", cfg.name));
+        let cfg_name = &cfg.name;
+        lines.push(format!("## {cfg_name} (connected)"));
         for td in &tool_defs {
-            let prefix = format!("mcp__{}__", cfg.name);
+            let prefix = format!("mcp__{cfg_name}__");
             if td.qualified_name.starts_with(&prefix) {
                 let brief = td.description.split('.').next().unwrap_or(&td.description);
-                lines.push(format!("  {}: {}", td.qualified_name, brief));
+                let qname = &td.qualified_name;
+                lines.push(format!("  {qname}: {brief}"));
             }
         }
     }
@@ -117,7 +121,8 @@ pub fn tool_list_mcp_servers(
                 if args.is_empty() {
                     format!("stdio: {command}")
                 } else {
-                    format!("stdio: {command} {}", args.join(" "))
+                    let args_str = args.join(" ");
+                    format!("stdio: {command} {args_str}")
                 }
             }
             llama_chat_types::mcp_config::McpTransport::Http { url } => format!("http: {url}"),
@@ -203,10 +208,11 @@ pub fn tool_add_mcp_server(
                 tool_list = if status.tools.is_empty() {
                     String::new()
                 } else {
-                    format!("\nAvailable tools: {}", status.tools.join(", "))
+                    let tools_str = status.tools.join(", ");
+                    format!("\nAvailable tools: {tools_str}")
                 };
             } else {
-                return format!("MCP server '{}' saved but failed to connect. Check the command/URL and try again.", name);
+                return format!("MCP server '{name}' saved but failed to connect. Check the command/URL and try again.");
             }
         }
     }
@@ -239,7 +245,8 @@ pub fn tool_remove_mcp_server(
             return if available.is_empty() {
                 format!("MCP server '{name}' not found. No MCP servers are configured.")
             } else {
-                format!("MCP server '{name}' not found. Available servers: {}", available.join(", "))
+                let avail_str = available.join(", ");
+                format!("MCP server '{name}' not found. Available servers: {avail_str}")
             };
         }
     };

@@ -54,11 +54,12 @@ pub fn extract_docx_text(bytes: &[u8], max_chars: usize) -> String {
         return "(DOCX contains no extractable text)".to_string();
     }
 
-    eprintln!("[READ_FILE/DOCX] Extracted {} chars from DOCX", text.len());
+    let text_len = text.len();
+    eprintln!("[READ_FILE/DOCX] Extracted {text_len} chars from DOCX");
     if text.len() > max_chars {
         let mut end = max_chars;
         while end > 0 && !text.is_char_boundary(end) { end -= 1; }
-        format!("{}\n\n[DOCX truncated at {} chars]", &text[..end], max_chars)
+        format!("{}\n\n[DOCX truncated at {max_chars} chars]", &text[..end])
     } else {
         text
     }
@@ -96,7 +97,8 @@ pub fn extract_pptx_text(bytes: &[u8], max_chars: usize) -> String {
         }
 
         if !text.is_empty() { text.push('\n'); }
-        text.push_str(&format!("--- Slide {} ---\n", idx + 1));
+        let slide_num = idx + 1;
+        text.push_str(&format!("--- Slide {slide_num} ---\n"));
 
         // Extract text from <a:t> tags (DrawingML text elements)
         let mut reader = quick_xml::Reader::from_str(&xml_content);
@@ -128,7 +130,9 @@ pub fn extract_pptx_text(bytes: &[u8], max_chars: usize) -> String {
         return "(PPTX contains no extractable text)".to_string();
     }
 
-    eprintln!("[READ_FILE/PPTX] Extracted {} chars from {} slides", text.len(), slide_names.len());
+    let text_len = text.len();
+    let slide_count = slide_names.len();
+    eprintln!("[READ_FILE/PPTX] Extracted {text_len} chars from {slide_count} slides");
     crate::truncate_text_content(&text, max_chars)
 }
 
@@ -151,7 +155,7 @@ pub fn extract_xlsx_text(bytes: &[u8], max_chars: usize) -> String {
     for sheet_name in &sheet_names {
         if let Ok(range) = workbook.worksheet_range(sheet_name) {
             if !text.is_empty() { text.push('\n'); }
-            text.push_str(&format!("=== {} ===\n", sheet_name));
+            text.push_str(&format!("=== {sheet_name} ===\n"));
 
             for row in range.rows() {
                 let row_values: Vec<String> = row.iter().map(|cell| match cell {
@@ -159,7 +163,7 @@ pub fn extract_xlsx_text(bytes: &[u8], max_chars: usize) -> String {
                     Data::Int(i) => i.to_string(),
                     Data::Float(f) => {
                         // Show integers without decimal point
-                        if *f == f.trunc() && f.abs() < 1e15 { format!("{}", *f as i64) } else { f.to_string() }
+                        if *f == f.trunc() && f.abs() < 1e15 { let v = *f as i64; format!("{v}") } else { f.to_string() }
                     }
                     Data::Bool(b) => b.to_string(),
                     Data::DateTime(dt) => format!("{dt}"),
@@ -179,7 +183,9 @@ pub fn extract_xlsx_text(bytes: &[u8], max_chars: usize) -> String {
         return "(Spreadsheet contains no data)".to_string();
     }
 
-    eprintln!("[READ_FILE/XLSX] Extracted {} chars from {} sheets", text.len(), sheet_names.len());
+    let text_len = text.len();
+    let sheet_count = sheet_names.len();
+    eprintln!("[READ_FILE/XLSX] Extracted {text_len} chars from {sheet_count} sheets");
     crate::truncate_text_content(&text, max_chars)
 }
 
@@ -253,6 +259,7 @@ pub fn extract_odt_text(bytes: &[u8], max_chars: usize) -> String {
         return "(ODT document contains no text)".to_string();
     }
 
-    eprintln!("[READ_FILE/ODT] Extracted {} chars", text.len());
+    let text_len = text.len();
+    eprintln!("[READ_FILE/ODT] Extracted {text_len} chars");
     crate::truncate_text_content(&text, max_chars)
 }

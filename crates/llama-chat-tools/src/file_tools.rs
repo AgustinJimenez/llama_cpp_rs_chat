@@ -110,7 +110,8 @@ fn read_file_cached(path: &str) -> Result<String, String> {
     if has_binary_extension(path) || is_binary_content(&bytes) {
         let ext = std::path::Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("");
         if !EXTRACTABLE_EXTENSIONS.contains(&ext.to_lowercase().as_str()) {
-            return Err(format!("Error: '{}' appears to be a binary file ({} bytes). Cannot read as text.", path, bytes.len()));
+            let byte_count = bytes.len();
+            return Err(format!("Error: '{path}' appears to be a binary file ({byte_count} bytes). Cannot read as text."));
         }
     }
 
@@ -201,9 +202,9 @@ pub fn tool_read_file(args: &Value) -> String {
         if has_binary_extension(path) || is_binary_content(&bytes_check) {
             let ext = std::path::Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("");
             if !EXTRACTABLE_EXTENSIONS.contains(&ext.to_lowercase().as_str()) {
+                let byte_count = bytes_check.len();
                 return format!(
-                    "Error: '{}' appears to be a binary file ({} bytes). Cannot read as text.",
-                    path, bytes_check.len()
+                    "Error: '{path}' appears to be a binary file ({byte_count} bytes). Cannot read as text."
                 );
             }
         }
@@ -346,34 +347,37 @@ pub fn tool_read_file(args: &Value) -> String {
 
     // Build header
     let range_info = if offset > 0 || limit.is_some() {
-        format!(" (lines {}-{})", start + 1, end)
+        let range_start = start + 1;
+        format!(" (lines {range_start}-{end})")
     } else {
         String::new()
     };
     let unchanged_note = if is_duplicate_read { " | unchanged since last read" } else { "" };
     let header = format!(
-        "[File: {} | {} lines{} | ~{} tokens{}]",
-        path, total_lines, range_info, estimated_tokens, unchanged_note
+        "[File: {path} | {total_lines} lines{range_info} | ~{estimated_tokens} tokens{unchanged_note}]"
     );
 
     // Format with line numbers (cat -n style)
     let numbered: String = selected_lines
         .iter()
         .enumerate()
-        .map(|(i, line)| format!("{:>6}\t{}", start + i + 1, line))
+        .map(|(i, line)| {
+            let line_num = start + i + 1;
+            format!("{line_num:>6}\t{line}")
+        })
         .collect::<Vec<_>>()
         .join("\n");
 
-    let mut result = format!("{}\n{}", header, numbered);
+    let mut result = format!("{header}\n{numbered}");
 
     // Append truncation notice if capped at MAX_LINES_DEFAULT
     if was_truncated_by_cap {
+        let total_tokens_est = total_lines * 10 / 4;
+        let next_offset = end + 1;
         result.push_str(&format!(
-            "\n[File truncated at line {}. Total: {} lines (~{} tokens). \
-             To read the next section: read_file(path=\"{}\", offset={}, limit={}). \
-             Or use search_files to find specific content.]",
-            end, total_lines, total_lines * 10 / 4,
-            path, end + 1, MAX_LINES_DEFAULT
+            "\n[File truncated at line {end}. Total: {total_lines} lines (~{total_tokens_est} tokens). \
+             To read the next section: read_file(path=\"{path}\", offset={next_offset}, limit={MAX_LINES_DEFAULT}). \
+             Or use search_files to find specific content.]"
         ));
     }
 
@@ -399,8 +403,8 @@ pub fn truncate_text_content(content: &str, max_chars: usize) -> String {
         let mut end = max_chars;
         while end > 0 && !content.is_char_boundary(end) { end -= 1; }
         format!(
-            "{}\n\n[Truncated: showing first {} of {} bytes]",
-            &content[..end], end, total_bytes
+            "{}\n\n[Truncated: showing first {end} of {total_bytes} bytes]",
+            &content[..end]
         )
     } else {
         content.to_string()
@@ -418,8 +422,9 @@ pub fn read_with_encoding_detection(bytes: &[u8], max_chars: usize) -> String {
         });
 
     let label = if had_errors { " (with some decoding errors)" } else { "" };
-    let header = format!("[Decoded from {} encoding{}]\n", encoding_used.name(), label);
-    let content = format!("{}{}", header, decoded);
+    let encoding_name = encoding_used.name();
+    let header = format!("[Decoded from {encoding_name} encoding{label}]\n");
+    let content = format!("{header}{decoded}");
     truncate_text_content(&content, max_chars)
 }
 
@@ -454,7 +459,8 @@ pub fn tool_write_file(args: &Value) -> String {
             // Invalidate read cache and LRU content cache so next read_file returns fresh content
             invalidate_read_cache(path);
             invalidate_file_cache(path);
-            format!("Written {} bytes to {}", content.len(), path)
+            let byte_count = content.len();
+            format!("Written {byte_count} bytes to {path}")
         }
         Err(e) => format!("Error writing '{path}': {e}"),
     }

@@ -9,7 +9,7 @@ fn simple_diff(old: &str, new: &str, path: &str) -> String {
     let old_lines: Vec<&str> = old.lines().collect();
     let new_lines: Vec<&str> = new.lines().collect();
 
-    let mut diff = format!("--- a/{}\n+++ b/{}\n", path, path);
+    let mut diff = format!("--- a/{path}\n+++ b/{path}\n");
     let mut has_changes = false;
     let max_lines = old_lines.len().max(new_lines.len());
     let mut i = 0;
@@ -23,7 +23,7 @@ fn simple_diff(old: &str, new: &str, path: &str) -> String {
             if ctx_start < i {
                 for j in ctx_start..i {
                     if let Some(l) = old_lines.get(j) {
-                        diff.push_str(&format!(" {}\n", l));
+                        diff.push_str(&format!(" {l}\n"));
                     }
                 }
             }
@@ -87,7 +87,7 @@ pub fn tool_edit_file(args: &Value) -> String {
     if let Some(cached_mtime) = file_mtime_cache().lock().ok().and_then(|c| c.get(path).copied()) {
         if let Some(current_mtime) = get_file_mtime(path) {
             if current_mtime > cached_mtime {
-                eprintln!("[EDIT_FILE] File {} modified since last read (cached={}s, current={}s)", path, cached_mtime, current_mtime);
+                eprintln!("[EDIT_FILE] File {path} modified since last read (cached={cached_mtime}s, current={current_mtime}s)");
             }
         }
     }
@@ -171,14 +171,16 @@ pub fn tool_multi_edit(args: &Value) -> String {
         let path = match edit.get("path").and_then(|v| v.as_str()) {
             Some(p) => p,
             None => {
-                results.push(format!("Edit {}: Error: missing 'path'", i + 1));
+                let edit_num = i + 1;
+                results.push(format!("Edit {edit_num}: Error: missing 'path'"));
                 break;
             }
         };
         let old_string = match edit.get("old_string").and_then(|v| v.as_str()) {
             Some(s) => s,
             None => {
-                results.push(format!("Edit {}: Error: missing 'old_string'", i + 1));
+                let edit_num = i + 1;
+                results.push(format!("Edit {edit_num}: Error: missing 'old_string'"));
                 break;
             }
         };
@@ -191,7 +193,8 @@ pub fn tool_multi_edit(args: &Value) -> String {
         }));
 
         let ok = !result.starts_with("Error:");
-        results.push(format!("Edit {} ({}): {}", i + 1, path, result));
+        let edit_num = i + 1;
+        results.push(format!("Edit {edit_num} ({path}): {result}"));
         if !ok {
             break;
         }

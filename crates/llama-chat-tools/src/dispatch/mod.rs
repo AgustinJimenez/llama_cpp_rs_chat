@@ -37,7 +37,7 @@ pub fn extract_tool_args_summary(cmd: &str) -> String {
         for (key, val) in obj.iter().take(2) {
             if let Some(s) = val.as_str() {
                 let truncated: String = s.chars().take(80).collect();
-                return format!("{}={}", key, truncated);
+                return format!("{key}={truncated}");
             }
         }
     }
@@ -153,14 +153,12 @@ fn validate_tool_args(tool_name: &str, args: &serde_json::Value) -> Result<(), S
                 match value {
                     None | Some(&serde_json::Value::Null) => {
                         return Err(format!(
-                            "Missing required parameter '{}' for tool '{}'. Required parameters: {:?}",
-                            field_name, tool_name, required
+                            "Missing required parameter '{field_name}' for tool '{tool_name}'. Required parameters: {required:?}"
                         ));
                     }
                     Some(serde_json::Value::String(s)) if s.is_empty() => {
                         return Err(format!(
-                            "Parameter '{}' for tool '{}' cannot be empty",
-                            field_name, tool_name
+                            "Parameter '{field_name}' for tool '{tool_name}' cannot be empty"
                         ));
                     }
                     _ => {}
@@ -208,12 +206,9 @@ fn validate_tool_args(tool_name: &str, args: &serde_json::Value) -> Result<(), S
 }
 
 fn type_error(field_name: &str, tool_name: &str, expected: &str, value: &Value) -> String {
+    let got = value_type_name(value);
     format!(
-        "Parameter '{}' for tool '{}' must be a {}, got {}",
-        field_name,
-        tool_name,
-        expected,
-        value_type_name(value)
+        "Parameter '{field_name}' for tool '{tool_name}' must be a {expected}, got {got}"
     )
 }
 
@@ -284,8 +279,7 @@ pub fn dispatch_native_tool(
             .or_else(|| mcp_tools::get_mcp_tool_schema(tool_name, mcp_manager))
             .unwrap_or_else(|| {
                 format!(
-                    "Tool '{}' not found. Use list_tools to see available tools.",
-                    tool_name
+                    "Tool '{tool_name}' not found. Use list_tools to see available tools."
                 )
             });
         return Some(NativeToolResult::text_only(result));

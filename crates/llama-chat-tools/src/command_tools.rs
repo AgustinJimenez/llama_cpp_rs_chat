@@ -59,15 +59,15 @@ pub fn get_ctags(path: &str) -> Option<String> {
 pub fn lsp_ripgrep_definition(symbol: &str, path: &str) -> String {
     let escaped = regex::escape(symbol);
     let patterns = [
-        format!(r"(fn|pub fn|pub\(crate\) fn|async fn|pub async fn)\s+{}\s*[\(<]", escaped),
-        format!(r"(struct|enum|trait|type|pub struct|pub enum|pub trait|pub type)\s+{}\s*[\{{<]", escaped),
-        format!(r"(class|interface|function|const|let|var|def|defn?)\s+{}\s*[\({{:<= ]", escaped),
-        format!(r"(impl|impl<[^>]*>)\s+{}\s", escaped),
+        format!(r"(fn|pub fn|pub\(crate\) fn|async fn|pub async fn)\s+{escaped}\s*[\(<]"),
+        format!(r"(struct|enum|trait|type|pub struct|pub enum|pub trait|pub type)\s+{escaped}\s*[\{{<]"),
+        format!(r"(class|interface|function|const|let|var|def|defn?)\s+{escaped}\s*[\({{:<= ]"),
+        format!(r"(impl|impl<[^>]*>)\s+{escaped}\s"),
     ];
     let combined = patterns.join("|");
+    let combined_escaped = combined.replace('"', "\\\"");
     let cmd = format!(
-        "rg -n -e \"{}\" \"{}\" --type-add \"code:*.{{rs,ts,tsx,js,jsx,py,go,java,c,cpp,h,hpp,nim,ex}}\" -t code --max-count 20",
-        combined.replace('"', "\\\""), path
+        "rg -n -e \"{combined_escaped}\" \"{path}\" --type-add \"code:*.{{rs,ts,tsx,js,jsx,py,go,java,c,cpp,h,hpp,nim,ex}}\" -t code --max-count 20"
     );
     llama_chat_command::execute_command(&cmd)
 }
@@ -75,8 +75,7 @@ pub fn lsp_ripgrep_definition(symbol: &str, path: &str) -> String {
 /// ripgrep-based symbol listing (fallback when ctags unavailable)
 pub fn lsp_ripgrep_symbols(target: &str) -> String {
     let cmd = format!(
-        "rg -n \"(fn |struct |enum |trait |class |interface |function |def |const |type |impl )\" \"{}\" --max-count 50",
-        target
+        "rg -n \"(fn |struct |enum |trait |class |interface |function |def |const |type |impl )\" \"{target}\" --max-count 50"
     );
     llama_chat_command::execute_command(&cmd)
 }
@@ -91,13 +90,11 @@ pub fn tool_execute_python(args: &Value) -> String {
 
     // Write code to a temp file
     let temp_dir = std::env::temp_dir();
-    let temp_file = temp_dir.join(format!(
-        "llama_tool_{}.py",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos()
-    ));
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let temp_file = temp_dir.join(format!("llama_tool_{nanos}.py"));
 
     if let Err(e) = std::fs::write(&temp_file, code) {
         return format!("Error writing temp file: {e}");
@@ -181,12 +178,14 @@ pub fn tool_git_status(args: &Value) -> String {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
             if !output.status.success() {
-                return format!("Error (exit {}): {}", output.status.code().unwrap_or(-1), stderr.trim());
+                let code = output.status.code().unwrap_or(-1);
+                let stderr = stderr.trim();
+                return format!("Error (exit {code}): {stderr}");
             }
             if stdout.trim().is_empty() {
                 "Working tree clean (no changes)".to_string()
             } else {
-                format!("Git status:\n{}", stdout)
+                format!("Git status:\n{stdout}")
             }
         }
         Err(e) => format!("Error running git: {e}"),
@@ -218,7 +217,9 @@ pub fn tool_git_diff(args: &Value) -> String {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
             if !output.status.success() {
-                return format!("Error (exit {}): {}", output.status.code().unwrap_or(-1), stderr.trim());
+                let code = output.status.code().unwrap_or(-1);
+                let stderr = stderr.trim();
+                return format!("Error (exit {code}): {stderr}");
             }
             if stdout.trim().is_empty() {
                 "No differences found".to_string()
@@ -252,7 +253,10 @@ pub fn tool_git_commit(args: &Value) -> String {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
             if !output.status.success() {
-                format!("Error (exit {}): {}\n{}", output.status.code().unwrap_or(-1), stderr.trim(), stdout.trim())
+                let code = output.status.code().unwrap_or(-1);
+                let stderr = stderr.trim();
+                let stdout = stdout.trim();
+                format!("Error (exit {code}): {stderr}\n{stdout}")
             } else {
                 stdout.to_string()
             }
@@ -266,9 +270,10 @@ pub fn tool_list_background_processes() -> String {
     if procs.is_empty() {
         return "No background processes are currently tracked.".to_string();
     }
-    let mut lines = vec![format!("Background processes ({}):", procs.len())];
+    let proc_count = procs.len();
+    let mut lines = vec![format!("Background processes ({proc_count}):")];
     for (pid, cmd, _alive, status) in &procs {
-        lines.push(format!("  PID {}: {} [{}]", pid, cmd, status));
+        lines.push(format!("  PID {pid}: {cmd} [{status}]"));
     }
     lines.join("\n")
 }

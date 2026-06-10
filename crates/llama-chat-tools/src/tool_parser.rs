@@ -146,10 +146,10 @@ fn detect_llama3(text: &str, _tags: &ToolTags) -> Option<String> {
 fn detect_harmony(text: &str, _tags: &ToolTags) -> Option<String> {
     let caps = HARMONY_CALL_PATTERN.captures(text)?;
     let (tool_name, args_json) = (caps.get(1)?, caps.get(2)?);
+    let tool_name = tool_name.as_str();
+    let args_json = args_json.as_str().trim();
     Some(format!(
-        r#"{{"name":"{}","arguments":{}}}"#,
-        tool_name.as_str(),
-        args_json.as_str().trim()
+        r#"{{"name":"{tool_name}","arguments":{args_json}}}"#
     ))
 }
 
@@ -165,8 +165,7 @@ fn detect_gemma4(text: &str, _tags: &ToolTags) -> Option<String> {
     // Values can be: <|"|>string<|"|>, true, false, numbers, or nested structures
     let json_args = gemma4_args_to_json(args_raw);
     Some(format!(
-        r#"{{"name":"{}","arguments":{}}}"#,
-        tool_name, json_args
+        r#"{{"name":"{tool_name}","arguments":{json_args}}}"#
     ))
 }
 
@@ -202,12 +201,12 @@ fn gemma4_args_to_json(raw: &str) -> String {
                 let val = &raw[content_start..content_start + end];
                 // Escape for JSON
                 let escaped = val.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
-                (format!("\"{}\"", escaped), content_start + end + 5)
+                (format!("\"{escaped}\""), content_start + end + 5)
             } else {
                 // No closing quote, take rest as string
                 let val = &raw[content_start..];
                 let escaped = val.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
-                (format!("\"{}\"", escaped), raw.len())
+                (format!("\"{escaped}\""), raw.len())
             }
         } else if raw[pos..].starts_with("true") {
             ("true".to_string(), pos + 4)
@@ -241,7 +240,7 @@ fn gemma4_args_to_json(raw: &str) -> String {
 
         if !first { result.push(','); }
         first = false;
-        result.push_str(&format!("\"{}\":{}", key, value));
+        result.push_str(&format!("\"{key}\":{value}"));
         pos = new_pos;
 
         // Skip comma separator
@@ -259,10 +258,10 @@ fn detect_mistral_bracket(text: &str, _tags: &ToolTags) -> Option<String> {
     let tool_name = caps.get(1)?;
     let json_start = caps.get(0)?.end();
     let (_end, args_json) = extract_balanced_json(text, json_start)?;
+    let tool_name = tool_name.as_str();
+    let args_json = args_json.trim();
     Some(format!(
-        r#"{{"name":"{}","arguments":{}}}"#,
-        tool_name.as_str(),
-        args_json.trim()
+        r#"{{"name":"{tool_name}","arguments":{args_json}}}"#
     ))
 }
 

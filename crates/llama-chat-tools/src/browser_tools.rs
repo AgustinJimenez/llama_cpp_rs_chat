@@ -271,7 +271,7 @@ pub fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
                     }})
                     .filter(Boolean);
                 }})()
-            "#, root = root_sel, limit = limit);
+            "#, root = root_sel);
 
             match session.eval(&js) {
                 Ok(v) => {
