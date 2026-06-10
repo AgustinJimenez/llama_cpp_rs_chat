@@ -115,8 +115,8 @@ fn execute_command(cmd: &str, debug_test: bool) -> String {
 
     if command_name == "cd" {
         if debug_test {
-            eprintln!("DEBUG: Executing cd command: {:?}", cmd);
-            eprintln!("DEBUG: Command parts: {:?}", parts);
+            eprintln!("DEBUG: Executing cd command: {cmd:?}");
+            eprintln!("DEBUG: Command parts: {parts:?}");
         }
 
         let Some(target_dir) = parts.get(1) else {
@@ -138,8 +138,8 @@ fn execute_command(cmd: &str, debug_test: bool) -> String {
     }
 
     if debug_test {
-        eprintln!("DEBUG: Executing command: {:?}", cmd);
-        eprintln!("DEBUG: Command parts: {:?}", parts);
+        eprintln!("DEBUG: Executing command: {cmd:?}");
+        eprintln!("DEBUG: Command parts: {parts:?}");
     }
 
     match command.output() {

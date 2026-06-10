@@ -56,7 +56,7 @@ pub async fn execute_tool(
             match tokio::fs::write(path, content).await {
                 Ok(_) => serde_json::json!({
                     "success": true,
-                    "result": format!("Wrote {} bytes to '{}'", content.len(), path),
+                    "result": format!("Wrote {} bytes to '{path}'", content.len()),
                     "path": path,
                     "bytes_written": content.len()
                 }),

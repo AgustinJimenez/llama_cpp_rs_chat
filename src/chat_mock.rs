@@ -95,9 +95,8 @@ impl ChatEngine {
         };
 
         Ok(format!(
-            "{} (Using {} sampler)",
-            response,
-            format!("{:?}", self.config.sampler_type)
+            "{response} (Using {:?} sampler)",
+            self.config.sampler_type
         ))
     }
 
