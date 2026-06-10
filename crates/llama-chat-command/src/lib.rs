@@ -1,8 +1,5 @@
 // Shell command execution, output sanitization, and background process management.
 
-#[macro_use]
-extern crate llama_chat_types;
-
 mod shell_env;
 mod parsing;
 mod execution;

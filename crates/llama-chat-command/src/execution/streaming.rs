@@ -137,7 +137,7 @@ pub fn execute_command_streaming_with_timeout(
 
                     let elapsed_secs = wall_start.elapsed().as_secs();
                     if elapsed_secs > 0
-                        && elapsed_secs % 60 == 0
+                        && elapsed_secs.is_multiple_of(60)
                         && elapsed_secs / 60 != (elapsed_secs - 1) / 60
                     {
                         eprintln!(
