@@ -87,7 +87,7 @@ mod tests {
 
         let args = serde_json::json!({"path": path.to_string_lossy(), "content": "written by test"}).to_string();
         let result = execute_openai_tool("write_file", &args, None, None);
-        assert!(result.contains("Successfully wrote"));
+        assert!(result.contains("Written"), "unexpected result: {result}");
 
         let content = std::fs::read_to_string(&path).unwrap();
         assert_eq!(content, "written by test");
@@ -105,7 +105,7 @@ mod tests {
             serde_json::json!({"path": path.to_string_lossy(), "old_string": "bar", "new_string": "qux"})
                 .to_string();
         let result = execute_openai_tool("edit_file", &args, None, None);
-        assert!(result.contains("Successfully edited"));
+        assert!(result.contains("Edited"), "unexpected result: {result}");
 
         let content = std::fs::read_to_string(&path).unwrap();
         assert_eq!(content, "foo qux baz");

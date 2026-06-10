@@ -347,33 +347,24 @@ pub fn tool_dialog_handler_stop(_args: &Value) -> NativeToolResult {
 mod tests {
     use super::*;
 
-    // ─── dialog_handler_start parameter validation ───────────────────────
-
-    #[test]
-    fn test_dialog_handler_start_requires_button_map() {
-        let args = serde_json::json!({});
-        let result = tool_dialog_handler_start(&args);
-        assert!(result.text.contains("Error [dialog_handler_start]"));
-        assert!(result.text.contains("'button_map' is required"));
-    }
-
-    #[test]
-    fn test_dialog_handler_start_rejects_non_object_button_map() {
-        let args = serde_json::json!({
-            "button_map": "not an object"
-        });
-        let result = tool_dialog_handler_start(&args);
-        assert!(result.text.contains("Error [dialog_handler_start]"));
-        assert!(result.text.contains("'button_map' is required"));
-    }
-
-    // ─── dialog_handler lifecycle (single test to avoid global mutex races) ──
+    // ─── dialog_handler lifecycle + validation (single test to avoid global mutex races) ──
 
     #[test]
     fn test_dialog_handler_lifecycle() {
-        // All lifecycle assertions in one test to avoid parallel races on DIALOG_HANDLER global
-        // 1. Stop when nothing running
+        // All dialog_handler_start/stop assertions in one test — DIALOG_HANDLER is a global
+        // and parallel tests would race each other.
+        // 0. Ensure clean state; validate parameter errors when handler is stopped
         let _ = tool_dialog_handler_stop(&serde_json::json!({}));
+
+        let no_map = tool_dialog_handler_start(&serde_json::json!({}));
+        assert!(no_map.text.contains("Error [dialog_handler_start]"));
+        assert!(no_map.text.contains("'button_map' is required"));
+
+        let bad_map = tool_dialog_handler_start(&serde_json::json!({"button_map": "not an object"}));
+        assert!(bad_map.text.contains("Error [dialog_handler_start]"));
+        assert!(bad_map.text.contains("'button_map' is required"));
+
+        // 1. Stop when nothing running
         let stop_noop = tool_dialog_handler_stop(&serde_json::json!({}));
         assert!(stop_noop.text.contains("No dialog handler was running"));
 
