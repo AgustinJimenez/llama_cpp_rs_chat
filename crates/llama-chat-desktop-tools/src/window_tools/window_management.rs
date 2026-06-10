@@ -525,7 +525,7 @@ pub fn tool_restore_window_layout(args: &Value) -> NativeToolResult {
             false
         });
 
-        if let Some((idx, _cw)) = found {
+        if let Some((_idx, _cw)) = found {
             let hwnd_result = if !saved.process_name.is_empty() {
                 win32::find_window_by_filter(&saved.process_name)
             } else {
@@ -552,7 +552,6 @@ pub fn tool_restore_window_layout(args: &Value) -> NativeToolResult {
 
                 restored += 1;
             } else {
-                let _ = idx;
                 not_found += 1;
             }
         } else {

@@ -120,7 +120,7 @@ fn send_keys_via_send_input(hwnd: win32::HWND, info: &win32::WindowInfo, text: O
         let sent = unsafe {
             win32::SendInput(inputs.len() as u32, inputs.as_ptr(), std::mem::size_of::<win32::INPUT>() as i32)
         };
-        actions.push(format!("typed {} chars ({} events sent)", txt.len(), sent));
+        actions.push(format!("typed {} chars ({sent} events sent)", txt.len()));
     }
 
     if let Some(key_str) = keys {
@@ -198,7 +198,7 @@ fn send_keys_via_scancode(hwnd: win32::HWND, info: &win32::WindowInfo, text: Opt
         let sent = unsafe {
             win32::SendInput(inputs.len() as u32, inputs.as_ptr(), std::mem::size_of::<win32::INPUT>() as i32)
         };
-        actions.push(format!("typed {} chars ({} events sent)", txt.len(), sent));
+        actions.push(format!("typed {} chars ({sent} events sent)", txt.len()));
     }
 
     if let Some(key_str) = keys {

@@ -528,10 +528,10 @@ async fn handle_request_impl(
             if file_path.exists()
                 && file_path
                     .extension()
-                    .map_or(false, |e| e == "jpg" || e == "jpeg" || e == "png")
+                    .is_some_and(|e| e == "jpg" || e == "jpeg" || e == "png")
             {
                 let bytes = std::fs::read(&file_path).unwrap_or_default();
-                let content_type = if file_path.extension().map_or(false, |e| e == "png") {
+                let content_type = if file_path.extension().is_some_and(|e| e == "png") {
                     "image/png"
                 } else {
                     "image/jpeg"

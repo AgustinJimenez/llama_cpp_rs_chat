@@ -120,7 +120,7 @@ pub fn tool_smart_wait(args: &Value) -> NativeToolResult {
         }
     } else {
         NativeToolResult {
-            text: format!("Wait complete after {}ms: {} (mode={})", elapsed, result_parts.join(" + "), mode),
+            text: format!("Wait complete after {elapsed}ms: {} (mode={mode})", result_parts.join(" + ")),
             images: screenshot.images,
         }
     }

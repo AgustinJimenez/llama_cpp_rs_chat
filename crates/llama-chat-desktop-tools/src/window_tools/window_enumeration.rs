@@ -107,8 +107,8 @@ pub fn tool_list_windows(args: &Value) -> NativeToolResult {
             format!(" [{}]", w.class_name)
         };
         output.push_str(&format!(
-            "  [{}] \"{}\"{}{} — pid={} {},{} {}x{}{}",
-            i, w.title, proc, cls, w.pid, w.x, w.y, w.width, w.height, state
+            "  [{i}] \"{}\"{proc}{cls} — pid={} {},{} {}x{}{state}",
+            w.title, w.pid, w.x, w.y, w.width, w.height
         ));
         if let Some(gpu) = gpu_app_db::detect_gpu_app(&w.class_name, &w.process_name) {
             output.push_str(&format!(" [GPU: {} — use execute_app_script]", gpu.app_name));
@@ -292,8 +292,8 @@ pub fn tool_list_monitors(args: &Value) -> NativeToolResult {
     let mut output = format!("Found {} monitors:\n", monitors.len());
     for (i, m) in monitors.iter().enumerate() {
         output.push_str(&format!(
-            "  [{}] \"{}\" {}x{} at ({},{}) scale={:.1}{}\n",
-            i, m.name().unwrap_or_else(|_| "Unknown".to_string()),
+            "  [{i}] \"{}\" {}x{} at ({},{}) scale={:.1}{}\n",
+            m.name().unwrap_or_else(|_| "Unknown".to_string()),
             m.width().unwrap_or(0), m.height().unwrap_or(0),
             m.x().unwrap_or(0), m.y().unwrap_or(0),
             m.scale_factor().unwrap_or(1.0),

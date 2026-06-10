@@ -389,8 +389,8 @@ pub(crate) fn find_ui_elements_all(
             .map(|ct| control_type_name(ct.0))
             .unwrap_or_default();
 
-        let name_match = name_filter.map_or(true, |f| name.to_lowercase().contains(f));
-        let type_match = type_filter.map_or(true, |f| control_type.to_lowercase().contains(f));
+        let name_match = name_filter.is_none_or(|f| name.to_lowercase().contains(f));
+        let type_match = type_filter.is_none_or(|f| control_type.to_lowercase().contains(f));
 
         if name_match && type_match && (!name.is_empty() || type_filter.is_some()) {
             if let Ok(r) = unsafe { parent.CurrentBoundingRectangle() } {
@@ -488,8 +488,8 @@ pub(crate) fn find_raw_ui_element(
         .map(|ct| control_type_name(ct.0))
         .unwrap_or_default();
 
-    let name_match = name_filter.map_or(true, |f| name.to_lowercase().contains(f));
-    let type_match = type_filter.map_or(true, |f| control_type.to_lowercase().contains(f));
+    let name_match = name_filter.is_none_or(|f| name.to_lowercase().contains(f));
+    let type_match = type_filter.is_none_or(|f| control_type.to_lowercase().contains(f));
 
     if name_match && type_match && (!name.is_empty() || type_filter.is_some()) {
         if let Ok(r) = unsafe { parent.CurrentBoundingRectangle() } {

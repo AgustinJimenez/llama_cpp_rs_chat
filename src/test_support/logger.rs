@@ -36,7 +36,7 @@ impl ConversationLogger {
             year, month, day, hours, minutes, seconds, millis
         );
 
-        let file_path = format!("{}/chat_{}.txt", conversations_dir, timestamp);
+        let file_path = format!("{conversations_dir}/chat_{timestamp}.txt");
 
         Ok(Self {
             file_path,
