@@ -396,6 +396,7 @@ pub fn get_cached_windows_system_usage() -> (f32, f32, f32, f32, f32, f32) {
     (last.1, last.2, last.3, last.4, last.5, last.6)
 }
 
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 use llama_chat_engine::utils::silent_command;
 
 #[cfg(target_os = "windows")]
