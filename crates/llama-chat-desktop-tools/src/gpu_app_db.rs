@@ -19,19 +19,18 @@ pub struct GpuAppInfo {
 /// Generate guidance message for an LLM when a GPU-rendered app is detected.
 /// Informative, not imperative — the model decides what to do.
 pub fn build_guidance(gpu: &GpuAppInfo) -> String {
+    let app_name = gpu.app_name;
     let mut msg = format!(
-        "Note: {} renders its UI with GPU, so UI Automation tools (get_ui_tree, find_ui_elements, \
+        "Note: {app_name} renders its UI with GPU, so UI Automation tools (get_ui_tree, find_ui_elements, \
          fill_form, etc.) will not return useful results.\n\n\
-         Tools that work: take_screenshot, click_screen, press_key, type_text, scroll_screen, ocr_screen",
-        gpu.app_name
+         Tools that work: take_screenshot, click_screen, press_key, type_text, scroll_screen, ocr_screen"
     );
     if let Some(lang) = gpu.script_lang {
         msg.push_str(&format!(
-            ", execute_app_script\n\n{} supports {} scripting via execute_app_script.",
-            gpu.app_name, lang
+            ", execute_app_script\n\n{app_name} supports {lang} scripting via execute_app_script."
         ));
         if let Some(cli) = gpu.script_cli_flag {
-            msg.push_str(&format!(" CLI flag: {}", cli));
+            msg.push_str(&format!(" CLI flag: {cli}"));
         }
     }
     msg
@@ -154,7 +153,7 @@ pub fn is_gpu_app_running(gpu: &GpuAppInfo) -> bool {
     let windows = win32::enumerate_windows();
     for w in &windows {
         if detect_gpu_app(&w.class_name, &w.process_name)
-            .map_or(false, |g| g.app_name == gpu.app_name)
+            .is_some_and(|g| g.app_name == gpu.app_name)
         {
             return true;
         }

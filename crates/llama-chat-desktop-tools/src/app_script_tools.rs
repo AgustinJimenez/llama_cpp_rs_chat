@@ -46,24 +46,21 @@ pub fn tool_execute_app_script(args: &Value) -> NativeToolResult {
         "unreal" | "ue" | "ue5" => unreal::execute_unreal_script(code, file),
         other => {
             if let Some(info) = gpu_app_db::detect_gpu_app("", other) {
+                let app_name = info.app_name;
                 if info.script_lang.is_some() {
+                    let cli_flag = info.script_cli_flag.unwrap_or("");
                     super::tool_error("execute_app_script", format!(
-                        "{} scripting via execute_app_script is not yet implemented.\n\
-                         Use execute_command to run it manually: {} {} <script>",
-                        info.app_name,
-                        other,
-                        info.script_cli_flag.unwrap_or(""),
+                        "{app_name} scripting via execute_app_script is not yet implemented.\n\
+                         Use execute_command to run it manually: {other} {cli_flag} <script>",
                     ))
                 } else {
                     super::tool_error("execute_app_script", format!(
-                        "{} does not have built-in script support via this tool.",
-                        info.app_name,
+                        "{app_name} does not have built-in script support via this tool.",
                     ))
                 }
             } else {
                 super::tool_error("execute_app_script", format!(
-                    "unknown app '{}'. Supported: blender, unity, maya, godot, unreal",
-                    other,
+                    "unknown app '{other}'. Supported: blender, unity, maya, godot, unreal",
                 ))
             }
         }

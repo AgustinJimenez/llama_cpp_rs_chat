@@ -259,10 +259,10 @@ pub fn finalize_action_result(
                 });
                 match found {
                     Ok(true) => {
-                        text.push_str(&format!(" Text '{}' confirmed via OCR.", expected));
+                        text.push_str(&format!(" Text '{expected}' confirmed via OCR."));
                     }
                     Ok(false) => {
-                        text.push_str(&format!(" WARNING: text '{}' not found via OCR.", expected));
+                        text.push_str(&format!(" WARNING: text '{expected}' not found via OCR."));
                     }
                     Err(e) => {
                         text.push_str(&format!(" WARNING: OCR verification failed: {e}"));
@@ -290,7 +290,8 @@ pub fn summarize_value_for_trace(value: &Value) -> Value {
         Value::String(s) => {
             const MAX_LEN: usize = 200;
             if s.len() > MAX_LEN {
-                Value::String(format!("{}...", &s[..MAX_LEN]))
+                let prefix = &s[..MAX_LEN];
+                Value::String(format!("{prefix}..."))
             } else {
                 Value::String(s.clone())
             }
@@ -339,7 +340,7 @@ pub fn finalize_desktop_result(name: &str, args: &Value, started_at: std::time::
         result.text.push_str("\n\n[desktop_result] ");
         result.text.push_str(&summary.to_string());
     } else {
-        result.text = format!("[desktop_result] {}", summary);
+        result.text = format!("[desktop_result] {summary}");
     }
 
     write_desktop_trace_line(&serde_json::json!({
@@ -403,7 +404,7 @@ pub fn capture_post_action_screenshot_ext(
         if diff < cache_threshold_pct {
             let optimized = optimize_screenshot_for_vision(&cached_png);
             return NativeToolResult::with_image(
-                format!("Screenshot {}x{} (unchanged)", width, height),
+                format!("Screenshot {width}x{height} (unchanged)"),
                 optimized,
             );
         }
@@ -420,7 +421,7 @@ pub fn capture_post_action_screenshot_ext(
     let optimized = optimize_screenshot_for_vision(&png_bytes);
 
     NativeToolResult::with_image(
-        format!("Screenshot {}x{}", width, height),
+        format!("Screenshot {width}x{height}"),
         optimized,
     )
 }

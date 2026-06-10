@@ -356,10 +356,10 @@ pub fn find_window_by_pid(pid: u32) -> Option<(HWND, WindowInfo)> {
 pub fn get_active_window_info() -> Option<(HWND, WindowInfo)> {
     let wid_str = run_cmd("xdotool", &["getactivewindow"]).ok()?;
     let wid: u64 = wid_str.trim().parse().ok()?;
-    let hex_id = format!("0x{:08x}", wid);
+    let hex_id = format!("0x{wid:08x}");
 
     // Get window geometry
-    let geom = run_cmd("xdotool", &["getwindowgeometry", "--shell", &wid_str.trim()]).ok()?;
+    let geom = run_cmd("xdotool", &["getwindowgeometry", "--shell", wid_str.trim()]).ok()?;
     let mut x = 0i32;
     let mut y = 0i32;
     let mut w = 0i32;
@@ -372,11 +372,11 @@ pub fn get_active_window_info() -> Option<(HWND, WindowInfo)> {
     }
 
     // Get PID
-    let pid_str = run_cmd("xdotool", &["getwindowpid", &wid_str.trim()]).unwrap_or_default();
+    let pid_str = run_cmd("xdotool", &["getwindowpid", wid_str.trim()]).unwrap_or_default();
     let pid: u32 = pid_str.trim().parse().unwrap_or(0);
 
     // Get title
-    let title = run_cmd("xdotool", &["getwindowname", &wid_str.trim()])
+    let title = run_cmd("xdotool", &["getwindowname", wid_str.trim()])
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|_| hex_id);
 
@@ -492,6 +492,8 @@ pub fn is_window_blocked(_hwnd: HWND) -> Option<HWND> {
 
 pub fn find_child_window(_parent: HWND, _class_name: &str) -> HWND { 0 }
 
+/// # Safety
+/// Stub — no invariants required on Linux.
 #[allow(non_snake_case)]
 pub unsafe fn GetForegroundWindow() -> HWND {
     run_cmd("xdotool", &["getactivewindow"])
@@ -500,14 +502,20 @@ pub unsafe fn GetForegroundWindow() -> HWND {
         .unwrap_or(0) as HWND
 }
 
+/// # Safety
+/// Stub — no invariants required on Linux.
 #[allow(non_snake_case)]
 pub unsafe fn SetWindowPos(hwnd: HWND, _insert_after: HWND, x: i32, y: i32, cx: i32, cy: i32, _flags: u32) -> BOOL {
     if resize_window(hwnd, Some(x), Some(y), Some(cx), Some(cy)) { 1 } else { 0 }
 }
 
+/// # Safety
+/// Stub — no invariants required on Linux.
 #[allow(non_snake_case)]
 pub unsafe fn IsZoomed(_hwnd: HWND) -> BOOL { 0 }
 
+/// # Safety
+/// Stub — no invariants required on Linux.
 #[allow(non_snake_case)]
 pub unsafe fn ShowWindow(hwnd: HWND, cmd_show: i32) -> BOOL {
     let result = match cmd_show {
@@ -522,16 +530,24 @@ pub unsafe fn ShowWindow(hwnd: HWND, cmd_show: i32) -> BOOL {
     if result { 1 } else { 0 }
 }
 
+/// # Safety
+/// Stub — no invariants required on Linux.
 #[allow(non_snake_case)]
 pub unsafe fn PostMessageW(_hwnd: HWND, _msg: u32, _wparam: usize, _lparam: isize) -> BOOL { 1 }
 
+/// # Safety
+/// Stub — no invariants required on Linux.
 #[allow(non_snake_case)]
 pub unsafe fn SetForegroundWindow(hwnd: HWND) -> BOOL {
     if focus_window(hwnd) { 1 } else { 0 }
 }
 
+/// # Safety
+/// Stub — `_inputs` is not dereferenced; no invariants required.
 #[allow(non_snake_case)]
 pub unsafe fn SendInput(_count: u32, _inputs: *const INPUT, _size: i32) -> u32 { 0 }
 
+/// # Safety
+/// Stub — no invariants required on Linux.
 #[allow(non_snake_case)]
 pub unsafe fn MapVirtualKeyW(_code: u32, _map_type: u32) -> u32 { 0 }

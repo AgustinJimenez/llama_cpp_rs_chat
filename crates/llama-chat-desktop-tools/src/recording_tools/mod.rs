@@ -107,7 +107,7 @@ pub fn tool_start_screen_recording(args: &Value) -> NativeToolResult {
     #[cfg(target_os = "macos")]
     {
         // avfoundation with monitor index, no audio
-        let input = format!("{}:none", monitor_idx);
+        let input = format!("{monitor_idx}:none");
         cmd.args([
             "-f", "avfoundation",
             "-framerate", &fps.to_string(),

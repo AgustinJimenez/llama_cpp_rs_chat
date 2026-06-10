@@ -73,7 +73,7 @@ pub fn validated_monitors(
     if monitor_idx >= monitors.len() {
         return Err(tool_error(
             tool,
-            format!("monitor {} out of range (0..{})", monitor_idx, monitors.len()),
+            format!("monitor {monitor_idx} out of range (0..{})", monitors.len()),
         ));
     }
     Ok(monitors)
@@ -138,11 +138,11 @@ pub fn resize_screenshot_for_vision(png_bytes: &[u8], max_dim: u32) -> Vec<u8> {
         .is_ok()
         && !buf.is_empty()
     {
+        let orig_len = png_bytes.len();
+        let new_len = buf.len();
+        let reduction_pct = (1.0 - new_len as f64 / orig_len as f64) * 100.0;
         eprintln!(
-            "[SCREENSHOT] Resized {}x{} → {}x{} and JPEG-compressed: {} → {} bytes ({:.0}% reduction)",
-            w, h, new_w, new_h,
-            png_bytes.len(), buf.len(),
-            (1.0 - buf.len() as f64 / png_bytes.len() as f64) * 100.0
+            "[SCREENSHOT] Resized {w}x{h} → {new_w}x{new_h} and JPEG-compressed: {orig_len} → {new_len} bytes ({reduction_pct:.0}% reduction)"
         );
         buf
     } else {
@@ -210,7 +210,7 @@ pub fn parse_bool(v: &Value, default: bool) -> bool {
 #[allow(dead_code)]
 pub fn parse_timeout(args: &Value) -> std::time::Duration {
     match args.get("timeout_ms").and_then(parse_int) {
-        Some(ms) => std::time::Duration::from_millis((ms.max(1000).min(60000)) as u64),
+        Some(ms) => std::time::Duration::from_millis(ms.clamp(1000, 60000) as u64),
         None => DEFAULT_THREAD_TIMEOUT,
     }
 }
@@ -218,7 +218,7 @@ pub fn parse_timeout(args: &Value) -> std::time::Duration {
 // ─── Reusable Enigo instance ─────────────────────────────────────────────────
 
 thread_local! {
-    static ENIGO: RefCell<Option<Enigo>> = RefCell::new(None);
+    static ENIGO: RefCell<Option<Enigo>> = const { RefCell::new(None) };
 }
 
 /// Run a closure with a cached per-thread Enigo instance.
@@ -418,7 +418,7 @@ pub fn str_to_key(s: &str) -> Result<Key, String> {
 
 thread_local! {
     /// (timestamp, raw_rgba_bytes, png_bytes)
-    static LAST_SCREENSHOT: RefCell<Option<(std::time::Instant, Arc<Vec<u8>>, Arc<Vec<u8>>)>> = RefCell::new(None);
+    static LAST_SCREENSHOT: RefCell<Option<(std::time::Instant, Arc<Vec<u8>>, Arc<Vec<u8>>)>> = const { RefCell::new(None) };
 }
 
 /// Get a cached screenshot if it was taken within `max_age_ms` milliseconds.

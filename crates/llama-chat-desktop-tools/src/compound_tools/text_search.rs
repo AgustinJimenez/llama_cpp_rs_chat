@@ -66,9 +66,12 @@ pub fn tool_find_and_click_text(args: &Value) -> NativeToolResult {
             });
             let mut result = super::super::tool_click_screen(&click_args);
             let idx_info = if index > 0 { format!(" (index {index})") } else { String::new() };
+            let mtext = &m.text;
+            let mcx = m.center_x;
+            let mcy = m.center_y;
+            let rtext = &result.text;
             result.text = format!(
-                "Found \"{}\" and clicked at ({:.0}, {:.0}){idx_info}. {}",
-                m.text, m.center_x, m.center_y, result.text
+                "Found \"{mtext}\" and clicked at ({mcx:.0}, {mcy:.0}){idx_info}. {rtext}"
             );
             result
         }
@@ -88,8 +91,8 @@ pub fn tool_wait_for_text_on_screen(args: &Value) -> NativeToolResult {
         Some(t) => t.to_string(),
         None => return super::super::tool_error("wait_for_text_on_screen", "'text' is required"),
     };
-    let timeout_ms = args.get("timeout_ms").and_then(parse_int).unwrap_or(10000).min(30000) as u64;
-    let poll_ms = args.get("poll_ms").and_then(parse_int).unwrap_or(1000).max(500) as u64;
+    let timeout_ms = args.get("timeout_ms").and_then(parse_int).unwrap_or(10000).clamp(500, 30000) as u64;
+    let poll_ms = args.get("poll_ms").and_then(parse_int).unwrap_or(1000).clamp(500, 10000) as u64;
     let monitor_idx = args.get("monitor").and_then(parse_int).unwrap_or(0) as usize;
 
     let start = std::time::Instant::now();
@@ -119,16 +122,19 @@ pub fn tool_wait_for_text_on_screen(args: &Value) -> NativeToolResult {
         if let Ok(matches) = result {
             if !matches.is_empty() {
                 let m = &matches[0];
+                let mtext = &m.text;
+                let mcx = m.center_x;
+                let mcy = m.center_y;
+                let elapsed = start.elapsed().as_millis();
                 return NativeToolResult::text_only(format!(
-                    "Text '{}' found at ({:.0}, {:.0}) after {}ms",
-                    m.text, m.center_x, m.center_y, start.elapsed().as_millis()
+                    "Text '{mtext}' found at ({mcx:.0}, {mcy:.0}) after {elapsed}ms"
                 ));
             }
         }
 
         if start.elapsed().as_millis() >= timeout_ms as u128 {
             return NativeToolResult::text_only(format!(
-                "Timeout: text '{}' not found after {timeout_ms}ms", search_text
+                "Timeout: text '{search_text}' not found after {timeout_ms}ms"
             ));
         }
 

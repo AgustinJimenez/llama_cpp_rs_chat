@@ -100,7 +100,7 @@ fn file_dialog_navigate_inner(hwnd: isize, filename: &str, button_name: &str) ->
     }.map_err(|e| format!("Button doesn't support Invoke: {e}"))?;
     unsafe { invoke.Invoke() }.map_err(|e| format!("Invoke failed: {e}"))?;
 
-    Ok(format!("Set filename to '{}' and clicked '{}'", filename, button_name))
+    Ok(format!("Set filename to '{filename}' and clicked '{button_name}'"))
 }
 
 #[cfg(not(windows))]
@@ -149,7 +149,7 @@ fn file_dialog_navigate_inner(_hwnd: isize, filename: &str, button_name: &str) -
     let enter_args = serde_json::json!({ "key": "Return", "delay_ms": 300 });
     super::super::tool_press_key(&enter_args);
 
-    Ok(format!("Typed filename '{}' and pressed Enter (for '{}')", filename, button_name))
+    Ok(format!("Typed filename '{filename}' and pressed Enter (for '{button_name}')"))
 }
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
@@ -257,7 +257,7 @@ pub fn tool_get_context_menu(args: &Value) -> NativeToolResult {
                     let target_lower = target.to_lowercase();
                     let img_c = img.clone();
                     if let Ok(matches) = super::super::ocr_tools::ocr_find_text(&img_c, &target_lower, 0.0, 0.0) {
-                        matches.first().map(|m| (m.center_x as i32, m.center_y as i32, format!("\"{}\"", m.text)))
+                        matches.first().map(|m| { let t = &m.text; (m.center_x as i32, m.center_y as i32, format!("\"{t}\"")) })
                     } else {
                         None
                     }
@@ -273,7 +273,9 @@ pub fn tool_get_context_menu(args: &Value) -> NativeToolResult {
 
     match menu_result {
         Ok((items, to_click)) => {
-            let menu_list = format!("Context menu ({} items):\n{}", items.len(), items.join("\n"));
+            let item_count = items.len();
+            let menu_items = items.join("\n");
+            let menu_list = format!("Context menu ({item_count} items):\n{menu_items}");
 
             if let Some((cx, cy, desc)) = to_click {
                 let click_args = serde_json::json!({ "x": cx, "y": cy, "button": "left", "delay_ms": 300 });
@@ -281,7 +283,8 @@ pub fn tool_get_context_menu(args: &Value) -> NativeToolResult {
                 result.text = format!("{menu_list}\nClicked: {desc} at ({cx}, {cy}). {}", result.text);
                 result
             } else if click_item.is_some() {
-                NativeToolResult::text_only(format!("{menu_list}\nNote: item '{}' not found in menu", click_item.unwrap()))
+                let item_name = click_item.unwrap();
+                NativeToolResult::text_only(format!("{menu_list}\nNote: item '{item_name}' not found in menu"))
             } else {
                 NativeToolResult::text_only(menu_list)
             }

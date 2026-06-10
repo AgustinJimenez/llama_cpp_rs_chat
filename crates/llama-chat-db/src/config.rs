@@ -157,6 +157,7 @@ impl Database {
                  FROM config WHERE id = 1",
                 [],
                 |row| {
+                    #[allow(clippy::field_reassign_with_default)]
                     let mut config = DbSamplerConfig::default();
                     config.disable_file_logging = row.get::<_, Option<i32>>(0)?.unwrap_or(1) != 0;
                     config.web_browser_backend = row.get(1)?;

@@ -32,7 +32,7 @@ pub fn tool_get_process_tree(args: &Value) -> NativeToolResult {
     };
 
     if root_name == "unknown" {
-        return tool_error("get_process_tree", format!("Process {} not found", pid));
+        return tool_error("get_process_tree", format!("Process {pid} not found"));
     }
 
     #[cfg(windows)]
@@ -61,7 +61,7 @@ fn build_process_tree_windows(root_pid: u32, root_name: &str) -> String {
 
     let output = match cmd.output() {
         Ok(o) => o,
-        Err(_) => return format!("PID {}: {}\n  (child enumeration unavailable)", root_pid, root_name),
+        Err(_) => return format!("PID {root_pid}: {root_name}\n  (child enumeration unavailable)"),
     };
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -82,7 +82,7 @@ fn build_process_tree_windows(root_pid: u32, root_name: &str) -> String {
     let mut output = String::new();
     format_tree_recursive(&parent_map, root_pid, root_name, "", true, &mut output, 0);
     if output.is_empty() {
-        format!("PID {}: {} (no children)", root_pid, root_name)
+        format!("PID {root_pid}: {root_name} (no children)")
     } else {
         output
     }
@@ -120,7 +120,7 @@ fn build_process_tree_unix(root_pid: u32, root_name: &str) -> String {
     let mut output = String::new();
     format_tree_recursive(&parent_map, root_pid, root_name, "", true, &mut output, 0);
     if output.is_empty() {
-        format!("PID {}: {} (no children)", root_pid, root_name)
+        format!("PID {root_pid}: {root_name} (no children)")
     } else {
         output
     }
@@ -141,20 +141,17 @@ fn format_tree_recursive(
     }
 
     if is_root {
-        output.push_str(&format!("PID {}: {}\n", pid, name));
+        output.push_str(&format!("PID {pid}: {name}\n"));
     } else {
-        output.push_str(&format!("{}PID {}: {}\n", prefix, pid, name));
+        output.push_str(&format!("{prefix}PID {pid}: {name}\n"));
     }
 
     if let Some(children) = parent_map.get(&pid) {
-        let count = children.len();
-        for (i, (child_pid, child_name)) in children.iter().enumerate() {
-            let is_last = i == count - 1;
-            let connector = if is_last { "  " } else { "  " };
+        for (child_pid, child_name) in children.iter() {
             let child_prefix = if is_root {
-                format!("  {}", connector)
+                "    ".to_string()
             } else {
-                format!("{}  {}", prefix, connector)
+                format!("{prefix}    ")
             };
             format_tree_recursive(parent_map, *child_pid, child_name, &child_prefix, false, output, depth + 1);
         }

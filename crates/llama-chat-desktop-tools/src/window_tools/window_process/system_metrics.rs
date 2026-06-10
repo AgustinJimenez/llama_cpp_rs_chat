@@ -35,7 +35,7 @@ pub fn tool_get_system_metrics(_args: &serde_json::Value) -> NativeToolResult {
         cpu_usage, used_gb, total_gb, mem_pct
     );
     if let Some(disk) = disk_info {
-        result.push_str(&format!("\nDisk: {}", disk));
+        result.push_str(&format!("\nDisk: {disk}"));
     }
 
     NativeToolResult::text_only(result)

@@ -43,10 +43,10 @@ impl ConversationLogger {
     pub fn new(db: Arc<Database>, system_prompt: Option<&str>) -> Result<Self, String> {
         let conversation_id = db.create_conversation()?;
 
-        let sequence_counter = if system_prompt.is_some() {
+        let sequence_counter = if let Some(sp) = system_prompt {
             // Insert system message
             let now = current_timestamp_secs();
-            db.insert_message(&conversation_id, "system", system_prompt.unwrap(), now, 0)?;
+            db.insert_message(&conversation_id, "system", sp, now, 0)?;
             1
         } else {
             0

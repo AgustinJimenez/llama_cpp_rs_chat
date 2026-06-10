@@ -29,7 +29,7 @@ pub(super) fn scroll_to_text(args: &Value) -> NativeToolResult {
         .get("max_scrolls")
         .and_then(parse_int)
         .unwrap_or(20)
-        .min(50) as usize;
+        .clamp(1, 50) as usize;
     let scroll_amount = if direction == "up" { -3 } else { 3 };
     let target_lower = target_text.to_lowercase();
 
@@ -43,7 +43,7 @@ pub(super) fn scroll_to_text(args: &Value) -> NativeToolResult {
         if ocr_result.text.to_lowercase().contains(&target_lower) {
             let screenshot = capture_post_action_screenshot(0);
             return NativeToolResult {
-                text: format!("Found '{}' after {} scroll(s)", target_text, i),
+                text: format!("Found '{target_text}' after {i} scroll(s)"),
                 images: screenshot.images,
             };
         }
@@ -62,10 +62,7 @@ pub(super) fn scroll_to_text(args: &Value) -> NativeToolResult {
 
     let screenshot = capture_post_action_screenshot(0);
     NativeToolResult {
-        text: format!(
-            "Text '{}' not found after {} scrolls {}",
-            target_text, max_scrolls, direction
-        ),
+        text: format!("Text '{target_text}' not found after {max_scrolls} scrolls {direction}"),
         images: screenshot.images,
     }
 }

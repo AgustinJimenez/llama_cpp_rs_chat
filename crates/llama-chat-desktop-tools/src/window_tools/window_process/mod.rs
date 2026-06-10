@@ -91,10 +91,10 @@ pub fn tool_list_processes(args: &Value) -> NativeToolResult {
         Ok(procs) => {
             let mut filtered: Vec<_> = procs.into_iter()
                 .filter(|(_, name)| {
-                    filter.as_ref().map_or(true, |f| name.to_lowercase().contains(f))
+                    filter.as_ref().is_none_or(|f| name.to_lowercase().contains(f))
                 })
                 .collect();
-            filtered.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
+            filtered.sort_by_key(|a| a.1.to_lowercase());
 
             let total = filtered.len();
             let limited = if total > 100 { &filtered[..100] } else { &filtered };
@@ -108,7 +108,9 @@ pub fn tool_list_processes(args: &Value) -> NativeToolResult {
             } else {
                 String::new()
             };
-            NativeToolResult::text_only(format!("{} process(es):\n{}{suffix}", limited.len(), lines.join("\n")))
+            let count = limited.len();
+            let joined = lines.join("\n");
+            NativeToolResult::text_only(format!("{count} process(es):\n{joined}{suffix}"))
         }
         Err(e) => super::tool_error("list_processes", e),
     }
@@ -130,8 +132,7 @@ pub fn tool_kill_process(args: &Value) -> NativeToolResult {
     let force = args.get("force").map(|v| parse_bool(v, true)).unwrap_or(true);
     let grace_ms = args.get("grace_ms").and_then(parse_int)
         .unwrap_or(5000)
-        .min(15000)
-        .max(500) as u64;
+        .clamp(500, 15000) as u64;
 
     if name_filter.is_none() && pid.is_none() {
         return super::tool_error("kill_process", "'name' or 'pid' is required");
@@ -188,14 +189,16 @@ pub fn tool_kill_process(args: &Value) -> NativeToolResult {
                     }
                     let mut msg = format!("Killed {killed}/{} process(es) matching '{name}'", targets.len());
                     if !errors.is_empty() {
-                        msg.push_str(&format!("\nErrors: {}", errors.join("; ")));
+                        let errs = errors.join("; ");
+                        msg.push_str(&format!("\nErrors: {errs}"));
                     }
                     NativeToolResult::text_only(msg)
                 } else {
                     let mut results = Vec::new();
                     for (p, n) in &targets {
                         let r = graceful_kill_pid(*p, grace_ms);
-                        results.push(format!("PID {} ({}): {}", p, n, r.text));
+                        let text = &r.text;
+                        results.push(format!("PID {p} ({n}): {text}"));
                     }
                     NativeToolResult::text_only(format!(
                         "Graceful kill for {} process(es) matching '{name}':\n{}",
@@ -497,9 +500,9 @@ pub fn tool_get_process_info(args: &Value) -> NativeToolResult {
     match win32::get_process_resource_info(target_pid) {
         Ok((working_set, kernel_ms, user_ms)) => {
             let mb = working_set as f64 / (1024.0 * 1024.0);
+            let total_cpu = kernel_ms + user_ms;
             NativeToolResult::text_only(format!(
-                "PID {target_pid}: memory={mb:.1}MB, kernel_time={kernel_ms}ms, user_time={user_ms}ms, total_cpu={}ms",
-                kernel_ms + user_ms
+                "PID {target_pid}: memory={mb:.1}MB, kernel_time={kernel_ms}ms, user_time={user_ms}ms, total_cpu={total_cpu}ms"
             ))
         }
         Err(e) => super::tool_error("get_process_info", e),
@@ -524,8 +527,7 @@ pub fn tool_wait_for_process_exit(args: &Value) -> NativeToolResult {
         .get("timeout_ms")
         .and_then(parse_int)
         .unwrap_or(30000)
-        .min(120000)
-        .max(500) as u64;
+        .clamp(500, 120000) as u64;
 
     let target_pid = if let Some(p) = pid {
         p
@@ -536,7 +538,7 @@ pub fn tool_wait_for_process_exit(args: &Value) -> NativeToolResult {
                 match procs.iter().find(|(_, pname)| pname.to_lowercase().contains(&lower)) {
                     Some((p, _)) => *p,
                     None => return NativeToolResult::text_only(format!(
-                        "No running process matching '{}' — may have already exited", n
+                        "No running process matching '{n}' — may have already exited"
                     )),
                 }
             }
@@ -548,7 +550,7 @@ pub fn tool_wait_for_process_exit(args: &Value) -> NativeToolResult {
 
     if !win32::is_process_alive(target_pid) {
         return NativeToolResult::text_only(format!(
-            "Process {} already exited (not running)", target_pid
+            "Process {target_pid} already exited (not running)"
         ));
     }
 
@@ -567,12 +569,12 @@ pub fn tool_wait_for_process_exit(args: &Value) -> NativeToolResult {
 
         if !win32::is_process_alive(target_pid) {
             return NativeToolResult::text_only(format!(
-                "Process {} exited after {}ms", target_pid, elapsed
+                "Process {target_pid} exited after {elapsed}ms"
             ));
         }
         if elapsed >= timeout_ms {
             return NativeToolResult::text_only(format!(
-                "Process {} still running after {}ms (timeout)", target_pid, timeout_ms
+                "Process {target_pid} still running after {timeout_ms}ms (timeout)"
             ));
         }
     }

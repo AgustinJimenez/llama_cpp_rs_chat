@@ -52,7 +52,7 @@ pub fn tool_get_ui_tree(args: &Value) -> NativeToolResult {
         .or_else(|| args.get("max_depth"))
         .and_then(parse_int)
         .unwrap_or(3)
-        .max(1).min(12) as usize;
+        .clamp(1, 12) as usize;
 
     // Parse exclude_types array (lowercased)
     let exclude_types: Vec<String> = args.get("exclude_types")
@@ -136,7 +136,7 @@ pub fn tool_click_ui_element(args: &Value) -> NativeToolResult {
         let results = find_ui_elements_all(hwnd, name_owned.as_deref(), type_owned.as_deref(), index + 1)?;
         let result_count = results.len();
         results.into_iter().nth(index).ok_or_else(|| {
-            format!("Only {} element(s) found, but index {} was requested", result_count, index)
+            format!("Only {result_count} element(s) found, but index {index} was requested")
         })
     }).and_then(|r| r);
 
@@ -153,7 +153,8 @@ pub fn tool_click_ui_element(args: &Value) -> NativeToolResult {
             });
             let mut result = tool_click_screen(&click_args);
             let idx_info = if index > 0 { format!(" (index {index})") } else { String::new() };
-            result.text = format!("Clicked UI element {element_desc}{idx_info} at ({x}, {y}). {}", result.text);
+            let rtext = result.text.clone();
+            result.text = format!("Clicked UI element {element_desc}{idx_info} at ({x}, {y}). {rtext}");
             result
         }
         Err(e) => super::tool_error("click_ui_element", e),
@@ -378,7 +379,7 @@ fn read_ui_element_value_inner(hwnd: isize, name_filter: Option<&str>, type_filt
         .map(|ct| control_type_name(ct.0))
         .unwrap_or_default();
     let rect = unsafe { element.CurrentBoundingRectangle() };
-    let rect_str = rect.as_ref().map(|r| format!(" at ({}, {}) {}x{}", r.left, r.top, r.right - r.left, r.bottom - r.top)).unwrap_or_default();
+    let rect_str = rect.as_ref().map(|r| { let (rw, rh) = (r.right - r.left, r.bottom - r.top); format!(" at ({}, {}) {rw}x{rh}", r.left, r.top) }).unwrap_or_default();
 
     // Try ValuePattern first
     let value_result: Result<IUIAutomationValuePattern, _> = unsafe {
@@ -409,8 +410,8 @@ pub fn tool_read_ui_element_value(_args: &Value) -> NativeToolResult {
 pub fn tool_wait_for_ui_element(args: &Value) -> NativeToolResult {
     let name_filter = args.get("name").and_then(|v| v.as_str());
     let type_filter = args.get("control_type").and_then(|v| v.as_str());
-    let timeout_ms = args.get("timeout_ms").and_then(parse_int).unwrap_or(10000).min(30000) as u64;
-    let poll_ms = args.get("poll_ms").and_then(parse_int).unwrap_or(500).max(100) as u64;
+    let timeout_ms = args.get("timeout_ms").and_then(parse_int).unwrap_or(10000).clamp(100, 30000) as u64;
+    let poll_ms = args.get("poll_ms").and_then(parse_int).unwrap_or(500).clamp(100, 5000) as u64;
 
     if name_filter.is_none() && type_filter.is_none() {
         return super::tool_error("wait_for_ui_element", "at least 'name' or 'control_type' is required");
@@ -449,9 +450,12 @@ pub fn tool_wait_for_ui_element(args: &Value) -> NativeToolResult {
         }).and_then(|r| r);
 
         if let Ok(info) = result {
+            let desc = info.desc();
+            let cx = info.cx;
+            let cy = info.cy;
+            let elapsed = start.elapsed().as_millis();
             return NativeToolResult::text_only(format!(
-                "Element appeared: {} at ({}, {}) after {}ms",
-                info.desc(), info.cx, info.cy, start.elapsed().as_millis()
+                "Element appeared: {desc} at ({cx}, {cy}) after {elapsed}ms"
             ));
         }
 
@@ -487,7 +491,7 @@ pub fn tool_wait_for_ui_element(_args: &Value) -> NativeToolResult {
 pub fn tool_find_ui_elements(args: &Value) -> NativeToolResult {
     let name_filter = args.get("name").and_then(|v| v.as_str());
     let type_filter = args.get("control_type").and_then(|v| v.as_str());
-    let max_results = args.get("max_results").and_then(parse_int).unwrap_or(10).min(50) as usize;
+    let max_results = args.get("max_results").and_then(parse_int).unwrap_or(10).clamp(1, 50) as usize;
 
     if name_filter.is_none() && type_filter.is_none() {
         return super::tool_error("find_ui_elements", "at least 'name' or 'control_type' is required");
@@ -528,10 +532,14 @@ pub fn tool_find_ui_elements(args: &Value) -> NativeToolResult {
                 return NativeToolResult::text_only("No matching UI elements found".to_string());
             }
             let lines: Vec<String> = elements.iter().enumerate().map(|(i, e)| {
-                format!("{}. {} at ({}, {}) size {}x{} center ({}, {})",
-                    i + 1, e.desc(), e.left, e.top, e.width, e.height, e.cx, e.cy)
+                let n = i + 1;
+                let desc = e.desc();
+                format!("{n}. {desc} at ({}, {}) size {}x{} center ({}, {})",
+                    e.left, e.top, e.width, e.height, e.cx, e.cy)
             }).collect();
-            NativeToolResult::text_only(format!("Found {} element(s):\n{}", elements.len(), lines.join("\n")))
+            let elem_count = elements.len();
+            let lines_joined = lines.join("\n");
+            NativeToolResult::text_only(format!("Found {elem_count} element(s):\n{lines_joined}"))
         }
         Err(e) => super::tool_error("find_ui_elements", e),
     }

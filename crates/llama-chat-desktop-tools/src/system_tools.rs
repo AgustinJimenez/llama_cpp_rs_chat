@@ -31,7 +31,7 @@ pub fn tool_read_registry(args: &Value) -> NativeToolResult {
         other => {
             return super::tool_error(
                 "read_registry",
-                format!("unsupported hive '{}'. Use HKCU or HKLM", other),
+                format!("unsupported hive '{other}'. Use HKCU or HKLM"),
             )
         }
     };
@@ -97,8 +97,7 @@ pub fn tool_click_tray_icon(args: &Value) -> NativeToolResult {
             }));
             NativeToolResult {
                 text: format!(
-                    "Clicked tray icon '{}' at ({}, {})",
-                    el.name, el.cx, el.cy
+                    "Clicked tray icon '{}' at ({}, {})", el.name, el.cx, el.cy
                 ),
                 images: click_result.images,
             }
@@ -121,7 +120,7 @@ pub fn tool_click_tray_icon(args: &Value) -> NativeToolResult {
                         images: click_result.images,
                     }
                 }
-                Ok(_) => super::tool_error("click_tray_icon", format!("tray icon matching '{}' not found", name)),
+                Ok(_) => super::tool_error("click_tray_icon", format!("tray icon matching '{name}' not found")),
                 Err(e) => super::tool_error("click_tray_icon", e),
             }
         }
@@ -167,8 +166,7 @@ pub fn tool_watch_window(args: &Value) -> NativeToolResult {
         let elapsed = start.elapsed().as_millis() as u64;
         if elapsed >= timeout_ms {
             return NativeToolResult::text_only(format!(
-                "No window changes detected within {}ms",
-                timeout_ms
+                "No window changes detected within {timeout_ms}ms"
             ));
         }
 
@@ -186,42 +184,36 @@ pub fn tool_watch_window(args: &Value) -> NativeToolResult {
 
         // Check for new windows
         for (key, title) in &current_set {
-            if !initial_set.contains_key(key) {
-                if filter.map_or(true, |f| title.to_lowercase().contains(&f.to_lowercase())) {
-                    changes.push(format!("NEW: '{}'", title));
-                }
+            if !initial_set.contains_key(key) && filter.is_none_or(|f| title.to_lowercase().contains(&f.to_lowercase())) {
+                changes.push(format!("NEW: '{title}'"));
             }
         }
 
         // Check for closed windows
         for (key, title) in &initial_set {
-            if !current_set.contains_key(key) {
-                if filter.map_or(true, |f| title.to_lowercase().contains(&f.to_lowercase())) {
-                    changes.push(format!("CLOSED: '{}'", title));
-                }
+            if !current_set.contains_key(key) && filter.is_none_or(|f| title.to_lowercase().contains(&f.to_lowercase())) {
+                changes.push(format!("CLOSED: '{title}'"));
             }
         }
 
         // Check for title changes
         for (key, new_title) in &current_set {
             if let Some(old_title) = initial_set.get(key) {
-                if old_title != new_title {
-                    if filter.map_or(true, |f| {
-                        new_title.to_lowercase().contains(&f.to_lowercase())
-                            || old_title.to_lowercase().contains(&f.to_lowercase())
-                    }) {
-                        changes.push(format!("RENAMED: '{}' → '{}'", old_title, new_title));
-                    }
+                if old_title != new_title && filter.is_none_or(|f| {
+                    new_title.to_lowercase().contains(&f.to_lowercase())
+                        || old_title.to_lowercase().contains(&f.to_lowercase())
+                }) {
+                    changes.push(format!("RENAMED: '{old_title}' → '{new_title}'"));
                 }
             }
         }
 
         if !changes.is_empty() {
             let screenshot = super::capture_post_action_screenshot(0);
+            let elapsed_ms = start.elapsed().as_millis();
             return NativeToolResult {
                 text: format!(
-                    "Window change(s) after {}ms:\n{}",
-                    start.elapsed().as_millis(),
+                    "Window change(s) after {elapsed_ms}ms:\n{}",
                     changes.join("\n")
                 ),
                 images: screenshot.images,
@@ -280,8 +272,7 @@ $n.Dispose();"#,
             Ok(_child) => {
                 // Don't wait — notification shows asynchronously
                 NativeToolResult::text_only(format!(
-                    "Notification sent: [{}] {}",
-                    title, message
+                    "Notification sent: [{title}] {message}"
                 ))
             }
             Err(e) => super::tool_error("send_notification", format!("sending notification: {e}")),
@@ -304,7 +295,7 @@ $n.Dispose();"#,
             .output();
 
         match result {
-            Ok(_) => NativeToolResult::text_only(format!("Notification sent: [{}] {}", title, message)),
+            Ok(_) => NativeToolResult::text_only(format!("Notification sent: [{title}] {message}")),
             Err(e) => super::tool_error("send_notification", format!("sending notification: {e}")),
         }
     }
@@ -318,7 +309,7 @@ $n.Dispose();"#,
             .output();
 
         match result {
-            Ok(_) => NativeToolResult::text_only(format!("Notification sent: [{}] {}", title, message)),
+            Ok(_) => NativeToolResult::text_only(format!("Notification sent: [{title}] {message}")),
             Err(e) => super::tool_error("send_notification", format!("sending notification: {e}")),
         }
     }
@@ -349,8 +340,7 @@ pub fn tool_wait_for_notification(args: &Value) -> NativeToolResult {
         .get("timeout_ms")
         .and_then(parse_int)
         .unwrap_or(10000)
-        .min(30000)
-        .max(1000) as u64;
+        .clamp(1000, 30000) as u64;
 
     let poll_ms = 1500u64; // Check every 1.5 seconds
     let filter_lower = text_contains.to_lowercase();
@@ -369,8 +359,8 @@ pub fn tool_wait_for_notification(args: &Value) -> NativeToolResult {
             if text.to_lowercase().contains(&filter_lower) {
                 let elapsed = start.elapsed().as_millis();
                 return NativeToolResult::text_only(format!(
-                    "Notification found after {}ms. Matched '{}' in:\n{}",
-                    elapsed, text_contains, truncate_text(&text, 500)
+                    "Notification found after {elapsed}ms. Matched '{text_contains}' in:\n{}",
+                    truncate_text(&text, 500)
                 ));
             }
         }
