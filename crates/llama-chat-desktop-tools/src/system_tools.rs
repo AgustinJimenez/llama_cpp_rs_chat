@@ -378,8 +378,7 @@ pub fn tool_wait_for_notification(args: &Value) -> NativeToolResult {
         let elapsed = start.elapsed().as_millis() as u64;
         if elapsed >= timeout_ms {
             return NativeToolResult::text_only(format!(
-                "No notification matching '{}' found within {}ms",
-                text_contains, timeout_ms
+                "No notification matching '{text_contains}' found within {timeout_ms}ms"
             ));
         }
 
@@ -547,34 +546,30 @@ Start-Sleep -Milliseconds 800
         }
 
         // mako (Wayland)
-        if !cleared {
-            if Command::new("makoctl")
-                .arg("dismiss")
-                .arg("--all")
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false)
-            {
-                cleared = true;
-            }
+        if !cleared && Command::new("makoctl")
+            .arg("dismiss")
+            .arg("--all")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+        {
+            cleared = true;
         }
 
         // swaync
-        if !cleared {
-            if Command::new("swaync-client")
-                .arg("--close-all")
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false)
-            {
-                cleared = true;
-            }
+        if !cleared && Command::new("swaync-client")
+            .arg("--close-all")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+        {
+            cleared = true;
         }
 
         if cleared {
