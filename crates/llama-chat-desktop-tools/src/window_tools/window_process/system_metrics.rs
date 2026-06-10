@@ -75,8 +75,7 @@ fn get_disk_info() -> Option<String> {
             let avail_gb = available as f64 / (1024.0 * 1024.0 * 1024.0);
             let used_pct = ((total - available) as f64 / total as f64) * 100.0;
             return Some(format!(
-                "{:.0} / {:.0} GB free ({:.0}% used)",
-                avail_gb, total_gb, used_pct
+                "{avail_gb:.0} / {total_gb:.0} GB free ({used_pct:.0}% used)"
             ));
         }
     }
