@@ -196,8 +196,7 @@ pub fn tool_wait_for_window(args: &Value) -> NativeToolResult {
                 .or_else(|| title_filter.map(|title| format!("title='{title}'")))
                 .unwrap_or_else(|| "unknown target".to_string());
             return NativeToolResult::text_only(format!(
-                "Timeout: no window matching {target} appeared within {}ms",
-                timeout_ms
+                "Timeout: no window matching {target} appeared within {timeout_ms}ms"
             ));
         }
         if let Err(e) = super::interruptible_sleep(std::time::Duration::from_millis(poll_ms)) {

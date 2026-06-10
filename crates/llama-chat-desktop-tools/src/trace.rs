@@ -85,6 +85,7 @@ pub fn action_verification_region_from_args(args: &Value) -> Option<Verification
     None
 }
 
+#[allow(clippy::type_complexity)]
 pub fn capture_screen_state(
     region: Option<VerificationRegion>,
 ) -> Result<(Vec<u8>, Vec<u8>, u32, u32, String), String> {

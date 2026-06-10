@@ -216,6 +216,7 @@ pub fn tool_get_context_menu(args: &Value) -> NativeToolResult {
     };
 
     #[cfg(not(windows))]
+    #[allow(clippy::type_complexity)]
     let menu_result: Result<(Vec<String>, Option<(i32, i32, String)>), String> = (|| {
         std::thread::sleep(std::time::Duration::from_millis(200));
 
@@ -282,8 +283,7 @@ pub fn tool_get_context_menu(args: &Value) -> NativeToolResult {
                 let mut result = super::super::tool_click_screen(&click_args);
                 result.text = format!("{menu_list}\nClicked: {desc} at ({cx}, {cy}). {}", result.text);
                 result
-            } else if click_item.is_some() {
-                let item_name = click_item.unwrap();
+            } else if let Some(item_name) = click_item {
                 NativeToolResult::text_only(format!("{menu_list}\nNote: item '{item_name}' not found in menu"))
             } else {
                 NativeToolResult::text_only(menu_list)

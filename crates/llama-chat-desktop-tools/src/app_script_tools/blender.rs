@@ -55,7 +55,7 @@ pub fn execute_blender_script(code: &str, blend_file: Option<&str>, background: 
     let filtered_stderr = filter_blender_stderr(&stderr);
 
     let status_msg = if output.status.success() { "Script completed successfully." } else { "Script failed." };
-    let mut result = format!("{status_msg}");
+    let mut result = status_msg.to_string();
     if !filtered_stdout.is_empty() {
         result.push_str(&format!("\n\nOutput:\n{filtered_stdout}"));
     }

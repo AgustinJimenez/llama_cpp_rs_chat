@@ -418,11 +418,13 @@ pub fn str_to_key(s: &str) -> Result<Key, String> {
 
 thread_local! {
     /// (timestamp, raw_rgba_bytes, png_bytes)
+    #[allow(clippy::type_complexity)]
     static LAST_SCREENSHOT: RefCell<Option<(std::time::Instant, Arc<Vec<u8>>, Arc<Vec<u8>>)>> = const { RefCell::new(None) };
 }
 
 /// Get a cached screenshot if it was taken within `max_age_ms` milliseconds.
 /// Returns (raw_rgba_bytes, png_bytes).
+#[allow(clippy::type_complexity)]
 pub fn get_cached_screenshot(max_age_ms: u64) -> Option<(Arc<Vec<u8>>, Arc<Vec<u8>>)> {
     LAST_SCREENSHOT.with(|cell| {
         let cache = cell.borrow();

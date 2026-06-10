@@ -331,10 +331,7 @@ pub fn tool_dialog_handler_stop(_args: &Value) -> NativeToolResult {
             state.stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
             let count = if let Some(handle) = state.handle {
                 // Wait up to 5 seconds for the thread to finish
-                match handle.join() {
-                    Ok(c) => c,
-                    Err(_) => 0,
-                }
+                handle.join().unwrap_or_default()
             } else {
                 0
             };

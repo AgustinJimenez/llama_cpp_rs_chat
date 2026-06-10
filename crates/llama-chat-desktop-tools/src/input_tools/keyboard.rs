@@ -124,7 +124,7 @@ pub fn tool_type_text(args: &Value) -> crate::NativeToolResult {
     let mut summary = if text.len() > 50 {
         format!("Typed {} characters: \"{}...\"", text.len(), &text[..50])
     } else {
-        format!("Typed: \"{}\"", text)
+        format!("Typed: \"{text}\"")
     };
 
     // Warn if non-US keyboard layout detected (characters may differ from intent)

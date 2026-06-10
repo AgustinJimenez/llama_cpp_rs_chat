@@ -107,7 +107,7 @@ pub fn tool_fill_form(args: &Value) -> NativeToolResult {
                         filled.push(format!("'{label}' selected (radio)"));
                     }
                     // Text input: click → select all → type → tab
-                    "edit" | "text" | "input" | _ => {
+                    _ => {
                         super::tool_click_screen(&serde_json::json!({
                             "x": el.cx, "y": el.cy, "delay_ms": 100, "screenshot": false
                         }));
@@ -322,12 +322,10 @@ pub fn tool_run_action_sequence(args: &Value) -> NativeToolResult {
                             continue;
                         }
                     }
-                    "failure" => {
-                        if !prev_failed {
-                            let n = i + 1;
-                            results.push(format!("#{n}: skipped (if_previous=failure, but previous succeeded)"));
-                            continue;
-                        }
+                    "failure" if !prev_failed => {
+                        let n = i + 1;
+                        results.push(format!("#{n}: skipped (if_previous=failure, but previous succeeded)"));
+                        continue;
                     }
                     _ => {} // Unknown condition, ignore and proceed
                 }

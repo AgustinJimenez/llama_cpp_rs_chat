@@ -349,6 +349,7 @@ pub fn tool_drag_and_drop_element(args: &Value) -> NativeToolResult {
     };
 
     #[cfg(not(windows))]
+    #[allow(clippy::type_complexity)]
     let positions: Result<((i32, i32, String), (i32, i32, String)), String> = (|| {
         let from_search = match from_name {
             Some(n) => n.to_lowercase(),

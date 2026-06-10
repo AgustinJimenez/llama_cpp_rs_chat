@@ -477,7 +477,7 @@ pub fn is_window_blocked(_hwnd: HWND) -> Option<HWND> {
         _ => return None,
     };
     // Check for modal state
-    match std::process::Command::new("xprop").args(&["-id", &wid, "_NET_WM_STATE"]).output() {
+    match std::process::Command::new("xprop").args(["-id", &wid, "_NET_WM_STATE"]).output() {
         Ok(out) if out.status.success() => {
             let props = String::from_utf8_lossy(&out.stdout);
             if props.contains("_NET_WM_STATE_MODAL") {
