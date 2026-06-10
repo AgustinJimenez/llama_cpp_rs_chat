@@ -98,9 +98,9 @@ mod tests {
 
     #[test]
     fn test_canonicalize_rejects_traversal() {
-        let result = canonicalize_project_path("../../../../../../etc/passwd");
+        let _result = canonicalize_project_path("../../../../../../etc/passwd");
         #[cfg(windows)]
-        assert!(result.is_err());
+        assert!(_result.is_err());
     }
 
     #[test]
