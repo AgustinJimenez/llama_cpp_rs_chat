@@ -364,6 +364,7 @@ pub async fn list_cli_providers() -> Vec<ProviderInfo> {
     ]
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn generate(
     provider_id: &str,
     prompt: &str,

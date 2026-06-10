@@ -2,7 +2,6 @@
 ///
 /// GET /api/hub/search?q=devstral&limit=20
 /// Proxies the HuggingFace API to avoid CORS issues from the frontend.
-
 use std::convert::Infallible;
 
 use hyper::{Body, Request, Response, StatusCode};

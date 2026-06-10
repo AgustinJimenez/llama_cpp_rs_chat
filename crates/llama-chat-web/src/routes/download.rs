@@ -6,7 +6,6 @@
 ///
 /// GET  /api/hub/downloads         — list all download records
 /// POST /api/hub/downloads/verify  — prune records whose files are missing, return clean list
-
 use std::convert::Infallible;
 use std::io::Read;
 use std::path::{Path, PathBuf};

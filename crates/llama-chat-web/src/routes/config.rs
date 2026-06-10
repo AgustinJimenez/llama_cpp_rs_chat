@@ -228,7 +228,7 @@ pub async fn handle_set_provider_key(
     let updated = serde_json::to_string(&keys).unwrap_or_else(|_| "{}".to_string());
 
     // Delete keychain entry if all keys removed, otherwise store in keychain
-    let all_empty = keys.as_object().map_or(true, |m| m.is_empty());
+    let all_empty = keys.as_object().is_none_or(|m| m.is_empty());
     let store_in_db = if all_empty {
         crate::keychain::delete();
         "{}".to_string()

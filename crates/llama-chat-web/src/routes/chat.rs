@@ -70,7 +70,6 @@ fn resolve_system_prompt(
 }
 
 #[cfg(not(feature = "mock"))]
-
 pub async fn handle_post_chat(
     req: Request<Body>,
     #[cfg(not(feature = "mock"))] pool: WorkerPool,

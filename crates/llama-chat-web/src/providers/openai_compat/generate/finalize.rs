@@ -18,6 +18,7 @@ pub struct LoopCounters {
 }
 
 /// Emit the `is_done` event, persist timings, clear remote tracker, and kick off title generation.
+#[allow(clippy::too_many_arguments)]
 pub fn finalize_generation(
     tx: &mpsc::UnboundedSender<CliTokenData>,
     counters: &LoopCounters,

@@ -40,6 +40,7 @@ use finalize::{finalize_generation, save_initial_messages, LoopCounters};
 ///
 /// When the model returns tool calls, they are executed locally and the results
 /// are fed back into the conversation for another API round-trip.
+#[allow(clippy::too_many_arguments)]
 pub async fn generate(
     provider_id: &str,
     prompt: &str,
