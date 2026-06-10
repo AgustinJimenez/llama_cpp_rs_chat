@@ -52,6 +52,7 @@ pub async fn stdin_writer_task(
 /// generation has advanced by the time the worker crashes, this reader is
 /// stale — a newer reader already owns the process — so crash recovery is
 /// skipped and the task exits silently.
+#[allow(clippy::too_many_arguments)]
 pub async fn stdout_reader_task(
     stdout: std::process::ChildStdout,
     pending: Arc<TokioMutex<HashMap<u64, PendingRequest>>>,
