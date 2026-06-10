@@ -238,7 +238,7 @@ pub(super) fn setup_background_noise(
                         if let Ok(mut child) = child {
                             if let Some(stdout) = child.stdout.take() {
                                 let reader = std::io::BufReader::new(stdout);
-                                for l in reader.lines().filter_map(|r| r.ok()) {
+                                for l in reader.lines().map_while(|r| r.ok()) {
                                     std::hint::black_box(l);
                                 }
                             }
@@ -345,7 +345,7 @@ pub(super) fn setup_background_noise(
                             if let Ok(mut child) = child {
                                 if let Some(stdout) = child.stdout.take() {
                                     let reader = std::io::BufReader::new(stdout);
-                                    for l in reader.lines().filter_map(|r| r.ok()) {
+                                    for l in reader.lines().map_while(|r| r.ok()) {
                                         std::hint::black_box(l);
                                     }
                                 }

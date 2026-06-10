@@ -144,7 +144,7 @@ pub(super) fn run_level_15_as_child(model_path: &str) -> bool {
 
     if let Some(stdout) = child.stdout.take() {
         let reader = std::io::BufReader::new(stdout);
-        for l in reader.lines().filter_map(|r| r.ok()) {
+        for l in reader.lines().map_while(|r| r.ok()) {
             println!("  [CHILD] {l}");
         }
     }
