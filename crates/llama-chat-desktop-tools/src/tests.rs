@@ -53,6 +53,7 @@ fn test_str_to_key_char() {
 }
 
 #[test]
+#[ignore = "requires display"]
 fn test_validate_coordinates_on_screen() {
     // (0,0) should always be valid — it's the top-left of the primary monitor
     assert!(validate_coordinates(0, 0).is_ok());
@@ -65,6 +66,7 @@ fn test_validate_coordinates_off_screen() {
 }
 
 #[test]
+#[ignore = "requires display"]
 fn test_with_enigo_caches_instance() {
     // First call creates the instance
     let r1 = with_enigo(|_e| Ok::<_, String>(42));
@@ -211,6 +213,7 @@ fn test_tool_not_supported_format() {
 // ─── Round 6: validated_monitors tests ───────────────────────────────
 
 #[test]
+#[ignore = "requires display"]
 fn test_validated_monitors_index_zero_ok() {
     // Index 0 should always succeed on a machine with a monitor
     let result = validated_monitors("test_tool", 0);
@@ -220,6 +223,7 @@ fn test_validated_monitors_index_zero_ok() {
 }
 
 #[test]
+#[ignore = "requires display"]
 fn test_validated_monitors_out_of_range() {
     let result = validated_monitors("test_tool", 999);
     assert!(result.is_err());
@@ -239,6 +243,7 @@ fn test_prepare_verification_no_flags_returns_none() {
 }
 
 #[test]
+#[ignore = "requires display"]
 fn test_prepare_verification_verify_text_enables_verification() {
     // verify_text alone should enable verification (no verify_screen_change needed)
     let args = serde_json::json!({
@@ -253,6 +258,7 @@ fn test_prepare_verification_verify_text_enables_verification() {
 }
 
 #[test]
+#[ignore = "requires display"]
 fn test_prepare_verification_screen_change_without_text() {
     let args = serde_json::json!({
         "verify_screen_change": true
@@ -326,6 +332,7 @@ fn test_parse_timeout_clamp_high() {
 // ─── Round 7: cached_monitors ───────────────────────────────────────
 
 #[test]
+#[ignore = "requires display"]
 fn test_cached_monitors_returns_list() {
     let result = cached_monitors();
     // Should succeed on any system with at least one display
@@ -334,6 +341,7 @@ fn test_cached_monitors_returns_list() {
 }
 
 #[test]
+#[ignore = "requires display"]
 fn test_cached_monitors_second_call_uses_cache() {
     // First call populates cache
     let _ = cached_monitors();

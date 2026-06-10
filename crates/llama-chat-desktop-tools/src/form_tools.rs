@@ -428,6 +428,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires display"]
     fn test_fill_form_empty_fields_array() {
         let args = serde_json::json!({"fields": []});
         let result = tool_fill_form(&args);
