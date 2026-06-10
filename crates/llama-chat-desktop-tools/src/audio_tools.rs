@@ -65,7 +65,7 @@ fn run_audio_ps(action: &str) -> Result<String, String> {
 
     const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-    let script = format!("{}\n{}", AUDIO_PS_PREAMBLE, action);
+    let script = format!("{AUDIO_PS_PREAMBLE}\n{action}");
     let output = Command::new("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
         .stdin(Stdio::null())

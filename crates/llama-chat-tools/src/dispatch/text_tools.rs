@@ -95,8 +95,7 @@ pub(super) fn dispatch_text_tool(
                 .min(30);
             std::thread::sleep(std::time::Duration::from_secs(seconds));
             format!(
-                "Waited {} seconds. You can now check on background processes or continue.",
-                seconds
+                "Waited {seconds} seconds. You can now check on background processes or continue.",
             )
         }
         "lsp_query" => {

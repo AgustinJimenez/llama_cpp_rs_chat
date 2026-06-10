@@ -178,6 +178,7 @@ pub fn tool_get_context_menu(args: &Value) -> NativeToolResult {
     std::thread::sleep(std::time::Duration::from_millis(300));
 
     #[cfg(windows)]
+    #[allow(clippy::type_complexity)]
     let menu_result: Result<(Vec<String>, Option<(i32, i32, String)>), String> = {
         let hwnd = match win32::get_active_window_info() {
             Some((h, _)) => h,

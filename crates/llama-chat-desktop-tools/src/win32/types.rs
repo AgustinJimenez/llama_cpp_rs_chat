@@ -350,6 +350,8 @@ pub fn get_system_dpi_scale() -> f64 {
     dpi as f64 / USER_DEFAULT_SCREEN_DPI as f64
 }
 
+/// # Safety
+/// `pid` must be a valid process ID or 0.
 pub unsafe fn get_process_name(pid: DWORD) -> String {
     if pid == 0 {
         return String::new();

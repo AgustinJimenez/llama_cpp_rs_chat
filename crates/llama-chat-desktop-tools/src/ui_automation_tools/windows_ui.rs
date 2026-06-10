@@ -263,6 +263,7 @@ impl UiElementInfo {
 
 #[cfg(windows)]
 thread_local! {
+    #[allow(clippy::type_complexity)]
     static UI_ELEMENT_CACHE: std::cell::RefCell<std::collections::HashMap<(isize, String, String), (std::time::Instant, Vec<UiElementInfo>)>> = std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
@@ -396,12 +397,12 @@ pub(crate) fn find_ui_elements_all(
             if let Ok(r) = unsafe { parent.CurrentBoundingRectangle() } {
                 if r.right > r.left && r.bottom > r.top {
                     results.push(UiElementInfo {
-                        cx: ((r.left + r.right) / 2) as i32,
-                        cy: ((r.top + r.bottom) / 2) as i32,
-                        left: r.left as i32,
-                        top: r.top as i32,
-                        width: (r.right - r.left) as i32,
-                        height: (r.bottom - r.top) as i32,
+                        cx: (r.left + r.right) / 2,
+                        cy: (r.top + r.bottom) / 2,
+                        left: r.left,
+                        top: r.top,
+                        width: r.right - r.left,
+                        height: r.bottom - r.top,
                         name: name.clone(),
                         control_type: control_type.clone(),
                     });

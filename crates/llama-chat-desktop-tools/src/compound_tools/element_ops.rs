@@ -240,7 +240,7 @@ fn collect_text(
     if !name.is_empty() {
         match control_type.as_str() {
             "Text" | "Edit" | "Document" | "Hyperlink" => {
-                if output.len() + name.len() + 1 <= max_chars {
+                if output.len() + name.len() < max_chars {
                     output.push_str(&name);
                     output.push('\n');
                 }
@@ -252,7 +252,7 @@ fn collect_text(
                 if let Ok(pattern) = value_result {
                     if let Ok(val) = unsafe { pattern.CurrentValue() } {
                         let val_str = val.to_string();
-                        if !val_str.is_empty() && output.len() + val_str.len() + 1 <= max_chars {
+                        if !val_str.is_empty() && output.len() + val_str.len() < max_chars {
                             output.push_str(&val_str);
                             output.push('\n');
                         }
@@ -317,6 +317,7 @@ pub fn tool_drag_and_drop_element(args: &Value) -> NativeToolResult {
     let prefer_ocr_fallback = gpu_app_for_hwnd(hwnd).is_some() && from_name.is_some() && to_name.is_some();
 
     #[cfg(windows)]
+    #[allow(clippy::type_complexity)]
     let positions: Result<((i32, i32, String), (i32, i32, String)), String> = {
         if prefer_ocr_fallback {
             let from_search = from_name.unwrap().to_lowercase();

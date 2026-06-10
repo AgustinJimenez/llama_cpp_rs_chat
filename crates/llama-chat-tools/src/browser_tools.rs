@@ -108,7 +108,7 @@ pub fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
                     "html" => "html: el.outerHTML".to_string(),
                     "href" => "href: el.href || el.getAttribute('href') || ''".to_string(),
                     "src" => "src: el.src || el.getAttribute('src') || ''".to_string(),
-                    other => format!("{k}: el.getAttribute('{k}') || ''", k = other),
+                    other => { let k = other; format!("{k}: el.getAttribute('{k}') || ''") },
                 }
             }).collect();
             let extract_obj = extract_js.join(", ");
@@ -248,6 +248,7 @@ pub fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
                 format!("(document.querySelector({}) || document)", serde_json::to_string(filter).unwrap_or_default())
             };
 
+            let root = root_sel;
             let js = format!(r#"
                 (() => {{
                     const root = {root};
@@ -271,7 +272,7 @@ pub fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
                     }})
                     .filter(Boolean);
                 }})()
-            "#, root = root_sel);
+            "#);
 
             match session.eval(&js) {
                 Ok(v) => {

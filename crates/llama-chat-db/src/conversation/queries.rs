@@ -151,8 +151,7 @@ impl Database {
         let start_after = if let Some((_, covers_to, message_count, summary_text)) = &latest {
             text.push_str("SYSTEM:\n");
             text.push_str(&format!(
-                "[Conversation summary — {} earlier messages compacted]\n{}",
-                message_count, summary_text
+                "[Conversation summary — {message_count} earlier messages compacted]\n{summary_text}",
             ));
             text.push_str("\n\n");
             *covers_to

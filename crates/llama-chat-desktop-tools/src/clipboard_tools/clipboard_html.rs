@@ -103,8 +103,7 @@ pub fn tool_clipboard_html(args: &Value) -> NativeToolResult {
             let end_html = header_len + html_body.len();
 
             let header = format!(
-                "Version:0.9\r\nStartHTML:{:010}\r\nEndHTML:{:010}\r\nStartFragment:{:010}\r\nEndFragment:{:010}\r\n",
-                start_html, end_html, start_fragment, end_fragment
+                "Version:0.9\r\nStartHTML:{start_html:010}\r\nEndHTML:{end_html:010}\r\nStartFragment:{start_fragment:010}\r\nEndFragment:{end_fragment:010}\r\n",
             );
 
             let cf_html_data = format!("{header}{html_body}");
