@@ -109,7 +109,7 @@ fn main() {
         let gap = (*expected_pos - token_pos).max(0) as usize;
         if gap > 0 && gen_idx + gap <= gen_tokens.len() {
             println!("\n  Replaying {} recorded tokens to pos {}...", gap, expected_pos);
-            for j in 0..gap {
+            for _j in 0..gap {
                 let tok = LlamaToken(gen_tokens[gen_idx]);
                 batch.clear();
                 batch.add(tok, token_pos, &[0], true).unwrap();
