@@ -321,7 +321,7 @@ fn main() {
             .expect("tokenize injection failed");
 
         // Inject
-        let t = Instant::now();
+        let _t = Instant::now();
         for (ci, chunk) in inject_tokens.chunks(chunk_size).enumerate() {
             batch.clear();
             let total = inject_tokens.len();

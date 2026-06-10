@@ -104,10 +104,12 @@ async fn run_test(model_path: &str, num_rounds: usize) {
     // 2b. Save config with the correct model path so generate_llama_response
     // doesn't try to load the default granite model from SamplerConfig::default()
     {
-        let mut config = SamplerConfig::default();
-        config.model_path = Some(model_path.to_string());
-        config.context_size = Some(32768);
-        config.flash_attention = true;
+        let config = SamplerConfig {
+            model_path: Some(model_path.to_string()),
+            context_size: Some(32768),
+            flash_attention: true,
+            ..Default::default()
+        };
         let db_config = sampler_config_to_db(&config);
         db.save_config(&db_config).expect("Failed to save config");
         eprintln!("[TEST] Config saved (model_path={model_path}, context=32768)");

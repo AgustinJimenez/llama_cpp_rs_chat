@@ -21,7 +21,7 @@ pub struct McpManager {
     /// Persistent tokio runtime for all MCP async operations.
     rt: tokio::runtime::Runtime,
     /// Connected MCP clients, keyed by server_id.
-    clients: Mutex<HashMap<String, McpClient>>,
+    clients: Mutex<HashMap<String, Arc<McpClient>>>,
     /// Maps qualified_name → (server_id, original_tool_name) for dispatch routing.
     tool_routing: Mutex<HashMap<String, (String, String)>>,
     /// All MCP tool definitions (for injection into system prompts).
@@ -65,15 +65,20 @@ impl McpManager {
 
         // Disconnect servers that are no longer enabled or configured
         {
-            let mut clients = self.clients.lock().unwrap_or_else(|p| p.into_inner());
-            let to_remove: Vec<String> = clients.keys()
-                .filter(|id| !enabled_ids.contains(id))
-                .cloned()
-                .collect();
-            for id in to_remove {
-                if let Some(client) = clients.remove(&id) {
-                    eprintln!("[MCP] Disconnecting removed/disabled server '{}'", client.server_name);
-                    client.disconnect().await;
+            let to_disconnect: Vec<Arc<McpClient>> = {
+                let mut clients = self.clients.lock().unwrap_or_else(|p| p.into_inner());
+                let to_remove: Vec<String> = clients.keys()
+                    .filter(|id| !enabled_ids.contains(id))
+                    .cloned()
+                    .collect();
+                to_remove.into_iter()
+                    .filter_map(|id| clients.remove(&id))
+                    .collect()
+            };
+            for client in to_disconnect {
+                eprintln!("[MCP] Disconnecting removed/disabled server '{}'", client.server_name);
+                if let Ok(owned) = Arc::try_unwrap(client) {
+                    owned.disconnect().await;
                 }
             }
         }
@@ -95,7 +100,7 @@ impl McpManager {
                 Ok(client) => {
                     eprintln!("[MCP] Connected to '{}': {} tools discovered", config.name, client.tools.len());
                     let mut clients = self.clients.lock().unwrap_or_else(|p| p.into_inner());
-                    clients.insert(config.id.clone(), client);
+                    clients.insert(config.id.clone(), Arc::new(client));
                 }
                 Err(e) => {
                     eprintln!("[MCP] Failed to connect to '{}': {}", config.name, e);
@@ -156,11 +161,16 @@ impl McpManager {
                 .ok_or_else(|| format!("Unknown MCP tool: {qualified_name}"))?
         };
 
-        // Call the tool on the appropriate client
-        self.rt.block_on(async {
+        // Clone the Arc to release the lock before awaiting
+        let client = {
             let clients = self.clients.lock().unwrap_or_else(|p| p.into_inner());
-            let client = clients.get(&server_id)
-                .ok_or_else(|| format!("MCP server '{}' not connected", server_id))?;
+            clients.get(&server_id)
+                .cloned()
+                .ok_or_else(|| format!("MCP server '{}' not connected", server_id))?
+        };
+
+        // Call the tool without holding the lock
+        self.rt.block_on(async move {
             client.call_tool(&original_name, args).await
         })
     }
@@ -194,14 +204,25 @@ impl McpManager {
     #[allow(dead_code)]
     pub fn shutdown(&self) {
         self.rt.block_on(async {
-            let mut clients = self.clients.lock().unwrap_or_else(|p| p.into_inner());
-            for (_, client) in clients.drain() {
-                client.disconnect().await;
+            let drained: Vec<Arc<McpClient>> = {
+                let mut clients = self.clients.lock().unwrap_or_else(|p| p.into_inner());
+                clients.drain().map(|(_, c)| c).collect()
+            };
+            for client in drained {
+                if let Ok(owned) = Arc::try_unwrap(client) {
+                    owned.disconnect().await;
+                }
             }
         });
         *self.tool_routing.lock().unwrap_or_else(|p| p.into_inner()) = HashMap::new();
         *self.mcp_tools.lock().unwrap_or_else(|p| p.into_inner()) = Vec::new();
         eprintln!("[MCP] All connections shut down");
+    }
+}
+
+impl Default for McpManager {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

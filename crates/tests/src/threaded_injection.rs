@@ -40,12 +40,10 @@ use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::model::{AddBos, LlamaModel};
 use llama_cpp_2::sampling::LlamaSampler;
-use llama_cpp_2::token::LlamaToken;
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
-use serde_json::json;
 
 #[path = "threaded_injection/background.rs"]
 mod background;
@@ -186,7 +184,7 @@ fn run_level(level: u32, backend: &LlamaBackend, model: &LlamaModel, context_siz
 
     let running = Arc::new(AtomicBool::new(true));
     let heartbeat = Arc::new(AtomicU64::new(0));
-    let (mut rt_handle, mut handles) = setup_background_noise(level, &running, &heartbeat);
+    let (rt_handle, mut handles) = setup_background_noise(level, &running, &heartbeat);
 
     // --- Configure test parameters based on level ---
     // Levels 0-9: small pre-gen (200 tokens), small inject (~60 tokens), 15 rounds, 30 gen between

@@ -151,28 +151,25 @@ pub fn run_worker(db_path: &str) {
         let line = loop {
             crossbeam_channel::select! {
                 recv(token_rx) -> msg => {
-                    match msg {
-                        Ok(first) => {
-                            // Write first token, then collect more within the flush window
-                            write_response_no_flush(&mut ipc_writer, &first);
-                            let deadline = std::time::Instant::now() + FLUSH_INTERVAL;
-                            loop {
-                                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-                                if remaining.is_zero() {
-                                    break;
-                                }
-                                match token_rx.recv_timeout(remaining) {
-                                    Ok(response) => {
-                                        write_response_no_flush(&mut ipc_writer, &response);
-                                    }
-                                    Err(crossbeam_channel::RecvTimeoutError::Timeout) => break,
-                                    Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
-                                }
+                    if let Ok(first) = msg {
+                        // Write first token, then collect more within the flush window
+                        write_response_no_flush(&mut ipc_writer, &first);
+                        let deadline = std::time::Instant::now() + FLUSH_INTERVAL;
+                        loop {
+                            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                            if remaining.is_zero() {
+                                break;
                             }
-                            let _ = ipc_writer.flush();
+                            match token_rx.recv_timeout(remaining) {
+                                Ok(response) => {
+                                    write_response_no_flush(&mut ipc_writer, &response);
+                                }
+                                Err(crossbeam_channel::RecvTimeoutError::Timeout) => break,
+                                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+                            }
                         }
-                        Err(_) => {} // Channel disconnected, generation ended
-                    }
+                        let _ = ipc_writer.flush();
+                    } // Channel disconnected, generation ended
                 },
                 recv(stdin_rx) -> msg => {
                     match msg {
