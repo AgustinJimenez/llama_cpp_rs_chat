@@ -123,11 +123,11 @@ pub fn check_and_execute_command_with_tags(
         LoopCheckResult::ForceStop(mut result) => {
             llama_chat_db::event_log::log_event(conversation_id, "infinite_loop", &format!("Force-stop after {} consecutive blocks", consecutive_loop_blocks));
             result.output_block.push_str("\n[INFINITE_LOOP_DETECTED]\n");
-            return Ok(Some(result));
+            Ok(Some(result))
         }
         LoopCheckResult::Blocked(result) => {
             llama_chat_db::event_log::log_event(conversation_id, "loop_blocked", &format!("{} blocked (consecutive: {})", tool_name_for_log, consecutive_loop_blocks));
-            return Ok(Some(result));
+            Ok(Some(result))
         }
         LoopCheckResult::Continue(fuzzy_warning) => {
             let all_calls = llama_chat_tools::try_parse_all_from_raw(&command_text);

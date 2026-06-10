@@ -177,7 +177,7 @@ pub(crate) fn evaluate_text_prompt(
                     return Err("Context too small for conversation — try increasing context size or starting a new conversation".to_string());
                 }
                 // Abort callback triggered — treat as cancellation
-                if err_str.contains("Unknown(2)") || cancel.map_or(false, |c| c.load(std::sync::atomic::Ordering::Relaxed)) {
+                if err_str.contains("Unknown(2)") || cancel.is_some_and(|c| c.load(std::sync::atomic::Ordering::Relaxed)) {
                     unsafe { ctx.set_abort_callback(None, std::ptr::null_mut()); }
                     return Err("Cancelled".to_string());
                 }

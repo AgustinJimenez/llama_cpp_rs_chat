@@ -92,8 +92,7 @@ fn extract_summary_param(command_text: &str) -> Option<String> {
     let json_pattern = "\"summary\":";
     if let Some(pos) = command_text.find(json_pattern) {
         let rest = command_text[pos + json_pattern.len()..].trim_start();
-        if rest.starts_with('"') {
-            let inner = &rest[1..];
+        if let Some(inner) = rest.strip_prefix('"') {
             let mut end = 0;
             let bytes = inner.as_bytes();
             while end < bytes.len() {
@@ -129,7 +128,7 @@ pub(crate) fn sanitize_and_summarize(
 ) -> (String, String) {
     // Strip [TOOL_RESULT:...] tag before model sees it (tag is for frontend only)
     let output_for_model = if p.raw_output.starts_with("[TOOL_RESULT:") {
-        p.raw_output.splitn(2, ']').nth(1).unwrap_or(p.raw_output).to_string()
+        p.raw_output.split_once(']').map(|(_, r)| r).unwrap_or(p.raw_output).to_string()
     } else {
         p.raw_output.to_string()
     };

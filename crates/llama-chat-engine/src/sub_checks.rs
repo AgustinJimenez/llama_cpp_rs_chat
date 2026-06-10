@@ -58,7 +58,7 @@ pub fn check_eos_continuation(
         let eos = model.token_to_str(model.token_eos(), Special::Tokenize).unwrap_or_else(|_| "</s>".into());
         let messages = vec![
             ChatMessage { role: "system".into(), content: system_msg.into(), tool_calls: None },
-            ChatMessage { role: "user".into(), content: user_content.clone().into(), tool_calls: None },
+            ChatMessage { role: "user".into(), content: user_content.clone(), tool_calls: None },
         ];
         apply_native_chat_template(template_str, messages, None, None, true, &bos, &eos, false)
             .unwrap_or_else(|_| format!("SYSTEM:\n{system_msg}\n\nUSER:\n{user_content}\n\nASSISTANT:\n"))
@@ -101,7 +101,7 @@ pub fn check_eos_continuation(
     let eos_token = model.token_eos();
     let mut continuation_text = String::new();
     let mut continuation_tokens: Vec<llama_cpp_2::token::LlamaToken> = Vec::new();
-    let mut token_pos = tokens.len() as i32;
+    let prompt_len = tokens.len() as i32;
 
     for i in 0..=max_continuation_tokens {
         let next_token = sampler.sample(&ctx, -1);
@@ -126,10 +126,10 @@ pub fn check_eos_continuation(
         continuation_text.push_str(&token_str);
         continuation_tokens.push(next_token);
 
+        let token_pos = prompt_len + i as i32;
         batch.clear();
         if batch.add(next_token, token_pos, &[0], true).is_err() { break; }
         if ctx.decode(&mut batch).is_err() { break; }
-        token_pos += 1;
     }
 
     drop(ctx);
@@ -236,7 +236,6 @@ pub fn inline_eos_probe(
     let mut continuation_text = String::new();
     let mut continuation_tokens: Vec<llama_cpp_2::token::LlamaToken> = Vec::new();
     let mut is_done = false;
-    let mut sample_pos = probe_end_pos;
 
     for i in 0..=max_probe_tokens {
         let next_token = probe_sampler.sample(context, -1);
@@ -267,6 +266,7 @@ pub fn inline_eos_probe(
         continuation_tokens.push(next_token);
 
         // Feed the sampled token back so the model can autoregress.
+        let sample_pos = probe_end_pos + i as i32;
         probe_batch.clear();
         if probe_batch.add(next_token, sample_pos, &[0], true).is_err() {
             break;
@@ -274,7 +274,6 @@ pub fn inline_eos_probe(
         if context.decode(&mut probe_batch).is_err() {
             break;
         }
-        sample_pos += 1;
     }
 
     // Always roll back — remove probe + any sampled tokens from the KV cache.
@@ -340,7 +339,7 @@ pub fn quick_tool_result_check(
         let eos = model.token_to_str(model.token_eos(), Special::Tokenize).unwrap_or_else(|_| "</s>".into());
         let messages = vec![
             ChatMessage { role: "system".into(), content: "Answer YES or NO only.".into(), tool_calls: None },
-            ChatMessage { role: "user".into(), content: prompt_text.clone().into(), tool_calls: None },
+            ChatMessage { role: "user".into(), content: prompt_text.clone(), tool_calls: None },
         ];
         apply_native_chat_template(template_str, messages, None, None, true, &bos, &eos, false)
             .unwrap_or_else(|_| format!("SYSTEM:\nAnswer YES or NO only.\n\nUSER:\n{prompt_text}\n\nASSISTANT:\n"))
@@ -381,9 +380,9 @@ pub fn quick_tool_result_check(
     ]);
 
     let mut response = String::new();
-    let mut token_pos = tokens.len() as i32;
+    let prompt_len = tokens.len() as i32;
     let eos_token = model.token_eos();
-    for _ in 0..5 {
+    for i in 0..5 {
         let next_token = sampler.sample(&ctx, -1);
         if next_token == eos_token { break; }
         #[allow(deprecated)]
@@ -391,10 +390,10 @@ pub fn quick_tool_result_check(
             .token_to_str(next_token, llama_cpp_2::model::Special::Tokenize)
             .unwrap_or_default();
         response.push_str(&token_str);
+        let token_pos = prompt_len + i;
         batch.clear();
         if batch.add(next_token, token_pos, &[0], true).is_err() { break; }
         if ctx.decode(&mut batch).is_err() { break; }
-        token_pos += 1;
     }
     drop(ctx);
 
@@ -440,7 +439,7 @@ pub fn quick_task_completion_check(
         let eos = model.token_to_str(model.token_eos(), Special::Tokenize).unwrap_or_else(|_| "</s>".into());
         let messages = vec![
             ChatMessage { role: "system".into(), content: "Answer YES or NO only.".into(), tool_calls: None },
-            ChatMessage { role: "user".into(), content: prompt_text.clone().into(), tool_calls: None },
+            ChatMessage { role: "user".into(), content: prompt_text.clone(), tool_calls: None },
         ];
         apply_native_chat_template(template_str, messages, None, None, true, &bos, &eos, false)
             .unwrap_or_else(|_| format!("SYSTEM:\nAnswer YES or NO only.\n\nUSER:\n{prompt_text}\n\nASSISTANT:\n"))
@@ -483,10 +482,10 @@ pub fn quick_task_completion_check(
     ]);
 
     let mut response = String::new();
-    let mut token_pos = tokens.len() as i32;
+    let prompt_len = tokens.len() as i32;
     let eos_token = model.token_eos();
 
-    for _ in 0..5 {
+    for i in 0..5 {
         let next_token = sampler.sample(&ctx, -1);
         if next_token == eos_token { break; }
 
@@ -496,10 +495,10 @@ pub fn quick_task_completion_check(
             .unwrap_or_default();
         response.push_str(&token_str);
 
+        let token_pos = prompt_len + i;
         batch.clear();
         if batch.add(next_token, token_pos, &[0], true).is_err() { break; }
         if ctx.decode(&mut batch).is_err() { break; }
-        token_pos += 1;
     }
 
     drop(ctx);
@@ -516,7 +515,6 @@ pub fn quick_task_completion_check(
 ///
 /// Handles token generation, stop conditions, command execution, and conversation logging.
 /// Supports multiple sampling strategies and automatic context size validation.
-
 pub fn generate_title_text(
     llama_state: &SharedLlamaState,
     prompt: &str,
@@ -600,10 +598,10 @@ pub fn generate_title_text(
 
     // Generate up to 30 tokens
     let mut title = String::new();
-    let mut token_pos = tokens.len() as i32;
+    let prompt_len = tokens.len() as i32;
     let eos_token = model.token_eos();
 
-    for _ in 0..30 {
+    for i in 0..30 {
         let next_token = sampler.sample(&ctx, -1);
         if next_token == eos_token {
             break;
@@ -621,12 +619,12 @@ pub fn generate_title_text(
 
         title.push_str(&token_str);
 
+        let token_pos = prompt_len + i;
         batch.clear();
         batch.add(next_token, token_pos, &[0], true)
             .map_err(|e| format!("Title gen batch add failed: {e}"))?;
         ctx.decode(&mut batch)
             .map_err(|e| format!("Title gen decode failed: {e}"))?;
-        token_pos += 1;
     }
 
     // Drop the temporary context (inference_cache untouched)

@@ -57,6 +57,7 @@ fn try_jinja_render(
 /// `custom_system_prompt`: when `Some`, overrides the default agentic system prompt
 /// (e.g. from an agent's configured `system_prompt`). `None` uses the universal
 /// agentic prompt.
+#[allow(clippy::too_many_arguments)]
 pub fn apply_system_prompt_by_type_with_tags(
     conversation: &str,
     template_type: Option<&str>,

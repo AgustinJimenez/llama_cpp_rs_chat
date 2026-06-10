@@ -6,7 +6,6 @@ use tokio::sync::mpsc;
 use llama_chat_command::background::execute_command_background;
 use llama_chat_command::{execute_command_streaming_with_timeout, strip_ansi_codes};
 use llama_chat_types::*;
-use llama_chat_tools;
 use super::sub_agent::{run_sub_agent};
 use super::tool_tags::ToolTags;
 /// Prefix a command with `rtk` for output compression (always enabled).
@@ -191,6 +190,7 @@ pub(crate) fn run_native_tool_with_timeout(
 /// The caller (batch outer merge loop) is responsible for sending timing WS messages and
 /// logging to DB — this function intentionally does NOT emit tool_timing WS messages to
 /// avoid duplicate sends (the outer loop emits once for every tool, in order).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn execute_single_tool(
     name: &str,
     args: &serde_json::Value,

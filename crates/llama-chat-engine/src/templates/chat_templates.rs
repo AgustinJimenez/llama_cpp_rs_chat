@@ -36,10 +36,8 @@ pub fn apply_model_chat_template_with_tags(
                 match current_role {
                     "USER" => user_messages.push(current_content.trim().to_string()),
                     "ASSISTANT" => assistant_messages.push(current_content.trim().to_string()),
-                    "SYSTEM" => {
-                        if current_content.trim().starts_with("[Conversation summary") {
-                            compaction_summaries.push(current_content.trim().to_string());
-                        }
+                    "SYSTEM" if current_content.trim().starts_with("[Conversation summary") => {
+                        compaction_summaries.push(current_content.trim().to_string());
                     }
                     _ => {}
                 }
@@ -47,11 +45,9 @@ pub fn apply_model_chat_template_with_tags(
 
             current_role = line.trim_end_matches(":");
             current_content.clear();
-        } else if !line.starts_with("[COMMAND:") {
-            if !line.trim().is_empty() {
-                current_content.push_str(line);
-                current_content.push('\n');
-            }
+        } else if !line.starts_with("[COMMAND:") && !line.trim().is_empty() {
+            current_content.push_str(line);
+            current_content.push('\n');
         }
     }
 
@@ -59,10 +55,8 @@ pub fn apply_model_chat_template_with_tags(
         match current_role {
             "USER" => user_messages.push(current_content.trim().to_string()),
             "ASSISTANT" => assistant_messages.push(current_content.trim().to_string()),
-            "SYSTEM" => {
-                if current_content.trim().starts_with("[Conversation summary") {
-                    compaction_summaries.push(current_content.trim().to_string());
-                }
+            "SYSTEM" if current_content.trim().starts_with("[Conversation summary") => {
+                compaction_summaries.push(current_content.trim().to_string());
             }
             _ => {}
         }

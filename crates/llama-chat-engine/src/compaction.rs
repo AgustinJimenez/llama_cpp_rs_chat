@@ -64,6 +64,7 @@ pub fn should_compact(
 /// The returned text already reflects the compacted state (from DB reload).
 ///
 /// `force` — skip the usage-threshold check and always compact (used by the manual Compact button).
+#[allow(clippy::too_many_arguments)]
 pub fn maybe_compact_conversation(
     conversation_content: &str,
     context_size: u32,
@@ -203,7 +204,7 @@ pub fn maybe_compact_conversation(
 
     // Hard cap: summary must be much shorter than the original to actually free context.
     // Target: summary should be at most 30% of available context (in chars, ~4 chars/token).
-    let max_summary_chars = (available_context as usize * 4) * 30 / 100;
+    let max_summary_chars = (available_context * 4) * 30 / 100;
     let summary_with_task = if summary.len() > max_summary_chars {
         eprintln!("[COMPACTION] Summary too long ({} chars), truncating to {} chars", summary.len(), max_summary_chars);
         let truncated: String = summary.chars().take(max_summary_chars).collect();
@@ -292,7 +293,7 @@ fn summarize_conversation(
     // Summary context: use large context for fewer chunks + better GPU utilization.
     // 8K was far too small — resulted in 35+ passes for a 158K conversation.
     // 65K gives ~4-5 map chunks for the same conversation, 7x fewer passes.
-    let summary_ctx = context_size.min(65536).max(512);
+    let summary_ctx = context_size.clamp(512, 65536);
     // Reserve tokens for output + prompt overhead. Use summary_ctx (not the main context_size)
     // so chunk_size stays within what the summary context can actually hold.
     let reserved = (summary_ctx / 4).clamp(256, 2048);
@@ -325,6 +326,7 @@ fn summarize_conversation(
 }
 
 /// Inner map-reduce using a reusable context.
+#[allow(clippy::too_many_arguments)]
 fn summarize_with_ctx(
     model: &llama_cpp_2::model::LlamaModel,
     ctx: &mut llama_cpp_2::context::LlamaContext<'_>,
@@ -342,7 +344,7 @@ fn summarize_with_ctx(
     let mut chunk_summaries = Vec::new();
     let mut pos = 0;
     let mut chunk_num = 0;
-    let total_chunks = (old_text.len() + chunk_size - 1) / chunk_size;
+    let total_chunks = old_text.len().div_ceil(chunk_size);
     send_status(status_sender, "Compacting conversation (0%)");
 
     while pos < old_text.len() {
@@ -408,6 +410,7 @@ const MIN_TOOL_CALLS_FOR_MID_TASK: usize = 3;
 /// older tool results in the DB for the next turn.
 ///
 /// Returns Some(summary) if compaction happened, None otherwise.
+#[allow(clippy::too_many_arguments)]
 pub fn maybe_compact_mid_task(
     conversation_id: &str,
     db: &SharedDatabase,

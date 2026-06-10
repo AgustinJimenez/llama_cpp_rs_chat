@@ -600,8 +600,8 @@ pub(crate) fn run_generation_loop(
                     }
                     const PROACTIVE_COMPACT_INTERVAL: usize = 40;
                     if cfg.proactive_compaction
-                        && gen.recent_commands.len() > 0
-                        && gen.recent_commands.len() % PROACTIVE_COMPACT_INTERVAL == 0
+                        && !gen.recent_commands.is_empty()
+                        && gen.recent_commands.len().is_multiple_of(PROACTIVE_COMPACT_INTERVAL)
                     {
                         eprintln!("[PROACTIVE_COMPACT] {} tool calls reached, forcing compaction cycle", gen.recent_commands.len());
                         log_event(cfg.conversation_id, "compaction", &format!("{} tool calls → proactive compact", gen.recent_commands.len()));

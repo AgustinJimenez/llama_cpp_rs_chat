@@ -219,7 +219,7 @@ fn map_reduce_summarize_tool_output(
 
     let mut summaries = Vec::new();
     let mut pos = 0;
-    let total_chunks = (text.len() + CHUNK_SIZE - 1) / CHUNK_SIZE;
+    let total_chunks = text.len().div_ceil(CHUNK_SIZE);
     let mut chunk_num = 0;
 
     while pos < text.len() {

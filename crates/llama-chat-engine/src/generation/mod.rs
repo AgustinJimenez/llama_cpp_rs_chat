@@ -37,6 +37,7 @@ use output::{build_generation_output, strip_incomplete_tool_call_on_cancel};
 pub use output::GenerationOutput;
 
 /// Generate a full LLM response for a user message.
+#[allow(clippy::too_many_arguments)]
 pub async fn generate_llama_response(
     user_message: &str,
     llama_state: SharedLlamaState,
@@ -189,7 +190,7 @@ pub async fn generate_llama_response(
     let mcp_tools_ref = if mcp_tool_defs.is_empty() { None } else { Some(mcp_tool_defs.as_slice()) };
 
     let supports_thinking = chat_template_string.as_deref()
-        .map(|t| super::jinja_templates::detect_thinking_support(t))
+        .map(super::jinja_templates::detect_thinking_support)
         .unwrap_or(false);
     let enable_thinking = config.thinking_mode.unwrap_or(supports_thinking);
     // Resolve agent's custom system prompt: None and "__AGENTIC__" both mean

@@ -25,6 +25,7 @@ static AGENT_DEPTH: AtomicU32 = AtomicU32::new(0);
 ///
 /// The sub-agent shares the loaded model but gets its own KV cache, so it
 /// doesn't pollute the main conversation's context window.
+#[allow(clippy::too_many_arguments)]
 pub fn run_sub_agent(
     model: &llama_cpp_2::model::LlamaModel,
     backend: &llama_cpp_2::llama_backend::LlamaBackend,

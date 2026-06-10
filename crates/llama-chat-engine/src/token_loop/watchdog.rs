@@ -3,7 +3,6 @@
 /// The heartbeat is updated after every successful sample()/decode(). If not updated
 /// within WATCHDOG_TIMEOUT_MS, the watchdog assumes a CUDA deadlock and calls
 /// `process::exit(42)` to force a clean restart.
-
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 

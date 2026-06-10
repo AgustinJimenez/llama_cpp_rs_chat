@@ -182,7 +182,7 @@ pub fn calculate_optimal_gpu_layers(model_path: &str) -> u32 {
     let vram_ratio = (available_vram_gb / model_size_gb).min(1.0);
 
     // Use actual layer count if available, otherwise estimate from model size
-    let total_layers = actual_layers.unwrap_or_else(|| {
+    let total_layers = actual_layers.unwrap_or(
         if model_size_gb < SMALL_MODEL_GB {
             SMALL_MODEL_LAYERS
         } else if model_size_gb < MEDIUM_MODEL_GB {
@@ -192,7 +192,7 @@ pub fn calculate_optimal_gpu_layers(model_path: &str) -> u32 {
         } else {
             XLARGE_MODEL_LAYERS
         }
-    });
+    );
 
     let mut optimal_layers = (total_layers as f64 * vram_ratio).floor() as u32;
 

@@ -110,7 +110,7 @@ pub fn get_available_tools() -> Vec<Value> {
         .filter(|tool| {
             tool.get("name")
                 .and_then(|n| n.as_str())
-                .map_or(false, |name| CORE_TOOL_NAMES.contains(&name))
+                .is_some_and(|name| CORE_TOOL_NAMES.contains(&name))
         })
         .collect();
 
@@ -154,7 +154,7 @@ pub fn get_desktop_tool_definitions() -> Vec<Value> {
         .filter(|tool| {
             tool.get("name")
                 .and_then(|n| n.as_str())
-                .map_or(false, |name| DESKTOP_TOOL_NAMES.contains(&name))
+                .is_some_and(|name| DESKTOP_TOOL_NAMES.contains(&name))
         })
         .collect()
 }

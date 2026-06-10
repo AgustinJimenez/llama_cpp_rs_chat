@@ -53,7 +53,7 @@ pub(crate) fn wrap_output_for_model(output_block: &str, template_type: Option<&s
         Some("GLM") => {
             format!("\n<|observation|>\n{}\n<|assistant|>\n", output_block.trim())
         }
-        Some("Mistral") | _ => {
+        _ => {
             output_block.to_string()
         }
     }
