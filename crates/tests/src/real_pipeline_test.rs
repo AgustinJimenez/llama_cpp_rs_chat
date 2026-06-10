@@ -23,7 +23,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use llama_chat_db::Database;
-use llama_chat_engine::{generate_llama_response, load_model, GenerationOutput};
+use llama_chat_engine::{generate_llama_response, load_model};
 use llama_chat_types::models::{SharedLlamaState, TokenData};
 use llama_chat_types::SamplerConfig;
 use llama_chat_config::sampler_config_to_db;
