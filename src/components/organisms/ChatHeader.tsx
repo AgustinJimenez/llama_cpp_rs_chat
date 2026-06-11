@@ -193,6 +193,16 @@ const AgentPicker = ({ onModelUnload }: { onModelUnload: () => void }) => {
     const s = agentStatuses[agentId]?.status ?? 'idle';
     if (s === 'generating') return 'bg-amber-400 animate-pulse';
     if (s === 'active') return 'bg-emerald-400';
+    // Show green dot if this agent's model is currently loaded in VRAM (even if idle)
+    const agent = agents.find((a) => a.id === agentId);
+    if (
+      agent?.provider_id === 'local' &&
+      agent.model_path &&
+      modelStatus.loaded &&
+      modelStatus.model_path === agent.model_path
+    ) {
+      return 'bg-emerald-400';
+    }
     return 'bg-muted-foreground/30';
   };
   const dotTitle = (agentId: string) => {
