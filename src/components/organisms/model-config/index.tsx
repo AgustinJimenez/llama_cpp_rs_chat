@@ -79,7 +79,11 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
   const [overheadGb, setOverheadGb] = useState(2.0);
 
   // Use global system resources (fetched at app startup)
-  const { totalVramGb: availableVramGb, totalRamGb: availableRamGb } = useSystemResources();
+  const {
+    totalVramGb: availableVramGb,
+    totalRamGb: availableRamGb,
+    unifiedMemory,
+  } = useSystemResources();
 
   // Use model path validation hook for file checking and metadata fetching
   const {
@@ -580,6 +584,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                   {!!modelInfo && (
                     <MemoryVisualization
                       memory={memoryBreakdown}
+                      unifiedMemory={unifiedMemory}
                       overheadGb={overheadGb}
                       onOverheadChange={setOverheadGb}
                       gpuLayers={config.gpu_layers || 0}

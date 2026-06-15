@@ -172,7 +172,11 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
 
   // ── Hooks (must be called unconditionally) ────────────────────────────────
   const { status: modelStatus } = useModelContext();
-  const { totalVramGb: availableVramGb, totalRamGb: availableRamGb } = useSystemResources();
+  const {
+    totalVramGb: availableVramGb,
+    totalRamGb: availableRamGb,
+    unifiedMemory,
+  } = useSystemResources();
 
   const {
     fileExists,
@@ -731,6 +735,11 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
   const modalWidth =
     view === 'config' && providerMode === 'local' ? 'w-[95vw] max-w-5xl' : 'w-[720px] max-w-[92vw]';
 
+  // Give the agent list a stable height so deleting agents doesn't resize the modal —
+  // the list scrolls inside the fixed body between the pinned header and footer. Other
+  // views stay content-sized (capped by max-h-[90vh]).
+  const modalHeight = view === 'list' ? 'h-[80vh]' : '';
+
   return (
     // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-static-element-interactions
     <div
@@ -741,7 +750,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
     >
       {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
       <div
-        className={`rounded-lg border border-border bg-card shadow-2xl ${modalWidth} flex max-h-[90vh] flex-col`}
+        className={`rounded-lg border border-border bg-card shadow-2xl ${modalWidth} ${modalHeight} flex max-h-[90vh] flex-col`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -1046,6 +1055,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                           {!!modelInfo && (
                             <MemoryVisualization
                               memory={memoryBreakdown}
+                              unifiedMemory={unifiedMemory}
                               overheadGb={overheadGb}
                               onOverheadChange={setOverheadGb}
                               gpuLayers={localConfig.gpu_layers || 0}

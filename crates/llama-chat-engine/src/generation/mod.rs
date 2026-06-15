@@ -231,7 +231,17 @@ pub async fn generate_llama_response(
     #[allow(unused_variables)]
     let n_ctx = NonZeroU32::new(context_size).expect("Context size must be non-zero");
     let offload_kqv = state.gpu_layers.unwrap_or(0) > 0;
-    let flash_attention = config.flash_attention;
+    // lfm2moe (LFM2.5 MoE) crashes the Metal backend with flash attention enabled
+    // (Decode Error -3 a few tokens into generation). Force it off for this arch
+    // regardless of the requested config so generation is always stable.
+    let flash_attention = if template_type.as_deref() == Some("LFM2") {
+        if config.flash_attention {
+            log_info!(&conversation_id, "Disabling flash attention for LFM2 (lfm2moe) — incompatible with Metal backend");
+        }
+        false
+    } else {
+        config.flash_attention
+    };
     let cache_type_k = config.cache_type_k.clone();
     let cache_type_v = config.cache_type_v.clone();
     #[allow(unused_variables)]

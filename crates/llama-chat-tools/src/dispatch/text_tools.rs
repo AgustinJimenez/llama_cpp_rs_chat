@@ -30,7 +30,7 @@ pub(super) fn dispatch_text_tool(
             if command.is_empty() {
                 return Some("Error: 'command' argument is required".to_string());
             }
-            let command = format!("rtk {command}");
+            let command = llama_chat_command::rtk_prefix(command);
             let is_background = args
                 .get("background")
                 .and_then(|v| v.as_bool())
@@ -52,7 +52,7 @@ pub(super) fn dispatch_text_tool(
             if command.is_empty() {
                 return Some("Error: 'command' argument is required".to_string());
             }
-            let command = format!("rtk {command}");
+            let command = llama_chat_command::rtk_prefix(command);
             llama_chat_command::execute_command_pty(&command, None, |_: &str| {})
         }
         "check_background_process" => {

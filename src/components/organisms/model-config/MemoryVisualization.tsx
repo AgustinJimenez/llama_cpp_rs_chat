@@ -24,6 +24,8 @@ export interface MemoryBreakdown {
 
 interface MemoryVisualizationProps {
   memory: MemoryBreakdown;
+  /** Apple Silicon: render one shared "Unified Memory" bar instead of separate VRAM/RAM bars. */
+  unifiedMemory?: boolean;
   overheadGb: number;
   onOverheadChange: (value: number) => void;
   gpuLayers: number;
@@ -232,15 +234,128 @@ const RamBar: React.FC<{ ram: MemoryBreakdown['ram'] }> = ({ ram }) => {
   );
 };
 
+// --- Unified memory bar (Apple Silicon) ---
+
+// On Apple Silicon CPU and GPU share one physical pool, so the model's "GPU" and
+// "CPU" footprints draw from the SAME memory. Showing separate VRAM and RAM bars
+// implies ~2x the real capacity, so we collapse them into one bar against the
+// shared total.
+const UnifiedMemoryBar: React.FC<{
+  vram: MemoryBreakdown['vram'];
+  ram: MemoryBreakdown['ram'];
+}> = ({ vram, ram }) => {
+  const { total, overhead } = vram;
+  // On unified memory the GPU/CPU layer split is about where compute runs, not where
+  // memory lives — it's one shared pool — so model weights count once regardless of
+  // the GPU Layers slider. Show a single combined "Model" segment.
+  const model = vram.modelGpu + ram.modelCpu;
+  const kv = vram.kvCache + ram.kvCacheCpu;
+  const used = model + kv + overhead;
+  const overcommitted = total > 0 && used > total;
+  const available = Math.max(0, total - used);
+  const utilization = total > 0 ? (used / total) * 100 : 0;
+  const pct = (gb: number) => (total > 0 ? (gb / total) * 100 : 0);
+  const modelPct = pct(model);
+  const kvPct = pct(kv);
+  const overheadPct = pct(overhead);
+  const availablePct = pct(available);
+  const statusColor = getStatusColor(utilization, overcommitted);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-baseline justify-between">
+        <span className="text-sm font-medium text-foreground/80">
+          Unified Memory (shared CPU + GPU)
+        </span>
+        <span className={`font-mono text-sm ${statusColor}`}>
+          {used.toFixed(2)} / {total.toFixed(2)} GB ({utilization.toFixed(1)}%)
+        </span>
+      </div>
+      <div className="relative flex h-8 overflow-hidden rounded-md bg-muted">
+        <BarSegment
+          color="bg-green-600"
+          widthPct={Math.min(modelPct, 100)}
+          label={`${model.toFixed(1)}G`}
+          title={`Model: ${model.toFixed(2)} GB`}
+        />
+        <BarSegment
+          color="bg-orange-500"
+          widthPct={Math.min(kvPct, Math.max(0, 100 - modelPct))}
+          label={`${kv.toFixed(1)}G`}
+          title={`KV Cache: ${kv.toFixed(2)} GB`}
+        />
+        <BarSegment
+          color="bg-purple-600"
+          widthPct={Math.min(overheadPct, Math.max(0, 100 - modelPct - kvPct))}
+          label={`${overhead.toFixed(1)}G`}
+          title={`Overhead: ${overhead.toFixed(2)} GB`}
+          minPctForLabel={6}
+        />
+        {!overcommitted && (
+          <BarSegment
+            color="bg-accent/50"
+            widthPct={availablePct}
+            label={`${available.toFixed(1)}G`}
+            title={`Available: ${available.toFixed(2)} GB`}
+            textColor="text-muted-foreground"
+            minPctForLabel={10}
+          />
+        )}
+        {!!overcommitted && (
+          <div className="absolute inset-0 flex items-center justify-center border-2 border-red-600 bg-red-600/20">
+            <span className="text-xs font-bold text-foreground">OVERCOMMITTED</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Picks the unified bar (Apple Silicon) or the separate VRAM/RAM bars.
+const MemoryBars: React.FC<{ memory: MemoryBreakdown; unifiedMemory?: boolean }> = ({
+  memory,
+  unifiedMemory,
+}) => {
+  if (unifiedMemory) {
+    return <UnifiedMemoryBar vram={memory.vram} ram={memory.ram} />;
+  }
+  return (
+    <>
+      <VramBar vram={memory.vram} />
+      <RamBar ram={memory.ram} />
+    </>
+  );
+};
+
 // --- Legend ---
 
 export const MemoryLegend: React.FC<{
   vram: MemoryBreakdown['vram'];
   ram: MemoryBreakdown['ram'];
-}> = ({ vram, ram }) => {
+  unifiedMemory?: boolean;
+}> = ({ vram, ram, unifiedMemory }) => {
   // KV cache may live on either side depending on gpu_layers. Show whichever
   // is non-zero so the legend mirrors the actual memory split.
   const totalKv = vram.kvCache + ram.kvCacheCpu;
+
+  // Unified memory (Apple Silicon): one shared pool, so the GPU/CPU model split is
+  // about compute, not memory — show a single combined "Model" entry.
+  if (unifiedMemory) {
+    const model = vram.modelGpu + ram.modelCpu;
+    return (
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2">
+          <div className="h-3 w-3 rounded-sm bg-green-600" />
+          <span>Model: {model.toFixed(2)} GB</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="h-3 w-3 rounded-sm bg-orange-500" />
+          <span>KV Cache: {totalKv.toFixed(2)} GB</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="grid grid-cols-3 gap-x-4 gap-y-1 text-xs text-muted-foreground">
       <div className="flex items-center gap-2">
@@ -486,6 +601,7 @@ const MemoryWarnings: React.FC<{ memory: MemoryBreakdown }> = ({ memory }) => {
 // eslint-disable-next-line max-lines-per-function
 export const MemoryVisualization: React.FC<MemoryVisualizationProps> = ({
   memory,
+  unifiedMemory,
   overheadGb,
   onOverheadChange,
   gpuLayers,
@@ -505,9 +621,8 @@ export const MemoryVisualization: React.FC<MemoryVisualizationProps> = ({
       </CardTitle>
     </CardHeader>
     <CardContent className="space-y-4">
-      <MemoryLegend vram={memory.vram} ram={memory.ram} />
-      <VramBar vram={memory.vram} />
-      <RamBar ram={memory.ram} />
+      <MemoryLegend vram={memory.vram} ram={memory.ram} unifiedMemory={unifiedMemory} />
+      <MemoryBars memory={memory} unifiedMemory={unifiedMemory} />
       <MemorySliders
         gpuLayers={gpuLayers}
         onGpuLayersChange={onGpuLayersChange}

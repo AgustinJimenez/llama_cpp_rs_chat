@@ -1,3 +1,6 @@
 [submodule "deps/llama-cpp-rs"]
 	path = deps/llama-cpp-rs
 	url = https://github.com/AgustinJimenez/llama-cpp-rs.git
+[submodule "deps/rtk"]
+	path = deps/rtk
+	url = https://github.com/rtk-ai/rtk.git

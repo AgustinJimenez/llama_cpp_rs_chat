@@ -86,12 +86,11 @@ fn load_api_keys_json(db: &llama_chat_db::SharedDatabase) -> Option<String> {
         .ok()
         .flatten()
         .unwrap_or_default();
-    let (keys, should_migrate) = crate::keychain::resolve(&db_val);
-    if should_migrate {
-        let _ = conn.execute(
-            "UPDATE config SET provider_api_keys = ?1",
-            [crate::keychain::KEYCHAIN_MARKER],
-        );
+    let (keys, migrated) = crate::keychain::resolve(&db_val);
+    if migrated {
+        // One-time migration: persist the recovered keys as plain JSON in SQLite.
+        let raw = keys.clone().unwrap_or_else(|| "{}".to_string());
+        let _ = conn.execute("UPDATE config SET provider_api_keys = ?1", [&raw]);
     }
     keys
 }

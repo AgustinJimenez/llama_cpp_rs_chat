@@ -93,6 +93,8 @@ export interface SystemUsageData {
   cpu_ghz?: number;
   app_ram_gb?: number;
   vram_used_gb?: number;
+  /** True on Apple Silicon — CPU and GPU share one memory pool. */
+  unified_memory?: boolean;
 }
 
 export interface HubFile {

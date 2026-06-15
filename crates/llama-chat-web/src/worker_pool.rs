@@ -113,6 +113,11 @@ impl WorkerPool {
         mmproj_path: Option<String>,
         agent_id: Option<String>,
     ) -> Result<WorkerId, String> {
+        // Free unified/GPU memory first if the machine can't hold this model alongside
+        // the ones already resident (e.g. a 16GB Mac can't keep two ~6.4GB copies — that
+        // OOMs the Metal backend as "Decode Error -3"). On a high-RAM box this is a no-op.
+        self.evict_idle_workers_if_memory_tight(model_path).await;
+
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         let worker_id = format!("w{}", &suffix[..8]);
 
@@ -157,6 +162,92 @@ impl WorkerPool {
         } else {
             Err(format!("Worker not found: {worker_id}"))
         }
+    }
+
+    /// Before loading a new model into a fresh worker, unload idle workers so their
+    /// models don't co-reside with the incoming one. Only acts when capacity is tight:
+    /// if total RAM can hold every resident model PLUS the new one (minus headroom), it
+    /// leaves everything loaded for speed (the 512GB-Mac case). Workers mid-generation
+    /// are never touched. Non-default victims are killed (full release) and respawn +
+    /// reload on next use; the persistent `default` worker just unloads its model.
+    async fn evict_idle_workers_if_memory_tight(&self, new_model_path: &str) {
+        self.evict_to_fit(model_file_size(new_model_path), None).await;
+    }
+
+    /// Public hook for load paths that reuse an EXISTING worker (e.g. loading a model
+    /// into the persistent `default` worker). Frees memory by unloading the *other*
+    /// loaded workers if the incoming model won't fit alongside them; `keep_worker_id`
+    /// is never evicted and its (about-to-be-replaced) model is excluded from the budget.
+    pub async fn free_memory_for_load(&self, new_model_path: &str, keep_worker_id: &str) {
+        self.evict_to_fit(model_file_size(new_model_path), Some(keep_worker_id))
+            .await;
+    }
+
+    /// Core eviction: unload idle workers until a model of `new_size` bytes fits within
+    /// the memory budget. Only acts when capacity is tight — on a high-RAM box every
+    /// model stays resident for speed. Workers mid-generation are never touched.
+    /// `keep_id`, if set, is excluded from both eviction and the resident total (its model
+    /// is being swapped out by the caller anyway).
+    async fn evict_to_fit(&self, new_size: u64, keep_id: Option<&str>) {
+        let total_ram = total_physical_ram_bytes();
+        if total_ram == 0 {
+            return; // unknown capacity — don't evict anything
+        }
+        // Reserve headroom for the OS, the app, and per-model KV/compute buffers. On
+        // unified-memory Macs the Metal GPU working set is capped well below total RAM
+        // (~70%), so reserve more there — otherwise two ~6GB models slip under a naive
+        // RAM budget yet still exhaust the GPU working set and OOM.
+        let reserve_pct: u64 = if cfg!(target_os = "macos") { 35 } else { 20 };
+        let reserve = (total_ram * reserve_pct / 100).max(3 * 1024 * 1024 * 1024);
+        let budget = total_ram.saturating_sub(reserve);
+
+        // Snapshot currently-loaded workers, their model size, and whether they're busy.
+        let mut loaded: Vec<(WorkerId, SharedWorkerBridge, u64, bool)> = Vec::new();
+        let mut resident: u64 = 0;
+        for entry in self.list_entries() {
+            if keep_id == Some(entry.id.as_str()) {
+                continue; // never count or evict the kept worker
+            }
+            if let Some(meta) = entry.bridge.model_status().await {
+                let size = model_file_size(&meta.model_path);
+                let generating = entry.bridge.is_generating().await;
+                resident = resident.saturating_add(size);
+                loaded.push((entry.id, entry.bridge, size, generating));
+            }
+        }
+
+        // Everything (including the incoming model) fits — keep all models resident.
+        if new_size.saturating_add(resident) <= budget {
+            return;
+        }
+
+        // Tight: unload idle workers until the new model fits.
+        for (id, bridge, size, generating) in loaded {
+            if new_size.saturating_add(resident) <= budget {
+                break; // freed enough
+            }
+            if generating {
+                continue; // never yank a model out from under an active generation
+            }
+            if id == "default" {
+                let _ = bridge.unload_model().await;
+            } else {
+                self.evict_named_worker(&id).await;
+            }
+            resident = resident.saturating_sub(size);
+        }
+    }
+
+    /// Drop any agent/conversation bindings pointing at `worker_id`, then kill it so it
+    /// fully releases memory. Routing respawns + reloads it lazily on next use.
+    async fn evict_named_worker(&self, worker_id: &str) {
+        if let Ok(mut m) = self.agent_workers.write() {
+            m.retain(|_, w| w != worker_id);
+        }
+        if let Ok(mut m) = self.conversation_workers.write() {
+            m.retain(|_, w| w != worker_id);
+        }
+        let _ = self.remove_worker(worker_id).await;
     }
 
     pub fn mark_dead(&self, worker_id: &str) -> Result<(), String> {
@@ -445,4 +536,42 @@ pub async fn remove_worker_and_rebind_conversations(
 
     db.clear_worker_id_for_worker(worker_id)?;
     pool.remove_worker(worker_id).await
+}
+
+/// Total physical RAM in bytes (0 if it can't be determined — callers treat 0 as
+/// "unknown, don't evict"). On unified-memory Macs this is also the GPU memory ceiling.
+fn total_physical_ram_bytes() -> u64 {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("sysctl")
+            .args(["-n", "hw.memsize"])
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .unwrap_or(0)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::fs::read_to_string("/proc/meminfo")
+            .ok()
+            .and_then(|s| {
+                s.lines()
+                    .find_map(|l| l.strip_prefix("MemTotal:"))
+                    .and_then(|rest| rest.trim().split_whitespace().next().map(str::to_owned))
+            })
+            .and_then(|kb| kb.parse::<u64>().ok())
+            .map(|kb| kb * 1024)
+            .unwrap_or(0)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        0
+    }
+}
+
+/// On-disk size of a GGUF model in bytes — a good proxy for its resident memory
+/// footprint when loaded (0 if the file is missing/unreadable).
+fn model_file_size(path: &str) -> u64 {
+    std::fs::metadata(path).map(|m| m.len()).unwrap_or(0)
 }

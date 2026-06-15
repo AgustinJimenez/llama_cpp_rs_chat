@@ -31,6 +31,14 @@ pub(crate) fn wrap_output_for_model(output_block: &str, template_type: Option<&s
                 "<|im_end|>\n<|im_start|>user\n{output_block}<|im_end|>\n<|im_start|>assistant\n"
             )
         }
+        Some("LFM2") => {
+            // LiquidAI LFM2/LFM2.5 expect tool results in a `tool` role turn (ChatML-style).
+            // The model has no <|tool_response_*|> token, so output tags are empty and the
+            // raw result is the turn content.
+            format!(
+                "<|im_end|>\n<|im_start|>tool\n{output_block}<|im_end|>\n<|im_start|>assistant\n"
+            )
+        }
         Some("Llama3") => {
             format!(
                 "<|eot_id|><|start_header_id|>tool<|end_header_id|>\n\n{output_block}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"

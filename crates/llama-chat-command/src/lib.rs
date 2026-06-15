@@ -6,6 +6,8 @@ mod execution;
 mod output;
 pub mod background;
 pub use background::get_process_output;
+mod rtk;
+pub use rtk::{rtk_available, rtk_prefix};
 mod utils;
 
 #[allow(unused_imports)]

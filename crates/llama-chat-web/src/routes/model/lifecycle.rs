@@ -34,6 +34,8 @@ pub async fn handle_post_model_load(
     req: Request<Body>,
     #[cfg(not(feature = "mock"))] bridge: SharedWorkerBridge,
     #[cfg(feature = "mock")] _bridge: (),
+    #[cfg(not(feature = "mock"))] pool: crate::worker_pool::WorkerPool,
+    #[cfg(feature = "mock")] _pool: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     sys_debug!("[DEBUG] /api/model/load endpoint hit");
@@ -44,6 +46,12 @@ pub async fn handle_post_model_load(
             Ok(req) => req,
             Err(error_response) => return Ok(error_response),
         };
+
+        // This endpoint loads into the persistent `default` worker. Free memory first
+        // by unloading other idle workers if the machine can't hold this model alongside
+        // them (prevents two co-resident model copies OOMing the GPU on low-RAM machines).
+        pool.free_memory_for_load(&load_request.model_path, "default")
+            .await;
 
         match bridge
             .load_model(

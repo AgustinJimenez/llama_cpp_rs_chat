@@ -10,6 +10,7 @@ import {
   ChevronDown,
   Loader2,
   PowerOff,
+  type LucideIcon,
 } from 'lucide-react';
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 
@@ -61,8 +62,66 @@ interface ChatHeaderProps {
   showAgentSelector: boolean;
 }
 
+/** Trailing icon button on a dropdown row that unloads the agent or its loaded model. */
+const RowUnloadButton = ({
+  icon: Icon,
+  title,
+  onClick,
+}: {
+  icon: LucideIcon;
+  title: string;
+  onClick: (e: React.MouseEvent) => void;
+}) => (
+  <button
+    onClick={onClick}
+    className="flex-shrink-0 px-2 py-1.5 text-muted-foreground transition-colors hover:text-destructive"
+    title={title}
+  >
+    <Icon className="h-3 w-3" />
+  </button>
+);
+
+/** One selectable agent row in the picker dropdown, with its trailing unload control. */
+const AgentRow = ({
+  agent,
+  isActive,
+  isRunning,
+  isLoadedModel,
+  dotCls,
+  dotTitle,
+  onSelect,
+  onStopAgent,
+  onUnloadModel,
+}: {
+  agent: Agent;
+  isActive: boolean;
+  isRunning: boolean;
+  isLoadedModel: boolean;
+  dotCls: string;
+  dotTitle: string;
+  onSelect: () => void;
+  onStopAgent: (e: React.MouseEvent) => void;
+  onUnloadModel: (e: React.MouseEvent) => void;
+}) => (
+  <div className="flex items-center">
+    <button
+      onClick={onSelect}
+      className={`flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-muted ${isActive ? 'font-medium text-foreground' : 'text-muted-foreground'}`}
+    >
+      <span className={`h-2 w-2 flex-shrink-0 rounded-full ${dotCls}`} title={dotTitle} />
+      <span className="truncate">{agent.name}</span>
+    </button>
+    {!!isRunning && (
+      <RowUnloadButton icon={PowerOff} title="Unload agent from memory" onClick={onStopAgent} />
+    )}
+    {!isRunning && !!isLoadedModel && (
+      <RowUnloadButton icon={Unplug} title="Unload model from memory" onClick={onUnloadModel} />
+    )}
+  </div>
+);
+
 /** Inline agent picker dropdown shown in the chat header. */
-const AgentPicker = () => {
+const AgentPicker = ({ onModelUnload }: { onModelUnload: () => void }) => {
   const {
     agents,
     agentStatuses,
@@ -75,7 +134,7 @@ const AgentPicker = () => {
     fetchAgentStatuses,
   } = useAgentContext();
   const { currentConversationId } = useChatContext();
-  const { isLoading: isModelLoading } = useModelContext();
+  const { isLoading: isModelLoading, status: modelStatus } = useModelContext();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -136,6 +195,20 @@ const AgentPicker = () => {
     if (s === 'active') return 'bg-emerald-400';
     return 'bg-muted-foreground/30';
   };
+  const dotTitle = (agentId: string) => {
+    const s = agentStatuses[agentId]?.status ?? 'idle';
+    if (s === 'generating') return 'Agent is generating';
+    if (s === 'active') return 'Agent is running';
+    return 'Agent is idle';
+  };
+
+  // Show the "Unload model" control on the dropdown row whose model is actually loaded.
+  const loadedModelPath = modelStatus.loaded ? (modelStatus.model_path ?? null) : null;
+  const baseName = (p?: string | null) => p?.split(/[/\\]/).pop()?.toLowerCase() ?? '';
+  const isLoadedModelFor = (agent: Agent) =>
+    !!loadedModelPath &&
+    !!agent.model_path &&
+    baseName(loadedModelPath) === baseName(agent.model_path);
 
   const pickerTitle = activeAgent ? `Agent: ${activeAgent.name}` : 'Select agent';
   const pickerIcon = busy ? (
@@ -174,28 +247,26 @@ const AgentPicker = () => {
             const isRunning =
               agent.provider_id === 'local' && (status === 'active' || status === 'generating');
             return (
-              <div key={agent.id} className="flex items-center">
-                <button
-                  onClick={() => handleSelect(agent)}
-                  className={`flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-muted ${activeAgent?.id === agent.id ? 'font-medium text-foreground' : 'text-muted-foreground'}`}
-                >
-                  <span className={`h-2 w-2 flex-shrink-0 rounded-full ${dotClass(agent.id)}`} />
-                  <span className="truncate">{agent.name}</span>
-                </button>
-                {!!isRunning && (
-                  <button
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      await stopAgent(agent.id);
-                      await fetchAgentStatuses();
-                    }}
-                    className="flex-shrink-0 px-2 py-1.5 text-muted-foreground transition-colors hover:text-destructive"
-                    title="Unload agent"
-                  >
-                    <PowerOff className="h-3 w-3" />
-                  </button>
-                )}
-              </div>
+              <AgentRow
+                key={agent.id}
+                agent={agent}
+                isActive={activeAgent?.id === agent.id}
+                isRunning={isRunning}
+                isLoadedModel={isLoadedModelFor(agent)}
+                dotCls={dotClass(agent.id)}
+                dotTitle={dotTitle(agent.id)}
+                onSelect={() => handleSelect(agent)}
+                onStopAgent={async (e) => {
+                  e.stopPropagation();
+                  await stopAgent(agent.id);
+                  await fetchAgentStatuses();
+                }}
+                onUnloadModel={(e) => {
+                  e.stopPropagation();
+                  setOpen(false);
+                  onModelUnload();
+                }}
+              />
             );
           })}
         </div>
@@ -227,7 +298,7 @@ const HeaderAgentControls = ({
         loadingProgress={status.loading_progress}
         onOpen={openAgentSelector}
       />
-      <AgentPicker />
+      <AgentPicker onModelUnload={onModelUnload} />
       {!!isLoading && loadingAction === 'loading' && (
         <button
           onClick={onForceUnload}
@@ -236,15 +307,6 @@ const HeaderAgentControls = ({
           aria-label="Cancel model loading"
         >
           <X className="h-3.5 w-3.5" />
-        </button>
-      )}
-      {!isLoading && !!modelLoaded && (
-        <button
-          onClick={onModelUnload}
-          className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-          title="Unload model"
-        >
-          <Unplug className="h-3.5 w-3.5" />
         </button>
       )}
       {!isLoading && !modelLoaded && !!hasStatusError && (

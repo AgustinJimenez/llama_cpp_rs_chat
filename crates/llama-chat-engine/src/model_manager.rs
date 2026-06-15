@@ -286,7 +286,11 @@ pub async fn load_model(llama_state: SharedLlamaState, model_path: &str, request
                     .get("tokenizer.chat_template")
                     .map(|v| match v {
                         Value::String(s) => {
-                            let template_type = if s.contains("<|im_start|>") && s.contains("<|im_end|>") {
+                            let template_type = if s.contains("<|tool_call_start|>") {
+                                // LiquidAI LFM2/LFM2.5 — ChatML-style turns, but tool results go in a
+                                // `tool` role and tool calls use <|tool_call_start|> special tokens.
+                                "LFM2".to_string()
+                            } else if s.contains("<|im_start|>") && s.contains("<|im_end|>") {
                                 "ChatML".to_string() // Qwen, OpenAI format
                             } else if s.contains("[INST]") && s.contains("[/INST]") {
                                 "Mistral".to_string() // Mistral format

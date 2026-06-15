@@ -127,22 +127,16 @@ export const LiveStreamingStats = ({
   const tokPerSec = liveTokPerSec > 0 ? liveTokPerSec.toFixed(1) : null;
   void elapsed; // elapsed time display moved to LoadingIndicator
 
-  // tokenCount === 0 means we're still in prompt eval (LiveStreamingStats only mounts while loading)
-  const isPromptEval = tokenCount === 0 && !displayStatus;
-
-  if (!hasContext && !displayStatus && !isPromptEval) return null;
+  // Prompt-eval ("Evaluating…") is intentionally not shown here — the LoadingIndicator's
+  // spinner + elapsed timer above the bubble already conveys that state. We only render
+  // this line for an explicit worker status, generation progress, or the context counter.
+  if (!hasContext && !displayStatus && tokenCount === 0) return null;
   return (
     <div className="flex items-center gap-3 font-mono text-xs text-muted-foreground">
       {!!displayStatus && (
         <span className="inline-flex items-center gap-1 text-cyan-400">
           <Loader2 className="h-3 w-3 animate-spin" />
           {displayStatus}
-        </span>
-      )}
-      {!displayStatus && !!isPromptEval && (
-        <span className="inline-flex items-center gap-1 text-muted-foreground/60">
-          <Loader2 className="h-3 w-3 animate-spin" />
-          Evaluating…
         </span>
       )}
       {tokenCount > 0 && (

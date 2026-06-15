@@ -160,6 +160,22 @@ fn main() {
             );
             eprintln!("[TAURI] Worker process spawned, bridge ready");
 
+            // HTTP API server (agents, conversations, config, …) on 18080 so the
+            // webview's `/api` fetches work in the desktop app — served against the
+            // desktop database and the worker we just spawned (no duplicate worker).
+            {
+                let api_db = db.clone();
+                let worker_pool =
+                    web::worker_pool::WorkerPool::new(bridge.clone(), db_path_str.clone());
+                tauri::async_runtime::spawn(async move {
+                    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 18080));
+                    eprintln!("[TAURI] HTTP API server starting on http://{addr}");
+                    if let Err(e) = web::http_dispatch::serve(api_db, worker_pool, addr).await {
+                        eprintln!("[TAURI] HTTP API server error: {e}");
+                    }
+                });
+            }
+
             // Register managed state
             app.manage(db);
             app.manage(bridge);

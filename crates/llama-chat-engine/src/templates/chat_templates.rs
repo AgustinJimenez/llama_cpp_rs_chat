@@ -93,7 +93,9 @@ pub fn apply_model_chat_template_with_tags(
     }
 
     let prompt = match template_type {
-        Some("ChatML") => {
+        // LFM2/LFM2.5 build the prompt with ChatML-style turns; only tool-result
+        // injection differs (handled in wrap_output_for_model).
+        Some("ChatML") | Some("LFM2") => {
             let mut p = String::new();
 
             p.push_str("<|im_start|>system\n");

@@ -327,33 +327,7 @@ pub async fn handle_system_usage() -> Result<Response<Body>, Infallible> {
     #[cfg(target_os = "windows")]
     let (total_ram_gb, total_vram_gb, cpu_cores, cpu_base_mhz) = get_hardware_totals();
     #[cfg(target_os = "macos")]
-    let (total_ram_gb, total_vram_gb, cpu_cores, _cpu_base_mhz) = {
-        let ram = silent_command("sysctl")
-            .args(["-n", "hw.memsize"])
-            .output()
-            .ok()
-            .and_then(|o| {
-                String::from_utf8_lossy(&o.stdout)
-                    .trim()
-                    .parse::<u64>()
-                    .ok()
-            })
-            .map(|b| b as f32 / 1_073_741_824.0)
-            .unwrap_or(0.0);
-        let cores = silent_command("sysctl")
-            .args(["-n", "hw.ncpu"])
-            .output()
-            .ok()
-            .and_then(|o| {
-                String::from_utf8_lossy(&o.stdout)
-                    .trim()
-                    .parse::<u32>()
-                    .ok()
-            })
-            .unwrap_or(0);
-        // macOS unified memory — GPU shares RAM
-        (ram, ram, cores, 0_u32)
-    };
+    let (total_ram_gb, total_vram_gb, cpu_cores, _cpu_base_mhz) = get_macos_hardware_totals();
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let (total_ram_gb, total_vram_gb, cpu_cores, _cpu_base_mhz) = (0.0_f32, 0.0_f32, 0_u32, 0_u32);
 
@@ -373,6 +347,9 @@ pub async fn handle_system_usage() -> Result<Response<Body>, Infallible> {
         "cpu_ghz": cpu_ghz,
         "app_ram_gb": app_ram_gb,
         "vram_used_gb": vram_used_gb,
+        // Apple Silicon shares one pool between CPU and GPU — the UI collapses the
+        // separate VRAM/RAM bars into a single "Unified Memory" bar when true.
+        "unified_memory": cfg!(target_os = "macos"),
     });
 
     Ok(json_raw(
@@ -554,6 +531,28 @@ pub fn get_windows_system_usage() -> (f32, f32, f32, f32, f32, f32) {
 pub fn get_windows_system_usage() -> (f32, f32, f32, f32, f32, f32) {
     // Return placeholder values on non-Windows platforms
     (0.0, 0.0, 0.0, 100.0, 0.0, 0.0)
+}
+
+/// macOS hardware totals via sysctl: (total_ram_gb, total_vram_gb, cpu_cores, cpu_base_mhz).
+/// macOS uses unified memory, so reported VRAM == RAM. Shared by the HTTP handler and
+/// the Tauri `get_system_usage` command so both report real totals on macOS.
+#[cfg(target_os = "macos")]
+pub fn get_macos_hardware_totals() -> (f32, f32, u32, u32) {
+    let ram = silent_command("sysctl")
+        .args(["-n", "hw.memsize"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<u64>().ok())
+        .map(|b| b as f32 / 1_073_741_824.0)
+        .unwrap_or(0.0);
+    let cores = silent_command("sysctl")
+        .args(["-n", "hw.ncpu"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<u32>().ok())
+        .unwrap_or(0);
+    // macOS unified memory — GPU shares system RAM.
+    (ram, ram, cores, 0)
 }
 
 /// Returns cached hardware totals: (total_ram_gb, total_vram_gb, cpu_cores, cpu_base_mhz).

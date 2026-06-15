@@ -131,14 +131,12 @@ pub async fn handle_get_provider_keys(db: SharedDatabase) -> Result<Response<Bod
             row.get(0)
         })
         .unwrap_or_else(|_| "{}".to_string());
-    let (resolved, should_migrate) = crate::keychain::resolve(&db_val);
-    if should_migrate {
-        let _ = conn.execute(
-            "UPDATE config SET provider_api_keys = ?1",
-            [crate::keychain::KEYCHAIN_MARKER],
-        );
-    }
+    let (resolved, migrated) = crate::keychain::resolve(&db_val);
     let keys_json = resolved.unwrap_or_else(|| "{}".to_string());
+    if migrated {
+        // One-time migration: persist the recovered keys as plain JSON in SQLite.
+        let _ = conn.execute("UPDATE config SET provider_api_keys = ?1", [&keys_json]);
+    }
 
     // Mask API key values for security (show first 4 + last 4 chars)
     let mut result = serde_json::Map::new();
@@ -199,7 +197,7 @@ pub async fn handle_set_provider_key(
     let api_key = json.get("api_key").and_then(|k| k.as_str()).unwrap_or("");
     let base_url = json.get("base_url").and_then(|u| u.as_str());
 
-    // Load existing keys (resolving from keychain if needed)
+    // Load existing keys (migrating from the legacy keychain if needed)
     let conn = db.connection();
     let db_val: String = conn
         .query_row("SELECT provider_api_keys FROM config LIMIT 1", [], |row| {
@@ -225,18 +223,12 @@ pub async fn handle_set_provider_key(
         keys[&provider] = entry;
     }
 
-    let updated = serde_json::to_string(&keys).unwrap_or_else(|_| "{}".to_string());
-
-    // Delete keychain entry if all keys removed, otherwise store in keychain
+    // Store provider keys as plain JSON in SQLite (no OS keychain).
     let all_empty = keys.as_object().is_none_or(|m| m.is_empty());
     let store_in_db = if all_empty {
-        crate::keychain::delete();
         "{}".to_string()
-    } else if crate::keychain::set(&updated) {
-        crate::keychain::KEYCHAIN_MARKER.to_string()
     } else {
-        // Keychain unavailable — store raw in SQLite as fallback
-        updated
+        serde_json::to_string(&keys).unwrap_or_else(|_| "{}".to_string())
     };
 
     match conn.execute("UPDATE config SET provider_api_keys = ?1", [&store_in_db]) {

@@ -8,9 +8,10 @@ use llama_chat_command::{execute_command_streaming_with_timeout, strip_ansi_code
 use llama_chat_types::*;
 use super::sub_agent::{run_sub_agent};
 use super::tool_tags::ToolTags;
-/// Prefix a command with `rtk` for output compression (always enabled).
+/// Prefix a command with `rtk` for output compression — but only when the `rtk` binary is
+/// actually installed (otherwise the raw command runs, so execution works without rtk).
 pub(crate) fn rtk_prefix(cmd: &str) -> String {
-    format!("rtk {cmd}")
+    llama_chat_command::rtk_prefix(cmd)
 }
 
 /// Check if a command is potentially destructive and return a warning.

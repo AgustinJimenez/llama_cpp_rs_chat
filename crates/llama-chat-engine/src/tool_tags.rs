@@ -53,12 +53,9 @@ fn harmony_tags() -> ToolTags {
 /// Uses special tokens `<|tool_call_start|>` / `<|tool_call_end|>` with Python function call syntax inside.
 /// Tool call format: `<|tool_call_start|>[func_name(key="value")]<|tool_call_end|>`
 fn lfm2_tags() -> ToolTags {
-    ToolTags::new(
-        "<|tool_call_start|>",
-        "<|tool_call_end|>",
-        "<|tool_response_start|>",
-        "<|tool_response_end|>",
-    )
+    // No <|tool_response_*|> special token exists in LFM2; results are injected as the
+    // content of a `tool` role turn (see wrap_output_for_model), so output tags are empty.
+    ToolTags::new("<|tool_call_start|>", "<|tool_call_end|>", "", "")
 }
 
 /// Gemma 4 native tool tags.
@@ -125,7 +122,7 @@ const MODEL_TAG_MAP: &[(&str, TagFactory)] = &[
     ("Zai org_GLM 4.6V Flash", glm_tags),
     ("Zai org_GLM 4.7 Flash", glm_tags),
     // LFM2 (Liquid AI) - native <|tool_call_start|> special tokens
-    ("Ef218A605E23739A1302869B9B3618C8B3F7Eb0D", lfm2_tags),
+    ("LFM2", lfm2_tags),
 ];
 
 /// Normalize a model name for fuzzy matching.
@@ -258,7 +255,8 @@ fn harmony_tag_pairs() -> Vec<TagPair> {
 fn lfm2_tag_pairs() -> Vec<TagPair> {
     vec![
         TagPair::pair("tool", "exec", "<|tool_call_start|>", "<|tool_call_end|>"),
-        TagPair::pair("tool", "response", "<|tool_response_start|>", "<|tool_response_end|>"),
+        // Results are injected as a `tool` role turn (no special token), so empty tags.
+        TagPair::pair("tool", "response", "", ""),
         TagPair::pair("thinking", "think", "<think>", "</think>"),
         TagPair::single("role", "system", "<|im_start|>system"),
         TagPair::single("role", "user", "<|im_start|>user"),
@@ -306,7 +304,7 @@ const MODEL_TAG_PAIR_MAP: &[(&str, TagPairFactory)] = &[
     ("Zai org_GLM 4.6V Flash", glm_tag_pairs),
     ("Zai org_GLM 4.7 Flash", glm_tag_pairs),
     // LFM2 (Liquid AI)
-    ("Ef218A605E23739A1302869B9B3618C8B3F7Eb0D", lfm2_tag_pairs),
+    ("LFM2", lfm2_tag_pairs),
 ];
 
 /// Look up tag pairs for a model by its `general.name` from GGUF metadata.

@@ -1,73 +1,59 @@
-/// Secure API key storage backed by the OS credential store.
+/// Provider API key storage.
 ///
-/// On Windows: Windows Credential Manager
-/// On macOS: Keychain
-/// On Linux: Secret Service (libsecret / gnome-keyring)
-///
-/// The SQLite `provider_api_keys` column stores `KEYCHAIN_MARKER` once keys
-/// have been migrated. Reads check for this marker and fetch from the OS store.
-/// Falls back to the raw SQLite value if keychain is unavailable so existing
-/// installs keep working without interruption.
+/// Keys are stored as plain JSON in the SQLite `config.provider_api_keys` column.
+/// Earlier versions kept them in the OS keychain (Windows Credential Manager / macOS
+/// Keychain / Linux Secret Service) and left a `KEYCHAIN_MARKER` in SQLite. That caused
+/// a credential-store authorization prompt on every config read (e.g. opening the Agents
+/// modal), which on unsigned dev builds reappeared constantly. We no longer use the
+/// keychain; this module only handles the **one-time migration** of any keys still in the
+/// keychain back into SQLite, after which the keychain is never touched again.
 use keyring::Entry;
+use std::sync::OnceLock;
 
 const SERVICE: &str = "com.llamachat.desktop";
 const ACCOUNT: &str = "provider_api_keys";
-/// Value stored in SQLite after keys are moved to the OS keychain.
+/// Legacy marker previously stored in SQLite when keys lived in the keychain.
 pub const KEYCHAIN_MARKER: &str = "__keychain__";
 
 fn entry() -> Result<Entry, keyring::Error> {
     Entry::new(SERVICE, ACCOUNT)
 }
 
-/// Read the API keys JSON from the OS keychain.
-/// Returns `None` if no entry exists or the keychain is unavailable.
-pub fn get() -> Option<String> {
-    match entry().and_then(|e| e.get_password()) {
-        Ok(v) if !v.is_empty() => Some(v),
-        _ => None,
-    }
+/// Recover keys from the legacy keychain entry exactly once per process (then delete it).
+/// `OnceLock` guarantees a single keychain access even if several requests race on the
+/// marker before the migration is persisted to SQLite — so at most one OS prompt, ever.
+fn recover_once() -> Option<String> {
+    static MIGRATED: OnceLock<Option<String>> = OnceLock::new();
+    MIGRATED
+        .get_or_init(|| {
+            let recovered = entry()
+                .and_then(|e| e.get_password())
+                .ok()
+                .filter(|v| !v.is_empty());
+            delete_legacy();
+            recovered
+        })
+        .clone()
 }
 
-/// Write the API keys JSON to the OS keychain.
-/// Returns `true` on success, `false` if the keychain is unavailable.
-pub fn set(keys_json: &str) -> bool {
-    match entry().and_then(|e| e.set_password(keys_json)) {
-        Ok(()) => true,
-        Err(e) => {
-            log::warn!("[keychain] Failed to write to OS keychain: {e}");
-            false
-        }
+/// Resolve provider API keys JSON from the SQLite column value.
+///
+/// Returns `(keys_json, migrated)`. When `migrated` is true the caller should rewrite the
+/// SQLite column with the returned RAW JSON (we've pulled it out of the legacy keychain);
+/// after that the column holds plain JSON and the keychain is never read again.
+pub fn resolve(db_value: &str) -> (Option<String>, bool) {
+    if db_value == KEYCHAIN_MARKER {
+        return (recover_once(), true);
     }
+    if db_value.trim_start().starts_with('{') && db_value != "{}" {
+        return (Some(db_value.to_string()), false);
+    }
+    (None, false)
 }
 
-/// Delete the keychain entry (called when all keys are removed).
-pub fn delete() {
+/// Best-effort removal of the legacy keychain entry (no-op if it doesn't exist).
+pub fn delete_legacy() {
     if let Ok(e) = entry() {
         let _ = e.delete_credential();
     }
-}
-
-/// Resolve API keys JSON from either the OS keychain or the raw SQLite value.
-///
-/// Migration path:
-/// - If `db_value` == `KEYCHAIN_MARKER` → read from keychain
-/// - If `db_value` is valid non-empty JSON → migrate it to keychain, return it
-///   (caller should persist `KEYCHAIN_MARKER` back to SQLite)
-/// - Otherwise → return `None`
-///
-/// Returns `(keys_json, should_write_marker)`.
-pub fn resolve(db_value: &str) -> (Option<String>, bool) {
-    if db_value == KEYCHAIN_MARKER {
-        return (get(), false);
-    }
-    // Non-empty JSON in DB: migrate transparently to keychain
-    if db_value.trim_start().starts_with('{') && db_value != "{}" {
-        if set(db_value) {
-            return (Some(db_value.to_string()), true); // caller writes marker to DB
-        }
-        // Keychain unavailable — leave in DB as-is
-        return (Some(db_value.to_string()), false);
-    }
-    // Empty / null
-    (None, false)
 }

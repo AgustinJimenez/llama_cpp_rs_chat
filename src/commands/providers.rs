@@ -31,7 +31,10 @@ pub async fn get_system_usage() -> Result<serde_json::Value, String> {
     #[cfg(target_os = "windows")]
     let (total_ram_gb, total_vram_gb, cpu_cores, cpu_base_mhz) =
         crate::web::routes::system::get_hardware_totals();
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    let (total_ram_gb, total_vram_gb, cpu_cores, cpu_base_mhz) =
+        crate::web::routes::system::get_macos_hardware_totals();
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let (total_ram_gb, total_vram_gb, cpu_cores, cpu_base_mhz) =
         (0.0_f32, 0.0_f32, 0_u32, 0_u32);
 
@@ -46,6 +49,8 @@ pub async fn get_system_usage() -> Result<serde_json::Value, String> {
         "cpu_cores": cpu_cores,
         "cpu_ghz": cpu_ghz,
         "vram_used_gb": vram_used_gb,
+        // Apple Silicon shares one memory pool between CPU and GPU.
+        "unified_memory": cfg!(target_os = "macos"),
     }))
 }
 
