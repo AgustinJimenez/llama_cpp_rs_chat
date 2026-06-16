@@ -515,6 +515,32 @@ pub async fn resolve_bridge_for_request(
                 return Ok(bridge);
             }
         }
+        // No live global worker for this agent yet → spawn one (load the agent's
+        // model) instead of falling back to the empty `default` worker, which would
+        // error with "No model loaded and no model configured for this conversation".
+        if let Ok(Some(agent)) = db.get_agent(aid) {
+            if agent.provider_id == "local" {
+                if let Some(model_path) = agent
+                    .model_path
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|p| !p.is_empty())
+                {
+                    let gpu_layers = u32::try_from(agent.main_gpu).ok().filter(|&l| l > 0);
+                    match pool
+                        .spawn_worker_for_agent(aid, model_path, gpu_layers, None)
+                        .await
+                    {
+                        Ok(wid) => {
+                            if let Some(bridge) = pool.get(&wid) {
+                                return Ok(bridge);
+                            }
+                        }
+                        Err(e) => return Err(format!("Failed to load agent model: {e}")),
+                    }
+                }
+            }
+        }
     }
 
     let worker_id = requested_worker_id
