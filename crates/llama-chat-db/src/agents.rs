@@ -118,7 +118,10 @@ impl AgentRecord {
             rope_freq_scale: self.rope_freq_scale,
             use_mlock: self.use_mlock,
             use_mmap: self.use_mmap,
-            main_gpu: self.main_gpu,
+            // `self.main_gpu` actually stores the agent's GPU-layers override (see
+            // routes/agents.rs spawn_worker_for_agent) — it is not a CUDA device index.
+            // The real device index comes from global config.
+            main_gpu: global.main_gpu,
             split_mode: self.split_mode.clone(),
             stop_tokens: self.stop_tokens.clone(),
             tag_pairs: self.tag_pairs.clone(),

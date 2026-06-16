@@ -24,7 +24,7 @@ const AUTO_CONTINUE_REASONS = new Set(['length', 'yn_continue', 'loop_recovery',
 export function useChat() {
   const { connected } = useConnection();
   const connectedRef = useRef(connected);
-  const { stagedAgent } = useAgentContext();
+  const { stagedAgent, conversationAgent } = useAgentContext();
   // eslint-disable-next-line react-hooks/refs
   connectedRef.current = connected;
 
@@ -315,8 +315,15 @@ export function useChat() {
         }, NEW_CONV_SIDEBAR_DELAY_MS);
       }
 
+      // When starting a new conversation right after browsing an old one, conversationAgent
+      // still holds that old conversation's agent (it's what the header displays as active;
+      // see ChatHeader's activeAgent fallback) even though stagedAgent was cleared. Fall back
+      // to it so the request actually carries the agent the UI claims is selected.
+      const effectiveNewChatAgent = stagedAgent ?? conversationAgent;
       const agentId =
-        !currentConversationId && stagedAgent?.provider_id === 'local' ? stagedAgent.id : undefined;
+        !currentConversationId && effectiveNewChatAgent?.provider_id === 'local'
+          ? effectiveNewChatAgent.id
+          : undefined;
       await startGeneration(
         {
           prompt: trimmed,
@@ -331,6 +338,7 @@ export function useChat() {
       isLoading,
       currentConversationId,
       stagedAgent,
+      conversationAgent,
       startGeneration,
       resetAutoContinue,
       abortControllerRef,
