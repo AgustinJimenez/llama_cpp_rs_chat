@@ -6,11 +6,11 @@
 
 [![GitHub Release](https://img.shields.io/github/v/release/AgustinJimenez/llama_cpp_rs_chat?style=flat-square&label=Latest%20Release)](https://github.com/AgustinJimenez/llama_cpp_rs_chat/releases/latest)
 
-| Platform | Installer | Notes |
-|---|---|---|
+| Platform    | Installer                                                                                    | Notes                         |
+| ----------- | -------------------------------------------------------------------------------------------- | ----------------------------- |
 | **Windows** | [`.msi` / `-setup.exe`](https://github.com/AgustinJimenez/llama_cpp_rs_chat/releases/latest) | CUDA auto-detected at runtime |
-| **macOS** | [`.dmg`](https://github.com/AgustinJimenez/llama_cpp_rs_chat/releases/latest) | Metal GPU built-in |
-| **Linux** | [`.deb` / `.AppImage`](https://github.com/AgustinJimenez/llama_cpp_rs_chat/releases/latest) | CPU inference |
+| **macOS**   | [`.dmg`](https://github.com/AgustinJimenez/llama_cpp_rs_chat/releases/latest)                | Metal GPU built-in            |
+| **Linux**   | [`.deb` / `.AppImage`](https://github.com/AgustinJimenez/llama_cpp_rs_chat/releases/latest)  | CPU inference                 |
 
 > All releases are on the [Releases page](https://github.com/AgustinJimenez/llama_cpp_rs_chat/releases). Or build from source below.
 
@@ -47,6 +47,8 @@ npm run dev:auto        # auto-detects GPU (CUDA/Metal/CPU)
 Opens at **http://localhost:14000**. The backend runs on port 18080.
 
 CMake is required to build llama.cpp. If it's not installed, the build toolchain downloads a portable copy automatically — no manual install needed.
+
+> **Windows users**: Visual Studio 2022 with "C++ build tools" workload is required for CUDA builds. The build system (`scripts/ensure-vs.cmd`) auto-detects and sets up the Visual Studio developer environment — no manual `vcvars64.bat` needed. It also resolves a Git `link.exe` conflict that could otherwise break builds.
 
 ### Manual GPU selection
 
@@ -92,47 +94,48 @@ Mount your models directory to `/app/models` and browse them in the UI.
 
 ### Windows (Installer)
 
-| Requirement | Required? | Notes |
-|---|---|---|
-| Windows 10+ (64-bit) | **Required** | |
-| [Visual C++ Runtime 2022](https://aka.ms/vs/17/release/vc_redist.x64.exe) | **Required** | Most apps install this; you may already have it |
-| NVIDIA GPU drivers | Optional | Enables CUDA acceleration. Install via [nvidia.com/drivers](https://www.nvidia.com/drivers) |
-| Vulkan GPU drivers | Optional | Enables Vulkan acceleration (AMD/Intel/NVIDIA). Usually included with GPU drivers |
+| Requirement                                                               | Required?    | Notes                                                                                       |
+| ------------------------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------- |
+| Windows 10+ (64-bit)                                                      | **Required** |                                                                                             |
+| [Visual C++ Runtime 2022](https://aka.ms/vs/17/release/vc_redist.x64.exe) | **Required** | Most apps install this; you may already have it                                             |
+| NVIDIA GPU drivers                                                        | Optional     | Enables CUDA acceleration. Install via [nvidia.com/drivers](https://www.nvidia.com/drivers) |
+| Vulkan GPU drivers                                                        | Optional     | Enables Vulkan acceleration (AMD/Intel/NVIDIA). Usually included with GPU drivers           |
 
 The app auto-detects available GPU backends at startup. Without GPU drivers, it runs on CPU.
 
 ### macOS
 
-| Requirement | Required? | Notes |
-|---|---|---|
-| macOS 12+ (Monterey) | **Required** | |
+| Requirement              | Required?                | Notes                    |
+| ------------------------ | ------------------------ | ------------------------ |
+| macOS 12+ (Monterey)     | **Required**             |                          |
 | Xcode Command Line Tools | For building from source | `xcode-select --install` |
 
 Metal GPU acceleration is built into macOS — no additional drivers needed.
 
 ### Linux
 
-| Requirement | Required? | Notes |
-|---|---|---|
-| glibc 2.31+ | **Required** | Ubuntu 20.04+, Fedora 32+ |
-| NVIDIA GPU drivers + CUDA 12.x | Optional | For CUDA acceleration |
-| Vulkan drivers (mesa-vulkan) | Optional | For Vulkan acceleration (AMD/Intel) |
+| Requirement                    | Required?    | Notes                               |
+| ------------------------------ | ------------ | ----------------------------------- |
+| glibc 2.31+                    | **Required** | Ubuntu 20.04+, Fedora 32+           |
+| NVIDIA GPU drivers + CUDA 12.x | Optional     | For CUDA acceleration               |
+| Vulkan drivers (mesa-vulkan)   | Optional     | For Vulkan acceleration (AMD/Intel) |
 
 ### Building from Source (all platforms)
 
-| Requirement | Notes |
-|---|---|
-| Rust 1.80+ | `rustup` recommended |
-| Node.js 18+ | For the frontend |
-| CMake 3.14+ | Auto-downloaded by the build system if not installed |
-| CUDA Toolkit 12.x | Only if building with `--features cuda` |
-| Vulkan SDK | Only if building with `--features vulkan` |
+| Requirement       | Notes                                                |
+| ----------------- | ---------------------------------------------------- |
+| Rust 1.80+        | `rustup` recommended                                 |
+| Node.js 18+       | For the frontend                                     |
+| CMake 3.14+       | Auto-downloaded by the build system if not installed |
+| CUDA Toolkit 12.x | Only if building with `--features cuda`              |
+| Vulkan SDK        | Only if building with `--features vulkan`            |
 
 ## Configuration
 
 Models are configured through the web UI (Settings). The app auto-configures sampling parameters from GGUF embedded metadata when available, with fallback presets for known models.
 
 Key settings:
+
 - **Model path** — select any `.gguf` file
 - **Sampler type** — Greedy, Temperature, TopP, TopK, Mirostat, ChainFull, etc.
 - **Context size** — defaults to model's trained context or 4096
@@ -173,6 +176,7 @@ llama_cpp_rs_chat/
 │   ├── main.rs                 # Tauri desktop entry
 │   ├── main_web.rs             # Web server entry
 │   └── lib.rs                  # Tauri commands
+├── scripts/ensure-vs.cmd       # Auto-sets VS dev environment, fixes PATH (Windows CUDA builds)
 ├── tools/ensure-cmake/         # Auto-downloads CMake if missing
 ├── assets/                     # Config, DB, conversations
 ├── Dockerfile.cuda             # CUDA Docker image
@@ -214,7 +218,8 @@ For mock mode (no real model needed): build with `--features mock` or set `TEST_
 ## Troubleshooting
 
 - **CMake not found**: The build toolchain (`tools/ensure-cmake`) downloads it automatically. If that fails, install manually: `winget install Kitware.CMake` (Windows), `brew install cmake` (macOS), `sudo apt install cmake` (Linux).
-- **CUDA build fails**: Ensure CUDA toolkit is installed and `nvcc` is on PATH.
+- **CUDA build fails**: Ensure CUDA toolkit is installed and `nvcc` is on PATH. On Windows, Visual Studio 2022 with "C++ build tools" workload is required. The build system handles setup automatically via `scripts/ensure-vs.cmd`.
+- **`link.exe` error on Windows**: Git for Windows ships its own `link.exe` in `C:\Program Files\Git\usr\bin` which shadows MSVC's linker. `scripts/ensure-vs.cmd` removes Git's path from `PATH` to resolve this.
 - **Port 14000 in use**: The Vite dev server uses port 14000. Kill any existing process or change the port in package.json.
 - **Model won't load**: Check that the `.gguf` file path is correct and the file isn't corrupted. Try a smaller model first.
 

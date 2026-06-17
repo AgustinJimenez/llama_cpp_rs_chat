@@ -52,10 +52,11 @@ pub struct WorkerPool {
     /// Only populated when a second conversation needs the same agent simultaneously.
     conversation_workers: Arc<RwLock<HashMap<String, WorkerId>>>,
     db_path: String,
+    db: SharedDatabase,
 }
 
 impl WorkerPool {
-    pub fn new(default_bridge: SharedWorkerBridge, db_path: impl Into<String>) -> Self {
+    pub fn new(default_bridge: SharedWorkerBridge, db_path: impl Into<String>, db: SharedDatabase) -> Self {
         let mut workers = HashMap::new();
         workers.insert(
             "default".to_string(),
@@ -71,6 +72,7 @@ impl WorkerPool {
             agent_workers: Arc::new(RwLock::new(HashMap::new())),
             conversation_workers: Arc::new(RwLock::new(HashMap::new())),
             db_path: db_path.into(),
+            db,
         }
     }
 
@@ -122,7 +124,7 @@ impl WorkerPool {
         let worker_id = format!("w{}", &suffix[..8]);
 
         let pm = Arc::new(ProcessManager::spawn(&self.db_path)?);
-        let bridge = Arc::new(WorkerBridge::new(pm));
+        let bridge = Arc::new(WorkerBridge::new(pm, self.db.clone()));
         if let Err(e) = bridge.load_model(model_path, gpu_layers, mmproj_path, agent_id).await {
             bridge.kill();
             return Err(e);

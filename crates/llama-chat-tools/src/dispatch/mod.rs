@@ -301,7 +301,8 @@ pub fn dispatch_native_tool(
             _ => return Some(NativeToolResult::text_only("Error: 'query' is required".into())),
         };
         let encoded = urlencoding::encode(query);
-        let search_url = format!("https://www.google.com/search?q={encoded}");
+        // gl=us&hl=en: force English/US results regardless of user's IP geo-location
+        let search_url = format!("https://www.google.com/search?q={encoded}&gl=us&hl=en&num=8");
         if let Err(e) = browser_session::notify_tauri_browser_navigate(&search_url) {
             return Some(NativeToolResult::text_only(format!(
                 "Failed to open browser: {e}"

@@ -217,11 +217,38 @@ pub(crate) fn run_generation_loop(
                 // ask the model if the response is complete. If not, it returns the
                 // next few tokens directly — we inject those and continue seamlessly.
                 // Cap at 3 retries to avoid infinite loops.
-                if gen.tool_response_tokens > 0 && gen.eos_continue_count < 3 {
-                    let check = super::sub_checks::inline_eos_probe(
-                        model, context,
-                        gen.token_pos, cfg.conversation_id,
-                    );
+                //
+                // Guard: if the model has not produced any visible text after the last
+                // tool response (i.e. only tool calls ran, no summary was written), do
+                // NOT accept EOS regardless of what the probe says.  This prevents the
+                // model from declaring DONE after e.g. taking a screenshot without ever
+                // writing the requested summary.
+                let has_text_output = {
+                    let resp = &gen.response;
+                    let after = resp.rfind(cfg.tags.output_close.as_str())
+                        .map(|p| p + cfg.tags.output_close.len())
+                        .unwrap_or(0);
+                    resp[after..].trim().len() > 20
+                };
+                let force_continue = gen.tool_response_tokens > 0 && !has_text_output && gen.eos_continue_count < 3;
+
+                if gen.tool_response_tokens > 0 && (gen.eos_continue_count < 3 || force_continue) {
+                    let check = if force_continue {
+                        // Skip the probe — inject a newline to nudge the model to write text.
+                        eprintln!("[EOS_GUARD] No text output yet — skipping DONE probe, forcing continuation");
+                        let nudge = "\n\n";
+                        let nudge_toks = model.str_to_token(nudge, llama_cpp_2::model::AddBos::Never).ok();
+                        super::sub_checks::EosContinuationResult {
+                            is_complete: false,
+                            continuation_text: nudge.to_string(),
+                            continuation_tokens: nudge_toks.map(|t| t.into_iter().map(|x| x).collect()).unwrap_or_default(),
+                        }
+                    } else {
+                        super::sub_checks::inline_eos_probe(
+                            model, context,
+                            gen.token_pos, cfg.conversation_id,
+                        )
+                    };
 
                     if !check.is_complete && !check.continuation_tokens.is_empty() {
                         gen.eos_continue_count += 1;
@@ -456,7 +483,37 @@ pub(crate) fn run_generation_loop(
                     gen.logger_synced_len = gen.response.len();
 
                     gen.tool_response_tokens += exec_result.model_tokens.len() as i32;
+                    gen.tool_call_count += 1;
                     command_executed = true;
+
+                    // Max tool calls guard — inject a "wrap up now" hint at the threshold.
+                    // This prevents infinite search/navigation loops from consuming the full context.
+                    // Plain text (no tool tags) so the model sees it as the start of its own
+                    // assistant turn and continues generating a text response, not another tool call.
+                    const MAX_TOOL_CALLS: u32 = 40;
+                    if gen.tool_call_count == MAX_TOOL_CALLS {
+                        let warning = format!(
+                            "\n\n⚠️ [IMPORTANT: You have reached the maximum of {MAX_TOOL_CALLS} tool calls. You MUST stop making tool calls immediately and write your complete final response now. Summarize everything you have gathered so far in clear prose. Do NOT invoke any more tools.]\n\n"
+                        );
+                        if let Ok(warning_toks) = model.str_to_token(&warning, llama_cpp_2::model::AddBos::Never) {
+                            exec_result.model_tokens.extend(warning_toks.iter().map(|t| t.0));
+                        }
+                        gen.response.push_str(&warning);
+                        // Reset EOS continue counter so the model gets fresh continuation chances
+                        // to write the full summary (it may have used all 3 by this point).
+                        gen.eos_continue_count = 0;
+                        eprintln!("[TOOL_LIMIT] Reached {MAX_TOOL_CALLS} tool calls — injecting wrap-up notice");
+                        // Also persist as a system message so the UI shows a distinct ⚠️ SYSTEM bubble
+                        // (the inline warning text is stripped from assistant rendering by the frontend).
+                        if let Ok(mut notice_logger) = llama_chat_db::logger::ConversationLogger::from_existing(
+                            cfg.db.clone(), cfg.conversation_id,
+                        ) {
+                            notice_logger.log_message(
+                                "system",
+                                &format!("Tool call limit reached ({MAX_TOOL_CALLS}). The model has been asked to stop making tool calls and write its final response."),
+                            );
+                        }
+                    }
 
                     // Image summarization: if the agent requested a description (summary=<prompt>),
                     // run a vision sub-pass and inject the text description instead of raw images.

@@ -133,7 +133,7 @@ const AgentPicker = ({ onModelUnload }: { onModelUnload: () => void }) => {
     setStagedAgent,
     fetchAgentStatuses,
   } = useAgentContext();
-  const { currentConversationId } = useChatContext();
+  const { currentConversationId, clearMessages } = useChatContext();
   const { isLoading: isModelLoading, status: modelStatus } = useModelContext();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -165,7 +165,8 @@ const AgentPicker = ({ onModelUnload }: { onModelUnload: () => void }) => {
       setBusy(true);
       try {
         if (!currentConversationId) {
-          // No conversation yet — just stage the agent
+          // No conversation yet — clear state, stage, and activate
+          clearMessages();
           setStagedAgent(agent);
           if (agent) await activateAgent(agent.id).catch(() => {});
           return;
@@ -182,6 +183,7 @@ const AgentPicker = ({ onModelUnload }: { onModelUnload: () => void }) => {
       busy,
       activeAgent,
       currentConversationId,
+      clearMessages,
       setStagedAgent,
       setConversationAgent,
       activateAgent,

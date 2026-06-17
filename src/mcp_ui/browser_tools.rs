@@ -256,26 +256,31 @@ pub async fn bridge_browser_navigate(
     let url = body.get("url")
         .and_then(|v| v.as_str())
         .ok_or(axum::http::StatusCode::BAD_REQUEST)?;
+    let target = body.get("target")
+        .and_then(|v| v.as_str())
+        .unwrap_or("browser-panel");
+    let is_default_panel = target == "browser-panel";
 
-    // Navigate the browser-panel WebView (shared between agent and user).
-    // If it doesn't exist yet, create it hidden (0 height) — the agent can
-    // still eval JS on it. When the user clicks the globe icon, the frontend
-    // resizes it to the correct position.
+    // Navigate the target WebView (the default "browser-panel" is shared between
+    // agent and user; other targets are per-tab child webviews used only by the
+    // agent for parallel browsing). If it doesn't exist yet, create it hidden
+    // (0 height) — the agent can still eval JS on it. When the user clicks the
+    // globe icon, the frontend resizes the default panel to the correct position.
     let parsed = url.parse::<tauri::Url>()
         .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
-    eprintln!("[MCP_BROWSER] navigate to {url}");
+    eprintln!("[MCP_BROWSER] navigate({target}): {url}");
 
-    if let Some(existing) = app.webviews().get("browser-panel").cloned() {
-        eprintln!("[MCP_BROWSER] navigating existing browser-panel");
+    if let Some(existing) = app.webviews().get(target).cloned() {
+        eprintln!("[MCP_BROWSER] navigating existing {target}");
         let _ = existing.navigate(parsed);
     } else if let Some(window) = app.get_window("main") {
-        // Create browser-panel hidden (0 height) — agent can use it via eval,
-        // user sees it when they open the globe icon (frontend resizes it).
+        // Create the webview hidden (0 height) — agent can use it via eval,
+        // user sees the default panel when they open the globe icon (frontend resizes it).
         let data_dir = app.path().app_data_dir()
             .unwrap_or_else(|_| std::path::PathBuf::from("."))
             .join("browser_data");
         let builder = tauri::webview::WebviewBuilder::new(
-            "browser-panel",
+            target,
             tauri::WebviewUrl::External(parsed),
         )
         .data_directory(data_dir)
@@ -286,20 +291,23 @@ pub async fn bridge_browser_navigate(
             tauri::LogicalSize::new(0.0, 0.0), // hidden until user opens globe
         ) {
             Ok(wv) => eprintln!(
-                "[MCP_BROWSER] created hidden browser-panel: {:?}",
+                "[MCP_BROWSER] created hidden webview: {:?}",
                 wv.label()
             ),
-            Err(e) => eprintln!("[MCP_BROWSER] browser-panel creation FAILED: {e}"),
+            Err(e) => eprintln!("[MCP_BROWSER] webview '{target}' creation FAILED: {e}"),
         }
     }
 
-    // Tell frontend the URL so the globe icon knows what page is loaded
-    if let Some(main_wv) = app.webviews().get("main").cloned() {
-        let js = format!(
-            "if (window.__openBrowserView) {{ window.__openBrowserView('{}'); }}",
-            url.replace('\'', "\\'").replace('\\', "\\\\")
-        );
-        let _ = main_wv.eval(&js);
+    // Tell frontend the URL so the globe icon knows what page is loaded —
+    // only relevant for the user-visible default panel, not per-tab agent webviews.
+    if is_default_panel {
+        if let Some(main_wv) = app.webviews().get("main").cloned() {
+            let js = format!(
+                "if (window.__openBrowserView) {{ window.__openBrowserView('{}'); }}",
+                url.replace('\'', "\\'").replace('\\', "\\\\")
+            );
+            let _ = main_wv.eval(&js);
+        }
     }
 
     Ok(format!("Browser navigated: {url}"))
@@ -307,8 +315,31 @@ pub async fn bridge_browser_navigate(
 
 pub async fn bridge_browser_close(
     State(app): State<AppHandle>,
+    body: Bytes,
 ) -> Result<String, axum::http::StatusCode> {
-    close_browser_view_js(&app)
-        .await
-        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)
+    let target = serde_json::from_slice::<Value>(&body)
+        .ok()
+        .and_then(|v| v.get("target").and_then(|t| t.as_str()).map(|s| s.to_string()))
+        .unwrap_or_else(|| "browser-panel".to_string());
+
+    if target == "browser-panel" {
+        // Legacy single-panel behavior: hide via JS hook, don't destroy the
+        // webview (the user-visible panel is reused on the next navigate).
+        return close_browser_view_js(&app)
+            .await
+            .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    // Per-tab agent webview: actually destroy it to free resources.
+    if let Some(wv) = app.webviews().get(&target).cloned() {
+        match wv.close() {
+            Ok(()) => Ok(format!("Closed webview: {target}")),
+            Err(e) => {
+                eprintln!("[MCP_BROWSER] failed to close webview '{target}': {e}");
+                Err(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
+            }
+        }
+    } else {
+        Ok(format!("Webview '{target}' not open"))
+    }
 }

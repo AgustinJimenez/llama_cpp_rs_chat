@@ -41,6 +41,9 @@ const GLM_VISION_CLEANUP =
 const EOS_TOKEN_CLEANUP = /<\|(?:im_end|endoftext|end_of_text|eot_id|end)\|>|<\[im_end\]>/g;
 // Internal system signals — strip from display
 const INTERNAL_SIGNALS_CLEANUP = /\[INFINITE_LOOP_DETECTED\]/g;
+// Tool-limit warning injected by the backend — strip from assistant bubble (shown as ⚠️ SYSTEM instead)
+const TOOL_LIMIT_WARNING_CLEANUP =
+  /⚠️ \[IMPORTANT: You have reached the maximum of \d+ tool calls[^\]]*\]/g;
 
 /**
  * Build dynamic cleanup regex from active toolTags.
@@ -85,7 +88,8 @@ export function useMessageParsing(message: Message, toolTags?: ToolTags): Parsed
   const dynamicCleanup = useMemo(() => buildDynamicTagCleanup(toolTags), [toolTags]);
   const effectiveContent = (harmony ? harmony.finalContent : message.content)
     .replace(EOS_TOKEN_CLEANUP, '')
-    .replace(INTERNAL_SIGNALS_CLEANUP, '');
+    .replace(INTERNAL_SIGNALS_CLEANUP, '')
+    .replace(TOOL_LIMIT_WARNING_CLEANUP, '');
 
   const toolCalls = useMemo(() => {
     if (message.role === 'assistant') {

@@ -1,4 +1,5 @@
 use llama_cpp_2::llama_batch::LlamaBatch;
+use llama_chat_db::event_log::log_event;
 
 pub fn inject_output_tokens(
     tokens: &[i32],
@@ -13,6 +14,11 @@ pub fn inject_output_tokens(
         tokens.len(),
         context.n_ctx(),
         conversation_id
+    );
+    log_event(
+        conversation_id,
+        "inject_start",
+        &format!("Injecting {} tokens at pos {}", tokens.len(), token_pos),
     );
     if let Ok(dump_dir) = std::env::var("LLAMA_CHAT_DATA_DIR") {
         let dump_path = format!("{dump_dir}/logs/last_inject_dump.txt");
@@ -67,6 +73,15 @@ pub fn inject_output_tokens(
 
         std::thread::yield_now();
 
+        // Log before decode so the DB shows the last attempted token if decode hangs.
+        if i == 0 || i == total - 1 || i % 50 == 0 {
+            log_event(
+                conversation_id,
+                "decode_token",
+                &format!("decode token {}/{} at pos {}", i + 1, total, token_pos),
+            );
+        }
+
         let decode_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             context.decode(batch)
         }));
@@ -75,14 +90,17 @@ pub fn inject_output_tokens(
             Ok(Err(e)) => {
                 let err_str = format!("{e}");
                 if err_str.contains("NoKvCacheSlot") || err_str.contains("no kv cache slot") {
+                    log_event(conversation_id, "inject_error", "CONTEXT_EXHAUSTED during tool injection");
                     return Err("CONTEXT_EXHAUSTED".to_string());
                 }
+                log_event(conversation_id, "inject_error", &format!("decode failed at token {i}: {e}"));
                 return Err(format!("Decode failed for command output: {e}"));
             }
             Err(_panic) => {
                 eprintln!(
                     "[INJECT] decode() panicked/threw C++ exception during injection at pos {token_pos}"
                 );
+                log_event(conversation_id, "inject_error", &format!("decode panicked at token {i}/pos {token_pos}"));
                 return Err("Decode crashed during tool injection (C++ exception)".to_string());
             }
         }
@@ -94,8 +112,14 @@ pub fn inject_output_tokens(
         eprintln!(
             "[INJECT] Context 95% full after injection ({token_pos}/{ctx_size})"
         );
+        log_event(conversation_id, "inject_error", "CONTEXT_EXHAUSTED after injection (95% full)");
         return Err("CONTEXT_EXHAUSTED".to_string());
     }
 
+    log_event(
+        conversation_id,
+        "inject_done",
+        &format!("Injected {} tokens, new pos {}", total, token_pos),
+    );
     Ok(())
 }

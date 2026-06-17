@@ -88,6 +88,11 @@ impl ProcessManager {
         }
         self.restart_count.fetch_add(1, Ordering::Relaxed);
         self.generation.fetch_add(1, Ordering::SeqCst);
+        // kill() (called above) latches is_shutdown=true so the dying reader skips crash
+        // recovery. The freshly spawned worker is live again, so future deaths of THIS
+        // worker must go through normal crash recovery — otherwise every restart after
+        // the first permanently disables recovery for the rest of the process lifetime.
+        self.is_shutdown.store(false, Ordering::SeqCst);
 
         eprintln!(
             "[PROCESS_MGR] Worker restarted (restart #{}, gen={})",

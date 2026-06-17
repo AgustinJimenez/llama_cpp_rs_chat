@@ -156,21 +156,22 @@ fn main() {
                     .expect("Failed to spawn worker process"),
             );
             let bridge: SharedWorkerBridge = Arc::new(
-                tauri::async_runtime::block_on(async { WorkerBridge::new(pm) }),
+                tauri::async_runtime::block_on(async { WorkerBridge::new(pm, db.clone()) }),
             );
             eprintln!("[TAURI] Worker process spawned, bridge ready");
 
             // HTTP API server (agents, conversations, config, …) on 18080 so the
             // webview's `/api` fetches work in the desktop app — served against the
             // desktop database and the worker we just spawned (no duplicate worker).
+            let worker_pool =
+                web::worker_pool::WorkerPool::new(bridge.clone(), db_path_str.clone(), db.clone());
             {
                 let api_db = db.clone();
-                let worker_pool =
-                    web::worker_pool::WorkerPool::new(bridge.clone(), db_path_str.clone());
+                let worker_pool_for_api = worker_pool.clone();
                 tauri::async_runtime::spawn(async move {
                     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 18080));
                     eprintln!("[TAURI] HTTP API server starting on http://{addr}");
-                    if let Err(e) = web::http_dispatch::serve(api_db, worker_pool, addr).await {
+                    if let Err(e) = web::http_dispatch::serve(api_db, worker_pool_for_api, addr).await {
                         eprintln!("[TAURI] HTTP API server error: {e}");
                     }
                 });
@@ -179,6 +180,7 @@ fn main() {
             // Register managed state
             app.manage(db);
             app.manage(bridge);
+            app.manage(worker_pool);
 
             // MCP UI server — direct WebView2 ExecuteScript (no HTTP callbacks needed)
             let app_handle = app.handle().clone();

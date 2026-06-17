@@ -8,9 +8,34 @@ import {
   type ReactNode,
 } from 'react';
 
+import { getConversationFromUrl } from '../hooks/useConversationUrl';
 import type { Agent } from '../types';
 
 type AgentPayload = Partial<Agent> & { name: string; provider_id: string };
+
+// Caches the last-resolved conversation->agent pairing so a page refresh can show the
+// right agent immediately instead of flashing "No agent" while /api/.../agent loads.
+const LAST_CONVERSATION_AGENT_KEY = 'lastConversationAgent';
+
+function readCachedConversationAgent(conversationId: string | null): Agent | null {
+  if (!conversationId) return null;
+  try {
+    const raw = localStorage.getItem(LAST_CONVERSATION_AGENT_KEY);
+    if (!raw) return null;
+    const cached = JSON.parse(raw) as { conversationId: string; agent: Agent | null };
+    return cached.conversationId === conversationId ? cached.agent : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedConversationAgent(conversationId: string, agent: Agent | null) {
+  try {
+    localStorage.setItem(LAST_CONVERSATION_AGENT_KEY, JSON.stringify({ conversationId, agent }));
+  } catch {
+    // localStorage unavailable (private mode, quota) — cache is best-effort
+  }
+}
 
 export type AgentStatus = {
   status: 'idle' | 'active' | 'generating';
@@ -121,7 +146,9 @@ const AgentContext = createContext<AgentContextValue | null>(null);
 
 export const AgentProvider = ({ children }: { children: ReactNode }) => {
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [activeConversationAgent, setActiveConversationAgent] = useState<Agent | null>(null);
+  const [activeConversationAgent, setActiveConversationAgent] = useState<Agent | null>(() =>
+    readCachedConversationAgent(getConversationFromUrl()),
+  );
   const [stagedAgent, setStagedAgent] = useState<Agent | null>(null);
   const [agentStatuses, setAgentStatuses] = useState<Record<string, AgentStatus>>({});
   const [activatingAgentId, setActivatingAgentId] = useState<string | null>(null);
@@ -139,6 +166,7 @@ export const AgentProvider = ({ children }: { children: ReactNode }) => {
   const loadConversationAgent = useCallback(async (conversationId: string) => {
     const agent = await getConversationAgentRequest(conversationId);
     setActiveConversationAgent(agent);
+    writeCachedConversationAgent(conversationId, agent);
     return agent;
   }, []);
 
@@ -149,8 +177,10 @@ export const AgentProvider = ({ children }: { children: ReactNode }) => {
         // Re-fetch to get full agent data
         const agent = await getConversationAgentRequest(conversationId);
         setActiveConversationAgent(agent);
+        writeCachedConversationAgent(conversationId, agent);
       } else {
         setActiveConversationAgent(null);
+        writeCachedConversationAgent(conversationId, null);
       }
     },
     [],

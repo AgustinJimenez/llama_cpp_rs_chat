@@ -4,9 +4,9 @@ use serde_json::Value;
 use llama_chat_types::NativeToolResult;
 
 pub fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
-    use crate::browser_session::{
-        current_session, notify_tauri_browser_close, open_session, BrowserSession,
-    };
+    use crate::browser_session::{current_session, open_session, BrowserSession, DEFAULT_TAB_ID};
+
+    let tab_id = args.get("tab_id").and_then(|v| v.as_str()).unwrap_or(DEFAULT_TAB_ID);
 
     // navigate: reuse existing session if any, else open a fresh one
     if name == "navigate" {
@@ -19,8 +19,8 @@ pub fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
         } else {
             format!("https://{url}")
         };
-        eprintln!("[BROWSER_TOOL] navigate: {full_url}");
-        return match current_session() {
+        eprintln!("[BROWSER_TOOL] navigate({tab_id}): {full_url}");
+        return match current_session(tab_id) {
             Ok(mut s) => {
                 eprintln!("[BROWSER_TOOL] existing session, calling navigate...");
                 match s.navigate(&full_url) {
@@ -30,7 +30,7 @@ pub fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
                     }
                     Err(e) => {
                         eprintln!("[BROWSER_TOOL] navigate failed: {e}, opening new session...");
-                        match open_session(&full_url) {
+                        match open_session(&full_url, tab_id) {
                             Ok(s2) => NativeToolResult::text_only(format!("Opened new session at {}.", s2.url())),
                             Err(e) => NativeToolResult::text_only(format!("navigate failed: {e}")),
                         }
@@ -39,7 +39,7 @@ pub fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
             }
             Err(_) => {
                 eprintln!("[BROWSER_TOOL] no existing session, calling open_session...");
-                match open_session(&full_url) {
+                match open_session(&full_url, tab_id) {
                     Ok(s) => {
                         eprintln!("[BROWSER_TOOL] open_session OK");
                         NativeToolResult::text_only(format!(
@@ -57,7 +57,7 @@ pub fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
     }
 
     // All other tools require an active session
-    let session = match current_session() {
+    let session = match current_session(tab_id) {
         Ok(s) => s,
         Err(e) => return NativeToolResult::text_only(format!("Error: {e}")),
     };
@@ -70,7 +70,7 @@ pub fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
             }
             match session.click(sel) {
                 Ok(()) => {
-                    crate::browser_session::clear_cache();
+                    crate::browser_session::clear_cache(tab_id);
                     NativeToolResult::text_only(format!("Clicked '{sel}'"))
                 }
                 Err(e) => NativeToolResult::text_only(format!("click failed: {e}")),
@@ -165,7 +165,7 @@ pub fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
             if let Ok(bytes) = session.screenshot() {
                 NativeToolResult::with_image("Screenshot captured.".into(), bytes)
             } else {
-                match crate::browser_session::eval_in_browser_panel("document.title + ' — ' + window.location.href") {
+                match crate::browser_session::eval_in_browser_tab("document.title + ' — ' + window.location.href", tab_id) {
                     Ok(info) => NativeToolResult::text_only(format!(
                         "Visual screenshot not available. Page: {info}\nUse browser_get_text to read content or browser_query to extract structured data."
                     )),
@@ -193,17 +193,47 @@ pub fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
             }
         }
         "get_text" => {
-            // Coerce string "8000" → 8000 in case model passes offset as a string
+            // Coerce string values in case model passes numbers as strings
             let offset = args.get("offset").and_then(|v| {
                 v.as_u64().or_else(|| v.as_str()?.parse::<u64>().ok())
             }).unwrap_or(0) as usize;
-            const PAGE: usize = 30_000;
-            match session.get_full_text(offset, PAGE) {
+            let max_chars = args.get("max_chars").and_then(|v| {
+                v.as_u64().or_else(|| v.as_str()?.parse::<u64>().ok())
+            }).unwrap_or(8_000) as usize;
+            match session.get_full_text(offset, max_chars) {
                 Ok(text) => {
+                    let current_url = session.url().to_string();
+                    // Detect 404 / page not found
+                    let lower = text.to_lowercase();
+                    let is_404 = offset == 0 && text.len() < 2000 && (
+                        (lower.contains("404") && (lower.contains("not found") || lower.contains("page not found"))) ||
+                        lower.contains("ʕノ•ᴥ•ʔノ") // vickiboykis custom 404
+                    );
+                    if is_404 {
+                        return NativeToolResult::text_only(format!(
+                            "{text}\n\n⚠️ This URL returns a 404 (page not found). Do NOT keep searching for this exact article — move on to the next item on your list. If you need the content, try a slightly different URL path or skip this one."
+                        ));
+                    }
+                    // Detect access walls — CAPTCHA, paywall, cookie consent, login required
+                    let is_blocked = offset == 0 && (
+                        lower.contains("captcha") ||
+                        lower.contains("i'm not a robot") ||
+                        lower.contains("enable javascript") ||
+                        lower.contains("access denied") ||
+                        (lower.contains("sign in") && lower.contains("continue")) ||
+                        (lower.contains("log in") && text.len() < 2000) ||
+                        (lower.contains("subscribe") && lower.contains("read") && text.len() < 2000) ||
+                        (lower.contains("cookie") && lower.contains("accept") && text.len() < 1500)
+                    );
+                    if is_blocked {
+                        return NativeToolResult::text_only(format!(
+                            "{text}\n\n⚠️ Page appears blocked (CAPTCHA / login wall / cookie consent). Do NOT search for this content — use browser_fetch_text(url='{current_url}') to fetch it directly via HTTP, which bypasses most walls. Only fall back to browser_search if browser_fetch_text also fails."
+                        ));
+                    }
                     // Hint when content is suspiciously short — likely a JS-rendered SPA
                     if offset == 0 && text.len() < 500 {
                         NativeToolResult::text_only(format!(
-                            "{text}\n\n[partial: true — Page text is very short ({} chars). This is likely a JS-rendered app (canvas/WebGL/SPA) with minimal DOM text. Suggestions: use browser_get_html to check for inline script data, browser_snapshot to see interactive elements, or browser_screenshot for a visual capture.]",
+                            "{text}\n\n[partial: true — Page text is very short ({} chars). Try browser_fetch_text(url='{current_url}') first; if that also returns little content, this is likely a JS-rendered SPA — use browser_get_html or browser_snapshot instead.]",
                             text.len()
                         ))
                     } else {
@@ -322,7 +352,7 @@ pub fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
         "go_back" => {
             match session.eval("history.go(-1); 'ok'") {
                 Ok(_) => {
-                    crate::browser_session::clear_cache();
+                    crate::browser_session::clear_cache(tab_id);
                     NativeToolResult::text_only("Navigated back.".into())
                 }
                 Err(e) => NativeToolResult::text_only(format!("go_back failed: {e}")),
@@ -340,7 +370,6 @@ pub fn handle_browser_tool(name: &str, args: &Value) -> NativeToolResult {
         }
         "close" => {
             let mut s = session;
-            let _ = notify_tauri_browser_close();
             match s.close() {
                 Ok(()) => NativeToolResult::text_only("Browser session closed.".into()),
                 Err(e) => NativeToolResult::text_only(format!("close failed: {e}")),

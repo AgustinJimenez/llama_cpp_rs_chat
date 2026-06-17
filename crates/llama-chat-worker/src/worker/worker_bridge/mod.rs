@@ -13,6 +13,7 @@ use tokio::time::{timeout, Duration};
 use super::io_tasks::{stdin_writer_task, stdout_reader_task, CrashRecoveryCtx};
 use super::ipc_types::*;
 use super::process_manager::ProcessManager;
+use llama_chat_db::SharedDatabase;
 use llama_chat_types::models::TokenData;
 
 mod types;
@@ -54,11 +55,15 @@ pub struct WorkerBridge {
     /// Crash-recovery context shared with the stdout reader — cleared on intentional unload
     /// so auto-reload doesn't fire when we voluntarily kill the worker.
     recovery_ctx: Arc<TokioMutex<CrashRecoveryCtx>>,
+    /// Database handle, passed to the stdout reader so it can persist crash/recovery
+    /// notices directly (the worker process has its own connection and logs normal
+    /// generation independently; this handle is only used for out-of-band notices).
+    db: SharedDatabase,
 }
 
 impl WorkerBridge {
     /// Create a new WorkerBridge and start IO tasks.
-    pub fn new(process_manager: Arc<ProcessManager>) -> Self {
+    pub fn new(process_manager: Arc<ProcessManager>, db: SharedDatabase) -> Self {
         let stdin_handle = process_manager
             .take_stdin()
             .expect("Worker stdin not available");
@@ -97,6 +102,7 @@ impl WorkerBridge {
             recovery_ctx.clone(),
             auto_recovering.clone(),
             status_message.clone(),
+            db.clone(),
             initial_gen,
         ));
 
@@ -115,6 +121,7 @@ impl WorkerBridge {
             next_id: AtomicU64::new(1),
             process_manager,
             recovery_ctx,
+            db,
         }
     }
 
@@ -347,9 +354,13 @@ impl WorkerBridge {
                 self.loading_progress.clone(),
                 self.process_manager.clone(),
                 self.cmd_tx.clone(),
-                Arc::new(TokioMutex::new(CrashRecoveryCtx::default())),
+                // Reuse the bridge's persistent recovery_ctx (not a fresh default) so
+                // mutations made elsewhere (e.g. force_unload clearing model_path before
+                // a kill) stay visible to whichever reader task is currently live.
+                self.recovery_ctx.clone(),
                 self.auto_recovering.clone(),
                 self.status_message.clone(),
+                self.db.clone(),
                 gen,
             ));
         }

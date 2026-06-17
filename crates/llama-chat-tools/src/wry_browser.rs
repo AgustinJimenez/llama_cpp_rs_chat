@@ -13,7 +13,7 @@
 //! Tool threads communicate via channels (sync → event loop → sync).
 
 use std::collections::HashMap;
-use std::sync::{Arc, Condvar, Mutex, mpsc};
+use std::sync::{mpsc, Arc, Mutex};
 
 /// Commands sent from tool threads to the WebView event loop thread.
 #[derive(Debug)]

@@ -19,6 +19,8 @@ pub(crate) struct TokenGenState {
     pub loop_recoveries: u32,
     /// Number of times EOS was intercepted and generation continued inline.
     pub eos_continue_count: u8,
+    /// Total tool calls executed this generation turn (for max-tool-calls limit).
+    pub tool_call_count: u32,
 }
 
 #[allow(dead_code)]

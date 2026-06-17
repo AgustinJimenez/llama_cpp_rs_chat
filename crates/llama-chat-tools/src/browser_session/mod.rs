@@ -9,9 +9,9 @@ mod tauri_session;
 // Re-export public API so callers don't need to change.
 pub use backends::{
     eval_in_browser_panel, notify_tauri_browser_close, notify_tauri_browser_navigate,
-    eval_in_browser_tab, navigate_browser_tab, close_browser_tab,
+    eval_in_browser_tab, navigate_browser_tab, close_browser_tab, DEFAULT_TAB_ID,
 };
-pub use session_state::{clear_cache, current_session, open_session};
+pub use session_state::{clear_cache, current_session, open_session, remove_session};
 pub use tauri_session::TauriHttpSession;
 
 /// A controllable browser session.
