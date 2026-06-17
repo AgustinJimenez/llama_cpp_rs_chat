@@ -144,6 +144,10 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
     // Per-message token count cache for accurate context budgeting
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN token_count INTEGER", []);
 
+    // Structured message parts (JSON array of {type, content, tool_name?, tool_args?})
+    // Written by the remote provider loop; null for local-model messages until backfill.
+    let _ = conn.execute("ALTER TABLE messages ADD COLUMN parts TEXT", []);
+
     // Add Telegram notification settings columns if missing
     let _ = conn.execute("ALTER TABLE config ADD COLUMN telegram_bot_token TEXT", []);
     let _ = conn.execute("ALTER TABLE config ADD COLUMN telegram_chat_id TEXT", []);

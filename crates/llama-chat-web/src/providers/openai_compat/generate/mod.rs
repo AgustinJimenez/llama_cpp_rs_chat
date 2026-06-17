@@ -20,7 +20,7 @@ use crate::providers::{
     set_remote_generating, set_remote_status, CliTokenData,
 };
 use super::db::{
-    provider_log, save_message_now,
+    provider_log, save_message_now, save_message_now_returning_seq,
 };
 
 use serde_json::{json, Value};
@@ -358,7 +358,10 @@ pub async fn generate(
             if result.tool_calls.is_empty() {
                 if !result.content.is_empty() {
                     if let (Some(conv_id), Some(ref db)) = (&conv_id_owned, &db_owned) {
-                        save_message_now(db, conv_id, "assistant", &result.content);
+                        let seq = save_message_now_returning_seq(db, conv_id, "assistant", &result.content);
+                        // Write a single text part for this message
+                        let parts_json = serde_json::json!([{"type": "text", "content": result.content}]).to_string();
+                        let _ = db.update_message_parts(conv_id, seq, &parts_json);
                     }
                 }
                 provider_log(&conv_id_owned, "provider_done",
@@ -416,12 +419,16 @@ pub async fn generate(
             }
             messages.push(assistant_msg.clone());
 
-            // Save assistant tool_call message to DB
-            if let (Some(conv_id), Some(ref db)) = (&conv_id_owned, &db_owned) {
-                let mut stored = json!({"tool_calls": assistant_msg.get("tool_calls"), "content": assistant_msg.get("content")});
-                if let Some(rc) = assistant_msg.get("reasoning_content") { stored["reasoning_content"] = rc.clone(); }
-                save_message_now(db, conv_id, "assistant", &stored.to_string());
-            }
+            // Save assistant tool_call message to DB, capture seq for parts update
+            let assistant_seq: Option<(String, i32)> =
+                if let (Some(conv_id), Some(ref db)) = (&conv_id_owned, &db_owned) {
+                    let mut stored = json!({"tool_calls": assistant_msg.get("tool_calls"), "content": assistant_msg.get("content")});
+                    if let Some(rc) = assistant_msg.get("reasoning_content") { stored["reasoning_content"] = rc.clone(); }
+                    let seq = save_message_now_returning_seq(db, conv_id, "assistant", &stored.to_string());
+                    Some((conv_id.clone(), seq))
+                } else {
+                    None
+                };
 
             // Execute tool calls
             let tool_results: Vec<(String, String, String, u64)> = result.tool_calls.iter().map(|tc| {
@@ -459,6 +466,25 @@ pub async fn generate(
                         "tool_timing",
                         &format!("{{\"name\":\"{name}\",\"duration_ms\":{duration_ms}}}"),
                     );
+                }
+            }
+
+            // Write structured parts onto the assistant message now that we have tool results
+            if let (Some((conv_id, seq)), Some(ref db)) = (&assistant_seq, &db_owned) {
+                let mut parts: Vec<serde_json::Value> = Vec::new();
+                if !result.content.is_empty() {
+                    parts.push(json!({"type": "text", "content": result.content}));
+                }
+                for tc in &result.tool_calls {
+                    parts.push(json!({"type": "tool_call", "content": "", "tool_name": tc.name, "tool_args": tc.arguments}));
+                }
+                for (_, name, truncated, _) in &tool_results {
+                    parts.push(json!({"type": "tool_result", "content": &truncated[..truncated.len().min(4000)], "tool_name": name}));
+                }
+                if !parts.is_empty() {
+                    if let Ok(parts_json) = serde_json::to_string(&parts) {
+                        let _ = db.update_message_parts(conv_id, *seq, &parts_json);
+                    }
                 }
             }
 

@@ -331,5 +331,5 @@ Derived from a side-by-side comparison of llama_cpp_rs_chat vs opencode pipeline
 - [x] Automatic retry for remote providers — wrap ureq SSE in `openai_compat/generate/mod.rs` with 3-attempt exponential backoff, retry on 429/5xx only *(done)*
 - [ ] Doom-loop confirmation prompt — if last 3 tool calls are identical (same name + args), pause and send a WS status message asking user to confirm before continuing
 - [ ] Reasoning token separation — detect `<think>…</think>` at engine level, emit with a `reasoning` flag on `TokenData`, front-end renders in a collapsible block
-- [ ] Message parts table — add `message_parts` table (or JSON parts column) persisting `{ type, content, tool_name?, tool_args?, tool_result? }` per turn; enables re-renderable UI and analytics
+- [x] Message parts table — `parts TEXT` JSON column on messages; written by remote provider loop (text/tool_call/tool_result parts); exposed via API and frontend `Message.parts` field *(done)*
 - [ ] Cost tracking — add `total_cost_usd REAL` to `conversations` table; accumulate on each remote provider response using known per-token pricing

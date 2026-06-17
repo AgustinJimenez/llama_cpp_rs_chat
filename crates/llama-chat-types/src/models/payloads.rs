@@ -1,6 +1,18 @@
 use super::ToolTags;
 use serde::{Deserialize, Serialize};
 
+/// One typed segment of a message (text, tool_call, tool_result, reasoning).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct MessagePart {
+    #[serde(rename = "type")]
+    pub part_type: String,
+    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_args: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Default, Debug)]
 pub struct ToolTimingLive {
     pub name: String,
@@ -66,6 +78,9 @@ pub struct ChatMessage {
     pub compacted: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sequence_order: Option<i32>,
+    /// Structured parts (remote provider messages). Empty for local-model messages.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub parts: Vec<MessagePart>,
 }
 
 #[derive(Serialize)]

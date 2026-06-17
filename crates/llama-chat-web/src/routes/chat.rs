@@ -122,6 +122,7 @@ pub async fn handle_post_chat(
                     prompt_tokens: None,
                     compacted: false,
                     sequence_order: None,
+                    parts: vec![],
                 },
                 conversation_id: chat_request
                     .conversation_id
@@ -230,6 +231,7 @@ pub async fn handle_post_chat(
                 prompt_tokens: None,
                 compacted: false,
                 sequence_order: None,
+                parts: vec![],
             },
             conversation_id,
             tokens_used: None, // Will be updated via WebSocket
@@ -256,6 +258,7 @@ pub async fn handle_post_chat(
                 prompt_tokens: None,
                 compacted: false,
                 sequence_order: None,
+                parts: vec![],
             },
             conversation_id: "test-conversation".to_string(),
             tokens_used: None,

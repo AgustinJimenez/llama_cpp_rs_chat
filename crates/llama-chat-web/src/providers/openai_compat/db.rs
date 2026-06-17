@@ -20,12 +20,23 @@ fn next_sequence(db: &SharedDatabase, conv_id: &str) -> i32 {
 }
 
 pub(super) fn save_message_now(db: &SharedDatabase, conv_id: &str, role: &str, content: &str) {
+    save_message_now_returning_seq(db, conv_id, role, content);
+}
+
+/// Like save_message_now but returns the sequence_order used, so callers can update parts later.
+pub(super) fn save_message_now_returning_seq(
+    db: &SharedDatabase,
+    conv_id: &str,
+    role: &str,
+    content: &str,
+) -> i32 {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
     let seq = next_sequence(db, conv_id);
     let _ = db.insert_message(conv_id, role, content, now, seq);
+    seq
 }
 
 pub(super) fn generate_title_via_provider(

@@ -13,7 +13,7 @@ use crate::tool_tags::{TagPair, ToolTags};
 mod payloads;
 pub use payloads::{
     BrowseFilesResponse, ChatMessage, ChatRequest, ChatResponse, ConversationContentResponse,
-    ConversationFile, ConversationsResponse, FileItem, ModelLoadRequest, ModelResponse,
+    ConversationFile, ConversationsResponse, FileItem, MessagePart, ModelLoadRequest, ModelResponse,
     ModelStatus, ToolTiming, ToolTimingLive, TokenData,
 };
 

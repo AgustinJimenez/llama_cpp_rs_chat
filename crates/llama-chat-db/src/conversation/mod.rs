@@ -35,6 +35,8 @@ pub struct MessageRecord {
     pub compacted: bool,
     /// DB sequence_order for this message — used for precise truncation on edit.
     pub sequence_order: i32,
+    /// Structured parts JSON (remote provider only). None for local-model messages.
+    pub parts: Option<String>,
 }
 
 /// A compaction summary — records which message range has been summarized.
@@ -67,6 +69,7 @@ impl CompactionSummaryRecord {
             prompt_tokens: None,
             compacted: false,
             sequence_order: self.covers_to_sequence,
+            parts: None,
         }
     }
 }

@@ -1,5 +1,12 @@
 import type { TimingInfo } from '../utils/chatTransport';
 
+export interface MessagePart {
+  type: 'text' | 'tool_call' | 'tool_result' | 'reasoning';
+  content: string;
+  tool_name?: string;
+  tool_args?: string;
+}
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant' | 'system' | 'error';
@@ -16,6 +23,8 @@ export interface Message {
   sequenceOrder?: number;
   /** duration_ms for each tool call in this message, in order (loaded from persisted event log). */
   toolCallTimings?: number[];
+  /** Structured parts (remote provider messages). Absent for local-model messages. */
+  parts?: MessagePart[];
 }
 
 /** Dynamic tag pair for per-model tag configuration. */
