@@ -496,6 +496,9 @@ export const MessageBubble: React.FC<MessageBubbleProps> = React.memo(
 
     // System messages
     const displayContent = viewMode === 'raw' ? message.content : cleanContent;
+    if (message.role === 'error') {
+      return <SystemMessage message={message} cleanContent={displayContent} isError />;
+    }
     if (message.role === 'system') {
       if (message.isSystemPrompt) {
         return <SystemPromptMessage message={message} cleanContent={displayContent} />;

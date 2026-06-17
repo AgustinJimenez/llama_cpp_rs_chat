@@ -201,10 +201,11 @@ pub async fn handle_websocket(
                         Ok(r) => r,
                         Err(e) => {
                             sys_error!("[WS_CHAT] Failed to start generation: {}", e);
-                            let error_msg = serde_json::json!({
-                                "type": "error",
-                                "error": format!("Failed to start generation: {}", e)
-                            });
+                            let msg = format!("Failed to start generation: {}", e);
+                            if let Some(ref conv_id) = current_conv_id {
+                                let _ = db.append_error_message(conv_id, &msg);
+                            }
+                            let error_msg = serde_json::json!({"type": "error", "error": msg});
                             let _ = ws_sender.send(WsMessage::Text(error_msg.to_string())).await;
                             break 'gen_loop;
                         }
@@ -316,18 +317,19 @@ pub async fn handle_websocket(
                                             }
                                             Ok(GenerationResult::Error(ref e)) => {
                                                 sys_error!("[WS_CHAT] Generation error from worker: {}", e);
-                                                let error_msg = serde_json::json!({
-                                                    "type": "error",
-                                                    "error": e
-                                                });
+                                                if let Some(ref conv_id) = current_conv_id {
+                                                    let _ = db.append_error_message(conv_id, e);
+                                                }
+                                                let error_msg = serde_json::json!({"type": "error", "error": e});
                                                 let _ = ws_sender.send(WsMessage::Text(error_msg.to_string())).await;
                                             }
                                             Err(e) => {
                                                 sys_error!("[WS_CHAT] Generation result channel closed: {}", e);
-                                                let error_msg = serde_json::json!({
-                                                    "type": "error",
-                                                    "error": "Generation failed: result channel closed"
-                                                });
+                                                let msg = "Generation failed: result channel closed";
+                                                if let Some(ref conv_id) = current_conv_id {
+                                                    let _ = db.append_error_message(conv_id, msg);
+                                                }
+                                                let error_msg = serde_json::json!({"type": "error", "error": msg});
                                                 let _ = ws_sender.send(WsMessage::Text(error_msg.to_string())).await;
                                             }
                                         }
@@ -367,10 +369,11 @@ pub async fn handle_websocket(
                                     &mut pending_gen_tok_per_sec, &mut pending_gen_tokens,
                                     &mut next_flush, &mut debug,
                                 ).await;
-                                let error_msg = serde_json::json!({
-                                    "type": "error",
-                                    "error": "Generation timed out — worker stopped responding. Please try again."
-                                });
+                                let msg = "Generation timed out — worker stopped responding. Please try again.";
+                                if let Some(ref conv_id) = current_conv_id {
+                                    let _ = db.append_error_message(conv_id, msg);
+                                }
+                                let error_msg = serde_json::json!({"type": "error", "error": msg});
                                 let _ = ws_sender.send(WsMessage::Text(error_msg.to_string())).await;
                                 break 'gen_loop;
                             }

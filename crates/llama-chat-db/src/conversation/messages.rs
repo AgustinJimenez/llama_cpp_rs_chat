@@ -172,6 +172,15 @@ impl Database {
         Ok(count)
     }
 
+    /// Append an error message to a conversation so it survives page reload.
+    /// Uses role="error" so the UI can render it distinctly from normal assistant output.
+    pub fn append_error_message(&self, conversation_id: &str, error: &str) -> Result<(), String> {
+        let seq = self.get_message_count(conversation_id)?;
+        let ts = crate::current_timestamp_secs();
+        self.insert_message(conversation_id, "error", error, ts, seq)?;
+        Ok(())
+    }
+
     /// Delete all messages with sequence_order >= from_sequence.
     /// Also deletes any compaction summaries that cover messages in the deleted range
     /// (so the model automatically reverts to full context from the nearest surviving summary).

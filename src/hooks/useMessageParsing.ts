@@ -195,10 +195,11 @@ export function useMessageParsing(message: Message, toolTags?: ToolTags): Parsed
   }, [cleanContent, dynamicCleanup]);
 
   const isError =
-    message.role === 'system' &&
-    (message.content.includes('\u274C') ||
-      message.content.includes('Generation Crashed') ||
-      message.content.includes('Error'));
+    message.role === 'error' ||
+    (message.role === 'system' &&
+      (message.content.includes('\u274C') ||
+        message.content.includes('Generation Crashed') ||
+        message.content.includes('Error')));
 
   return {
     toolCalls,

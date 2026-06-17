@@ -71,7 +71,7 @@ function createMessageIfValid(
   hasSystemPrompt: boolean,
   systemPromptContent: string,
 ): Message | null {
-  let role: 'user' | 'assistant' | 'system';
+  let role: 'user' | 'assistant' | 'system' | 'error';
   if (currentRole === 'USER') {
     role = 'user';
   } else if (currentRole === 'ASSISTANT') {

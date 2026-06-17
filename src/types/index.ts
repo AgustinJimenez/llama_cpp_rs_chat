@@ -2,7 +2,7 @@ import type { TimingInfo } from '../utils/chatTransport';
 
 export interface Message {
   id: string;
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant' | 'system' | 'error';
   content: string;
   timestamp: number;
   isSystemPrompt?: boolean;

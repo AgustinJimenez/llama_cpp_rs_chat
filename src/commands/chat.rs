@@ -224,6 +224,8 @@ pub async fn generate_stream(
                 );
             }
             Ok(GenerationResult::Error(e)) => {
+                let db_err: SharedDatabase = app.state::<SharedDatabase>().inner().clone();
+                let _ = db_err.append_error_message(&conv_id, &e);
                 let _ = app.emit(
                     "chat-done",
                     ChatDoneEvent {
@@ -243,6 +245,8 @@ pub async fn generate_stream(
                 );
             }
             Err(_) => {
+                let db_err: SharedDatabase = app.state::<SharedDatabase>().inner().clone();
+                let _ = db_err.append_error_message(&conv_id, "Worker response channel closed");
                 let _ = app.emit(
                     "chat-done",
                     ChatDoneEvent {
