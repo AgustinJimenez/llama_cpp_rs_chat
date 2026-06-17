@@ -228,8 +228,43 @@ pub async fn generate(
                 body["tools"] = json!(tools);
             }
 
-            // Make the API call
-            let result = match stream_sse_response(&url, &api_key_owned, &body, &tx, &counters.actual_model) {
+            // Make the API call — retry on 429 / 5xx with exponential backoff
+            let call_result = {
+                let mut attempt = 0u32;
+                const MAX_RETRIES: u32 = 2; // up to 3 total attempts
+                loop {
+                    match stream_sse_response(&url, &api_key_owned, &body, &tx, &counters.actual_model) {
+                        Ok(r) => break Ok(r),
+                        Err(ref e) if attempt < MAX_RETRIES && is_retryable_http_error(e) => {
+                            let wait_secs = 2u64 << attempt; // 2 s, 4 s
+                            eprintln!(
+                                "[OPENAI_COMPAT] Retryable error (attempt {}/{MAX_RETRIES}): {e}, retrying in {wait_secs}s",
+                                attempt + 1
+                            );
+                            provider_log(
+                                &conv_id_owned,
+                                "provider_retry",
+                                &format!("attempt {}/{MAX_RETRIES}: {e}, waiting {wait_secs}s", attempt + 1),
+                            );
+                            let _ = tx.send(CliTokenData {
+                                token: format!(
+                                    "\n*[Provider error — retrying in {wait_secs}s… attempt {}/{}]*\n",
+                                    attempt + 2,
+                                    MAX_RETRIES + 1
+                                ),
+                                is_done: false, session_id: None, stop_reason: None,
+                                cost_usd: None, duration_ms: None,
+                                model_id: Some(model_name_clone.clone()),
+                                input_tokens: None, output_tokens: None, cached_tokens: None,
+                            });
+                            std::thread::sleep(std::time::Duration::from_secs(wait_secs));
+                            attempt += 1;
+                        }
+                        Err(e) => break Err(e),
+                    }
+                }
+            };
+            let result = match call_result {
                 Ok(r) => r,
                 Err(error_msg) => {
                     provider_log(&conv_id_owned, "provider_error",
@@ -450,6 +485,13 @@ pub async fn generate(
     });
 
     Ok(rx)
+}
+
+/// Returns true for errors that are safe to retry (rate-limit or server errors).
+/// Only matches errors that occur before any streaming starts (i.e. HTTP status errors),
+/// so we never duplicate tokens that were already sent to the frontend.
+fn is_retryable_http_error(msg: &str) -> bool {
+    msg.starts_with("HTTP 429") || (msg.starts_with("HTTP 5") && msg.len() > 7)
 }
 
 /// Map HTTP error codes to user-friendly hints.

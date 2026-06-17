@@ -320,3 +320,16 @@ confirm):**
   log will show the last `decode_token` that committed — that's the exact token
   inside which `context.decode()` hung.
   Still needed: a UI-level "generation stuck >120s" notice (task #15 remains open).
+
+---
+
+## Pipeline comparison backlog (opencode-inspired)
+
+Derived from a side-by-side comparison of llama_cpp_rs_chat vs opencode pipelines.
+
+- [x] Typed error persistence — persist errors as final assistant message row in DB so they survive reload *(done)*
+- [x] Automatic retry for remote providers — wrap ureq SSE in `openai_compat/generate/mod.rs` with 3-attempt exponential backoff, retry on 429/5xx only *(done)*
+- [ ] Doom-loop confirmation prompt — if last 3 tool calls are identical (same name + args), pause and send a WS status message asking user to confirm before continuing
+- [ ] Reasoning token separation — detect `<think>…</think>` at engine level, emit with a `reasoning` flag on `TokenData`, front-end renders in a collapsible block
+- [ ] Message parts table — add `message_parts` table (or JSON parts column) persisting `{ type, content, tool_name?, tool_args?, tool_result? }` per turn; enables re-renderable UI and analytics
+- [ ] Cost tracking — add `total_cost_usd REAL` to `conversations` table; accumulate on each remote provider response using known per-token pricing
