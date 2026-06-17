@@ -212,18 +212,12 @@ fn handle_wry_command(
             false
         }
         WryCommand::Close => {
-            eprintln!("[WRY] Close requested");
-            // macOS: the loop owns the main thread for the process lifetime — just hide.
-            // Other platforms exit (the loop is recreated on the next browse).
-            #[cfg(target_os = "macos")]
-            {
-                window.set_visible(false);
-                false
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
-                true
-            }
+            eprintln!("[WRY] Close requested — hiding window");
+            // Hide the window on all platforms. On Windows, setting ControlFlow::Exit
+            // causes tao to call std::process::exit(), which kills the worker process.
+            // Hiding is safe: the event loop stays alive and re-shows on next navigate.
+            window.set_visible(false);
+            false
         }
     }
 }

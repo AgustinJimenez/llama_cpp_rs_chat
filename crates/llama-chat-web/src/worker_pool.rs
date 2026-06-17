@@ -303,6 +303,8 @@ impl WorkerPool {
     }
 
     /// Spawn a global worker for an agent and bind it.
+    /// If an existing worker already has this model loaded, bind it instead of spawning
+    /// a duplicate (which would hang trying to double-load the model into VRAM).
     pub async fn spawn_worker_for_agent(
         &self,
         agent_id: &str,
@@ -310,6 +312,26 @@ impl WorkerPool {
         gpu_layers: Option<u32>,
         mmproj_path: Option<String>,
     ) -> Result<WorkerId, String> {
+        let canonical = std::path::Path::new(model_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(model_path)
+            .to_lowercase();
+
+        for entry in self.list_entries() {
+            if let Some(meta) = entry.bridge.model_status().await {
+                let loaded_name = std::path::Path::new(&meta.model_path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(&meta.model_path)
+                    .to_lowercase();
+                if loaded_name == canonical {
+                    self.bind_agent_worker(agent_id, entry.id.clone())?;
+                    return Ok(entry.id);
+                }
+            }
+        }
+
         let worker_id = self
             .spawn_worker_with_options(model_path, gpu_layers, mmproj_path, Some(agent_id.to_string()))
             .await?;
