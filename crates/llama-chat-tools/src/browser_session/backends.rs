@@ -87,23 +87,22 @@ pub fn eval_in_browser_tab(js: &str, tab_id: &str) -> Result<String, String> {
         return Err(format!("eval_in_browser_tab({tab_id}): Tauri eval failed after retries"));
     }
 
-    // Try wry native WebView (web mode only — Tauri not running). wry has a single
-    // window, so it can only ever serve the default tab.
+    // Try wry native WebView (web mode only — Tauri not running). Each tab_id gets
+    // its own Window + WebView, created on demand.
     #[cfg(feature = "wry-browser")]
-    if tab_id == DEFAULT_TAB_ID {
-        return match crate::wry_browser::evaluate(js) {
-            Ok(result) => Ok(result),
-            Err(e) => Err(format!("eval_in_browser_tab: wry eval failed: {e}")),
-        };
-    }
+    return match crate::wry_browser::evaluate(js, tab_id) {
+        Ok(result) => Ok(result),
+        Err(e) => Err(format!("eval_in_browser_tab({tab_id}): wry eval failed: {e}")),
+    };
 
     #[allow(unreachable_code)]
-    Err(format!("eval_in_browser_tab({tab_id}): no browser backend available (Tauri not running, wry not compiled or tab_id not default)"))
+    Err(format!("eval_in_browser_tab({tab_id}): no browser backend available (Tauri not running, wry not compiled)"))
 }
 
 /// Navigate a specific browser tab — Tauri WebView or Chrome CDP fallback.
 /// In Tauri mode each tab_id gets its own child webview (created on demand by
-/// the `/bridge/browser/navigate` handler). In wry mode only the default tab works.
+/// the `/bridge/browser/navigate` handler). In wry mode each tab_id also gets
+/// its own Window + WebView, created on demand.
 pub fn navigate_browser_tab(url: &str, tab_id: &str) -> Result<(), String> {
     eprintln!("[BROWSER_HTTP] navigate_browser_tab({tab_id}): {url}");
 
@@ -124,24 +123,22 @@ pub fn navigate_browser_tab(url: &str, tab_id: &str) -> Result<(), String> {
         };
     }
 
-    // Try wry native WebView (web mode only — Tauri not running)
+    // Try wry native WebView (web mode only — Tauri not running). Each tab_id gets
+    // its own Window + WebView, created on demand.
     #[cfg(feature = "wry-browser")]
-    if tab_id == DEFAULT_TAB_ID {
-        return match crate::wry_browser::navigate(url) {
-            Ok(()) => {
-                eprintln!("[BROWSER_WRY] navigated to {url}");
-                Ok(())
-            }
-            Err(e) => Err(format!("navigate_browser_tab: wry navigate failed: {e}")),
-        };
-    }
+    return match crate::wry_browser::navigate(url, tab_id) {
+        Ok(()) => {
+            eprintln!("[BROWSER_WRY] tab '{tab_id}' navigated to {url}");
+            Ok(())
+        }
+        Err(e) => Err(format!("navigate_browser_tab({tab_id}): wry navigate failed: {e}")),
+    };
 
     #[allow(unreachable_code)]
-    Err(format!("navigate_browser_tab({tab_id}): no browser backend available (Tauri not running, wry not compiled or tab_id not default)"))
+    Err(format!("navigate_browser_tab({tab_id}): no browser backend available (Tauri not running, wry not compiled)"))
 }
 
-/// Close a specific browser tab — destroys its Tauri child webview (or the wry
-/// window, if this is the default tab).
+/// Close a specific browser tab — destroys its Tauri child webview or wry Window.
 pub fn close_browser_tab(tab_id: &str) -> Result<(), String> {
     let target = tab_label(tab_id);
     let _ = ureq::post(&format!("{TAURI_UI_BRIDGE_BASE}/bridge/browser/close"))
@@ -150,9 +147,7 @@ pub fn close_browser_tab(tab_id: &str) -> Result<(), String> {
         .send_string(&serde_json::json!({ "target": target }).to_string());
 
     #[cfg(feature = "wry-browser")]
-    if tab_id == DEFAULT_TAB_ID {
-        let _ = crate::wry_browser::close();
-    }
+    let _ = crate::wry_browser::close(tab_id);
 
     Ok(())
 }

@@ -105,9 +105,38 @@ pub struct ProviderPreset {
     pub models: &'static [&'static str],
     /// Environment variable name that may contain the API key.
     pub env_key: &'static str,
+    /// Fallback API key when no user key is configured (e.g. "public" for free-tier providers).
+    pub default_key: &'static str,
 }
 
 pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
+    ProviderPreset {
+        id: "opencode_zen",
+        name: "OpenCode Zen (Free)",
+        base_url: "https://opencode.ai/zen/v1",
+        description: "Free models via OpenCode Zen — no API key required",
+        models: &[
+            "deepseek-v4-flash-free",
+            "kimi-k2.5-free",
+            "qwen3.6-plus-free",
+            "glm-5-free",
+            "glm-4.7-free",
+            "grok-code",
+            "mimo-v2-pro-free",
+            "mimo-v2-omni-free",
+            "mimo-v2-flash-free",
+            "nemotron-3-super-free",
+            "ring-2.6-1t-free",
+            "minimax-m2.5-free",
+            "minimax-m2.1-free",
+            "hy3-preview-free",
+            "trinity-large-preview-free",
+            "ling-2.6-flash-free",
+            "big-pickle",
+        ],
+        env_key: "OPENCODE_API_KEY",
+        default_key: "public",
+    },
     ProviderPreset {
         id: "groq",
         name: "Groq",
@@ -115,6 +144,7 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
         description: "Ultra-fast inference (Groq LPU)",
         models: &["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"],
         env_key: "GROQ_API_KEY",
+        default_key: "",
     },
     ProviderPreset {
         id: "gemini",
@@ -123,6 +153,7 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
         description: "Google Gemini via OpenAI-compatible API",
         models: &["gemini-2.5-flash", "gemini-2.0-flash"],
         env_key: "GEMINI_API_KEY",
+        default_key: "",
     },
     ProviderPreset {
         id: "sambanova",
@@ -131,6 +162,7 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
         description: "SambaNova Cloud inference",
         models: &["DeepSeek-V3.2", "Meta-Llama-3.3-70B-Instruct", "Qwen3-235B", "Llama-4-Maverick-17B-128E-Instruct"],
         env_key: "SAMBANOVA_API_KEY",
+        default_key: "",
     },
     ProviderPreset {
         id: "cerebras",
@@ -139,6 +171,7 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
         description: "Cerebras fast inference",
         models: &["qwen-3-235b-a22b-instruct-2507", "llama3.1-8b"],
         env_key: "CEREBRAS_API_KEY",
+        default_key: "",
     },
     ProviderPreset {
         id: "openrouter",
@@ -147,6 +180,7 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
         description: "Access 100+ models via OpenRouter",
         models: &["auto"],
         env_key: "OPENROUTER_API_KEY",
+        default_key: "",
     },
     ProviderPreset {
         id: "together",
@@ -155,6 +189,7 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
         description: "Together AI inference",
         models: &["meta-llama/Llama-3.3-70B-Instruct-Turbo"],
         env_key: "TOGETHER_API_KEY",
+        default_key: "",
     },
     ProviderPreset {
         id: "deepseek",
@@ -163,6 +198,7 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
         description: "DeepSeek AI models",
         models: &["deepseek-v4-flash", "deepseek-v4-pro"],
         env_key: "DEEPSEEK_API_KEY",
+        default_key: "",
     },
     ProviderPreset {
         id: "mistral",
@@ -171,6 +207,7 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
         description: "Mistral AI models with tool calling",
         models: &["mistral-small-latest", "mistral-large-latest", "codestral-latest", "open-mistral-nemo"],
         env_key: "MISTRAL_API_KEY",
+        default_key: "",
     },
     ProviderPreset {
         id: "fireworks",
@@ -179,6 +216,7 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
         description: "Fast inference on open-weight models",
         models: &["accounts/fireworks/models/llama-v3p3-70b-instruct", "accounts/fireworks/models/qwen2p5-72b-instruct"],
         env_key: "FIREWORKS_API_KEY",
+        default_key: "",
     },
     ProviderPreset {
         id: "xai",
@@ -187,6 +225,7 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
         description: "xAI Grok models with tool calling",
         models: &["grok-2", "grok-2-mini"],
         env_key: "XAI_API_KEY",
+        default_key: "",
     },
     ProviderPreset {
         id: "nvidia",
@@ -195,6 +234,7 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
         description: "NVIDIA hosted inference (free daily limit)",
         models: &["meta/llama-3.1-70b-instruct", "mistralai/mistral-large-2-instruct"],
         env_key: "NVIDIA_API_KEY",
+        default_key: "",
     },
     ProviderPreset {
         id: "huggingface",
@@ -203,6 +243,7 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
         description: "Hugging Face Inference API (free tier)",
         models: &["meta-llama/Llama-3.1-70B-Instruct", "mistralai/Mistral-7B-Instruct-v0.3"],
         env_key: "HF_TOKEN",
+        default_key: "",
     },
     ProviderPreset {
         id: "cloudflare",
@@ -211,6 +252,7 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
         description: "Cloudflare Workers AI (free 10K neurons/day)",
         models: &["@cf/meta/llama-3.1-8b-instruct", "@cf/mistral/mistral-7b-instruct-v0.2"],
         env_key: "CLOUDFLARE_API_TOKEN",
+        default_key: "",
     },
     ProviderPreset {
         id: "glm",
@@ -219,6 +261,7 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
         description: "GLM models by Zhipu AI ($3-15/mo coding plan)",
         models: &["glm-5", "glm-4.7", "glm-4.6", "glm-4.5-air"],
         env_key: "GLM_API_KEY",
+        default_key: "",
     },
     ProviderPreset {
         id: "kimi",
@@ -227,6 +270,7 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
         description: "Kimi K2.5 by Moonshot AI (auto context caching)",
         models: &["kimi-k2.5", "moonshot-v1-auto"],
         env_key: "KIMI_API_KEY",
+        default_key: "",
     },
     ProviderPreset {
         id: "custom_openai",
@@ -235,5 +279,6 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
         description: "Any OpenAI-compatible endpoint (vLLM, Ollama, etc.)",
         models: &[],
         env_key: "",
+        default_key: "",
     },
 ];
