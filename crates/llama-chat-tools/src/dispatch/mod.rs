@@ -157,9 +157,14 @@ fn validate_tool_args(tool_name: &str, args: &serde_json::Value) -> Result<(), S
                         ));
                     }
                     Some(serde_json::Value::String(s)) if s.is_empty() => {
-                        return Err(format!(
-                            "Parameter '{field_name}' for tool '{tool_name}' cannot be empty"
-                        ));
+                        // write_file's content param is legitimately empty (e.g. creating __init__.py)
+                        if tool_name == "write_file" && field_name == "content" {
+                            // allowed
+                        } else {
+                            return Err(format!(
+                                "Parameter '{field_name}' for tool '{tool_name}' cannot be empty"
+                            ));
+                        }
                     }
                     _ => {}
                 }

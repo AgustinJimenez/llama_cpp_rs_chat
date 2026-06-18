@@ -30,7 +30,20 @@ pub(super) fn dispatch_text_tool(
             if command.is_empty() {
                 return Some("Error: 'command' argument is required".to_string());
             }
-            let command = llama_chat_command::rtk_prefix(command);
+            // Strip any "rtk " prefix the model may have added after reading CLAUDE.md.
+            // RTK wrapping is NOT applied here — it breaks shell builtins (mkdir, cd, etc.)
+            // and we already have our own output truncation/summarization pipeline.
+            let command = command.strip_prefix("rtk ").unwrap_or(command);
+            let working_dir = args.get("working_directory").and_then(|v| v.as_str());
+            let command = if let Some(dir) = working_dir {
+                if cfg!(target_os = "windows") {
+                    format!("cd /d \"{dir}\" && {command}")
+                } else {
+                    format!("cd \"{dir}\" && {command}")
+                }
+            } else {
+                command.to_string()
+            };
             let is_background = args
                 .get("background")
                 .and_then(|v| v.as_bool())
@@ -52,8 +65,8 @@ pub(super) fn dispatch_text_tool(
             if command.is_empty() {
                 return Some("Error: 'command' argument is required".to_string());
             }
-            let command = llama_chat_command::rtk_prefix(command);
-            llama_chat_command::execute_command_pty(&command, None, |_: &str| {})
+            let command = command.strip_prefix("rtk ").unwrap_or(command);
+            llama_chat_command::execute_command_pty(command, None, |_: &str| {})
         }
         "check_background_process" => {
             let pid = args

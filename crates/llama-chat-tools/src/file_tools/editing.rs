@@ -127,6 +127,36 @@ pub fn tool_edit_file(args: &Value) -> String {
         if norm_count > 1 {
             return format!("Error: old_string found {norm_count} times in {path} (after curly quote normalization). Include more surrounding context to make it unique.");
         }
+        // CRLF normalization fallback: files created on Windows often use \r\n but the
+        // model supplies \n-only strings. Normalize both sides and retry.
+        let crlf_content = content.replace("\r\n", "\n");
+        let crlf_old = old_string.replace("\r\n", "\n");
+        let crlf_count = crlf_content.matches(&crlf_old).count();
+        if crlf_count == 1 {
+            let crlf_new = new_string.replace("\r\n", "\n");
+            let new_content = crlf_content.replacen(&crlf_old, &crlf_new, 1);
+            let match_pos = crlf_content.find(&crlf_old).unwrap();
+            let line_num = crlf_content[..match_pos].lines().count().max(1);
+            let backup_path = format!("{path}.llama_bak");
+            let _ = std::fs::write(&backup_path, &content);
+            return match std::fs::write(path, &new_content) {
+                Ok(()) => {
+                    if let Some(mtime) = get_file_mtime(path) {
+                        if let Ok(mut cache) = file_mtime_cache().lock() {
+                            cache.insert(path.to_string(), mtime);
+                        }
+                    }
+                    invalidate_read_cache(path);
+                    invalidate_file_cache(path);
+                    let diff = simple_diff(&crlf_content, &new_content, path);
+                    format!("Edited {path} (CRLF normalized) at line {line_num}:\n{diff}")
+                }
+                Err(e) => format!("Error writing '{path}': {e}"),
+            };
+        }
+        if crlf_count > 1 {
+            return format!("Error: old_string found {crlf_count} times in {path} (after CRLF normalization). Include more surrounding context to make it unique.");
+        }
         return format!("Error: old_string not found in {path}. Make sure the text matches exactly (including whitespace and newlines).");
     }
     if match_count > 1 {

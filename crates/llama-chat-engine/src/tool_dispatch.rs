@@ -8,12 +8,6 @@ use llama_chat_command::{execute_command_streaming_with_timeout, strip_ansi_code
 use llama_chat_types::*;
 use super::sub_agent::{run_sub_agent};
 use super::tool_tags::ToolTags;
-/// Prefix a command with `rtk` for output compression — but only when the `rtk` binary is
-/// actually installed (otherwise the raw command runs, so execution works without rtk).
-pub(crate) fn rtk_prefix(cmd: &str) -> String {
-    llama_chat_command::rtk_prefix(cmd)
-}
-
 /// Check if a command is potentially destructive and return a warning.
 pub(crate) fn detect_destructive_command(cmd: &str) -> Option<&'static str> {
     let lower = cmd.to_lowercase();
@@ -249,7 +243,18 @@ pub(crate) fn execute_single_tool(
                 let timeout_secs = args.get("timeout").and_then(|v| {
                     v.as_u64().or_else(|| v.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
                 });
-                let rtk_cmd = rtk_prefix(cmd);
+                let cmd = cmd.strip_prefix("rtk ").unwrap_or(cmd);
+                let working_dir = args.get("working_directory").and_then(|v| v.as_str());
+                let cmd_with_dir_buf;
+                let cmd = if let Some(dir) = working_dir {
+                    cmd_with_dir_buf = if cfg!(target_os = "windows") {
+                        format!("cd /d \"{dir}\" && {cmd}")
+                    } else {
+                        format!("cd \"{dir}\" && {cmd}")
+                    };
+                    cmd_with_dir_buf.as_str()
+                } else { cmd };
+                let rtk_cmd = cmd;
                 if is_background {
                     log_info!(conversation_id, "🐚 Batch: background execute_command: {}", rtk_cmd);
                     let sender_clone = token_sender.clone();

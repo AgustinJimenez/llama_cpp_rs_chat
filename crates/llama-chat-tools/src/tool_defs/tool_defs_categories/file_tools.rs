@@ -123,6 +123,7 @@ pub static FILE_TOOLS: &[ToolDef] = &[
             p("command", "string", "The shell command to execute"),
             p("background", "boolean", "REQUIRED. Set true for long-running processes (dev servers, watchers, daemons like 'php artisan serve', 'npm run dev', 'python -m http.server'). Set false for everything else (installs, builds, one-shot commands). If true, returns after 5s with initial output and the PID."),
             p("timeout", "integer", "Optional. Max seconds of inactivity (no output) before the command is killed. Default 120 (2 min). Resets every time the command produces output. Use higher values for commands with long silent phases."),
+            p("working_directory", "string", "Optional. Run the command in this directory instead of the default working directory. Equivalent to cd-ing into the directory first."),
         ]),
         required: &["command", "background"],
     },
