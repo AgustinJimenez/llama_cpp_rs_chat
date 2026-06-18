@@ -283,7 +283,14 @@ pub(crate) fn execute_single_tool(
                             });
                         }
                     });
-                    return (text, Vec::new(), exec_start.elapsed().as_millis() as u64);
+                    let duration_ms = exec_start.elapsed().as_millis() as u64;
+                    // Heartbeat: resets WebSocket silence watchdog between back-to-back
+                    // execute_command calls in a serial batch. Without this, two silent
+                    // 120s commands would produce 240s of silence, exceeding the 180s watchdog.
+                    if let Some(ref sender) = token_sender {
+                        let _ = sender.send(TokenData::default());
+                    }
+                    return (text, Vec::new(), duration_ms);
                 }
             }
         }
@@ -301,6 +308,10 @@ pub(crate) fn execute_single_tool(
     ) {
         let native_duration_ms = native_start.elapsed().as_millis() as u64;
         log_info!(conversation_id, "📦 Batch: native tool '{}' dispatched (images={})", name, native_result.images.len());
+        // Heartbeat: resets WebSocket silence watchdog between serial batch tools.
+        if let Some(ref sender) = token_sender {
+            let _ = sender.send(TokenData::default());
+        }
         return (native_result.text, native_result.images, native_duration_ms);
     }
 
