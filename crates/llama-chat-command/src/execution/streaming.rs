@@ -97,7 +97,9 @@ pub fn execute_command_streaming_with_timeout(
 
             let inactivity_timeout_secs: u64 = timeout_override.unwrap_or(120);
             const POLL_INTERVAL_MS: u64 = 200;
-            const MAX_WALL_CLOCK_SECS: u64 = 120;
+            // Wall-clock cap scales with the model's timeout — if the model sets
+            // "timeout": 300 for a slow pip install, the wall-clock allows it too.
+            let max_wall_clock_secs = inactivity_timeout_secs.max(120);
 
             let mut was_cancelled = false;
             let mut inactivity_killed = false;
@@ -148,13 +150,13 @@ pub fn execute_command_streaming_with_timeout(
                     let elapsed = wall_start.elapsed().as_secs();
                     if elapsed == 60 || elapsed == 110 {
                         eprintln!(
-                            "[STREAM] Wall-clock check: {elapsed}s / {MAX_WALL_CLOCK_SECS}s limit, pid={child_pid}"
+                            "[STREAM] Wall-clock check: {elapsed}s / {max_wall_clock_secs}s limit, pid={child_pid}"
                         );
                     }
-                    if elapsed >= MAX_WALL_CLOCK_SECS {
+                    if elapsed >= max_wall_clock_secs {
                         let pid = child_pid;
                         eprintln!(
-                            "[STREAM] Wall-clock limit ({MAX_WALL_CLOCK_SECS}s) reached, detaching from pid={pid}"
+                            "[STREAM] Wall-clock limit ({max_wall_clock_secs}s) reached, detaching from pid={pid}"
                         );
                         let lines: Vec<&str> = output.lines().collect();
                         if lines.len() > 40 {
@@ -165,7 +167,7 @@ pub fn execute_command_streaming_with_timeout(
                             );
                         }
                         output.push_str(&format!(
-                            "\n[Command still running after {MAX_WALL_CLOCK_SECS}s (PID {pid}). It may be stuck or very slow. You can kill it with: taskkill /F /T /PID {pid}]\n"
+                            "\n[Command still running after {max_wall_clock_secs}s (PID {pid}). It may be stuck or very slow. You can kill it with: taskkill /F /T /PID {pid}]\n"
                         ));
                         kill_process_tree(pid);
                         unregister_streaming_process(pid);
@@ -218,8 +220,7 @@ pub fn execute_command_streaming_with_timeout(
                 }
             }
 
-            const POST_PIPE_WALL_LIMIT: u64 = MAX_WALL_CLOCK_SECS;
-            if wall_start.elapsed().as_secs() >= POST_PIPE_WALL_LIMIT {
+            if wall_start.elapsed().as_secs() >= max_wall_clock_secs {
                 {
                 let elapsed = wall_start.elapsed().as_secs();
                 eprintln!(
@@ -240,7 +241,7 @@ pub fn execute_command_streaming_with_timeout(
             let mut exit_code = -1i32;
             let mut success = false;
             let reap_deadline = std::time::Duration::from_secs(if wall_start.elapsed().as_secs()
-                >= POST_PIPE_WALL_LIMIT
+                >= max_wall_clock_secs
             {
                 1
             } else {
@@ -256,7 +257,7 @@ pub fn execute_command_streaming_with_timeout(
                     }
                     Ok(None)
                         if reap_start.elapsed() < reap_deadline
-                            && wall_start.elapsed().as_secs() < MAX_WALL_CLOCK_SECS =>
+                            && wall_start.elapsed().as_secs() < max_wall_clock_secs =>
                     {
                         std::thread::sleep(std::time::Duration::from_millis(200));
                     }

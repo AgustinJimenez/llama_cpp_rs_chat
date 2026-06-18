@@ -56,7 +56,15 @@ pub(super) fn todo_store() -> &'static StdMutex<HashMap<String, String>> {
     TODO_STORE.get_or_init(|| StdMutex::new(HashMap::new()))
 }
 
-pub fn extract_execute_command_with_opts(text: &str) -> Option<(String, bool)> {
+/// Parsed options from an execute_command tool call.
+pub struct ExecuteCommandOpts {
+    pub command: String,
+    pub background: bool,
+    pub timeout: Option<u64>,
+    pub working_directory: Option<String>,
+}
+
+pub fn extract_execute_command_with_opts(text: &str) -> Option<ExecuteCommandOpts> {
     if let Some((name, args)) = parsing::try_parse_tool_call(text) {
         if name == "execute_command" {
             let command = args.get("command").and_then(|v| v.as_str())?;
@@ -65,7 +73,14 @@ pub fn extract_execute_command_with_opts(text: &str) -> Option<(String, bool)> {
                     .get("background")
                     .and_then(parsing::value_as_bool_flexible)
                     .unwrap_or(false);
-                return Some((command.to_string(), background));
+                let timeout = args.get("timeout").and_then(|v| {
+                    v.as_u64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+                });
+                let working_directory = args
+                    .get("working_directory")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                return Some(ExecuteCommandOpts { command: command.to_string(), background, timeout, working_directory });
             }
         }
         return None;
@@ -79,7 +94,14 @@ pub fn extract_execute_command_with_opts(text: &str) -> Option<(String, bool)> {
                     .get("background")
                     .and_then(parsing::value_as_bool_flexible)
                     .unwrap_or(false);
-                return Some((command.to_string(), background));
+                let timeout = parsed.get("timeout").and_then(|v| {
+                    v.as_u64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+                });
+                let working_directory = parsed
+                    .get("working_directory")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                return Some(ExecuteCommandOpts { command: command.to_string(), background, timeout, working_directory });
             }
         }
     }

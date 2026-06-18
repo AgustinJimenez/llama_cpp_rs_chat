@@ -2,7 +2,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-use llama_chat_command::{execute_command_streaming, strip_ansi_codes};
+use llama_chat_command::{execute_command_streaming, execute_command_streaming_with_timeout, strip_ansi_codes};
 use llama_chat_command::background::execute_command_background;
 use llama_chat_types::*;
 
@@ -59,19 +59,27 @@ pub(crate) fn execute_single_call(
         }
     }
     // Check if this is an `execute_command` tool call
-    else if let Some((cmd, is_background)) = llama_chat_tools::extract_execute_command_with_opts(command_text) {
+    else if let Some(opts) = llama_chat_tools::extract_execute_command_with_opts(command_text) {
         // Security checks
-        if let Some(injection_msg) = detect_command_injection(&cmd) {
+        if let Some(injection_msg) = detect_command_injection(&opts.command) {
             injection_msg
         } else {
-            if let Some(warning) = detect_destructive_command(&cmd) {
-                eprintln!("[SECURITY] {}: {}", warning, &cmd[..cmd.len().min(100)]);
-                llama_chat_db::event_log::log_event(conversation_id, "security_warning", &format!("{}: {}", warning, &cmd[..cmd.len().min(80)]));
+            if let Some(warning) = detect_destructive_command(&opts.command) {
+                eprintln!("[SECURITY] {}: {}", warning, &opts.command[..opts.command.len().min(100)]);
+                llama_chat_db::event_log::log_event(conversation_id, "security_warning", &format!("{}: {}", warning, &opts.command[..opts.command.len().min(80)]));
             }
 
-            let cmd = if cmd.starts_with("rtk ") { cmd[4..].to_string() } else { cmd };
-            let rtk_cmd = cmd.clone();
-            if is_background {
+            let cmd = opts.command.strip_prefix("rtk ").unwrap_or(&opts.command).to_string();
+            // Apply working_directory by prepending a cd
+            let cmd = if let Some(ref dir) = opts.working_directory {
+                if cfg!(target_os = "windows") {
+                    format!("cd /d \"{dir}\" && {cmd}")
+                } else {
+                    format!("cd \"{dir}\" && {cmd}")
+                }
+            } else { cmd };
+            let rtk_cmd = cmd;
+            if opts.background {
                 log_info!(conversation_id, "🐚 Background execute_command: {}", rtk_cmd);
                 let sender_clone = token_sender.clone();
                 execute_command_background(&rtk_cmd, |line| {
@@ -86,11 +94,11 @@ pub(crate) fn execute_single_call(
                     }
                 })
             } else {
-                log_info!(conversation_id, "🐚 Streaming execute_command: {}", rtk_cmd);
+                log_info!(conversation_id, "🐚 Streaming execute_command (timeout={:?}s): {}", opts.timeout, rtk_cmd);
                 llama_chat_db::event_log::log_event(conversation_id, "tool_exec", &format!("execute_command: {}", &rtk_cmd[..rtk_cmd.len().min(100)]));
                 let exec_start = std::time::Instant::now();
                 let sender_clone = token_sender.clone();
-                let result = execute_command_streaming(&rtk_cmd, cancel.clone(), |line| {
+                let result = execute_command_streaming_with_timeout(&rtk_cmd, cancel.clone(), opts.timeout, &mut |line| {
                     if let Some(ref sender) = sender_clone {
                         let _ = sender.send(TokenData {
                             token: format!("{}\n", strip_ansi_codes(line)),
@@ -102,7 +110,7 @@ pub(crate) fn execute_single_call(
                     }
                 });
                 let elapsed_ms = exec_start.elapsed().as_millis();
-                let one_liner = tool_use_one_liner_pub("execute_command", &cmd[..cmd.len().min(60)], &result, elapsed_ms as u64);
+                let one_liner = tool_use_one_liner_pub("execute_command", &rtk_cmd[..rtk_cmd.len().min(60)], &result, elapsed_ms as u64);
                 llama_chat_db::event_log::log_event(conversation_id, "tool_done", &one_liner);
                 llama_chat_db::event_log::log_event(
                     conversation_id,
