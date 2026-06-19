@@ -152,6 +152,16 @@ pub(crate) fn sanitize_and_summarize(
         return (sanitized.clone(), sanitized);
     }
 
+    // Tools that need exact content — summarizing destroys their usefulness.
+    // read_file/edit_file: model needs actual code to edit. write_file: confirmation is already short.
+    let tool_lower = p.tool_name_for_log.to_lowercase();
+    let no_summarize = tool_lower.contains("read_file")
+        || tool_lower.contains("write_file")
+        || tool_lower.contains("edit_file");
+    if no_summarize {
+        return (sanitized.clone(), sanitized);
+    }
+
     if p.raw_output.len() > SUMMARIZE_THRESHOLD || sanitized.len() > SUMMARIZE_THRESHOLD {
         let summarize_result = if let Some(ref prompt) = custom_summary_prompt {
             summarize_tool_output_with_prompt(p.model, p.backend, &sanitized, p.chat_template_string, p.conversation_id, Some(prompt))

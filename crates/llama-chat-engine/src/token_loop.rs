@@ -14,7 +14,7 @@ use tokio::sync::mpsc;
 use llama_chat_types::*;
 use crate::SharedConversationLogger;
 use super::command_executor::{
-    check_and_execute_command_with_tags, inject_output_tokens,
+    check_and_execute_command_with_tags, inject_output_tokens, execute_parallel_block,
 };
 use super::stop_conditions::{check_stop_conditions, ExecBlockTracker};
 use llama_chat_db::event_log::log_event;
@@ -232,7 +232,15 @@ pub(crate) fn run_generation_loop(
                 };
                 let force_continue = gen.tool_response_tokens > 0 && !has_text_output && gen.eos_continue_count < 3;
 
-                if gen.tool_response_tokens > 0 && (gen.eos_continue_count < 3 || force_continue) {
+                // In agent mode (tool tags are set), if the model hits EOS before making
+                // any tool call at all (pure planning text), probe once before accepting.
+                // This prevents the model from stopping after a narrated plan without acting.
+                let is_agent_mode = !cfg.tags.exec_open.is_empty();
+                let probe_no_tool_calls = is_agent_mode
+                    && gen.tool_response_tokens == 0
+                    && gen.eos_continue_count == 0;
+
+                if (gen.tool_response_tokens > 0 && gen.eos_continue_count < 3) || force_continue || probe_no_tool_calls {
                     let check = if force_continue {
                         // Skip the probe — inject a newline to nudge the model to write text.
                         eprintln!("[EOS_GUARD] No text output yet — skipping DONE probe, forcing continuation");
@@ -453,18 +461,45 @@ pub(crate) fn run_generation_loop(
             // Fast gate: only call the expensive detector when the new token
             // contains a character that could close a tool call block.
             let token_has_close_char = token_str.as_bytes().iter().any(|&b| b == b'>' || b == b']' || b == b'}');
-            if token_has_close_char {
-                watchdog.pause();
-                let tool_check_result = check_and_execute_command_with_tags(
-                    &gen.response, gen.last_exec_scan_pos, cfg.conversation_id, model, cfg.tags,
-                    cfg.template_type,
-                    &mut gen.recent_commands, &mut gen.consecutive_loop_blocks, token_sender, gen.token_pos, cfg.context_size,
-                    Some(cancel.clone()), cfg.use_htmd, cfg.browser_backend,
-                    cfg.mcp_manager.clone(), cfg.db.clone(),
-                    cfg.backend, cfg.chat_template_string,
-                );
-                watchdog.resume();
-                watchdog.ping();
+            // parallel_just_closed() is set to true for exactly the token that closed the fence,
+            // then cleared on the next update() call. We can't use is_in_parallel_block() here
+            // because update() already reset it to false before we check.
+            let parallel_complete = gen.exec_tracker.parallel_just_closed();
+
+            if parallel_complete || token_has_close_char {
+                let tool_check_result = if parallel_complete {
+                    // Execute all buffered tool calls from the parallel fence concurrently.
+                    watchdog.pause();
+                    let r = execute_parallel_block(
+                        &gen.response,
+                        gen.exec_tracker.parallel_block_start(),
+                        cfg.conversation_id, model, cfg.tags, cfg.template_type,
+                        token_sender, gen.token_pos, cfg.context_size,
+                        Some(cancel.clone()), cfg.use_htmd, cfg.browser_backend,
+                        cfg.mcp_manager.clone(), cfg.db.clone(),
+                        cfg.backend, cfg.chat_template_string,
+                    );
+                    watchdog.resume();
+                    watchdog.ping();
+                    r
+                } else if gen.exec_tracker.is_in_parallel_block() {
+                    // Inside a parallel fence but not yet at the closing tag —
+                    // suppress normal per-call detection (let the model keep generating).
+                    Ok(None)
+                } else {
+                    watchdog.pause();
+                    let r = check_and_execute_command_with_tags(
+                        &gen.response, gen.last_exec_scan_pos, cfg.conversation_id, model, cfg.tags,
+                        cfg.template_type,
+                        &mut gen.recent_commands, &mut gen.consecutive_loop_blocks, token_sender, gen.token_pos, cfg.context_size,
+                        Some(cancel.clone()), cfg.use_htmd, cfg.browser_backend,
+                        cfg.mcp_manager.clone(), cfg.db.clone(),
+                        cfg.backend, cfg.chat_template_string,
+                    );
+                    watchdog.resume();
+                    watchdog.ping();
+                    r
+                };
 
                 if let Some(mut exec_result) = tool_check_result? {
                     // Sync accumulated content + command output to logger
@@ -490,7 +525,7 @@ pub(crate) fn run_generation_loop(
                     // This prevents infinite search/navigation loops from consuming the full context.
                     // Plain text (no tool tags) so the model sees it as the start of its own
                     // assistant turn and continues generating a text response, not another tool call.
-                    const MAX_TOOL_CALLS: u32 = 40;
+                    const MAX_TOOL_CALLS: u32 = 200;
                     if gen.tool_call_count == MAX_TOOL_CALLS {
                         let warning = format!(
                             "\n\n⚠️ [IMPORTANT: You have reached the maximum of {MAX_TOOL_CALLS} tool calls. You MUST stop making tool calls immediately and write your complete final response now. Summarize everything you have gathered so far in clear prose. Do NOT invoke any more tools.]\n\n"
@@ -669,10 +704,22 @@ pub(crate) fn run_generation_loop(
                     hit_stop_condition = false;
                     gen.last_exec_scan_pos = gen.response.len();
                     gen.exec_tracker = ExecBlockTracker::new();
+
+                    // Trim response buffer after each tool call so the repetition
+                    // detector doesn't false-trigger when writing multiple structurally-
+                    // similar files (e.g., 5 Blade templates with similar PHP/HTML).
+                    const RESPONSE_RETAIN_TAIL: usize = 1000;
+                    if gen.response.len() > RESPONSE_RETAIN_TAIL {
+                        let trim = gen.response.len() - RESPONSE_RETAIN_TAIL;
+                        gen.response.drain(..trim);
+                        gen.last_exec_scan_pos = gen.response.len();
+                        gen.logger_synced_len = gen.logger_synced_len.saturating_sub(trim);
+                    }
+
                     stall_checkpoint = Instant::now();
                     break 'token;
                 }
-            } // token_has_close_char
+            } // parallel_complete || token_has_close_char
         } // 'token
 
         if hit_stop_condition {

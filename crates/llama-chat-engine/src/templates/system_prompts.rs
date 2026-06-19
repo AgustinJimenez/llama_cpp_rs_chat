@@ -53,8 +53,15 @@ pub(crate) fn core_behavior_block() -> String {
 - The `"background"` flag is REQUIRED for execute_command. Set true for servers/daemons (php artisan serve, npm run dev, python -m http.server). Set false for everything else.
 - Package installs, builds, and one-shot commands run in FOREGROUND with streaming output.
 - Commands have a 5-minute wall-clock timeout to prevent indefinite hangs.
-- To poll: call `check_background_process` with `"wait_seconds": 15`. Repeat until "exited". Max 10 polls.
+- To poll: call `check_background_process` with `"wait_seconds": 30`. Repeat until "exited". No hard poll limit — keep polling as long as the process is legitimately running.
+- If `check_background_process` returns a **timeout error**, that means the 30-second check window elapsed with no output — the background process is still running. It does NOT mean the process failed. Continue polling.
 - Use `list_background_processes` to see all tracked background processes and their status.
+
+## Long-Running Processes
+- Many legitimate operations take a long time: package installs on cold cache (composer, npm, pip, cargo), compiler builds (cargo build --release, cmake, make), large file downloads, database imports, video encoding, etc. Do not assume a slow process is stuck.
+- Do NOT kill a background process just because it has been running for several minutes with no visible output. Silence is normal during download, compile, or extract phases.
+- Before aborting any long-running process, verify intent: check whether files are appearing in the expected output location, inspect CPU/disk activity if possible, or simply wait longer. Only kill a process if it has been running for an unreasonably long time (30+ minutes) with zero filesystem changes.
+- When in doubt, keep polling. Killing and restarting wastes all the progress made so far.
 
 ## Research First
 - When working with a framework or library you're not fully confident about, search the web (browser_navigate to Google) to find docs, then `browser_get_text` to read them. Your training data may be outdated.
@@ -113,6 +120,34 @@ pub fn get_universal_system_prompt_with_tags(tags: &ToolTags) -> String {
     let output_open = &tags.output_open;
     let output_close = &tags.output_close;
 
+    // Show <parallel_calls> example in the model's native format so it recognizes it.
+    // Qwen uses XML parameter style; other models use JSON array style.
+    let parallel_example = if output_open == "<tool_response>" {
+        format!(
+            "<parallel_calls>\n\
+            {exec_open}\n\
+            <function=write_file>\n\
+            <parameter=path>a.txt</parameter>\n\
+            <parameter=content>content of a</parameter>\n\
+            </function>\n\
+            {exec_close}\n\
+            {exec_open}\n\
+            <function=write_file>\n\
+            <parameter=path>b.txt</parameter>\n\
+            <parameter=content>content of b</parameter>\n\
+            </function>\n\
+            {exec_close}\n\
+            </parallel_calls>"
+        )
+    } else {
+        format!(
+            "<parallel_calls>\n\
+            {exec_open}[{{\"name\": \"write_file\", \"arguments\": {{\"path\": \"a.txt\", \"content\": \"...\"}}}}]{exec_close}\n\
+            {exec_open}[{{\"name\": \"write_file\", \"arguments\": {{\"path\": \"b.txt\", \"content\": \"...\"}}}}]{exec_close}\n\
+            </parallel_calls>"
+        )
+    };
+
     format!(
         r#"You are a helpful AI assistant with full system access.
 
@@ -128,6 +163,14 @@ To run multiple independent tools at once, include them all in the same array �
   {{"name": "tool_a", "arguments": {{"param": "value"}}}},
   {{"name": "tool_b", "arguments": {{"param": "value"}}}}
 ]{exec_close}
+
+To write or create **multiple independent files in parallel**, wrap your tool calls inside a `<parallel_calls>` fence. ALL calls execute simultaneously — do NOT wait for a response between them:
+
+{parallel_example}
+
+- Use `<parallel_calls>` when writing 2+ independent files at once
+- Do NOT use for dependent operations (e.g., write then edit the same file)
+- Close `</parallel_calls>` only after ALL calls are written
 
 After execution, the system injects the result between {output_open} and {output_close} tags. Do NOT generate {output_open} yourself — wait for the injected result.
 

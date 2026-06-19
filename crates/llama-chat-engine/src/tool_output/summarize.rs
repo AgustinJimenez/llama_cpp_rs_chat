@@ -6,11 +6,11 @@ use crate::generation::create_fresh_context;
 use llama_chat_types::*;
 
 /// Minimum output size (chars) to trigger LLM sub-agent summarization (GPU).
-pub(crate) const SUMMARIZE_THRESHOLD: usize = 1500;
+pub(crate) const SUMMARIZE_THRESHOLD: usize = 4000;
 /// Context size for each tool-output summarization pass (tokens).
-pub(crate) const SUMMARY_CTX_SIZE: u32 = 4096;
+pub(crate) const SUMMARY_CTX_SIZE: u32 = 8192;
 /// Maximum tokens to generate per tool-output summary.
-pub(crate) const SUMMARY_MAX_TOKENS: usize = 256;
+pub(crate) const SUMMARY_MAX_TOKENS: usize = 512;
 /// Maximum chars per chunk for map-reduce summarization.
 const SUMMARY_CHUNK_CHARS: usize = 5000;
 pub(crate) const COMPACT_SUMMARY_CTX_SIZE: u32 = 8192;

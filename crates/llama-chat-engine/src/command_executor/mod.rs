@@ -20,6 +20,9 @@ pub(crate) use super::tool_output::{
 };
 
 pub use inject::inject_output_tokens;
+pub use self::execute_parallel::execute_parallel_block;
+
+mod execute_parallel;
 
 /// Result of command execution
 pub struct CommandExecutionResult {
@@ -163,6 +166,7 @@ pub fn check_and_execute_command_with_tags(
                     mcp_manager.clone(),
                     db.clone(),
                     model, backend, chat_template_string, tags,
+                    false, // force_parallel: use normal read/write classification
                 )
             } else {
                 single_exec::execute_single_call(

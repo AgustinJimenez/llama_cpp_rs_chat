@@ -17,6 +17,10 @@ pub type ToolResult = (String, Vec<Vec<u8>>);
 
 /// Execute a batch of tool calls (len > 1).
 ///
+/// `force_parallel`: when true, treat ALL tools as parallelizable regardless of
+/// read/write classification. Use this for explicit `<parallel_calls>` batches
+/// where the model has declared the calls are independent.
+///
 /// Returns the combined output string and collected image bytes.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn execute_batch_tools(
@@ -34,22 +38,28 @@ pub(crate) fn execute_batch_tools(
     backend: &llama_cpp_2::llama_backend::LlamaBackend,
     chat_template_string: Option<&str>,
     tags: &crate::tool_tags::ToolTags,
+    force_parallel: bool,
 ) -> (String, Vec<Vec<u8>>, Option<String>) {
     let mut combined_output = String::new();
     let mut all_response_images: Vec<Vec<u8>> = Vec::new();
     let mut image_summary_prompt: Option<String> = None;
 
-    // Group consecutive tool calls by read-only vs write classification.
+    // Group consecutive tool calls by parallelizability.
+    // With force_parallel, all tools are treated as a single parallel group.
     let mut groups: Vec<(bool, Vec<usize>)> = Vec::new();
-    for (i, (name, _args)) in all_calls.iter().enumerate() {
-        let is_ro = is_read_only_tool(name);
-        if let Some(last) = groups.last_mut() {
-            if last.0 == is_ro {
-                last.1.push(i);
-                continue;
+    if force_parallel {
+        groups.push((true, (0..all_calls.len()).collect()));
+    } else {
+        for (i, (name, _args)) in all_calls.iter().enumerate() {
+            let is_ro = is_read_only_tool(name);
+            if let Some(last) = groups.last_mut() {
+                if last.0 == is_ro {
+                    last.1.push(i);
+                    continue;
+                }
             }
+            groups.push((is_ro, vec![i]));
         }
-        groups.push((is_ro, vec![i]));
     }
 
     // Log the execution plan
