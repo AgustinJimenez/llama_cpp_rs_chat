@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import checker from 'vite-plugin-checker';
+// import checker from 'vite-plugin-checker'; // temporarily disabled
 import path from 'path';
 
 export default defineConfig({
@@ -9,17 +9,18 @@ export default defineConfig({
     // TypeScript + ESLint checking in dev — errors/warnings appear in browser overlay
     // and terminal so they're caught before commit. ESLint is disabled for production
     // builds because lint warnings block Tauri installer builds.
-    checker({
-      typescript: true,
-      ...(process.env.NODE_ENV !== 'production' ? {
-        eslint: {
-          lintCommand: "eslint './src/**/*.{ts,tsx}' --rule 'i18next/no-literal-string: off'",
-          useFlatConfig: false,
-        },
-      } : {}),
-      overlay: { initialIsOpen: 'error' },
-      enableBuild: process.env.NODE_ENV === 'production',
-    }),
+    // checker temporarily disabled to diagnose Vite startup hang
+    // checker({
+    //   typescript: true,
+    //   ...(process.env.NODE_ENV !== 'production' ? {
+    //     eslint: {
+    //       lintCommand: "eslint './src/**/*.{ts,tsx}' --rule 'i18next/no-literal-string: off'",
+    //       useFlatConfig: false,
+    //     },
+    //   } : {}),
+    //   overlay: { initialIsOpen: 'error' },
+    //   enableBuild: process.env.NODE_ENV === 'production',
+    // }),
   ],
   clearScreen: false,
   server: {

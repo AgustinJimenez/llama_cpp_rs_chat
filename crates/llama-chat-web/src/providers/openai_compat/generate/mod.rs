@@ -51,6 +51,7 @@ pub async fn generate(
     db: Option<&llama_chat_db::SharedDatabase>,
     user_params: Option<&serde_json::Value>,
     image_data: Option<&[String]>,
+    max_turns: Option<u32>,
     mcp_bridge: Option<llama_chat_worker::worker::worker_bridge::SharedWorkerBridge>,
 ) -> Result<mpsc::UnboundedReceiver<CliTokenData>, String> {
     let (tx, rx) = mpsc::unbounded_channel();
@@ -61,11 +62,13 @@ pub async fn generate(
         "[OPENAI_COMPAT] generate() provider={provider_id} model={model_name} url={url}"
     );
 
-    // Read max_tool_calls from config (default 2000)
+    // Read max_tool_calls from config (default 2000); user-provided max_turns takes priority
     let config = db.map(|d| d.load_config());
-    let max_iterations = config.as_ref()
-        .map(|c| c.max_tool_calls as usize)
-        .unwrap_or(MAX_AGENTIC_ITERATIONS);
+    let max_iterations = max_turns
+        .map(|t| t as usize)
+        .unwrap_or_else(|| config.as_ref()
+            .map(|c| c.max_tool_calls as usize)
+            .unwrap_or(MAX_AGENTIC_ITERATIONS));
     let loop_limit = config.as_ref()
         .map(|c| c.loop_detection_limit as u32)
         .unwrap_or(15);

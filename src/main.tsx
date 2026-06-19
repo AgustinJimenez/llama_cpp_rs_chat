@@ -15,10 +15,11 @@ import { setupFrontendLogging } from './utils/logging.ts';
 
 setupFrontendLogging();
 
-if (import.meta.env.DEV) {
-  const axe = await import('@axe-core/react');
-  axe.default(React, ReactDOM, 1000);
-}
+// axe temporarily disabled — freezes on cold Vite cache (on-demand bundling of @axe-core takes 45s+)
+// if (import.meta.env.DEV) {
+//   const axe = await import('@axe-core/react');
+//   axe.default(React, ReactDOM, 1000);
+// }
 
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('Root element not found');

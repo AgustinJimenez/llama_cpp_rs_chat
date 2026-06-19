@@ -3730,6 +3730,7 @@ dependencies = [
  "portable-pty",
  "rusqlite",
  "strip-ansi-escapes",
+ "sysinfo",
 ]
 
 [[package]]

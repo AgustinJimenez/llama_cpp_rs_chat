@@ -10,6 +10,7 @@ lazy_static = "1.4"
 rusqlite = { version = "0.30", features = ["bundled"] }
 portable-pty = "0.8"
 strip-ansi-escapes = "0.2"
+sysinfo = "0.33"
 
 [target.'cfg(not(windows))'.dependencies]
 libc = "0.2"

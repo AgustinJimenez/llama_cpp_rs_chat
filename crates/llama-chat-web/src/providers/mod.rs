@@ -388,13 +388,13 @@ pub async fn generate(
                 .ok_or_else(|| format!("No API key configured for provider '{id}'. Set it in Settings or via environment variable."))?;
             let base_url = openai_compat::resolve_base_url(id, api_keys_json)
                 .ok_or_else(|| format!("No base URL configured for provider '{id}'."))?;
-            openai_compat::generate(id, prompt, model, &base_url, &api_key, conversation_id, db, user_params, image_data, mcp_bridge).await
+            openai_compat::generate(id, prompt, model, &base_url, &api_key, conversation_id, db, user_params, image_data, max_turns, mcp_bridge).await
         }
         id if id.starts_with("custom_") => {
             let api_key = openai_compat::resolve_custom_field(id, "api_key", api_keys_json).unwrap_or_default();
             let base_url = openai_compat::resolve_custom_field(id, "base_url", api_keys_json)
                 .ok_or_else(|| format!("No base URL configured for custom provider '{id}'."))?;
-            openai_compat::generate(id, prompt, model, &base_url, &api_key, conversation_id, db, user_params, image_data, mcp_bridge).await
+            openai_compat::generate(id, prompt, model, &base_url, &api_key, conversation_id, db, user_params, image_data, max_turns, mcp_bridge).await
         }
         _ => Err(format!("Unknown provider: {provider_id}")),
     }

@@ -4,8 +4,32 @@ import { useTranslation } from 'react-i18next';
 import { useAgentContext } from '../../contexts/AgentContext';
 import { useChatContext } from '../../contexts/ChatContext';
 import { useModelContext } from '../../contexts/ModelContext';
+import type { Agent } from '../../types';
 
 const CHARS_PER_TOKEN = 4;
+
+function resolveActiveAgent(
+  currentConversationId: string | null,
+  conversationAgent: Agent | null,
+  stagedAgent: Agent | null,
+): Agent | null {
+  return currentConversationId ? conversationAgent : (conversationAgent ?? stagedAgent);
+}
+
+function useAgentProviderInfo(
+  activeAgent: Agent | null,
+  activeProvider: string,
+  agentStatuses: Record<string, { status: string }>,
+) {
+  const isRemoteProvider =
+    activeProvider !== 'local' || (activeAgent !== null && activeAgent.provider_id !== 'local');
+  const localAgentStatus =
+    activeAgent !== null && activeAgent.provider_id === 'local'
+      ? agentStatuses[activeAgent.id]?.status
+      : undefined;
+  const isLocalAgentReady = localAgentStatus === 'active' || localAgentStatus === 'generating';
+  return { isRemoteProvider, isLocalAgentReady };
+}
 
 export function useInputState() {
   const { t } = useTranslation();
@@ -22,15 +46,12 @@ export function useInputState() {
   const { stagedAgent, conversationAgent, agentStatuses } = useAgentContext();
   const hasVision = status.has_vision ?? false;
   const isModelBusy = isModelLoading && loadingAction !== null;
-  const isRemoteProvider = activeProvider !== 'local';
-  const activeLocalAgent = currentConversationId
-    ? conversationAgent
-    : (conversationAgent ?? stagedAgent);
-  const localAgentStatus =
-    activeLocalAgent !== null && activeLocalAgent.provider_id === 'local'
-      ? agentStatuses[activeLocalAgent.id]?.status
-      : undefined;
-  const isLocalAgentReady = localAgentStatus === 'active' || localAgentStatus === 'generating';
+  const activeAgent = resolveActiveAgent(currentConversationId, conversationAgent, stagedAgent);
+  const { isRemoteProvider, isLocalAgentReady } = useAgentProviderInfo(
+    activeAgent,
+    activeProvider,
+    agentStatuses,
+  );
 
   const [isCompacting, setIsCompacting] = useState(false);
   useEffect(() => {
@@ -75,7 +96,7 @@ export function useInputState() {
   }, [messages]);
   const modelContextSize =
     status.context_size ??
-    (activeLocalAgent?.provider_id === 'local' ? activeLocalAgent.context_size : undefined);
+    (activeAgent?.provider_id === 'local' ? activeAgent.context_size : undefined);
   const isModelLoaded = status.loaded || isRemoteProvider || isLocalAgentReady;
   return {
     t,

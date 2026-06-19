@@ -8,6 +8,48 @@ use std::time::Instant;
 use crate::utils::silent_command;
 use llama_chat_db::SharedDatabase;
 
+/// Returns a one-line activity summary for a PID: RSS and child process names.
+/// Example: "RSS: 245 MB | Child processes: 6 (php.exe ×6)"
+fn process_activity_summary(pid: u32) -> Option<String> {
+    use sysinfo::System;
+    let mut sys = System::new();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    let sysinfo_pid = sysinfo::Pid::from_u32(pid);
+    let proc = sys.process(sysinfo_pid)?;
+
+    let rss_mb = proc.memory() / 1_048_576;
+
+    // Collect child process names
+    let mut child_names: Vec<String> = sys
+        .processes()
+        .values()
+        .filter(|p| p.parent() == Some(sysinfo_pid))
+        .map(|p| p.name().to_string_lossy().to_string())
+        .collect();
+    child_names.sort();
+
+    let child_part = if child_names.is_empty() {
+        String::new()
+    } else {
+        // Count occurrences of each unique name
+        let mut counts: Vec<(String, usize)> = Vec::new();
+        for name in &child_names {
+            if let Some(last) = counts.last_mut().filter(|(n, _)| n == name) {
+                last.1 += 1;
+            } else {
+                counts.push((name.clone(), 1));
+            }
+        }
+        let summary: Vec<String> = counts
+            .iter()
+            .map(|(name, n)| if *n > 1 { format!("{name} ×{n}") } else { name.clone() })
+            .collect();
+        format!(" | Child processes: {} ({})", child_names.len(), summary.join(", "))
+    };
+
+    Some(format!("RSS: {rss_mb} MB{child_part}"))
+}
+
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
@@ -518,6 +560,13 @@ pub fn check_background_process(pid: u32, wait_seconds: u64, max_checks: usize) 
     };
 
     let is_running = proc.running.load(Ordering::Relaxed);
+    let activity = if is_running {
+        process_activity_summary(pid)
+            .map(|s| format!(" | {s}"))
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
     let status = if is_running { "running" } else { "exited" };
 
     let buf = match proc.output_buffer.lock() {
@@ -558,7 +607,7 @@ pub fn check_background_process(pid: u32, wait_seconds: u64, max_checks: usize) 
             }
         }
         let mut result = format!(
-            "PID {pid}: {}\nStatus: {status} (running for {elapsed_str})\nNo new output since last check.",
+            "PID {pid}: {}\nStatus: {status} (running for {elapsed_str}{activity})\nNo new output since last check.",
             proc.command
         );
         if is_running {
@@ -572,7 +621,7 @@ pub fn check_background_process(pid: u32, wait_seconds: u64, max_checks: usize) 
         let new_line_count = new_lines.len();
         let new_lines_joined = new_lines.join("\n");
         let mut result = format!(
-            "PID {pid}: {}\nStatus: {status} (running for {elapsed_str})\nNew output ({new_line_count} lines):\n{new_lines_joined}",
+            "PID {pid}: {}\nStatus: {status} (running for {elapsed_str}{activity})\nNew output ({new_line_count} lines):\n{new_lines_joined}",
             proc.command
         );
         if is_running {
