@@ -81,18 +81,23 @@ pub async fn eval_js_in(app: &AppHandle, js: &str, target: &str) -> Result<Strin
         }})()"#,
     );
 
-    // Find the target webview
+    // Find the target webview — try by name first, then fall back to main window
+    // for generic UI eval targets. Per-tab browser panels use labels like
+    // "browser-panel-tab-1" and must be resolved by exact name.
     let webviews = app.webviews();
-    let webview = if target == "browser-panel" || target == "agent-browser" {
-        webviews.get(target)
-            .ok_or("Browser panel not open. Use browser_navigate first.")?
-            .clone()
-    } else if let Some(wv) = app.get_webview_window("main") {
-        wv.as_ref().clone()
-    } else if let Some(wv) = webviews.values().next() {
+    let webview = if let Some(wv) = webviews.get(target) {
         wv.clone()
+    } else if target == "main" || target == "ui" {
+        // Generic UI eval target — use main Tauri window
+        app.get_webview_window("main")
+            .ok_or("Main window not found")?
+            .as_ref()
+            .clone()
+    } else if target == "browser-panel" || target == "agent-browser" {
+        // Legacy single-tab names that were not found in webviews map
+        return Err(format!("Browser panel '{}' not open. Use browser_navigate first.", target));
     } else {
-        return Err("No webview available".into());
+        return Err(format!("Webview '{}' not found — use browser_navigate first", target));
     };
 
     // Use WebView2 ExecuteScript directly — returns result via COM callback.

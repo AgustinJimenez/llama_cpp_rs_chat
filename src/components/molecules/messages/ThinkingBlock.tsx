@@ -39,37 +39,37 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ content, isStreami
   }, [isStreaming]);
 
   const timeLabel = elapsed >= MIN_ELAPSED_DISPLAY_SECONDS ? ` (${elapsed.toFixed(1)}s)` : '';
+  const thinkingLabel = isStreaming ? `Thinking...${timeLabel}` : `Thinking${timeLabel}`;
+
+  // Qwen3 emits empty <think></think> tags between tool calls — skip rendering
+  if (!isStreaming && !content.trim()) return null;
 
   return (
-    <div className="rounded-xl overflow-hidden" style={{ border: '1px solid hsl(220 8% 28%)' }}>
+    <div className="overflow-hidden rounded-xl" style={{ border: '1px solid hsl(220 8% 28%)' }}>
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full bg-muted px-3 py-2 flex items-center gap-2 text-left hover:bg-accent transition-colors"
+        className="flex w-full items-center gap-2 bg-muted px-3 py-2 text-left transition-colors hover:bg-accent"
       >
-        {isStreaming ? (
-          <span className="inline-block w-3 h-3 border-2 border-foreground/50 border-t-transparent rounded-full animate-spin flex-shrink-0" />
-        ) : null}
-        <span className="text-xs font-medium text-foreground flex-1">
-          {isStreaming ? `Thinking...${timeLabel}` : `Thinking${timeLabel}`}
+        <span
+          className={`flex-1 text-xs font-medium ${isStreaming ? 'shimmer-text' : 'text-foreground'}`}
+        >
+          {thinkingLabel}
         </span>
-        {isOpen ? (
-          <ChevronDown className="h-3.5 w-3.5 text-foreground flex-shrink-0" />
-        ) : (
-          <ChevronRight className="h-3.5 w-3.5 text-foreground flex-shrink-0" />
-        )}
+        {!!isOpen && <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 text-foreground" />}
+        {!isOpen && <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-foreground" />}
       </button>
-      {isOpen ? (
+      {!!isOpen && (
         <pre
-          className="text-xs text-foreground font-mono bg-card px-3 py-2 whitespace-pre-wrap leading-relaxed max-h-64 overflow-y-auto"
+          className="max-h-64 overflow-y-auto whitespace-pre-wrap bg-card px-3 py-2 font-mono text-xs leading-relaxed text-foreground"
           style={{ borderTop: '1px solid hsl(220 8% 28%)' }}
         >
           {content}
-          {isStreaming ? (
-            <span className="inline-block w-1.5 h-3.5 bg-foreground/50 ml-0.5 animate-pulse align-middle" />
-          ) : null}
+          {!!isStreaming && (
+            <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-foreground/50 align-middle" />
+          )}
         </pre>
-      ) : null}
+      )}
     </div>
   );
 };

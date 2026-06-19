@@ -6,11 +6,11 @@ use crate::generation::create_fresh_context;
 use llama_chat_types::*;
 
 /// Minimum output size (chars) to trigger LLM sub-agent summarization (GPU).
-pub(crate) const SUMMARIZE_THRESHOLD: usize = 1500;
+pub(crate) const SUMMARIZE_THRESHOLD: usize = 4000;
 /// Context size for each tool-output summarization pass (tokens).
-pub(crate) const SUMMARY_CTX_SIZE: u32 = 4096;
+pub(crate) const SUMMARY_CTX_SIZE: u32 = 8192;
 /// Maximum tokens to generate per tool-output summary.
-pub(crate) const SUMMARY_MAX_TOKENS: usize = 256;
+pub(crate) const SUMMARY_MAX_TOKENS: usize = 512;
 /// Maximum chars per chunk for map-reduce summarization.
 const SUMMARY_CHUNK_CHARS: usize = 5000;
 pub(crate) const COMPACT_SUMMARY_CTX_SIZE: u32 = 8192;
@@ -83,10 +83,10 @@ pub(crate) fn run_summary_pass(
     ]);
 
     let mut summary = String::new();
-    let mut token_pos = tokens.len() as i32;
+    let prompt_len = tokens.len() as i32;
     let eos_token = model.token_eos();
 
-    for _ in 0..SUMMARY_MAX_TOKENS {
+    for i in 0..SUMMARY_MAX_TOKENS {
         let next_token = sampler.sample(&ctx, -1);
         if next_token == eos_token { break; }
 
@@ -97,12 +97,12 @@ pub(crate) fn run_summary_pass(
 
         summary.push_str(&token_str);
 
+        let token_pos = prompt_len + i as i32;
         batch.clear();
         batch.add(next_token, token_pos, &[0], true)
             .map_err(|e| format!("Summary gen batch add failed: {e}"))?;
         ctx.decode(&mut batch)
             .map_err(|e| format!("Summary gen decode failed: {e}"))?;
-        token_pos += 1;
     }
 
     drop(ctx);
@@ -217,10 +217,10 @@ pub fn run_summary_pass_with_system(
     ]);
 
     let mut summary = String::new();
-    let mut token_pos = tokens.len() as i32;
+    let prompt_len = tokens.len() as i32;
     let eos_token = model.token_eos();
 
-    for _ in 0..max_tokens {
+    for i in 0..max_tokens {
         let next_token = sampler.sample(&ctx, -1);
         if next_token == eos_token { break; }
 
@@ -231,12 +231,12 @@ pub fn run_summary_pass_with_system(
 
         summary.push_str(&token_str);
 
+        let token_pos = prompt_len + i as i32;
         batch.clear();
         batch.add(next_token, token_pos, &[0], true)
             .map_err(|e| format!("Summary gen batch add failed: {e}"))?;
         ctx.decode(&mut batch)
             .map_err(|e| format!("Summary gen decode failed: {e}"))?;
-        token_pos += 1;
     }
 
     drop(ctx);
@@ -330,10 +330,10 @@ pub fn run_summary_reusing_ctx_with_system(
     ]);
 
     let mut summary = String::new();
-    let mut token_pos = tokens.len() as i32;
+    let prompt_len = tokens.len() as i32;
     let eos_token = model.token_eos();
 
-    for _ in 0..max_tokens {
+    for i in 0..max_tokens {
         let next_token = sampler.sample(ctx, -1);
         if next_token == eos_token { break; }
 
@@ -344,12 +344,12 @@ pub fn run_summary_reusing_ctx_with_system(
 
         summary.push_str(&token_str);
 
+        let token_pos = prompt_len + i as i32;
         batch.clear();
         batch.add(next_token, token_pos, &[0], true)
             .map_err(|e| format!("Summary gen batch add failed: {e}"))?;
         ctx.decode(&mut batch)
             .map_err(|e| format!("Summary gen decode failed: {e}"))?;
-        token_pos += 1;
     }
 
     let result = summary.trim().to_string();

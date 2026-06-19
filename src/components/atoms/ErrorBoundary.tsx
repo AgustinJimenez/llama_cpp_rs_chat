@@ -30,13 +30,13 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       if (this.props.fallback) return this.props.fallback;
       return (
         <div className="flex flex-col items-center justify-center p-8 text-center">
-          <p className="text-sm text-destructive font-medium mb-2">Something went wrong</p>
-          <p className="text-xs text-muted-foreground mb-4 max-w-md">
+          <p className="mb-2 text-sm font-medium text-destructive">Something went wrong</p>
+          <p className="mb-4 max-w-md text-xs text-muted-foreground">
             {this.state.error?.message || 'An unexpected error occurred'}
           </p>
           <button
             onClick={this.handleRetry}
-            className="px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+            className="rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground transition-colors hover:bg-primary/90"
           >
             Try again
           </button>

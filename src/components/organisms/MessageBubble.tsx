@@ -1,15 +1,90 @@
-import { Pencil, RefreshCw, Play, Loader2 } from 'lucide-react';
+import { Pencil, RefreshCw, Play, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import React, { useState, useRef, useEffect } from 'react';
 
 import { useModelContext } from '../../contexts/ModelContext';
 import type { MessageSegment } from '../../hooks/useMessageParsing';
 import { useMessageParsing } from '../../hooks/useMessageParsing';
-import type { Message } from '../../types';
+import type { Message, ToolCall } from '../../types';
 import { LoadingIndicator } from '../atoms';
 import { MarkdownContent } from '../molecules/MarkdownContent';
 import { CompactionSummary, ThinkingBlock, ToolCallBlock } from '../molecules/messages';
+import { StreamingText } from '../molecules/messages/StreamingText';
 
 const MIN_VALID_TIMESTAMP_MS = 1_000_000_000_000;
+
+const TOOL_GROUP_THRESHOLD = 3;
+
+type RenderedSegment = MessageSegment | { type: 'tool_call_group'; toolCalls: ToolCall[] };
+
+function groupConsecutiveToolCalls(segments: MessageSegment[]): RenderedSegment[] {
+  const result: RenderedSegment[] = [];
+  let i = 0;
+  while (i < segments.length) {
+    const seg = segments[i];
+    if (seg.type === 'tool_call') {
+      const run: ToolCall[] = [seg.toolCall];
+      let j = i + 1;
+      while (j < segments.length && segments[j].type === 'tool_call') {
+        run.push((segments[j] as { type: 'tool_call'; toolCall: ToolCall }).toolCall);
+        j++;
+      }
+      if (run.length >= TOOL_GROUP_THRESHOLD) {
+        result.push({ type: 'tool_call_group', toolCalls: run });
+      } else {
+        run.forEach((tc) => result.push({ type: 'tool_call', toolCall: tc }));
+      }
+      i = j;
+    } else {
+      result.push(seg);
+      i++;
+    }
+  }
+  return result;
+}
+
+const ToolCallGroup: React.FC<{ toolCalls: ToolCall[]; isGenerating?: boolean }> = ({
+  toolCalls,
+  isGenerating,
+}) => {
+  const [expanded, setExpanded] = useState(false);
+
+  const counts = toolCalls.reduce<Record<string, number>>((acc, tc) => {
+    acc[tc.name] = (acc[tc.name] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  const summary = Object.entries(counts)
+    .map(([name, n]) => {
+      const label = name
+        .split('_')
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' ');
+      return n > 1 ? `${label} ×${n}` : label;
+    })
+    .join(', ');
+
+  const Chevron = expanded ? ChevronDown : ChevronRight;
+  const expandedPanel = expanded ? (
+    <div className="border-t border-border/30 px-3 py-2">
+      <ToolCallBlock toolCalls={toolCalls} isGenerating={isGenerating} />
+    </div>
+  ) : null;
+
+  return (
+    <div className="rounded border border-border/50 bg-muted/30">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-foreground/70 hover:text-foreground/90"
+      >
+        <Chevron className="h-3 w-3 flex-shrink-0" />
+        <span className="font-medium">{toolCalls.length} tool calls</span>
+        <span className="text-foreground/40">— {summary}</span>
+      </button>
+      {expandedPanel}
+    </div>
+  );
+};
 
 /** Format a message timestamp for display. Returns null for fake counter values. */
 function formatTimestamp(ts: number): string | null {
@@ -45,28 +120,31 @@ const SystemMessage: React.FC<{ message: Message; cleanContent: string; isError:
   message,
   cleanContent,
   isError,
-}) => (
-  <div
-    className="w-full flex justify-center"
-    data-testid={`message-${message.role}`}
-    data-message-id={message.id}
-  >
+}) => {
+  const label = isError ? '❌ SYSTEM ERROR' : '⚠️ SYSTEM';
+  return (
     <div
-      className={`max-w-[90%] w-full px-4 py-2 rounded-lg ${
-        isError ? 'bg-red-950 border-2 border-red-500' : 'bg-yellow-950 border-2 border-yellow-500'
-      }`}
+      className="flex w-full justify-center"
+      data-testid={`message-${message.role}`}
+      data-message-id={message.id}
     >
-      <div className="flex items-center gap-2">
-        <span className="text-sm font-bold text-white">
-          {isError ? '❌ SYSTEM ERROR' : '⚠️ SYSTEM'}
-        </span>
-        <span className={`text-sm ${isError ? 'text-red-200' : 'text-yellow-200'}`}>
-          {cleanContent}
-        </span>
+      <div
+        className={`w-full max-w-[90%] rounded-lg px-4 py-2 ${
+          isError
+            ? 'border-2 border-red-500 bg-red-950'
+            : 'border-2 border-yellow-500 bg-yellow-950'
+        }`}
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-bold text-white">{label}</span>
+          <span className={`text-sm ${isError ? 'text-red-200' : 'text-yellow-200'}`}>
+            {cleanContent}
+          </span>
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 /**
  * Collapsed system prompt display.
@@ -76,13 +154,13 @@ const SystemPromptMessage: React.FC<{ message: Message; cleanContent: string }> 
   cleanContent,
 }) => (
   <div
-    className="w-full flex justify-center"
+    className="flex w-full justify-center"
     data-testid={`message-${message.role}`}
     data-message-id={message.id}
   >
-    <details className="max-w-[90%] w-full bg-muted border border-border rounded-lg p-3">
-      <summary className="text-sm font-semibold cursor-pointer select-none">System prompt</summary>
-      <pre className="text-sm whitespace-pre-wrap leading-relaxed text-foreground mt-2">
+    <details className="w-full max-w-[90%] rounded-lg border border-border bg-muted p-3">
+      <summary className="cursor-pointer select-none text-sm font-semibold">System prompt</summary>
+      <pre className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
         {cleanContent}
       </pre>
     </details>
@@ -124,6 +202,7 @@ const UserMessage: React.FC<{
     if (!trimmed || messageIndex == null || !onEditMessage) return;
     setIsEditing(false);
     onEditMessage(messageIndex, trimmed);
+    window.dispatchEvent(new CustomEvent('edit-message-submitted'));
   };
 
   const handleCancel = () => {
@@ -149,26 +228,26 @@ const UserMessage: React.FC<{
         data-testid={`message-${message.role}`}
         data-message-id={message.id}
       >
-        <div className="max-w-[85%] w-full space-y-2">
+        <div className="w-full max-w-[85%] space-y-2">
           <textarea
             ref={textareaRef}
             value={editContent}
             onChange={(e) => setEditContent(e.target.value)}
             onKeyDown={handleKeyDown}
-            className="w-full px-4 py-3 rounded-2xl bg-muted border border-border text-sm text-foreground resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+            className="w-full resize-none rounded-2xl border border-border bg-muted px-4 py-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
             rows={Math.min(editContent.split('\n').length + 1, 10)}
           />
           <div className="flex justify-end gap-2">
             <button
               onClick={handleCancel}
-              className="px-3 py-1 text-xs rounded-lg text-foreground/70 hover:text-foreground hover:bg-muted transition-colors"
+              className="rounded-lg px-3 py-1 text-xs text-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
             >
               Cancel
             </button>
             <button
               onClick={handleSubmit}
               disabled={!editContent.trim()}
-              className="px-3 py-1 text-xs rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+              className="rounded-lg bg-primary px-3 py-1 text-xs text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
             >
               Submit
             </button>
@@ -180,25 +259,25 @@ const UserMessage: React.FC<{
 
   return (
     <div
-      className="group flex w-full justify-end items-start gap-1"
+      className="group flex w-full items-start justify-end gap-1"
       data-testid={`message-${message.role}`}
       data-message-id={message.id}
     >
       {/* Edit button — appears on hover */}
-      {canEdit ? (
+      {!!canEdit && (
         <button
           onClick={handleStartEdit}
-          className="opacity-0 group-hover:opacity-100 mt-3 p-1 rounded text-foreground/30 hover:text-foreground/70 transition-all"
+          className="mt-3 rounded p-1 text-foreground/30 opacity-0 transition-all hover:text-foreground/70 group-hover:opacity-100"
           aria-label="Edit message"
           data-testid="edit-message-btn"
         >
           <Pencil size={14} />
         </button>
-      ) : null}
-      <div className="max-w-[85%]">
+      )}
+      <div className="min-w-0 max-w-[85%]">
         <div className="flat-message-user px-4 py-3">
           {/* Attached images */}
-          {message.image_data && message.image_data.length > 0 ? (
+          {!!message.image_data?.length && (
             <div className="mb-2 flex flex-wrap gap-2">
               {/* eslint-disable react/no-array-index-key -- base64 images have no stable ID */}
               {message.image_data.map((img, i) => (
@@ -211,12 +290,12 @@ const UserMessage: React.FC<{
               ))}
               {/* eslint-enable react/no-array-index-key */}
             </div>
-          ) : null}
+          )}
           {(() => {
             if (viewMode === 'raw') {
               return (
                 <pre
-                  className="text-xs whitespace-pre-wrap leading-relaxed font-mono"
+                  className="whitespace-pre-wrap font-mono text-xs leading-relaxed"
                   data-testid="message-content"
                 >
                   {message.content}
@@ -228,7 +307,7 @@ const UserMessage: React.FC<{
             }
             return (
               <p
-                className="text-sm whitespace-pre-wrap leading-relaxed"
+                className="whitespace-pre-wrap text-sm leading-relaxed [overflow-wrap:anywhere]"
                 data-testid="message-content"
               >
                 {cleanContent}
@@ -236,11 +315,11 @@ const UserMessage: React.FC<{
             );
           })()}
         </div>
-        {formatTimestamp(message.timestamp) ? (
-          <div className="text-[10px] text-white/50 mt-0.5 text-right pr-1">
+        {!!formatTimestamp(message.timestamp) && (
+          <div className="mt-0.5 pr-1 text-right text-[10px] text-white/50">
             {formatTimestamp(message.timestamp)}
           </div>
-        ) : null}
+        )}
       </div>
     </div>
   );
@@ -275,111 +354,122 @@ const AssistantMessage: React.FC<{
 }) => {
   const { status, activeProvider } = useModelContext();
   const modelReady = status.loaded || activeProvider !== 'local';
+  const ariaLive = isStreaming ? ('polite' as const) : undefined;
+  const thinkingStreamingProp = isThinkingStreaming ? isStreaming : undefined;
   return (
     <div
-      className="w-full flex justify-start"
+      className="flex w-full justify-start"
       data-testid={`message-${message.role}`}
       data-message-id={message.id}
-      aria-live={isStreaming ? 'polite' : undefined}
+      aria-live={ariaLive}
     >
       <div className="w-full space-y-3 overflow-hidden">
-        {viewMode === 'raw' ? (
+        {viewMode === 'raw' && (
           /* Raw mode: show unprocessed content with no parsing */
           <pre
-            className="text-xs whitespace-pre-wrap leading-relaxed font-mono"
+            className="whitespace-pre-wrap font-mono text-xs leading-relaxed"
             data-testid="message-content"
           >
             {message.content}
           </pre>
-        ) : (
+        )}
+        {viewMode !== 'raw' && (
           <>
             {/* Thinking process — only when not already placed chronologically in segments */}
-            {thinkingContent != null && !segments.some((s) => s.type === 'thinking') ? (
-              <ThinkingBlock
-                content={thinkingContent}
-                isStreaming={isThinkingStreaming ? isStreaming : undefined}
-              />
-            ) : null}
+            {thinkingContent != null && !segments.some((s) => s.type === 'thinking') && (
+              <ThinkingBlock content={thinkingContent} isStreaming={thinkingStreamingProp} />
+            )}
 
             {/* Interleaved text, command blocks, tool calls, and thinking in chronological order */}
             {/* eslint-disable react/no-array-index-key -- segments are positional with no stable ID */}
-            {segments.map((segment, index) => {
-              if (segment.type === 'thinking') {
-                const isLastSeg = index === segments.length - 1;
-                return (
-                  <ThinkingBlock
-                    key={`seg-think-${index}`}
-                    content={segment.content}
-                    isStreaming={isLastSeg && isThinkingStreaming ? isStreaming : undefined}
-                  />
-                );
-              }
-              if (segment.type === 'tool_call') {
-                return (
-                  <ToolCallBlock
-                    key={`seg-tc-${index}`}
-                    toolCalls={[segment.toolCall]}
-                    isGenerating={isGenerating}
-                  />
-                );
-              }
-              if (segment.type === 'tool_call_pending') {
-                return (
-                  <div
-                    key={`seg-tcp-${index}`}
-                    className="w-full rounded bg-muted px-3 py-2 flex items-center gap-2 text-xs text-foreground/70"
-                  >
-                    <Loader2 className="h-3 w-3 animate-spin flex-shrink-0" />
-                    <span className="font-medium">{segment.name ?? 'tool call'}</span>
-                    <span className="text-foreground/40">writing arguments…</span>
-                  </div>
-                );
-              }
-              // Text segment — no bubble, just text on background
-              const text = segment.content;
-              if (!text.trim()) return null;
-              return (
-                <div key={`seg-txt-${index}`}>
-                  {viewMode === 'markdown' ? (
+            {(isStreaming ? segments : groupConsecutiveToolCalls(segments)).map(
+              (segment, index) => {
+                if (segment.type === 'tool_call_group') {
+                  return (
+                    <ToolCallGroup
+                      key={`seg-tcg-${index}`}
+                      toolCalls={segment.toolCalls}
+                      isGenerating={isGenerating}
+                    />
+                  );
+                }
+                if (segment.type === 'thinking') {
+                  const isLastSeg = index === segments.length - 1;
+                  const segThinkStreamProp =
+                    isLastSeg && isThinkingStreaming ? isStreaming : undefined;
+                  return (
+                    <ThinkingBlock
+                      key={`seg-think-${index}`}
+                      content={segment.content}
+                      isStreaming={segThinkStreamProp}
+                    />
+                  );
+                }
+                if (segment.type === 'tool_call') {
+                  return (
+                    <ToolCallBlock
+                      key={`seg-tc-${index}`}
+                      toolCalls={[segment.toolCall]}
+                      isGenerating={isGenerating}
+                    />
+                  );
+                }
+                if (segment.type === 'tool_call_pending') {
+                  // Only show while actively streaming — persisted messages with incomplete
+                  // tool calls (e.g. worker died mid-generation) should not show a spinner.
+                  if (!isStreaming) return null;
+                  return (
+                    <div
+                      key={`seg-tcp-${index}`}
+                      className="flex w-full items-center gap-2 rounded bg-muted px-3 py-2 text-xs text-foreground/70"
+                    >
+                      <Loader2 className="h-3 w-3 flex-shrink-0 animate-spin" />
+                      <span className="font-medium">{segment.name ?? 'tool call'}</span>
+                      <span className="text-foreground/40">writing arguments…</span>
+                    </div>
+                  );
+                }
+                // Text segment — no bubble, just text on background
+                const text = segment.content;
+                if (!text.trim()) return null;
+                const isLastTextSeg = index === segments.length - 1;
+                const segStreaming = isLastTextSeg ? isStreaming : undefined;
+                const textContent =
+                  viewMode === 'markdown' ? (
                     <MarkdownContent content={text} testId="message-content" />
                   ) : (
-                    <p
-                      className="text-sm whitespace-pre-wrap leading-relaxed"
-                      data-testid="message-content"
-                    >
-                      {text}
-                    </p>
-                  )}
-                </div>
-              );
-            })}
+                    <StreamingText content={text} isStreaming={segStreaming} />
+                  );
+                return <div key={`seg-txt-${index}`}>{textContent}</div>;
+              },
+            )}
             {/* eslint-enable react/no-array-index-key */}
-            {isStreaming ? <LoadingIndicator /> : null}
+            {!!isStreaming && <LoadingIndicator />}
           </>
         )}
-        {!isStreaming && formatTimestamp(message.timestamp) ? (
-          <div className="flex items-center gap-2 mt-0.5 pl-1">
+        {!isStreaming && !!formatTimestamp(message.timestamp) && (
+          <div className="mt-0.5 flex items-center gap-2 pl-1">
             <span className="text-[10px] text-white/50">{formatTimestamp(message.timestamp)}</span>
-            {isLastAssistant && !isGenerating && modelReady && onContinue ? (
+            {!!isLastAssistant && !isGenerating && !!modelReady && !!onContinue && (
               <button
                 onClick={onContinue}
-                className="text-white/30 hover:text-white/70 transition-colors p-0.5"
+                className="p-0.5 text-white/30 transition-colors hover:text-white/70"
                 title="Continue generation"
               >
                 <Play className="h-3 w-3" />
               </button>
-            ) : null}
-            {isLastAssistant && !isGenerating && modelReady && onRegenerate ? (
+            )}
+            {!!isLastAssistant && !isGenerating && !!modelReady && !!onRegenerate && (
               <button
                 onClick={onRegenerate}
-                className="text-white/30 hover:text-white/70 transition-colors p-0.5"
+                className="p-0.5 text-white/30 transition-colors hover:text-white/70"
                 title="Regenerate response"
               >
                 <RefreshCw className="h-3 w-3" />
               </button>
-            ) : null}
+            )}
           </div>
-        ) : null}
+        )}
       </div>
     </div>
   );
@@ -406,6 +496,9 @@ export const MessageBubble: React.FC<MessageBubbleProps> = React.memo(
 
     // System messages
     const displayContent = viewMode === 'raw' ? message.content : cleanContent;
+    if (message.role === 'error') {
+      return <SystemMessage message={message} cleanContent={displayContent} isError />;
+    }
     if (message.role === 'system') {
       if (message.isSystemPrompt) {
         return <SystemPromptMessage message={message} cleanContent={displayContent} />;
@@ -432,6 +525,10 @@ export const MessageBubble: React.FC<MessageBubbleProps> = React.memo(
     }
 
     // Assistant messages
+    const onContinueProp =
+      onContinue && messageIndex != null ? () => onContinue(messageIndex) : undefined;
+    const onRegenerateProp =
+      onRegenerate && messageIndex != null ? () => onRegenerate(messageIndex) : undefined;
     return (
       <AssistantMessage
         message={message}
@@ -442,10 +539,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = React.memo(
         isStreaming={isStreaming}
         isGenerating={isGenerating}
         isLastAssistant={isLastMessage}
-        onContinue={onContinue && messageIndex != null ? () => onContinue(messageIndex) : undefined}
-        onRegenerate={
-          onRegenerate && messageIndex != null ? () => onRegenerate(messageIndex) : undefined
-        }
+        onContinue={onContinueProp}
+        onRegenerate={onRegenerateProp}
       />
     );
   },

@@ -161,7 +161,7 @@ fn main() {
 
     #[allow(deprecated)]
     let s = model.token_to_str(next, llama_cpp_2::model::Special::Tokenize).unwrap_or_default();
-    println!("  Token: {:?}", s);
+    println!("  Token: {s:?}");
 
     // If we get here, try a 3rd injection
     println!("\n--- Turn 2: 3rd tool injection ---");
@@ -191,7 +191,7 @@ fn eval_tokens(ctx: &mut llama_cpp_2::context::LlamaContext, batch: &mut LlamaBa
 
 fn inject_tokens(model: &LlamaModel, ctx: &mut llama_cpp_2::context::LlamaContext, batch: &mut LlamaBatch, mut token_pos: i32, text: &str) -> i32 {
     let tokens = model.str_to_token(text, AddBos::Never).expect("Tokenize failed");
-    println!("  Injecting {} tokens at pos {}", tokens.len(), token_pos);
+    println!("  Injecting {} tokens at pos {token_pos}", tokens.len());
     eval_tokens(ctx, batch, &tokens, token_pos);
     token_pos += tokens.len() as i32;
     println!("  Done. token_pos={token_pos}");
@@ -212,10 +212,10 @@ fn generate_tokens(
         let next = sampler.sample(ctx, -1);
         let ms = t.elapsed().as_millis();
         if ms > 1000 {
-            println!("  [SLOW] sample() took {}ms at token {}", ms, i);
+            println!("  [SLOW] sample() took {ms}ms at token {i}");
         }
         if ms > 5000 {
-            println!("  [HANG DETECTED] sample() took {}ms — aborting", ms);
+            println!("  [HANG DETECTED] sample() took {ms}ms — aborting");
             break;
         }
 

@@ -6,7 +6,6 @@
 ///
 /// GET  /api/hub/downloads         — list all download records
 /// POST /api/hub/downloads/verify  — prune records whose files are missing, return clean list
-
 use std::convert::Infallible;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -307,32 +306,68 @@ pub async fn handle_post_download(
     let dest_file = dest_dir.join(&sanitized);
     let part_file = dest_dir.join(format!("{sanitized}.part"));
 
-    // If the final file already exists, return done immediately
-    if dest_file.exists() {
-        let size = std::fs::metadata(&dest_file).map(|m| m.len()).unwrap_or(0);
-        let done = serde_json::json!({
-            "type": "done",
-            "path": dest_file.to_string_lossy(),
-            "bytes": size,
-        });
-        let sse = format!("data: {done}\n\n");
-        return Ok(Response::builder()
-            .status(StatusCode::OK)
-            .header("content-type", "text/event-stream")
-            .header("cache-control", "no-cache")
-            .header("access-control-allow-origin", "*")
-            .header("access-control-allow-methods", "GET, POST, PUT, DELETE, OPTIONS")
-            .header("access-control-allow-headers", "content-type, authorization")
-            .body(Body::from(sse))
-            .unwrap());
-    }
-
-    // Build HF download URL
+    // Build HF download URL (also used to verify the size of an existing file).
     let url = format!(
         "https://huggingface.co/{}/resolve/main/{}",
         dl.model_id,
         urlencoding::encode(&dl.filename),
     );
+
+    // If the final file already exists, verify it's actually complete before reporting
+    // done. Externally-downloaded or interrupted files can be truncated; in that case
+    // convert it to a `.part` so `download_file_blocking` resumes from where it stopped
+    // via an HTTP Range request (HF files are immutable per revision, so the existing
+    // bytes are valid to append to).
+    if dest_file.exists() {
+        let local_size = std::fs::metadata(&dest_file).map(|m| m.len()).unwrap_or(0);
+        // Prefer HF's `x-linked-size` (the true file size for Xet-backed repos, present on
+        // the resolve 302) and fall back to `content-length` (the CDN response after the
+        // redirect). This is robust whether or not the HEAD follows the redirect.
+        let expected_size = ureq::head(&url)
+            .set("User-Agent", "Mozilla/5.0 (compatible; LlamaChat/1.0)")
+            .call()
+            .ok()
+            .and_then(|r| {
+                r.header("x-linked-size")
+                    .or(r.header("content-length"))
+                    .and_then(|s| s.parse::<u64>().ok())
+            });
+
+        // Complete when the size matches — or when the remote size can't be determined
+        // (don't force a re-download we can't justify).
+        let complete = match expected_size {
+            Some(expected) => local_size >= expected,
+            None => true,
+        };
+
+        if complete {
+            let done = serde_json::json!({
+                "type": "done",
+                "path": dest_file.to_string_lossy(),
+                "bytes": local_size,
+            });
+            let sse = format!("data: {done}\n\n");
+            return Ok(Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", "text/event-stream")
+                .header("cache-control", "no-cache")
+                .header("access-control-allow-origin", "*")
+                .header("access-control-allow-methods", "GET, POST, PUT, DELETE, OPTIONS")
+                .header("access-control-allow-headers", "content-type, authorization")
+                .body(Body::from(sse))
+                .unwrap());
+        }
+
+        // Incomplete → stage the partial bytes as a .part file and fall through to the
+        // resuming download path below.
+        let _ = std::fs::remove_file(&part_file);
+        if std::fs::rename(&dest_file, &part_file).is_err() {
+            return Ok(json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Existing file is incomplete and could not be prepared for resume",
+            ));
+        }
+    }
 
     // SSE channel
     let (mut sender, body) = Body::channel();

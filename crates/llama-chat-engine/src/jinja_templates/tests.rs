@@ -5,7 +5,6 @@ mod tests {
         get_available_tools_openai,
         ChatMessage,
     };
-    use super::super::tool_catalog::*;
     // preprocess_template and epoch_days_to_ymd are pub(crate), access via parent
     use crate::jinja_templates::{preprocess_template, epoch_days_to_ymd};
 

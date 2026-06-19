@@ -27,6 +27,13 @@ module.exports = {
     },
   },
   rules: {
+    // React compiler rules — only meaningful when using the React compiler (we're not).
+    // These fire on valid patterns (async fetches in effects, Date.now() in useRef, etc.)
+    'react-hooks/set-state-in-effect': 'off',
+    'react-hooks/purity': 'off',
+    'react-hooks/preserve-manual-memoization': 'off',
+    'react-hooks/incompatible-library': 'off',
+
     // File & function size limits
     'max-lines': ['warn', { max: 500, skipBlankLines: true, skipComments: true }],
     'max-lines-per-function': ['warn', { max: 160, skipBlankLines: true, skipComments: true }],
@@ -34,8 +41,8 @@ module.exports = {
 
     // TypeScript
     '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
-    '@typescript-eslint/consistent-type-imports': ['warn', { prefer: 'type-imports' }],
-    '@typescript-eslint/no-explicit-any': 'warn',
+    '@typescript-eslint/consistent-type-imports': ['error', { prefer: 'type-imports' }],
+    '@typescript-eslint/no-explicit-any': 'error',
     '@typescript-eslint/no-non-null-assertion': 'warn',
     '@typescript-eslint/prefer-nullish-coalescing': 'off', // needs type-checking parser (too slow)
     '@typescript-eslint/prefer-optional-chain': 'off', // needs type-checking parser
@@ -47,6 +54,7 @@ module.exports = {
       alphabetize: { order: 'asc', caseInsensitive: true },
     }],
     'import/no-duplicates': 'error',
+    'import/no-default-export': 'error',
 
     // React: arrow function components only
     'react/function-component-definition': ['error', {
@@ -62,16 +70,16 @@ module.exports = {
     'react/jsx-no-useless-fragment': 'warn',
     'react/hook-use-state': 'warn',
     'react/no-array-index-key': 'warn',
-    'react/no-unstable-nested-components': 'warn',
+    'react/no-unstable-nested-components': 'error',
 
     // React Refresh
     'react-refresh/only-export-components': ['warn', { allowConstantExport: true, allowExportNames: ['buttonVariants'] }],
 
-    // Accessibility — warn for desktop app (not a public website)
-    'jsx-a11y/click-events-have-key-events': 'warn',
-    'jsx-a11y/no-static-element-interactions': 'warn',
-    'jsx-a11y/label-has-associated-control': 'warn',
-    'jsx-a11y/no-noninteractive-element-interactions': 'warn',
+    // Accessibility
+    'jsx-a11y/click-events-have-key-events': 'error',
+    'jsx-a11y/no-static-element-interactions': 'error',
+    'jsx-a11y/label-has-associated-control': 'error',
+    'jsx-a11y/no-noninteractive-element-interactions': 'error',
 
     // React naming & perf
     'react/jsx-handler-names': ['warn', {
@@ -107,8 +115,15 @@ module.exports = {
     'prefer-const': 'error',
     'no-var': 'error',
     'eqeqeq': ['error', 'always', { null: 'ignore' }],
-    'no-console': ['warn', { allow: ['warn', 'error'] }],
-    'no-nested-ternary': 'warn',
+    'no-console': ['error', { allow: ['warn', 'error'] }],
+    'no-nested-ternary': 'error',
+    'no-restricted-syntax': [
+      'error',
+      {
+        selector: 'JSXExpressionContainer > ConditionalExpression',
+        message: 'Avoid ternary operators inside JSX expressions. Extract to a variable before the return, or use {bool && <A/>} for simple cases.',
+      },
+    ],
     'no-unneeded-ternary': 'error',
     'no-else-return': 'warn',
     'prefer-template': 'warn',

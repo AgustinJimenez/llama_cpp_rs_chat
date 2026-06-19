@@ -156,7 +156,7 @@ pub async fn dispatch_app_tool(
                 Some(s) => s.inner().clone(),
                 None => return Some(Err("WorkerBridge not available".into())),
             };
-            Some(match bridge.load_model(path, None, None).await {
+            Some(match bridge.load_model(path, None, None, None).await {
                 Ok(_) => Ok(format!("Model loaded: {path}")),
                 Err(e) => Err(format!("Load failed: {e}")),
             })

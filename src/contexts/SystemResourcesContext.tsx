@@ -22,11 +22,15 @@ export interface UsageData {
   total_vram_gb?: number;
   cpu_cores?: number;
   cpu_ghz?: number;
+  app_ram_gb?: number;
+  vram_used_gb?: number;
 }
 
 interface SystemResourcesValue {
   totalVramGb: number;
   totalRamGb: number;
+  /** True on Apple Silicon — CPU and GPU share one memory pool (VRAM == RAM). */
+  unifiedMemory: boolean;
   ready: boolean;
   usage: UsageData;
   history: UsageData[];
@@ -42,6 +46,7 @@ const defaultUsage: UsageData = { cpu: 0, gpu: 0, ram: 0 };
 const SystemResourcesContext = createContext<SystemResourcesValue>({
   totalVramGb: 0,
   totalRamGb: 0,
+  unifiedMemory: false,
   ready: false,
   usage: defaultUsage,
   history: [],
@@ -56,6 +61,7 @@ export const SystemResourcesProvider = ({ children }: { children: ReactNode }) =
   // would silently make the optimizer try to load all layers on a non-existent GPU.
   const [totalVramGb, setTotalVramGb] = useState(0);
   const [totalRamGb, setTotalRamGb] = useState(0);
+  const [unifiedMemory, setUnifiedMemory] = useState(false);
   const [ready, setReady] = useState(false);
   const [usage, setUsage] = useState<UsageData>(defaultUsage);
   const [history, setHistory] = useState<UsageData[]>([]);
@@ -63,7 +69,9 @@ export const SystemResourcesProvider = ({ children }: { children: ReactNode }) =
 
   const { connected } = useConnection();
   const connectedRef = useRef(connected);
-  connectedRef.current = connected;
+  useEffect(() => {
+    connectedRef.current = connected;
+  }, [connected]);
 
   const isFetchingRef = useRef(false);
   const activeRef = useRef(false);
@@ -90,6 +98,9 @@ export const SystemResourcesProvider = ({ children }: { children: ReactNode }) =
       }
       if (typeof data.total_ram_gb === 'number' && data.total_ram_gb > 0) {
         setTotalRamGb(data.total_ram_gb);
+      }
+      if (typeof data.unified_memory === 'boolean') {
+        setUnifiedMemory(data.unified_memory);
       }
       if (!ready) {
         setReady(true);
@@ -135,13 +146,14 @@ export const SystemResourcesProvider = ({ children }: { children: ReactNode }) =
     () => ({
       totalVramGb,
       totalRamGb,
+      unifiedMemory,
       ready,
       usage,
       history,
       hasData,
       setMonitorActive,
     }),
-    [totalVramGb, totalRamGb, ready, usage, history, hasData, setMonitorActive],
+    [totalVramGb, totalRamGb, unifiedMemory, ready, usage, history, hasData, setMonitorActive],
   );
 
   return (

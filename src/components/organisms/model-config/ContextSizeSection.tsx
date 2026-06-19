@@ -59,9 +59,9 @@ export const ContextSizeSection: React.FC<ContextSizeSectionProps> = ({
 
   return (
     <div className="space-y-1">
-      <div className="flex justify-between items-center">
+      <div className="flex items-center justify-between">
         <span className="text-sm font-medium">Context Length</span>
-        <span className="text-sm font-mono text-foreground">{formatSize(contextSize)}</span>
+        <span className="font-mono text-sm text-foreground">{formatSize(contextSize)}</span>
       </div>
 
       <input
@@ -70,7 +70,7 @@ export const ContextSizeSection: React.FC<ContextSizeSectionProps> = ({
         max={SLIDER_STEPS}
         value={sliderValue}
         onChange={handleChange}
-        className="w-full accent-[hsl(var(--primary))] cursor-pointer"
+        className="w-full cursor-pointer accent-[hsl(var(--primary))]"
       />
 
       <div className="flex justify-between text-[10px] text-foreground/70">

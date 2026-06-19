@@ -3,15 +3,18 @@
 use hyper::{Body, Request, Response, StatusCode};
 use std::convert::Infallible;
 
-use llama_chat_config::{db_config_to_sampler_config, load_config_for_conversation, sampler_config_to_db};
+use crate::request_parsing::parse_json_body;
+use crate::response_helpers::{json_error, json_raw};
+use llama_chat_config::{
+    db_config_to_sampler_config, load_config_for_conversation, sampler_config_to_db,
+};
 use llama_chat_db::SharedDatabase;
 use llama_chat_types::logger::LOGGER;
 use llama_chat_types::models::SamplerConfig;
-use crate::request_parsing::parse_json_body;
-use crate::response_helpers::{json_error, json_raw};
 
 pub async fn handle_get_config(
-    #[cfg(not(feature = "mock"))] _bridge: llama_chat_worker::worker::worker_bridge::SharedWorkerBridge,
+    #[cfg(not(feature = "mock"))]
+    _bridge: llama_chat_worker::worker::worker_bridge::SharedWorkerBridge,
     #[cfg(feature = "mock")] _bridge: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
@@ -29,7 +32,8 @@ pub async fn handle_get_config(
 
 pub async fn handle_post_config(
     req: Request<Body>,
-    #[cfg(not(feature = "mock"))] _bridge: llama_chat_worker::worker::worker_bridge::SharedWorkerBridge,
+    #[cfg(not(feature = "mock"))]
+    _bridge: llama_chat_worker::worker::worker_bridge::SharedWorkerBridge,
     #[cfg(feature = "mock")] _bridge: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
@@ -52,7 +56,7 @@ pub async fn handle_post_config(
             "top_p must be between 0.0 and 1.0",
         ));
     }
-    if incoming_config.context_size.unwrap_or(0) == 0 {
+    if incoming_config.context_size == Some(0) {
         return Ok(json_error(
             StatusCode::BAD_REQUEST,
             "context_size must be positive",
@@ -92,14 +96,18 @@ fn extract_conversation_id_from_config_path(path: &str) -> Option<String> {
 /// GET /api/conversations/:id/config
 pub async fn handle_get_conversation_config(
     path: &str,
-    #[cfg(not(feature = "mock"))] _bridge: llama_chat_worker::worker::worker_bridge::SharedWorkerBridge,
+    #[cfg(not(feature = "mock"))]
+    _bridge: llama_chat_worker::worker::worker_bridge::SharedWorkerBridge,
     #[cfg(feature = "mock")] _bridge: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     let conversation_id = match extract_conversation_id_from_config_path(path) {
         Some(id) => id,
         None => {
-            return Ok(json_error(StatusCode::BAD_REQUEST, "Invalid conversation ID"));
+            return Ok(json_error(
+                StatusCode::BAD_REQUEST,
+                "Invalid conversation ID",
+            ));
         }
     };
 
@@ -114,59 +122,21 @@ pub async fn handle_get_conversation_config(
     }
 }
 
-/// POST /api/conversations/:id/config
-pub async fn handle_post_conversation_config(
-    req: Request<Body>,
-    path: &str,
-    #[cfg(not(feature = "mock"))] _bridge: llama_chat_worker::worker::worker_bridge::SharedWorkerBridge,
-    #[cfg(feature = "mock")] _bridge: (),
-    db: SharedDatabase,
-) -> Result<Response<Body>, Infallible> {
-    let conversation_id = match extract_conversation_id_from_config_path(path) {
-        Some(id) => id,
-        None => {
-            return Ok(json_error(StatusCode::BAD_REQUEST, "Invalid conversation ID"));
-        }
-    };
-
-    let incoming: SamplerConfig = match parse_json_body(req.into_body()).await {
-        Ok(config) => config,
-        Err(error_response) => return Ok(error_response),
-    };
-
-    // Same validation as global config
-    if !(0.0..=2.0).contains(&incoming.temperature) {
-        return Ok(json_error(
-            StatusCode::BAD_REQUEST,
-            "temperature must be between 0.0 and 2.0",
-        ));
-    }
-    if !(0.0..=1.0).contains(&incoming.top_p) {
-        return Ok(json_error(
-            StatusCode::BAD_REQUEST,
-            "top_p must be between 0.0 and 1.0",
-        ));
-    }
-
-    let db_config = sampler_config_to_db(&incoming);
-
-    match db.save_conversation_config(&conversation_id, &db_config) {
-        Ok(_) => Ok(json_raw(StatusCode::OK, r#"{"success":true}"#.to_string())),
-        Err(e) => Ok(json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("Failed to save conversation config: {e}"),
-        )),
-    }
-}
 
 /// GET /api/config/provider-keys — get configured provider API keys (masked)
-pub async fn handle_get_provider_keys(
-    db: SharedDatabase,
-) -> Result<Response<Body>, Infallible> {
+pub async fn handle_get_provider_keys(db: SharedDatabase) -> Result<Response<Body>, Infallible> {
     let conn = db.connection();
-    let keys_json: String = conn
-        .query_row("SELECT provider_api_keys FROM config LIMIT 1", [], |row| row.get(0))
+    let db_val: String = conn
+        .query_row("SELECT provider_api_keys FROM config LIMIT 1", [], |row| {
+            row.get(0)
+        })
         .unwrap_or_else(|_| "{}".to_string());
+    let (resolved, migrated) = crate::keychain::resolve(&db_val);
+    let keys_json = resolved.unwrap_or_else(|| "{}".to_string());
+    if migrated {
+        // One-time migration: persist the recovered keys as plain JSON in SQLite.
+        let _ = conn.execute("UPDATE config SET provider_api_keys = ?1", [&keys_json]);
+    }
 
     // Mask API key values for security (show first 4 + last 4 chars)
     let mut result = serde_json::Map::new();
@@ -176,7 +146,10 @@ pub async fn handle_get_provider_keys(
                 let mut entry = serde_json::Map::new();
                 if let Some(key) = val.get("api_key").and_then(|k| k.as_str()) {
                     if key.len() > 12 {
-                        entry.insert("api_key".into(), serde_json::json!(format!("{}...{}", &key[..4], &key[key.len()-4..])));
+                        entry.insert(
+                            "api_key".into(),
+                            serde_json::json!(format!("{}...{}", &key[..4], &key[key.len() - 4..])),
+                        );
                     } else if !key.is_empty() {
                         entry.insert("api_key".into(), serde_json::json!("****"));
                     }
@@ -184,7 +157,10 @@ pub async fn handle_get_provider_keys(
                 } else if let Some(key) = val.as_str() {
                     entry.insert("configured".into(), serde_json::json!(!key.is_empty()));
                     if key.len() > 12 {
-                        entry.insert("api_key".into(), serde_json::json!(format!("{}...{}", &key[..4], &key[key.len()-4..])));
+                        entry.insert(
+                            "api_key".into(),
+                            serde_json::json!(format!("{}...{}", &key[..4], &key[key.len() - 4..])),
+                        );
                     }
                 }
                 if let Some(url) = val.get("base_url").and_then(|u| u.as_str()) {
@@ -221,13 +197,18 @@ pub async fn handle_set_provider_key(
     let api_key = json.get("api_key").and_then(|k| k.as_str()).unwrap_or("");
     let base_url = json.get("base_url").and_then(|u| u.as_str());
 
-    // Load existing keys
+    // Load existing keys (migrating from the legacy keychain if needed)
     let conn = db.connection();
-    let existing: String = conn
-        .query_row("SELECT provider_api_keys FROM config LIMIT 1", [], |row| row.get(0))
+    let db_val: String = conn
+        .query_row("SELECT provider_api_keys FROM config LIMIT 1", [], |row| {
+            row.get(0)
+        })
         .unwrap_or_else(|_| "{}".to_string());
+    let (resolved, _) = crate::keychain::resolve(&db_val);
+    let existing = resolved.unwrap_or_else(|| "{}".to_string());
 
-    let mut keys: serde_json::Value = serde_json::from_str(&existing).unwrap_or(serde_json::json!({}));
+    let mut keys: serde_json::Value =
+        serde_json::from_str(&existing).unwrap_or(serde_json::json!({}));
 
     if api_key.is_empty() && base_url.is_none() {
         // Remove provider
@@ -242,20 +223,29 @@ pub async fn handle_set_provider_key(
         keys[&provider] = entry;
     }
 
-    let updated = serde_json::to_string(&keys).unwrap_or_else(|_| "{}".to_string());
-    match conn.execute("UPDATE config SET provider_api_keys = ?1", [&updated]) {
+    // Store provider keys as plain JSON in SQLite (no OS keychain).
+    let all_empty = keys.as_object().is_none_or(|m| m.is_empty());
+    let store_in_db = if all_empty {
+        "{}".to_string()
+    } else {
+        serde_json::to_string(&keys).unwrap_or_else(|_| "{}".to_string())
+    };
+
+    match conn.execute("UPDATE config SET provider_api_keys = ?1", [&store_in_db]) {
         Ok(_) => Ok(json_raw(
             StatusCode::OK,
-            serde_json::to_string(&serde_json::json!({"success": true, "provider": provider})).unwrap(),
+            serde_json::to_string(&serde_json::json!({"success": true, "provider": provider}))
+                .unwrap(),
         )),
-        Err(e) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Failed: {e}"))),
+        Err(e) => Ok(json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed: {e}"),
+        )),
     }
 }
 
 /// GET /api/config/active-provider — get active provider and model
-pub async fn handle_get_active_provider(
-    db: SharedDatabase,
-) -> Result<Response<Body>, Infallible> {
+pub async fn handle_get_active_provider(db: SharedDatabase) -> Result<Response<Body>, Infallible> {
     let conn = db.connection();
     let result: (String, Option<String>) = conn
         .query_row(
@@ -270,7 +260,8 @@ pub async fn handle_get_active_provider(
         serde_json::to_string(&serde_json::json!({
             "provider": result.0,
             "model": result.1,
-        })).unwrap(),
+        }))
+        .unwrap(),
     ))
 }
 
@@ -288,7 +279,10 @@ pub async fn handle_set_active_provider(
         Err(_) => return Ok(json_error(StatusCode::BAD_REQUEST, "Invalid JSON")),
     };
 
-    let provider = json.get("provider").and_then(|p| p.as_str()).unwrap_or("local");
+    let provider = json
+        .get("provider")
+        .and_then(|p| p.as_str())
+        .unwrap_or("local");
     let model = json.get("model").and_then(|m| m.as_str());
 
     let conn = db.connection();
@@ -302,8 +296,12 @@ pub async fn handle_set_active_provider(
                 "success": true,
                 "provider": provider,
                 "model": model,
-            })).unwrap(),
+            }))
+            .unwrap(),
         )),
-        Err(e) => Ok(json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Failed: {e}"))),
+        Err(e) => Ok(json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed: {e}"),
+        )),
     }
 }

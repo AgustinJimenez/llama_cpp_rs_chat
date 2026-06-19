@@ -50,7 +50,7 @@ pub(super) fn stream_sse_response(
                     if attempts >= 2 {
                         break Err(format!("Request failed: {last_err}"));
                     }
-                    eprintln!("[OPENAI_COMPAT] Connection error (attempt {}/2): {}, retrying in 1s...", attempts, last_err);
+                    eprintln!("[OPENAI_COMPAT] Connection error (attempt {attempts}/2): {last_err}, retrying in 1s...");
                     std::thread::sleep(std::time::Duration::from_secs(1));
                 }
             }

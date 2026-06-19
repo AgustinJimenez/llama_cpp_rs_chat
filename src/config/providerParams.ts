@@ -162,6 +162,14 @@ const RESPONSE_FORMAT: ParamSchema = {
 
 // Provider-specific schemas
 export const PROVIDER_PARAMS: Record<string, ProviderParamSchema> = {
+  opencode_zen: {
+    providerId: 'opencode_zen',
+    name: 'OpenCode Zen (Free)',
+    params: [
+      THINKING_TOGGLE,
+      ...COMMON_PARAMS.filter((p) => !['frequency_penalty', 'presence_penalty'].includes(p.key)),
+    ],
+  },
   deepseek: {
     providerId: 'deepseek',
     name: 'DeepSeek',

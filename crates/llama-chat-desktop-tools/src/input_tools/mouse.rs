@@ -237,8 +237,7 @@ pub fn tool_mouse_drag(args: &Value) -> NativeToolResult {
         .get("steps")
         .and_then(parse_int)
         .unwrap_or(1)
-        .max(1)
-        .min(100) as u32;
+        .clamp(1, 100) as u32;
     let min_x = x1.min(x2) - 80;
     let min_y = y1.min(y2) - 80;
     let width = (x1.max(x2) - min_x + 80) as u32;
@@ -456,7 +455,8 @@ pub fn tool_scroll_screen(args: &Value) -> NativeToolResult {
     } else {
         "up"
     };
-    let summary = format!("Scrolled {direction} by {} units", amount.abs());
+    let scroll_amount = amount.abs();
+    let summary = format!("Scrolled {direction} by {scroll_amount} units");
 
     finalize_action_result(summary, delay_ms, do_screenshot, verification)
 }

@@ -85,9 +85,9 @@ pub async fn server_main() -> std::io::Result<()> {
             ProcessManager::spawn("assets/llama_chat.db")
                 .expect("Failed to spawn worker process"),
         );
-        Arc::new(WorkerBridge::new(pm))
+        Arc::new(WorkerBridge::new(pm, db.clone()))
     };
-    let worker_pool = WorkerPool::new(worker_bridge.clone(), "assets/llama_chat.db");
+    let worker_pool = WorkerPool::new(worker_bridge.clone(), "assets/llama_chat.db", db.clone());
 
     // Spawn the agent heartbeat background task
     #[cfg(not(feature = "mock"))]

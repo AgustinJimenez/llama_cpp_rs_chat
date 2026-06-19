@@ -64,6 +64,7 @@ pub fn should_compact(
 /// The returned text already reflects the compacted state (from DB reload).
 ///
 /// `force` — skip the usage-threshold check and always compact (used by the manual Compact button).
+#[allow(clippy::too_many_arguments)]
 pub fn maybe_compact_conversation(
     conversation_content: &str,
     context_size: u32,
@@ -92,7 +93,7 @@ pub fn maybe_compact_conversation(
     // produce large outputs (e.g. nim compiler logs: ~500K chars → ~125K estimated tokens
     // but model only saw ~10K tokens of truncated output).
     let estimated_tokens = if let Some(pos) = actual_token_pos {
-        eprintln!("[COMPACTION] Using actual token_pos={} from last generation (raw DB would overcount)", pos);
+        eprintln!("[COMPACTION] Using actual token_pos={pos} from last generation (raw DB would overcount)");
         pos
     } else {
         // First turn: no prior generation, tokenize raw content as fallback
@@ -128,7 +129,7 @@ pub fn maybe_compact_conversation(
     let messages = match db.get_messages(conversation_id) {
         Ok(msgs) => msgs,
         Err(e) => {
-            log_warn!(conversation_id, "📦 Failed to load messages for compaction: {}", e);
+            log_warn!(conversation_id, "📦 Failed to load messages for compaction: {e}");
             return conversation_content.to_string();
         }
     };
@@ -196,18 +197,18 @@ pub fn maybe_compact_conversation(
             s
         },
         Err(e) => {
-            eprintln!("[COMPACTION] Summarization failed: {}, using truncation fallback", e);
+            eprintln!("[COMPACTION] Summarization failed: {e}, using truncation fallback");
             old_text.chars().take(500).collect::<String>() + "\n[...older messages truncated...]"
         }
     };
 
     // Hard cap: summary must be much shorter than the original to actually free context.
     // Target: summary should be at most 30% of available context (in chars, ~4 chars/token).
-    let max_summary_chars = (available_context as usize * 4) * 30 / 100;
+    let max_summary_chars = (available_context * 4) * 30 / 100;
     let summary_with_task = if summary.len() > max_summary_chars {
-        eprintln!("[COMPACTION] Summary too long ({} chars), truncating to {} chars", summary.len(), max_summary_chars);
+        eprintln!("[COMPACTION] Summary too long ({} chars), truncating to {max_summary_chars} chars", summary.len());
         let truncated: String = summary.chars().take(max_summary_chars).collect();
-        format!("{}\n\n[...summary truncated for context space...]", truncated)
+        format!("{truncated}\n\n[...summary truncated for context space...]")
     } else {
         summary
     };
@@ -215,10 +216,10 @@ pub fn maybe_compact_conversation(
     // Persist to DB: record summary covering everything up to up_to_sequence.
     match db.compact_messages(conversation_id, up_to_sequence, &summary_with_task) {
         Ok(marked) => {
-            eprintln!("[COMPACTION] DB compaction done: {} messages covered by summary", marked);
+            eprintln!("[COMPACTION] DB compaction done: {marked} messages covered by summary");
         }
         Err(e) => {
-            eprintln!("[COMPACTION] DB compaction failed: {}", e);
+            eprintln!("[COMPACTION] DB compaction failed: {e}");
         }
     }
 
@@ -241,8 +242,7 @@ pub fn maybe_compact_conversation(
             // If first pass didn't free enough, recompact more aggressively
             if new_estimated > threshold {
                 eprintln!(
-                    "[COMPACTION] First pass insufficient: {} > {} threshold, recompacting...",
-                    new_estimated, threshold
+                    "[COMPACTION] First pass insufficient: {new_estimated} > {threshold} threshold, recompacting..."
                 );
                 log_info!(
                     conversation_id,
@@ -292,7 +292,7 @@ fn summarize_conversation(
     // Summary context: use large context for fewer chunks + better GPU utilization.
     // 8K was far too small — resulted in 35+ passes for a 158K conversation.
     // 65K gives ~4-5 map chunks for the same conversation, 7x fewer passes.
-    let summary_ctx = context_size.min(65536).max(512);
+    let summary_ctx = context_size.clamp(512, 65536);
     // Reserve tokens for output + prompt overhead. Use summary_ctx (not the main context_size)
     // so chunk_size stays within what the summary context can actually hold.
     let reserved = (summary_ctx / 4).clamp(256, 2048);
@@ -300,8 +300,7 @@ fn summarize_conversation(
     let chunk_size_chars = (input_tokens as usize) * 3;
 
     eprintln!(
-        "[COMPACTION] Dynamic sizing: model_ctx={}, reserved={}, input_tokens={}, chunk_chars={}, summary_ctx={}",
-        context_size, reserved, input_tokens, chunk_size_chars, summary_ctx
+        "[COMPACTION] Dynamic sizing: model_ctx={context_size}, reserved={reserved}, input_tokens={input_tokens}, chunk_chars={chunk_size_chars}, summary_ctx={summary_ctx}"
     );
 
     if old_text.len() <= chunk_size_chars {
@@ -313,7 +312,7 @@ fn summarize_conversation(
     let n_ctx = NonZeroU32::new(summary_ctx).unwrap();
     let config = SamplerConfig::default();
     let mut ctx = create_fresh_context(model, backend, n_ctx, true, &config)?;  // offload_kqv=true: KV cache on VRAM not CPU
-    eprintln!("[COMPACTION] Created reusable summary context (n_ctx={}, kv_on_gpu=true)", summary_ctx);
+    eprintln!("[COMPACTION] Created reusable summary context (n_ctx={summary_ctx}, kv_on_gpu=true)");
 
     let result = summarize_with_ctx(model, &mut ctx, old_text, chunk_size_chars, chat_template_string, conversation_id, summary_ctx as usize, reserved as usize, status_sender);
 
@@ -325,6 +324,7 @@ fn summarize_conversation(
 }
 
 /// Inner map-reduce using a reusable context.
+#[allow(clippy::too_many_arguments)]
 fn summarize_with_ctx(
     model: &llama_cpp_2::model::LlamaModel,
     ctx: &mut llama_cpp_2::context::LlamaContext<'_>,
@@ -342,7 +342,7 @@ fn summarize_with_ctx(
     let mut chunk_summaries = Vec::new();
     let mut pos = 0;
     let mut chunk_num = 0;
-    let total_chunks = (old_text.len() + chunk_size - 1) / chunk_size;
+    let total_chunks = old_text.len().div_ceil(chunk_size);
     send_status(status_sender, "Compacting conversation (0%)");
 
     while pos < old_text.len() {
@@ -352,19 +352,19 @@ fn summarize_with_ctx(
         chunk_num += 1;
         let total_steps = total_chunks + 1; // +1 for reduce phase
 
-        eprintln!("[COMPACTION] Map phase: chunk {}/{} ({} chars, chunk_size={})...", chunk_num, total_chunks, chunk.len(), chunk_size);
+        eprintln!("[COMPACTION] Map phase: chunk {chunk_num}/{total_chunks} ({} chars, chunk_size={chunk_size})...", chunk.len());
 
         match run_summary_reusing_ctx(model, ctx, chunk, chat_template_string, conversation_id, ctx_size, max_tokens) {
             Ok(summary) => {
-                eprintln!("[COMPACTION] Chunk {} → {} chars", chunk_num, summary.len());
+                eprintln!("[COMPACTION] Chunk {chunk_num} → {} chars", summary.len());
                 chunk_summaries.push(summary);
                 let pct = (chunk_num * 100) / total_steps;
-                send_status(status_sender, &format!("Compacting conversation ({}%)", pct));
+                send_status(status_sender, &format!("Compacting conversation ({pct}%)"));
             }
             Err(e) => {
                 // Chunk too large for summary context (dense code content tokenizes at ~2 chars/token,
                 // not the 3 chars/token estimate used for sizing). Split in half and summarize each part.
-                eprintln!("[COMPACTION] Chunk {} too large ({}), splitting in half", chunk_num, e);
+                eprintln!("[COMPACTION] Chunk {chunk_num} too large ({e}), splitting in half");
                 let mid = chunk.len() / 2;
                 let mid = (0..=mid).rev().find(|&i| chunk.is_char_boundary(i)).unwrap_or(mid);
                 let half1 = run_summary_reusing_ctx(model, ctx, &chunk[..mid], chat_template_string, conversation_id, ctx_size, max_tokens)
@@ -372,7 +372,7 @@ fn summarize_with_ctx(
                 let half2 = run_summary_reusing_ctx(model, ctx, &chunk[mid..], chat_template_string, conversation_id, ctx_size, max_tokens)
                     .unwrap_or_else(|_| chunk[mid..].chars().take(500).collect::<String>() + "...[truncated]");
                 let combined = format!("{half1}\n{half2}");
-                eprintln!("[COMPACTION] Chunk {} split → {} chars", chunk_num, combined.len());
+                eprintln!("[COMPACTION] Chunk {chunk_num} split → {} chars", combined.len());
                 chunk_summaries.push(combined);
             }
         }
@@ -408,6 +408,7 @@ const MIN_TOOL_CALLS_FOR_MID_TASK: usize = 3;
 /// older tool results in the DB for the next turn.
 ///
 /// Returns Some(summary) if compaction happened, None otherwise.
+#[allow(clippy::too_many_arguments)]
 pub fn maybe_compact_mid_task(
     conversation_id: &str,
     db: &SharedDatabase,
@@ -434,8 +435,7 @@ pub fn maybe_compact_mid_task(
     }
 
     eprintln!(
-        "[COMPACTION] Mid-task triggered: {} tool tokens > {} threshold ({} calls), conv={}",
-        tool_response_tokens, threshold, tool_call_count, conversation_id
+        "[COMPACTION] Mid-task triggered: {tool_response_tokens} tool tokens > {threshold} threshold ({tool_call_count} calls), conv={conversation_id}"
     );
 
     // Load recent non-compacted messages that are tool-related
@@ -490,14 +490,14 @@ pub fn maybe_compact_mid_task(
     let summary = match summarize_conversation(model, backend, &old_text, chat_template_string, conversation_id, context_size, None) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("[COMPACTION] Mid-task summarization failed: {}", e);
+            eprintln!("[COMPACTION] Mid-task summarization failed: {e}");
             return None;
         }
     };
 
     // Persist to DB
     if let Err(e) = db.compact_messages(conversation_id, up_to_sequence, &summary) {
-        eprintln!("[COMPACTION] Mid-task DB update failed: {}", e);
+        eprintln!("[COMPACTION] Mid-task DB update failed: {e}");
         return None;
     }
 
@@ -537,7 +537,7 @@ pub fn force_compact_conversation(
         return Err("Conversation is empty, nothing to compact".into());
     }
 
-    eprintln!("[COMPACTION] Force compaction: conv={}, ctx={}", conversation_id, real_ctx);
+    eprintln!("[COMPACTION] Force compaction: conv={conversation_id}, ctx={real_ctx}");
 
     // Pass real context size so summarize_conversation can compute proper chunk sizes.
     // force=true bypasses the threshold check so compaction always runs.

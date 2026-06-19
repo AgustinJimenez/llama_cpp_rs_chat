@@ -1,17 +1,15 @@
 use super::*;
 
 fn normalize_quotes(s: &str) -> String {
-    s.replace('\u{2018}', "'")
-        .replace('\u{2019}', "'")
-        .replace('\u{201C}', "\"")
-        .replace('\u{201D}', "\"")
+    s.replace(['\u{2018}', '\u{2019}'], "'")
+        .replace(['\u{201C}', '\u{201D}'], "\"")
 }
 
 fn simple_diff(old: &str, new: &str, path: &str) -> String {
     let old_lines: Vec<&str> = old.lines().collect();
     let new_lines: Vec<&str> = new.lines().collect();
 
-    let mut diff = format!("--- a/{}\n+++ b/{}\n", path, path);
+    let mut diff = format!("--- a/{path}\n+++ b/{path}\n");
     let mut has_changes = false;
     let max_lines = old_lines.len().max(new_lines.len());
     let mut i = 0;
@@ -25,7 +23,7 @@ fn simple_diff(old: &str, new: &str, path: &str) -> String {
             if ctx_start < i {
                 for j in ctx_start..i {
                     if let Some(l) = old_lines.get(j) {
-                        diff.push_str(&format!(" {}\n", l));
+                        diff.push_str(&format!(" {l}\n"));
                     }
                 }
             }
@@ -40,14 +38,14 @@ fn simple_diff(old: &str, new: &str, path: &str) -> String {
                 change_end += 1;
             }
 
-            for j in i..change_end.min(old_lines.len()) {
-                diff.push_str(&format!("-{}\n", old_lines[j]));
+            for line in &old_lines[i..change_end.min(old_lines.len())] {
+                diff.push_str(&format!("-{line}\n"));
             }
-            for j in i..change_end.min(new_lines.len()) {
-                diff.push_str(&format!("+{}\n", new_lines[j]));
+            for line in &new_lines[i..change_end.min(new_lines.len())] {
+                diff.push_str(&format!("+{line}\n"));
             }
-            for j in change_end..change_end.saturating_add(2).min(new_lines.len()) {
-                diff.push_str(&format!(" {}\n", new_lines[j]));
+            for line in &new_lines[change_end..change_end.saturating_add(2).min(new_lines.len())] {
+                diff.push_str(&format!(" {line}\n"));
             }
 
             i = change_end;
@@ -89,7 +87,7 @@ pub fn tool_edit_file(args: &Value) -> String {
     if let Some(cached_mtime) = file_mtime_cache().lock().ok().and_then(|c| c.get(path).copied()) {
         if let Some(current_mtime) = get_file_mtime(path) {
             if current_mtime > cached_mtime {
-                eprintln!("[EDIT_FILE] File {} modified since last read (cached={}s, current={}s)", path, cached_mtime, current_mtime);
+                eprintln!("[EDIT_FILE] File {path} modified since last read (cached={cached_mtime}s, current={current_mtime}s)");
             }
         }
     }
@@ -128,6 +126,36 @@ pub fn tool_edit_file(args: &Value) -> String {
         }
         if norm_count > 1 {
             return format!("Error: old_string found {norm_count} times in {path} (after curly quote normalization). Include more surrounding context to make it unique.");
+        }
+        // CRLF normalization fallback: files created on Windows often use \r\n but the
+        // model supplies \n-only strings. Normalize both sides and retry.
+        let crlf_content = content.replace("\r\n", "\n");
+        let crlf_old = old_string.replace("\r\n", "\n");
+        let crlf_count = crlf_content.matches(&crlf_old).count();
+        if crlf_count == 1 {
+            let crlf_new = new_string.replace("\r\n", "\n");
+            let new_content = crlf_content.replacen(&crlf_old, &crlf_new, 1);
+            let match_pos = crlf_content.find(&crlf_old).unwrap();
+            let line_num = crlf_content[..match_pos].lines().count().max(1);
+            let backup_path = format!("{path}.llama_bak");
+            let _ = std::fs::write(&backup_path, &content);
+            return match std::fs::write(path, &new_content) {
+                Ok(()) => {
+                    if let Some(mtime) = get_file_mtime(path) {
+                        if let Ok(mut cache) = file_mtime_cache().lock() {
+                            cache.insert(path.to_string(), mtime);
+                        }
+                    }
+                    invalidate_read_cache(path);
+                    invalidate_file_cache(path);
+                    let diff = simple_diff(&crlf_content, &new_content, path);
+                    format!("Edited {path} (CRLF normalized) at line {line_num}:\n{diff}")
+                }
+                Err(e) => format!("Error writing '{path}': {e}"),
+            };
+        }
+        if crlf_count > 1 {
+            return format!("Error: old_string found {crlf_count} times in {path} (after CRLF normalization). Include more surrounding context to make it unique.");
         }
         return format!("Error: old_string not found in {path}. Make sure the text matches exactly (including whitespace and newlines).");
     }
@@ -173,14 +201,16 @@ pub fn tool_multi_edit(args: &Value) -> String {
         let path = match edit.get("path").and_then(|v| v.as_str()) {
             Some(p) => p,
             None => {
-                results.push(format!("Edit {}: Error: missing 'path'", i + 1));
+                let edit_num = i + 1;
+                results.push(format!("Edit {edit_num}: Error: missing 'path'"));
                 break;
             }
         };
         let old_string = match edit.get("old_string").and_then(|v| v.as_str()) {
             Some(s) => s,
             None => {
-                results.push(format!("Edit {}: Error: missing 'old_string'", i + 1));
+                let edit_num = i + 1;
+                results.push(format!("Edit {edit_num}: Error: missing 'old_string'"));
                 break;
             }
         };
@@ -193,7 +223,8 @@ pub fn tool_multi_edit(args: &Value) -> String {
         }));
 
         let ok = !result.starts_with("Error:");
-        results.push(format!("Edit {} ({}): {}", i + 1, path, result));
+        let edit_num = i + 1;
+        results.push(format!("Edit {edit_num} ({path}): {result}"));
         if !ok {
             break;
         }

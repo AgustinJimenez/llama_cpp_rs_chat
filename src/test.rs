@@ -137,7 +137,7 @@ fn main() {
     let mut conversation_logger = match ConversationLogger::new() {
         Ok(logger) => logger,
         Err(e) => {
-            eprintln!("Failed to initialize conversation logger: {}", e);
+            eprintln!("Failed to initialize conversation logger: {e}");
             return;
         }
     };
@@ -158,7 +158,7 @@ fn main() {
     let model = LlamaModel::load_from_file(&backend, MODEL_PATH, &model_params)
         .expect("Failed to load model");
 
-    println!("Model loaded! Using context: {} tokens", CONTEXT_SIZE);
+    println!("Model loaded! Using context: {CONTEXT_SIZE} tokens");
 
     // Create sampler based on configuration
     // Available options: Greedy, Temperature, Mirostat, TopP, TopK,
@@ -169,28 +169,25 @@ fn main() {
             LlamaSampler::greedy()
         }
         SamplerType::Temperature => {
-            println!("Using temperature sampler (temp: {})", TEMPERATURE);
+            println!("Using temperature sampler (temp: {TEMPERATURE})");
             LlamaSampler::temp(TEMPERATURE)
         }
         SamplerType::Mirostat => {
             println!(
-                "Using mirostat sampler (tau: {}, eta: {})",
-                MIROSTAT_TAU, MIROSTAT_ETA
+                "Using mirostat sampler (tau: {MIROSTAT_TAU}, eta: {MIROSTAT_ETA})"
             );
             LlamaSampler::mirostat_v2(0, MIROSTAT_TAU, MIROSTAT_ETA) // seed=0 for random
         }
         SamplerType::TopP => {
             println!(
-                "Using top_p sampler (p: {}) - NOTE: crashes with current model/setup",
-                TOP_P
+                "Using top_p sampler (p: {TOP_P}) - NOTE: crashes with current model/setup"
             );
             // TODO: Fix top_p parameters - currently crashes with GGML_ASSERT
             LlamaSampler::greedy() // Fallback for now
         }
         SamplerType::TopK => {
             println!(
-                "Using top_k sampler (k: {}) - NOTE: crashes with current model/setup",
-                TOP_K
+                "Using top_k sampler (k: {TOP_K}) - NOTE: crashes with current model/setup"
             );
             // TODO: Fix top_k parameters - currently crashes with GGML_ASSERT
             LlamaSampler::greedy() // Fallback for now
@@ -198,17 +195,16 @@ fn main() {
 
         // Additional samplers - test these with different models
         SamplerType::Typical => {
-            println!("Using typical sampler (p: {})", TYPICAL_P);
+            println!("Using typical sampler (p: {TYPICAL_P})");
             LlamaSampler::typical(TYPICAL_P, 1)
         }
         SamplerType::MinP => {
-            println!("Using min_p sampler (p: {})", MIN_P);
+            println!("Using min_p sampler (p: {MIN_P})");
             LlamaSampler::min_p(MIN_P, 1)
         }
         SamplerType::TempExt => {
             println!(
-                "Using extended temperature sampler (temp: {}, delta: 0.0, exp: 1.0)",
-                TEMPERATURE
+                "Using extended temperature sampler (temp: {TEMPERATURE}, delta: 0.0, exp: 1.0)"
             );
             LlamaSampler::temp_ext(TEMPERATURE, 0.0, 1.0)
         }
@@ -216,8 +212,7 @@ fn main() {
         // Chain samplers - combining multiple techniques
         SamplerType::ChainTempTopP => {
             println!(
-                "Using chained temperature + top_p sampler (temp: {}, p: {})",
-                TEMPERATURE, TOP_P
+                "Using chained temperature + top_p sampler (temp: {TEMPERATURE}, p: {TOP_P})"
             );
             let samplers = vec![
                 LlamaSampler::temp(TEMPERATURE),
@@ -227,8 +222,7 @@ fn main() {
         }
         SamplerType::ChainTempTopK => {
             println!(
-                "Using chained temperature + top_k sampler (temp: {}, k: {})",
-                TEMPERATURE, TOP_K
+                "Using chained temperature + top_k sampler (temp: {TEMPERATURE}, k: {TOP_K})"
             );
             let samplers = vec![
                 LlamaSampler::temp(TEMPERATURE),
@@ -238,8 +232,7 @@ fn main() {
         }
         SamplerType::ChainFull => {
             println!(
-                "Using full chain sampler (temp: {}, top_p: {}, top_k: {})",
-                TEMPERATURE, TOP_P, TOP_K
+                "Using full chain sampler (temp: {TEMPERATURE}, top_p: {TOP_P}, top_k: {TOP_K})"
             );
             let samplers = vec![
                 LlamaSampler::temp(TEMPERATURE),
@@ -261,7 +254,7 @@ fn main() {
 
         for (i, message) in TEST_MESSAGES.iter().enumerate() {
             println!("\n--- Test {}/{} ---", i + 1, TEST_MESSAGES.len());
-            println!("You: {}", message);
+            println!("You: {message}");
             print!("\nAI: ");
             io::stdout().flush().unwrap();
 
@@ -294,8 +287,7 @@ fn main() {
                             {
                                 let conversation_so_far = &response[..continuation_start + 21];
                                 current_message = format!(
-                                    "Continue this conversation exactly where it left off:\n\n{}",
-                                    conversation_so_far
+                                    "Continue this conversation exactly where it left off:\n\n{conversation_so_far}"
                                 );
                                 continue;
                             }
@@ -307,7 +299,7 @@ fn main() {
                         break;
                     }
                     Err(e) => {
-                        println!("Error: {}\n", e);
+                        println!("Error: {e}\n");
                         conversation_logger.log_message("ERROR", &e);
                         break;
                     }
@@ -317,7 +309,7 @@ fn main() {
 
         // Save conversation before exiting
         if let Err(e) = conversation_logger.save() {
-            eprintln!("Failed to save conversation: {}", e);
+            eprintln!("Failed to save conversation: {e}");
         }
 
         println!("DEBUG: Test completed, exiting...");
@@ -342,7 +334,7 @@ fn main() {
         if message == "exit" {
             // Save conversation before exiting
             if let Err(e) = conversation_logger.save() {
-                eprintln!("Failed to save conversation: {}", e);
+                eprintln!("Failed to save conversation: {e}");
             }
             break;
         }
@@ -382,8 +374,7 @@ fn main() {
                         if let Some(continuation_start) = response.find("Based on this output:") {
                             let conversation_so_far = &response[..continuation_start + 21];
                             current_message = format!(
-                                "Continue this conversation exactly where it left off:\n\n{}",
-                                conversation_so_far
+                                "Continue this conversation exactly where it left off:\n\n{conversation_so_far}"
                             );
                             continue;
                         }
@@ -394,7 +385,7 @@ fn main() {
                     break;
                 }
                 Err(e) => {
-                    println!("Error: {}\n", e);
+                    println!("Error: {e}\n");
                     conversation_logger.log_message("ERROR", &e);
                     break;
                 }

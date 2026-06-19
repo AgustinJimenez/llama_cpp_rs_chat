@@ -23,7 +23,7 @@ use llama_chat_db::event_log::log_event;
 // Re-export submodule items used by sibling modules
 pub(crate) use super::context_eval::create_fresh_context;
 
-use super::context_eval::{evaluate_text_prompt, CONTEXT_SIZE, MODEL_PATH};
+use super::context_eval::{evaluate_text_prompt, CONTEXT_SIZE};
 #[cfg(feature = "vision")]
 use super::context_eval::build_context_params;
 use super::prompt_builder::{resolve_tool_tags, snapshot_context_overhead};
@@ -37,6 +37,7 @@ use output::{build_generation_output, strip_incomplete_tool_call_on_cancel};
 pub use output::GenerationOutput;
 
 /// Generate a full LLM response for a user message.
+#[allow(clippy::too_many_arguments)]
 pub async fn generate_llama_response(
     user_message: &str,
     llama_state: SharedLlamaState,
@@ -47,6 +48,7 @@ pub async fn generate_llama_response(
     cancel: Arc<AtomicBool>,
     image_data: Option<&[String]>,
     mcp_manager: Option<Arc<dyn llama_chat_tools::McpManagerOps>>,
+    agent_id: Option<&str>,
 ) -> Result<GenerationOutput, String> {
     sys_debug!(
         "[GENERATION] generate_llama_response called, token_sender is {}",
@@ -61,6 +63,13 @@ pub async fn generate_llama_response(
     };
     sys_debug!("[GENERATION] Conversation ID: {}", conversation_id);
 
+    // Pin agent_id on the conversation row immediately so load_config_for_conversation
+    // returns agent-specific config (context size, KV cache types, flash attention, etc.).
+    // This is critical for new conversations where agent_id isn't set yet in the DB.
+    if let Some(aid) = agent_id {
+        let _ = db.set_conversation_agent_id(&conversation_id, Some(aid));
+    }
+
     if !skip_user_logging {
         let mut logger = conversation_logger
             .lock()
@@ -70,13 +79,30 @@ pub async fn generate_llama_response(
     }
 
     let config = load_config_for_conversation(&db, &conversation_id);
-    let model_path = config.model_path.as_deref().unwrap_or(MODEL_PATH);
     let stop_tokens = config
         .stop_tokens
         .clone()
         .unwrap_or_else(get_common_stop_tokens);
 
-    load_model(llama_state.clone(), model_path, None, None, None, None).await?;
+    // Determine model path: prefer conversation/agent config; fall back to
+    // whatever is currently loaded rather than a hardcoded default.
+    let model_path_owned: String;
+    let (model_path, need_load): (&str, bool) = match config.model_path.as_deref() {
+        Some(path) => (path, true),
+        None => {
+            let state_guard = llama_state
+                .lock()
+                .map_err(|_| "Failed to lock LLaMA state")?;
+            let current = state_guard.as_ref().and_then(|s| s.current_model_path.clone());
+            drop(state_guard);
+            model_path_owned = current
+                .ok_or_else(|| "No model loaded and no model configured for this conversation".to_string())?;
+            (&model_path_owned, false)
+        }
+    };
+    if need_load {
+        load_model(llama_state.clone(), model_path, None, None, None, None).await?;
+    }
 
     let mut state_guard = llama_state
         .lock()
@@ -164,9 +190,15 @@ pub async fn generate_llama_response(
     let mcp_tools_ref = if mcp_tool_defs.is_empty() { None } else { Some(mcp_tool_defs.as_slice()) };
 
     let supports_thinking = chat_template_string.as_deref()
-        .map(|t| super::jinja_templates::detect_thinking_support(t))
+        .map(super::jinja_templates::detect_thinking_support)
         .unwrap_or(false);
     let enable_thinking = config.thinking_mode.unwrap_or(supports_thinking);
+    // Resolve agent's custom system prompt: None and "__AGENTIC__" both mean
+    // "use the default universal agentic prompt"; any other string is used as-is.
+    let custom_system_prompt = match config.system_prompt.as_deref() {
+        Some("__AGENTIC__") | None => None,
+        Some(custom) => Some(custom),
+    };
     let prompt = apply_system_prompt_by_type_with_tags(
         &conversation_content,
         template_type.as_deref(),
@@ -176,6 +208,7 @@ pub async fn generate_llama_response(
         &eos_text,
         mcp_tools_ref,
         enable_thinking,
+        custom_system_prompt,
     )?;
     log_info!(&conversation_id, "=== FINAL PROMPT BEING SENT TO MODEL ===");
     log_info!(&conversation_id, "{}", prompt);
@@ -198,7 +231,17 @@ pub async fn generate_llama_response(
     #[allow(unused_variables)]
     let n_ctx = NonZeroU32::new(context_size).expect("Context size must be non-zero");
     let offload_kqv = state.gpu_layers.unwrap_or(0) > 0;
-    let flash_attention = config.flash_attention;
+    // lfm2moe (LFM2.5 MoE) crashes the Metal backend with flash attention enabled
+    // (Decode Error -3 a few tokens into generation). Force it off for this arch
+    // regardless of the requested config so generation is always stable.
+    let flash_attention = if template_type.as_deref() == Some("LFM2") {
+        if config.flash_attention {
+            log_info!(&conversation_id, "Disabling flash attention for LFM2 (lfm2moe) — incompatible with Metal backend");
+        }
+        false
+    } else {
+        config.flash_attention
+    };
     let cache_type_k = config.cache_type_k.clone();
     let cache_type_v = config.cache_type_v.clone();
     #[allow(unused_variables)]
@@ -387,13 +430,12 @@ pub async fn generate_llama_response(
     log_event(&conversation_id, "gen_start", &format!(
         "ctx={}, prompt_tokens={}, remaining={}, flash_attn={}, kv_cache={}",
         context_size, token_pos, max_total_tokens, flash_attention,
-        if cache_type_k == "f16" && cache_type_v == "f16" { "f16".to_string() } else { format!("K={} V={}", cache_type_k, cache_type_v) }
+        if cache_type_k == "f16" && cache_type_v == "f16" { "f16".to_string() } else { format!("K={cache_type_k} V={cache_type_v}") }
     ));
 
     log_info!(
         &conversation_id,
-        "Context size: {}, Prompt tokens: {}, Max tokens to generate: {}",
-        context_size, token_pos, max_total_tokens
+        "Context size: {context_size}, Prompt tokens: {token_pos}, Max tokens to generate: {max_total_tokens}"
     );
 
     let mut gen = TokenGenState {
@@ -410,6 +452,17 @@ pub async fn generate_llama_response(
         finish_reason: "stop".to_string(),
         tool_response_tokens: 0,
         loop_recoveries: 0,
+        eos_continue_count: 0,
+        tool_call_count: 0,
+    };
+
+    // Snapshot the first ~300 chars of user message for the EOS continuation check.
+    let user_message_snapshot: String = if user_message.len() > 300 {
+        let mut end = 300;
+        while end < user_message.len() && !user_message.is_char_boundary(end) { end += 1; }
+        format!("{}...", &user_message[..end])
+    } else {
+        user_message.to_string()
     };
 
     let cfg = TokenGenConfig {
@@ -428,6 +481,7 @@ pub async fn generate_llama_response(
         chat_template_string: chat_template_string.as_deref(),
         proactive_compaction: config.proactive_compaction,
         safe_tool_injection: config.safe_tool_injection,
+        user_message: &user_message_snapshot,
     };
 
     #[cfg(feature = "vision")]
@@ -515,7 +569,7 @@ pub async fn generate_llama_response(
         );
     }
 
-    let mut output = build_generation_output(
+    let output = build_generation_output(
         &gen, token_pos, context_size,
         prompt_tok_per_sec, gen_tok_per_sec,
         gen_eval_ms, n_eval, prompt_eval_ms_internal, n_p_eval,
@@ -543,43 +597,9 @@ pub async fn generate_llama_response(
     );
 
     log_event(&conversation_id, "task_check", &format!(
-        "finish_reason={}, tool_response_tokens={}, commands={}",
-        gen.finish_reason, gen.tool_response_tokens, gen.recent_commands.len()
+        "finish_reason={}, tool_response_tokens={}, commands={}, eos_continues={}",
+        gen.finish_reason, gen.tool_response_tokens, gen.recent_commands.len(), gen.eos_continue_count
     ));
-
-    // If the model stopped naturally (EOS) but was in an agentic task (tool calls made),
-    // do a quick Y/N check to see if the task is actually complete.
-    // This catches cases where the model emits EOS mid-task (like the Spring Boot example
-    // where it stopped with an incomplete bullet list after 20 tool calls).
-    if gen.finish_reason == "stop" && gen.tool_response_tokens > 0 {
-        let user_prefix = if user_message.len() > 300 {
-            let mut end = 300;
-            while end < user_message.len() && !user_message.is_char_boundary(end) { end += 1; }
-            format!("{}...", &user_message[..end])
-        } else {
-            user_message.to_string()
-        };
-        let response_tail = if gen.response.len() > 800 {
-            let mut start = gen.response.len() - 800;
-            while start > 0 && !gen.response.is_char_boundary(start) { start += 1; }
-            &gen.response[start..]
-        } else {
-            &gen.response
-        };
-        let check_text = format!("USER REQUEST: {user_prefix}\n\nASSISTANT RESPONSE TAIL:\n{response_tail}");
-        let is_complete = super::sub_checks::quick_task_completion_check(
-            model, &state.backend, state.chat_template_string.as_deref(),
-            &conversation_id, &check_text,
-        );
-        if !is_complete {
-            eprintln!("[TASK_CHECK] Y/N check said NO → setting finish_reason=yn_continue for auto-continue");
-            log_event(&conversation_id, "yn_check", "NO → auto-continue");
-            gen.finish_reason = "yn_continue".to_string();
-        } else {
-            log_event(&conversation_id, "yn_check", "YES → task complete");
-        }
-        output.finish_reason = gen.finish_reason.clone();
-    }
 
     llama_chat_db::event_log::clear_global_status();
 

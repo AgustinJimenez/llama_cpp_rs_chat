@@ -38,61 +38,57 @@ export const ConversationItem = React.memo(
   }: ConversationItemProps) => {
     const [menuOpen, setMenuOpen] = useState(false);
     const displayName = conversation.title || conversation.display_name || conversation.name;
+    const selectIcon = isSelected ? (
+      <CheckSquare size={14} className="text-white" />
+    ) : (
+      <Square size={14} className="text-white/40" />
+    );
 
     return (
-      <div
-        role="button"
-        tabIndex={0}
-        className={`group flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors text-sm ${getItemStyle(
+      <li
+        className={`group flex items-center justify-between rounded-lg text-sm transition-colors ${getItemStyle(
           isSelected,
           isActive,
         )}`}
-        onClick={() => {
-          if (selectMode) onToggleSelect(conversation.name);
-          else onLoad(conversation.name);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            if (selectMode) onToggleSelect(conversation.name);
-            else onLoad(conversation.name);
-          }
-        }}
         data-testid={`conversation-${flatIndex}`}
       >
-        <div className="flex items-center gap-1 truncate flex-1 min-w-0">
-          {isGenerating ? (
+        <button
+          className="flex min-w-0 flex-1 items-center gap-1 truncate px-3 py-2 text-left"
+          onClick={() => {
+            if (selectMode) onToggleSelect(conversation.name);
+            else onLoad(conversation.name);
+          }}
+        >
+          {!!isGenerating && (
             <span className="relative flex h-2.5 w-2.5 flex-shrink-0">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500" />
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
             </span>
-          ) : null}
+          )}
           <span className="truncate" title={displayName}>
             {displayName}
           </span>
-        </div>
+        </button>
 
-        {selectMode ? (
-          <button
-            className="p-0.5 ml-1 flex-shrink-0"
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleSelect(conversation.name);
-            }}
-          >
-            {isSelected ? (
-              <CheckSquare size={14} className="text-white" />
-            ) : (
-              <Square size={14} className="text-white/40" />
-            )}
-          </button>
-        ) : null}
-
-        <div className="flex items-center gap-1 flex-shrink-0 ml-2">
-          <span className="text-xs text-foreground/50">{relativeTime(conversation.timestamp)}</span>
-          {!selectMode ? (
+        <div className="mr-2 flex flex-shrink-0 items-center gap-1">
+          <span className="text-xs text-muted-foreground">
+            {relativeTime(conversation.timestamp)}
+          </span>
+          {!!selectMode && (
+            <button
+              className="flex-shrink-0 p-0.5"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleSelect(conversation.name);
+              }}
+            >
+              {selectIcon}
+            </button>
+          )}
+          {!selectMode && (
             <div className="relative">
               <button
-                className={`opacity-0 group-hover:opacity-100 p-0.5 rounded transition-all ${
+                className={`rounded p-0.5 opacity-0 transition-all group-hover:opacity-100 ${
                   isActive
                     ? 'text-foreground/40 hover:text-foreground'
                     : 'text-muted-foreground hover:text-foreground'
@@ -105,7 +101,7 @@ export const ConversationItem = React.memo(
               >
                 <MoreVertical size={12} />
               </button>
-              {menuOpen ? (
+              {!!menuOpen && (
                 <ContextMenu
                   onClose={() => setMenuOpen(false)}
                   onDelete={(e) => {
@@ -119,11 +115,11 @@ export const ConversationItem = React.memo(
                     onToggleSelect(conversation.name);
                   }}
                 />
-              ) : null}
+              )}
             </div>
-          ) : null}
+          )}
         </div>
-      </div>
+      </li>
     );
   },
 );
@@ -141,17 +137,18 @@ const ContextMenu: React.FC<{
       onKeyDown={onClose}
       role="button"
       tabIndex={0}
+      aria-label="Close menu"
     />
-    <div className="absolute right-0 top-6 z-50 bg-popover border border-border rounded-md shadow-lg py-1 min-w-[120px]">
+    <div className="absolute right-0 top-6 z-50 min-w-[120px] rounded-md border border-border bg-popover py-1 shadow-lg">
       <button
-        className="w-full px-3 py-1.5 text-xs text-left hover:bg-muted flex items-center gap-2"
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-muted"
         onClick={onDelete}
       >
         <Trash2 size={12} className="text-destructive" />
         Delete
       </button>
       <button
-        className="w-full px-3 py-1.5 text-xs text-left hover:bg-muted flex items-center gap-2"
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-muted"
         onClick={onSelect}
       >
         <CheckSquare size={12} />

@@ -30,7 +30,20 @@ pub(super) fn dispatch_text_tool(
             if command.is_empty() {
                 return Some("Error: 'command' argument is required".to_string());
             }
-            let command = format!("rtk {}", command);
+            // Strip any "rtk " prefix the model may have added after reading CLAUDE.md.
+            // RTK wrapping is NOT applied here — it breaks shell builtins (mkdir, cd, etc.)
+            // and we already have our own output truncation/summarization pipeline.
+            let command = command.strip_prefix("rtk ").unwrap_or(command);
+            let working_dir = args.get("working_directory").and_then(|v| v.as_str());
+            let command = if let Some(dir) = working_dir {
+                if cfg!(target_os = "windows") {
+                    format!("cd /d \"{dir}\" && {command}")
+                } else {
+                    format!("cd \"{dir}\" && {command}")
+                }
+            } else {
+                command.to_string()
+            };
             let is_background = args
                 .get("background")
                 .and_then(|v| v.as_bool())
@@ -46,6 +59,14 @@ pub(super) fn dispatch_text_tool(
                     &mut |_| {},
                 )
             }
+        }
+        "execute_pty" => {
+            let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
+            if command.is_empty() {
+                return Some("Error: 'command' argument is required".to_string());
+            }
+            let command = command.strip_prefix("rtk ").unwrap_or(command);
+            llama_chat_command::execute_command_pty(command, None, |_: &str| {})
         }
         "check_background_process" => {
             let pid = args
@@ -67,7 +88,14 @@ pub(super) fn dispatch_text_tool(
                         .or_else(|| v.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
                 })
                 .unwrap_or(0);
-            llama_chat_command::background::check_background_process(pid, wait_seconds)
+            let max_checks = args
+                .get("max_checks")
+                .and_then(|v| {
+                    v.as_u64()
+                        .or_else(|| v.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
+                })
+                .unwrap_or(5) as usize;
+            llama_chat_command::background::check_background_process(pid, wait_seconds, max_checks)
         }
         "wait" => {
             let seconds = args
@@ -80,8 +108,7 @@ pub(super) fn dispatch_text_tool(
                 .min(30);
             std::thread::sleep(std::time::Duration::from_secs(seconds));
             format!(
-                "Waited {} seconds. You can now check on background processes or continue.",
-                seconds
+                "Waited {seconds} seconds. You can now check on background processes or continue.",
             )
         }
         "lsp_query" => {
@@ -101,13 +128,14 @@ pub(super) fn dispatch_text_tool(
                             let matches: Vec<&str> = ctags
                                 .lines()
                                 .filter(|line| {
-                                    line.contains(&format!("\"name\":\"{}\"", symbol))
-                                        || line.starts_with(&format!("{}\t", symbol))
+                                    line.contains(&format!("\"name\":\"{symbol}\""))
+                                        || line.starts_with(&format!("{symbol}\t"))
                                 })
                                 .take(10)
                                 .collect();
                             if !matches.is_empty() {
-                                format!("Definitions found via ctags:\n{}", matches.join("\n"))
+                                let matches_str = matches.join("\n");
+                                format!("Definitions found via ctags:\n{matches_str}")
                             } else {
                                 command_tools::lsp_ripgrep_definition(symbol, path)
                             }
@@ -117,8 +145,7 @@ pub(super) fn dispatch_text_tool(
                     }
                     "references" => {
                         let cmd = format!(
-                            "rg -n -w \"{}\" \"{}\" --type-add \"code:*.{{rs,ts,tsx,js,jsx,py,go,java,c,cpp,h,hpp,nim,ex}}\" -t code --max-count 30",
-                            symbol, path
+                            "rg -n -w \"{symbol}\" \"{path}\" --type-add \"code:*.{{rs,ts,tsx,js,jsx,py,go,java,c,cpp,h,hpp,nim,ex}}\" -t code --max-count 30"
                         );
                         llama_chat_command::execute_command(&cmd)
                     }
@@ -127,11 +154,12 @@ pub(super) fn dispatch_text_tool(
                         if let Some(ctags) = command_tools::get_ctags(target) {
                             let file_matches: Vec<&str> = ctags
                                 .lines()
-                                .filter(|line| file.map_or(true, |f| line.contains(f)))
+                                .filter(|line| file.is_none_or(|f| line.contains(f)))
                                 .take(50)
                                 .collect();
                             if !file_matches.is_empty() {
-                                format!("Symbols:\n{}", file_matches.join("\n"))
+                                let matches_str = file_matches.join("\n");
+                                format!("Symbols:\n{matches_str}")
                             } else {
                                 command_tools::lsp_ripgrep_symbols(target)
                             }
@@ -151,8 +179,7 @@ pub(super) fn dispatch_text_tool(
                             "py" => {
                                 if let Some(f) = file {
                                     llama_chat_command::execute_command(&format!(
-                                        "python -m py_compile {} 2>&1",
-                                        f
+                                        "python -m py_compile {f} 2>&1"
                                     ))
                                 } else {
                                     "Error: 'file' is required for Python diagnostics".to_string()
@@ -164,8 +191,7 @@ pub(super) fn dispatch_text_tool(
                             "nim" => {
                                 if let Some(f) = file {
                                     llama_chat_command::execute_command(&format!(
-                                        "nim check {} 2>&1 | head -30",
-                                        f
+                                        "nim check {f} 2>&1 | head -30"
                                     ))
                                 } else {
                                     "Error: 'file' is required for Nim diagnostics".to_string()
@@ -177,20 +203,18 @@ pub(super) fn dispatch_text_tool(
                     "hover" => {
                         let escaped = regex::escape(symbol);
                         let pattern =
-                            format!(r"(fn|struct|enum|trait|type|class|def|interface)\s+{}", escaped);
+                            format!(r"(fn|struct|enum|trait|type|class|def|interface)\s+{escaped}");
                         let cmd = format!(
-                            "rg -n -A 5 \"{}\" \"{}\" --type-add \"code:*.{{rs,ts,tsx,js,jsx,py,go,java,c,cpp,h,hpp}}\" -t code --max-count 5",
-                            pattern, path
+                            "rg -n -A 5 \"{pattern}\" \"{path}\" --type-add \"code:*.{{rs,ts,tsx,js,jsx,py,go,java,c,cpp,h,hpp}}\" -t code --max-count 5"
                         );
                         llama_chat_command::execute_command(&cmd)
                     }
                     _ => format!(
-                        "Unknown action '{}'. Use: definition, references, symbols, hover, diagnostics",
-                        action
+                        "Unknown action '{action}'. Use: definition, references, symbols, hover, diagnostics"
                     ),
                 };
                 if result.trim().is_empty() {
-                    format!("No results found for '{}' ({}) in {}", symbol, action, path)
+                    format!("No results found for '{symbol}' ({action}) in {path}")
                 } else {
                     result
                 }
@@ -206,7 +230,7 @@ pub(super) fn dispatch_text_tool(
         "sleep" => {
             let seconds = args.get("seconds").and_then(|v| v.as_u64()).unwrap_or(5).min(30);
             std::thread::sleep(std::time::Duration::from_secs(seconds));
-            format!("Waited {} seconds", seconds)
+            format!("Waited {seconds} seconds")
         }
         "todo_write" => {
             let todos = args.get("todos").and_then(|v| v.as_str()).unwrap_or("[]");
@@ -217,7 +241,7 @@ pub(super) fn dispatch_text_tool(
                     if let Ok(mut store) = todo_store().lock() {
                         store.insert("default".to_string(), formatted.clone());
                     }
-                    format!("Todo list updated:\n{}", formatted)
+                    format!("Todo list updated:\n{formatted}")
                 }
                 Err(e) => format!(
                     "Error: Invalid JSON for todos: {e}. Expected array of {{id, task, status}} objects."
@@ -233,7 +257,7 @@ pub(super) fn dispatch_text_tool(
             if todos == "[]" {
                 "No todos yet. Use todo_write to create a task checklist.".to_string()
             } else {
-                format!("Current todos:\n{}", todos)
+                format!("Current todos:\n{todos}")
             }
         }
         "list_skills" => {
@@ -243,9 +267,12 @@ pub(super) fn dispatch_text_tool(
                 if skills.is_empty() {
                     "No skills found. Create .md files in a 'skills/' directory with YAML frontmatter (name, description).".to_string()
                 } else {
-                    let mut output = format!("{} skills available:\n", skills.len());
+                    let skill_count = skills.len();
+                    let mut output = format!("{skill_count} skills available:\n");
                     for s in &skills {
-                        output.push_str(&format!("  {} — {}\n", s.name, s.description));
+                        let s_name = &s.name;
+                        let s_desc = &s.description;
+                        output.push_str(&format!("  {s_name} — {s_desc}\n"));
                     }
                     output
                 }
@@ -267,7 +294,7 @@ pub(super) fn dispatch_text_tool(
                             )
                         {
                             for (key, val) in &args_map {
-                                let placeholder = format!("{{{{{}}}}}", key);
+                                let placeholder = format!("{{{{{key}}}}}");
                                 let replacement = match val.as_str() {
                                     Some(s) => s.to_string(),
                                     None => val.to_string(),
@@ -275,11 +302,10 @@ pub(super) fn dispatch_text_tool(
                                 content = content.replace(&placeholder, &replacement);
                             }
                         }
-                        format!("Skill '{}' loaded:\n\n{}", skill_name, content)
+                        format!("Skill '{skill_name}' loaded:\n\n{content}")
                     }
                     None => format!(
-                        "Skill '{}' not found. Use list_skills to see available skills.",
-                        skill_name
+                        "Skill '{skill_name}' not found. Use list_skills to see available skills."
                     ),
                 }
             } else {
@@ -290,7 +316,7 @@ pub(super) fn dispatch_text_tool(
             let style = args.get("style").and_then(|v| v.as_str()).unwrap_or("detailed");
             match style {
                 "brief" => "Response style set to BRIEF. From now on: be concise, skip explanations, show only results and actions. No preamble or summaries.".to_string(),
-                "detailed" | _ => "Response style set to DETAILED. From now on: explain your reasoning, show context, and provide thorough responses.".to_string(),
+                _ => "Response style set to DETAILED. From now on: explain your reasoning, show context, and provide thorough responses.".to_string(),
             }
         }
         "open_url" => {
@@ -298,7 +324,7 @@ pub(super) fn dispatch_text_tool(
             if url.is_empty() {
                 "Error: 'url' argument is required".to_string()
             } else if !url.starts_with("http://") && !url.starts_with("https://") {
-                format!("Error: URL must start with http:// or https://, got: {}", url)
+                format!("Error: URL must start with http:// or https://, got: {url}")
             } else {
                 #[cfg(target_os = "windows")]
                 let result = std::process::Command::new("cmd")
@@ -309,8 +335,8 @@ pub(super) fn dispatch_text_tool(
                 #[cfg(target_os = "linux")]
                 let result = std::process::Command::new("xdg-open").arg(url).spawn();
                 match result {
-                    Ok(_) => format!("Opened {} in the default browser", url),
-                    Err(e) => format!("Failed to open URL: {}", e),
+                    Ok(_) => format!("Opened {url} in the default browser"),
+                    Err(e) => format!("Failed to open URL: {e}"),
                 }
             }
         }

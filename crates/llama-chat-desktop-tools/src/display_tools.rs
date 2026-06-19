@@ -186,10 +186,7 @@ pub fn tool_highlight_point(args: &Value) -> NativeToolResult {
     }
 
     NativeToolResult {
-        text: format!(
-            "Highlighted point ({}, {}) with {} crosshair (size {})",
-            x, y, color_name, size
-        ),
+        text: format!("Highlighted point ({x}, {y}) with {color_name} crosshair (size {size})"),
         images: vec![buf],
     }
 }

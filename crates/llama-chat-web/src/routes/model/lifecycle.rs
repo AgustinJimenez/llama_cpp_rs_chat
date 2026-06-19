@@ -34,6 +34,8 @@ pub async fn handle_post_model_load(
     req: Request<Body>,
     #[cfg(not(feature = "mock"))] bridge: SharedWorkerBridge,
     #[cfg(feature = "mock")] _bridge: (),
+    #[cfg(not(feature = "mock"))] pool: crate::worker_pool::WorkerPool,
+    #[cfg(feature = "mock")] _pool: (),
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
     sys_debug!("[DEBUG] /api/model/load endpoint hit");
@@ -45,37 +47,18 @@ pub async fn handle_post_model_load(
             Err(error_response) => return Ok(error_response),
         };
 
-        {
-            let mut db_config = db.load_config();
-            let mut updated = false;
-            if let Some(ctx) = load_request.context_size {
-                db_config.context_size = Some(ctx);
-                updated = true;
-            }
-            if let Some(fa) = load_request.flash_attention {
-                db_config.flash_attention = fa;
-                updated = true;
-            }
-            if let Some(ref k) = load_request.cache_type_k {
-                db_config.cache_type_k = k.clone();
-                updated = true;
-            }
-            if let Some(ref v) = load_request.cache_type_v {
-                db_config.cache_type_v = v.clone();
-                updated = true;
-            }
-            if updated {
-                if let Err(e) = db.update_config(&db_config) {
-                    eprintln!("[WARN] Failed to persist load params to config: {}", e);
-                }
-            }
-        }
+        // This endpoint loads into the persistent `default` worker. Free memory first
+        // by unloading other idle workers if the machine can't hold this model alongside
+        // them (prevents two co-resident model copies OOMing the GPU on low-RAM machines).
+        pool.free_memory_for_load(&load_request.model_path, "default")
+            .await;
 
         match bridge
             .load_model(
                 &load_request.model_path,
                 load_request.gpu_layers,
                 load_request.mmproj_path,
+                None,
             )
             .await
         {
@@ -101,6 +84,7 @@ pub async fn handle_post_model_load(
                     context_size: None,
                     last_finish_reason: None,
                     supports_thinking: Some(meta.supports_thinking),
+                    is_agent_model: None,
                 };
                 let response = ModelResponse {
                     success: true,
@@ -135,7 +119,7 @@ pub async fn handle_post_model_load(
 
     #[cfg(feature = "mock")]
     {
-        let _ = req;
+        let _ = (req, &db);
         Ok(json_raw(
             StatusCode::SERVICE_UNAVAILABLE,
             r#"{"success":false,"message":"Model loading not available (mock feature enabled)"}"#
@@ -171,6 +155,7 @@ pub async fn handle_post_model_unload(
                     context_size: None,
                     last_finish_reason: None,
                     supports_thinking: None,
+                    is_agent_model: None,
                 };
                 let response = ModelResponse {
                     success: true,
@@ -255,7 +240,10 @@ pub async fn handle_get_backends(
                     "nvidia_gpu_detected": nvidia_detected,
                     "cuda_backend_loaded": has_cuda,
                 });
-                Ok(json_raw(StatusCode::OK, serde_json::to_string(&body).unwrap()))
+                Ok(json_raw(
+                    StatusCode::OK,
+                    serde_json::to_string(&body).unwrap(),
+                ))
             }
             Err(e) => Ok(json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -271,6 +259,9 @@ pub async fn handle_get_backends(
             "nvidia_gpu_detected": nvidia_detected,
             "cuda_backend_loaded": false,
         });
-        Ok(json_raw(StatusCode::OK, serde_json::to_string(&body).unwrap()))
+        Ok(json_raw(
+            StatusCode::OK,
+            serde_json::to_string(&body).unwrap(),
+        ))
     }
 }

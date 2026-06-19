@@ -30,11 +30,11 @@ fn test_file_seek(path: &str) {
     let mut f = std::fs::File::open(path).expect("failed to open mmproj");
     let metadata = f.metadata().expect("metadata");
     let file_size = metadata.len();
-    eprintln!("  File size: {} bytes", file_size);
+    eprintln!("  File size: {file_size} bytes");
 
     // Seek to the same offset that clip.cpp will try: 854195616
     let offset = 854195616u64;
-    eprintln!("  Seeking to offset {}...", offset);
+    eprintln!("  Seeking to offset {offset}...");
     f.seek(SeekFrom::Start(offset)).expect("seek failed");
     eprintln!("  Seek OK! Reading 4608 bytes...");
     let mut buf = vec![0u8; 4608];
@@ -55,7 +55,7 @@ fn main() {
     eprintln!("Initializing backend...");
     let backend = LlamaBackend::init().expect("backend init");
 
-    eprintln!("Loading model from {}...", model_path);
+    eprintln!("Loading model from {model_path}...");
     let model_params = LlamaModelParams::default().with_n_gpu_layers(0);
     let model = LlamaModel::load_from_file(&backend, model_path, &model_params)
         .expect("model load");
@@ -64,7 +64,7 @@ fn main() {
     eprintln!("=== Post-model-load seek test ===");
     test_file_seek(mmproj_path);
 
-    eprintln!("Model loaded. Loading mmproj from {}...", mmproj_path);
+    eprintln!("Model loaded. Loading mmproj from {mmproj_path}...");
     let params = MtmdContextParams {
         use_gpu: false,
         print_timings: false,
@@ -77,7 +77,7 @@ fn main() {
             eprintln!("Vision context initialized! vision={}", ctx.support_vision());
         }
         Err(e) => {
-            eprintln!("ERROR: Failed to init vision context: {}", e);
+            eprintln!("ERROR: Failed to init vision context: {e}");
         }
     }
 }

@@ -2,6 +2,7 @@
 export const PROVIDER_LABELS: Record<string, string> = {
   claude_code: 'Claude',
   codex: 'Codex',
+  opencode_zen: 'OpenCode Zen',
   groq: 'Groq',
   gemini: 'Gemini',
   sambanova: 'SambaNova',

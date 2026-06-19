@@ -40,12 +40,10 @@ use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::model::{AddBos, LlamaModel};
 use llama_cpp_2::sampling::LlamaSampler;
-use llama_cpp_2::token::LlamaToken;
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
-use serde_json::json;
 
 #[path = "threaded_injection/background.rs"]
 mod background;
@@ -186,7 +184,7 @@ fn run_level(level: u32, backend: &LlamaBackend, model: &LlamaModel, context_siz
 
     let running = Arc::new(AtomicBool::new(true));
     let heartbeat = Arc::new(AtomicU64::new(0));
-    let (mut rt_handle, mut handles) = setup_background_noise(level, &running, &heartbeat);
+    let (rt_handle, mut handles) = setup_background_noise(level, &running, &heartbeat);
 
     // --- Configure test parameters based on level ---
     // Levels 0-9: small pre-gen (200 tokens), small inject (~60 tokens), 15 rounds, 30 gen between
@@ -325,7 +323,7 @@ fn run_level(level: u32, backend: &LlamaBackend, model: &LlamaModel, context_siz
 
     // --- Pre-generate tokens ---
     let t_pre = Instant::now();
-    print!("  Pre-generate {} tokens: ", pre_gen_count);
+    print!("  Pre-generate {pre_gen_count} tokens: ");
     let mut eos_hit = false;
     for i in 0..pre_gen_count {
         let next = sampler.sample(&ctx, -1);
@@ -408,10 +406,10 @@ fn run_level(level: u32, backend: &LlamaBackend, model: &LlamaModel, context_siz
         // In the app, tool execution takes 1-30 seconds while CUDA context sits idle
         if level >= 26 {
             let delay_secs = 3 + (round % 5) as u64; // 3-7 seconds
-            print!("    [delay {}s: CUDA idle while tool executes] ", delay_secs);
+            print!("    [delay {delay_secs}s: CUDA idle while tool executes] ");
             // Also run a real command during the delay (like the app does)
             let child = std::process::Command::new("cmd.exe")
-                .args(["/C", &format!("ping -n {} 127.0.0.1 >nul", delay_secs)])
+                .args(["/C", &format!("ping -n {delay_secs} 127.0.0.1 >nul")])
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
@@ -506,7 +504,7 @@ fn run_level(level: u32, backend: &LlamaBackend, model: &LlamaModel, context_siz
                 }
             }
         }
-        println!(" (pos={})", token_pos);
+        println!(" (pos={token_pos})");
     }
 
     // Cleanup background tasks

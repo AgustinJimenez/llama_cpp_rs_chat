@@ -42,14 +42,24 @@ impl StopConditionResult {
 /// and allow stop tokens to fire. Prevents infinite generation when a model
 /// opens an exec block but never properly closes it.
 const MAX_EXEC_BLOCK_LEN: usize = 1000;
+/// Parallel blocks can be much larger (many file contents). Allow up to 500KB.
+const MAX_PARALLEL_BLOCK_LEN: usize = 500_000;
 
 /// Tracks exec block state incrementally instead of scanning the full response
 /// with 6x rfind() on every token.
 pub struct ExecBlockTracker {
-    /// Whether we're currently inside an exec block
+    /// Whether we're currently inside an exec block (suppresses stop tokens)
     in_block: bool,
-    /// Position where the current block was opened
+    /// Position where the current normal exec block was opened
     block_open_pos: usize,
+    /// Whether we're inside a <parallel_calls>...</parallel_calls> fence.
+    /// Individual </tool_call> tags inside do NOT close this — only </parallel_calls> does.
+    in_parallel_block: bool,
+    /// Response position where <parallel_calls> was opened (for content extraction).
+    parallel_block_start: usize,
+    /// Set to true for exactly one call to `update()` — the token that closes the fence.
+    /// Cleared at the start of every `update()` call so the caller can check it after.
+    parallel_just_closed: bool,
 }
 
 impl ExecBlockTracker {
@@ -57,13 +67,57 @@ impl ExecBlockTracker {
         Self {
             in_block: false,
             block_open_pos: 0,
+            in_parallel_block: false,
+            parallel_block_start: 0,
+            parallel_just_closed: false,
         }
     }
 
     /// Update state based on the new token. Call this after appending token to response.
     /// `response_len` is the total response length after appending.
     pub fn update(&mut self, token: &str, response_len: usize) {
+        // Reset the one-shot "just closed" flag from the previous token.
+        self.parallel_just_closed = false;
+
         let was_in_block = self.in_block;
+        let was_parallel = self.in_parallel_block;
+
+        // ── Parallel fence (outer wrapper) ───────────────────────────────────
+        if !self.in_parallel_block && token.contains("<parallel_calls>") {
+            self.in_parallel_block = true;
+            self.in_block = true;
+            self.parallel_block_start = response_len.saturating_sub(token.len());
+            eprintln!(
+                "[EXEC_TRACKER] Parallel block opened at pos={} response_len={}",
+                self.parallel_block_start, response_len
+            );
+            return;
+        }
+
+        if self.in_parallel_block {
+            // Safety: bail if someone sends an absurdly large parallel block
+            if response_len.saturating_sub(self.parallel_block_start) > MAX_PARALLEL_BLOCK_LEN {
+                eprintln!("[EXEC_TRACKER] Parallel block exceeded MAX_PARALLEL_BLOCK_LEN — force-closing");
+                self.in_parallel_block = false;
+                self.in_block = false;
+            } else if token.contains("</parallel_calls>") {
+                self.in_parallel_block = false;
+                self.in_block = false;
+                self.parallel_just_closed = true;
+                eprintln!("[EXEC_TRACKER] Parallel block closed at response_len={}", response_len);
+            }
+            // While inside a parallel fence, ignore inner </tool_call> tags —
+            // they don't exit the outer block.
+            if was_in_block != self.in_block || was_parallel != self.in_parallel_block {
+                eprintln!(
+                    "[EXEC_TRACKER] State change: in_block {} → {}, in_parallel {} → {}",
+                    was_in_block, self.in_block, was_parallel, self.in_parallel_block
+                );
+            }
+            return;
+        }
+
+        // ── Normal exec block ────────────────────────────────────────────────
         if self.in_block {
             // Check if the new token contains a close tag
             // NOTE: GLM models open with <tool_call> but close with <|end_of_box|>
@@ -77,7 +131,7 @@ impl ExecBlockTracker {
                 self.in_block = false;
             }
             // Safety: give up if block is too long
-            if response_len - self.block_open_pos > MAX_EXEC_BLOCK_LEN {
+            if response_len.saturating_sub(self.block_open_pos) > MAX_EXEC_BLOCK_LEN {
                 self.in_block = false;
             }
         } else {
@@ -102,6 +156,20 @@ impl ExecBlockTracker {
 
     pub fn is_inside(&self) -> bool {
         self.in_block
+    }
+
+    pub fn is_in_parallel_block(&self) -> bool {
+        self.in_parallel_block
+    }
+
+    /// True only for the token that closes the `</parallel_calls>` fence.
+    /// Cleared automatically at the start of the next `update()` call.
+    pub fn parallel_just_closed(&self) -> bool {
+        self.parallel_just_closed
+    }
+
+    pub fn parallel_block_start(&self) -> usize {
+        self.parallel_block_start
     }
 }
 

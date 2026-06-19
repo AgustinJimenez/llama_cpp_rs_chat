@@ -16,6 +16,10 @@ use super::parsing::{parse_command_with_quotes, find_last_redirect, split_on_cha
 mod streaming;
 pub use streaming::{execute_command_streaming, execute_command_streaming_with_timeout};
 
+#[path = "execution/pty.rs"]
+mod pty;
+pub use pty::execute_command_pty;
+
 // ── Process tree kill (Windows) ─────────────────────────────────────────────
 // On Windows, `child.kill()` only terminates the top-level process (cmd.exe).
 // Child processes (e.g. php.exe spawned by cmd) inherit the stdout pipe handle,
@@ -36,13 +40,13 @@ pub fn kill_process_tree(pid: u32) {
             .status()
         {
             Ok(status) if status.success() => {
-                eprintln!("[KILL] Process tree killed (pid={})", pid);
+                eprintln!("[KILL] Process tree killed (pid={pid})");
             }
             Ok(status) => {
-                eprintln!("[KILL] taskkill exited with {} for pid={}", status, pid);
+                eprintln!("[KILL] taskkill exited with {status} for pid={pid}");
             }
             Err(e) => {
-                eprintln!("[KILL] Failed to run taskkill for pid={}: {}", pid, e);
+                eprintln!("[KILL] Failed to run taskkill for pid={pid}: {e}");
             }
         }
     }
@@ -92,7 +96,7 @@ fn track_cwd_change(cmd: &str) {
                 }
             }
             Err(e) => {
-                eprintln!("[CWD] Failed to persist cd to '{}': {}", target, e);
+                eprintln!("[CWD] Failed to persist cd to '{target}': {e}");
             }
         }
     }

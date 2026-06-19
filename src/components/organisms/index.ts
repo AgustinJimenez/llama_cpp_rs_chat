@@ -1,7 +1,7 @@
 // Organisms - Complex composite components
 export { MessageBubble } from './MessageBubble';
 export { ChatHeader } from './ChatHeader';
-export { default as Sidebar } from './Sidebar';
+export { SidebarComponent as Sidebar } from './Sidebar';
 export { RightSidebar } from './RightSidebar';
 export { AppSettingsModal } from './AppSettingsModal';
 export { SystemUsage } from './SystemUsage';

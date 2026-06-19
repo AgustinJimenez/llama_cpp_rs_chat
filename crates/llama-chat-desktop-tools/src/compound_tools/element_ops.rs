@@ -37,9 +37,10 @@ pub(super) fn ocr_find_element_on_screen(search_name: &str) -> Result<(i32, i32,
     match result {
         Ok(matches) if !matches.is_empty() => {
             let m = &matches[0];
-            Ok((m.center_x as i32, m.center_y as i32, format!("\"{}\"", m.text)))
+            let t = &m.text;
+            Ok((m.center_x as i32, m.center_y as i32, format!("\"{t}\"")))
         }
-        Ok(_) => Err(format!("Element '{}' not found via OCR", search_name)),
+        Ok(_) => Err(format!("Element '{search_name}' not found via OCR")),
         Err(e) => Err(format!("OCR: {e}")),
     }
 }
@@ -109,9 +110,10 @@ pub fn tool_type_into_element(args: &Value) -> NativeToolResult {
             let type_args = serde_json::json!({ "text": text, "delay_ms": 300 });
             let mut result = super::super::tool_type_text(&type_args);
             let route = if prefer_ocr_fallback { "ocr_fallback" } else { "uia" };
+            let char_count = text.len();
+            let prev_text = result.text.clone();
             result.text = format!(
-                "Clicked element {desc} at ({}, {}) via {route}, then typed {} chars. {}",
-                cx, cy, text.len(), result.text
+                "Clicked element {desc} at ({cx}, {cy}) via {route}, then typed {char_count} chars. {prev_text}"
             );
             result
         }
@@ -202,7 +204,7 @@ fn get_window_text_inner(_hwnd: isize, max_chars: usize) -> Result<String, Strin
         .or_else(|_| super::super::ocr_tools::ocr_image_tesseract(&img, None));
 
     #[cfg(target_os = "linux")]
-    let ocr_result = super::super::ocr_tools::ocr_image_tesseract(&img);
+    let ocr_result = super::super::ocr_tools::ocr_image_tesseract(&img, None);
 
     match ocr_result {
         Ok(text) => {
@@ -238,7 +240,7 @@ fn collect_text(
     if !name.is_empty() {
         match control_type.as_str() {
             "Text" | "Edit" | "Document" | "Hyperlink" => {
-                if output.len() + name.len() + 1 <= max_chars {
+                if output.len() + name.len() < max_chars {
                     output.push_str(&name);
                     output.push('\n');
                 }
@@ -250,7 +252,7 @@ fn collect_text(
                 if let Ok(pattern) = value_result {
                     if let Ok(val) = unsafe { pattern.CurrentValue() } {
                         let val_str = val.to_string();
-                        if !val_str.is_empty() && output.len() + val_str.len() + 1 <= max_chars {
+                        if !val_str.is_empty() && output.len() + val_str.len() < max_chars {
                             output.push_str(&val_str);
                             output.push('\n');
                         }
@@ -315,6 +317,7 @@ pub fn tool_drag_and_drop_element(args: &Value) -> NativeToolResult {
     let prefer_ocr_fallback = gpu_app_for_hwnd(hwnd).is_some() && from_name.is_some() && to_name.is_some();
 
     #[cfg(windows)]
+    #[allow(clippy::type_complexity)]
     let positions: Result<((i32, i32, String), (i32, i32, String)), String> = {
         if prefer_ocr_fallback {
             let from_search = from_name.unwrap().to_lowercase();
@@ -347,6 +350,7 @@ pub fn tool_drag_and_drop_element(args: &Value) -> NativeToolResult {
     };
 
     #[cfg(not(windows))]
+    #[allow(clippy::type_complexity)]
     let positions: Result<((i32, i32, String), (i32, i32, String)), String> = (|| {
         let from_search = match from_name {
             Some(n) => n.to_lowercase(),
@@ -370,9 +374,12 @@ pub fn tool_drag_and_drop_element(args: &Value) -> NativeToolResult {
             });
             let mut result = super::super::tool_mouse_drag(&drag_args);
             let route = if prefer_ocr_fallback { "ocr_fallback" } else { "uia" };
+            let from_desc = &from.2;
+            let to_desc = &to.2;
+            let prev_text = result.text.clone();
             result.text = format!(
-                "Dragged {} at ({},{}) -> {} at ({},{}) via {}. {}",
-                from.2, from.0, from.1, to.2, to.0, to.1, route, result.text
+                "Dragged {from_desc} at ({},{}) -> {to_desc} at ({},{}) via {route}. {prev_text}",
+                from.0, from.1, to.0, to.1
             );
             result
         }
@@ -450,9 +457,9 @@ pub fn tool_scroll_element(args: &Value) -> NativeToolResult {
             });
             let mut result = super::super::tool_scroll_screen(&scroll_args);
             let route = if prefer_ocr_fallback { "ocr_fallback" } else { "uia" };
+            let prev_text = result.text.clone();
             result.text = format!(
-                "Scrolled {dir} {amount} clicks on element {desc} at ({}, {}) via {}. {}",
-                cx, cy, route, result.text
+                "Scrolled {dir} {amount} clicks on element {desc} at ({cx}, {cy}) via {route}. {prev_text}"
             );
             result
         }

@@ -25,6 +25,7 @@ static AGENT_DEPTH: AtomicU32 = AtomicU32::new(0);
 ///
 /// The sub-agent shares the loaded model but gets its own KV cache, so it
 /// doesn't pollute the main conversation's context window.
+#[allow(clippy::too_many_arguments)]
 pub fn run_sub_agent(
     model: &llama_cpp_2::model::LlamaModel,
     backend: &llama_cpp_2::llama_backend::LlamaBackend,
@@ -75,7 +76,7 @@ pub fn run_sub_agent(
         if ctx.is_empty() {
             task.to_string()
         } else {
-            format!("{}\n\n## Additional Context\n{}", task, ctx)
+            format!("{task}\n\n## Additional Context\n{ctx}")
         }
     } else {
         task.to_string()
@@ -100,9 +101,9 @@ pub fn run_sub_agent(
             ChatMessage { role: "user".into(), content: user_message, tool_calls: None },
         ];
         apply_native_chat_template(template_str, messages, Some(tools), None, true, &bos, &eos, false)
-            .unwrap_or_else(|_| format!("SYSTEM:\n{}\n\nUSER:\n{}\n\nASSISTANT:\n", system_prompt, task))
+            .unwrap_or_else(|_| format!("SYSTEM:\n{system_prompt}\n\nUSER:\n{task}\n\nASSISTANT:\n"))
     } else {
-        format!("SYSTEM:\n{}\n\nUSER:\n{}\n\nASSISTANT:\n", system_prompt, task)
+        format!("SYSTEM:\n{system_prompt}\n\nUSER:\n{task}\n\nASSISTANT:\n")
     };
 
     // Tokenize

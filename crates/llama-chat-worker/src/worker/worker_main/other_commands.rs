@@ -145,6 +145,54 @@ pub fn handle_compact_conversation(
     }
 }
 
+/// Handle GetMcpToolDefinitions command.
+pub fn handle_get_mcp_tool_definitions(
+    req_id: u64,
+    mcp_manager: &McpManager,
+    ipc_writer: &mut impl Write,
+) {
+    let tools: Vec<llama_chat_types::ipc_types::McpToolDefPayload> = mcp_manager.get_tool_definitions()
+        .into_iter()
+        .map(|td| llama_chat_types::ipc_types::McpToolDefPayload {
+            qualified_name: td.qualified_name,
+            description: td.description,
+            input_schema: td.input_schema,
+            server_name: td.server_name,
+        })
+        .collect();
+    write_response(ipc_writer, &WorkerResponse::ok(req_id, WorkerPayload::McpToolDefinitions { tools }));
+}
+
+/// Handle CallMcpTool command (called by the server when a remote provider needs to run an MCP tool).
+pub fn handle_call_mcp_tool(
+    req_id: u64,
+    name: &str,
+    args_json: &str,
+    mcp_manager: &McpManager,
+    ipc_writer: &mut impl Write,
+) {
+    let args: serde_json::Value = match serde_json::from_str(args_json) {
+        Ok(v) => v,
+        Err(e) => {
+            write_response(ipc_writer, &WorkerResponse::ok(req_id, WorkerPayload::McpToolResult {
+                result: None,
+                error: Some(format!("Invalid args JSON: {e}")),
+            }));
+            return;
+        }
+    };
+    match mcp_manager.call_tool(name, args) {
+        Ok(result) => write_response(ipc_writer, &WorkerResponse::ok(req_id, WorkerPayload::McpToolResult {
+            result: Some(result),
+            error: None,
+        })),
+        Err(e) => write_response(ipc_writer, &WorkerResponse::ok(req_id, WorkerPayload::McpToolResult {
+            result: None,
+            error: Some(e),
+        })),
+    }
+}
+
 /// Handle GenerateTitle command.
 pub fn handle_generate_title(
     req_id: u64,
@@ -153,7 +201,7 @@ pub fn handle_generate_title(
     llama_state: SharedLlamaState,
     ipc_writer: &mut impl Write,
 ) {
-    eprintln!("[WORKER] Generating title for conv={}", conversation_id);
+    eprintln!("[WORKER] Generating title for conv={conversation_id}");
     match llama_chat_engine::generate_title_text(&llama_state, &prompt) {
         Ok(title) => {
             write_response(ipc_writer, &WorkerResponse::ok(

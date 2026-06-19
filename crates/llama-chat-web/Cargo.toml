@@ -61,6 +61,9 @@ ureq = { version = "2.9", default-features = false, features = ["tls"] }
 htmd = "0.1"
 html2text = "0.12"
 
+# OS keychain for secure API key storage (Windows Credential Manager / macOS Keychain / Linux Secret Service)
+keyring = { version = "3", features = ["windows-native", "apple-native"] }
+
 [features]
 default = []
 mock = []

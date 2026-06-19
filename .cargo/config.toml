@@ -1,2 +1,2 @@
-[build]
-rustc-wrapper = "sccache"
+# Local sccache: set RUSTC_WRAPPER=sccache in your shell if you have it installed.
+# Do not set rustc-wrapper here — CI runners don't have sccache and it will break builds.

@@ -17,6 +17,7 @@ import {
   extractPartialToolName,
   findStreamingResponse,
   stripUnclosedToolCallTail,
+  wrapPrefillThinking,
 } from './toolFormatUtils';
 import { collectGemma4Spans, CHANNEL_TAG_REGEX, TURN_TAG_REGEX } from './toolSpanCollectorsGemma4';
 import { collectLfm2Spans } from './toolSpanCollectorsLfm2';
@@ -493,13 +494,9 @@ function selectToolSpans(pruned: string, toolTags?: ToolTags): Span[] {
   // E.g. a Qwen model generating "[TOOL_CALLS]" in prose shouldn't trigger Mistral parsing.
   const skipQwen = execOpen === '[TOOL_CALLS]';
   const skipMistral = execOpen === '<tool_call>';
-  // Llama3 <function=...> has no entry in toolTags; skip only when a native-tag model is loaded
-  // and not the default SYSTEM.EXEC fallback (which serves unknown/Llama3-format models).
-  const skipLlama3 =
-    execOpen !== undefined &&
-    execOpen !== '<||SYSTEM.EXEC>' &&
-    execOpen !== '<|tool_call>' &&
-    execOpen !== '<|tool_call_start|>';
+  // Llama3 <function=...> has no entry in toolTags; skip only for native-tag models.
+  const LLAMA3_PASSTHROUGH = [undefined, '<||SYSTEM.EXEC>', '<|tool_call>', '<|tool_call_start|>'];
+  const skipLlama3 = !(LLAMA3_PASSTHROUGH as Array<string | undefined>).includes(execOpen);
 
   if (!skipQwen) {
     const qwen = collectQwenSpans(pruned, toolTags);
@@ -518,14 +515,13 @@ function selectToolSpans(pruned: string, toolTags?: ToolTags): Span[] {
   return [];
 }
 
-/** Strip channel/turn tags from text content (for text segments only) */
-function stripChannelTags(text: string): string {
-  return text.replace(CHANNEL_TAG_REGEX, '').replace(TURN_TAG_REGEX, '');
-}
+const stripChannelTags = (text: string): string =>
+  text.replace(CHANNEL_TAG_REGEX, '').replace(TURN_TAG_REGEX, '');
 
-export function buildSegments(content: string, toolTags?: ToolTags): MessageSegment[] {
-  // Preprocess: move tool calls out of thinking blocks so they become widgets
-  const preprocessed = moveToolsOutOfThinking(content);
+export function buildSegments(rawContent: string, toolTags?: ToolTags): MessageSegment[] {
+  // Strip EOS tokens; wrap prefill-thinking (Qwen3 injects <think> via template).
+  const content = rawContent.replace(/<\|im_end\|>/g, '').trimEnd();
+  const preprocessed = moveToolsOutOfThinking(wrapPrefillThinking(content));
 
   // Phase 1: collect thinking spans at their real positions so they render chronologically
   const thinkingSpans: Span[] = [];
@@ -613,5 +609,4 @@ export function buildSegments(content: string, toolTags?: ToolTags): MessageSegm
   return result;
 }
 
-// Re-export for consumers
 export { collectQwenSpans } from './toolSpanCollectorsQwen';

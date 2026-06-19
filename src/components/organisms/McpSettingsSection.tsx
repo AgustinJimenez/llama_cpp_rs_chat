@@ -104,6 +104,7 @@ export const McpSettingsSection: React.FC = () => {
   };
 
   const getStatus = (id: string) => statuses.find((s) => s.id === id);
+  const refreshLabel = isRefreshing ? 'Refreshing...' : 'Refresh';
 
   return (
     <div className="space-y-3">
@@ -114,15 +115,15 @@ export const McpSettingsSection: React.FC = () => {
         </div>
         <div className="flex gap-2">
           <button
-            className="flat-button bg-muted px-3 py-1 text-xs flex items-center gap-1"
+            className="flat-button flex items-center gap-1 bg-muted px-3 py-1 text-xs"
             onClick={handleRefresh}
             disabled={isRefreshing}
           >
             <RefreshCw className={`h-3 w-3 ${isRefreshing ? 'animate-spin' : ''}`} />
-            {isRefreshing ? 'Refreshing...' : 'Refresh'}
+            {refreshLabel}
           </button>
           <button
-            className="flat-button bg-muted px-3 py-1 text-xs flex items-center gap-1"
+            className="flat-button flex items-center gap-1 bg-muted px-3 py-1 text-xs"
             onClick={() => setShowAddForm(!showAddForm)}
           >
             <Plus className="h-3 w-3" />
@@ -137,15 +138,15 @@ export const McpSettingsSection: React.FC = () => {
       </p>
 
       {/* Add Server Form */}
-      {showAddForm ? (
-        <div className="space-y-2 p-3 rounded-lg border border-border bg-muted/50">
+      {!!showAddForm && (
+        <div className="space-y-2 rounded-lg border border-border bg-muted/50 p-3">
           <div className="space-y-1">
             <label htmlFor="mcp-server-name" className="text-xs font-medium text-foreground">
               Name
             </label>
             <input
               id="mcp-server-name"
-              className="w-full px-2 py-1.5 rounded bg-muted border border-border text-sm text-foreground"
+              className="w-full rounded border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
               placeholder="e.g., filesystem"
               value={formName}
               onChange={(e) => setFormName(e.target.value)}
@@ -158,7 +159,7 @@ export const McpSettingsSection: React.FC = () => {
             </label>
             <select
               id="mcp-transport"
-              className="w-full px-2 py-1.5 rounded bg-muted border border-border text-sm text-foreground"
+              className="w-full rounded border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
               value={formTransport}
               onChange={(e) => setFormTransport(e.target.value as 'Stdio' | 'Http')}
             >
@@ -167,7 +168,7 @@ export const McpSettingsSection: React.FC = () => {
             </select>
           </div>
 
-          {formTransport === 'Stdio' ? (
+          {formTransport === 'Stdio' && (
             <>
               <div className="space-y-1">
                 <label htmlFor="mcp-command" className="text-xs font-medium text-foreground">
@@ -175,7 +176,7 @@ export const McpSettingsSection: React.FC = () => {
                 </label>
                 <input
                   id="mcp-command"
-                  className="w-full px-2 py-1.5 rounded bg-muted border border-border text-sm text-foreground"
+                  className="w-full rounded border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
                   placeholder="e.g., npx"
                   value={formCommand}
                   onChange={(e) => setFormCommand(e.target.value)}
@@ -187,21 +188,22 @@ export const McpSettingsSection: React.FC = () => {
                 </label>
                 <input
                   id="mcp-args"
-                  className="w-full px-2 py-1.5 rounded bg-muted border border-border text-sm text-foreground"
+                  className="w-full rounded border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
                   placeholder="e.g., -y @modelcontextprotocol/server-filesystem /tmp"
                   value={formArgs}
                   onChange={(e) => setFormArgs(e.target.value)}
                 />
               </div>
             </>
-          ) : (
+          )}
+          {formTransport !== 'Stdio' && (
             <div className="space-y-1">
               <label htmlFor="mcp-url" className="text-xs font-medium text-foreground">
                 URL
               </label>
               <input
                 id="mcp-url"
-                className="w-full px-2 py-1.5 rounded bg-muted border border-border text-sm text-foreground"
+                className="w-full rounded border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
                 placeholder="http://localhost:3000/sse"
                 value={formUrl}
                 onChange={(e) => setFormUrl(e.target.value)}
@@ -211,7 +213,7 @@ export const McpSettingsSection: React.FC = () => {
 
           <div className="flex gap-2 pt-1">
             <button
-              className="flat-button bg-primary text-white px-4 py-1.5 text-xs"
+              className="flat-button bg-primary px-4 py-1.5 text-xs text-white"
               onClick={handleAdd}
             >
               Add
@@ -224,11 +226,11 @@ export const McpSettingsSection: React.FC = () => {
             </button>
           </div>
         </div>
-      ) : null}
+      )}
 
       {/* Server List */}
       {servers.length === 0 && !showAddForm && (
-        <p className="text-xs text-muted-foreground italic py-2">
+        <p className="py-2 text-xs italic text-muted-foreground">
           No MCP servers configured. Click &quot;Add Server&quot; to get started.
         </p>
       )}
@@ -240,40 +242,44 @@ export const McpSettingsSection: React.FC = () => {
             ? `${server.transport.command} ${server.transport.args.join(' ')}`
             : server.transport.url;
 
+        const toggleIcon = server.enabled ? (
+          <ToggleRight className="h-4 w-4 text-green-500" />
+        ) : (
+          <ToggleLeft className="h-4 w-4" />
+        );
+        const toggleTitle = server.enabled ? 'Disable' : 'Enable';
+        const toolCountSuffix = status && status.tool_count !== 1 ? 's' : '';
+
         return (
           <div
             key={server.id}
-            className="flex items-start gap-2 p-2 rounded border border-border bg-muted/30"
+            className="flex items-start gap-2 rounded border border-border bg-muted/30 p-2"
           >
             <button
               className="mt-0.5 text-muted-foreground hover:text-foreground"
               onClick={() => handleToggle(server)}
-              title={server.enabled ? 'Disable' : 'Enable'}
+              title={toggleTitle}
             >
-              {server.enabled ? (
-                <ToggleRight className="h-4 w-4 text-green-500" />
-              ) : (
-                <ToggleLeft className="h-4 w-4" />
-              )}
+              {toggleIcon}
             </button>
 
-            <div className="flex-1 min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-foreground">{server.name}</span>
-                {status ? (
+                {!!status && (
                   <span className="text-xs text-green-500">
-                    {status.tool_count} tool{status.tool_count !== 1 ? 's' : ''}
+                    {status.tool_count} tool{toolCountSuffix}
                   </span>
-                ) : null}
+                )}
               </div>
-              <div className="text-xs text-muted-foreground truncate" title={transportLabel}>
+              <div className="truncate text-xs text-muted-foreground" title={transportLabel}>
                 {server.transport.type}: {transportLabel}
               </div>
-              {status && status.tools.length > 0 ? (
-                <div className="text-xs text-muted-foreground mt-1">
+              {!!status && status.tools.length > 0 && (
+                <div className="mt-1 text-xs text-muted-foreground">
                   Tools: {status.tools.map((t) => t.replace(/^mcp__[^_]+__/, '')).join(', ')}
                 </div>
-              ) : null}
+              )}
             </div>
 
             <button

@@ -16,13 +16,18 @@ pub fn handle_load_model(
     model_path: String,
     gpu_layers: Option<u32>,
     mmproj_path: Option<String>,
+    agent_id: Option<String>,
     llama_state: SharedLlamaState,
     db: &SharedDatabase,
     ipc_writer: &mut impl Write,
 ) {
-    eprintln!("[WORKER] Loading model: {model_path} (gpu_layers: {gpu_layers:?}, mmproj: {mmproj_path:?})");
+    eprintln!("[WORKER] Loading model: {model_path} (gpu_layers: {gpu_layers:?}, mmproj: {mmproj_path:?}, agent: {agent_id:?})");
 
-    let db_config = db.load_config();
+    let db_config = if let Some(ref id) = agent_id {
+        db.load_config_for_agent(id)
+    } else {
+        db.load_config()
+    };
     let model_params = ModelParams {
         use_mlock: db_config.use_mlock,
         use_mmap: db_config.use_mmap,
@@ -93,7 +98,7 @@ pub fn handle_load_model(
             write_response(ipc_writer, &WorkerResponse::ok(0, WorkerPayload::LoadingProgress { progress: 101 }));
 
             // Pre-evaluate system prompt into KV cache for faster first response.
-            match llama_chat_engine::warmup_system_prompt(llama_state, db) {
+            match llama_chat_engine::warmup_system_prompt(llama_state, db, agent_id.as_deref()) {
                 Ok(()) => eprintln!("[WORKER] System prompt warmup complete"),
                 Err(e) => eprintln!("[WORKER] System prompt warmup failed (non-fatal): {e}"),
             }

@@ -8,6 +8,48 @@ use std::time::Instant;
 use crate::utils::silent_command;
 use llama_chat_db::SharedDatabase;
 
+/// Returns a one-line activity summary for a PID: RSS and child process names.
+/// Example: "RSS: 245 MB | Child processes: 6 (php.exe ×6)"
+fn process_activity_summary(pid: u32) -> Option<String> {
+    use sysinfo::System;
+    let mut sys = System::new();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    let sysinfo_pid = sysinfo::Pid::from_u32(pid);
+    let proc = sys.process(sysinfo_pid)?;
+
+    let rss_mb = proc.memory() / 1_048_576;
+
+    // Collect child process names
+    let mut child_names: Vec<String> = sys
+        .processes()
+        .values()
+        .filter(|p| p.parent() == Some(sysinfo_pid))
+        .map(|p| p.name().to_string_lossy().to_string())
+        .collect();
+    child_names.sort();
+
+    let child_part = if child_names.is_empty() {
+        String::new()
+    } else {
+        // Count occurrences of each unique name
+        let mut counts: Vec<(String, usize)> = Vec::new();
+        for name in &child_names {
+            if let Some(last) = counts.last_mut().filter(|(n, _)| n == name) {
+                last.1 += 1;
+            } else {
+                counts.push((name.clone(), 1));
+            }
+        }
+        let summary: Vec<String> = counts
+            .iter()
+            .map(|(name, n)| if *n > 1 { format!("{name} ×{n}") } else { name.clone() })
+            .collect();
+        format!(" | Child processes: {} ({})", child_names.len(), summary.join(", "))
+    };
+
+    Some(format!("RSS: {rss_mb} MB{child_part}"))
+}
+
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
@@ -181,6 +223,43 @@ pub fn kill_background_process_by_pid(pid: u32) {
     unpersist_bg_process(pid);
 }
 
+/// Kill all alive processes tracked in the DB, regardless of session.
+///
+/// Called by the server-side ProcessManager immediately before killing the worker
+/// process so that background processes don't outlive their worker.
+/// The worker normally handles this via `BgProcessGuard::drop()`, but force-kills
+/// bypass Rust destructors — this provides a server-side safety net.
+pub fn kill_all_db_processes(db_path: &str) {
+    let conn = match rusqlite::Connection::open(db_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[BGCLEAN] Cannot open DB {db_path}: {e}");
+            return;
+        }
+    };
+    let mut stmt = match conn.prepare("SELECT pid, command FROM background_processes") {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let procs: Vec<(u32, String)> = stmt
+        .query_map([], |row| {
+            let pid: i64 = row.get(0)?;
+            let cmd: String = row.get(1)?;
+            Ok((pid as u32, cmd))
+        })
+        .ok()
+        .map(|rows| rows.filter_map(|r| r.ok()).collect())
+        .unwrap_or_default();
+
+    for (pid, cmd) in &procs {
+        if is_process_alive(*pid) {
+            eprintln!("[BGCLEAN] Killing orphan PID {pid}: {cmd}");
+            crate::kill_process_tree(*pid);
+        }
+    }
+    let _ = conn.execute("DELETE FROM background_processes", []);
+}
+
 /// Kill all background processes for the current session and clean up DB.
 pub fn kill_all_session_processes() {
     let db = match BG_DB_REF.lock().ok().and_then(|r| r.clone()) {
@@ -209,12 +288,21 @@ pub fn kill_all_session_processes() {
 
     for (pid, cmd) in &procs {
         if is_process_alive(*pid) {
-            eprintln!("[SHUTDOWN] Killing background process PID {}: {}", pid, cmd);
+            eprintln!("[SHUTDOWN] Killing background process PID {pid}: {cmd}");
             crate::kill_process_tree(*pid);
             unpersist_bg_process(*pid);
         }
     }
     let _ = conn.execute("DELETE FROM background_processes WHERE session_id = ?1", [&session_id]);
+}
+
+/// Get all buffered output lines for a given background process PID.
+/// Returns `None` if the PID is not tracked.
+pub fn get_process_output(pid: u32) -> Option<Vec<String>> {
+    let procs = BACKGROUND_PROCESSES.lock().ok()?;
+    let proc = procs.iter().find(|p| p.pid == pid)?;
+    let buf = proc.output_buffer.lock().ok()?;
+    Some(buf.clone())
 }
 
 /// List all tracked background processes (in-memory + DB orphans).
@@ -226,13 +314,16 @@ pub fn list_all_background_processes() -> Vec<(u32, String, bool, String)> {
         for p in procs.iter() {
             let is_running = p.running.load(Ordering::Relaxed);
             let elapsed = p.started_at.elapsed();
-            let elapsed_str = if elapsed.as_secs() >= 60 {
-                format!("{}m{}s", elapsed.as_secs() / 60, elapsed.as_secs() % 60)
+            let elapsed_secs = elapsed.as_secs();
+            let elapsed_str = if elapsed_secs >= 60 {
+                let m = elapsed_secs / 60;
+                let s = elapsed_secs % 60;
+                format!("{m}m{s}s")
             } else {
-                format!("{}s", elapsed.as_secs())
+                format!("{elapsed_secs}s")
             };
             let status = if is_running { "running" } else { "exited" };
-            result.push((p.pid, p.command.clone(), is_running, format!("{} ({})", status, elapsed_str)));
+            result.push((p.pid, p.command.clone(), is_running, format!("{status} ({elapsed_str})")));
         }
     }
 
@@ -248,13 +339,17 @@ pub fn list_all_background_processes() -> Vec<(u32, String, bool, String)> {
             if result.iter().any(|(p, _, _, _)| *p == pid) { continue; }
             let age_secs = (now - started_at).max(0);
             let age_str = if age_secs >= 3600 {
-                format!("{}h{}m", age_secs / 3600, (age_secs % 3600) / 60)
+                let h = age_secs / 3600;
+                let m = (age_secs % 3600) / 60;
+                format!("{h}h{m}m")
             } else if age_secs >= 60 {
-                format!("{}m{}s", age_secs / 60, age_secs % 60)
+                let m = age_secs / 60;
+                let s = age_secs % 60;
+                format!("{m}m{s}s")
             } else {
-                format!("{}s", age_secs)
+                format!("{age_secs}s")
             };
-            result.push((pid, cmd, true, format!("orphaned (started {}ago)", age_str)));
+            result.push((pid, cmd, true, format!("orphaned (started {age_str}ago)")));
         }
     }
 
@@ -438,7 +533,7 @@ pub fn execute_command_background(
 
 /// Check on a background process by PID. Returns status and any new output since last check.
 /// If `wait_seconds > 0`, sleeps first before checking (merges wait + check into one call).
-pub fn check_background_process(pid: u32, wait_seconds: u64) -> String {
+pub fn check_background_process(pid: u32, wait_seconds: u64, max_checks: usize) -> String {
     // Optional built-in wait before checking (saves a separate tool call)
     if wait_seconds > 0 {
         let capped = wait_seconds.min(30);
@@ -453,24 +548,30 @@ pub fn check_background_process(pid: u32, wait_seconds: u64) -> String {
         Some(p) => p,
         None => {
             // List available PIDs for convenience
-            let available: Vec<String> = procs.iter().map(|p| format!("{}", p.pid)).collect();
+            let available: Vec<String> = procs.iter().map(|p| p.pid.to_string()).collect();
             if available.is_empty() {
-                return format!("No background process with PID {} found. No background processes are currently tracked.", pid);
+                return format!("No background process with PID {pid} found. No background processes are currently tracked.");
             }
+            let tracked = available.join(", ");
             return format!(
-                "No background process with PID {} found. Tracked PIDs: {}",
-                pid,
-                available.join(", ")
+                "No background process with PID {pid} found. Tracked PIDs: {tracked}"
             );
         }
     };
 
     let is_running = proc.running.load(Ordering::Relaxed);
+    let activity = if is_running {
+        process_activity_summary(pid)
+            .map(|s| format!(" | {s}"))
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
     let status = if is_running { "running" } else { "exited" };
 
     let buf = match proc.output_buffer.lock() {
         Ok(b) => b,
-        Err(_) => return format!("PID {}: {}\nStatus: {}\nError: could not read output buffer", pid, proc.command, status),
+        Err(_) => return format!("PID {pid}: {}\nStatus: {status}\nError: could not read output buffer", proc.command),
     };
 
     let prev_cursor = proc.cursor.load(Ordering::Relaxed);
@@ -479,35 +580,35 @@ pub fn check_background_process(pid: u32, wait_seconds: u64) -> String {
 
     // Track elapsed time since process started for context
     let elapsed = proc.started_at.elapsed();
-    let elapsed_str = if elapsed.as_secs() >= 60 {
-        format!("{}m{}s", elapsed.as_secs() / 60, elapsed.as_secs() % 60)
+    let elapsed_secs = elapsed.as_secs();
+    let elapsed_str = if elapsed_secs >= 60 {
+        let m = elapsed_secs / 60;
+        let s = elapsed_secs % 60;
+        format!("{m}m{s}s")
     } else {
-        format!("{}s", elapsed.as_secs())
+        format!("{elapsed_secs}s")
     };
 
     // Track total checks (never resets) — prevents infinite polling loops
     let total = proc.total_checks.fetch_add(1, Ordering::Relaxed) + 1;
-    const MAX_TOTAL_CHECKS: usize = 5;
+    let max_checks = max_checks.max(1);
 
     if new_lines.is_empty() {
         if is_running {
             // Increment no-output check counter
             let checks = proc.no_output_checks.fetch_add(1, Ordering::Relaxed) + 1;
-            if checks >= 5 || total >= MAX_TOTAL_CHECKS {
+            if checks >= max_checks || total >= max_checks {
                 return format!(
-                    "PID {}: {}\nStatus: running ({})\n\
-                    STOP POLLING. You have checked this process {} times. \
-                    The process is still running in the background and will complete on its own. \
-                    ASSUME IT WILL SUCCEED and continue with the next steps immediately. \
-                    Do NOT check this PID again. Do NOT re-run the same command. \
-                    Proceed as if the command completed successfully.",
-                    pid, proc.command, elapsed_str, total
+                    "PID {pid}: {}\nStatus: running ({elapsed_str})\nNo new output since last check.\n\
+                    Note: polled {total} times with no output — the process may be idle or waiting. \
+                    Consider whether you still need to monitor it.",
+                    proc.command
                 );
             }
         }
         let mut result = format!(
-            "PID {}: {}\nStatus: {} (running for {})\nNo new output since last check.",
-            pid, proc.command, status, elapsed_str
+            "PID {pid}: {}\nStatus: {status} (running for {elapsed_str}{activity})\nNo new output since last check.",
+            proc.command
         );
         if is_running {
             result.push_str("\n\nUse the `wait_seconds` parameter (e.g. 15) on your next check_background_process call to pause before checking again.");
@@ -517,24 +618,16 @@ pub fn check_background_process(pid: u32, wait_seconds: u64) -> String {
         // New output found — reset the no-output counter (but NOT total_checks)
         proc.no_output_checks.store(0, Ordering::Relaxed);
 
+        let new_line_count = new_lines.len();
+        let new_lines_joined = new_lines.join("\n");
         let mut result = format!(
-            "PID {}: {}\nStatus: {} (running for {})\nNew output ({} lines):\n{}",
-            pid,
-            proc.command,
-            status,
-            elapsed_str,
-            new_lines.len(),
-            new_lines.join("\n")
+            "PID {pid}: {}\nStatus: {status} (running for {elapsed_str}{activity})\nNew output ({new_line_count} lines):\n{new_lines_joined}",
+            proc.command
         );
         if is_running {
-            if total >= MAX_TOTAL_CHECKS {
+            if total >= max_checks {
                 result.push_str(&format!(
-                    "\n\nSTOP POLLING. You have checked this process {} times. \
-                    The process is still running and will complete on its own. \
-                    ASSUME IT WILL SUCCEED and continue with the next steps immediately. \
-                    Do NOT check this PID again. Do NOT re-run the same command. \
-                    Proceed as if the command completed successfully.",
-                    total
+                    "\n\nNote: polled {total} times — consider whether continued monitoring is needed."
                 ));
             } else {
                 result.push_str("\n\nProcess is still running. Use `wait_seconds: 15` on your next check_background_process call to pause before checking.");

@@ -83,7 +83,7 @@ pub fn tool_fill_form(args: &Value) -> NativeToolResult {
                         super::tool_click_screen(&serde_json::json!({
                             "x": el.cx, "y": el.cy, "delay_ms": 150, "screenshot": false
                         }));
-                        filled.push(format!("'{}' toggled (checkbox)", label));
+                        filled.push(format!("'{label}' toggled (checkbox)"));
                     }
                     "combobox" => {
                         // Open dropdown: click, wait, then type value + Enter to select
@@ -97,17 +97,17 @@ pub fn tool_fill_form(args: &Value) -> NativeToolResult {
                         super::tool_press_key(&serde_json::json!({
                             "key": "enter", "delay_ms": 100, "screenshot": false
                         }));
-                        filled.push(format!("'{}' = '{}' (dropdown)", label, value));
+                        filled.push(format!("'{label}' = '{value}' (dropdown)"));
                     }
                     "radiobutton" | "radio button" => {
                         // Select: just click
                         super::tool_click_screen(&serde_json::json!({
                             "x": el.cx, "y": el.cy, "delay_ms": 150, "screenshot": false
                         }));
-                        filled.push(format!("'{}' selected (radio)", label));
+                        filled.push(format!("'{label}' selected (radio)"));
                     }
                     // Text input: click → select all → type → tab
-                    "edit" | "text" | "input" | _ => {
+                    _ => {
                         super::tool_click_screen(&serde_json::json!({
                             "x": el.cx, "y": el.cy, "delay_ms": 100, "screenshot": false
                         }));
@@ -120,18 +120,21 @@ pub fn tool_fill_form(args: &Value) -> NativeToolResult {
                         super::tool_press_key(&serde_json::json!({
                             "key": "tab", "delay_ms": 50, "screenshot": false
                         }));
-                        filled.push(format!("'{}' = '{}'", label, value));
+                        filled.push(format!("'{label}' = '{value}'"));
                     }
                 }
             }
-            Err(e) => errors.push(format!("'{}': {}", label, e)),
+            Err(e) => errors.push(format!("'{label}': {e}")),
         }
     }
 
     let screenshot = super::capture_post_action_screenshot(200);
-    let mut output = format!("Filled {} field(s): {}", filled.len(), filled.join(", "));
+    let filled_count = filled.len();
+    let filled_list = filled.join(", ");
+    let mut output = format!("Filled {filled_count} field(s): {filled_list}");
     if !errors.is_empty() {
-        output.push_str(&format!("\nErrors: {}", errors.join("; ")));
+        let errors_joined = errors.join("; ");
+        output.push_str(&format!("\nErrors: {errors_joined}"));
     }
 
     NativeToolResult {
@@ -155,36 +158,36 @@ fn execute_single_action(
     match action_type {
         "click" => {
             let r = super::tool_click_screen(action_args);
-            format!("#{}: click -> {}", index, r.text)
+            format!("#{index}: click -> {}", r.text)
         }
         "type" => {
             let r = super::tool_type_text(action_args);
-            format!("#{}: type -> {}", index, r.text)
+            format!("#{index}: type -> {}", r.text)
         }
         "press_key" | "key" => {
             let r = super::tool_press_key(action_args);
-            format!("#{}: key -> {}", index, r.text)
+            format!("#{index}: key -> {}", r.text)
         }
         "paste" => {
             let r = super::input_tools::tool_paste(action_args);
-            format!("#{}: paste -> {}", index, r.text)
+            format!("#{index}: paste -> {}", r.text)
         }
         "clear" => {
             let r = super::input_tools::tool_clear_field(action_args);
-            format!("#{}: clear -> {}", index, r.text)
+            format!("#{index}: clear -> {}", r.text)
         }
         "wait" => {
             let ms = action_args.get("ms").and_then(parse_int).unwrap_or(500) as u64;
             std::thread::sleep(std::time::Duration::from_millis(ms));
-            format!("#{}: waited {}ms", index, ms)
+            format!("#{index}: waited {ms}ms")
         }
         "scroll" => {
             let r = super::tool_scroll_screen(action_args);
-            format!("#{}: scroll -> {}", index, r.text)
+            format!("#{index}: scroll -> {}", r.text)
         }
         "move" => {
             let r = super::tool_move_mouse(action_args);
-            format!("#{}: move -> {}", index, r.text)
+            format!("#{index}: move -> {}", r.text)
         }
         "assert_text" => {
             let text = action_args
@@ -192,17 +195,14 @@ fn execute_single_action(
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             if text.is_empty() {
-                return format!("#{}: assert_text skipped (no text)", index);
+                return format!("#{index}: assert_text skipped (no text)");
             }
             let ocr_result =
                 super::ocr_tools::tool_ocr_screen(&serde_json::json!({"monitor": 0}));
             if ocr_result.text.to_lowercase().contains(&text.to_lowercase()) {
-                format!("#{}: assert_text OK -- '{}' found", index, text)
+                format!("#{index}: assert_text OK -- '{text}' found")
             } else {
-                format!(
-                    "#{}: assert_text FAILED -- '{}' not found. Aborting sequence.",
-                    index, text
-                )
+                format!("#{index}: assert_text FAILED -- '{text}' not found. Aborting sequence.")
             }
         }
         "if_text_on_screen" => {
@@ -211,7 +211,7 @@ fn execute_single_action(
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             if text.is_empty() {
-                return format!("#{}: if_text_on_screen skipped (no text)", index);
+                return format!("#{index}: if_text_on_screen skipped (no text)");
             }
             let then_action = action_args.get("then").and_then(|v| v.as_str()).unwrap_or("");
             let else_action = action_args.get("else").and_then(|v| v.as_str()).unwrap_or("");
@@ -221,22 +221,17 @@ fn execute_single_action(
             let found = ocr_result.text.to_lowercase().contains(&text.to_lowercase());
 
             let branch = if found { then_action } else { else_action };
+            let found_str = if found { "FOUND" } else { "NOT FOUND" };
             if branch.is_empty() {
-                format!(
-                    "#{}: if_text_on_screen '{}' -> {} (no action for this branch)",
-                    index, text, if found { "FOUND" } else { "NOT FOUND" }
-                )
+                format!("#{index}: if_text_on_screen '{text}' -> {found_str} (no action for this branch)")
             } else {
                 // Execute the branch action (simple: treat as press_key for key presses, or type)
                 let branch_result = execute_single_action(branch, action_args, index);
-                format!(
-                    "#{}: if_text_on_screen '{}' -> {} -> {}",
-                    index, text, if found { "FOUND" } else { "NOT FOUND" }, branch_result
-                )
+                format!("#{index}: if_text_on_screen '{text}' -> {found_str} -> {branch_result}")
             }
         }
         "repeat" => {
-            let count = action_args.get("count").and_then(parse_int).unwrap_or(1).max(1).min(50) as usize;
+            let count = action_args.get("count").and_then(parse_int).unwrap_or(1).clamp(1, 50) as usize;
             let sub_actions = action_args.get("actions").and_then(|v| v.as_array());
             match sub_actions {
                 Some(sub) if !sub.is_empty() => {
@@ -245,19 +240,22 @@ fn execute_single_action(
                         for (si, sub_action) in sub.iter().enumerate() {
                             let sub_type = sub_action.get("action").and_then(|v| v.as_str()).unwrap_or("wait");
                             let sub_result = execute_single_action(sub_type, sub_action, si + 1);
-                            sub_results.push(format!("  iter {}/{}: {}", iteration + 1, count, sub_result));
+                            let iter_n = iteration + 1;
+                            sub_results.push(format!("  iter {iter_n}/{count}: {sub_result}"));
                             // Small delay between sub-actions within a repeat
                             let delay = sub_action.get("delay_ms").and_then(parse_int).unwrap_or(100) as u64;
                             std::thread::sleep(std::time::Duration::from_millis(delay));
                         }
                     }
-                    format!("#{}: repeat x{} ({} sub-results):\n{}", index, count, sub_results.len(), sub_results.join("\n"))
+                    let sub_count = sub_results.len();
+                    let sub_joined = sub_results.join("\n");
+                    format!("#{index}: repeat x{count} ({sub_count} sub-results):\n{sub_joined}")
                 }
-                _ => format!("#{}: repeat skipped (no 'actions' array)", index),
+                _ => format!("#{index}: repeat skipped (no 'actions' array)"),
             }
         }
         other => {
-            format!("#{}: unknown action '{}'", index, other)
+            format!("#{index}: unknown action '{other}'")
         }
     }
 }
@@ -306,7 +304,8 @@ pub fn tool_run_action_sequence(args: &Value) -> NativeToolResult {
         let action_type = match action.get("action").and_then(|v| v.as_str()) {
             Some(a) => a,
             None => {
-                results.push(format!("#{}: skipped (no 'action' field)", i + 1));
+                let n = i + 1;
+                results.push(format!("#{n}: skipped (no 'action' field)"));
                 continue;
             }
         };
@@ -318,15 +317,15 @@ pub fn tool_run_action_sequence(args: &Value) -> NativeToolResult {
                 match condition {
                     "success" => {
                         if prev_failed {
-                            results.push(format!("#{}: skipped (if_previous=success, but previous failed)", i + 1));
+                            let n = i + 1;
+                            results.push(format!("#{n}: skipped (if_previous=success, but previous failed)"));
                             continue;
                         }
                     }
-                    "failure" => {
-                        if !prev_failed {
-                            results.push(format!("#{}: skipped (if_previous=failure, but previous succeeded)", i + 1));
-                            continue;
-                        }
+                    "failure" if !prev_failed => {
+                        let n = i + 1;
+                        results.push(format!("#{n}: skipped (if_previous=failure, but previous succeeded)"));
+                        continue;
                     }
                     _ => {} // Unknown condition, ignore and proceed
                 }
@@ -338,7 +337,7 @@ pub fn tool_run_action_sequence(args: &Value) -> NativeToolResult {
         let max_retries = action.get("retry")
             .and_then(parse_int)
             .unwrap_or(0)
-            .max(0).min(3) as u32;
+            .clamp(0, 3) as u32;
 
         // Parse abort_on_failure (default false)
         let abort_on_failure = action.get("abort_on_failure")
@@ -367,7 +366,7 @@ pub fn tool_run_action_sequence(args: &Value) -> NativeToolResult {
                 Ok(s) => s,
                 Err(last_err) => {
                     // All retries exhausted; use the last failure message
-                    format!("{} (after {} retries)", last_err, max_retries)
+                    format!("{last_err} (after {max_retries} retries)")
                 }
             }
         } else {
@@ -384,7 +383,8 @@ pub fn tool_run_action_sequence(args: &Value) -> NativeToolResult {
 
         // abort_on_failure
         if abort_on_failure && action_failed {
-            results.push(format!("Sequence aborted at action #{} due to abort_on_failure", i + 1));
+            let n = i + 1;
+            results.push(format!("Sequence aborted at action #{n} due to abort_on_failure"));
             break;
         }
 
@@ -405,12 +405,10 @@ pub fn tool_run_action_sequence(args: &Value) -> NativeToolResult {
         super::capture_post_action_screenshot(0)
     };
 
+    let action_count = actions.len();
+    let results_joined = results.join("\n");
     NativeToolResult {
-        text: format!(
-            "Executed {} action(s):\n{}",
-            actions.len(),
-            results.join("\n")
-        ),
+        text: format!("Executed {action_count} action(s):\n{results_joined}"),
         images: screenshot.images,
     }
 }
@@ -430,6 +428,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires display"]
     fn test_fill_form_empty_fields_array() {
         let args = serde_json::json!({"fields": []});
         let result = tool_fill_form(&args);

@@ -5,6 +5,7 @@ import { toast } from 'react-hot-toast';
 
 const CLOUD_POLL_INTERVAL_MS = 2000;
 
+import { useAgentContext } from '../contexts/AgentContext';
 import type { Message } from '../types';
 import { createChatTransport } from '../utils/chatTransport';
 import type { TimingInfo } from '../utils/chatTransport';
@@ -23,6 +24,8 @@ const AUTO_CONTINUE_REASONS = new Set(['length', 'yn_continue', 'loop_recovery',
 export function useChat() {
   const { connected } = useConnection();
   const connectedRef = useRef(connected);
+  const { stagedAgent, conversationAgent } = useAgentContext();
+  // eslint-disable-next-line react-hooks/refs
   connectedRef.current = connected;
 
   // Provider state (synced from ModelContext via App.tsx)
@@ -104,6 +107,7 @@ export function useChat() {
     if (!isLoading && queuedMessage) {
       const msg = queuedMessage;
       setQueuedMessage(null);
+      // eslint-disable-next-line react-hooks/immutability
       sendMessage(msg.content, msg.images, true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -119,6 +123,18 @@ export function useChat() {
       }
     }
   }, [messages, isStreamingRef]);
+
+  // When the server reconnects after a disconnect, clear any stale streaming state.
+  // The server restarted — there's no active generation to resume — so we abort locally
+  // to unblock the UI immediately rather than waiting for a timeout.
+  const prevConnectedRef = useRef(connected);
+  useEffect(() => {
+    const wasDisconnected = !prevConnectedRef.current;
+    prevConnectedRef.current = connected;
+    if (wasDisconnected && connected && isStreamingRef.current) {
+      abortGeneration();
+    }
+  }, [connected, abortGeneration, isStreamingRef]);
 
   // ─── Load conversation ─────────────────────────────────────────────────
 
@@ -218,6 +234,56 @@ export function useChat() {
 
   // ─── Send message ──────────────────────────────────────────────────────
 
+  const applyRemoteAgentProvider = useCallback(
+    (effectiveAgent: NonNullable<typeof conversationAgent>) => {
+      const saved = { provider: providerRef.current, params: providerParamsRef.current };
+      providerRef.current = {
+        provider: effectiveAgent.provider_id,
+        model: effectiveAgent.provider_model ?? '',
+      };
+      const agentParams: Record<string, unknown> = {};
+      if (effectiveAgent.temperature !== undefined) {
+        agentParams.temperature = effectiveAgent.temperature;
+      }
+      if (effectiveAgent.top_p !== undefined) {
+        agentParams.top_p = effectiveAgent.top_p;
+      }
+      if (effectiveAgent.frequency_penalty !== undefined) {
+        agentParams.frequency_penalty = effectiveAgent.frequency_penalty;
+      }
+      if (effectiveAgent.presence_penalty !== undefined) {
+        agentParams.presence_penalty = effectiveAgent.presence_penalty;
+      }
+      providerParamsRef.current = agentParams;
+      return saved;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  const queueForRemoteProvider = useCallback(
+    async (conversationId: string, trimmed: string): Promise<boolean> => {
+      const { queueMessage } = await import('../utils/tauriCommands');
+      try {
+        await queueMessage(conversationId, trimmed);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            role: 'user' as const,
+            content: trimmed,
+            timestamp: Date.now(),
+          },
+        ]);
+        toast.success('Message queued — will be injected on next iteration', { duration: 2000 });
+      } catch {
+        toast.error('Failed to queue message');
+      }
+      return true;
+    },
+    [setMessages],
+  );
+
   const sendMessage = useCallback(
     async (content: string, imageData?: string[], bypassLoadingCheck = false) => {
       if (!connectedRef.current) {
@@ -231,33 +297,11 @@ export function useChat() {
       const trimmed = content.trim();
       if (!trimmed && !hasImages) return;
 
-      // Queue message if remote provider is already generating
-      if (
-        !bypassLoadingCheck &&
-        isLoading &&
-        currentConversationId &&
-        providerRef.current.provider !== 'local'
-      ) {
-        const { queueMessage } = await import('../utils/tauriCommands');
-        try {
-          await queueMessage(currentConversationId, trimmed);
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: crypto.randomUUID(),
-              role: 'user' as const,
-              content: trimmed,
-              timestamp: Date.now(),
-            },
-          ]);
-          toast.success('Message queued — will be injected on next iteration', { duration: 2000 });
-        } catch {
-          toast.error('Failed to queue message');
-        }
-        return;
-      }
-      // Queue message for local provider if generation is in progress
       if (!bypassLoadingCheck && isLoading) {
+        if (currentConversationId && providerRef.current.provider !== 'local') {
+          await queueForRemoteProvider(currentConversationId, trimmed);
+          return;
+        }
         setQueuedMessage({ content: trimmed, images: hasImages ? imageData : undefined });
         return;
       }
@@ -278,6 +322,8 @@ export function useChat() {
       ]);
       setIsLoading(true);
       setError(null);
+      setTokensUsed(undefined);
+      setMaxTokens(undefined);
 
       const assistantMessageId = crypto.randomUUID();
 
@@ -297,16 +343,44 @@ export function useChat() {
         }, NEW_CONV_SIDEBAR_DELAY_MS);
       }
 
+      // When starting a new conversation right after browsing an old one, conversationAgent
+      // still holds that old conversation's agent (it's what the header displays as active;
+      // see ChatHeader's activeAgent fallback) even though stagedAgent was cleared. Fall back
+      // to it so the request actually carries the agent the UI claims is selected.
+      const effectiveNewChatAgent = stagedAgent ?? conversationAgent;
+      // For new conversations: always pass agentId so backend records the association.
+      // For existing conversations: conversationAgent is already set by the backend.
+      const agentId = !currentConversationId ? effectiveNewChatAgent?.id : undefined;
+      // For remote-provider agents, temporarily override providerRef so the generation
+      // stream routes to the provider SSE endpoint instead of the local WS path.
+      const effectiveAgent = currentConversationId ? conversationAgent : effectiveNewChatAgent;
+      const isRemoteAgent = effectiveAgent && effectiveAgent.provider_id !== 'local';
+      const saved = isRemoteAgent ? applyRemoteAgentProvider(effectiveAgent) : null;
       await startGeneration(
         {
           prompt: trimmed,
           conversationId: currentConversationId,
+          agentId,
           imageData: hasImages ? imageData : undefined,
         },
         assistantMessageId,
       );
+      if (saved) {
+        providerRef.current = saved.provider;
+        providerParamsRef.current = saved.params;
+      }
     },
-    [isLoading, currentConversationId, startGeneration, resetAutoContinue, abortControllerRef],
+    [
+      isLoading,
+      currentConversationId,
+      stagedAgent,
+      conversationAgent,
+      startGeneration,
+      resetAutoContinue,
+      abortControllerRef,
+      queueForRemoteProvider,
+      applyRemoteAgentProvider,
+    ],
   );
 
   // ─── URL persistence + watcher ─────────────────────────────────────────

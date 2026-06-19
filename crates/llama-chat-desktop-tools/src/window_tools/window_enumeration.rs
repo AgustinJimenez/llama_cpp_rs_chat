@@ -9,12 +9,7 @@ use serde_json::Value;
 use super::NativeToolResult;
 use super::{parse_int, gpu_app_db};
 
-#[cfg(windows)]
 use super::win32;
-#[cfg(target_os = "macos")]
-use super::macos as win32;
-#[cfg(target_os = "linux")]
-use super::linux as win32;
 
 // ─── Shared helper ────────────────────────────────────────────────────────────
 
@@ -112,8 +107,8 @@ pub fn tool_list_windows(args: &Value) -> NativeToolResult {
             format!(" [{}]", w.class_name)
         };
         output.push_str(&format!(
-            "  [{}] \"{}\"{}{} — pid={} {},{} {}x{}{}",
-            i, w.title, proc, cls, w.pid, w.x, w.y, w.width, w.height, state
+            "  [{i}] \"{}\"{proc}{cls} — pid={} {},{} {}x{}{state}",
+            w.title, w.pid, w.x, w.y, w.width, w.height
         ));
         if let Some(gpu) = gpu_app_db::detect_gpu_app(&w.class_name, &w.process_name) {
             output.push_str(&format!(" [GPU: {} — use execute_app_script]", gpu.app_name));
@@ -201,8 +196,7 @@ pub fn tool_wait_for_window(args: &Value) -> NativeToolResult {
                 .or_else(|| title_filter.map(|title| format!("title='{title}'")))
                 .unwrap_or_else(|| "unknown target".to_string());
             return NativeToolResult::text_only(format!(
-                "Timeout: no window matching {target} appeared within {}ms",
-                timeout_ms
+                "Timeout: no window matching {target} appeared within {timeout_ms}ms"
             ));
         }
         if let Err(e) = super::interruptible_sleep(std::time::Duration::from_millis(poll_ms)) {
@@ -298,8 +292,8 @@ pub fn tool_list_monitors(args: &Value) -> NativeToolResult {
     let mut output = format!("Found {} monitors:\n", monitors.len());
     for (i, m) in monitors.iter().enumerate() {
         output.push_str(&format!(
-            "  [{}] \"{}\" {}x{} at ({},{}) scale={:.1}{}\n",
-            i, m.name().unwrap_or_else(|_| "Unknown".to_string()),
+            "  [{i}] \"{}\" {}x{} at ({},{}) scale={:.1}{}\n",
+            m.name().unwrap_or_else(|_| "Unknown".to_string()),
             m.width().unwrap_or(0), m.height().unwrap_or(0),
             m.x().unwrap_or(0), m.y().unwrap_or(0),
             m.scale_factor().unwrap_or(1.0),

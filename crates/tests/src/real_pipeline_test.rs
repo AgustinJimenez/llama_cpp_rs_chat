@@ -23,7 +23,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use llama_chat_db::Database;
-use llama_chat_engine::{generate_llama_response, load_model, GenerationOutput};
+use llama_chat_engine::{generate_llama_response, load_model};
 use llama_chat_types::models::{SharedLlamaState, TokenData};
 use llama_chat_types::SamplerConfig;
 use llama_chat_config::sampler_config_to_db;
@@ -104,10 +104,12 @@ async fn run_test(model_path: &str, num_rounds: usize) {
     // 2b. Save config with the correct model path so generate_llama_response
     // doesn't try to load the default granite model from SamplerConfig::default()
     {
-        let mut config = SamplerConfig::default();
-        config.model_path = Some(model_path.to_string());
-        config.context_size = Some(32768);
-        config.flash_attention = true;
+        let config = SamplerConfig {
+            model_path: Some(model_path.to_string()),
+            context_size: Some(32768),
+            flash_attention: true,
+            ..Default::default()
+        };
         let db_config = sampler_config_to_db(&config);
         db.save_config(&db_config).expect("Failed to save config");
         eprintln!("[TEST] Config saved (model_path={model_path}, context=32768)");
@@ -174,6 +176,7 @@ async fn run_test(model_path: &str, num_rounds: usize) {
                     cancel.clone(),
                     None,
                     None,
+                    None,
                 ),
             )
             .await;
@@ -210,7 +213,7 @@ async fn run_test(model_path: &str, num_rounds: usize) {
                     eprintln!("     Reason: {reason}");
                     eprintln!("     Tokens: {} gen, {}/{} ctx", gen_tokens, output.tokens_used, output.max_tokens);
                     if let Some(tps) = output.gen_tok_per_sec {
-                        eprintln!("     Speed: {:.1} tok/s", tps);
+                        eprintln!("     Speed: {tps:.1} tok/s");
                     }
                     let resp_preview = &output.response[..output.response.len().min(120)].replace('\n', " ");
                     eprintln!("     Response: {resp_preview}...");

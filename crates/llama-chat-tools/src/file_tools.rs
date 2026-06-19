@@ -80,6 +80,7 @@ struct FileCacheEntry {
     access_order: u64,
 }
 
+#[allow(clippy::type_complexity)]
 static FILE_CONTENT_CACHE: OnceLock<StdMutex<(HashMap<String, FileCacheEntry>, u64, usize)>> = OnceLock::new();
 
 fn file_content_cache() -> &'static StdMutex<(HashMap<String, FileCacheEntry>, u64, usize)> {
@@ -109,7 +110,8 @@ fn read_file_cached(path: &str) -> Result<String, String> {
     if has_binary_extension(path) || is_binary_content(&bytes) {
         let ext = std::path::Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("");
         if !EXTRACTABLE_EXTENSIONS.contains(&ext.to_lowercase().as_str()) {
-            return Err(format!("Error: '{}' appears to be a binary file ({} bytes). Cannot read as text.", path, bytes.len()));
+            let byte_count = bytes.len();
+            return Err(format!("Error: '{path}' appears to be a binary file ({byte_count} bytes). Cannot read as text."));
         }
     }
 
@@ -200,9 +202,9 @@ pub fn tool_read_file(args: &Value) -> String {
         if has_binary_extension(path) || is_binary_content(&bytes_check) {
             let ext = std::path::Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("");
             if !EXTRACTABLE_EXTENSIONS.contains(&ext.to_lowercase().as_str()) {
+                let byte_count = bytes_check.len();
                 return format!(
-                    "Error: '{}' appears to be a binary file ({} bytes). Cannot read as text.",
-                    path, bytes_check.len()
+                    "Error: '{path}' appears to be a binary file ({byte_count} bytes). Cannot read as text."
                 );
             }
         }
@@ -290,22 +292,17 @@ pub fn tool_read_file(args: &Value) -> String {
     let offset = args.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
     let limit = args.get("limit").and_then(|v| v.as_u64()).map(|v| v as usize);
 
-    // Duplicate read detection: if full re-read (no offset/limit) and file unchanged, return stub
-    if offset == 0 && limit.is_none() {
+    // Duplicate read detection: track whether this is a re-read of unchanged content
+    // (used only to annotate the header — we always return the full content so context
+    // compression cannot leave the model without the file it asked for)
+    let is_duplicate_read = if offset == 0 && limit.is_none() {
         let current_mtime = get_file_mtime(path);
         if let Ok(cache) = read_file_cache().lock() {
-            if let Some(&(cached_mtime, cached_lines)) = cache.get(path) {
-                if current_mtime == Some(cached_mtime) {
-                    return format!(
-                        "File unchanged since last read ({} lines, ~{} tokens). \
-                         The content from the earlier read is still current — use offset/limit \
-                         to read specific sections, or search_files to find specific content.",
-                        cached_lines, cached_lines * 10 / 4
-                    );
-                }
-            }
-        }
-    }
+            if let Some(&(cached_mtime, _)) = cache.get(path) {
+                current_mtime == Some(cached_mtime)
+            } else { false }
+        } else { false }
+    } else { false };
 
     // Use LRU cache for file content (handles binary detection internally)
     let content = match read_file_cached(path) {
@@ -339,46 +336,48 @@ pub fn tool_read_file(args: &Value) -> String {
     let was_truncated_by_cap = limit.is_none() && total_lines > MAX_LINES_DEFAULT;
 
     let start = if offset > 0 { (offset - 1).min(total_lines) } else { 0 };
-    let effective_limit = limit.unwrap_or_else(|| {
-        if total_lines > MAX_LINES_DEFAULT { MAX_LINES_DEFAULT } else { total_lines }
-    });
+    let effective_limit = limit.unwrap_or(if total_lines > MAX_LINES_DEFAULT { MAX_LINES_DEFAULT } else { total_lines });
     let end = (start + effective_limit).min(total_lines);
 
     let selected_lines = &lines[start..end];
     let selected_text: String = selected_lines.join("\n");
 
     // Estimate tokens (~4 chars per token)
-    let estimated_tokens = (selected_text.len() + 3) / 4;
+    let estimated_tokens = selected_text.len().div_ceil(4);
 
     // Build header
     let range_info = if offset > 0 || limit.is_some() {
-        format!(" (lines {}-{})", start + 1, end)
+        let range_start = start + 1;
+        format!(" (lines {range_start}-{end})")
     } else {
         String::new()
     };
+    let unchanged_note = if is_duplicate_read { " | unchanged since last read" } else { "" };
     let header = format!(
-        "[File: {} | {} lines{} | ~{} tokens]",
-        path, total_lines, range_info, estimated_tokens
+        "[File: {path} | {total_lines} lines{range_info} | ~{estimated_tokens} tokens{unchanged_note}]"
     );
 
     // Format with line numbers (cat -n style)
     let numbered: String = selected_lines
         .iter()
         .enumerate()
-        .map(|(i, line)| format!("{:>6}\t{}", start + i + 1, line))
+        .map(|(i, line)| {
+            let line_num = start + i + 1;
+            format!("{line_num:>6}\t{line}")
+        })
         .collect::<Vec<_>>()
         .join("\n");
 
-    let mut result = format!("{}\n{}", header, numbered);
+    let mut result = format!("{header}\n{numbered}");
 
     // Append truncation notice if capped at MAX_LINES_DEFAULT
     if was_truncated_by_cap {
+        let total_tokens_est = total_lines * 10 / 4;
+        let next_offset = end + 1;
         result.push_str(&format!(
-            "\n[File truncated at line {}. Total: {} lines (~{} tokens). \
-             To read the next section: read_file(path=\"{}\", offset={}, limit={}). \
-             Or use search_files to find specific content.]",
-            end, total_lines, total_lines * 10 / 4,
-            path, end + 1, MAX_LINES_DEFAULT
+            "\n[File truncated at line {end}. Total: {total_lines} lines (~{total_tokens_est} tokens). \
+             To read the next section: read_file(path=\"{path}\", offset={next_offset}, limit={MAX_LINES_DEFAULT}). \
+             Or use search_files to find specific content.]"
         ));
     }
 
@@ -404,8 +403,8 @@ pub fn truncate_text_content(content: &str, max_chars: usize) -> String {
         let mut end = max_chars;
         while end > 0 && !content.is_char_boundary(end) { end -= 1; }
         format!(
-            "{}\n\n[Truncated: showing first {} of {} bytes]",
-            &content[..end], end, total_bytes
+            "{}\n\n[Truncated: showing first {end} of {total_bytes} bytes]",
+            &content[..end]
         )
     } else {
         content.to_string()
@@ -423,8 +422,9 @@ pub fn read_with_encoding_detection(bytes: &[u8], max_chars: usize) -> String {
         });
 
     let label = if had_errors { " (with some decoding errors)" } else { "" };
-    let header = format!("[Decoded from {} encoding{}]\n", encoding_used.name(), label);
-    let content = format!("{}{}", header, decoded);
+    let encoding_name = encoding_used.name();
+    let header = format!("[Decoded from {encoding_name} encoding{label}]\n");
+    let content = format!("{header}{decoded}");
     truncate_text_content(&content, max_chars)
 }
 
@@ -459,7 +459,8 @@ pub fn tool_write_file(args: &Value) -> String {
             // Invalidate read cache and LRU content cache so next read_file returns fresh content
             invalidate_read_cache(path);
             invalidate_file_cache(path);
-            format!("Written {} bytes to {}", content.len(), path)
+            let byte_count = content.len();
+            format!("Written {byte_count} bytes to {path}")
         }
         Err(e) => format!("Error writing '{path}': {e}"),
     }

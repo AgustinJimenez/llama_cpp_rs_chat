@@ -20,6 +20,9 @@ pub(crate) use super::tool_output::{
 };
 
 pub use inject::inject_output_tokens;
+pub use self::execute_parallel::execute_parallel_block;
+
+mod execute_parallel;
 
 /// Result of command execution
 pub struct CommandExecutionResult {
@@ -121,13 +124,13 @@ pub fn check_and_execute_command_with_tags(
     // Loop detection
     match loop_detection::check_loop(&command_text, recent_commands, consecutive_loop_blocks, tags, template_type, model, conversation_id)? {
         LoopCheckResult::ForceStop(mut result) => {
-            llama_chat_db::event_log::log_event(conversation_id, "infinite_loop", &format!("Force-stop after {} consecutive blocks", consecutive_loop_blocks));
+            llama_chat_db::event_log::log_event(conversation_id, "infinite_loop", &format!("Force-stop after {consecutive_loop_blocks} consecutive blocks"));
             result.output_block.push_str("\n[INFINITE_LOOP_DETECTED]\n");
-            return Ok(Some(result));
+            Ok(Some(result))
         }
         LoopCheckResult::Blocked(result) => {
-            llama_chat_db::event_log::log_event(conversation_id, "loop_blocked", &format!("{} blocked (consecutive: {})", tool_name_for_log, consecutive_loop_blocks));
-            return Ok(Some(result));
+            llama_chat_db::event_log::log_event(conversation_id, "loop_blocked", &format!("{tool_name_for_log} blocked (consecutive: {consecutive_loop_blocks})"));
+            Ok(Some(result))
         }
         LoopCheckResult::Continue(fuzzy_warning) => {
             let all_calls = llama_chat_tools::try_parse_all_from_raw(&command_text);
@@ -163,6 +166,7 @@ pub fn check_and_execute_command_with_tags(
                     mcp_manager.clone(),
                     db.clone(),
                     model, backend, chat_template_string, tags,
+                    false, // force_parallel: use normal read/write classification
                 )
             } else {
                 single_exec::execute_single_call(

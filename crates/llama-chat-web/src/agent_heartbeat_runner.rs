@@ -59,7 +59,7 @@ pub async fn fire_one(bridge: SharedWorkerBridge, db: SharedDatabase, conversati
     };
 
     let (mut token_rx, done_rx) = match bridge
-        .generate(prompt, Some(conversation_id.clone()), true, None)
+        .generate(prompt, Some(conversation_id.clone()), true, None, None)
         .await
     {
         Ok(rx) => rx,

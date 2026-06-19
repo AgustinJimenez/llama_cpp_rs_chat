@@ -77,6 +77,9 @@ pub fn resolve_api_key(provider_id: &str, api_keys_json: Option<&str>) -> Option
                 }
             }
         }
+        if !preset.default_key.is_empty() {
+            return Some(preset.default_key.to_string());
+        }
     }
 
     None

@@ -45,6 +45,7 @@ export interface GenerationResult {
 export interface GenerationRequest {
   prompt: string;
   conversationId: string | null;
+  agentId?: string | null;
   imageData?: string[];
   autoContinue?: boolean;
 }
@@ -70,6 +71,7 @@ export class LocalGenerationStream implements GenerationStream {
     const chatRequest: ChatRequest = {
       message: request.prompt,
       conversation_id: request.conversationId || undefined,
+      agent_id: request.agentId || undefined,
       image_data: request.imageData,
       auto_continue: request.autoContinue,
     };
@@ -226,6 +228,7 @@ export class RemoteGenerationStream implements GenerationStream {
           prompt: request.prompt,
           conversationId: request.conversationId || null,
           sessionId: sessionRef.current || null,
+          imageData: request.imageData && request.imageData.length > 0 ? request.imageData : null,
           params: providerParams && Object.keys(providerParams).length > 0 ? providerParams : null,
         }).catch((err: unknown) => {
           settle(() => reject(err instanceof Error ? err : new Error(String(err))));
@@ -262,6 +265,10 @@ export class RemoteGenerationStream implements GenerationStream {
           max_turns: SSE_MAX_TURNS,
           session_id: sessionRef.current || undefined,
           conversation_id: request.conversationId || undefined,
+          ...(request.agentId ? { agent_id: request.agentId } : {}),
+          ...(request.imageData && request.imageData.length > 0
+            ? { image_data: request.imageData }
+            : {}),
           ...(providerParams && Object.keys(providerParams).length > 0
             ? { params: providerParams }
             : {}),
@@ -275,6 +282,7 @@ export class RemoteGenerationStream implements GenerationStream {
       const streamStart = Date.now();
 
       if (reader) {
+        let completeCalled = false;
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -338,6 +346,7 @@ export class RemoteGenerationStream implements GenerationStream {
                   costUsd: event.cost_usd,
                 };
 
+                completeCalled = true;
                 callbacks.onComplete({
                   conversationId: event.conversation_id || request.conversationId || '',
                   timings,
@@ -347,6 +356,17 @@ export class RemoteGenerationStream implements GenerationStream {
               /* skip unparseable lines */
             }
           }
+        }
+        // Safety net: stream closed without a done event (e.g. max_turns hit before
+        // the Rust provider could send it). Synthesize completion so the UI clears.
+        if (!completeCalled) {
+          callbacks.onComplete({
+            conversationId: request.conversationId || '',
+            timings: {
+              genTokens: tokenCount,
+              finishReason: 'max_turns',
+            },
+          });
         }
       }
     } catch (err) {

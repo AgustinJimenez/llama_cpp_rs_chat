@@ -123,7 +123,7 @@ pub(super) fn try_parse_glm_xml_format(trimmed: &str) -> Option<(String, Value)>
         };
         let value = trimmed[val_start..val_end].trim().to_string();
         let json_value =
-            serde_json::from_str::<Value>(&value).unwrap_or_else(|_| Value::String(value));
+            serde_json::from_str::<Value>(&value).unwrap_or(Value::String(value));
         args.insert(key, json_value);
 
         search_pos = val_end + "</arg_value>".len();
@@ -188,7 +188,7 @@ pub(super) fn try_parse_lfm2_python_call_format(trimmed: &str) -> Option<(String
                 let next_ch = args_str.as_bytes()[after_eq];
                 if next_ch == b'"' || next_ch == b'\'' {
                     let key_start = args_str[..abs_eq]
-                        .rfind(|c: char| c == ',' || c == ' ' || c == '\n')
+                        .rfind([',', ' ', '\n'])
                         .map(|p| p + 1)
                         .unwrap_or(0);
                     let key = args_str[key_start..abs_eq].trim();

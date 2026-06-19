@@ -1,6 +1,6 @@
 [workspace]
 members = ["crates/llama-chat-types", "crates/llama-chat-db", "crates/llama-chat-config", "crates/llama-chat-command", "crates/llama-chat-desktop-tools", "crates/llama-chat-tools", "crates/llama-chat-engine", "crates/llama-chat-worker", "crates/llama-chat-web", "crates/tests", "."]
-exclude = ["tools/ensure-cmake", "tools/ensure-tesseract"]
+exclude = ["tools/ensure-cmake", "tools/ensure-tesseract", "deps/rtk"]
 
 # Inherited by deps/llama-cpp-rs workspace members (llama-cpp-2, llama-cpp-sys-2)
 [workspace.dependencies]
@@ -57,10 +57,6 @@ path = "src/main_web.rs"
 name = "test_sample_deadlock"
 path = "src/test_sample_deadlock.rs"
 
-# Temporary utility to check Gemma template
-[[bin]]
-name = "check_gemma_template"
-path = "check_gemma_template.rs"
 
 # Test binary for debugging model loading and tokenization
 [[bin]]
@@ -140,6 +136,8 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-deep-link = "2"
+tauri-plugin-global-shortcut = "2"
+keepawake = "0.6"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.0", features = ["full"] }

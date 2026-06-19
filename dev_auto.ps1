@@ -80,6 +80,35 @@ function Test-VisualStudio {
     return $false
 }
 
+# Function to initialize Visual Studio developer environment
+function Initialize-VSEnvironment {
+    $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (-not (Test-Path $vswhere)) {
+        $vswhere = "${env:ProgramFiles}\Microsoft Visual Studio\Installer\vswhere.exe"
+    }
+
+    if (Test-Path $vswhere) {
+        $vsPath = & $vswhere -latest -property installationPath
+        if ($vsPath) {
+            $vcvars = Join-Path $vsPath "VC\Auxiliary\Build\vcvars64.bat"
+            if (Test-Path $vcvars) {
+                Write-Host "⚙️ Initializing Visual Studio developer environment..." -ForegroundColor Cyan
+                $raw = cmd /c "call `"$vcvars`" >nul 2>&1 && set"
+                foreach ($line in $raw) {
+                    if ($line -match '^([^=]+)=(.*)') {
+                        $key = $matches[1]
+                        $value = $matches[2]
+                        Set-Item -Path "env:$key" -Value $value -ErrorAction SilentlyContinue
+                    }
+                }
+                $env:Path = $env:Path -replace 'C:\\Program Files\\Git\\usr\\bin;?', ''
+                return $true
+            }
+        }
+    }
+    return $false
+}
+
 # Function to check NVIDIA GPU
 function Test-NvidiaGpu {
     try {
@@ -97,6 +126,9 @@ function Test-NvidiaGpu {
 
 Write-Host ""
 Write-Host "🔍 Checking GPU acceleration options..." -ForegroundColor Cyan
+
+# Initialize VS environment (needed for cl.exe and MSVC linker)
+Initialize-VSEnvironment | Out-Null
 
 # Check for CUDA setup
 $hasNvidiaGpu = Test-NvidiaGpu

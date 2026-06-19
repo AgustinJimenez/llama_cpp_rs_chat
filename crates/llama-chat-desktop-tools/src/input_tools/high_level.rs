@@ -28,8 +28,9 @@ pub fn tool_paste(args: &Value) -> NativeToolResult {
         "screenshot": true
     }));
     // The press_key tool already takes a screenshot; augment message
+    let rtext = &result.text;
     NativeToolResult {
-        text: format!("Pasted from clipboard. {}", result.text),
+        text: format!("Pasted from clipboard. {rtext}"),
         images: result.images,
     }
 }
@@ -57,15 +58,17 @@ pub fn tool_clear_field(args: &Value) -> NativeToolResult {
             "delay_ms": delay_ms,
             "screenshot": true
         }));
+        let rtext = &result.text;
         NativeToolResult {
-            text: format!("Cleared field and typed '{}'. {}", text, result.text),
+            text: format!("Cleared field and typed '{text}'. {rtext}"),
             images: result.images,
         }
     } else {
         // Take final screenshot (selection already deleted above, just capture)
         let result = capture_post_action_screenshot(delay_ms);
+        let rtext = &result.text;
         NativeToolResult {
-            text: format!("Cleared field. {}", result.text),
+            text: format!("Cleared field. {rtext}"),
             images: result.images,
         }
     }
@@ -132,7 +135,7 @@ pub fn tool_hover_element(args: &Value) -> NativeToolResult {
     // Try to find tooltip in UI tree
     let tooltip_text = crate::spawn_with_timeout(crate::DEFAULT_THREAD_TIMEOUT, move || -> String {
         match ui_automation_tools::find_ui_elements_all(hwnd, None, Some("tooltip"), 1) {
-            Ok(tips) if !tips.is_empty() => format!(" Tooltip: '{}'", tips[0].name),
+            Ok(tips) if !tips.is_empty() => { let tip = &tips[0].name; format!(" Tooltip: '{tip}'") },
             _ => String::new(),
         }
     })

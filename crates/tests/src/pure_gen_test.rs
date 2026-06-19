@@ -60,7 +60,7 @@ fn main() {
         LlamaSampler::dist(42),
     ], true);
 
-    println!("Generating {} tokens...", max_tokens);
+    println!("Generating {max_tokens} tokens...");
     let t = Instant::now();
     let mut eos_count = 0;
 
@@ -88,7 +88,7 @@ fn main() {
     let elapsed = t.elapsed().as_secs_f64();
     println!("\n=== PASSED: {} tokens in {:.1}s ({:.0} tok/s) ===",
         max_tokens, elapsed, max_tokens as f64 / elapsed);
-    println!("Final position: {}, EOS count: {}", token_pos, eos_count);
+    println!("Final position: {token_pos}, EOS count: {eos_count}");
 }
 
 fn eval_tokens(ctx: &mut llama_cpp_2::context::LlamaContext, batch: &mut LlamaBatch, tokens: &[LlamaToken], start: i32) {

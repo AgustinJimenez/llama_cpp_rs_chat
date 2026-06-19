@@ -21,31 +21,33 @@ export const RightSidebar = ({ isOpen, onClose }: RightSidebarProps) => {
   return (
     <>
       {/* Overlay for mobile */}
-      {isOpen ? (
+      {!!isOpen && (
         <div
-          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
           role="button"
           tabIndex={0}
+          aria-label="Close system monitor"
           onClick={onClose}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') onClose();
           }}
         />
-      ) : null}
+      )}
 
       {/* Sidebar */}
-      <div
-        className={`fixed top-0 right-0 h-full bg-card border-l border-border z-50 transition-transform duration-300 ${
+      <aside
+        aria-label="System Monitor"
+        className={`fixed right-0 top-0 z-50 h-full border-l border-border bg-card transition-transform duration-300 ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
         style={{ width: '320px' }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+        <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <h2 className="text-lg font-semibold">System Monitor</h2>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-muted rounded-lg transition-colors"
+            className="rounded-lg p-2 transition-colors hover:bg-muted"
             title="Close sidebar"
           >
             <X className="h-5 w-5" />
@@ -56,7 +58,7 @@ export const RightSidebar = ({ isOpen, onClose }: RightSidebarProps) => {
         <div className="p-4">
           <SystemUsage expanded />
         </div>
-      </div>
+      </aside>
     </>
   );
 };

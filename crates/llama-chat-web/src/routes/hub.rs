@@ -2,7 +2,6 @@
 ///
 /// GET /api/hub/search?q=devstral&limit=20
 /// Proxies the HuggingFace API to avoid CORS issues from the frontend.
-
 use std::convert::Infallible;
 
 use hyper::{Body, Request, Response, StatusCode};
@@ -126,8 +125,7 @@ struct HfTreeEntry {
 pub fn tree_hf(model_id: &str) -> Result<Vec<HubFile>, String> {
     // model_id is like "user/repo" — keep the slash, only encode each segment
     let url = format!(
-        "https://huggingface.co/api/models/{}/tree/main",
-        model_id,
+        "https://huggingface.co/api/models/{model_id}/tree/main",
     );
     let resp = ureq::get(&url)
         .call()

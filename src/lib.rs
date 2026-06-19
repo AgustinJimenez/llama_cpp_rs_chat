@@ -365,7 +365,7 @@ pub async fn load_model(
 
                 Ok(ModelResponse {
                     success: false,
-                    message: format!("Failed to load model: {}", e),
+                    message: format!("Failed to load model: {e}"),
                     status: None,
                 })
             }

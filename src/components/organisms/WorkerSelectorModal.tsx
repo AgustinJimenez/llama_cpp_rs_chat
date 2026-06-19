@@ -144,14 +144,23 @@ export const WorkerSelectorModal = ({
               <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Active Workers
               </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => void refreshWorkers()}
-                disabled={loading}
-              >
-                {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Refresh'}
-              </Button>
+              {(() => {
+                const refreshLabel = loading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  'Refresh'
+                );
+                return (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void refreshWorkers()}
+                    disabled={loading}
+                  >
+                    {refreshLabel}
+                  </Button>
+                );
+              })()}
             </div>
 
             <div className="space-y-2">
@@ -238,13 +247,21 @@ export const WorkerSelectorModal = ({
               >
                 <FolderOpen className="h-4 w-4" />
               </Button>
-              <Button onClick={() => void handleCreate()} disabled={creating || !modelPath.trim()}>
-                {creating ? (
+              {(() => {
+                const createIcon = creating ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <Plus className="h-4 w-4" />
-                )}
-              </Button>
+                );
+                return (
+                  <Button
+                    onClick={() => void handleCreate()}
+                    disabled={creating || !modelPath.trim()}
+                  >
+                    {createIcon}
+                  </Button>
+                );
+              })()}
             </div>
           </div>
         </div>

@@ -28,20 +28,24 @@ export const ConnectionBanner: React.FC = () => {
 
   if (connected) return null;
 
+  const attemptLabel = attempt > 0 ? ` (attempt ${attempt})` : '';
+  const elapsedLabel = elapsed ? ` — ${elapsed} ago` : '';
+
   return (
     <div
       role="alert"
-      className="flex items-center justify-center gap-2 px-4 py-2 bg-red-900/80 border-b border-red-700 text-red-100 text-sm"
+      className="flex items-center justify-center gap-2 border-b border-red-700 bg-red-900/80 px-4 py-2 text-sm text-red-100"
     >
-      {reconnecting ? (
+      {!!reconnecting && (
         <>
           <RefreshCw size={14} className="animate-spin" />
           <span>
-            Server unreachable — retrying{attempt > 0 ? ` (attempt ${attempt})` : ''}
-            {elapsed ? ` — ${elapsed} ago` : ''}
+            Server unreachable — retrying{attemptLabel}
+            {elapsedLabel}
           </span>
         </>
-      ) : (
+      )}
+      {!reconnecting && (
         <>
           <WifiOff size={14} />
           <span>Server disconnected</span>

@@ -1,4 +1,4 @@
-//! Browser, web search, and Camofox tool definitions.
+//! Browser, web search, and in-app browser tool definitions.
 
 use super::{p, Params, ToolDef};
 
@@ -12,35 +12,10 @@ pub static BROWSER_TOOLS: &[ToolDef] = &[
         ]),
         required: &["url"],
     },
-    // ─── Camofox CAPTCHA interaction tools ───
-    ToolDef {
-        name: "camofox_click",
-        description: "Click an element on the active Camofox browser tab (used after a CAPTCHA is detected during web_search). Provide the element ref shown in the page snapshot (e.g. 'e1', 'e3'). Returns a screenshot of the updated page.",
-        params: Params::Simple(&[
-            p("ref", "string", "Element reference to click (e.g. 'e1', 'e3')"),
-        ]),
-        required: &["ref"],
-    },
-    ToolDef {
-        name: "camofox_screenshot",
-        description: "Take a screenshot of the active Camofox browser tab. Use this to see the current state of a CAPTCHA page after interacting with it.",
-        params: Params::Simple(&[]),
-        required: &[],
-    },
-    ToolDef {
-        name: "camofox_type",
-        description: "Type text into an input field on the active Camofox browser tab. Used during CAPTCHA solving if text input is needed.",
-        params: Params::Simple(&[
-            p("ref", "string", "Element reference of the input field (e.g. 'e2')"),
-            p("text", "string", "Text to type"),
-            p("press_enter", "boolean", "Whether to press Enter after typing (default: false)"),
-        ]),
-        required: &["ref", "text"],
-    },
     // ─── Browser view control (visible to user in chat UI) ───
     ToolDef {
         name: "open_browser_view",
-        description: "Open the in-app browser view with a URL, visible to the user. Use this when you want to show the user a webpage directly in the chat interface. The user can see the page and interact with it. Useful for: showing search results, showing an article, or asking the user to solve a CAPTCHA. Creates a new Camofox tab and displays it live.",
+        description: "Open the in-app browser view with a URL, visible to the user. Use this when you want to show the user a webpage directly in the chat interface. The user can see the page and interact with it. Useful for: showing search results, showing an article, or asking the user to solve a CAPTCHA.",
         params: Params::Simple(&[
             p("url", "string", "Full URL to navigate to (e.g. 'https://example.com')"),
         ]),
@@ -55,7 +30,7 @@ pub static BROWSER_TOOLS: &[ToolDef] = &[
     // ─── Unified browser control tools (work for both web and Tauri) ───
     ToolDef {
         name: "browser_navigate",
-        description: "Open or navigate the in-app browser to a URL. Creates a new session if none exists. Use this to start any browser-based task. The page becomes visible to the user in the browser view. PARALLEL BROWSING: use different tab_id values (e.g. 'tab-1', 'tab-2') to open multiple pages simultaneously — open all links in parallel, then read each with browser_get_text(tab_id='tab-N').",
+        description: "Open or navigate the in-app browser to a URL. Creates a new session if none exists. The page becomes visible to the user in the browser view. PARALLEL BROWSING: use different tab_id values (e.g. 'tab-1', 'tab-2') to open multiple pages simultaneously — open all links in parallel, then read each with browser_get_text(tab_id='tab-N'). TIP: For reading article content only, prefer browser_fetch_text(url=...) — it is faster and bypasses cookie banners. If browser_get_text returns a CAPTCHA or login wall, try browser_fetch_text on the same URL before searching.",
         params: Params::Simple(&[
             p("url", "string", "URL to navigate to (with or without https://)"),
             p("tab_id", "string", "Named browser tab (default: 'main'). Use different IDs for parallel sessions, e.g. 'tab-1', 'tab-2'."),
@@ -103,16 +78,17 @@ pub static BROWSER_TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "browser_fetch_text",
-        description: "Fetch the readable text from any URL via HTTP — WITHOUT navigating the browser or leaving the current page. Use this to read article content while keeping the browser on the page you're working with (e.g. stay on HN while reading each linked article). Faster than browser_navigate + browser_get_text for static pages. Returns up to max_chars characters (default: 8000). If the response includes `\"partial\": true`, the page requires JavaScript — use browser_navigate + browser_get_text instead.",
+        description: "Fetch the readable text from any URL via HTTP — WITHOUT navigating the browser or leaving the current page. PREFERRED method for reading article content: faster, uses zero context on page state, and bypasses most cookie banners. If a page is paywalled or requires login, try this first before giving up. Returns up to max_chars characters (default: 8000). If the response includes `\"partial\": true`, the page requires JavaScript — use browser_navigate + browser_get_text instead. FALLBACK CHAIN for blocked pages: (1) browser_fetch_text → (2) browser_navigate + browser_get_text → (3) only then browser_search as last resort.",
         params: Params::Simple(&[
             p("url", "string", "URL to fetch (must start with http:// or https://)"),
             p("max_chars", "integer", "Maximum characters to return (default: 8000)"),
+            p("summary", "string", "'false' for full raw text, 'true' (default) for automatic summary of large pages, or a custom prompt (e.g. 'extract the main points'). Saves context tokens on long articles."),
         ]),
         required: &["url"],
     },
     ToolDef {
         name: "browser_search",
-        description: "Search the web using a text query. Returns a list of results with titles, URLs, and snippets. Do NOT pass a URL here — use browser_navigate to open a specific URL.",
+        description: "Search the web using a text query. Returns titles, URLs, and snippets only — NOT full article content. Do NOT pass a URL here — use browser_navigate to open a specific URL. IMPORTANT: Do NOT use this as a fallback when a page is blocked, shows a CAPTCHA, or has a cookie wall — use browser_fetch_text(url=...) instead, which fetches content directly via HTTP and bypasses most blocking. Repeated searches for the same topic waste context; if search results are not enough, fetch the URL directly.",
         params: Params::Simple(&[
             p("query", "string", "The search query"),
             p("max_results", "integer", "Max results to return (default: 8)"),
@@ -135,6 +111,7 @@ pub static BROWSER_TOOLS: &[ToolDef] = &[
         params: Params::Simple(&[
             p("max_chars", "integer", "Maximum characters to return (default: 8000). Lower for faster processing, higher for more detail."),
             p("tab_id", "string", "Named browser tab (default: 'main')"),
+            p("summary", "string", "'false' for raw HTML, 'true' for automatic summary, or a custom prompt (e.g. 'find all form fields'). Saves context on large pages."),
         ]),
         required: &[],
     },
@@ -163,6 +140,7 @@ pub static BROWSER_TOOLS: &[ToolDef] = &[
             p("offset", "integer", "Character offset to start reading from (default 0). Use the offset shown in the '[N chars remaining]' footer to read the next page."),
             p("max_chars", "integer", "Maximum characters to return (default: 8000). Lower for faster processing, higher for more detail."),
             p("tab_id", "string", "Named browser tab (default: 'main')"),
+            p("summary", "string", "'false' for full raw text, 'true' (default) for automatic summary of large pages, or a custom prompt (e.g. 'extract the main points of the article'). Saves context tokens on long pages."),
         ]),
         required: &[],
     },

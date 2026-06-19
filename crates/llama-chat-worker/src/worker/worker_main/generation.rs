@@ -17,6 +17,7 @@ pub(super) struct GenerationParams {
     pub(super) conversation_id: Option<String>,
     pub(super) skip_user_logging: bool,
     pub(super) image_data: Option<Vec<String>>,
+    pub(super) agent_id: Option<String>,
     pub(super) llama_state: SharedLlamaState,
     pub(super) db: SharedDatabase,
     pub(super) cancel: Arc<AtomicBool>,
@@ -49,6 +50,7 @@ pub(super) fn run_generation(params: GenerationParams) {
         conversation_id,
         skip_user_logging,
         image_data,
+        agent_id,
         llama_state,
         db,
         cancel,
@@ -101,24 +103,19 @@ pub(super) fn run_generation(params: GenerationParams) {
         let (token_sender, mut token_receiver) = mpsc::unbounded_channel::<TokenData>();
         let tx_clone = tx.clone();
         let forward_thread = thread::spawn(move || {
-            loop {
-                match token_receiver.blocking_recv() {
-                    Some(token_data) => {
-                        let response = WorkerResponse::ok(
-                            req_id,
-                            WorkerPayload::Token {
-                                token: token_data.token,
-                                tokens_used: token_data.tokens_used,
-                                max_tokens: token_data.max_tokens,
-                                status: token_data.status,
-                                tool_timing: token_data.tool_timing,
-                            },
-                        );
-                        if tx_clone.send(response).is_err() {
-                            break;
-                        }
-                    }
-                    None => break,
+            while let Some(token_data) = token_receiver.blocking_recv() {
+                let response = WorkerResponse::ok(
+                    req_id,
+                    WorkerPayload::Token {
+                        token: token_data.token,
+                        tokens_used: token_data.tokens_used,
+                        max_tokens: token_data.max_tokens,
+                        status: token_data.status,
+                        tool_timing: token_data.tool_timing,
+                    },
+                );
+                if tx_clone.send(response).is_err() {
+                    break;
                 }
             }
         });
@@ -133,6 +130,7 @@ pub(super) fn run_generation(params: GenerationParams) {
             cancel,
             image_data.as_deref(),
             Some(mcp_manager),
+            agent_id.as_deref(),
         )
         .await;
 

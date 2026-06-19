@@ -1,20 +1,26 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import checker from 'vite-plugin-checker';
+// import checker from 'vite-plugin-checker'; // temporarily disabled
 import path from 'path';
 
 export default defineConfig({
   plugins: [
     react(),
-    // Only run TS/ESLint checker during build — dev checking is handled by VS Code.
-    // Running checker workers in dev leaks memory over long sessions (known issue).
-    ...(process.env.NODE_ENV === 'production' ? [checker({
-      typescript: true,
-      // ESLint disabled during build — pre-existing lint warnings (complexity,
-      // max-lines) block Tauri installer builds. Lint in dev via VS Code.
-      overlay: { initialIsOpen: 'error' },
-      enableBuild: true,
-    })] : []),
+    // TypeScript + ESLint checking in dev — errors/warnings appear in browser overlay
+    // and terminal so they're caught before commit. ESLint is disabled for production
+    // builds because lint warnings block Tauri installer builds.
+    // checker temporarily disabled to diagnose Vite startup hang
+    // checker({
+    //   typescript: true,
+    //   ...(process.env.NODE_ENV !== 'production' ? {
+    //     eslint: {
+    //       lintCommand: "eslint './src/**/*.{ts,tsx}' --rule 'i18next/no-literal-string: off'",
+    //       useFlatConfig: false,
+    //     },
+    //   } : {}),
+    //   overlay: { initialIsOpen: 'error' },
+    //   enableBuild: process.env.NODE_ENV === 'production',
+    // }),
   ],
   clearScreen: false,
   server: {

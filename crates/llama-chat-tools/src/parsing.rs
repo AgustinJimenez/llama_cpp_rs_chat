@@ -209,7 +209,7 @@ fn fix_bare_nested_object(input: &str) -> Option<String> {
     if let Some(pos) = input.find(", {\"arguments\"") {
         let before = &input[..pos];
         let rest = &input[pos + ", {\"arguments\"".len()..];
-        let candidate = format!("{}, \"arguments\"{}", before, rest);
+        let candidate = format!("{before}, \"arguments\"{rest}");
         // Strip one trailing `}` (the extra one from the now-removed wrapping `{`)
         let trimmed = candidate.trim_end();
         if trimmed.ends_with('}') {
@@ -226,7 +226,7 @@ fn fix_bare_nested_object(input: &str) -> Option<String> {
         let after_name = &input[name_end + 3..];
         if after_name.starts_with('{') {
             let before = &input[..name_end + 3];
-            return Some(format!("{}\"arguments\": {}", before, after_name));
+            return Some(format!("{before}\"arguments\": {after_name}"));
         }
     }
 
@@ -298,10 +298,8 @@ pub fn try_parse_tool_call(text: &str) -> Option<(String, Value)> {
         Some(result)
     } else if let Some(result) = try_parse_glm_xml_format(trimmed) {
         Some(result)
-    } else if let Some(result) = try_parse_name_json_format(trimmed) {
-        Some(result)
     } else {
-        None
+        try_parse_name_json_format(trimmed)
     }
 }
 

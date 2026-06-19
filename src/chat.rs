@@ -250,10 +250,9 @@ impl ChatEngine {
 
         // Generate response - limited to reasonable length
         let mut response = String::new();
-        let mut token_pos = tokens.len() as i32;
         let max_tokens = 2048; // Limit response length
 
-        for _ in 0..max_tokens {
+        for token_pos in (tokens.len() as i32..).take(max_tokens) {
             // Sample next token
             let next_token = sampler.sample(&context, -1);
 
@@ -287,7 +286,6 @@ impl ChatEngine {
                 .decode(&mut batch)
                 .map_err(|e| format!("Decode failed: {e}"))?;
 
-            token_pos += 1;
         }
 
         // Clean up the response

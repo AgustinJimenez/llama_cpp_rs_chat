@@ -36,7 +36,7 @@ const Toggle: React.FC<{
   onChange: (v: boolean) => void;
 }> = ({ label, checked, onChange }) => (
   <div className="flex items-center gap-1.5">
-    <label className="text-xs text-muted-foreground whitespace-nowrap">{label}</label>
+    <label className="whitespace-nowrap text-xs text-muted-foreground">{label}</label>
     <button
       type="button"
       role="switch"
@@ -66,7 +66,7 @@ const NumInput: React.FC<{
   width?: string;
 }> = ({ label, value, onChange, min, max, step, integer, width = 'w-16' }) => (
   <div className="flex items-center gap-1.5">
-    <label className="text-xs text-muted-foreground whitespace-nowrap">{label}</label>
+    <label className="whitespace-nowrap text-xs text-muted-foreground">{label}</label>
     <input
       type="number"
       value={value}
@@ -81,7 +81,7 @@ const NumInput: React.FC<{
       min={min}
       max={max}
       step={step}
-      className={`${width} h-6 px-1.5 text-xs font-mono text-right rounded border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring`}
+      className={`${width} h-6 rounded border border-input bg-background px-1.5 text-right font-mono text-xs focus:outline-none focus:ring-1 focus:ring-ring`}
     />
   </div>
 );
@@ -97,11 +97,11 @@ const KvCacheGroup = ({
     title={
       <span className="flex items-center gap-1.5">
         KV Cache{' '}
-        <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-primary/20 text-primary">
+        <span className="rounded-full bg-primary/20 px-1.5 py-0.5 text-[9px] font-medium text-primary">
           TurboQuant
         </span>
         <span
-          className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full border border-muted-foreground/40 text-[9px] text-muted-foreground cursor-help"
+          className="inline-flex h-3.5 w-3.5 cursor-help items-center justify-center rounded-full border border-muted-foreground/40 text-[9px] text-muted-foreground"
           title={
             'TurboQuant uses asymmetric K/V types for best quality-per-bit.\n\n' +
             'Recommended configs (memory savings vs F16):\n' +
@@ -118,7 +118,7 @@ const KvCacheGroup = ({
     }
   >
     <div className="flex items-center gap-1.5">
-      <label htmlFor="cache-type-k" className="text-xs text-muted-foreground whitespace-nowrap">
+      <label htmlFor="cache-type-k" className="whitespace-nowrap text-xs text-muted-foreground">
         K Type
       </label>
       <select
@@ -135,7 +135,7 @@ const KvCacheGroup = ({
       </select>
     </div>
     <div className="flex items-center gap-1.5">
-      <label htmlFor="cache-type-v" className="text-xs text-muted-foreground whitespace-nowrap">
+      <label htmlFor="cache-type-v" className="whitespace-nowrap text-xs text-muted-foreground">
         V Type
       </label>
       <select
@@ -197,7 +197,7 @@ const HardwareGroup = ({
     <div className="flex items-center gap-1.5">
       <label
         htmlFor="split-mode-select"
-        className="text-xs text-muted-foreground whitespace-nowrap"
+        className="whitespace-nowrap text-xs text-muted-foreground"
       >
         Split
       </label>
@@ -231,63 +231,66 @@ export const AdvancedContextSection: React.FC<AdvancedContextSectionProps> = ({
   config,
   onConfigChange,
   supportsThinking,
-}) => (
-  <div className="flex flex-wrap gap-3">
-    <KvCacheGroup config={config} onConfigChange={onConfigChange} />
-    {supportsThinking ? (
-      <ParamGroup title="Thinking">
-        <Toggle
-          label={config.thinking_mode === false ? 'Disabled' : 'Enabled'}
-          checked={config.thinking_mode !== false}
-          onChange={(v) => onConfigChange('thinking_mode', v ? null : false)}
+}) => {
+  const thinkingLabel = config.thinking_mode === false ? 'Disabled' : 'Enabled';
+  return (
+    <div className="flex flex-wrap gap-3">
+      <KvCacheGroup config={config} onConfigChange={onConfigChange} />
+      {!!supportsThinking && (
+        <ParamGroup title="Thinking">
+          <Toggle
+            label={thinkingLabel}
+            checked={config.thinking_mode !== false}
+            onChange={(v) => onConfigChange('thinking_mode', v ? null : false)}
+          />
+        </ParamGroup>
+      )}
+      <ParamGroup title="Batch">
+        <div className="flex gap-1">
+          {BATCH_PRESETS.map((size) => (
+            <button
+              key={size}
+              type="button"
+              className={`rounded border px-2.5 py-0.5 text-xs transition-colors ${
+                (config.n_batch ?? BATCH_SIZE_2048) === size
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-border bg-background hover:bg-muted'
+              }`}
+              onClick={() => onConfigChange('n_batch', size)}
+            >
+              {size}
+            </button>
+          ))}
+        </div>
+        <NumInput
+          label="uBatch"
+          value={config.n_ubatch ?? BATCH_SIZE_512}
+          onChange={(v) => onConfigChange('n_ubatch', v)}
+          min={32}
+          max={8192}
+          step={64}
+          integer
         />
       </ParamGroup>
-    ) : null}
-    <ParamGroup title="Batch">
-      <div className="flex gap-1">
-        {BATCH_PRESETS.map((size) => (
-          <button
-            key={size}
-            type="button"
-            className={`px-2.5 py-0.5 text-xs rounded border transition-colors ${
-              (config.n_batch ?? BATCH_SIZE_2048) === size
-                ? 'bg-primary text-primary-foreground border-primary'
-                : 'bg-background hover:bg-muted border-border'
-            }`}
-            onClick={() => onConfigChange('n_batch', size)}
-          >
-            {size}
-          </button>
-        ))}
-      </div>
-      <NumInput
-        label="uBatch"
-        value={config.n_ubatch ?? BATCH_SIZE_512}
-        onChange={(v) => onConfigChange('n_ubatch', v)}
-        min={32}
-        max={8192}
-        step={64}
-        integer
-      />
-    </ParamGroup>
-    <ParamGroup title="Context">
-      <NumInput
-        label="RoPE Base"
-        value={config.rope_freq_base ?? 0}
-        onChange={(v) => onConfigChange('rope_freq_base', v)}
-        min={0}
-        max={10000000}
-        step={1000}
-      />
-      <NumInput
-        label="RoPE Scale"
-        value={config.rope_freq_scale ?? 0}
-        onChange={(v) => onConfigChange('rope_freq_scale', v)}
-        min={0}
-        max={32}
-        step={0.1}
-      />
-    </ParamGroup>
-    <HardwareGroup config={config} onConfigChange={onConfigChange} />
-  </div>
-);
+      <ParamGroup title="Context">
+        <NumInput
+          label="RoPE Base"
+          value={config.rope_freq_base ?? 0}
+          onChange={(v) => onConfigChange('rope_freq_base', v)}
+          min={0}
+          max={10000000}
+          step={1000}
+        />
+        <NumInput
+          label="RoPE Scale"
+          value={config.rope_freq_scale ?? 0}
+          onChange={(v) => onConfigChange('rope_freq_scale', v)}
+          min={0}
+          max={32}
+          step={0.1}
+        />
+      </ParamGroup>
+      <HardwareGroup config={config} onConfigChange={onConfigChange} />
+    </div>
+  );
+};

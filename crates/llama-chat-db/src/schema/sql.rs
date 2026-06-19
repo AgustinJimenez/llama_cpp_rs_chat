@@ -6,7 +6,22 @@ CREATE TABLE IF NOT EXISTS conversations (
     title TEXT,
     worker_id TEXT,
     provider_id TEXT,
-    provider_session_id TEXT
+    provider_session_id TEXT,
+    agent_id TEXT,
+    overrides TEXT,
+    heartbeat_enabled INTEGER DEFAULT 0,
+    heartbeat_interval_minutes INTEGER DEFAULT 30,
+    heartbeat_prompt TEXT,
+    heartbeat_last_fired_at INTEGER DEFAULT 0,
+    heartbeat_last_result TEXT,
+    heartbeat_has_unread INTEGER DEFAULT 0
+)
+"#;
+
+pub(super) const CREATE_SCHEMA_MIGRATIONS_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    name TEXT PRIMARY KEY,
+    applied_at INTEGER NOT NULL
 )
 "#;
 
@@ -43,19 +58,18 @@ CREATE TABLE IF NOT EXISTS streaming_buffer (
 pub(super) const CREATE_CONFIG_TABLE: &str = r#"
 CREATE TABLE IF NOT EXISTS config (
     id INTEGER PRIMARY KEY CHECK (id = 1),
-    sampler_type TEXT DEFAULT 'Greedy',
-    temperature REAL DEFAULT 0.7,
-    top_p REAL DEFAULT 0.95,
-    top_k INTEGER DEFAULT 20,
-    mirostat_tau REAL DEFAULT 5.0,
-    mirostat_eta REAL DEFAULT 0.1,
-    repeat_penalty REAL DEFAULT 1.0,
-    min_p REAL DEFAULT 0.0,
-    model_path TEXT,
-    system_prompt TEXT,
-    system_prompt_type TEXT DEFAULT 'Default',
-    context_size INTEGER DEFAULT 32768,
-    stop_tokens TEXT,
+    disable_file_logging INTEGER DEFAULT 1,
+    web_browser_backend TEXT DEFAULT 'chrome',
+    models_directory TEXT,
+    use_rtk INTEGER DEFAULT 1,
+    use_htmd INTEGER DEFAULT 0,
+    telegram_bot_token TEXT,
+    telegram_chat_id TEXT,
+    provider_api_keys TEXT,
+    max_tool_calls INTEGER DEFAULT 2000,
+    loop_detection_limit INTEGER DEFAULT 15,
+    active_provider TEXT DEFAULT 'local',
+    active_provider_model TEXT,
     updated_at INTEGER NOT NULL
 )
 "#;
@@ -66,39 +80,6 @@ CREATE TABLE IF NOT EXISTS model_history (
     model_path TEXT UNIQUE NOT NULL,
     last_used INTEGER NOT NULL,
     display_order INTEGER NOT NULL
-)
-"#;
-
-pub(super) const CREATE_CONVERSATION_CONFIG_TABLE: &str = r#"
-CREATE TABLE IF NOT EXISTS conversation_config (
-    conversation_id TEXT PRIMARY KEY,
-    sampler_type TEXT DEFAULT 'Greedy',
-    temperature REAL DEFAULT 0.7,
-    top_p REAL DEFAULT 0.95,
-    top_k INTEGER DEFAULT 20,
-    mirostat_tau REAL DEFAULT 5.0,
-    mirostat_eta REAL DEFAULT 0.1,
-    repeat_penalty REAL DEFAULT 1.0,
-    min_p REAL DEFAULT 0.0,
-    typical_p REAL DEFAULT 1.0,
-    frequency_penalty REAL DEFAULT 0.0,
-    presence_penalty REAL DEFAULT 0.0,
-    penalty_last_n INTEGER DEFAULT 64,
-    dry_multiplier REAL DEFAULT 0.0,
-    dry_base REAL DEFAULT 1.75,
-    dry_allowed_length INTEGER DEFAULT 2,
-    dry_penalty_last_n INTEGER DEFAULT -1,
-    top_n_sigma REAL DEFAULT -1.0,
-    flash_attention INTEGER DEFAULT 1,
-    cache_type_k TEXT DEFAULT 'f16',
-    cache_type_v TEXT DEFAULT 'f16',
-    n_batch INTEGER DEFAULT 2048,
-    context_size INTEGER DEFAULT 32768,
-    system_prompt TEXT,
-    system_prompt_type TEXT DEFAULT 'Default',
-    stop_tokens TEXT,
-    updated_at INTEGER NOT NULL,
-    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
 )
 "#;
 
@@ -225,4 +206,70 @@ CREATE INDEX IF NOT EXISTS idx_compaction_summaries_conversation
 ON compaction_summaries(conversation_id, covers_to_sequence)
 "#;
 
-// agent_heartbeat table removed — migrated to heartbeat_* columns in conversation_config
+// agent_heartbeat table removed — migrated to heartbeat_* columns on conversations
+
+pub(super) const CREATE_AGENTS_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS agents (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    -- provider / model selection
+    provider_id TEXT NOT NULL DEFAULT 'local',
+    model_path TEXT,
+    provider_model TEXT,
+    -- system prompt
+    system_prompt TEXT,
+    system_prompt_type TEXT DEFAULT 'Custom',
+    -- sampler params
+    sampler_type TEXT DEFAULT 'Greedy',
+    temperature REAL DEFAULT 0.7,
+    top_p REAL DEFAULT 0.95,
+    top_k INTEGER DEFAULT 20,
+    mirostat_tau REAL DEFAULT 5.0,
+    mirostat_eta REAL DEFAULT 0.1,
+    repeat_penalty REAL DEFAULT 1.0,
+    min_p REAL DEFAULT 0.0,
+    typical_p REAL DEFAULT 1.0,
+    frequency_penalty REAL DEFAULT 0.0,
+    presence_penalty REAL DEFAULT 0.0,
+    penalty_last_n INTEGER DEFAULT 64,
+    dry_multiplier REAL DEFAULT 0.0,
+    dry_base REAL DEFAULT 1.75,
+    dry_allowed_length INTEGER DEFAULT 2,
+    dry_penalty_last_n INTEGER DEFAULT -1,
+    top_n_sigma REAL DEFAULT -1.0,
+    -- hardware / context params
+    flash_attention INTEGER DEFAULT 1,
+    cache_type_k TEXT DEFAULT 'f16',
+    cache_type_v TEXT DEFAULT 'f16',
+    n_batch INTEGER DEFAULT 2048,
+    context_size INTEGER DEFAULT 32768,
+    seed INTEGER DEFAULT -1,
+    n_ubatch INTEGER DEFAULT 512,
+    n_threads INTEGER DEFAULT 0,
+    n_threads_batch INTEGER DEFAULT 0,
+    rope_freq_base REAL DEFAULT 0.0,
+    rope_freq_scale REAL DEFAULT 0.0,
+    use_mlock INTEGER DEFAULT 0,
+    use_mmap INTEGER DEFAULT 1,
+    main_gpu INTEGER DEFAULT 0,
+    split_mode TEXT DEFAULT 'layer',
+    -- generation settings
+    stop_tokens TEXT,
+    tag_pairs TEXT,
+    tool_tag_exec_open TEXT,
+    tool_tag_exec_close TEXT,
+    tool_tag_output_open TEXT,
+    tool_tag_output_close TEXT,
+    -- behavior flags
+    proactive_compaction INTEGER DEFAULT 1,
+    safe_tool_injection INTEGER DEFAULT 0,
+    thinking_mode INTEGER,
+    -- heartbeat defaults
+    heartbeat_enabled INTEGER DEFAULT 0,
+    heartbeat_interval_minutes INTEGER DEFAULT 30,
+    heartbeat_prompt TEXT,
+    -- meta
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+)
+"#;

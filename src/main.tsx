@@ -1,9 +1,10 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 
-import App from './App.tsx';
+import { App } from './App.tsx';
 import './i18n';
 import './index.css';
+import { AgentProvider } from './contexts/AgentContext.tsx';
 import { ChatProvider } from './contexts/ChatContext.tsx';
 import { ConnectionProvider } from './contexts/ConnectionContext.tsx';
 import { DownloadProvider } from './contexts/DownloadContext.tsx';
@@ -14,6 +15,12 @@ import { setupFrontendLogging } from './utils/logging.ts';
 
 setupFrontendLogging();
 
+// axe temporarily disabled — freezes on cold Vite cache (on-demand bundling of @axe-core takes 45s+)
+// if (import.meta.env.DEV) {
+//   const axe = await import('@axe-core/react');
+//   axe.default(React, ReactDOM, 1000);
+// }
+
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('Root element not found');
 
@@ -23,11 +30,13 @@ ReactDOM.createRoot(rootElement).render(
       <SystemResourcesProvider>
         <ModelProvider>
           <DownloadProvider>
-            <ChatProvider>
-              <UIProvider>
-                <App />
-              </UIProvider>
-            </ChatProvider>
+            <AgentProvider>
+              <ChatProvider>
+                <UIProvider>
+                  <App />
+                </UIProvider>
+              </ChatProvider>
+            </AgentProvider>
           </DownloadProvider>
         </ModelProvider>
       </SystemResourcesProvider>

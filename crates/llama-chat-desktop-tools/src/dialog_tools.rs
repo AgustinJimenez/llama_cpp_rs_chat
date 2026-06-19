@@ -58,15 +58,16 @@ pub fn tool_handle_dialog(args: &Value) -> NativeToolResult {
         .map(|b| b.name.clone())
         .collect();
 
-    let mut output = format!(
-        "Dialog: '{}' [{}]\n",
-        info.title, info.class_name
-    );
+    let title = &info.title;
+    let class_name = &info.class_name;
+    let mut output = format!("Dialog: '{title}' [{class_name}]\n");
     if !dialog_text.is_empty() {
-        output.push_str(&format!("Text: {}\n", dialog_text.join(" | ")));
+        let text_joined = dialog_text.join(" | ");
+        output.push_str(&format!("Text: {text_joined}\n"));
     }
     if !button_names.is_empty() {
-        output.push_str(&format!("Buttons: [{}]\n", button_names.join(", ")));
+        let btns_joined = button_names.join(", ");
+        output.push_str(&format!("Buttons: [{btns_joined}]\n"));
     }
 
     // Click specified button if requested
@@ -79,13 +80,16 @@ pub fn tool_handle_dialog(args: &Value) -> NativeToolResult {
                 "delay_ms": 500,
                 "screenshot": true
             }));
-            output.push_str(&format!("Clicked button '{}' at ({}, {})", btn.name, btn.cx, btn.cy));
+            let btn_name_ref = &btn.name;
+            let btn_cx = btn.cx;
+            let btn_cy = btn.cy;
+            output.push_str(&format!("Clicked button '{btn_name_ref}' at ({btn_cx}, {btn_cy})"));
             return NativeToolResult {
                 text: output,
                 images: result.images,
             };
         } else {
-            output.push_str(&format!("Button '{}' not found in dialog", btn_name));
+            output.push_str(&format!("Button '{btn_name}' not found in dialog"));
         }
     }
 
@@ -151,8 +155,7 @@ pub fn tool_wait_for_element_state(args: &Value) -> NativeToolResult {
         let elapsed = start.elapsed().as_millis() as u64;
         if elapsed >= timeout_ms {
             return NativeToolResult::text_only(format!(
-                "Timeout: element did not reach state '{}' within {}ms",
-                target_state, timeout_ms
+                "Timeout: element did not reach state '{target_state}' within {timeout_ms}ms"
             ));
         }
 
@@ -163,12 +166,11 @@ pub fn tool_wait_for_element_state(args: &Value) -> NativeToolResult {
         }).and_then(|r| r);
 
         let state_matches = match target_state.as_str() {
-            "exists" | "visible" => found.as_ref().map_or(false, |v| !v.is_empty()),
+            "exists" | "visible" => found.as_ref().is_ok_and(|v| !v.is_empty()),
             "gone" | "hidden" => found.as_ref().map_or(true, |v| v.is_empty()),
             _ => {
                 return NativeToolResult::text_only(format!(
-                    "Unknown state '{}'. Use: exists, gone, visible, hidden",
-                    target_state
+                    "Unknown state '{target_state}'. Use: exists, gone, visible, hidden"
                 ));
             }
         };
@@ -176,12 +178,10 @@ pub fn tool_wait_for_element_state(args: &Value) -> NativeToolResult {
         if state_matches {
             let screenshot = super::capture_post_action_screenshot(0);
             let name_desc = name_filter.unwrap_or("(any)");
+            let elapsed = start.elapsed().as_millis();
             return NativeToolResult {
                 text: format!(
-                    "Element '{}' reached state '{}' after {}ms",
-                    name_desc,
-                    target_state,
-                    start.elapsed().as_millis()
+                    "Element '{name_desc}' reached state '{target_state}' after {elapsed}ms"
                 ),
                 images: screenshot.images,
             };
@@ -308,11 +308,9 @@ pub fn tool_dialog_handler_start(args: &Value) -> NativeToolResult {
         handle: Some(handle),
     });
 
+    let buttons_str = args.get("button_map").map(|v| v.to_string()).unwrap_or_else(|| "{}".to_string());
     NativeToolResult::text_only(format!(
-        "Dialog handler started (polling every {}ms, timeout {}ms, watching for buttons: {})",
-        poll_interval_ms,
-        timeout_ms,
-        args.get("button_map").map(|v| v.to_string()).unwrap_or_else(|| "{}".to_string())
+        "Dialog handler started (polling every {poll_interval_ms}ms, timeout {timeout_ms}ms, watching for buttons: {buttons_str})"
     ))
 }
 
@@ -333,14 +331,11 @@ pub fn tool_dialog_handler_stop(_args: &Value) -> NativeToolResult {
             state.stop_flag.store(true, std::sync::atomic::Ordering::Relaxed);
             let count = if let Some(handle) = state.handle {
                 // Wait up to 5 seconds for the thread to finish
-                match handle.join() {
-                    Ok(c) => c,
-                    Err(_) => 0,
-                }
+                handle.join().unwrap_or_default()
             } else {
                 0
             };
-            NativeToolResult::text_only(format!("Dialog handler stopped. Dialogs handled: {}", count))
+            NativeToolResult::text_only(format!("Dialog handler stopped. Dialogs handled: {count}"))
         }
         None => {
             NativeToolResult::text_only("No dialog handler was running".to_string())
@@ -352,33 +347,24 @@ pub fn tool_dialog_handler_stop(_args: &Value) -> NativeToolResult {
 mod tests {
     use super::*;
 
-    // ─── dialog_handler_start parameter validation ───────────────────────
-
-    #[test]
-    fn test_dialog_handler_start_requires_button_map() {
-        let args = serde_json::json!({});
-        let result = tool_dialog_handler_start(&args);
-        assert!(result.text.contains("Error [dialog_handler_start]"));
-        assert!(result.text.contains("'button_map' is required"));
-    }
-
-    #[test]
-    fn test_dialog_handler_start_rejects_non_object_button_map() {
-        let args = serde_json::json!({
-            "button_map": "not an object"
-        });
-        let result = tool_dialog_handler_start(&args);
-        assert!(result.text.contains("Error [dialog_handler_start]"));
-        assert!(result.text.contains("'button_map' is required"));
-    }
-
-    // ─── dialog_handler lifecycle (single test to avoid global mutex races) ──
+    // ─── dialog_handler lifecycle + validation (single test to avoid global mutex races) ──
 
     #[test]
     fn test_dialog_handler_lifecycle() {
-        // All lifecycle assertions in one test to avoid parallel races on DIALOG_HANDLER global
-        // 1. Stop when nothing running
+        // All dialog_handler_start/stop assertions in one test — DIALOG_HANDLER is a global
+        // and parallel tests would race each other.
+        // 0. Ensure clean state; validate parameter errors when handler is stopped
         let _ = tool_dialog_handler_stop(&serde_json::json!({}));
+
+        let no_map = tool_dialog_handler_start(&serde_json::json!({}));
+        assert!(no_map.text.contains("Error [dialog_handler_start]"));
+        assert!(no_map.text.contains("'button_map' is required"));
+
+        let bad_map = tool_dialog_handler_start(&serde_json::json!({"button_map": "not an object"}));
+        assert!(bad_map.text.contains("Error [dialog_handler_start]"));
+        assert!(bad_map.text.contains("'button_map' is required"));
+
+        // 1. Stop when nothing running
         let stop_noop = tool_dialog_handler_stop(&serde_json::json!({}));
         assert!(stop_noop.text.contains("No dialog handler was running"));
 

@@ -35,27 +35,39 @@ function detectPlatform() {
     return { platform, arch };
 }
 
-function runScript(scriptPath, args = []) {
+function runScript(scriptPath, args = [], background = false) {
     return new Promise((resolve, reject) => {
-        log('🚀', `Running: ${scriptPath}`, 'cyan');
+        log('🚀', `Running: ${scriptPath} ${args.join(' ')}`, 'cyan');
         
-        const child = spawn(scriptPath, args, {
+        const options = {
             stdio: 'inherit',
             shell: true,
             cwd: path.dirname(__dirname) // Go up one level to project root
-        });
+        };
+
+        if (background) {
+            options.detached = true;
+            options.stdio = 'ignore'; // Ignore stdio for detached processes
+        }
+
+        const child = spawn(scriptPath, args, options);
         
-        child.on('close', (code) => {
-            if (code === 0) {
-                resolve(code);
-            } else {
-                reject(new Error(`Script exited with code ${code}`));
-            }
-        });
-        
-        child.on('error', (err) => {
-            reject(err);
-        });
+        if (background) {
+            child.unref(); // Allow the parent process to exit independently
+            resolve(0); // Resolve immediately for background processes
+        } else {
+            child.on('close', (code) => {
+                if (code === 0) {
+                    resolve(code);
+                } else {
+                    reject(new Error(`Script exited with code ${code}`));
+                }
+            });
+            
+            child.on('error', (err) => {
+                reject(err);
+            });
+        }
     });
 }
 
@@ -67,7 +79,14 @@ async function main() {
             throw new Error(`Invalid mode: ${mode}. Use 'web' or 'desktop'`);
         }
         
+        // Extract additional arguments, e.g., --background
+        const additionalArgs = process.argv.slice(3);
+        const isBackground = additionalArgs.includes('--background');
+
         log('🎯', `Mode: ${mode.toUpperCase()}`, 'blue');
+        if (isBackground) {
+            log('⚙️', 'Running in background mode', 'blue');
+        }
 
         const { platform } = detectPlatform();
         const projectRoot = path.dirname(__dirname);
@@ -76,6 +95,7 @@ async function main() {
         await runScript('npm run ensure-cmake');
         
         let scriptPath;
+        let scriptArgs = [mode]; // Start with the mode argument
         
         switch (platform) {
             case 'darwin':
@@ -87,15 +107,17 @@ async function main() {
                 break;
                 
             case 'win32':
-                // Try PowerShell first, then fallback to bash script (Git Bash)
                 const psScript = path.join(projectRoot, 'dev_auto.ps1');
                 const bashScript = path.join(projectRoot, 'dev_auto.sh');
                 
                 if (fs.existsSync(psScript)) {
-                    scriptPath = `powershell -ExecutionPolicy Bypass -File "${psScript}" ${mode}`;
+                    scriptPath = `powershell -ExecutionPolicy Bypass -File "${psScript}" -Mode ${mode}`;
+                    // PowerShell arguments are passed as named parameters, not positional
+                    // The background flag will be handled by detect-and-run.js, not passed to ps1
+                    scriptArgs = []; 
                     log('🪟', `Using Windows PowerShell auto-detection script for ${mode}`, 'green');
                 } else if (fs.existsSync(bashScript)) {
-                    scriptPath = `${bashScript} ${mode}`;
+                    scriptPath = `${bashScript}`;
                     log('🪟', `Using Windows Bash auto-detection script for ${mode}`, 'green');
                 } else {
                     throw new Error('No Windows auto-detection script found');
@@ -113,21 +135,18 @@ async function main() {
             default:
                 log('❓', `Unknown platform: ${platform}, falling back to CPU mode`, 'yellow');
                 scriptPath = 'npm run dev:cpu';
+                scriptArgs = []; 
                 break;
         }
         
         console.log(''); // Empty line for spacing
-        if (scriptPath.endsWith('.sh')) {
-            await runScript(scriptPath, [mode]);
-        } else {
-            await runScript(scriptPath);
-        }
+        // Pass the background flag to runScript
+        await runScript(scriptPath, scriptArgs, isBackground);
         
     } catch (error) {
         log('❌', `Error: ${error.message}`, 'red');
         log('🔄', 'Falling back to CPU mode...', 'yellow');
         
-        // Fallback to basic dev command
         try {
             await runScript('npm run dev:cpu');
         } catch (fallbackError) {

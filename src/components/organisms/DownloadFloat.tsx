@@ -100,91 +100,94 @@ export const DownloadFloat = () => {
   const totalBytes = items.reduce((a, b) => a + b.bytes, 0);
   const totalSize = items.reduce((a, b) => a + b.total, 0);
   const overallPct = totalSize > 0 ? Math.round((totalBytes / totalSize) * 100) : 0;
+  const arrowIconClass = activeCount > 0 ? 'text-blue-400' : 'text-yellow-500';
+  const pillLabel = activeCount > 0 ? `${overallPct}%` : `${pendingCount} paused`;
 
   return (
     <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2">
       {/* Expanded panel */}
-      {expanded ? (
-        <div className="bg-card border border-border rounded-lg shadow-2xl w-80 max-h-64 overflow-y-auto">
-          <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+      {!!expanded && (
+        <div className="max-h-64 w-80 overflow-y-auto rounded-lg border border-border bg-card shadow-2xl">
+          <div className="flex items-center justify-between border-b border-border px-3 py-2">
             <span className="text-xs font-medium text-foreground/70">Downloads</span>
             <button
               onClick={() => setExpanded(false)}
-              className="p-0.5 rounded hover:bg-muted text-muted-foreground"
+              className="rounded p-0.5 text-muted-foreground hover:bg-muted"
             >
               <ChevronDown size={14} />
             </button>
           </div>
           <div className="divide-y divide-border">
-            {items.map((item) => (
-              <div key={item.key} className="px-3 py-2 space-y-1">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-medium text-foreground truncate flex-1">
-                    {item.filename}
-                  </span>
-                  {item.quant ? (
-                    <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-muted text-muted-foreground shrink-0">
-                      {item.quant}
+            {items.map((item) => {
+              const speedLabel =
+                item.isActive && item.speed > 0
+                  ? `${(item.speed / 1024).toFixed(1)} MB/s`
+                  : `${formatSize(item.bytes)} / ${formatSize(item.total)}`;
+              return (
+                <div key={item.key} className="space-y-1 px-3 py-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className="flex-1 truncate text-xs font-medium text-foreground">
+                      {item.filename}
                     </span>
-                  ) : null}
-                </div>
-                <div className="flex items-center gap-2">
-                  {/* Progress bar */}
-                  <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all ${
-                        item.isActive ? 'bg-blue-500' : 'bg-yellow-500/60'
-                      }`}
-                      style={{ width: `${item.total > 0 ? (item.bytes / item.total) * 100 : 0}%` }}
-                    />
+                    {!!item.quant && (
+                      <span className="shrink-0 rounded bg-muted px-1 py-0.5 font-mono text-[9px] text-muted-foreground">
+                        {item.quant}
+                      </span>
+                    )}
                   </div>
-                  {/* Info */}
-                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                    {item.isActive && item.speed > 0
-                      ? `${(item.speed / 1024).toFixed(1)} MB/s`
-                      : `${formatSize(item.bytes)} / ${formatSize(item.total)}`}
-                  </span>
-                  {/* Action buttons */}
-                  {!item.isActive && item.record ? (
+                  <div className="flex items-center gap-2">
+                    {/* Progress bar */}
+                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          item.isActive ? 'bg-blue-500' : 'bg-yellow-500/60'
+                        }`}
+                        style={{
+                          width: `${item.total > 0 ? (item.bytes / item.total) * 100 : 0}%`,
+                        }}
+                      />
+                    </div>
+                    {/* Info */}
+                    <span className="whitespace-nowrap text-[10px] text-muted-foreground">
+                      {speedLabel}
+                    </span>
+                    {/* Action buttons */}
+                    {!item.isActive && !!item.record && (
+                      <button
+                        onClick={() => item.record && handleResume(item.record)}
+                        className="rounded p-0.5 text-blue-400 hover:bg-muted"
+                        title="Resume"
+                      >
+                        <Play size={12} />
+                      </button>
+                    )}
                     <button
-                      onClick={() => item.record && handleResume(item.record)}
-                      className="p-0.5 rounded hover:bg-muted text-blue-400"
-                      title="Resume"
+                      onClick={() => cancelDownload(item.key)}
+                      className="rounded p-0.5 text-muted-foreground hover:bg-destructive/20 hover:text-destructive"
+                      title="Cancel and delete"
                     >
-                      <Play size={12} />
+                      <X size={12} />
                     </button>
-                  ) : null}
-                  <button
-                    onClick={() => cancelDownload(item.key)}
-                    className="p-0.5 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive"
-                    title="Cancel and delete"
-                  >
-                    <X size={12} />
-                  </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
-      ) : null}
+      )}
 
       {/* Collapsed pill */}
       <button
         onClick={() => setExpanded((prev) => !prev)}
-        className="flex items-center gap-2 px-3 py-2 bg-card border border-border rounded-full shadow-lg hover:bg-muted transition-colors"
+        className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-2 shadow-lg transition-colors hover:bg-muted"
       >
         <div className="relative">
-          <ArrowDownToLine
-            size={16}
-            className={activeCount > 0 ? 'text-blue-400' : 'text-yellow-500'}
-          />
-          {activeCount > 0 ? (
-            <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-blue-400 animate-pulse" />
-          ) : null}
+          <ArrowDownToLine size={16} className={arrowIconClass} />
+          {activeCount > 0 && (
+            <span className="absolute -right-0.5 -top-0.5 h-2 w-2 animate-pulse rounded-full bg-blue-400" />
+          )}
         </div>
-        <span className="text-xs font-medium text-foreground">
-          {activeCount > 0 ? `${overallPct}%` : `${pendingCount} paused`}
-        </span>
+        <span className="text-xs font-medium text-foreground">{pillLabel}</span>
       </button>
     </div>
   );

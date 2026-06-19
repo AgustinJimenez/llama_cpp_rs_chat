@@ -11,6 +11,9 @@ pub mod utils; // Has unique silent_command(), get_available_tools_json()
 pub mod routes;
 pub mod providers;
 
+// Shared HTTP API dispatcher + server bootstrap (used by web binary and desktop app)
+pub mod http_dispatch;
+
 // ── Inline re-exports from workspace crates ─────────────────────────
 #[allow(unused_imports)]
 pub mod chat { pub use llama_chat_engine::*; }

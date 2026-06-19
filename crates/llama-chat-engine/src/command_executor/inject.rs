@@ -1,4 +1,5 @@
 use llama_cpp_2::llama_batch::LlamaBatch;
+use llama_chat_db::event_log::log_event;
 
 pub fn inject_output_tokens(
     tokens: &[i32],
@@ -14,9 +15,14 @@ pub fn inject_output_tokens(
         context.n_ctx(),
         conversation_id
     );
+    log_event(
+        conversation_id,
+        "inject_start",
+        &format!("Injecting {} tokens at pos {}", tokens.len(), token_pos),
+    );
     if let Ok(dump_dir) = std::env::var("LLAMA_CHAT_DATA_DIR") {
-        let dump_path = format!("{}/logs/last_inject_dump.txt", dump_dir);
-        let entry = format!("[INJECT pos={} count={}] {:?}\n", token_pos, tokens.len(), tokens);
+        let dump_path = format!("{dump_dir}/logs/last_inject_dump.txt");
+        let entry = format!("[INJECT pos={token_pos} count={}] {tokens:?}\n", tokens.len());
         let _ = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -49,9 +55,7 @@ pub fn inject_output_tokens(
     for (i, &token) in tokens.iter().enumerate() {
         if *token_pos < 0 || *token_pos as u32 >= ctx_size {
             eprintln!(
-                "[INJECT] token_pos {} >= n_ctx {} — aborting injection (CONTEXT_EXHAUSTED)",
-                token_pos,
-                ctx_size
+                "[INJECT] token_pos {token_pos} >= n_ctx {ctx_size} — aborting injection (CONTEXT_EXHAUSTED)"
             );
             return Err("CONTEXT_EXHAUSTED".to_string());
         }
@@ -69,6 +73,15 @@ pub fn inject_output_tokens(
 
         std::thread::yield_now();
 
+        // Log before decode so the DB shows the last attempted token if decode hangs.
+        if i == 0 || i == total - 1 || i % 50 == 0 {
+            log_event(
+                conversation_id,
+                "decode_token",
+                &format!("decode token {}/{} at pos {}", i + 1, total, token_pos),
+            );
+        }
+
         let decode_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             context.decode(batch)
         }));
@@ -77,15 +90,17 @@ pub fn inject_output_tokens(
             Ok(Err(e)) => {
                 let err_str = format!("{e}");
                 if err_str.contains("NoKvCacheSlot") || err_str.contains("no kv cache slot") {
+                    log_event(conversation_id, "inject_error", "CONTEXT_EXHAUSTED during tool injection");
                     return Err("CONTEXT_EXHAUSTED".to_string());
                 }
+                log_event(conversation_id, "inject_error", &format!("decode failed at token {i}: {e}"));
                 return Err(format!("Decode failed for command output: {e}"));
             }
             Err(_panic) => {
                 eprintln!(
-                    "[INJECT] decode() panicked/threw C++ exception during injection at pos {}",
-                    token_pos
+                    "[INJECT] decode() panicked/threw C++ exception during injection at pos {token_pos}"
                 );
+                log_event(conversation_id, "inject_error", &format!("decode panicked at token {i}/pos {token_pos}"));
                 return Err("Decode crashed during tool injection (C++ exception)".to_string());
             }
         }
@@ -95,11 +110,16 @@ pub fn inject_output_tokens(
 
     if *token_pos as u32 >= ctx_size.saturating_sub(ctx_size / 20) {
         eprintln!(
-            "[INJECT] Context 95% full after injection ({}/{})",
-            token_pos, ctx_size
+            "[INJECT] Context 95% full after injection ({token_pos}/{ctx_size})"
         );
+        log_event(conversation_id, "inject_error", "CONTEXT_EXHAUSTED after injection (95% full)");
         return Err("CONTEXT_EXHAUSTED".to_string());
     }
 
+    log_event(
+        conversation_id,
+        "inject_done",
+        &format!("Injected {} tokens, new pos {}", total, token_pos),
+    );
     Ok(())
 }

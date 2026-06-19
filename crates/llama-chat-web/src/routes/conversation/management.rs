@@ -68,7 +68,7 @@ pub async fn handle_compact_conversation(
     pool: WorkerPool,
     db: SharedDatabase,
 ) -> Result<Response<Body>, Infallible> {
-    let bridge = match resolve_bridge_for_conversation(&pool, &db, Some(conversation_id)) {
+    let bridge = match resolve_bridge_for_conversation(&pool, &db, Some(conversation_id)).await {
         Ok(bridge) => bridge,
         Err(e) => return Ok(json_error(StatusCode::SERVICE_UNAVAILABLE, &e)),
     };
@@ -324,7 +324,7 @@ pub async fn handle_conversation_token_analysis(
     let conv_id = conversation_id;
     let messages = match db.get_messages(conv_id) {
         Ok(m) => m,
-        Err(e) => return Ok(json_error(StatusCode::NOT_FOUND, &format!("{e}"))),
+        Err(e) => return Ok(json_error(StatusCode::NOT_FOUND, &e.to_string())),
     };
 
     let mut total_chars = 0usize;
@@ -376,22 +376,22 @@ pub async fn handle_conversation_token_analysis(
             "system": {
                 "chars": system_chars,
                 "tokens": est_tokens(system_chars),
-                "pct": if total_chars > 0 { system_chars * 100 / total_chars } else { 0 }
+                "pct": (system_chars * 100).checked_div(total_chars).unwrap_or(0)
             },
             "user": {
                 "chars": user_chars,
                 "tokens": est_tokens(user_chars),
-                "pct": if total_chars > 0 { user_chars * 100 / total_chars } else { 0 }
+                "pct": (user_chars * 100).checked_div(total_chars).unwrap_or(0)
             },
             "assistant": {
                 "chars": assistant_chars,
                 "tokens": est_tokens(assistant_chars),
-                "pct": if total_chars > 0 { assistant_chars * 100 / total_chars } else { 0 }
+                "pct": (assistant_chars * 100).checked_div(total_chars).unwrap_or(0)
             },
             "tool_responses": {
                 "chars": tool_response_chars,
                 "tokens": est_tokens(tool_response_chars),
-                "pct": if total_chars > 0 { tool_response_chars * 100 / total_chars } else { 0 }
+                "pct": (tool_response_chars * 100).checked_div(total_chars).unwrap_or(0)
             }
         },
         "tool_calls": tool_call_count

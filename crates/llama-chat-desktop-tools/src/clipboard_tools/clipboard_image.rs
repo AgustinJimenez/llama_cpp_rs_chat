@@ -77,7 +77,7 @@ fn clipboard_image_read() -> NativeToolResult {
         let header_size = u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as usize;
         let pixel_offset = header_size;
         let bytes_per_pixel = (bit_count / 8) as usize;
-        let row_size = ((width as usize * bytes_per_pixel + 3) / 4) * 4; // DWORD-aligned rows
+        let row_size = (width as usize * bytes_per_pixel).div_ceil(4) * 4; // DWORD-aligned rows
 
         if pixel_offset + row_size * height as usize > data.len() {
             win32::GlobalUnlock(handle);
@@ -141,7 +141,7 @@ fn clipboard_image_write(monitor_idx: usize) -> NativeToolResult {
 
     // Build DIB: BITMAPINFOHEADER (40 bytes) + pixel data (BGR, bottom-up, DWORD-aligned)
     let bytes_per_pixel = 3usize;
-    let row_size = ((width as usize * bytes_per_pixel + 3) / 4) * 4;
+    let row_size = (width as usize * bytes_per_pixel).div_ceil(4) * 4;
     let pixel_data_size = row_size * height as usize;
     let total_size = 40 + pixel_data_size;
 

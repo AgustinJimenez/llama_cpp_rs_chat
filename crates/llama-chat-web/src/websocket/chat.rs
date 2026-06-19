@@ -9,7 +9,7 @@ use tokio_tungstenite::WebSocketStream;
 use llama_chat_db::SharedDatabase;
 use llama_chat_types::models::ChatRequest;
 use llama_chat_worker::worker::worker_bridge::GenerationResult;
-use crate::worker_pool::{resolve_bridge_for_conversation, WorkerPool};
+use crate::worker_pool::{resolve_bridge_for_request, WorkerPool};
 
 use super::{
     make_server_continuation_message, should_server_auto_continue, ACTIVE_WS_CONNECTIONS,
@@ -131,17 +131,13 @@ pub async fn handle_websocket(
 
                 sys_debug!("[WS_CHAT] User message: {}", chat_request.message);
 
-                let bridge = match if let Some(conversation_id) = chat_request.conversation_id.as_deref() {
-                    resolve_bridge_for_conversation(&pool, &db, Some(conversation_id))
-                } else {
-                    let worker_id = chat_request
-                        .worker_id
-                        .as_deref()
-                        .map(str::trim)
-                        .filter(|id| !id.is_empty() && *id != "default");
-                    pool.get_or_default(worker_id)
-                        .ok_or_else(|| "No worker bridge available".to_string())
-                } {
+                let bridge = match resolve_bridge_for_request(
+                    &pool,
+                    &db,
+                    chat_request.conversation_id.as_deref(),
+                    chat_request.worker_id.as_deref(),
+                    chat_request.agent_id.as_deref(),
+                ).await {
                     Ok(bridge) => bridge,
                     Err(e) => {
                         let error_msg = serde_json::json!({
@@ -182,6 +178,11 @@ pub async fn handle_websocket(
                 };
                 // Heartbeat: send a keepalive every 15s during long-running silent commands.
                 let mut heartbeat_deadline = Instant::now() + Duration::from_secs(15);
+                // Worker silence watchdog: if no token arrives for 3 minutes, the worker
+                // is stuck (blocked thread, IPC overflow, crashed without dropping sender).
+                // Reset on every token; fire → synthetic error so the UI recovers.
+                const WORKER_SILENCE_TIMEOUT: Duration = Duration::from_secs(180);
+                let mut worker_silence_deadline = Instant::now() + WORKER_SILENCE_TIMEOUT;
 
                 'gen_loop: loop {
                     let skip_user_log = server_auto_continue_count > 0 || chat_request.auto_continue;
@@ -193,16 +194,18 @@ pub async fn handle_websocket(
                             current_conv_id.clone(),
                             skip_user_log,
                             image_data,
+                            chat_request.agent_id.clone(),
                         )
                         .await
                     {
                         Ok(r) => r,
                         Err(e) => {
                             sys_error!("[WS_CHAT] Failed to start generation: {}", e);
-                            let error_msg = serde_json::json!({
-                                "type": "error",
-                                "error": format!("Failed to start generation: {}", e)
-                            });
+                            let msg = format!("Failed to start generation: {}", e);
+                            if let Some(ref conv_id) = current_conv_id {
+                                let _ = db.append_error_message(conv_id, &msg);
+                            }
+                            let error_msg = serde_json::json!({"type": "error", "error": msg});
                             let _ = ws_sender.send(WsMessage::Text(error_msg.to_string())).await;
                             break 'gen_loop;
                         }
@@ -248,6 +251,7 @@ pub async fn handle_websocket(
                                             pending_gen_tokens = token_data.gen_tokens;
                                         }
                                         heartbeat_deadline = Instant::now() + Duration::from_secs(15);
+                                        worker_silence_deadline = Instant::now() + WORKER_SILENCE_TIMEOUT;
 
                                         if pending_tokens.len() >= WS_TOKEN_FLUSH_MAX_CHARS
                                             && flush_pending_tokens(
@@ -287,7 +291,7 @@ pub async fn handle_websocket(
                                                         requested_worker_id.as_deref(),
                                                     );
                                                 }
-                                                eprintln!("[WS_CHAT] Complete: conv={}, finish={:?}", conversation_id, finish_reason);
+                                                eprintln!("[WS_CHAT] Complete: conv={conversation_id}, finish={finish_reason:?}");
                                                 bridge.set_last_finish_reason(finish_reason.clone()).await;
                                                 // Store done — send after can_continue check so the frontend
                                                 // WS isn't closed before server auto-continue has a chance to run.
@@ -313,18 +317,19 @@ pub async fn handle_websocket(
                                             }
                                             Ok(GenerationResult::Error(ref e)) => {
                                                 sys_error!("[WS_CHAT] Generation error from worker: {}", e);
-                                                let error_msg = serde_json::json!({
-                                                    "type": "error",
-                                                    "error": e
-                                                });
+                                                if let Some(ref conv_id) = current_conv_id {
+                                                    let _ = db.append_error_message(conv_id, e);
+                                                }
+                                                let error_msg = serde_json::json!({"type": "error", "error": e});
                                                 let _ = ws_sender.send(WsMessage::Text(error_msg.to_string())).await;
                                             }
                                             Err(e) => {
                                                 sys_error!("[WS_CHAT] Generation result channel closed: {}", e);
-                                                let error_msg = serde_json::json!({
-                                                    "type": "error",
-                                                    "error": "Generation failed: result channel closed"
-                                                });
+                                                let msg = "Generation failed: result channel closed";
+                                                if let Some(ref conv_id) = current_conv_id {
+                                                    let _ = db.append_error_message(conv_id, msg);
+                                                }
+                                                let error_msg = serde_json::json!({"type": "error", "error": msg});
                                                 let _ = ws_sender.send(WsMessage::Text(error_msg.to_string())).await;
                                             }
                                         }
@@ -355,6 +360,23 @@ pub async fn handle_websocket(
                                 }
                                 heartbeat_deadline = Instant::now() + Duration::from_secs(15);
                             }
+                            // Worker silence watchdog: no token for 3 min → worker is stuck
+                            _ = tokio::time::sleep_until(worker_silence_deadline) => {
+                                eprintln!("[WS_CHAT] Worker silent for {}s — sending error to frontend", WORKER_SILENCE_TIMEOUT.as_secs());
+                                let _ = flush_pending_tokens(
+                                    &mut ws_sender, &mut pending_tokens,
+                                    &mut pending_tokens_used, &mut pending_max_tokens,
+                                    &mut pending_gen_tok_per_sec, &mut pending_gen_tokens,
+                                    &mut next_flush, &mut debug,
+                                ).await;
+                                let msg = "Generation timed out — worker stopped responding. Please try again.";
+                                if let Some(ref conv_id) = current_conv_id {
+                                    let _ = db.append_error_message(conv_id, msg);
+                                }
+                                let error_msg = serde_json::json!({"type": "error", "error": msg});
+                                let _ = ws_sender.send(WsMessage::Text(error_msg.to_string())).await;
+                                break 'gen_loop;
+                            }
                             // Handle client disconnection or close messages
                             ws_msg = ws_receiver.next() => {
                                 match ws_msg {
@@ -376,7 +398,7 @@ pub async fn handle_websocket(
                                         let _ = ws_sender.send(WsMessage::Pong(data)).await;
                                     }
                                     Some(Err(_e)) => {
-                                        eprintln!("[WS_CHAT] BREAK: client error: {}", _e);
+                                        eprintln!("[WS_CHAT] BREAK: client error: {_e}");
                                         break 'gen_loop;
                                     }
                                     _ => {}
@@ -394,8 +416,7 @@ pub async fn handle_websocket(
                         if can_continue {
                             server_auto_continue_count += 1;
                             eprintln!(
-                                "[WS_CHAT] Server auto-continue {}/{} (reason={})",
-                                server_auto_continue_count, MAX_SERVER_AUTO_CONTINUES, finish_str
+                                "[WS_CHAT] Server auto-continue {server_auto_continue_count}/{MAX_SERVER_AUTO_CONTINUES} (reason={finish_str})"
                             );
                             // Notify frontend to stay alive without completing.
                             // The frontend must NOT close the WS here — the next generation

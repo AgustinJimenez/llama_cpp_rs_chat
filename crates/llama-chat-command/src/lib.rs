@@ -1,13 +1,13 @@
 // Shell command execution, output sanitization, and background process management.
 
-#[macro_use]
-extern crate llama_chat_types;
-
 mod shell_env;
 mod parsing;
 mod execution;
 mod output;
 pub mod background;
+pub use background::get_process_output;
+mod rtk;
+pub use rtk::{rtk_available, rtk_prefix};
 mod utils;
 
 #[allow(unused_imports)]
@@ -18,6 +18,7 @@ pub use execution::{
     execute_command,
     execute_command_streaming,
     execute_command_streaming_with_timeout,
+    execute_command_pty,
     kill_process_tree,
 };
 #[cfg(windows)]

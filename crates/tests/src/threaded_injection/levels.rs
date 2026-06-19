@@ -144,10 +144,8 @@ pub(super) fn run_level_15_as_child(model_path: &str) -> bool {
 
     if let Some(stdout) = child.stdout.take() {
         let reader = std::io::BufReader::new(stdout);
-        for line in reader.lines() {
-            if let Ok(l) = line {
-                println!("  [CHILD] {l}");
-            }
+        for l in reader.lines().map_while(|r| r.ok()) {
+            println!("  [CHILD] {l}");
         }
     }
 
@@ -221,16 +219,15 @@ pub(super) fn run_warmup_cycles(
                 ],
                 true,
             );
-            let mut sub_pos = sub_tokens.len() as i32;
-            for _ in 0..50 {
+            let sub_base = sub_tokens.len() as i32;
+            for i in 0..50_i32 {
                 let next = sub_sampler.sample(&sub_ctx, -1);
                 if next == model.token_eos() {
                     break;
                 }
                 sub_batch.clear();
-                sub_batch.add(next, sub_pos, &[0], true).unwrap();
+                sub_batch.add(next, sub_base + i, &[0], true).unwrap();
                 sub_ctx.decode(&mut sub_batch).expect("sub decode failed");
-                sub_pos += 1;
             }
 
             println!("  Sub-agent cycle {cycle}: generated tokens, destroying context...");
@@ -272,16 +269,15 @@ pub(super) fn run_mid_generation_sub_agent(
         ],
         true,
     );
-    let mut sub_pos = sub_tokens.len() as i32;
-    for _ in 0..30 {
+    let sub_base = sub_tokens.len() as i32;
+    for i in 0..30_i32 {
         let next = sub_sampler.sample(&sub_ctx, -1);
         if next == model.token_eos() {
             break;
         }
         sub_batch.clear();
-        sub_batch.add(next, sub_pos, &[0], true).unwrap();
+        sub_batch.add(next, sub_base + i, &[0], true).unwrap();
         sub_ctx.decode(&mut sub_batch).expect("sub decode failed");
-        sub_pos += 1;
     }
     println!("    [sub-agent] Done, destroying sub-context...");
     drop(sub_sampler);

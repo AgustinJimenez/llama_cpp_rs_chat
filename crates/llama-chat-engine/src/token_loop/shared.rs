@@ -17,6 +17,10 @@ pub(crate) struct TokenGenState {
     pub finish_reason: String,
     pub tool_response_tokens: i32,
     pub loop_recoveries: u32,
+    /// Number of times EOS was intercepted and generation continued inline.
+    pub eos_continue_count: u8,
+    /// Total tool calls executed this generation turn (for max-tool-calls limit).
+    pub tool_call_count: u32,
 }
 
 #[allow(dead_code)]
@@ -36,6 +40,8 @@ pub(crate) struct TokenGenConfig<'a> {
     pub chat_template_string: Option<&'a str>,
     pub proactive_compaction: bool,
     pub safe_tool_injection: bool,
+    /// First ~300 chars of the user message, for EOS continuation check context.
+    pub user_message: &'a str,
 }
 
 #[cfg(feature = "vision")]

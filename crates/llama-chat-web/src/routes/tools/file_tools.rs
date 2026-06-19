@@ -160,7 +160,7 @@ pub async fn handle_insert_text(tool_arguments: &serde_json::Value) -> serde_jso
             lines.insert(insert_idx, text);
             let new_content = lines.join("\n");
             let new_content = if content.ends_with('\n') {
-                format!("{}\n", new_content)
+                format!("{new_content}\n")
             } else {
                 new_content
             };
@@ -228,7 +228,7 @@ pub async fn handle_search_files(tool_arguments: &serde_json::Value) -> serde_js
             if match_count >= 50 || output.len() >= 8000 { break; }
         }
         if match_count == 0 {
-            format!("No matches found for pattern '{}'", pattern_owned)
+            format!("No matches found for pattern '{pattern_owned}'")
         } else {
             format!("{} match{}\n{}", match_count, if match_count == 1 { "" } else { "es" }, output)
         }
@@ -253,8 +253,8 @@ pub async fn handle_find_files(tool_arguments: &serde_json::Value) -> serde_json
     let result = spawn_blocking(move || {
         use walkdir::WalkDir;
         let mut matches = Vec::new();
-        let pat = pattern_owned.split('/').last().unwrap_or(&pattern_owned);
-        let pat = pat.split('\\').last().unwrap_or(pat);
+        let pat = pattern_owned.split('/').next_back().unwrap_or(&pattern_owned);
+        let pat = pat.split('\\').next_back().unwrap_or(pat);
         for entry in WalkDir::new(&safe_path).into_iter().filter_map(|e| e.ok()) {
             if !entry.file_type().is_file() { continue; }
             let path_str = entry.path().to_string_lossy();
@@ -263,9 +263,9 @@ pub async fn handle_find_files(tool_arguments: &serde_json::Value) -> serde_json
             let matched = if pat.starts_with('*') && pat.ends_with('*') && pat.len() > 2 {
                 fname.contains(&pat[1..pat.len()-1])
             } else if pat.starts_with('*') {
-                fname.ends_with(&pat[1..])
+                fname.ends_with(pat.strip_prefix('*').unwrap_or(pat))
             } else if pat.ends_with('*') {
-                fname.starts_with(&pat[..pat.len()-1])
+                fname.starts_with(pat.strip_suffix('*').unwrap_or(pat))
             } else {
                 fname.as_ref() == pat
             };
@@ -275,7 +275,7 @@ pub async fn handle_find_files(tool_arguments: &serde_json::Value) -> serde_json
             }
         }
         if matches.is_empty() {
-            format!("No files matching '{}' found", pattern_owned)
+            format!("No files matching '{pattern_owned}' found")
         } else {
             format!("{} file{}\n{}", matches.len(), if matches.len() == 1 { "" } else { "s" }, matches.join("\n"))
         }

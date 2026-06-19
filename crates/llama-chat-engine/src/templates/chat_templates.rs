@@ -9,7 +9,7 @@ pub fn apply_model_chat_template(
     template_type: Option<&str>,
 ) -> Result<String, String> {
     use crate::tool_tags;
-    apply_model_chat_template_with_tags(conversation, template_type, &tool_tags::default_tags(), None)
+    apply_model_chat_template_with_tags(conversation, template_type, &tool_tags::default_tags(), None, None)
 }
 
 /// Apply chat template formatting to conversation history.
@@ -18,6 +18,7 @@ pub fn apply_model_chat_template_with_tags(
     template_type: Option<&str>,
     tags: &ToolTags,
     mcp_tools: Option<&[McpToolDef]>,
+    custom_system_prompt: Option<&str>,
 ) -> Result<String, String> {
     let mut user_messages = Vec::new();
     let mut assistant_messages = Vec::new();
@@ -35,10 +36,8 @@ pub fn apply_model_chat_template_with_tags(
                 match current_role {
                     "USER" => user_messages.push(current_content.trim().to_string()),
                     "ASSISTANT" => assistant_messages.push(current_content.trim().to_string()),
-                    "SYSTEM" => {
-                        if current_content.trim().starts_with("[Conversation summary") {
-                            compaction_summaries.push(current_content.trim().to_string());
-                        }
+                    "SYSTEM" if current_content.trim().starts_with("[Conversation summary") => {
+                        compaction_summaries.push(current_content.trim().to_string());
                     }
                     _ => {}
                 }
@@ -46,11 +45,9 @@ pub fn apply_model_chat_template_with_tags(
 
             current_role = line.trim_end_matches(":");
             current_content.clear();
-        } else if !line.starts_with("[COMMAND:") {
-            if !line.trim().is_empty() {
-                current_content.push_str(line);
-                current_content.push('\n');
-            }
+        } else if !line.starts_with("[COMMAND:") && !line.trim().is_empty() {
+            current_content.push_str(line);
+            current_content.push('\n');
         }
     }
 
@@ -58,16 +55,17 @@ pub fn apply_model_chat_template_with_tags(
         match current_role {
             "USER" => user_messages.push(current_content.trim().to_string()),
             "ASSISTANT" => assistant_messages.push(current_content.trim().to_string()),
-            "SYSTEM" => {
-                if current_content.trim().starts_with("[Conversation summary") {
-                    compaction_summaries.push(current_content.trim().to_string());
-                }
+            "SYSTEM" if current_content.trim().starts_with("[Conversation summary") => {
+                compaction_summaries.push(current_content.trim().to_string());
             }
             _ => {}
         }
     }
 
-    let universal_prompt = get_universal_system_prompt_with_tags(tags);
+    let universal_prompt = match custom_system_prompt {
+        Some(custom) => custom.to_string(),
+        None => get_universal_system_prompt_with_tags(tags),
+    };
 
     let mut final_system_message = universal_prompt;
     for summary in &compaction_summaries {
@@ -95,7 +93,9 @@ pub fn apply_model_chat_template_with_tags(
     }
 
     let prompt = match template_type {
-        Some("ChatML") => {
+        // LFM2/LFM2.5 build the prompt with ChatML-style turns; only tool-result
+        // injection differs (handled in wrap_output_for_model).
+        Some("ChatML") | Some("LFM2") => {
             let mut p = String::new();
 
             p.push_str("<|im_start|>system\n");

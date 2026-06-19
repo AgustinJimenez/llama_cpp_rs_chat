@@ -14,7 +14,7 @@ use tokio::sync::mpsc;
 use llama_chat_types::*;
 use crate::SharedConversationLogger;
 use super::command_executor::{
-    check_and_execute_command_with_tags, inject_output_tokens,
+    check_and_execute_command_with_tags, inject_output_tokens, execute_parallel_block,
 };
 use super::stop_conditions::{check_stop_conditions, ExecBlockTracker};
 use llama_chat_db::event_log::log_event;
@@ -92,8 +92,8 @@ pub(crate) fn run_generation_loop(
                 let batch_elapsed = stall_checkpoint.elapsed();
                 if batch_elapsed > TOKEN_STALL_TIMEOUT {
                     let secs = batch_elapsed.as_secs();
-                    eprintln!("[STALL] Generation stalled: 16 tokens took {}s (loop_recoveries={})", secs, gen.loop_recoveries);
-                    log_event(cfg.conversation_id, "stall", &format!("16 tokens took {}s", secs));
+                    eprintln!("[STALL] Generation stalled: 16 tokens took {secs}s (loop_recoveries={})", gen.loop_recoveries);
+                    log_event(cfg.conversation_id, "stall", &format!("16 tokens took {secs}s"));
                     if gen.loop_recoveries < 1 {
                         gen.loop_recoveries += 1;
                         if let Some(ref sender) = token_sender {
@@ -109,8 +109,7 @@ pub(crate) fn run_generation_loop(
                         if let Some(ref sender) = token_sender {
                             let _ = sender.send(TokenData {
                                 token: format!(
-                                    "\n\n[Generation stalled — batch of 16 tokens took {}s. The model may be too large for your hardware.]",
-                                    secs
+                                    "\n\n[Generation stalled — batch of 16 tokens took {secs}s. The model may be too large for your hardware.]"
                                 ),
                                 tokens_used: gen.total_tokens_generated,
                                 max_tokens: cfg.max_total_tokens, status: None,
@@ -128,11 +127,11 @@ pub(crate) fn run_generation_loop(
             // Wall-clock stall check BEFORE sample() — catches GPU hangs where `i` never increments.
             if stall_checkpoint.elapsed() > TOKEN_STALL_TIMEOUT {
                 let secs = stall_checkpoint.elapsed().as_secs();
-                eprintln!("[STALL] Pre-sample stall: no progress for {}s", secs);
-                log_event(cfg.conversation_id, "stall", &format!("Pre-sample stall: {}s", secs));
+                eprintln!("[STALL] Pre-sample stall: no progress for {secs}s");
+                log_event(cfg.conversation_id, "stall", &format!("Pre-sample stall: {secs}s"));
                 if let Some(ref sender) = token_sender {
                     let _ = sender.send(TokenData {
-                        token: format!("\n\n[Generation stalled — no token produced for {}s]", secs),
+                        token: format!("\n\n[Generation stalled — no token produced for {secs}s]"),
                         tokens_used: gen.total_tokens_generated,
                         max_tokens: cfg.max_total_tokens, status: None,
                         ..Default::default()
@@ -213,6 +212,96 @@ pub(crate) fn run_generation_loop(
                     "EOS token detected at position {} (in_exec_block: {})",
                     gen.total_tokens_generated, gen.exec_tracker.is_inside()
                 );
+
+                // Inline EOS interception: for agentic turns (tool calls were made),
+                // ask the model if the response is complete. If not, it returns the
+                // next few tokens directly — we inject those and continue seamlessly.
+                // Cap at 3 retries to avoid infinite loops.
+                //
+                // Guard: if the model has not produced any visible text after the last
+                // tool response (i.e. only tool calls ran, no summary was written), do
+                // NOT accept EOS regardless of what the probe says.  This prevents the
+                // model from declaring DONE after e.g. taking a screenshot without ever
+                // writing the requested summary.
+                let has_text_output = {
+                    let resp = &gen.response;
+                    let after = resp.rfind(cfg.tags.output_close.as_str())
+                        .map(|p| p + cfg.tags.output_close.len())
+                        .unwrap_or(0);
+                    resp[after..].trim().len() > 20
+                };
+                let force_continue = gen.tool_response_tokens > 0 && !has_text_output && gen.eos_continue_count < 3;
+
+                // In agent mode (tool tags are set), if the model hits EOS before making
+                // any tool call at all (pure planning text), probe once before accepting.
+                // This prevents the model from stopping after a narrated plan without acting.
+                let is_agent_mode = !cfg.tags.exec_open.is_empty();
+                let probe_no_tool_calls = is_agent_mode
+                    && gen.tool_response_tokens == 0
+                    && gen.eos_continue_count == 0;
+
+                if (gen.tool_response_tokens > 0 && gen.eos_continue_count < 3) || force_continue || probe_no_tool_calls {
+                    let check = if force_continue {
+                        // Skip the probe — inject a newline to nudge the model to write text.
+                        eprintln!("[EOS_GUARD] No text output yet — skipping DONE probe, forcing continuation");
+                        let nudge = "\n\n";
+                        let nudge_toks = model.str_to_token(nudge, llama_cpp_2::model::AddBos::Never).ok();
+                        super::sub_checks::EosContinuationResult {
+                            is_complete: false,
+                            continuation_text: nudge.to_string(),
+                            continuation_tokens: nudge_toks.map(|t| t.into_iter().map(|x| x).collect()).unwrap_or_default(),
+                        }
+                    } else {
+                        super::sub_checks::inline_eos_probe(
+                            model, context,
+                            gen.token_pos, cfg.conversation_id,
+                        )
+                    };
+
+                    if !check.is_complete && !check.continuation_tokens.is_empty() {
+                        gen.eos_continue_count += 1;
+
+                        // Push continuation text to response and stream it
+                        gen.response.push_str(&check.continuation_text);
+                        if let Some(ref sender) = token_sender {
+                            let _ = sender.send(TokenData {
+                                token: check.continuation_text.clone(),
+                                tokens_used: gen.token_pos,
+                                max_tokens: cfg.context_size as i32,
+                                ..Default::default()
+                            });
+                        }
+
+                        // Inject continuation tokens into the main KV cache
+                        let mut injection_ok = true;
+                        for &cont_tok in &check.continuation_tokens {
+                            batch.clear();
+                            if batch.add(cont_tok, gen.token_pos, &[0], true).is_err() {
+                                injection_ok = false; break;
+                            }
+                            if context.decode(batch).is_err() {
+                                injection_ok = false; break;
+                            }
+                            gen.token_pos += 1;
+                            gen.total_tokens_generated += 1;
+                        }
+
+                        if injection_ok {
+                            watchdog.ping();
+                            stall_checkpoint = Instant::now();
+                            continue 'token; // resume generation from continuation
+                        }
+                        // If injection failed, fall through and accept EOS below
+                        log_event(cfg.conversation_id, "eos_inject_failed", "KV injection error — accepting EOS");
+                    }
+                } else if gen.eos_continue_count >= 3 {
+                    log_event(cfg.conversation_id, "eos_accept", &format!(
+                        "max retries ({}) reached", gen.eos_continue_count
+                    ));
+                    log_info!(cfg.conversation_id, "⚠️ EOS accepted: max continuation retries reached");
+                }
+
+                // Accept EOS — end generation
                 #[allow(deprecated)]
                 if let Ok(eos_str) = model.token_to_str(next_token, Special::Tokenize) {
                     gen.response.push_str(&eos_str);
@@ -255,7 +344,7 @@ pub(crate) fn run_generation_loop(
 
             // Log generated token for crash reproduction
             if let Ok(dump_dir) = std::env::var("LLAMA_CHAT_DATA_DIR") {
-                let dump_path = format!("{}/logs/last_gen_tokens.txt", dump_dir);
+                let dump_path = format!("{dump_dir}/logs/last_gen_tokens.txt");
                 let entry = format!("{}\n", next_token.0);
                 let _ = std::fs::OpenOptions::new().create(true).append(true).open(&dump_path)
                     .and_then(|mut f| std::io::Write::write_all(&mut f, entry.as_bytes()));
@@ -372,18 +461,45 @@ pub(crate) fn run_generation_loop(
             // Fast gate: only call the expensive detector when the new token
             // contains a character that could close a tool call block.
             let token_has_close_char = token_str.as_bytes().iter().any(|&b| b == b'>' || b == b']' || b == b'}');
-            if token_has_close_char {
-                watchdog.pause();
-                let tool_check_result = check_and_execute_command_with_tags(
-                    &gen.response, gen.last_exec_scan_pos, cfg.conversation_id, model, cfg.tags,
-                    cfg.template_type,
-                    &mut gen.recent_commands, &mut gen.consecutive_loop_blocks, token_sender, gen.token_pos, cfg.context_size,
-                    Some(cancel.clone()), cfg.use_htmd, cfg.browser_backend,
-                    cfg.mcp_manager.clone(), cfg.db.clone(),
-                    cfg.backend, cfg.chat_template_string,
-                );
-                watchdog.resume();
-                watchdog.ping();
+            // parallel_just_closed() is set to true for exactly the token that closed the fence,
+            // then cleared on the next update() call. We can't use is_in_parallel_block() here
+            // because update() already reset it to false before we check.
+            let parallel_complete = gen.exec_tracker.parallel_just_closed();
+
+            if parallel_complete || token_has_close_char {
+                let tool_check_result = if parallel_complete {
+                    // Execute all buffered tool calls from the parallel fence concurrently.
+                    watchdog.pause();
+                    let r = execute_parallel_block(
+                        &gen.response,
+                        gen.exec_tracker.parallel_block_start(),
+                        cfg.conversation_id, model, cfg.tags, cfg.template_type,
+                        token_sender, gen.token_pos, cfg.context_size,
+                        Some(cancel.clone()), cfg.use_htmd, cfg.browser_backend,
+                        cfg.mcp_manager.clone(), cfg.db.clone(),
+                        cfg.backend, cfg.chat_template_string,
+                    );
+                    watchdog.resume();
+                    watchdog.ping();
+                    r
+                } else if gen.exec_tracker.is_in_parallel_block() {
+                    // Inside a parallel fence but not yet at the closing tag —
+                    // suppress normal per-call detection (let the model keep generating).
+                    Ok(None)
+                } else {
+                    watchdog.pause();
+                    let r = check_and_execute_command_with_tags(
+                        &gen.response, gen.last_exec_scan_pos, cfg.conversation_id, model, cfg.tags,
+                        cfg.template_type,
+                        &mut gen.recent_commands, &mut gen.consecutive_loop_blocks, token_sender, gen.token_pos, cfg.context_size,
+                        Some(cancel.clone()), cfg.use_htmd, cfg.browser_backend,
+                        cfg.mcp_manager.clone(), cfg.db.clone(),
+                        cfg.backend, cfg.chat_template_string,
+                    );
+                    watchdog.resume();
+                    watchdog.ping();
+                    r
+                };
 
                 if let Some(mut exec_result) = tool_check_result? {
                     // Sync accumulated content + command output to logger
@@ -402,7 +518,37 @@ pub(crate) fn run_generation_loop(
                     gen.logger_synced_len = gen.response.len();
 
                     gen.tool_response_tokens += exec_result.model_tokens.len() as i32;
+                    gen.tool_call_count += 1;
                     command_executed = true;
+
+                    // Max tool calls guard — inject a "wrap up now" hint at the threshold.
+                    // This prevents infinite search/navigation loops from consuming the full context.
+                    // Plain text (no tool tags) so the model sees it as the start of its own
+                    // assistant turn and continues generating a text response, not another tool call.
+                    const MAX_TOOL_CALLS: u32 = 200;
+                    if gen.tool_call_count == MAX_TOOL_CALLS {
+                        let warning = format!(
+                            "\n\n⚠️ [IMPORTANT: You have reached the maximum of {MAX_TOOL_CALLS} tool calls. You MUST stop making tool calls immediately and write your complete final response now. Summarize everything you have gathered so far in clear prose. Do NOT invoke any more tools.]\n\n"
+                        );
+                        if let Ok(warning_toks) = model.str_to_token(&warning, llama_cpp_2::model::AddBos::Never) {
+                            exec_result.model_tokens.extend(warning_toks.iter().map(|t| t.0));
+                        }
+                        gen.response.push_str(&warning);
+                        // Reset EOS continue counter so the model gets fresh continuation chances
+                        // to write the full summary (it may have used all 3 by this point).
+                        gen.eos_continue_count = 0;
+                        eprintln!("[TOOL_LIMIT] Reached {MAX_TOOL_CALLS} tool calls — injecting wrap-up notice");
+                        // Also persist as a system message so the UI shows a distinct ⚠️ SYSTEM bubble
+                        // (the inline warning text is stripped from assistant rendering by the frontend).
+                        if let Ok(mut notice_logger) = llama_chat_db::logger::ConversationLogger::from_existing(
+                            cfg.db.clone(), cfg.conversation_id,
+                        ) {
+                            notice_logger.log_message(
+                                "system",
+                                &format!("Tool call limit reached ({MAX_TOOL_CALLS}). The model has been asked to stop making tool calls and write its final response."),
+                            );
+                        }
+                    }
 
                     // Image summarization: if the agent requested a description (summary=<prompt>),
                     // run a vision sub-pass and inject the text description instead of raw images.
@@ -545,8 +691,8 @@ pub(crate) fn run_generation_loop(
                     }
                     const PROACTIVE_COMPACT_INTERVAL: usize = 40;
                     if cfg.proactive_compaction
-                        && gen.recent_commands.len() > 0
-                        && gen.recent_commands.len() % PROACTIVE_COMPACT_INTERVAL == 0
+                        && !gen.recent_commands.is_empty()
+                        && gen.recent_commands.len().is_multiple_of(PROACTIVE_COMPACT_INTERVAL)
                     {
                         eprintln!("[PROACTIVE_COMPACT] {} tool calls reached, forcing compaction cycle", gen.recent_commands.len());
                         log_event(cfg.conversation_id, "compaction", &format!("{} tool calls → proactive compact", gen.recent_commands.len()));
@@ -558,28 +704,25 @@ pub(crate) fn run_generation_loop(
                     hit_stop_condition = false;
                     gen.last_exec_scan_pos = gen.response.len();
                     gen.exec_tracker = ExecBlockTracker::new();
+
+                    // Trim response buffer after each tool call so the repetition
+                    // detector doesn't false-trigger when writing multiple structurally-
+                    // similar files (e.g., 5 Blade templates with similar PHP/HTML).
+                    const RESPONSE_RETAIN_TAIL: usize = 1000;
+                    if gen.response.len() > RESPONSE_RETAIN_TAIL {
+                        let trim = gen.response.len() - RESPONSE_RETAIN_TAIL;
+                        gen.response.drain(..trim);
+                        gen.last_exec_scan_pos = gen.response.len();
+                        gen.logger_synced_len = gen.logger_synced_len.saturating_sub(trim);
+                    }
+
                     stall_checkpoint = Instant::now();
                     break 'token;
                 }
-            } // token_has_close_char
+            } // parallel_complete || token_has_close_char
         } // 'token
 
         if hit_stop_condition {
-            // If the model stopped immediately after a tool call without generating
-            // any meaningful text (< 20 chars since last tool injection), force a
-            // yn_continue so the model writes its final response to the user.
-            // This handles models that emit EOS/<|im_end|> right after "terminal"
-            // tool calls like browser_close instead of continuing with a summary.
-            if !gen.recent_commands.is_empty()
-                && gen.finish_reason.is_empty()
-                && gen.response.len().saturating_sub(gen.last_exec_scan_pos) < 20
-            {
-                eprintln!(
-                    "[TOKEN_LOOP] Stopped immediately after tool call with only {} new chars — forcing yn_continue",
-                    gen.response.len().saturating_sub(gen.last_exec_scan_pos)
-                );
-                gen.finish_reason = "yn_continue".to_string();
-            }
             break;
         }
         if gen.total_tokens_generated >= cfg.max_total_tokens {

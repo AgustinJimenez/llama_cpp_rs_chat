@@ -18,12 +18,14 @@ mod ocr_winrt;
 #[cfg(target_os = "macos")]
 mod ocr_macos;
 
+#[allow(unused_imports)]
 pub(super) use ocr_common::{
     OcrCaptureTarget, OcrCachePayload,
     ocr_cache_settings, get_cached_ocr_payload, update_cached_ocr_payload,
     capture_ocr_target, upscale_for_ocr,
     ocr_find_text, ocr_png_and_search,
 };
+#[allow(unused_imports)]
 pub(super) use ocr_ocrs::{ocr_image_ocrs, ocr_find_text_ocrs, ocr_image_vlm};
 pub(super) use ocr_tesseract::{ocr_image_tesseract, ocr_find_text_tesseract};
 #[cfg(windows)]
@@ -84,10 +86,10 @@ pub fn tool_ocr_screen(args: &Value) -> NativeToolResult {
         Ok(text) => {
             update_cached_ocr_payload(cache_key, raw, OcrCachePayload::Text(text.clone()));
             if text.is_empty() {
-                NativeToolResult::text_only(format!("OCR{}: no text detected", region_desc))
+                NativeToolResult::text_only(format!("OCR{region_desc}: no text detected"))
             } else {
                 let line_count = text.lines().count();
-                NativeToolResult::text_only(format!("OCR{}: {line_count} lines\n{text}", region_desc))
+                NativeToolResult::text_only(format!("OCR{region_desc}: {line_count} lines\n{text}"))
             }
         }
         Err(e) => crate::tool_error("ocr_screen", format!("OCR: {e}")),
@@ -178,14 +180,14 @@ pub fn tool_ocr_find_text(args: &Value) -> NativeToolResult {
         Err(r) => return r,
     };
     let (cache_max_age_ms, cache_threshold_pct) = ocr_cache_settings(args);
-    let cache_key = format!("ocr_find_text:{}:{}", target.region_desc, search);
+    let cache_key = format!("ocr_find_text:{}:{search}", target.region_desc);
     if let Some(OcrCachePayload::Matches(matches)) =
         get_cached_ocr_payload(&cache_key, &target.raw, cache_max_age_ms, cache_threshold_pct)
     {
         let filtered: Vec<_> = matches.into_iter().filter(|m| m.confidence >= confidence_min).collect();
         if filtered.is_empty() {
             return NativeToolResult::text_only(format!(
-                "Text '{}' not found in{} (cached)", search_text, target.region_desc
+                "Text '{search_text}' not found in{} (cached)", target.region_desc
             ));
         }
         let lines: Vec<String> = filtered.iter().map(|m| {
@@ -225,12 +227,14 @@ pub fn tool_ocr_find_text(args: &Value) -> NativeToolResult {
             update_cached_ocr_payload(cache_key, raw, OcrCachePayload::Matches(matches.clone()));
             let filtered: Vec<_> = matches.into_iter().filter(|m| m.confidence >= confidence_min).collect();
             if filtered.is_empty() {
-                NativeToolResult::text_only(format!("Text '{}' not found in{}", search_text, region_desc))
+                NativeToolResult::text_only(format!("Text '{search_text}' not found in{region_desc}"))
             } else {
                 let lines: Vec<String> = filtered.iter().map(|m| {
                     format!("\"{}\" at ({:.0},{:.0}) {:.0}x{:.0} conf={:.2}", m.text, m.x, m.y, m.width, m.height, m.confidence)
                 }).collect();
-                NativeToolResult::text_only(format!("Found {} match(es) in{}:\n{}", filtered.len(), region_desc, lines.join("\n")))
+                let match_count = filtered.len();
+                let lines_joined = lines.join("\n");
+                NativeToolResult::text_only(format!("Found {match_count} match(es) in{region_desc}:\n{lines_joined}"))
             }
         }
         Err(e) => crate::tool_error("ocr_find_text", format!("OCR: {e}")),

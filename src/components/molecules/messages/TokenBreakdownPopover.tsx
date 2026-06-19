@@ -39,22 +39,23 @@ export const TokenBreakdownPopover = ({
   }, [open]);
 
   const free = maxTokens - tokensUsed;
+  const freePct = maxTokens > 0 ? ((free / maxTokens) * 100).toFixed(1) : '0.0';
 
   return (
     <div ref={ref} className="relative inline-flex">
       <button
         onClick={() => setOpen(!open)}
-        className="inline-flex items-center gap-1 hover:text-blue-400 transition-colors cursor-pointer"
+        className="inline-flex cursor-pointer items-center gap-1 transition-colors hover:text-blue-400"
         title="Click for context breakdown"
       >
         <Database className="h-3 w-3" />
         {formatNumber(tokensUsed)}/{formatNumber(maxTokens)}
       </button>
-      {open ? (
-        <div className="absolute bottom-full mb-2 right-0 w-72 bg-card border border-border rounded-lg shadow-xl p-3 z-50">
-          <div className="text-xs font-semibold text-foreground mb-2">Context Usage</div>
+      {!!open && (
+        <div className="absolute bottom-full right-0 z-50 mb-2 w-72 rounded-lg border border-border bg-card p-3 shadow-xl">
+          <div className="mb-2 text-xs font-semibold text-foreground">Context Usage</div>
           {/* Stacked bar */}
-          <div className="h-3 bg-muted rounded-full overflow-hidden flex mb-3">
+          <div className="mb-3 flex h-3 overflow-hidden rounded-full bg-muted">
             {CATEGORIES.map(({ key, color }) => {
               const value = breakdown[key];
               const pct = maxTokens > 0 ? (value / maxTokens) * 100 : 0;
@@ -73,30 +74,28 @@ export const TokenBreakdownPopover = ({
             const value = breakdown[key];
             const pct = maxTokens > 0 ? (value / maxTokens) * 100 : 0;
             return (
-              <div key={key} className="flex items-center gap-2 mb-1 text-[11px]">
+              <div key={key} className="mb-1 flex items-center gap-2 text-[11px]">
                 <div
-                  className="w-2 h-2 rounded-full flex-shrink-0"
+                  className="h-2 w-2 flex-shrink-0 rounded-full"
                   style={{ backgroundColor: color }}
                 />
-                <span className="text-muted-foreground flex-1">{label}</span>
-                <span className="text-foreground/80 tabular-nums">{formatNumber(value)}</span>
-                <span className="text-muted-foreground w-12 text-right tabular-nums">
+                <span className="flex-1 text-muted-foreground">{label}</span>
+                <span className="tabular-nums text-foreground/80">{formatNumber(value)}</span>
+                <span className="w-12 text-right tabular-nums text-muted-foreground">
                   {pct.toFixed(1)}%
                 </span>
               </div>
             );
           })}
           {/* Free */}
-          <div className="flex items-center gap-2 mt-1 pt-1 border-t border-border text-[11px]">
-            <div className="w-2 h-2 rounded-full flex-shrink-0 bg-muted-foreground" />
-            <span className="text-muted-foreground flex-1">Free</span>
-            <span className="text-foreground/80 tabular-nums">{formatNumber(free)}</span>
-            <span className="text-muted-foreground w-12 text-right tabular-nums">
-              {maxTokens > 0 ? ((free / maxTokens) * 100).toFixed(1) : '0.0'}%
-            </span>
+          <div className="mt-1 flex items-center gap-2 border-t border-border pt-1 text-[11px]">
+            <div className="h-2 w-2 flex-shrink-0 rounded-full bg-muted-foreground" />
+            <span className="flex-1 text-muted-foreground">Free</span>
+            <span className="tabular-nums text-foreground/80">{formatNumber(free)}</span>
+            <span className="w-12 text-right tabular-nums text-muted-foreground">{freePct}%</span>
           </div>
         </div>
-      ) : null}
+      )}
     </div>
   );
 };

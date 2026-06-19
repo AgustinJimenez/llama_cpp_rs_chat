@@ -2,9 +2,7 @@
 
 pub use crate::logger::ConversationLogger;
 
-use super::{
-    current_timestamp_millis, db_error, generate_conversation_id, Database,
-};
+use super::{current_timestamp_millis, db_error, generate_conversation_id, Database};
 use rusqlite::params;
 
 mod compaction;
@@ -37,6 +35,8 @@ pub struct MessageRecord {
     pub compacted: bool,
     /// DB sequence_order for this message — used for precise truncation on edit.
     pub sequence_order: i32,
+    /// Structured parts JSON (remote provider only). None for local-model messages.
+    pub parts: Option<String>,
 }
 
 /// A compaction summary — records which message range has been summarized.
@@ -69,12 +69,13 @@ impl CompactionSummaryRecord {
             prompt_tokens: None,
             compacted: false,
             sequence_order: self.covers_to_sequence,
+            parts: None,
         }
     }
 }
 
 impl Database {
-    /// Create a new conversation and snapshot the current global config into conversation_config.
+    /// Create a new conversation.
     pub fn create_conversation(&self) -> Result<String, String> {
         let id = generate_conversation_id();
         let now = current_timestamp_millis();
@@ -86,11 +87,7 @@ impl Database {
                 params![id, now, now],
             )
             .map_err(db_error("create conversation"))?;
-        } // Release lock before loading config
-
-        // Snapshot current global config for this conversation
-        let global_config = self.load_config();
-        let _ = self.save_conversation_config(&id, &global_config);
+        }
 
         Ok(id)
     }
@@ -245,12 +242,19 @@ impl Database {
         let result = conn.query_row(
             "SELECT provider_id, provider_session_id FROM conversations WHERE id = ?1",
             [id],
-            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?)),
+            |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                ))
+            },
         );
         match result {
             Ok(provider_session) => Ok(provider_session),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok((None, None)),
-            Err(e) => Err(format!("Failed to get conversation provider session id: {e}")),
+            Err(e) => Err(format!(
+                "Failed to get conversation provider session id: {e}"
+            )),
         }
     }
 
@@ -308,7 +312,8 @@ impl Database {
         conn.execute(
             "INSERT INTO message_queue (conversation_id, content, created_at) VALUES (?1, ?2, ?3)",
             params![conversation_id, content, now],
-        ).map_err(db_error("queue message"))?;
+        )
+        .map_err(db_error("queue message"))?;
         Ok(())
     }
 
@@ -316,7 +321,7 @@ impl Database {
     pub fn pop_queued_messages(&self, conversation_id: &str) -> Vec<String> {
         let conn = self.connection();
         let mut stmt = match conn.prepare(
-            "SELECT id, content FROM message_queue WHERE conversation_id = ?1 ORDER BY id ASC"
+            "SELECT id, content FROM message_queue WHERE conversation_id = ?1 ORDER BY id ASC",
         ) {
             Ok(s) => s,
             Err(_) => return Vec::new(),

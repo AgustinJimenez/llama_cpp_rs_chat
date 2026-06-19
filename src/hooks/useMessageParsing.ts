@@ -37,9 +37,13 @@ const LFM2_RESULT_CLEANUP = /<\|tool_response_start\|>[\s\S]*?<\|tool_response_e
 const GLM_VISION_CLEANUP =
   /<\|(?:begin_of_image|image|end_of_image|begin_of_video|video|end_of_video|begin_of_box|end_of_box)\|>/g;
 // EOS / stop tokens — strip from display (visible only in RAW view)
-const EOS_TOKEN_CLEANUP = /<\|(?:im_end|endoftext|end_of_text|eot_id|end)\|>/g;
+// Also matches <[im_end]> — the form some markdown renderers produce when | is escaped.
+const EOS_TOKEN_CLEANUP = /<\|(?:im_end|endoftext|end_of_text|eot_id|end)\|>|<\[im_end\]>/g;
 // Internal system signals — strip from display
 const INTERNAL_SIGNALS_CLEANUP = /\[INFINITE_LOOP_DETECTED\]/g;
+// Tool-limit warning injected by the backend — strip from assistant bubble (shown as ⚠️ SYSTEM instead)
+const TOOL_LIMIT_WARNING_CLEANUP =
+  /⚠️ \[IMPORTANT: You have reached the maximum of \d+ tool calls[^\]]*\]/g;
 
 /**
  * Build dynamic cleanup regex from active toolTags.
@@ -84,7 +88,8 @@ export function useMessageParsing(message: Message, toolTags?: ToolTags): Parsed
   const dynamicCleanup = useMemo(() => buildDynamicTagCleanup(toolTags), [toolTags]);
   const effectiveContent = (harmony ? harmony.finalContent : message.content)
     .replace(EOS_TOKEN_CLEANUP, '')
-    .replace(INTERNAL_SIGNALS_CLEANUP, '');
+    .replace(INTERNAL_SIGNALS_CLEANUP, '')
+    .replace(TOOL_LIMIT_WARNING_CLEANUP, '');
 
   const toolCalls = useMemo(() => {
     if (message.role === 'assistant') {
@@ -120,8 +125,18 @@ export function useMessageParsing(message: Message, toolTags?: ToolTags): Parsed
 
   const thinkingContent = useMemo(() => {
     if (harmony) return null;
+    // Handle prefill-mode thinking: models like Qwen3 inject <think> as the assistant
+    // prefix via chat template, so the stream has thinking content followed by </think>
+    // with no opening tag. Wrap it so the regex below can match uniformly.
+    let baseContent = message.content;
+    const firstClose = baseContent.indexOf('</think>');
+    const firstOpen = baseContent.indexOf('<think>');
+    if (firstClose !== -1 && (firstOpen === -1 || firstOpen > firstClose)) {
+      const CLOSE_TAG = '</think>';
+      baseContent = `<think>${baseContent.slice(0, firstClose)}</think>${baseContent.slice(firstClose + CLOSE_TAG.length)}`;
+    }
     // Preprocess: move tool calls out of thinking blocks so they don't show as raw text
-    const preprocessed = moveToolsOutOfThinking(message.content);
+    const preprocessed = moveToolsOutOfThinking(baseContent);
     const thinkMatch = preprocessed.match(/<think>([\s\S]*?)<\/think>/);
     if (thinkMatch) return thinkMatch[1].trim() || null; // null for empty <think></think>
     const unclosedMatch = preprocessed.match(THINKING_UNCLOSED_REGEX);
@@ -132,6 +147,11 @@ export function useMessageParsing(message: Message, toolTags?: ToolTags): Parsed
 
   const isThinkingStreaming = useMemo(() => {
     if (harmony || thinkingContent == null) return false;
+    // For prefill-mode models: thinking is done once </think> appears in the content.
+    const firstClose = message.content.indexOf('</think>');
+    const firstOpen = message.content.indexOf('<think>');
+    const isPrefillMode = firstClose !== -1 && (firstOpen === -1 || firstOpen > firstClose);
+    if (isPrefillMode) return false; // </think> is present, so thinking is complete
     return !/<think>[\s\S]*?<\/think>/.test(message.content);
   }, [message.content, harmony, thinkingContent]);
 
@@ -175,10 +195,11 @@ export function useMessageParsing(message: Message, toolTags?: ToolTags): Parsed
   }, [cleanContent, dynamicCleanup]);
 
   const isError =
-    message.role === 'system' &&
-    (message.content.includes('\u274C') ||
-      message.content.includes('Generation Crashed') ||
-      message.content.includes('Error'));
+    message.role === 'error' ||
+    (message.role === 'system' &&
+      (message.content.includes('\u274C') ||
+        message.content.includes('Generation Crashed') ||
+        message.content.includes('Error')));
 
   return {
     toolCalls,

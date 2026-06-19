@@ -38,10 +38,29 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
   handleBrowseFile,
 }) => {
   const [historyExpanded, setHistoryExpanded] = useState(false);
+  const historyChevron = historyExpanded ? (
+    <ChevronDown className="h-3 w-3" />
+  ) : (
+    <ChevronRight className="h-3 w-3" />
+  );
 
   let borderClass = 'border-input';
   if (fileExists === true) borderClass = 'border-green-500';
   else if (fileExists === false) borderClass = 'border-red-500';
+
+  const fileIcon = isCheckingFile ? (
+    <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin" />
+  ) : (
+    <FolderOpen className="h-4 w-4 flex-shrink-0 text-foreground" />
+  );
+  const pathLabel = modelPath ? (
+    <span className="truncate font-mono text-xs">{modelPath}</span>
+  ) : (
+    <span className="text-foreground/60">Click to select a .gguf model file...</span>
+  );
+  const buttonStateClass = isCheckingFile
+    ? 'opacity-60'
+    : 'cursor-pointer hover:bg-accent/50 transition-colors';
 
   return (
     <div className="space-y-2">
@@ -51,64 +70,54 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
           data-testid="model-path-input"
           onClick={handleBrowseFile}
           disabled={isCheckingFile}
-          className={`w-full px-3 py-2 pr-8 text-sm border rounded-md bg-background text-left flex items-center gap-2 ${borderClass} ${isCheckingFile ? 'opacity-60' : 'cursor-pointer hover:bg-accent/50 transition-colors'}`}
+          className={`flex w-full items-center gap-2 rounded-md border bg-background px-3 py-2 pr-8 text-left text-sm ${borderClass} ${buttonStateClass}`}
         >
-          {isCheckingFile ? (
-            <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />
-          ) : (
-            <FolderOpen className="h-4 w-4 text-foreground flex-shrink-0" />
-          )}
-          {modelPath ? (
-            <span className="font-mono text-xs truncate">{modelPath}</span>
-          ) : (
-            <span className="text-foreground/60">Click to select a .gguf model file...</span>
-          )}
+          {fileIcon}
+          {pathLabel}
         </button>
         {modelPath.trim() && (
-          <div className="absolute right-2 top-1/2 transform -translate-y-1/2 pointer-events-none">
-            {isCheckingFile ? (
-              <Clock className="h-4 w-4 text-muted-foreground animate-pulse" />
-            ) : null}
-            {!isCheckingFile && fileExists === true ? (
+          <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 transform">
+            {!!isCheckingFile && <Clock className="h-4 w-4 animate-pulse text-muted-foreground" />}
+            {!isCheckingFile && fileExists === true && (
               <CheckCircle className="h-4 w-4 text-green-500" />
-            ) : null}
-            {!isCheckingFile && fileExists === false ? (
+            )}
+            {!isCheckingFile && fileExists === false && (
               <XCircle className="h-4 w-4 text-red-500" />
-            ) : null}
+            )}
           </div>
         )}
       </div>
 
       {/* File existence status */}
       {modelPath.trim() && (
-        <div className="text-xs space-y-2">
-          {isCheckingFile ? (
+        <div className="space-y-2 text-xs">
+          {!!isCheckingFile && (
             <span
-              className="text-muted-foreground flex items-center gap-1"
+              className="flex items-center gap-1 text-muted-foreground"
               data-testid="file-checking"
             >
               <Clock className="h-3 w-3" />
               Checking file...
             </span>
-          ) : null}
-          {!isCheckingFile && fileExists === true ? (
+          )}
+          {!isCheckingFile && fileExists === true && (
             <span
-              className="text-green-600 flex items-center gap-1"
+              className="flex items-center gap-1 text-green-600"
               data-testid="file-found-label"
               id="file-found-label"
             >
               <CheckCircle className="h-3 w-3" />
               File found and accessible
             </span>
-          ) : null}
-          {!isCheckingFile && fileExists === false && directoryError ? (
+          )}
+          {!isCheckingFile && fileExists === false && !!directoryError && (
             <div className="space-y-2">
-              <span className="text-amber-600 flex items-center gap-1">
+              <span className="flex items-center gap-1 text-amber-600">
                 <XCircle className="h-3 w-3" />
                 {directoryError}
               </span>
               {directorySuggestions.length > 0 && (
-                <div className="pl-4 space-y-1">
+                <div className="space-y-1 pl-4">
                   {directorySuggestions.map((suggestion) => (
                     <button
                       key={suggestion}
@@ -121,7 +130,7 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
                             : `${basePath}\\${suggestion}`;
                         setModelPath(newPath);
                       }}
-                      className="block w-full text-left px-3 py-2 text-xs bg-muted hover:bg-accent rounded border border-border transition-colors"
+                      className="block w-full rounded border border-border bg-muted px-3 py-2 text-left text-xs transition-colors hover:bg-accent"
                     >
                       {suggestion}
                     </button>
@@ -129,46 +138,41 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
                 </div>
               )}
             </div>
-          ) : null}
-          {!isCheckingFile && fileExists === false && !directoryError ? (
-            <span className="text-red-600 flex items-center gap-1">
+          )}
+          {!isCheckingFile && fileExists === false && !directoryError && (
+            <span className="flex items-center gap-1 text-red-600">
               <XCircle className="h-3 w-3" />
               File not found or inaccessible
             </span>
-          ) : null}
+          )}
         </div>
       )}
 
       {/* Model history — collapsible below input */}
-      {modelHistory.length > 0 ? (
-        <div className="border border-input rounded-md overflow-hidden">
+      {modelHistory.length > 0 && (
+        <div className="overflow-hidden rounded-md border border-input">
           <button
             type="button"
             onClick={() => setHistoryExpanded(!historyExpanded)}
-            className="w-full px-3 py-1.5 text-xs text-foreground bg-muted/50 flex items-center gap-1.5 hover:bg-muted transition-colors"
+            className="flex w-full items-center gap-1.5 bg-muted/50 px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-muted"
           >
-            {historyExpanded ? (
-              <ChevronDown className="h-3 w-3" />
-            ) : (
-              <ChevronRight className="h-3 w-3" />
-            )}
+            {historyChevron}
             <Clock className="h-3 w-3" />
             Recent models ({modelHistory.length})
           </button>
-          {historyExpanded
-            ? modelHistory.map((path) => (
-                <button
-                  key={path}
-                  type="button"
-                  onClick={() => setModelPath(path)}
-                  className="block w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors border-t border-input"
-                >
-                  <div className="font-mono text-xs truncate">{path}</div>
-                </button>
-              ))
-            : null}
+          {!!historyExpanded &&
+            modelHistory.map((path) => (
+              <button
+                key={path}
+                type="button"
+                onClick={() => setModelPath(path)}
+                className="block w-full border-t border-input px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
+              >
+                <div className="truncate font-mono text-xs">{path}</div>
+              </button>
+            ))}
         </div>
-      ) : null}
+      )}
     </div>
   );
 };

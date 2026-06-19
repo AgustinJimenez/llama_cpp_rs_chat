@@ -10,7 +10,7 @@ use crate::web::database::SharedDatabase;
 #[tauri::command]
 pub async fn get_system_usage() -> Result<serde_json::Value, String> {
     #[cfg(target_os = "windows")]
-    let (cpu, ram, gpu, cpu_perf_pct) = {
+    let (cpu, ram, gpu, cpu_perf_pct, _app_ram_gb, vram_used_gb) = {
         let result = tokio::time::timeout(
             std::time::Duration::from_millis(1500),
             tokio::task::spawn_blocking(crate::web::routes::system::get_windows_system_usage),
@@ -23,7 +23,7 @@ pub async fn get_system_usage() -> Result<serde_json::Value, String> {
     };
 
     #[cfg(not(target_os = "windows"))]
-    let (cpu, ram, gpu, cpu_perf_pct) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
+    let (cpu, ram, gpu, cpu_perf_pct, _app_ram_gb, vram_used_gb) = (0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32);
 
     // Hardware totals — populated by get_windows_system_usage on its first call.
     // Without these the frontend can't tell GPU-equipped machines from CPU-only ones,
@@ -31,7 +31,10 @@ pub async fn get_system_usage() -> Result<serde_json::Value, String> {
     #[cfg(target_os = "windows")]
     let (total_ram_gb, total_vram_gb, cpu_cores, cpu_base_mhz) =
         crate::web::routes::system::get_hardware_totals();
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    let (total_ram_gb, total_vram_gb, cpu_cores, cpu_base_mhz) =
+        crate::web::routes::system::get_macos_hardware_totals();
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let (total_ram_gb, total_vram_gb, cpu_cores, cpu_base_mhz) =
         (0.0_f32, 0.0_f32, 0_u32, 0_u32);
 
@@ -45,6 +48,9 @@ pub async fn get_system_usage() -> Result<serde_json::Value, String> {
         "total_vram_gb": total_vram_gb,
         "cpu_cores": cpu_cores,
         "cpu_ghz": cpu_ghz,
+        "vram_used_gb": vram_used_gb,
+        // Apple Silicon shares one memory pool between CPU and GPU.
+        "unified_memory": cfg!(target_os = "macos"),
     }))
 }
 
@@ -110,14 +116,17 @@ fn save_provider_turn_tauri(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn stream_provider(
     app: AppHandle,
     db: tauri::State<'_, SharedDatabase>,
+    bridge: tauri::State<'_, crate::web::worker::worker_bridge::SharedWorkerBridge>,
     provider: String,
     model: Option<String>,
     prompt: String,
     conversation_id: Option<String>,
     session_id: Option<String>,
+    image_data: Option<Vec<String>>,
     params: Option<serde_json::Value>,
 ) -> Result<serde_json::Value, String> {
     let api_keys = load_provider_api_keys_json(&db);
@@ -143,6 +152,8 @@ pub async fn stream_provider(
         Some(&conv_id),
         Some(db.inner()),
         params.as_ref(),
+        image_data.as_deref(),
+        Some(bridge.inner().clone()),
     )
     .await
     .map_err(|e| format!("Failed to start provider: {e}"))?;

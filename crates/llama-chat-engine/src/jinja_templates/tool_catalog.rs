@@ -110,7 +110,7 @@ pub fn get_available_tools() -> Vec<Value> {
         .filter(|tool| {
             tool.get("name")
                 .and_then(|n| n.as_str())
-                .map_or(false, |name| CORE_TOOL_NAMES.contains(&name))
+                .is_some_and(|name| CORE_TOOL_NAMES.contains(&name))
         })
         .collect();
 
@@ -154,7 +154,7 @@ pub fn get_desktop_tool_definitions() -> Vec<Value> {
         .filter(|tool| {
             tool.get("name")
                 .and_then(|n| n.as_str())
-                .map_or(false, |name| DESKTOP_TOOL_NAMES.contains(&name))
+                .is_some_and(|name| DESKTOP_TOOL_NAMES.contains(&name))
         })
         .collect()
 }
@@ -168,7 +168,7 @@ pub fn get_tool_catalog(category: &str) -> String {
         "mcp" => {
             return "MCP tools are dynamically loaded from connected servers. Use list_mcp_servers to see connected servers and their tools.".to_string();
         }
-        _ => return format!("Unknown category '{}'. Valid categories: 'desktop', 'mcp', 'admin'", category),
+        _ => return format!("Unknown category '{category}'. Valid categories: 'desktop', 'mcp', 'admin'"),
     };
 
     let mut lines = Vec::new();
@@ -185,11 +185,11 @@ pub fn get_tool_catalog(category: &str) -> String {
             Some(pos) => &desc[..=pos],
             None => desc,
         };
-        lines.push(format!("{}: {}", name, brief));
+        lines.push(format!("{name}: {brief}"));
     }
 
     if lines.is_empty() {
-        format!("No tools found in category '{}'.", category)
+        format!("No tools found in category '{category}'.")
     } else {
         lines.join("\n")
     }

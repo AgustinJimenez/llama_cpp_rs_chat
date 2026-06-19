@@ -14,6 +14,10 @@ struct ProviderRequest {
     cwd: Option<String>,
     session_id: Option<String>,
     conversation_id: Option<String>,
+    /// Agent ID for remote-provider agents (tags the conversation).
+    agent_id: Option<String>,
+    /// Base64-encoded images to include in this request (vision).
+    image_data: Option<Vec<String>>,
     /// User-configured provider parameters (temperature, thinking, etc.)
     params: Option<serde_json::Value>,
 }
@@ -75,13 +79,22 @@ fn display_model_name(provider_id: &str, model: Option<&str>) -> String {
 
 fn load_api_keys_json(db: &llama_chat_db::SharedDatabase) -> Option<String> {
     let conn = db.connection();
-    conn.query_row(
-        "SELECT provider_api_keys FROM config WHERE id = 1",
-        [],
-        |row| row.get::<_, Option<String>>(0),
-    )
-    .ok()
-    .flatten()
+    let db_val: String = conn
+        .query_row(
+            "SELECT provider_api_keys FROM config WHERE id = 1",
+            [],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    let (keys, migrated) = crate::keychain::resolve(&db_val);
+    if migrated {
+        // One-time migration: persist the recovered keys as plain JSON in SQLite.
+        let raw = keys.clone().unwrap_or_else(|| "{}".to_string());
+        let _ = conn.execute("UPDATE config SET provider_api_keys = ?1", [&raw]);
+    }
+    keys
 }
 
 fn ensure_conversation(
@@ -122,6 +135,7 @@ pub async fn handle_provider_stream(
     req: hyper::Request<Body>,
     db: llama_chat_db::SharedDatabase,
     provider_id: &str,
+    bridge: Option<llama_chat_worker::worker::worker_bridge::SharedWorkerBridge>,
 ) -> Result<Response<Body>, Infallible> {
     let request = match parse_provider_request(req).await {
         Ok(r) => r,
@@ -133,9 +147,18 @@ pub async fn handle_provider_stream(
         request.session_id.as_deref(),
     );
 
+    let is_new_conversation = request.conversation_id.is_none();
     let conv_id = request.conversation_id.unwrap_or_else(|| {
         format!("chat_{}", chrono::Local::now().format("%Y-%m-%d-%H-%M-%S-%3f"))
     });
+    // Tag the conversation with the agent ID (for remote-provider agents).
+    if is_new_conversation {
+        if let Some(ref aid) = request.agent_id {
+            if !aid.is_empty() {
+                let _ = db.set_conversation_agent_id(&conv_id, Some(aid.as_str()));
+            }
+        }
+    }
 
     let api_keys = load_api_keys_json(&db);
     let mut rx = match providers::generate(
@@ -149,6 +172,8 @@ pub async fn handle_provider_stream(
         Some(&conv_id),
         Some(&db),
         request.params.as_ref(),
+        request.image_data.as_deref(),
+        bridge,
     )
     .await
     {
@@ -169,8 +194,22 @@ pub async fn handle_provider_stream(
 
     tokio::spawn(async move {
         let mut full_response = String::new();
+        let mut sent_done = false;
+        let mut last_session_id: Option<String> = None;
+        let mut last_input_tokens: Option<u64> = None;
+        let mut last_output_tokens: Option<u64> = None;
+        let mut last_cached_tokens: Option<u64> = None;
+        let mut last_duration_ms: Option<u64> = None;
 
         while let Some(token_data) = rx.recv().await {
+            if token_data.session_id.is_some() {
+                last_session_id = token_data.session_id.clone();
+            }
+            if token_data.input_tokens.is_some() { last_input_tokens = token_data.input_tokens; }
+            if token_data.output_tokens.is_some() { last_output_tokens = token_data.output_tokens; }
+            if token_data.cached_tokens.is_some() { last_cached_tokens = token_data.cached_tokens; }
+            if token_data.duration_ms.is_some() { last_duration_ms = token_data.duration_ms; }
+
             if token_data.is_done {
                 let done_json = serde_json::json!({
                     "type": "done",
@@ -186,7 +225,7 @@ pub async fn handle_provider_stream(
                     "conversation_id": conv_id_clone,
                 });
                 let _ = sse_tx
-                    .send_data(hyper::body::Bytes::from(format!("data: {}\n\n", done_json)))
+                    .send_data(hyper::body::Bytes::from(format!("data: {done_json}\n\n")))
                     .await;
 
                 let now = std::time::SystemTime::now()
@@ -202,6 +241,7 @@ pub async fn handle_provider_stream(
                     &full_response,
                     now,
                 );
+                sent_done = true;
                 break;
             }
 
@@ -215,7 +255,7 @@ pub async fn handle_provider_stream(
                     "duration_ms": token_data.duration_ms,
                 });
                 let _ = sse_tx
-                    .send_data(hyper::body::Bytes::from(format!("data: {}\n\n", status_json)))
+                    .send_data(hyper::body::Bytes::from(format!("data: {status_json}\n\n")))
                     .await;
                 continue;
             }
@@ -227,12 +267,47 @@ pub async fn handle_provider_stream(
                 "token": token_data.token,
             });
             if sse_tx
-                .send_data(hyper::body::Bytes::from(format!("data: {}\n\n", token_json)))
+                .send_data(hyper::body::Bytes::from(format!("data: {token_json}\n\n")))
                 .await
                 .is_err()
             {
                 break;
             }
+        }
+
+        // Safety net: provider channel closed (e.g. max_turns hit) without sending is_done.
+        // Synthesize a done event so the frontend completes rather than hanging.
+        if !sent_done {
+            let done_json = serde_json::json!({
+                "type": "done",
+                "provider": provider_name,
+                "session_id": last_session_id,
+                "stop_reason": "max_turns",
+                "cost_usd": null,
+                "duration_ms": last_duration_ms,
+                "input_tokens": last_input_tokens,
+                "output_tokens": last_output_tokens,
+                "cached_tokens": last_cached_tokens,
+                "model": null,
+                "conversation_id": conv_id_clone,
+            });
+            let _ = sse_tx
+                .send_data(hyper::body::Bytes::from(format!("data: {done_json}\n\n")))
+                .await;
+
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            save_provider_turn(
+                &db_clone,
+                &conv_id_clone,
+                &provider_name,
+                last_session_id.as_deref(),
+                &prompt,
+                &full_response,
+                now,
+            );
         }
     });
 
@@ -252,6 +327,7 @@ pub async fn handle_provider_generate(
     req: hyper::Request<Body>,
     db: llama_chat_db::SharedDatabase,
     provider_id: &str,
+    bridge: Option<llama_chat_worker::worker::worker_bridge::SharedWorkerBridge>,
 ) -> Result<Response<Body>, Infallible> {
     let request = match parse_provider_request(req).await {
         Ok(r) => r,
@@ -276,6 +352,8 @@ pub async fn handle_provider_generate(
         if conv_id_for_history.is_empty() { None } else { Some(conv_id_for_history) },
         Some(&db),
         request.params.as_ref(),
+        request.image_data.as_deref(),
+        bridge,
     )
     .await
     {

@@ -1,7 +1,7 @@
 // Per-conversation agent heartbeat configuration.
-// Heartbeat settings are stored as columns on the conversation_config table.
+// Heartbeat settings are stored as columns on the conversations table.
 
-use crate::{current_timestamp_millis, current_timestamp_secs, db_error, SharedDatabase};
+use crate::{current_timestamp_secs, db_error, SharedDatabase};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,7 +45,7 @@ pub fn read_heartbeat_config(db: &SharedDatabase, conversation_id: &str) -> Hear
     conn.query_row(
         "SELECT heartbeat_enabled, heartbeat_interval_minutes, heartbeat_prompt,
                 heartbeat_last_fired_at, heartbeat_last_result, heartbeat_has_unread
-         FROM conversation_config WHERE conversation_id = ?1",
+         FROM conversations WHERE id = ?1",
         [conversation_id],
         |row| {
             Ok(HeartbeatConfig {
@@ -65,37 +65,31 @@ pub fn read_heartbeat_config(db: &SharedDatabase, conversation_id: &str) -> Hear
 }
 
 /// Persist heartbeat config for a conversation.
-/// Creates a conversation_config row if one doesn't exist yet.
 pub fn write_heartbeat_config(
     db: &SharedDatabase,
     conversation_id: &str,
     cfg: &HeartbeatConfig,
 ) -> Result<(), String> {
     let conn = db.connection();
-    let now = current_timestamp_millis();
     conn.execute(
-        "INSERT INTO conversation_config
-           (conversation_id, updated_at,
-            heartbeat_enabled, heartbeat_interval_minutes, heartbeat_prompt,
-            heartbeat_last_fired_at, heartbeat_last_result, heartbeat_has_unread)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-         ON CONFLICT(conversation_id) DO UPDATE SET
-           heartbeat_enabled            = excluded.heartbeat_enabled,
-           heartbeat_interval_minutes   = excluded.heartbeat_interval_minutes,
-           heartbeat_prompt             = excluded.heartbeat_prompt,
-           heartbeat_last_fired_at      = excluded.heartbeat_last_fired_at,
-           heartbeat_last_result        = excluded.heartbeat_last_result,
-           heartbeat_has_unread         = excluded.heartbeat_has_unread,
-           updated_at                   = excluded.updated_at",
+        "UPDATE conversations SET
+           heartbeat_enabled = ?1,
+           heartbeat_interval_minutes = ?2,
+           heartbeat_prompt = ?3,
+           heartbeat_last_fired_at = ?4,
+           heartbeat_last_result = ?5,
+           heartbeat_has_unread = ?6,
+           updated_at = ?7
+         WHERE id = ?8",
         rusqlite::params![
-            conversation_id,
-            now,
             cfg.enabled as i32,
             cfg.interval_minutes,
             cfg.prompt,
             cfg.last_fired_at as i64,
             cfg.last_result,
             cfg.has_unread as i32,
+            crate::current_timestamp_millis(),
+            conversation_id,
         ],
     )
     .map_err(db_error("write heartbeat config"))?;
@@ -106,9 +100,9 @@ pub fn write_heartbeat_config(
 pub fn list_enabled_heartbeats(db: &SharedDatabase) -> Vec<(String, HeartbeatConfig)> {
     let conn = db.connection();
     let mut stmt = match conn.prepare(
-        "SELECT conversation_id, heartbeat_interval_minutes, heartbeat_prompt,
+        "SELECT id, heartbeat_interval_minutes, heartbeat_prompt,
                 heartbeat_last_fired_at, heartbeat_last_result, heartbeat_has_unread
-         FROM conversation_config WHERE heartbeat_enabled = 1",
+         FROM conversations WHERE heartbeat_enabled = 1",
     ) {
         Ok(s) => s,
         Err(_) => return vec![],
@@ -143,11 +137,11 @@ pub fn record_heartbeat_result(
     let has_unread = result.is_some();
     let conn = db.connection();
     conn.execute(
-        "UPDATE conversation_config SET
+        "UPDATE conversations SET
             heartbeat_last_fired_at = ?1,
             heartbeat_last_result   = ?2,
             heartbeat_has_unread    = ?3
-         WHERE conversation_id = ?4",
+         WHERE id = ?4",
         rusqlite::params![now, result, has_unread as i32, conversation_id],
     )
     .map_err(db_error("record heartbeat result"))?;
@@ -158,8 +152,8 @@ pub fn record_heartbeat_result(
 pub fn clear_heartbeat_unread(db: &SharedDatabase, conversation_id: &str) {
     let conn = db.connection();
     let _ = conn.execute(
-        "UPDATE conversation_config SET heartbeat_has_unread = 0
-         WHERE conversation_id = ?1",
+        "UPDATE conversations SET heartbeat_has_unread = 0
+         WHERE id = ?1",
         [conversation_id],
     );
 }

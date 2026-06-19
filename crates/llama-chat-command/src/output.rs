@@ -67,16 +67,57 @@ pub fn strip_ansi_codes(text: &str) -> String {
     result
 }
 
-/// Truncate long output: keep first HEAD_LINES + last TAIL_LINES, omit middle.
+/// Returns true if a line is a compiler/linter diagnostic (error, warning, note, hint).
+/// Matches cargo, rustc, clippy, tsc, eslint, pytest, gcc/clang patterns.
+fn is_diagnostic_line(line: &str) -> bool {
+    let t = line.trim_start();
+    // rustc/cargo: "error[E0308]:", "warning:", "error:", "note:", "  --> src/..."
+    // tsc: "src/foo.ts(10,5): error TS2322:"
+    // eslint: "  10:5  error  ..."
+    // pytest: "FAILED", "ERROR", "AssertionError"
+    // gcc/clang: "foo.c:10:5: error:"
+    t.starts_with("error") || t.starts_with("warning") || t.starts_with("note:")
+        || t.starts_with("hint:") || t.starts_with("  --> ")
+        || t.starts_with("= note:") || t.starts_with("= help:")
+        || t.contains(": error ") || t.contains(": warning ")
+        || t.starts_with("FAILED") || t.starts_with("ERROR ")
+        || t.starts_with("AssertionError") || t.starts_with("thread '") // Rust panic
+        || t.starts_with("panicked at")
+}
+
+/// Truncate long output: keep first HEAD_LINES + last TAIL_LINES.
+/// For outputs with diagnostics (errors/warnings), also extracts all diagnostic lines
+/// from the omitted middle section so none are silently dropped.
 /// Also enforces a hard character limit.
 pub fn truncate_command_output(text: &str) -> String {
     let lines: Vec<&str> = text.lines().collect();
 
     let mut result = if lines.len() > MAX_COMMAND_OUTPUT_LINES {
-        let omitted = lines.len() - HEAD_LINES - TAIL_LINES;
+        let omitted_range = HEAD_LINES..lines.len().saturating_sub(TAIL_LINES);
+        let omitted_count = omitted_range.len();
         let head = lines[..HEAD_LINES].join("\n");
         let tail = lines[lines.len() - TAIL_LINES..].join("\n");
-        format!("{}\n\n... ({} lines omitted) ...\n\n{}", head, omitted, tail)
+
+        // Collect diagnostic lines from the omitted middle that aren't already in tail.
+        let tail_set: std::collections::HashSet<&str> =
+            lines[lines.len() - TAIL_LINES..].iter().copied().collect();
+        let mid_diagnostics: Vec<&str> = lines[omitted_range]
+            .iter()
+            .copied()
+            .filter(|l| is_diagnostic_line(l) && !tail_set.contains(l))
+            .collect();
+
+        if mid_diagnostics.is_empty() {
+            format!("{head}\n\n... ({omitted_count} lines omitted) ...\n\n{tail}")
+        } else {
+            let diag_block = mid_diagnostics.join("\n");
+            let rescued = mid_diagnostics.len();
+            // Rescued diagnostics go AFTER tail so Stage 2 char truncation (75% head + 25% tail)
+            // never drops them — the tail section ends just before them.
+            format!(
+                "{head}\n\n... ({omitted_count} lines omitted) ...\n\n{tail}\n\n[{rescued} diagnostics from omitted section:]\n{diag_block}"
+            )
+        }
     } else {
         text.to_string()
     };

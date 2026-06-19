@@ -49,13 +49,13 @@ pub fn get_available_tools_json() -> String {
             "type": "function",
             "function": {
                 "name": "read_file",
-                "description": format!("Read the complete contents of any file from anywhere in the local filesystem. Supports PDF, DOCX, XLSX, PPTX, EPUB, ODT, RTF, CSV, EML, ZIP, and non-UTF8 encoded files. You have full read access to the entire system. OS: {}", os_name),
+                "description": format!("Read the complete contents of any file from anywhere in the local filesystem. Supports PDF, DOCX, XLSX, PPTX, EPUB, ODT, RTF, CSV, EML, ZIP, and non-UTF8 encoded files. You have full read access to the entire system. OS: {os_name}"),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "path": {
                             "type": "string",
-                            "description": format!("Absolute or relative path to the file to read. Examples: {}", read_examples)
+                            "description": format!("Absolute or relative path to the file to read. Examples: {read_examples}")
                         }
                     },
                     "required": ["path"]
@@ -66,7 +66,7 @@ pub fn get_available_tools_json() -> String {
             "type": "function",
             "function": {
                 "name": "write_file",
-                "description": format!("Write or create a file anywhere in the local filesystem. You have full write access. OS: {}", os_name),
+                "description": format!("Write or create a file anywhere in the local filesystem. You have full write access. OS: {os_name}"),
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -87,13 +87,13 @@ pub fn get_available_tools_json() -> String {
             "type": "function",
             "function": {
                 "name": "list_directory",
-                "description": format!("List all files and directories in any location. You have full access to browse the entire filesystem. OS: {}", os_name),
+                "description": format!("List all files and directories in any location. You have full access to browse the entire filesystem. OS: {os_name}"),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "path": {
                             "type": "string",
-                            "description": format!("Path to the directory to list. Examples: {}", list_examples)
+                            "description": format!("Path to the directory to list. Examples: {list_examples}")
                         },
                         "recursive": {
                             "type": "boolean",
@@ -108,13 +108,13 @@ pub fn get_available_tools_json() -> String {
             "type": "function",
             "function": {
                 "name": "bash",
-                "description": format!("{} You can run ANY command. OS: {}", bash_description, os_name),
+                "description": format!("{bash_description} You can run ANY command. OS: {os_name}"),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "command": {
                             "type": "string",
-                            "description": format!("The shell command to execute. Examples: {}", bash_examples)
+                            "description": format!("The shell command to execute. Examples: {bash_examples}")
                         }
                     },
                     "required": ["command"]

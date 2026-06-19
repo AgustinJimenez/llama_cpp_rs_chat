@@ -263,6 +263,7 @@ impl UiElementInfo {
 
 #[cfg(windows)]
 thread_local! {
+    #[allow(clippy::type_complexity)]
     static UI_ELEMENT_CACHE: std::cell::RefCell<std::collections::HashMap<(isize, String, String), (std::time::Instant, Vec<UiElementInfo>)>> = std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
@@ -274,8 +275,6 @@ pub(crate) fn invalidate_ui_element_cache(hwnd: isize) {
     });
 }
 
-#[cfg(not(windows))]
-pub(crate) fn invalidate_ui_element_cache(_hwnd: isize) {}
 
 #[cfg(windows)]
 fn cache_lookup(
@@ -391,19 +390,19 @@ pub(crate) fn find_ui_elements_all(
             .map(|ct| control_type_name(ct.0))
             .unwrap_or_default();
 
-        let name_match = name_filter.map_or(true, |f| name.to_lowercase().contains(f));
-        let type_match = type_filter.map_or(true, |f| control_type.to_lowercase().contains(f));
+        let name_match = name_filter.is_none_or(|f| name.to_lowercase().contains(f));
+        let type_match = type_filter.is_none_or(|f| control_type.to_lowercase().contains(f));
 
         if name_match && type_match && (!name.is_empty() || type_filter.is_some()) {
             if let Ok(r) = unsafe { parent.CurrentBoundingRectangle() } {
                 if r.right > r.left && r.bottom > r.top {
                     results.push(UiElementInfo {
-                        cx: ((r.left + r.right) / 2) as i32,
-                        cy: ((r.top + r.bottom) / 2) as i32,
-                        left: r.left as i32,
-                        top: r.top as i32,
-                        width: (r.right - r.left) as i32,
-                        height: (r.bottom - r.top) as i32,
+                        cx: (r.left + r.right) / 2,
+                        cy: (r.top + r.bottom) / 2,
+                        left: r.left,
+                        top: r.top,
+                        width: r.right - r.left,
+                        height: r.bottom - r.top,
                         name: name.clone(),
                         control_type: control_type.clone(),
                     });
@@ -490,8 +489,8 @@ pub(crate) fn find_raw_ui_element(
         .map(|ct| control_type_name(ct.0))
         .unwrap_or_default();
 
-    let name_match = name_filter.map_or(true, |f| name.to_lowercase().contains(f));
-    let type_match = type_filter.map_or(true, |f| control_type.to_lowercase().contains(f));
+    let name_match = name_filter.is_none_or(|f| name.to_lowercase().contains(f));
+    let type_match = type_filter.is_none_or(|f| control_type.to_lowercase().contains(f));
 
     if name_match && type_match && (!name.is_empty() || type_filter.is_some()) {
         if let Ok(r) = unsafe { parent.CurrentBoundingRectangle() } {

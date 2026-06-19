@@ -172,6 +172,32 @@ impl Database {
         Ok(count)
     }
 
+    /// Update the structured parts JSON for a message identified by (conversation_id, sequence_order).
+    /// Parts are a JSON array of { type, content, tool_name?, tool_args? } objects.
+    pub fn update_message_parts(
+        &self,
+        conversation_id: &str,
+        sequence_order: i32,
+        parts_json: &str,
+    ) -> Result<(), String> {
+        let conn = self.connection();
+        conn.execute(
+            "UPDATE messages SET parts = ?1 WHERE conversation_id = ?2 AND sequence_order = ?3",
+            params![parts_json, conversation_id, sequence_order],
+        )
+        .map_err(db_error("update message parts"))?;
+        Ok(())
+    }
+
+    /// Append an error message to a conversation so it survives page reload.
+    /// Uses role="error" so the UI can render it distinctly from normal assistant output.
+    pub fn append_error_message(&self, conversation_id: &str, error: &str) -> Result<(), String> {
+        let seq = self.get_message_count(conversation_id)?;
+        let ts = crate::current_timestamp_secs();
+        self.insert_message(conversation_id, "error", error, ts, seq)?;
+        Ok(())
+    }
+
     /// Delete all messages with sequence_order >= from_sequence.
     /// Also deletes any compaction summaries that cover messages in the deleted range
     /// (so the model automatically reverts to full context from the nearest surviving summary).

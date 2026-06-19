@@ -9,6 +9,7 @@ use crate::web::config::load_config;
 use crate::web::database::SharedDatabase;
 use crate::web::models::ChatRequest;
 use crate::web::worker::worker_bridge::{GenerationResult, SharedWorkerBridge};
+use crate::web::worker_pool::{resolve_bridge_for_request, WorkerPool};
 
 #[tauri::command]
 pub async fn generate_stream(
@@ -16,24 +17,25 @@ pub async fn generate_stream(
     request: ChatRequest,
     bridge: tauri::State<'_, SharedWorkerBridge>,
     db: tauri::State<'_, SharedDatabase>,
+    pool: tauri::State<'_, WorkerPool>,
 ) -> Result<serde_json::Value, String> {
     use std::sync::Mutex;
     use crate::web::chat::{get_tool_tags_for_model, get_universal_system_prompt_with_tags};
     use crate::web::database::conversation::ConversationLogger;
 
-    if request
-        .worker_id
-        .as_deref()
-        .map(str::trim)
-        .is_some_and(|id| !id.is_empty() && id != "default")
-    {
-        return Err(
-            "Per-conversation workers are not implemented in Tauri mode yet; only the default worker is available".to_string(),
-        );
-    }
+    // Resolve the correct worker bridge: agent-specific if available, fall back to default
+    let effective_bridge: SharedWorkerBridge = resolve_bridge_for_request(
+        &pool,
+        &db,
+        request.conversation_id.as_deref(),
+        request.worker_id.as_deref(),
+        request.agent_id.as_deref(),
+    )
+    .await
+    .unwrap_or_else(|_| bridge.inner().clone());
 
-    // Resolve system prompt
-    let general_name = bridge
+    // Resolve system prompt from the effective (agent-specific) bridge
+    let general_name = effective_bridge
         .model_status()
         .await
         .and_then(|m| m.general_name.clone());
@@ -73,19 +75,32 @@ pub async fn generate_stream(
         "conversation_id": &conversation_id,
     }));
 
-    // Start generation (skip_user_logging since we logged above)
-    let (mut token_rx, done_rx) = bridge
+    // Prevent OS sleep/screen-off during inference. Dropped automatically when the
+    // spawned task below completes (i.e. when generation finishes or is cancelled).
+    let _wake_guard = keepawake::Builder::default()
+        .display(false)
+        .idle(true)
+        .sleep(true)
+        .create()
+        .map_err(|e| log::warn!("keepawake: {e}"))
+        .ok();
+
+    // Start generation on the resolved bridge (agent worker or default)
+    let (mut token_rx, done_rx) = effective_bridge
         .generate(
             request.message.clone(),
             Some(conversation_id.clone()),
             true,
             request.image_data.clone(),
+            None,
         )
         .await?;
 
     // Spawn task to forward tokens as Tauri events
     let conv_id = conversation_id.clone();
     tokio::spawn(async move {
+        // Keep OS awake for the duration of inference; drops when this task ends.
+        let _wake = _wake_guard;
         while let Some(token_data) = token_rx.recv().await {
             let _ = app.emit(
                 "chat-token",
@@ -209,6 +224,8 @@ pub async fn generate_stream(
                 );
             }
             Ok(GenerationResult::Error(e)) => {
+                let db_err: SharedDatabase = app.state::<SharedDatabase>().inner().clone();
+                let _ = db_err.append_error_message(&conv_id, &e);
                 let _ = app.emit(
                     "chat-done",
                     ChatDoneEvent {
@@ -228,6 +245,8 @@ pub async fn generate_stream(
                 );
             }
             Err(_) => {
+                let db_err: SharedDatabase = app.state::<SharedDatabase>().inner().clone();
+                let _ = db_err.append_error_message(&conv_id, "Worker response channel closed");
                 let _ = app.emit(
                     "chat-done",
                     ChatDoneEvent {

@@ -221,7 +221,7 @@ pub fn tool_detect_ui_elements(args: &Value) -> NativeToolResult {
     };
     let monitor = match monitors.get(monitor_idx) {
         Some(m) => m,
-        None => return tool_error("detect_ui_elements", format!("Monitor {} not found", monitor_idx)),
+        None => return tool_error("detect_ui_elements", format!("Monitor {monitor_idx} not found")),
     };
     let capture = match monitor.capture_image() {
         Ok(img) => img,

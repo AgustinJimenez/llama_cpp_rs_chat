@@ -91,8 +91,7 @@ pub fn tool_type_text(args: &Value) -> crate::NativeToolResult {
         .get("retry")
         .and_then(parse_int)
         .unwrap_or(0)
-        .max(0)
-        .min(3) as u32;
+        .clamp(0, 3) as u32;
     let verification = match prepare_screen_verification(args, None) {
         Ok(v) => v,
         Err(result) => return result,
@@ -125,7 +124,7 @@ pub fn tool_type_text(args: &Value) -> crate::NativeToolResult {
     let mut summary = if text.len() > 50 {
         format!("Typed {} characters: \"{}...\"", text.len(), &text[..50])
     } else {
-        format!("Typed: \"{}\"", text)
+        format!("Typed: \"{text}\"")
     };
 
     // Warn if non-US keyboard layout detected (characters may differ from intent)
@@ -135,8 +134,7 @@ pub fn tool_type_text(args: &Value) -> crate::NativeToolResult {
         if lang_id != 0x0409 {
             // 0x0409 = English (United States)
             summary.push_str(&format!(
-                " (note: keyboard layout 0x{:04X}, not US-QWERTY)",
-                lang_id
+                " (note: keyboard layout 0x{lang_id:04X}, not US-QWERTY)"
             ));
         }
         if prefer_unicode_input {
@@ -167,8 +165,7 @@ pub fn tool_press_key(args: &Value) -> crate::NativeToolResult {
         .get("retry")
         .and_then(parse_int)
         .unwrap_or(0)
-        .max(0)
-        .min(3) as u32;
+        .clamp(0, 3) as u32;
     let verification = match prepare_screen_verification(args, None) {
         Ok(v) => v,
         Err(result) => return result,

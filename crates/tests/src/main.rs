@@ -108,8 +108,8 @@ fn main() {
         // Replay exact generated tokens to reach injection position
         let gap = (*expected_pos - token_pos).max(0) as usize;
         if gap > 0 && gen_idx + gap <= gen_tokens.len() {
-            println!("\n  Replaying {} recorded tokens to pos {}...", gap, expected_pos);
-            for j in 0..gap {
+            println!("\n  Replaying {gap} recorded tokens to pos {expected_pos}...");
+            for _j in 0..gap {
                 let tok = LlamaToken(gen_tokens[gen_idx]);
                 batch.clear();
                 batch.add(tok, token_pos, &[0], true).unwrap();
@@ -135,7 +135,7 @@ fn main() {
         let t = Instant::now();
         let next = sampler.sample(&ctx, -1);
         let ms = t.elapsed().as_millis();
-        println!("{}ms token={:?}", ms, next);
+        println!("{ms}ms token={next:?}");
 
         if ms > 5000 {
             println!("  [HANG] Aborting.");

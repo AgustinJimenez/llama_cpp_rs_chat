@@ -107,6 +107,20 @@ export type ModelPreset = Partial<SamplerConfig>;
 // Map of general.name -> recommended params
 // Sources: HuggingFace model cards, vendor documentation
 export const MODEL_PRESETS: Record<string, ModelPreset> = {
+  // LiquidAI LFM2.5 (MoE) — recommended by LiquidAI: temp 0.2, top_k 80, repeat 1.05.
+  // top_p/min_p are not used by the author (1.0 / 0.0 = effectively off).
+  // https://huggingface.co/LiquidAI/LFM2.5-8B-A1B
+  'Lfm2.5-8B-A1B': {
+    sampler_type: 'Temperature',
+    temperature: 0.2,
+    top_k: 80,
+    top_p: 1.0,
+    min_p: 0.0,
+    repeat_penalty: 1.05,
+    // flash attention crashes the Metal backend on lfm2moe (Decode Error -3) — keep it off.
+    flash_attention: false,
+  },
+
   // Qwen models
   'Qwen_Qwen3 Coder Next': {
     sampler_type: 'Temperature',

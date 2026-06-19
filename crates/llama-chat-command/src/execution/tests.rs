@@ -19,6 +19,7 @@ fn test_cd_without_argument() {
     assert!(result.contains("requires a directory argument"));
 }
 
+#[cfg(not(windows))]
 #[test]
 fn test_native_echo_redirect_preserves_dollar_vars() {
     let cmd = r#"echo "<?php\n\$table->id();\n\$fillable = ['name'];" > /tmp/test_echo_redir.php"#;
@@ -30,6 +31,7 @@ fn test_native_echo_redirect_preserves_dollar_vars() {
     std::fs::remove_file("/tmp/test_echo_redir.php").ok();
 }
 
+#[cfg(not(windows))]
 #[test]
 fn test_native_echo_redirect_with_chain() {
     let cmd = r#"mkdir -p /tmp/test_echo_chain && echo "hello" > /tmp/test_echo_chain/test.txt"#;
@@ -47,6 +49,7 @@ fn test_native_echo_redirect_non_echo_falls_through() {
     assert!(result.is_none(), "Non-echo redirects should fall through");
 }
 
+#[cfg(not(windows))]
 #[test]
 fn test_native_echo_redirect_with_newline_escapes() {
     let cmd = r#"echo "line1\nline2\nline3" > /tmp/test_echo_newlines.txt"#;
@@ -85,10 +88,14 @@ fn test_streaming_cmd_quoted_paths_raw_arg() {
     assert!(!lines.is_empty(), "Expected streaming lines, got none");
 }
 
+// All CWD-mutating tests are merged into one sequential test to avoid
+// parallel races on the process-global `env::current_dir()`.
 #[test]
-fn test_track_cwd_change_with_and_and() {
+fn test_track_cwd_change_suite() {
     let original = env::current_dir().unwrap();
     let temp = env::temp_dir();
+
+    // with &&
     let cmd = format!("cd {} && echo hello", temp.display());
     track_cwd_change(&cmd);
     let now = env::current_dir().unwrap();
@@ -96,14 +103,10 @@ fn test_track_cwd_change_with_and_and() {
     assert_eq!(
         now.canonicalize().unwrap_or(now.clone()),
         temp.canonicalize().unwrap_or(temp.clone()),
-        "CWD should have changed to temp dir"
+        "CWD should have changed to temp dir (&&)"
     );
-}
 
-#[test]
-fn test_track_cwd_change_with_semicolon() {
-    let original = env::current_dir().unwrap();
-    let temp = env::temp_dir();
+    // with ;
     let cmd = format!("cd {}; echo hello", temp.display());
     track_cwd_change(&cmd);
     let now = env::current_dir().unwrap();
@@ -111,13 +114,10 @@ fn test_track_cwd_change_with_semicolon() {
     assert_eq!(
         now.canonicalize().unwrap_or(now.clone()),
         temp.canonicalize().unwrap_or(temp.clone()),
+        "CWD should have changed to temp dir (;)"
     );
-}
 
-#[test]
-fn test_track_cwd_change_quoted_path() {
-    let original = env::current_dir().unwrap();
-    let temp = env::temp_dir();
+    // quoted path
     let cmd = format!("cd \"{}\" && echo hello", temp.display());
     track_cwd_change(&cmd);
     let now = env::current_dir().unwrap();
@@ -125,35 +125,26 @@ fn test_track_cwd_change_quoted_path() {
     assert_eq!(
         now.canonicalize().unwrap_or(now.clone()),
         temp.canonicalize().unwrap_or(temp.clone()),
+        "CWD should have changed to temp dir (quoted)"
     );
-}
 
-#[test]
-fn test_track_cwd_change_no_cd() {
-    let original = env::current_dir().unwrap();
+    // no cd — CWD unchanged
+    let before = env::current_dir().unwrap();
     track_cwd_change("echo hello && echo world");
     let now = env::current_dir().unwrap();
-    assert_eq!(now, original, "CWD should not change for non-cd commands");
-}
+    assert_eq!(now, before, "CWD should not change for non-cd commands");
 
-#[test]
-fn test_track_cwd_change_invalid_dir() {
-    let original = env::current_dir().unwrap();
+    // invalid dir — CWD unchanged
+    let before = env::current_dir().unwrap();
     track_cwd_change("cd /nonexistent_dir_12345 && echo hello");
     let now = env::current_dir().unwrap();
-    assert_eq!(now, original, "CWD should not change for invalid directory");
-}
+    assert_eq!(now, before, "CWD should not change for invalid directory");
 
-#[test]
-fn test_cwd_annotation_same_dir() {
+    // cwd_annotation: same dir → None
     let cwd = env::current_dir().unwrap();
     assert!(cwd_annotation(&cwd).is_none(), "No annotation when CWD unchanged");
-}
 
-#[test]
-fn test_cwd_annotation_different_dir() {
-    let original = env::current_dir().unwrap();
-    let temp = env::temp_dir();
+    // cwd_annotation: different dir → Some
     let _ = env::set_current_dir(&temp);
     let annotation = cwd_annotation(&original);
     let _ = env::set_current_dir(&original);

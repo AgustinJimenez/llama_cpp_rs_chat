@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import { Database, Loader2, Square, PackageOpen, X } from 'lucide-react';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { toast } from 'react-hot-toast';
@@ -28,15 +29,15 @@ const LiveTokenCounter = ({
       <button
         type="button"
         onClick={() => setShowModal(true)}
-        className={`inline-flex items-center gap-1 cursor-pointer hover:text-foreground transition-colors ${pct > CONTEXT_WARNING_THRESHOLD_PCT ? 'text-yellow-400' : ''}`}
+        className={`inline-flex cursor-pointer items-center gap-1 transition-colors hover:text-foreground ${pct > CONTEXT_WARNING_THRESHOLD_PCT ? 'text-yellow-400' : ''}`}
         title="Click for token breakdown"
       >
         <Database className="h-3 w-3" />
         {fmt(tokensUsed)}/{fmt(maxTokens)}
       </button>
-      {showModal ? (
+      {!!showModal && (
         <TokenBreakdownModal onClose={() => setShowModal(false)} modelContextSize={maxTokens} />
-      ) : null}
+      )}
     </>
   );
 };
@@ -126,36 +127,35 @@ export const LiveStreamingStats = ({
   const tokPerSec = liveTokPerSec > 0 ? liveTokPerSec.toFixed(1) : null;
   void elapsed; // elapsed time display moved to LoadingIndicator
 
-  if (!hasContext && !displayStatus) return null;
+  // Prompt-eval ("Evaluating…") is intentionally not shown here — the LoadingIndicator's
+  // spinner + elapsed timer above the bubble already conveys that state. We only render
+  // this line for an explicit worker status, generation progress, or the context counter.
+  if (!hasContext && !displayStatus && tokenCount === 0) return null;
   return (
-    <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono">
-      {displayStatus ? (
+    <div className="flex items-center gap-3 font-mono text-xs text-muted-foreground">
+      {!!displayStatus && (
         <span className="inline-flex items-center gap-1 text-cyan-400">
           <Loader2 className="h-3 w-3 animate-spin" />
           {displayStatus}
         </span>
-      ) : null}
-      {tokenCount > 0 ? (
+      )}
+      {tokenCount > 0 && (
         <span className="inline-flex items-center gap-1" title="Tokens generated this turn">
           # {tokenCount.toLocaleString()}
         </span>
-      ) : null}
-      {tokPerSec ? (
+      )}
+      {!!tokPerSec && (
         <span
           className="inline-flex items-center gap-1"
           title="Generation speed (excluding tool execution time)"
         >
           {tokPerSec} tok/s
         </span>
-      ) : null}
+      )}
       {/* Elapsed time removed — shown by LoadingIndicator below the chat bubble */}
-      {hasContext ? (
-        <LiveTokenCounter
-          tokensUsed={tokensUsed ?? 0}
-          maxTokens={maxTokens ?? 0}
-          pct={pct}
-        />
-      ) : null}
+      {!!hasContext && (
+        <LiveTokenCounter tokensUsed={tokensUsed ?? 0} maxTokens={maxTokens ?? 0} pct={pct} />
+      )}
     </div>
   );
 };
@@ -179,9 +179,16 @@ const CompactButton = ({
   const compacting = isCompacting || isAutoCompacting;
 
   useEffect(() => {
-    if (!compacting) { setElapsedSec(0); setPolledProgress(null); return; }
+    if (!compacting) {
+      setElapsedSec(0);
+      setPolledProgress(null);
+      return;
+    }
     startRef.current = Date.now();
-    const id = setInterval(() => setElapsedSec(Math.floor((Date.now() - startRef.current) / 1000)), 1000);
+    const id = setInterval(
+      () => setElapsedSec(Math.floor((Date.now() - startRef.current) / 1000)),
+      1000,
+    );
     // Poll server progress only for manual compaction; auto uses streamStatus directly.
     if (!isAutoCompacting) {
       const pollId = setInterval(async () => {
@@ -191,14 +198,20 @@ const CompactButton = ({
             const data = await resp.json();
             if (data.status_message) setPolledProgress(data.status_message);
           }
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       }, 1000);
-      return () => { clearInterval(id); clearInterval(pollId); };
+      return () => {
+        clearInterval(id);
+        clearInterval(pollId);
+      };
     }
     return () => clearInterval(id);
   }, [compacting, isAutoCompacting]);
 
-  const fmtElapsed = (s: number) => s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${s % 60 < 10 ? '0' : ''}${s % 60}s`;
+  const fmtElapsed = (s: number) =>
+    s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${s % 60 < 10 ? '0' : ''}${s % 60}s`;
 
   const handleCompact = useCallback(async () => {
     if (compacting) return;
@@ -220,22 +233,24 @@ const CompactButton = ({
   const pctMatch = pctSource?.match(/\((\d+)%\)/);
   const pct = pctMatch ? pctMatch[1] : null;
 
+  const compactIcon = compacting ? (
+    <Loader2 className="h-3 w-3 animate-spin" />
+  ) : (
+    <PackageOpen className="h-3 w-3" />
+  );
+  const compactLabel = compacting
+    ? `Compacting${pct ? ` ${pct}%` : '…'} ${fmtElapsed(elapsedSec)}`
+    : 'Compact';
   return (
     <button
       type="button"
       onClick={handleCompact}
       disabled={compacting}
-      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-muted hover:bg-accent text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+      className="flex items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
       title={`Summarize old messages to free context (${ctxPct}% used)`}
     >
-      {compacting ? (
-        <Loader2 className="h-3 w-3 animate-spin" />
-      ) : (
-        <PackageOpen className="h-3 w-3" />
-      )}
-      {compacting
-        ? `Compacting${pct ? ` ${pct}%` : '…'} ${fmtElapsed(elapsedSec)}`
-        : 'Compact'}
+      {compactIcon}
+      {compactLabel}
     </button>
   );
 };
@@ -273,7 +288,7 @@ const BreakdownRow = ({
     <span className="text-muted-foreground">{label}</span>
     <span className="font-mono tabular-nums">
       {value}
-      {sub ? <span className="text-muted-foreground text-[10px] ml-1">{sub}</span> : null}
+      {!!sub && <span className="ml-1 text-[10px] text-muted-foreground">{sub}</span>}
     </span>
   </div>
 );
@@ -284,6 +299,7 @@ function barColor(pct: number) {
   return 'bg-primary';
 }
 
+// eslint-disable-next-line complexity
 const TokenBreakdownModal = ({
   onClose,
   modelContextSize,
@@ -334,7 +350,8 @@ const TokenBreakdownModal = ({
   const compactedEst = Math.round(compactedChars / CHARS_PER_TOKEN);
   const measuredTotal =
     lastPromptTokens != null && lastGenTokens != null ? lastPromptTokens + lastGenTokens : null;
-  const estimatedTotal = systemPromptTokens + toolTokens + summaryEst + activeMsgEst + activeToolEst;
+  const estimatedTotal =
+    systemPromptTokens + toolTokens + summaryEst + activeMsgEst + activeToolEst;
   const displayTotal = measuredTotal ?? estimatedTotal;
   const freeSpace = modelContextSize - displayTotal;
   const usedPct = Math.round((displayTotal / modelContextSize) * 100);
@@ -351,12 +368,12 @@ const TokenBreakdownModal = ({
       {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
       <div
         role="document"
-        className="bg-background border border-border rounded-xl shadow-2xl w-80 p-4 text-sm"
+        className="w-80 rounded-xl border border-border bg-background p-4 text-sm shadow-2xl"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between mb-3">
-          <span className="font-semibold flex items-center gap-1.5">
+        <div className="mb-3 flex items-center justify-between">
+          <span className="flex items-center gap-1.5 font-semibold">
             <Database className="h-3.5 w-3.5" />
             Context breakdown
           </span>
@@ -369,7 +386,7 @@ const TokenBreakdownModal = ({
           </button>
         </div>
 
-        <div className="w-full h-2 rounded-full bg-muted mb-3 overflow-hidden">
+        <div className="mb-3 h-2 w-full overflow-hidden rounded-full bg-muted">
           <div
             className={`h-full rounded-full ${barColor(usedPct)}`}
             style={{ width: `${Math.min(usedPct, 100)}%` }}
@@ -377,46 +394,48 @@ const TokenBreakdownModal = ({
         </div>
 
         <div className="divide-y divide-border">
-          <div className="pb-2 space-y-0.5">
+          <div className="space-y-0.5 pb-2">
             <BreakdownRow label="System prompt" value={fmt(systemPromptTokens)} sub="tokens" />
             <BreakdownRow label="Tool definitions" value={fmt(toolTokens)} sub="tokens" />
-            {summaryEst > 0 ? (
+            {summaryEst > 0 && (
               <BreakdownRow label="Compaction summary" value={`~${fmt(summaryEst)}`} sub="est." />
-            ) : null}
+            )}
             <BreakdownRow label="Messages" value={`~${fmt(activeMsgEst)}`} sub="est." />
-            {lastTokenBreakdown?.tool_calls_and_results != null ? (
+            {lastTokenBreakdown?.tool_calls_and_results != null && (
               <BreakdownRow
                 label="Tool output"
                 value={fmt(lastTokenBreakdown.tool_calls_and_results)}
                 sub="measured"
               />
-            ) : (
+            )}
+            {lastTokenBreakdown?.tool_calls_and_results == null && (
               <BreakdownRow label="Tool output" value={`~${fmt(activeToolEst)}`} sub="est." />
             )}
-            {lastTokenBreakdown?.tool_calls_and_results != null && activeToolEst > 0 ? (
+            {lastTokenBreakdown?.tool_calls_and_results != null && activeToolEst > 0 && (
               <BreakdownRow
                 label="Tool output (raw est.)"
                 value={`~${fmt(activeToolEst)}`}
                 sub={`${Math.round((1 - lastTokenBreakdown.tool_calls_and_results / activeToolEst) * 100)}% RTK`}
               />
-            ) : null}
-            {compactedEst > 0 ? (
+            )}
+            {compactedEst > 0 && (
               <BreakdownRow
                 label="Compacted history"
                 value={`~${fmt(compactedEst)}`}
                 sub="not in ctx"
               />
-            ) : null}
+            )}
           </div>
-          <div className="py-2 space-y-0.5">
-            {measuredTotal != null ? (
+          <div className="space-y-0.5 py-2">
+            {measuredTotal != null && (
               <BreakdownRow
                 label="Last measured total"
                 value={fmt(measuredTotal)}
                 sub="actual"
                 highlight
               />
-            ) : (
+            )}
+            {measuredTotal == null && (
               <BreakdownRow
                 label="Estimated total"
                 value={`~${fmt(estimatedTotal)}`}
@@ -433,11 +452,11 @@ const TokenBreakdownModal = ({
           </div>
         </div>
 
-        {measuredTotal != null ? (
-          <p className="text-[10px] text-muted-foreground mt-2">
+        {measuredTotal != null && (
+          <p className="mt-2 text-[10px] text-muted-foreground">
             Measured total = prompt + response tokens from last generation.
           </p>
-        ) : null}
+        )}
       </div>
     </div>
   );
@@ -454,28 +473,29 @@ const ContextUsageInfo = ({
 }) => {
   const [showModal, setShowModal] = useState(false);
   const CONTEXT_HIGH_PCT = 70;
+  const ctxSpanClass = ctxPct > CONTEXT_HIGH_PCT ? 'text-yellow-400' : '';
   return (
     <>
       <button
         type="button"
         onClick={() => setShowModal(true)}
-        className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono hover:text-foreground transition-colors cursor-pointer"
+        className="flex cursor-pointer items-center gap-1.5 font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
         title="Click for token breakdown"
       >
         <Database className="h-3 w-3" />
-        <span className={ctxPct > CONTEXT_HIGH_PCT ? 'text-yellow-400' : ''}>
+        <span className={ctxSpanClass}>
           ~{(estimatedConvTokens / 1000).toFixed(1)}K / {(modelContextSize / 1000).toFixed(1)}K
         </span>
-        {ctxPct > CONTEXT_HIGH_PCT ? (
-          <span className="text-yellow-400 text-[10px]">({ctxPct}%)</span>
-        ) : null}
+        {ctxPct > CONTEXT_HIGH_PCT && (
+          <span className="text-[10px] text-yellow-400">({ctxPct}%)</span>
+        )}
       </button>
-      {showModal ? (
+      {!!showModal && (
         <TokenBreakdownModal
           onClose={() => setShowModal(false)}
           modelContextSize={modelContextSize}
         />
-      ) : null}
+      )}
     </>
   );
 };
@@ -499,24 +519,22 @@ const StatsLeft = ({
   modelContextSize?: number;
   ctxPct: number;
 }) => (
-  <div className="flex-1 flex items-center gap-3 flex-wrap">
-    {timings?.genTokPerSec && !isLoading ? (
-      <MessageStatistics timings={timings} />
-    ) : null}
-    {isLoading ? (
+  <div className="flex flex-1 flex-wrap items-center gap-3">
+    {!!timings?.genTokPerSec && !isLoading && <MessageStatistics timings={timings} />}
+    {!!isLoading && (
       <LiveStreamingStats
         tokensUsed={tokensUsed}
         maxTokens={maxTokens}
         streamStatus={streamStatus}
       />
-    ) : null}
-    {!isLoading && estimatedConvTokens && modelContextSize ? (
+    )}
+    {!isLoading && !!estimatedConvTokens && !!modelContextSize && (
       <ContextUsageInfo
         estimatedConvTokens={estimatedConvTokens}
         modelContextSize={modelContextSize}
         ctxPct={ctxPct}
       />
-    ) : null}
+    )}
   </div>
 );
 
@@ -554,39 +572,41 @@ export const StatsBar = ({
   const showCompact =
     ((!isLoading && hasContextInfo && ctxPct >= COMPACT_THRESHOLD_PCT) || isAutoCompacting) &&
     !!currentConversationId;
+  const statsLeftEstTokens = hasContextInfo ? estimatedConvTokens : undefined;
+  const statsLeftCtxSize = hasContextInfo ? modelContextSize : undefined;
 
   return (
-    <div className="flex items-center justify-between mb-1">
+    <div className="mb-1 flex items-center justify-between">
       <StatsLeft
         timings={timings}
         tokensUsed={tokensUsed}
         maxTokens={maxTokens}
         streamStatus={streamStatus}
         isLoading={isLoading}
-        estimatedConvTokens={hasContextInfo ? estimatedConvTokens : undefined}
-        modelContextSize={hasContextInfo ? modelContextSize : undefined}
+        estimatedConvTokens={statsLeftEstTokens}
+        modelContextSize={statsLeftCtxSize}
         ctxPct={ctxPct}
       />
       <div className="flex items-center gap-2">
-        {showCompact ? (
+        {!!showCompact && (
           <CompactButton
             ctxPct={ctxPct}
             conversationId={currentConversationId}
             streamStatus={streamStatus}
           />
-        ) : null}
-        {isLoading && stopGeneration ? (
+        )}
+        {!!isLoading && !!stopGeneration && (
           <button
             type="button"
             onClick={stopGeneration}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-muted hover:bg-accent text-foreground transition-colors"
+            className="flex items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
             data-testid="stop-button"
             title="Stop generation"
           >
             <Square className="h-3 w-3 fill-current" />
             Stop
           </button>
-        ) : null}
+        )}
       </div>
     </div>
   );

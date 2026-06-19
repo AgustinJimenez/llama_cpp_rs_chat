@@ -6,14 +6,8 @@ use tokio::sync::mpsc;
 use llama_chat_command::background::execute_command_background;
 use llama_chat_command::{execute_command_streaming_with_timeout, strip_ansi_codes};
 use llama_chat_types::*;
-use llama_chat_tools;
 use super::sub_agent::{run_sub_agent};
 use super::tool_tags::ToolTags;
-/// Prefix a command with `rtk` for output compression (always enabled).
-pub(crate) fn rtk_prefix(cmd: &str) -> String {
-    format!("rtk {}", cmd)
-}
-
 /// Check if a command is potentially destructive and return a warning.
 pub(crate) fn detect_destructive_command(cmd: &str) -> Option<&'static str> {
     let lower = cmd.to_lowercase();
@@ -132,7 +126,7 @@ pub(crate) fn run_native_tool_with_timeout(
     // Extract tool name for logging
     let tool_name = llama_chat_tools::extract_tool_name(&cmd).unwrap_or_else(|| "unknown".to_string());
     let tool_args_summary = llama_chat_tools::extract_tool_args_summary(&cmd);
-    llama_chat_db::event_log::log_event(conversation_id, "tool_start", &format!("{}: {}", tool_name, tool_args_summary));
+    llama_chat_db::event_log::log_event(conversation_id, "tool_start", &format!("{tool_name}: {tool_args_summary}"));
     let tool_start = std::time::Instant::now();
 
     let (tx, rx) = std::sync::mpsc::channel();
@@ -163,18 +157,17 @@ pub(crate) fn run_native_tool_with_timeout(
             let elapsed = tool_start.elapsed();
             let output_len = result.as_ref().map(|r| r.text.len()).unwrap_or(0);
             llama_chat_db::event_log::log_event(conversation_id, "tool_end", &format!(
-                "{}: {:.1}s, {} chars output", tool_name, elapsed.as_secs_f64(), output_len
+                "{tool_name}: {:.1}s, {output_len} chars output", elapsed.as_secs_f64()
             ));
             result
         }
         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
             llama_chat_db::event_log::log_event(conversation_id, "tool_timeout", &format!(
-                "{}: timed out after {}s", tool_name, timeout_secs
+                "{tool_name}: timed out after {timeout_secs}s"
             ));
-            log_info!(conversation_id, "⏱️ Native tool timed out after {}s", timeout_secs);
+            log_info!(conversation_id, "⏱️ Native tool timed out after {timeout_secs}s");
             Some(llama_chat_tools::NativeToolResult::text_only(format!(
-                "Error: Tool execution timed out after {} seconds. The network request may be slow or unresponsive. Please try again.",
-                timeout_secs
+                "Error: Tool execution timed out after {timeout_secs} seconds. The network request may be slow or unresponsive. Please try again."
             )))
         }
         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
@@ -191,6 +184,7 @@ pub(crate) fn run_native_tool_with_timeout(
 /// The caller (batch outer merge loop) is responsible for sending timing WS messages and
 /// logging to DB — this function intentionally does NOT emit tool_timing WS messages to
 /// avoid duplicate sends (the outer loop emits once for every tool, in order).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn execute_single_tool(
     name: &str,
     args: &serde_json::Value,
@@ -224,7 +218,7 @@ pub(crate) fn execute_single_tool(
             token_sender,
         ) {
             Ok(result) => return (result, Vec::new(), t.elapsed().as_millis() as u64),
-            Err(e) => return (format!("Sub-agent error: {}", e), Vec::new(), t.elapsed().as_millis() as u64),
+            Err(e) => return (format!("Sub-agent error: {e}"), Vec::new(), t.elapsed().as_millis() as u64),
         }
     }
 
@@ -249,7 +243,18 @@ pub(crate) fn execute_single_tool(
                 let timeout_secs = args.get("timeout").and_then(|v| {
                     v.as_u64().or_else(|| v.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
                 });
-                let rtk_cmd = rtk_prefix(cmd);
+                let cmd = cmd.strip_prefix("rtk ").unwrap_or(cmd);
+                let working_dir = args.get("working_directory").and_then(|v| v.as_str());
+                let cmd_with_dir_buf;
+                let cmd = if let Some(dir) = working_dir {
+                    cmd_with_dir_buf = if cfg!(target_os = "windows") {
+                        format!("cd /d \"{dir}\" && {cmd}")
+                    } else {
+                        format!("cd \"{dir}\" && {cmd}")
+                    };
+                    cmd_with_dir_buf.as_str()
+                } else { cmd };
+                let rtk_cmd = cmd;
                 if is_background {
                     log_info!(conversation_id, "🐚 Batch: background execute_command: {}", rtk_cmd);
                     let sender_clone = token_sender.clone();
@@ -278,7 +283,14 @@ pub(crate) fn execute_single_tool(
                             });
                         }
                     });
-                    return (text, Vec::new(), exec_start.elapsed().as_millis() as u64);
+                    let duration_ms = exec_start.elapsed().as_millis() as u64;
+                    // Heartbeat: resets WebSocket silence watchdog between back-to-back
+                    // execute_command calls in a serial batch. Without this, two silent
+                    // 120s commands would produce 240s of silence, exceeding the 180s watchdog.
+                    if let Some(ref sender) = token_sender {
+                        let _ = sender.send(TokenData::default());
+                    }
+                    return (text, Vec::new(), duration_ms);
                 }
             }
         }
@@ -296,9 +308,13 @@ pub(crate) fn execute_single_tool(
     ) {
         let native_duration_ms = native_start.elapsed().as_millis() as u64;
         log_info!(conversation_id, "📦 Batch: native tool '{}' dispatched (images={})", name, native_result.images.len());
+        // Heartbeat: resets WebSocket silence watchdog between serial batch tools.
+        if let Some(ref sender) = token_sender {
+            let _ = sender.send(TokenData::default());
+        }
         return (native_result.text, native_result.images, native_duration_ms);
     }
 
     // Fallback: unknown tool
-    (format!("Error: Unknown or unsupported tool '{}'", name), Vec::new(), 0)
+    (format!("Error: Unknown or unsupported tool '{name}'"), Vec::new(), 0)
 }

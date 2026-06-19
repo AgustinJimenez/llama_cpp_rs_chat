@@ -31,11 +31,10 @@ pub fn tool_get_system_metrics(_args: &serde_json::Value) -> NativeToolResult {
     let disk_info = get_disk_info();
 
     let mut result = format!(
-        "CPU: {:.0}%\nMemory: {:.1} / {:.1} GB ({:.0}%)",
-        cpu_usage, used_gb, total_gb, mem_pct
+        "CPU: {cpu_usage:.0}%\nMemory: {used_gb:.1} / {total_gb:.1} GB ({mem_pct:.0}%)"
     );
     if let Some(disk) = disk_info {
-        result.push_str(&format!("\nDisk: {}", disk));
+        result.push_str(&format!("\nDisk: {disk}"));
     }
 
     NativeToolResult::text_only(result)
@@ -62,8 +61,7 @@ fn get_disk_info() -> Option<String> {
                 let avail_gb = available as f64 / (1024.0 * 1024.0 * 1024.0);
                 let used_pct = ((total - available) as f64 / total as f64) * 100.0;
                 return Some(format!(
-                    "{:.0} / {:.0} GB free ({:.0}% used)",
-                    avail_gb, total_gb, used_pct
+                    "{avail_gb:.0} / {total_gb:.0} GB free ({used_pct:.0}% used)"
                 ));
             }
         }
@@ -77,8 +75,7 @@ fn get_disk_info() -> Option<String> {
             let avail_gb = available as f64 / (1024.0 * 1024.0 * 1024.0);
             let used_pct = ((total - available) as f64 / total as f64) * 100.0;
             return Some(format!(
-                "{:.0} / {:.0} GB free ({:.0}% used)",
-                avail_gb, total_gb, used_pct
+                "{avail_gb:.0} / {total_gb:.0} GB free ({used_pct:.0}% used)"
             ));
         }
     }

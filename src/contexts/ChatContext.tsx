@@ -16,6 +16,8 @@ interface ChatContextValue {
   clearMessages: () => void;
   loadConversation: (filename: string) => void;
   currentConversationId: string | null;
+  currentConversationWorkerId: string | null;
+  setCurrentConversationWorkerId: (workerId: string | null) => void;
   tokensUsed?: number;
   maxTokens?: number;
   lastTimings?: TimingInfo;
@@ -46,6 +48,8 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
       chat.clearMessages,
       chat.loadConversation,
       chat.currentConversationId,
+      chat.currentConversationWorkerId,
+      chat.setCurrentConversationWorkerId,
       chat.tokensUsed,
       chat.maxTokens,
       chat.lastTimings,

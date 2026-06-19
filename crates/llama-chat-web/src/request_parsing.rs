@@ -9,7 +9,7 @@ use serde::de::DeserializeOwned;
 /// The error Response includes proper CORS headers and error message in JSON format.
 ///
 /// # Example
-/// ```
+/// ```ignore
 /// let chat_request: ChatRequest = match parse_json_body(req.into_body()).await {
 ///     Ok(req) => req,
 ///     Err(error_response) => return Ok(error_response),
@@ -57,7 +57,7 @@ pub async fn parse_json_body<T: DeserializeOwned>(body: Body) -> Result<T, Respo
 /// The value is URL-decoded automatically.
 ///
 /// # Example
-/// ```
+/// ```ignore
 /// // For URI: /api/model/info?path=/models/llama.gguf
 /// let model_path = get_query_param(req.uri(), "path");
 /// ```

@@ -24,6 +24,9 @@ pub enum WorkerCommand {
         model_path: String,
         gpu_layers: Option<u32>,
         mmproj_path: Option<String>,
+        /// Agent ID to use for loading agent-specific config (KV cache, context size, etc.).
+        #[serde(default)]
+        agent_id: Option<String>,
     },
     /// Unload the current model (free memory within the process).
     UnloadModel,
@@ -37,6 +40,10 @@ pub enum WorkerCommand {
         /// Base64-encoded image data URIs for vision models (supports multiple).
         #[serde(default)]
         image_data: Option<Vec<String>>,
+        /// Agent ID to use for agent-specific config (context size, KV cache, etc.).
+        /// Set this for new conversations so the worker uses the correct config from the start.
+        #[serde(default)]
+        agent_id: Option<String>,
     },
     /// Cancel the in-progress generation.
     CancelGeneration,
@@ -57,6 +64,10 @@ pub enum WorkerCommand {
     GetAvailableBackends,
     /// Force compact a conversation (manual user action).
     CompactConversation { conversation_id: String },
+    /// Call an MCP tool by qualified name from the server side (for remote providers).
+    CallMcpTool { name: String, args_json: String },
+    /// Get full MCP tool definitions (with JSON schemas) for all connected servers.
+    GetMcpToolDefinitions,
     /// Health check.
     Ping,
     /// Graceful shutdown.
@@ -169,6 +180,10 @@ pub enum WorkerPayload {
     CompactionDone { conversation_id: String },
     /// Intermediate status update (id=0, no pending request needed).
     StatusUpdate { message: String },
+    /// Result of a CallMcpTool command.
+    McpToolResult { result: Option<String>, error: Option<String> },
+    /// Full MCP tool definitions with schemas.
+    McpToolDefinitions { tools: Vec<McpToolDefPayload> },
     /// An error occurred.
     Error { message: String },
 }
@@ -188,6 +203,15 @@ pub struct BackendDeviceInfo {
     pub description: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vram_mb: Option<u64>,
+}
+
+/// A full MCP tool definition sent via IPC (includes JSON schema for parameters).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct McpToolDefPayload {
+    pub qualified_name: String,
+    pub description: String,
+    pub input_schema: serde_json::Value,
+    pub server_name: String,
 }
 
 /// Status of an individual MCP server.

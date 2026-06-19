@@ -37,7 +37,7 @@ pub fn extract_tool_args_summary(cmd: &str) -> String {
         for (key, val) in obj.iter().take(2) {
             if let Some(s) = val.as_str() {
                 let truncated: String = s.chars().take(80).collect();
-                return format!("{}={}", key, truncated);
+                return format!("{key}={truncated}");
             }
         }
     }
@@ -56,7 +56,15 @@ pub(super) fn todo_store() -> &'static StdMutex<HashMap<String, String>> {
     TODO_STORE.get_or_init(|| StdMutex::new(HashMap::new()))
 }
 
-pub fn extract_execute_command_with_opts(text: &str) -> Option<(String, bool)> {
+/// Parsed options from an execute_command tool call.
+pub struct ExecuteCommandOpts {
+    pub command: String,
+    pub background: bool,
+    pub timeout: Option<u64>,
+    pub working_directory: Option<String>,
+}
+
+pub fn extract_execute_command_with_opts(text: &str) -> Option<ExecuteCommandOpts> {
     if let Some((name, args)) = parsing::try_parse_tool_call(text) {
         if name == "execute_command" {
             let command = args.get("command").and_then(|v| v.as_str())?;
@@ -65,7 +73,14 @@ pub fn extract_execute_command_with_opts(text: &str) -> Option<(String, bool)> {
                     .get("background")
                     .and_then(parsing::value_as_bool_flexible)
                     .unwrap_or(false);
-                return Some((command.to_string(), background));
+                let timeout = args.get("timeout").and_then(|v| {
+                    v.as_u64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+                });
+                let working_directory = args
+                    .get("working_directory")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                return Some(ExecuteCommandOpts { command: command.to_string(), background, timeout, working_directory });
             }
         }
         return None;
@@ -79,7 +94,14 @@ pub fn extract_execute_command_with_opts(text: &str) -> Option<(String, bool)> {
                     .get("background")
                     .and_then(parsing::value_as_bool_flexible)
                     .unwrap_or(false);
-                return Some((command.to_string(), background));
+                let timeout = parsed.get("timeout").and_then(|v| {
+                    v.as_u64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+                });
+                let working_directory = parsed
+                    .get("working_directory")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                return Some(ExecuteCommandOpts { command: command.to_string(), background, timeout, working_directory });
             }
         }
     }
@@ -153,15 +175,18 @@ fn validate_tool_args(tool_name: &str, args: &serde_json::Value) -> Result<(), S
                 match value {
                     None | Some(&serde_json::Value::Null) => {
                         return Err(format!(
-                            "Missing required parameter '{}' for tool '{}'. Required parameters: {:?}",
-                            field_name, tool_name, required
+                            "Missing required parameter '{field_name}' for tool '{tool_name}'. Required parameters: {required:?}"
                         ));
                     }
                     Some(serde_json::Value::String(s)) if s.is_empty() => {
-                        return Err(format!(
-                            "Parameter '{}' for tool '{}' cannot be empty",
-                            field_name, tool_name
-                        ));
+                        // write_file's content param is legitimately empty (e.g. creating __init__.py)
+                        if tool_name == "write_file" && field_name == "content" {
+                            // allowed
+                        } else {
+                            return Err(format!(
+                                "Parameter '{field_name}' for tool '{tool_name}' cannot be empty"
+                            ));
+                        }
                     }
                     _ => {}
                 }
@@ -179,9 +204,9 @@ fn validate_tool_args(tool_name: &str, args: &serde_json::Value) -> Result<(), S
                             return Err(type_error(field_name, tool_name, "string", value));
                         }
                         "number" | "integer"
-                            if !value.is_number()
-                                && !(value.is_string()
-                                    && value.as_str().unwrap_or("").parse::<f64>().is_ok()) =>
+                            if !(value.is_number()
+                                || (value.is_string()
+                                    && value.as_str().unwrap_or("").parse::<f64>().is_ok())) =>
                         {
                             return Err(type_error(field_name, tool_name, "number", value));
                         }
@@ -208,12 +233,9 @@ fn validate_tool_args(tool_name: &str, args: &serde_json::Value) -> Result<(), S
 }
 
 fn type_error(field_name: &str, tool_name: &str, expected: &str, value: &Value) -> String {
+    let got = value_type_name(value);
     format!(
-        "Parameter '{}' for tool '{}' must be a {}, got {}",
-        field_name,
-        tool_name,
-        expected,
-        value_type_name(value)
+        "Parameter '{field_name}' for tool '{tool_name}' must be a {expected}, got {got}"
     )
 }
 
@@ -237,11 +259,7 @@ pub fn dispatch_native_tool(
 ) -> Option<NativeToolResult> {
     let trimmed = text.trim();
     let mut calls = parsing::try_parse_all_from_raw(trimmed);
-    let (name, args) = if let Some(first) = calls.drain(..).next() {
-        first
-    } else {
-        return None;
-    };
+    let (name, args) = calls.drain(..).next()?;
 
     if let Err(validation_error) = validate_tool_args(&name, &args) {
         return Some(NativeToolResult::text_only(validation_error));
@@ -288,8 +306,7 @@ pub fn dispatch_native_tool(
             .or_else(|| mcp_tools::get_mcp_tool_schema(tool_name, mcp_manager))
             .unwrap_or_else(|| {
                 format!(
-                    "Tool '{}' not found. Use list_tools to see available tools.",
-                    tool_name
+                    "Tool '{tool_name}' not found. Use list_tools to see available tools."
                 )
             });
         return Some(NativeToolResult::text_only(result));
@@ -311,7 +328,8 @@ pub fn dispatch_native_tool(
             _ => return Some(NativeToolResult::text_only("Error: 'query' is required".into())),
         };
         let encoded = urlencoding::encode(query);
-        let search_url = format!("https://www.google.com/search?q={encoded}");
+        // gl=us&hl=en: force English/US results regardless of user's IP geo-location
+        let search_url = format!("https://www.google.com/search?q={encoded}&gl=us&hl=en&num=8");
         if let Err(e) = browser_session::notify_tauri_browser_navigate(&search_url) {
             return Some(NativeToolResult::text_only(format!(
                 "Failed to open browser: {e}"

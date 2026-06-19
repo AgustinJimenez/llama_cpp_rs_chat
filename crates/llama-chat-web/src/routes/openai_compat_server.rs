@@ -2,6 +2,7 @@
 // Implements /v1/models and /v1/chat/completions so third-party clients
 // like openclaw can connect to this app as if it were an OpenAI API server.
 
+#[cfg(not(feature = "mock"))]
 use hyper::body::Bytes;
 use hyper::{Body, Request, Response, StatusCode};
 use serde::Deserialize;
@@ -22,6 +23,7 @@ struct OpenAiMessage {
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct OpenAiChatRequest {
     messages: Vec<OpenAiMessage>,
     #[serde(default)]
@@ -101,6 +103,7 @@ pub async fn handle_post_chat_completions(
 
     #[cfg(feature = "mock")]
     {
+        let _ = user_prompt;
         let body = serde_json::json!({
             "id": format!("chatcmpl-{}", uuid::Uuid::new_v4()),
             "object": "chat.completion",
@@ -133,7 +136,7 @@ async fn stream_response(
         .as_secs();
 
     tokio::spawn(async move {
-        let (mut token_rx, done_rx) = match bridge.generate(user_prompt, None, false, None).await {
+        let (mut token_rx, done_rx) = match bridge.generate(user_prompt, None, false, None, None).await {
             Ok(rx) => rx,
             Err(e) => {
                 let chunk = error_chunk(&completion_id, &model_id, created, &e);
@@ -208,7 +211,7 @@ async fn blocking_response(
         .unwrap_or_default()
         .as_secs();
 
-    let (mut token_rx, done_rx) = match bridge.generate(user_prompt, None, false, None).await {
+    let (mut token_rx, done_rx) = match bridge.generate(user_prompt, None, false, None, None).await {
         Ok(rx) => rx,
         Err(e) => {
             let body = serde_json::json!({

@@ -32,7 +32,7 @@ export const ToolTagsSection: React.FC<ToolTagsSectionProps> = ({
   const detected = modelInfo?.detected_tool_tags;
 
   return (
-    <div className="rounded-md border border-border px-3 py-2 space-y-2">
+    <div className="space-y-2 rounded-md border border-border px-3 py-2">
       <span className="text-xs font-medium">Tool Tags</span>
       <div className="grid grid-cols-2 gap-x-4 gap-y-2">
         {TAG_FIELDS.map((field) => {
@@ -41,26 +41,26 @@ export const ToolTagsSection: React.FC<ToolTagsSectionProps> = ({
 
           return (
             <div key={field.key} className="flex items-center gap-1.5">
-              <label className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
+              <label className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
                 {field.label}
               </label>
               <input
                 type="text"
-                className="flex-1 h-6 rounded border border-input bg-background px-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+                className="h-6 flex-1 rounded border border-input bg-background px-1.5 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-ring"
                 placeholder={placeholder || 'auto-detected'}
                 value={value}
                 onChange={(e) => onConfigChange(field.key, e.target.value)}
               />
-              {value ? (
+              {!!value && (
                 <button
                   type="button"
-                  className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                  className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
                   title="Reset to auto-detected"
                   onClick={() => onConfigChange(field.key, '')}
                 >
                   <RotateCcw className="h-3 w-3" />
                 </button>
-              ) : null}
+              )}
             </div>
           );
         })}

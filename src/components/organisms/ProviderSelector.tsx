@@ -1,5 +1,18 @@
-import { X, Cpu, Cloud, Zap, Loader2, Search, ChevronDown, ChevronUp, Check, PlayCircle, RefreshCw } from 'lucide-react';
-import { useState, useEffect, useCallback } from 'react';
+/* eslint-disable max-lines */
+import {
+  X,
+  Cpu,
+  Cloud,
+  Zap,
+  Loader2,
+  Search,
+  ChevronDown,
+  ChevronUp,
+  Check,
+  PlayCircle,
+  RefreshCw,
+} from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
 
 import { ProviderConfigSection } from '@/components/molecules/ProviderConfigSection';
 import { isTauriEnv } from '@/utils/tauri';
@@ -48,6 +61,27 @@ function parseApiKeys(raw: string | undefined | null): ApiKeyMap {
     return {};
   }
 }
+
+const SectionHeader = ({
+  label,
+  icon,
+  isOpen: open,
+  onToggle,
+}: {
+  label: string;
+  icon: React.ReactNode;
+  isOpen: boolean;
+  onToggle: () => void;
+}) => (
+  <button onClick={onToggle} className="group flex w-full items-center gap-2 py-1 pt-1 text-left">
+    {icon}
+    <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground transition-colors group-hover:text-foreground">
+      {label}
+    </span>
+    {!!open && <ChevronUp className="ml-auto h-3.5 w-3.5 text-muted-foreground" />}
+    {!open && <ChevronDown className="ml-auto h-3.5 w-3.5 text-muted-foreground" />}
+  </button>
+);
 
 // eslint-disable-next-line max-lines-per-function -- single cohesive provider selection modal
 export const ProviderSelector = ({
@@ -99,13 +133,17 @@ export const ProviderSelector = ({
           });
           // Populate existing API key inputs (keys are masked but base_url is useful)
           const keyMap: ApiKeyMap = {};
-          for (const [id, val] of Object.entries(keysData as Record<string, {api_key?: string; base_url?: string}>)) {
+          for (const [id, val] of Object.entries(
+            keysData as Record<string, { api_key?: string; base_url?: string }>,
+          )) {
             keyMap[id] = { api_key: '', base_url: val.base_url || '' };
           }
           setApiKeyInputs(keyMap);
         }
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   const fetchCliProviders = useCallback(async (cancelled: { v: boolean }) => {
@@ -132,7 +170,9 @@ export const ProviderSelector = ({
           });
         }
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   useEffect(() => {
@@ -149,7 +189,9 @@ export const ProviderSelector = ({
       if (!cancelled.v) setLoadingCli(false);
     })();
 
-    return () => { cancelled.v = true; };
+    return () => {
+      cancelled.v = true;
+    };
   }, [isOpen, fetchConfiguredProviders, fetchCliProviders]);
 
   const refreshCli = async () => {
@@ -172,7 +214,9 @@ export const ProviderSelector = ({
           api_key: input.api_key || '',
           ...(input.base_url ? { base_url: input.base_url } : {}),
         };
-        await invoke('save_config', { config: { ...config, provider_api_keys: JSON.stringify(keys) } });
+        await invoke('save_config', {
+          config: { ...config, provider_api_keys: JSON.stringify(keys) },
+        });
         const configured = await invoke<{ providers?: Provider[] }>('list_configured_providers');
         setProviders((current) => {
           const merged = new Map(current.map((p) => [p.id, p]));
@@ -200,9 +244,13 @@ export const ProviderSelector = ({
       }
 
       setSavedProvider(providerId);
+      // eslint-disable-next-line @typescript-eslint/no-magic-numbers
       setTimeout(() => setSavedProvider(null), 2000);
-    } catch { /* ignore */ }
-    finally { setSavingProvider(null); }
+    } catch {
+      /* ignore */
+    } finally {
+      setSavingProvider(null);
+    }
   };
 
   if (!isOpen) return null;
@@ -214,73 +262,48 @@ export const ProviderSelector = ({
     .filter((p) => p.name.toLowerCase().includes(providerSearch.toLowerCase()))
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  const SectionHeader = ({
-    label,
-    icon,
-    isOpen: open,
-    onToggle,
-  }: {
-    label: string;
-    icon: React.ReactNode;
-    isOpen: boolean;
-    onToggle: () => void;
-  }) => (
-    <button
-      onClick={onToggle}
-      className="flex items-center gap-2 w-full text-left py-1 pt-1 group"
-    >
-      {icon}
-      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider group-hover:text-foreground transition-colors">
-        {label}
-      </span>
-      {open
-        ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground ml-auto" />
-        : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground ml-auto" />
-      }
-    </button>
-  );
-
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
       role="button"
       tabIndex={0}
       onClick={onClose}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClose(); }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') onClose();
+      }}
     >
       {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
       <div
-        className="bg-card border border-border rounded-lg shadow-2xl w-[560px] max-w-[90vw] max-h-[85vh] flex flex-col"
+        className="flex max-h-[85vh] w-[560px] max-w-[90vw] flex-col rounded-lg border border-border bg-card shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <h3 className="text-base font-medium text-foreground">Select Provider</h3>
           <button
             onClick={onClose}
-            className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+            className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="p-5 space-y-3 overflow-y-auto">
-
+        <div className="space-y-3 overflow-y-auto p-5">
           {/* ── Local Model ── */}
           <button
             onClick={onSelectLocal}
-            className={`w-full text-left p-4 rounded-lg border transition-colors ${
+            className={`w-full rounded-lg border p-4 text-left transition-colors ${
               currentProvider === 'local'
                 ? 'border-primary bg-primary/10'
                 : 'border-border hover:border-primary hover:bg-muted/50'
             }`}
           >
             <div className="flex items-start gap-3">
-              <Cpu className="h-5 w-5 text-emerald-400 mt-0.5 flex-shrink-0" />
+              <Cpu className="mt-0.5 h-5 w-5 flex-shrink-0 text-emerald-400" />
               <div>
                 <div className="font-medium text-foreground">
                   {localProvider?.name || 'Local Model (llama.cpp)'}
                 </div>
-                <div className="text-xs text-muted-foreground mt-1">
+                <div className="mt-1 text-xs text-muted-foreground">
                   {localProvider?.description || 'Run models locally on your GPU'}
                 </div>
               </div>
@@ -295,76 +318,87 @@ export const ProviderSelector = ({
             onToggle={() => setCliSectionOpen((v) => !v)}
           />
 
-          {cliSectionOpen && (
+          {!!cliSectionOpen && (
             <div className="space-y-2">
               <div className="flex justify-end">
                 <button
                   onClick={refreshCli}
                   disabled={refreshingCli || loadingCli}
                   title="Re-check CLI availability"
-                  className="flex items-center gap-1.5 px-2 py-1 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-40"
+                  className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
                 >
                   <RefreshCw className={`h-3 w-3 ${refreshingCli ? 'animate-spin' : ''}`} />
                   Refresh
                 </button>
               </div>
-              {(loadingCli && cliProviders.length === 0)
-                ? [
-                    { name: 'Claude Code' },
-                    { name: 'Codex CLI' },
-                    { name: 'Gemini CLI' },
-                  ].map((p) => (
+              {!!loadingCli &&
+                cliProviders.length === 0 &&
+                [{ name: 'Claude Code' }, { name: 'Codex CLI' }, { name: 'Gemini CLI' }].map(
+                  (p) => (
                     <div key={p.name} className="rounded-lg border border-border opacity-60">
-                      <div className="p-4 flex items-center gap-3">
-                        <Cloud className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                      <div className="flex items-center gap-3 p-4">
+                        <Cloud className="h-5 w-5 flex-shrink-0 text-muted-foreground" />
                         <div className="flex items-center gap-2">
                           <span className="font-medium text-foreground">{p.name}</span>
                           <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
                         </div>
                       </div>
                     </div>
-                  ))
-                : cliProviders.map((provider) => (
+                  ),
+                )}
+              {(!loadingCli || cliProviders.length > 0) &&
+                cliProviders.map((provider) => {
+                  const availabilityBadge = provider.available ? (
+                    <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] text-emerald-400">
+                      connected
+                    </span>
+                  ) : (
+                    <span className="rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] text-red-400">
+                      not detected
+                    </span>
+                  );
+                  const versionSuffix = provider.version
+                    ? ` (v${provider.version.split(' ')[0]})`
+                    : '';
+                  let borderClass = provider.available
+                    ? 'border-border'
+                    : 'border-border opacity-60';
+                  if (currentProvider === provider.id) borderClass = 'border-primary bg-primary/10';
+                  return (
                     <div
                       key={provider.id}
-                      className={`rounded-lg border transition-colors ${
-                        currentProvider === provider.id
-                          ? 'border-primary bg-primary/10'
-                          : provider.available
-                            ? 'border-border'
-                            : 'border-border opacity-60'
-                      }`}
+                      className={`rounded-lg border transition-colors ${borderClass}`}
                     >
                       <div className="p-4">
                         <div className="flex items-start gap-3">
-                          <Cloud className={`h-5 w-5 mt-0.5 flex-shrink-0 ${provider.available ? 'text-cyan-400' : 'text-muted-foreground'}`} />
+                          <Cloud
+                            className={`mt-0.5 h-5 w-5 flex-shrink-0 ${provider.available ? 'text-cyan-400' : 'text-muted-foreground'}`}
+                          />
                           <div className="flex-1">
                             <div className="flex items-center gap-2">
                               <span className="font-medium text-foreground">{provider.name}</span>
-                              {provider.available ? (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">connected</span>
-                              ) : (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400">not detected</span>
-                              )}
+                              {availabilityBadge}
                             </div>
-                            <div className="text-xs text-muted-foreground mt-1">
+                            <div className="mt-1 text-xs text-muted-foreground">
                               {provider.description}
-                              {provider.version ? ` (v${provider.version.split(' ')[0]})` : ''}
+                              {versionSuffix}
                             </div>
                           </div>
                         </div>
                       </div>
-                      <div className="border-t border-border/50 px-4 py-3 space-y-2">
+                      <div className="space-y-2 border-t border-border/50 px-4 py-3">
                         <div className="flex gap-2">
                           {(provider.models || ['default']).map((model) => (
                             <button
                               key={`${provider.id}:${model}`}
                               disabled={!provider.available}
-                              onClick={() => provider.available && onSelectRemote(provider.id, model)}
-                              className={`flex-1 py-2 px-3 rounded-md text-xs font-medium border transition-colors ${
+                              onClick={() =>
+                                provider.available && onSelectRemote(provider.id, model)
+                              }
+                              className={`flex-1 rounded-md border px-3 py-2 text-xs font-medium transition-colors ${
                                 provider.available
-                                  ? 'bg-muted hover:bg-accent text-foreground/80 hover:text-foreground border-border hover:border-primary cursor-pointer'
-                                  : 'bg-muted/50 text-muted-foreground/40 border-border/40 cursor-not-allowed'
+                                  ? 'cursor-pointer border-border bg-muted text-foreground/80 hover:border-primary hover:bg-accent hover:text-foreground'
+                                  : 'cursor-not-allowed border-border/40 bg-muted/50 text-muted-foreground/40'
                               }`}
                             >
                               {model.charAt(0).toUpperCase() + model.slice(1)}
@@ -384,25 +418,30 @@ export const ProviderSelector = ({
                             placeholder="Type model name…"
                             disabled={!provider.available}
                             value={customModels[provider.id] || ''}
-                            onChange={(e) => setCustomModels((prev) => ({ ...prev, [provider.id]: e.target.value }))}
-                            className={`flex-1 py-2 px-3 rounded-md text-xs border bg-muted font-mono placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary transition-colors ${
+                            onChange={(e) =>
+                              setCustomModels((prev) => ({
+                                ...prev,
+                                [provider.id]: e.target.value,
+                              }))
+                            }
+                            className={`flex-1 rounded-md border bg-muted px-3 py-2 font-mono text-xs transition-colors placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none ${
                               provider.available
-                                ? 'text-foreground border-border'
-                                : 'text-muted-foreground/40 border-border/40 cursor-not-allowed'
+                                ? 'border-border text-foreground'
+                                : 'cursor-not-allowed border-border/40 text-muted-foreground/40'
                             }`}
                           />
                           <button
                             type="submit"
                             disabled={!provider.available || !customModels[provider.id]?.trim()}
-                            className="p-2 rounded-md border border-border bg-muted hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                            className="rounded-md border border-border bg-muted p-2 transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-30"
                           >
                             <PlayCircle className="h-4 w-4 text-emerald-400" />
                           </button>
                         </form>
                       </div>
                     </div>
-                  ))
-              }
+                  );
+                })}
             </div>
           )}
 
@@ -414,119 +453,167 @@ export const ProviderSelector = ({
             onToggle={() => setOpenaiSectionOpen((v) => !v)}
           />
 
-          {openaiSectionOpen && (
+          {!!openaiSectionOpen && (
             <div className="space-y-2">
               <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                 <input
                   type="text"
                   placeholder="Search providers..."
                   value={providerSearch}
                   onChange={(e) => setProviderSearch(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1.5 text-xs bg-muted border border-border rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
+                  className="w-full rounded-md border border-border bg-muted py-1.5 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
                 />
               </div>
 
+              {/* eslint-disable-next-line complexity, max-lines-per-function */}
               {openaiProviders.map((provider) => {
                 const isExpanded = expandedProvider === provider.id;
                 const input = apiKeyInputs[provider.id] || {};
                 const isSaving = savingProvider === provider.id;
                 const justSaved = savedProvider === provider.id;
+                const apiKeyBadge = provider.available ? (
+                  <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] text-emerald-400">
+                    API key set
+                  </span>
+                ) : (
+                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                    no API key
+                  </span>
+                );
+                const chevronIcon = isExpanded ? (
+                  <ChevronUp className="h-4 w-4" />
+                ) : (
+                  <ChevronDown className="h-4 w-4" />
+                );
+                let saveIcon = null;
+                if (isSaving) saveIcon = <Loader2 className="h-3 w-3 animate-spin" />;
+                else if (justSaved) saveIcon = <Check className="h-3 w-3" />;
+                const useTitle = provider.available ? `Use ${provider.name}` : 'Set API key first';
+                const saveLabel = justSaved ? 'Saved' : 'Save';
 
+                let providerBorderClass = isExpanded ? 'border-border/80' : 'border-border';
+                if (currentProvider === provider.id) {
+                  providerBorderClass = 'border-primary bg-primary/10';
+                }
                 return (
                   <div
                     key={provider.id}
-                    className={`rounded-lg border transition-colors ${
-                      currentProvider === provider.id
-                        ? 'border-primary bg-primary/10'
-                        : isExpanded ? 'border-border/80' : 'border-border'
-                    }`}
+                    className={`rounded-lg border transition-colors ${providerBorderClass}`}
                   >
                     <div className="flex items-center">
                       <button
                         onClick={() => setExpandedProvider(isExpanded ? null : provider.id)}
-                        className="flex-1 text-left p-4 hover:bg-muted/50 transition-colors rounded-tl-lg"
+                        className="flex-1 rounded-tl-lg p-4 text-left transition-colors hover:bg-muted/50"
                       >
                         <div className="flex items-center gap-3">
-                          <Zap className="h-5 w-5 text-amber-400 flex-shrink-0" />
-                          <div className="flex-1 min-w-0">
+                          <Zap className="h-5 w-5 flex-shrink-0 text-amber-400" />
+                          <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
                               <span className="font-medium text-foreground">{provider.name}</span>
-                              {provider.available ? (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">API key set</span>
-                              ) : (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">no API key</span>
-                              )}
+                              {apiKeyBadge}
                             </div>
-                            <div className="text-xs text-muted-foreground mt-0.5">{provider.description}</div>
+                            <div className="mt-0.5 text-xs text-muted-foreground">
+                              {provider.description}
+                            </div>
                           </div>
                         </div>
                       </button>
 
-                      <div className="flex items-center gap-1 pr-3 flex-shrink-0">
+                      <div className="flex flex-shrink-0 items-center gap-1 pr-3">
                         <button
                           disabled={!provider.available}
-                          onClick={() => provider.available && onSelectRemote(provider.id, selectedModels[provider.id] || provider.models?.[0] || 'default')}
-                          title={provider.available ? `Use ${provider.name}` : 'Set API key first'}
-                          className={`p-1.5 rounded-md transition-colors ${
+                          onClick={() =>
+                            provider.available &&
+                            onSelectRemote(
+                              provider.id,
+                              selectedModels[provider.id] || provider.models?.[0] || 'default',
+                            )
+                          }
+                          title={useTitle}
+                          className={`rounded-md p-1.5 transition-colors ${
                             provider.available
                               ? 'text-emerald-400 hover:bg-emerald-400/10 hover:text-emerald-300'
-                              : 'text-muted-foreground/30 cursor-not-allowed'
+                              : 'cursor-not-allowed text-muted-foreground/30'
                           }`}
                         >
                           <PlayCircle className="h-5 w-5" />
                         </button>
                         <button
                           onClick={() => setExpandedProvider(isExpanded ? null : provider.id)}
-                          className="p-1.5 rounded-md hover:bg-muted/50 transition-colors text-muted-foreground"
+                          className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted/50"
                         >
-                          {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                          {chevronIcon}
                         </button>
                       </div>
                     </div>
 
-                    {isExpanded && (
-                      <div className="border-t border-border/50 px-4 py-3 space-y-3">
+                    {!!isExpanded && (
+                      <div className="space-y-3 border-t border-border/50 px-4 py-3">
                         <div className="space-y-1">
-                          <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">API Key</label>
+                          {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
+                          <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                            API Key
+                          </label>
                           <input
                             type="password"
                             placeholder="sk-..."
                             value={input.api_key || ''}
-                            onChange={(e) => setApiKeyInputs((prev) => ({ ...prev, [provider.id]: { ...prev[provider.id], api_key: e.target.value } }))}
-                            className="w-full px-3 py-1.5 text-xs bg-muted border border-border rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary font-mono"
+                            onChange={(e) =>
+                              setApiKeyInputs((prev) => ({
+                                ...prev,
+                                [provider.id]: { ...prev[provider.id], api_key: e.target.value },
+                              }))
+                            }
+                            className="w-full rounded-md border border-border bg-muted px-3 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
                           />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-                            Base URL <span className="normal-case font-normal">(optional override)</span>
+                          {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
+                          <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                            Base URL{' '}
+                            <span className="font-normal normal-case">(optional override)</span>
                           </label>
                           <input
                             type="text"
                             placeholder={provider.default_base_url || 'https://api.example.com/v1'}
                             value={input.base_url || ''}
-                            onChange={(e) => setApiKeyInputs((prev) => ({ ...prev, [provider.id]: { ...prev[provider.id], base_url: e.target.value } }))}
-                            className="w-full px-3 py-1.5 text-xs bg-muted border border-border rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary font-mono"
+                            onChange={(e) =>
+                              setApiKeyInputs((prev) => ({
+                                ...prev,
+                                [provider.id]: { ...prev[provider.id], base_url: e.target.value },
+                              }))
+                            }
+                            className="w-full rounded-md border border-border bg-muted px-3 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
                           />
                         </div>
                         <button
                           onClick={() => saveApiKey(provider.id)}
                           disabled={isSaving}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                          className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
                         >
-                          {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : justSaved ? <Check className="h-3 w-3" /> : null}
-                          {justSaved ? 'Saved' : 'Save'}
+                          {saveIcon}
+                          {saveLabel}
                         </button>
-                        {provider.available && (provider.models || []).length > 0 && (
-                          <div className="pt-1 border-t border-border/40">
-                            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-2">Select Model</p>
+                        {!!provider.available && (provider.models || []).length > 0 && (
+                          <div className="border-t border-border/40 pt-1">
+                            <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                              Select Model
+                            </p>
                             <select
                               value={selectedModels[provider.id] || provider.models?.[0] || ''}
-                              onChange={(e) => setSelectedModels((prev) => ({ ...prev, [provider.id]: e.target.value }))}
-                              className="w-full px-3 py-1.5 text-xs bg-muted border border-border rounded-md text-foreground focus:outline-none focus:border-primary font-mono"
+                              onChange={(e) =>
+                                setSelectedModels((prev) => ({
+                                  ...prev,
+                                  [provider.id]: e.target.value,
+                                }))
+                              }
+                              className="w-full rounded-md border border-border bg-muted px-3 py-1.5 font-mono text-xs text-foreground focus:border-primary focus:outline-none"
                             >
                               {(provider.models || []).map((model) => (
-                                <option key={model} value={model}>{model}</option>
+                                <option key={model} value={model}>
+                                  {model}
+                                </option>
                               ))}
                             </select>
                             <form
@@ -535,19 +622,24 @@ export const ProviderSelector = ({
                                 const m = customModels[provider.id]?.trim();
                                 if (m) onSelectRemote(provider.id, m);
                               }}
-                              className="flex gap-2 mt-1"
+                              className="mt-1 flex gap-2"
                             >
                               <input
                                 type="text"
                                 placeholder="Or type a model name..."
                                 value={customModels[provider.id] || ''}
-                                onChange={(e) => setCustomModels((prev) => ({ ...prev, [provider.id]: e.target.value }))}
-                                className="flex-1 py-1.5 px-3 rounded-md text-xs border bg-muted font-mono placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary text-foreground border-border"
+                                onChange={(e) =>
+                                  setCustomModels((prev) => ({
+                                    ...prev,
+                                    [provider.id]: e.target.value,
+                                  }))
+                                }
+                                className="flex-1 rounded-md border border-border bg-muted px-3 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none"
                               />
                               <button
                                 type="submit"
                                 disabled={!customModels[provider.id]?.trim()}
-                                className="p-1.5 rounded-md border border-border bg-muted hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                                className="rounded-md border border-border bg-muted p-1.5 transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-30"
                               >
                                 <PlayCircle className="h-4 w-4 text-emerald-400" />
                               </button>

@@ -54,6 +54,7 @@ pub mod claude_code;
 pub mod codex;
 pub mod gemini;
 pub mod openai_compat;
+pub mod bridge_mcp_proxy;
 
 // Private submodules used only by openai_compat
 mod openai_compat_types;
@@ -283,7 +284,7 @@ pub async fn list_providers_with_keys(api_keys_json: Option<&str>) -> Vec<Provid
                         id: id.clone(),
                         name: display_name.to_string(),
                         available,
-                        description: format!("Custom: {}", base_url),
+                        description: format!("Custom: {base_url}"),
                         version: None,
                         models,
                         default_base_url: if base_url.is_empty() { None } else { Some(base_url.to_string()) },
@@ -363,6 +364,7 @@ pub async fn list_cli_providers() -> Vec<ProviderInfo> {
     ]
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn generate(
     provider_id: &str,
     prompt: &str,
@@ -374,6 +376,8 @@ pub async fn generate(
     conversation_id: Option<&str>,
     db: Option<&llama_chat_db::SharedDatabase>,
     user_params: Option<&serde_json::Value>,
+    image_data: Option<&[String]>,
+    mcp_bridge: Option<llama_chat_worker::worker::worker_bridge::SharedWorkerBridge>,
 ) -> Result<mpsc::UnboundedReceiver<CliTokenData>, String> {
     match provider_id {
         "claude_code" => claude_code::generate(prompt, model, max_turns, cwd, session_id).await,
@@ -384,13 +388,13 @@ pub async fn generate(
                 .ok_or_else(|| format!("No API key configured for provider '{id}'. Set it in Settings or via environment variable."))?;
             let base_url = openai_compat::resolve_base_url(id, api_keys_json)
                 .ok_or_else(|| format!("No base URL configured for provider '{id}'."))?;
-            openai_compat::generate(id, prompt, model, &base_url, &api_key, conversation_id, db, user_params).await
+            openai_compat::generate(id, prompt, model, &base_url, &api_key, conversation_id, db, user_params, image_data, max_turns, mcp_bridge).await
         }
         id if id.starts_with("custom_") => {
             let api_key = openai_compat::resolve_custom_field(id, "api_key", api_keys_json).unwrap_or_default();
             let base_url = openai_compat::resolve_custom_field(id, "base_url", api_keys_json)
                 .ok_or_else(|| format!("No base URL configured for custom provider '{id}'."))?;
-            openai_compat::generate(id, prompt, model, &base_url, &api_key, conversation_id, db, user_params).await
+            openai_compat::generate(id, prompt, model, &base_url, &api_key, conversation_id, db, user_params, image_data, max_turns, mcp_bridge).await
         }
         _ => Err(format!("Unknown provider: {provider_id}")),
     }

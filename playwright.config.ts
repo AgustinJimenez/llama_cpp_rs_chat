@@ -36,6 +36,13 @@ export default defineConfig({
     },
   ],
 
-  /* Expect the Docker container to be running externally */
-  // webServer removed - use npm scripts to manage TEST_MODE
+  /* On CI, serve the built frontend with vite preview.
+     Locally, tests expect the dev server to already be running. */
+  webServer: process.env.CI
+    ? {
+        command: 'npx vite preview --port 14000',
+        port: 14000,
+        reuseExistingServer: !process.env.CI,
+      }
+    : undefined,
 });

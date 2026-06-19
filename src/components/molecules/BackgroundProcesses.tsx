@@ -42,15 +42,21 @@ export const BackgroundProcesses = () => {
       <div className="mx-2 mb-2">
         <button
           onClick={() => setModalOpen(true)}
-          className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-green-400 hover:bg-green-400/10 rounded transition-colors"
+          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-green-400 transition-colors hover:bg-green-400/10"
         >
           <Terminal className="h-3 w-3 animate-pulse" />
           <span>
-            {aliveCount} background process{aliveCount !== 1 ? 'es' : ''}
+            {aliveCount} background process{aliveCount !== 1 && 'es'}
           </span>
         </button>
       </div>
-      <BackgroundProcessesModal isOpen={modalOpen} onClose={() => { setModalOpen(false); refresh(); }} />
+      <BackgroundProcessesModal
+        isOpen={modalOpen}
+        onClose={() => {
+          setModalOpen(false);
+          refresh();
+        }}
+      />
     </>
   );
 };

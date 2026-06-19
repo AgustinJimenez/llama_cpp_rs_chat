@@ -81,6 +81,12 @@ export const DownloadProvider = ({ children }: { children: ReactNode }) => {
     (modelId: string, file: HubFileRef, destPath: string) => {
       const key = `${modelId}/${file.name}`;
 
+      // Guard against a duplicate start (e.g. a fast double-click before the
+      // button disables itself on the first progress event) — without this,
+      // two backend tasks race on the same file and their interleaved
+      // progress events make the bar jump back and forth.
+      if (abortControllers.current.has(key)) return;
+
       // DON'T delete from pendingDownloads yet — wait for first progress event
       // so the item stays visible in the UI during the connection gap
 

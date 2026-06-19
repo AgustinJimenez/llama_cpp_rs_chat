@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::convert::Infallible;
 
 use llama_chat_db::SharedDatabase;
-use llama_chat_types::models::{ChatMessage, ConversationContentResponse, ConversationFile, ConversationsResponse, ToolTiming};
+use llama_chat_types::models::{ChatMessage, ConversationContentResponse, ConversationFile, ConversationsResponse, MessagePart, ToolTiming};
 use crate::response_helpers::{json_error, json_raw, serialize_with_fallback};
 use crate::worker_pool::{resolve_bridge_for_conversation, WorkerPool};
 
@@ -84,6 +84,7 @@ pub async fn handle_get_conversation(
                         j += 1;
                     }
                     if !combined.trim().is_empty() {
+                        let parts = parse_parts_json(rec.parts.as_deref());
                         messages.push(ChatMessage {
                             id: format!("msg_{msg_idx}"),
                             role: "assistant".to_string(),
@@ -97,6 +98,7 @@ pub async fn handle_get_conversation(
                             prompt_tokens: rec.prompt_tokens,
                             compacted: rec.compacted,
                             sequence_order: Some(rec.sequence_order),
+                            parts,
                         });
                         msg_idx += 1;
                     }
@@ -105,6 +107,7 @@ pub async fn handle_get_conversation(
                     // Orphan tool message (no preceding assistant) — skip
                     i += 1;
                 } else {
+                    let parts = parse_parts_json(rec.parts.as_deref());
                     messages.push(ChatMessage {
                         id: format!("msg_{msg_idx}"),
                         role: rec.role.to_lowercase(),
@@ -118,6 +121,7 @@ pub async fn handle_get_conversation(
                         prompt_tokens: rec.prompt_tokens,
                         compacted: rec.compacted,
                         sequence_order: Some(rec.sequence_order),
+                        parts,
                     });
                     msg_idx += 1;
                     i += 1;
@@ -152,6 +156,13 @@ pub async fn handle_get_conversation(
         }
         Err(_) => Ok(json_error(StatusCode::NOT_FOUND, "Conversation not found")),
     }
+}
+
+/// Deserialize a parts JSON string into a Vec<MessagePart>. Returns empty vec on None or parse error.
+fn parse_parts_json(parts_json: Option<&str>) -> Vec<MessagePart> {
+    parts_json
+        .and_then(|s| serde_json::from_str::<Vec<MessagePart>>(s).ok())
+        .unwrap_or_default()
 }
 
 pub async fn handle_get_conversations(
@@ -238,7 +249,7 @@ pub async fn handle_get_conversation_events(
         None => return Ok(json_error(StatusCode::BAD_REQUEST, "Invalid path")),
     };
 
-    let bridge = match resolve_bridge_for_conversation(&pool, &db, Some(conv_id)) {
+    let bridge = match resolve_bridge_for_conversation(&pool, &db, Some(conv_id)).await {
         Ok(bridge) => bridge,
         Err(e) => return Ok(json_error(StatusCode::SERVICE_UNAVAILABLE, &e)),
     };

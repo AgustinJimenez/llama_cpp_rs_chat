@@ -78,9 +78,9 @@ pub fn run_worker(db_path: &str) {
             } else if age_secs >= 60 {
                 format!("{}m{}s ago", age_secs / 60, age_secs % 60)
             } else {
-                format!("{}s ago", age_secs)
+                format!("{age_secs}s ago")
             };
-            eprintln!("  Killing PID {}: {} (started {})", pid, cmd, age_str);
+            eprintln!("  Killing PID {pid}: {cmd} (started {age_str})");
             llama_chat_command::background::kill_background_process_by_pid(*pid);
         }
     }
@@ -151,28 +151,25 @@ pub fn run_worker(db_path: &str) {
         let line = loop {
             crossbeam_channel::select! {
                 recv(token_rx) -> msg => {
-                    match msg {
-                        Ok(first) => {
-                            // Write first token, then collect more within the flush window
-                            write_response_no_flush(&mut ipc_writer, &first);
-                            let deadline = std::time::Instant::now() + FLUSH_INTERVAL;
-                            loop {
-                                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-                                if remaining.is_zero() {
-                                    break;
-                                }
-                                match token_rx.recv_timeout(remaining) {
-                                    Ok(response) => {
-                                        write_response_no_flush(&mut ipc_writer, &response);
-                                    }
-                                    Err(crossbeam_channel::RecvTimeoutError::Timeout) => break,
-                                    Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
-                                }
+                    if let Ok(first) = msg {
+                        // Write first token, then collect more within the flush window
+                        write_response_no_flush(&mut ipc_writer, &first);
+                        let deadline = std::time::Instant::now() + FLUSH_INTERVAL;
+                        loop {
+                            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                            if remaining.is_zero() {
+                                break;
                             }
-                            let _ = ipc_writer.flush();
+                            match token_rx.recv_timeout(remaining) {
+                                Ok(response) => {
+                                    write_response_no_flush(&mut ipc_writer, &response);
+                                }
+                                Err(crossbeam_channel::RecvTimeoutError::Timeout) => break,
+                                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+                            }
                         }
-                        Err(_) => {} // Channel disconnected, generation ended
-                    }
+                        let _ = ipc_writer.flush();
+                    } // Channel disconnected, generation ended
                 },
                 recv(stdin_rx) -> msg => {
                     match msg {
@@ -229,6 +226,14 @@ pub fn run_worker(db_path: &str) {
                 other_commands::handle_get_mcp_status(req_id, &mcp_manager, &mut ipc_writer);
             }
 
+            WorkerCommand::CallMcpTool { name, args_json } => {
+                other_commands::handle_call_mcp_tool(req_id, &name, &args_json, &mcp_manager, &mut ipc_writer);
+            }
+
+            WorkerCommand::GetMcpToolDefinitions => {
+                other_commands::handle_get_mcp_tool_definitions(req_id, &mcp_manager, &mut ipc_writer);
+            }
+
             WorkerCommand::GetConversationEvents { conversation_id } => {
                 other_commands::handle_get_conversation_events(req_id, &conversation_id, &mut ipc_writer);
             }
@@ -271,7 +276,7 @@ pub fn run_worker(db_path: &str) {
                 break;
             }
 
-            WorkerCommand::LoadModel { model_path, gpu_layers, mmproj_path } => {
+            WorkerCommand::LoadModel { model_path, gpu_layers, mmproj_path, agent_id } => {
                 if generation_thread.is_some() {
                     write_response(
                         &mut ipc_writer,
@@ -284,6 +289,7 @@ pub fn run_worker(db_path: &str) {
                     model_path,
                     gpu_layers,
                     mmproj_path,
+                    agent_id,
                     llama_state.clone(),
                     &db,
                     &mut ipc_writer,
@@ -342,6 +348,7 @@ pub fn run_worker(db_path: &str) {
                 conversation_id,
                 skip_user_logging,
                 image_data,
+                agent_id,
             } => {
                 // Clean up finished generation thread before checking availability.
                 if let Some(handle) = generation_thread.take() {
@@ -401,6 +408,7 @@ pub fn run_worker(db_path: &str) {
                             conversation_id,
                             skip_user_logging,
                             image_data,
+                            agent_id,
                             llama_state: state,
                             db,
                             cancel,

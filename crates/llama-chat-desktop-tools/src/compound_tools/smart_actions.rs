@@ -115,12 +115,12 @@ pub fn tool_smart_wait(args: &Value) -> NativeToolResult {
     let screenshot = super::super::capture_post_action_screenshot(0);
     if result_parts.is_empty() {
         NativeToolResult {
-            text: format!("Timeout after {}ms: no conditions met (mode={})", elapsed, mode),
+            text: format!("Timeout after {elapsed}ms: no conditions met (mode={mode})"),
             images: screenshot.images,
         }
     } else {
         NativeToolResult {
-            text: format!("Wait complete after {}ms: {} (mode={})", elapsed, result_parts.join(" + "), mode),
+            text: format!("Wait complete after {elapsed}ms: {} (mode={mode})", result_parts.join(" + ")),
             images: screenshot.images,
         }
     }

@@ -15,7 +15,7 @@ pub(super) const MAX_AGENTIC_ITERATIONS: usize = 2000;
 pub(super) const MAX_INPUT_TOKENS: u64 = 100_000;
 
 /// Threshold for tool output summarization (chars).
-pub(super) const TOOL_SUMMARIZE_THRESHOLD: usize = 1500;
+pub(super) const TOOL_SUMMARIZE_THRESHOLD: usize = 4000;
 
 /// System prompt for cloud provider agentic loops.
 pub(super) fn get_cloud_system_prompt() -> &'static str {
@@ -122,11 +122,11 @@ pub(super) fn summarize_tool_output(output: &str, tool_name: &str, url: &str, ap
     if output.len() <= TOOL_SUMMARIZE_THRESHOLD {
         return output.to_string();
     }
-    // Take first 3000 chars + last 1000 chars for the summarization input
-    let input = if output.len() > 4000 {
-        let head: String = output.chars().take(3000).collect();
-        let tail: String = output.chars().rev().take(1000).collect::<Vec<_>>().into_iter().rev().collect();
-        format!("{}\n[...{} chars omitted...]\n{}", head, output.len() - 4000, tail)
+    // Take first 6000 chars + last 2000 chars for the summarization input
+    let input = if output.len() > 8000 {
+        let head: String = output.chars().take(6000).collect();
+        let tail: String = output.chars().rev().take(2000).collect::<Vec<_>>().into_iter().rev().collect();
+        format!("{}\n[...{} chars omitted...]\n{}", head, output.len() - 8000, tail)
     } else {
         output.to_string()
     };
@@ -137,7 +137,7 @@ pub(super) fn summarize_tool_output(output: &str, tool_name: &str, url: &str, ap
             {"role": "system", "content": "Summarize the following tool output concisely. Keep all important information: errors, file paths, key results, numbers. Remove verbose/repetitive content. Output ONLY the summary, no preamble."},
             {"role": "user", "content": format!("Tool: {}\nOutput:\n{}", tool_name, input)}
         ],
-        "max_tokens": 300,
+        "max_tokens": 512,
         "temperature": 0.0,
         "stream": false
     });
@@ -167,14 +167,25 @@ pub(super) fn summarize_tool_output(output: &str, tool_name: &str, url: &str, ap
 }
 
 /// Get the subset of tool definitions suitable for cloud provider agentic loops.
-/// Returns tools in OpenAI function-calling format.
-pub(super) fn get_agentic_tools() -> Vec<Value> {
+/// Returns tools in OpenAI function-calling format, including MCP tools when available.
+pub(super) fn get_agentic_tools(mcp: Option<&dyn llama_chat_tools::McpManagerOps>) -> Vec<Value> {
     use llama_chat_engine::jinja_templates::get_available_tools_openai;
-    get_available_tools_openai()
+    let mut tools = get_available_tools_openai();
+    if let Some(mgr) = mcp {
+        for td in mgr.get_tool_definitions() {
+            tools.push(td.to_openai_function());
+        }
+    }
+    tools
 }
 
 /// Execute a tool call using the full native tool dispatch system.
-pub(super) fn execute_openai_tool(name: &str, arguments_json: &str, db: Option<&llama_chat_db::SharedDatabase>) -> String {
+pub(super) fn execute_openai_tool(
+    name: &str,
+    arguments_json: &str,
+    db: Option<&llama_chat_db::SharedDatabase>,
+    mcp: Option<&dyn llama_chat_tools::McpManagerOps>,
+) -> String {
     // Build the JSON format that dispatch_native_tool expects
     let args: Value = match serde_json::from_str(arguments_json) {
         Ok(v) => v,
@@ -192,10 +203,10 @@ pub(super) fn execute_openai_tool(name: &str, arguments_json: &str, db: Option<&
         }
         let nav_json = json!({"name": "browser_navigate", "arguments": {"url": url}}).to_string();
         let ctx = crate::native_tools_bridge::make_dispatch_context();
-        let _ = llama_chat_tools::dispatch_native_tool(&nav_json, true, None, db, &ctx);
+        let _ = llama_chat_tools::dispatch_native_tool(&nav_json, true, mcp, db, &ctx);
         std::thread::sleep(std::time::Duration::from_millis(2000));
         let read_json = json!({"name": "browser_get_text", "arguments": {}}).to_string();
-        return match llama_chat_tools::dispatch_native_tool(&read_json, true, None, db, &ctx) {
+        return match llama_chat_tools::dispatch_native_tool(&read_json, true, mcp, db, &ctx) {
             Some(r) => r.text,
             None => "Failed to read page content".to_string(),
         };
@@ -217,7 +228,7 @@ pub(super) fn execute_openai_tool(name: &str, arguments_json: &str, db: Option<&
     match llama_chat_tools::dispatch_native_tool(
         &tool_json,
         true,
-        None, // mcp_manager
+        mcp,
         db,
         &ctx,
     ) {

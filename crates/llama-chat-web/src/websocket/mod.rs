@@ -12,7 +12,7 @@ const SERVER_CONTINUE_PREVIEW_LEN: usize = 200;
 pub fn should_server_auto_continue(finish_reason: &str) -> bool {
     matches!(
         finish_reason,
-        "length" | "cuda_deadlock" | "loop_recovery" | "infinite_loop" | "yn_continue"
+        "length" | "cuda_deadlock" | "loop_recovery" | "infinite_loop"
     )
 }
 
@@ -35,8 +35,7 @@ pub fn make_server_continuation_message(finish_reason: &str, original_message: &
             ""
         };
         format!(
-            "Continue working on this task: \"{}{}\". Pick up where you left off.",
-            preview, ellipsis
+            "Continue working on this task: \"{preview}{ellipsis}\". Pick up where you left off."
         )
     }
 }

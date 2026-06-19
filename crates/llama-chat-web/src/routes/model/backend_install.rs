@@ -119,7 +119,7 @@ fn download_backend_blocking(url: &str, dest: &PathBuf, tx: mpsc::Sender<String>
                         "type": "progress",
                         "bytes": downloaded,
                         "total": total,
-                        "percent": if total > 0 { (downloaded * 100 / total) as u32 } else { 0 },
+                        "percent": (downloaded * 100).checked_div(total).unwrap_or(0) as u32,
                     }));
                     last_report = std::time::Instant::now();
                 }

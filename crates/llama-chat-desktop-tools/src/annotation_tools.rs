@@ -73,7 +73,7 @@ pub fn tool_annotate_screenshot(args: &Value) -> NativeToolResult {
     }
 
     NativeToolResult {
-        text: format!("Drew {} shape(s) on screenshot", drawn),
+        text: format!("Drew {drawn} shape(s) on screenshot"),
         images: vec![buf],
     }
 }
@@ -131,11 +131,9 @@ pub fn tool_ocr_region(args: &Value) -> NativeToolResult {
     let result = super::ocr_tools::tool_ocr_screen(&serde_json::json!({"monitor": monitor_idx}));
 
     // Filter: extract text mentioning found items, or just return the OCR text with region note
+    let rtext = &result.text;
     NativeToolResult {
-        text: format!(
-            "OCR region ({x},{y} {width}x{height}):\n{}",
-            result.text
-        ),
+        text: format!("OCR region ({x},{y} {width}x{height}):\n{rtext}"),
         images: vec![png_buf],
     }
 }
@@ -214,17 +212,14 @@ pub fn tool_find_color_on_screen(args: &Value) -> NativeToolResult {
 
     if matches.is_empty() {
         NativeToolResult::text_only(format!(
-            "No pixels matching #{} (tolerance {}) found",
-            color_str, tolerance
+            "No pixels matching #{color_str} (tolerance {tolerance}) found"
         ))
     } else {
         let coords: Vec<String> = matches.iter().map(|(x, y)| format!("({x},{y})")).collect();
+        let match_count = matches.len();
+        let coords_str = coords.join(", ");
         NativeToolResult::text_only(format!(
-            "Found {} match(es) for #{} (tolerance {}): {}",
-            matches.len(),
-            color_str,
-            tolerance,
-            coords.join(", ")
+            "Found {match_count} match(es) for #{color_str} (tolerance {tolerance}): {coords_str}"
         ))
     }
 }
@@ -249,6 +244,7 @@ fn put_thick_pixel(img: &mut image::RgbaImage, x: i32, y: i32, color: image::Rgb
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_rect(img: &mut image::RgbaImage, x: i32, y: i32, w: i32, h: i32, color: image::Rgba<u8>, thickness: i32, sw: u32, sh: u32) {
     for t in 0..thickness {
         // Top and bottom edges

@@ -1,10 +1,35 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useAgentContext } from '../../contexts/AgentContext';
 import { useChatContext } from '../../contexts/ChatContext';
 import { useModelContext } from '../../contexts/ModelContext';
+import type { Agent } from '../../types';
 
 const CHARS_PER_TOKEN = 4;
+
+function resolveActiveAgent(
+  currentConversationId: string | null,
+  conversationAgent: Agent | null,
+  stagedAgent: Agent | null,
+): Agent | null {
+  return currentConversationId ? conversationAgent : (conversationAgent ?? stagedAgent);
+}
+
+function useAgentProviderInfo(
+  activeAgent: Agent | null,
+  activeProvider: string,
+  agentStatuses: Record<string, { status: string }>,
+) {
+  const isRemoteProvider =
+    activeProvider !== 'local' || (activeAgent !== null && activeAgent.provider_id !== 'local');
+  const localAgentStatus =
+    activeAgent !== null && activeAgent.provider_id === 'local'
+      ? agentStatuses[activeAgent.id]?.status
+      : undefined;
+  const isLocalAgentReady = localAgentStatus === 'active' || localAgentStatus === 'generating';
+  return { isRemoteProvider, isLocalAgentReady };
+}
 
 export function useInputState() {
   const { t } = useTranslation();
@@ -18,9 +43,15 @@ export function useInputState() {
     cancelQueuedMessage,
   } = useChatContext();
   const { status, isLoading: isModelLoading, loadingAction, activeProvider } = useModelContext();
+  const { stagedAgent, conversationAgent, agentStatuses } = useAgentContext();
   const hasVision = status.has_vision ?? false;
   const isModelBusy = isModelLoading && loadingAction !== null;
-  const isRemoteProvider = activeProvider !== 'local';
+  const activeAgent = resolveActiveAgent(currentConversationId, conversationAgent, stagedAgent);
+  const { isRemoteProvider, isLocalAgentReady } = useAgentProviderInfo(
+    activeAgent,
+    activeProvider,
+    agentStatuses,
+  );
 
   const [isCompacting, setIsCompacting] = useState(false);
   useEffect(() => {
@@ -42,7 +73,10 @@ export function useInputState() {
 
   // Input is always enabled while generating — messages get queued (local) or backend-queued (remote)
   const disabled =
-    isModelBusy || isGeneratingElsewhere || isCompacting || (!status.loaded && !isRemoteProvider);
+    isModelBusy ||
+    isGeneratingElsewhere ||
+    isCompacting ||
+    (!status.loaded && !isRemoteProvider && !isLocalAgentReady);
   const estimatedConvTokens = useMemo(() => {
     // Use promptTokens + genTokens from the last assistant message with timing data.
     // Skip this estimate if compacted messages exist — timing data is from before
@@ -60,8 +94,10 @@ export function useInputState() {
         CHARS_PER_TOKEN,
     );
   }, [messages]);
-  const modelContextSize = status.context_size;
-  const isModelLoaded = status.loaded || isRemoteProvider;
+  const modelContextSize =
+    status.context_size ??
+    (activeAgent?.provider_id === 'local' ? activeAgent.context_size : undefined);
+  const isModelLoaded = status.loaded || isRemoteProvider || isLocalAgentReady;
   return {
     t,
     onSendMessage,

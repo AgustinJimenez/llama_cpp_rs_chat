@@ -247,6 +247,7 @@ pub(crate) fn ocr_find_text_winrt(img: &image::RgbaImage, search: &str, offset_x
 #[allow(dead_code)]
 pub(crate) fn pump_sta_messages(duration_ms: u64) {
     #[repr(C)]
+    #[allow(clippy::upper_case_acronyms)]
     struct MSG([u8; 48]); // sizeof(MSG) = 48 on x64
 
     #[link(name = "user32")]
@@ -283,6 +284,7 @@ pub(crate) fn wait_for_winrt_async(
     mut cancel: impl FnMut() -> Result<(), String>,
 ) -> Result<(), String> {
     #[repr(C)]
+    #[allow(clippy::upper_case_acronyms)]
     struct MSG([u8; 48]); // sizeof(MSG) = 48 on x64
 
     #[link(name = "user32")]

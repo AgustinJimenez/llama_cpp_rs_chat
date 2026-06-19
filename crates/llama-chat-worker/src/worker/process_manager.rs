@@ -4,7 +4,7 @@
 //! monitors its health, and restarts it on crash.
 
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 /// Manages the worker child process lifecycle.
@@ -17,6 +17,9 @@ pub struct ProcessManager {
     /// aborts its crash-recovery handler if the generation has advanced
     /// (meaning another reader already took over).
     generation: AtomicU64,
+    /// Set to true when this worker is intentionally shut down.
+    /// The stdout reader task checks this before attempting crash recovery.
+    is_shutdown: AtomicBool,
 }
 
 impl ProcessManager {
@@ -29,6 +32,7 @@ impl ProcessManager {
             db_path: db_path.to_string(),
             restart_count: AtomicU32::new(0),
             generation: AtomicU64::new(0),
+            is_shutdown: AtomicBool::new(false),
         })
     }
 
@@ -49,7 +53,15 @@ impl ProcessManager {
     }
 
     /// Kill the worker process immediately. OS reclaims all memory.
+    /// Sets the shutdown flag so the stdout reader task won't auto-restart.
+    ///
+    /// Also kills all background processes tracked in the DB before killing the
+    /// worker, because force-kill bypasses the worker's `BgProcessGuard::drop()`.
     pub fn kill(&self) {
+        self.is_shutdown.store(true, Ordering::SeqCst);
+        // Clean up worker's background processes before killing it.
+        // The worker's BgProcessGuard won't fire on force-kill.
+        llama_chat_command::background::kill_all_db_processes(&self.db_path);
         if let Ok(mut guard) = self.child.lock() {
             if let Some(ref mut child) = *guard {
                 eprintln!("[PROCESS_MGR] Killing worker process");
@@ -58,6 +70,11 @@ impl ProcessManager {
             }
             *guard = None;
         }
+    }
+
+    /// Returns true if this worker was intentionally shut down (not a crash).
+    pub fn is_shutdown(&self) -> bool {
+        self.is_shutdown.load(Ordering::SeqCst)
     }
 
     /// Restart the worker process (after kill or crash).
@@ -71,6 +88,11 @@ impl ProcessManager {
         }
         self.restart_count.fetch_add(1, Ordering::Relaxed);
         self.generation.fetch_add(1, Ordering::SeqCst);
+        // kill() (called above) latches is_shutdown=true so the dying reader skips crash
+        // recovery. The freshly spawned worker is live again, so future deaths of THIS
+        // worker must go through normal crash recovery — otherwise every restart after
+        // the first permanently disables recovery for the rest of the process lifetime.
+        self.is_shutdown.store(false, Ordering::SeqCst);
 
         eprintln!(
             "[PROCESS_MGR] Worker restarted (restart #{}, gen={})",

@@ -12,8 +12,6 @@ use llama_chat_types::*;
 // Constants for LLaMA configuration
 pub(crate) const CONTEXT_SIZE: u32 = 32768;
 
-pub(crate) const MODEL_PATH: &str =
-    "/app/models/lmstudio-community/granite-4.0-h-tiny-GGUF/granite-4.0-h-tiny-Q4_K_M.gguf";
 
 /// Parse a KV cache type string (from config) into the llama-cpp-2 enum.
 pub(crate) fn parse_kv_cache_type(s: &str) -> KvCacheType {
@@ -179,7 +177,7 @@ pub(crate) fn evaluate_text_prompt(
                     return Err("Context too small for conversation — try increasing context size or starting a new conversation".to_string());
                 }
                 // Abort callback triggered — treat as cancellation
-                if err_str.contains("Unknown(2)") || cancel.map_or(false, |c| c.load(std::sync::atomic::Ordering::Relaxed)) {
+                if err_str.contains("Unknown(2)") || cancel.is_some_and(|c| c.load(std::sync::atomic::Ordering::Relaxed)) {
                     unsafe { ctx.set_abort_callback(None, std::ptr::null_mut()); }
                     return Err("Cancelled".to_string());
                 }

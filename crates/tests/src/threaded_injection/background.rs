@@ -149,7 +149,7 @@ pub(super) fn setup_background_noise(
                 let r2 = r.clone();
                 std::thread::spawn(move || {
                     while r2.load(Ordering::Relaxed) {
-                        let _ = tx.send(format!("{{\"id\":1,\"command\":\"status\"}}"));
+                        let _ = tx.send("{\"id\":1,\"command\":\"status\"}".to_string());
                         std::thread::sleep(std::time::Duration::from_millis(200));
                     }
                 });
@@ -164,7 +164,7 @@ pub(super) fn setup_background_noise(
             handles.push(std::thread::spawn(move || {
                 while r.load(Ordering::Relaxed) {
                     let response =
-                        format!("{{\"id\":1,\"type\":\"status\",\"data\":{{\"ok\":true}}}}");
+                        "{\"id\":1,\"type\":\"status\",\"data\":{\"ok\":true}}".to_string();
                     std::hint::black_box(response);
                     std::thread::sleep(std::time::Duration::from_millis(200));
                 }
@@ -238,10 +238,8 @@ pub(super) fn setup_background_noise(
                         if let Ok(mut child) = child {
                             if let Some(stdout) = child.stdout.take() {
                                 let reader = std::io::BufReader::new(stdout);
-                                for line in reader.lines() {
-                                    if let Ok(l) = line {
-                                        std::hint::black_box(l);
-                                    }
+                                for l in reader.lines().map_while(|r| r.ok()) {
+                                    std::hint::black_box(l);
                                 }
                             }
                             let _ = child.wait();
@@ -347,10 +345,8 @@ pub(super) fn setup_background_noise(
                             if let Ok(mut child) = child {
                                 if let Some(stdout) = child.stdout.take() {
                                     let reader = std::io::BufReader::new(stdout);
-                                    for line in reader.lines() {
-                                        if let Ok(l) = line {
-                                            std::hint::black_box(l);
-                                        }
+                                    for l in reader.lines().map_while(|r| r.ok()) {
+                                        std::hint::black_box(l);
                                     }
                                 }
                                 let _ = child.wait();

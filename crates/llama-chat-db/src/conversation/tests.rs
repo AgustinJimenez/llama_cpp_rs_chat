@@ -35,6 +35,7 @@ fn test_insert_and_get_messages() {
 #[test]
 fn test_conversation_logger() {
     let db = create_test_db();
+    // System prompt is injected via conversation_context, not included in get_full_conversation()
     let mut logger = ConversationLogger::new(db.clone(), Some("System prompt")).unwrap();
 
     logger.log_message("USER", "Hello");
@@ -44,7 +45,8 @@ fn test_conversation_logger() {
     logger.finish_assistant_message();
 
     let text = logger.get_full_conversation();
-    assert!(text.contains("SYSTEM:\nSystem prompt"));
+    // System messages are excluded from conversation text (injected separately by prompt builder)
+    assert!(!text.contains("SYSTEM:\nSystem prompt"));
     assert!(text.contains("USER:\nHello"));
     assert!(text.contains("ASSISTANT:\nHi there!"));
 }

@@ -13,9 +13,25 @@ use tokio::sync::{mpsc, oneshot, Mutex as TokioMutex};
 
 use super::ipc_types::*;
 use super::worker_bridge::{ActiveGeneration, ModelMeta, PendingRequest};
+use llama_chat_db::{conversation::ConversationLogger, SharedDatabase};
 use llama_chat_types::models::TokenData;
 
 pub const MAX_AUTO_RECOVERY_CRASHES: u32 = 2;
+
+/// Best-effort: write a system-role notice into the conversation so a crash or a
+/// failed auto-recovery attempt is visible in conversation history, not just the
+/// transient live token stream (which the UI never persists).
+fn persist_crash_notice(db: &SharedDatabase, conversation_id: Option<&str>, notice: &str) {
+    let Some(conv_id) = conversation_id else {
+        return;
+    };
+    match ConversationLogger::from_existing(db.clone(), conv_id) {
+        Ok(mut logger) => logger.log_message("system", notice),
+        Err(e) => {
+            eprintln!("[BRIDGE] Failed to persist crash notice to conversation {conv_id}: {e}")
+        }
+    }
+}
 
 /// Persistent state that survives across crash-recovery cycles.
 #[derive(Clone, Default)]
@@ -23,6 +39,7 @@ pub struct CrashRecoveryCtx {
     pub model_path: Option<String>,
     pub gpu_layers: Option<u32>,
     pub conversation_id: Option<String>,
+    pub agent_id: Option<String>,
     pub crash_count: u32,
 }
 
@@ -51,6 +68,7 @@ pub async fn stdin_writer_task(
 /// generation has advanced by the time the worker crashes, this reader is
 /// stale — a newer reader already owns the process — so crash recovery is
 /// skipped and the task exits silently.
+#[allow(clippy::too_many_arguments)]
 pub async fn stdout_reader_task(
     stdout: std::process::ChildStdout,
     pending: Arc<TokioMutex<HashMap<u64, PendingRequest>>>,
@@ -63,6 +81,7 @@ pub async fn stdout_reader_task(
     recovery_ctx: Arc<TokioMutex<CrashRecoveryCtx>>,
     auto_recovering: Arc<AtomicBool>,
     status_message: Arc<TokioMutex<Option<String>>>,
+    db: SharedDatabase,
     my_generation: u64,
 ) {
     // Read stdout on a blocking thread (pipe reads are blocking on Windows)
@@ -173,7 +192,7 @@ pub async fn stdout_reader_task(
                 block_count: *block_count,
                 supports_thinking,
             });
-            eprintln!("[BRIDGE] Model metadata cached: {}", model_path);
+            eprintln!("[BRIDGE] Model metadata cached: {model_path}");
         }
 
         // Handle model unloaded — clear cached metadata
@@ -194,6 +213,13 @@ pub async fn stdout_reader_task(
         } else if id != 0 {
             eprintln!("[BRIDGE] No pending request for response id={id}");
         }
+    }
+
+    // Worker died — check if this was an intentional shutdown (not a crash).
+    // If so, skip all crash recovery to prevent zombie respawns.
+    if process_manager.is_shutdown() {
+        eprintln!("[BRIDGE] Worker was shut down intentionally — skipping crash recovery");
+        return;
     }
 
     // Worker died — check generation before running crash recovery.
@@ -281,11 +307,26 @@ pub async fn stdout_reader_task(
             });
         }
 
-        // Check crash limit
+        // Use the SAME gate as the live-message decision above (will_auto_recover) so the
+        // crash message shown to the user and the actual retry-vs-give-up path never diverge.
+        // Previously this re-checked only crash_count, so a false `has_model` could show the
+        // "restarting automatically" message while this branch still attempted (and silently
+        // no-op'd) a reload with no known model path.
         let ctx = recovery_ctx.lock().await.clone();
-        if ctx.crash_count > MAX_AUTO_RECOVERY_CRASHES {
+        if !will_auto_recover {
             eprintln!(
-                "[BRIDGE] Max auto-recovery crashes ({MAX_AUTO_RECOVERY_CRASHES}) exceeded — giving up"
+                "[BRIDGE] Giving up on auto-recovery (crash #{}, has_model={has_model}) — \
+                 restarting worker without reload",
+                ctx.crash_count
+            );
+            persist_crash_notice(
+                &db,
+                ctx.conversation_id.as_deref(),
+                &format!(
+                    "❌ Worker process crashed (#{}) and auto-recovery gave up — please reload \
+                     the model manually to continue.",
+                    ctx.crash_count
+                ),
             );
             // Still restart worker but don't auto-continue
             let _ = process_manager.restart();
@@ -320,6 +361,7 @@ pub async fn stdout_reader_task(
                             rc,
                             ar,
                             status_message.clone(),
+                            db,
                             gen,
                         )
                         .await;
@@ -375,6 +417,7 @@ pub async fn stdout_reader_task(
                                     model_path: model_path.clone(),
                                     gpu_layers: ctx.gpu_layers,
                                     mmproj_path: None,
+                                    agent_id: ctx.agent_id.clone(),
                                 },
                             };
                             if let Ok(json) = serde_json::to_string(&load_req) {
@@ -395,11 +438,12 @@ pub async fn stdout_reader_task(
                                     let rc2 = rc.clone();
                                     let ar2 = ar.clone();
                                     let sm2 = sm.clone();
+                                    let db2 = db.clone();
                                     let gen2 = pm2.generation();
                                     Some(tokio::task::spawn_local(async move {
                                         stdout_reader_task(
                                             stdout, p2, ag2, mm2, lmp2, lp2, pm2, ct2, rc2, ar2,
-                                            sm2, gen2,
+                                            sm2, db2, gen2,
                                         )
                                         .await;
                                     }))
@@ -442,6 +486,7 @@ pub async fn stdout_reader_task(
                                                     conversation_id: Some(conv_id.clone()),
                                                     skip_user_logging: true,
                                                     image_data: None,
+                                                    agent_id: ctx.agent_id.clone(),
                                                 },
                                             };
                                             if let Ok(json) = serde_json::to_string(&gen_req) {
@@ -460,12 +505,32 @@ pub async fn stdout_reader_task(
                                     Ok(Ok(WorkerPayload::Error { message })) => {
                                         eprintln!("[BRIDGE] Auto-reload failed: {message}");
                                         ar.store(false, Ordering::SeqCst);
+                                        persist_crash_notice(
+                                            &db,
+                                            ctx.conversation_id.as_deref(),
+                                            &format!(
+                                                "❌ Auto-recovery failed to reload the model \
+                                                 after crash #{}: {message}. Please reload the \
+                                                 model manually to continue.",
+                                                ctx.crash_count
+                                            ),
+                                        );
                                     }
                                     _ => {
                                         eprintln!(
                                             "[BRIDGE] Auto-reload: timeout or unexpected response"
                                         );
                                         ar.store(false, Ordering::SeqCst);
+                                        persist_crash_notice(
+                                            &db,
+                                            ctx.conversation_id.as_deref(),
+                                            &format!(
+                                                "❌ Auto-recovery timed out reloading the model \
+                                                 after crash #{} (120s limit). Please reload the \
+                                                 model manually to continue.",
+                                                ctx.crash_count
+                                            ),
+                                        );
                                     }
                                 }
 
@@ -487,8 +552,10 @@ pub async fn stdout_reader_task(
                                     "[BRIDGE] Stdout reader reconnected (no model to reload)"
                                 );
                                 let gen = pm.generation();
-                                stdout_reader_task(stdout, p, ag, mm, lmp, lp, pm, ct, rc, ar, sm.clone(), gen)
-                                    .await;
+                                stdout_reader_task(
+                                    stdout, p, ag, mm, lmp, lp, pm, ct, rc, ar, sm.clone(), db, gen,
+                                )
+                                .await;
                             }
                         }
                     });

@@ -5,12 +5,7 @@ use serde_json::Value;
 use super::NativeToolResult;
 use super::{parse_bool, parse_int, tool_click_screen};
 
-#[cfg(windows)]
 use super::win32;
-#[cfg(target_os = "macos")]
-use super::macos as win32;
-#[cfg(target_os = "linux")]
-use super::linux as win32;
 
 // ─── Shared helper ────────────────────────────────────────────────────────────
 
@@ -530,7 +525,7 @@ pub fn tool_restore_window_layout(args: &Value) -> NativeToolResult {
             false
         });
 
-        if let Some((idx, _cw)) = found {
+        if let Some((_idx, _cw)) = found {
             let hwnd_result = if !saved.process_name.is_empty() {
                 win32::find_window_by_filter(&saved.process_name)
             } else {
@@ -557,7 +552,6 @@ pub fn tool_restore_window_layout(args: &Value) -> NativeToolResult {
 
                 restored += 1;
             } else {
-                let _ = idx;
                 not_found += 1;
             }
         } else {

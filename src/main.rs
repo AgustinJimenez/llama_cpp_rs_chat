@@ -26,6 +26,7 @@ use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use tauri::{Emitter, Manager, WindowEvent};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 // WebviewBuilder, LogicalPosition, LogicalSize, WebviewUrl moved to commands::browser_panel
 
 mod mcp_ui;
@@ -105,6 +106,19 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, shortcut, event| {
+                    if event.state() == ShortcutState::Pressed {
+                        log::info!("Global shortcut triggered: {:?}", shortcut.id());
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                })
+                .build(),
+        )
         .setup(|app| {
             // Resolve app data directory for persistent storage
             let data_dir = app.path().app_data_dir()
@@ -142,13 +156,31 @@ fn main() {
                     .expect("Failed to spawn worker process"),
             );
             let bridge: SharedWorkerBridge = Arc::new(
-                tauri::async_runtime::block_on(async { WorkerBridge::new(pm) }),
+                tauri::async_runtime::block_on(async { WorkerBridge::new(pm, db.clone()) }),
             );
             eprintln!("[TAURI] Worker process spawned, bridge ready");
+
+            // HTTP API server (agents, conversations, config, …) on 18080 so the
+            // webview's `/api` fetches work in the desktop app — served against the
+            // desktop database and the worker we just spawned (no duplicate worker).
+            let worker_pool =
+                web::worker_pool::WorkerPool::new(bridge.clone(), db_path_str.clone(), db.clone());
+            {
+                let api_db = db.clone();
+                let worker_pool_for_api = worker_pool.clone();
+                tauri::async_runtime::spawn(async move {
+                    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 18080));
+                    eprintln!("[TAURI] HTTP API server starting on http://{addr}");
+                    if let Err(e) = web::http_dispatch::serve(api_db, worker_pool_for_api, addr).await {
+                        eprintln!("[TAURI] HTTP API server error: {e}");
+                    }
+                });
+            }
 
             // Register managed state
             app.manage(db);
             app.manage(bridge);
+            app.manage(worker_pool);
 
             // MCP UI server — direct WebView2 ExecuteScript (no HTTP callbacks needed)
             let app_handle = app.handle().clone();
@@ -244,6 +276,12 @@ fn main() {
                 .build(app)?;
 
             eprintln!("[TAURI] Menu and tray icon initialized");
+
+            // Register global shortcut: CmdOrCtrl+Shift+Space → show/focus window
+            match app.global_shortcut().register("CommandOrControl+Shift+Space") {
+                Ok(_) => eprintln!("[TAURI] Global shortcut registered: CmdOrCtrl+Shift+Space"),
+                Err(e) => eprintln!("[TAURI] Failed to register global shortcut (may be in use): {e}"),
+            }
 
             Ok(())
         })

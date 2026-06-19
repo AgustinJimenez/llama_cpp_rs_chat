@@ -92,8 +92,7 @@ fn extract_summary_param(command_text: &str) -> Option<String> {
     let json_pattern = "\"summary\":";
     if let Some(pos) = command_text.find(json_pattern) {
         let rest = command_text[pos + json_pattern.len()..].trim_start();
-        if rest.starts_with('"') {
-            let inner = &rest[1..];
+        if let Some(inner) = rest.strip_prefix('"') {
             let mut end = 0;
             let bytes = inner.as_bytes();
             while end < bytes.len() {
@@ -129,7 +128,7 @@ pub(crate) fn sanitize_and_summarize(
 ) -> (String, String) {
     // Strip [TOOL_RESULT:...] tag before model sees it (tag is for frontend only)
     let output_for_model = if p.raw_output.starts_with("[TOOL_RESULT:") {
-        p.raw_output.splitn(2, ']').nth(1).unwrap_or(p.raw_output).to_string()
+        p.raw_output.split_once(']').map(|(_, r)| r).unwrap_or(p.raw_output).to_string()
     } else {
         p.raw_output.to_string()
     };
@@ -150,6 +149,16 @@ pub(crate) fn sanitize_and_summarize(
     };
 
     if summary_disabled {
+        return (sanitized.clone(), sanitized);
+    }
+
+    // Tools that need exact content — summarizing destroys their usefulness.
+    // read_file/edit_file: model needs actual code to edit. write_file: confirmation is already short.
+    let tool_lower = p.tool_name_for_log.to_lowercase();
+    let no_summarize = tool_lower.contains("read_file")
+        || tool_lower.contains("write_file")
+        || tool_lower.contains("edit_file");
+    if no_summarize {
         return (sanitized.clone(), sanitized);
     }
 
@@ -175,7 +184,7 @@ pub(crate) fn sanitize_and_summarize(
                         ..Default::default()
                     });
                 }
-                let display = format!("{}{}", sanitized, summary_block);
+                let display = format!("{sanitized}{summary_block}");
                 let model_summary = format!(
                     "[SUMMARIZED: {} → {} chars. Use summary=false to get raw output.]\n{}",
                     sanitized.len(), summary.len(), summary
@@ -205,13 +214,13 @@ pub(crate) fn assemble_output(
     let model_trimmed = model_text.trim();
     let mut model_text_with_warning = model_trimmed.to_string();
     if let Some(warning) = p.fuzzy_warning {
-        model_text_with_warning = format!("{}\n\n{}", warning, model_text_with_warning);
+        model_text_with_warning = format!("{warning}\n\n{model_text_with_warning}");
     }
     if let Some(hint) = http_error_hint {
-        model_text_with_warning = format!("{}\n\n{}", model_text_with_warning, hint);
+        model_text_with_warning = format!("{model_text_with_warning}\n\n{hint}");
     }
 
-    let model_injection_block = format!("{}{}{}", output_open, model_text_with_warning, output_close);
+    let model_injection_block = format!("{output_open}{model_text_with_warning}{output_close}");
     let model_block = wrap_output_for_model(&model_injection_block, p.template_type);
 
     let output_block = format!("{}{}{}", output_open, display_text.trim(), output_close);
@@ -235,7 +244,7 @@ pub(crate) fn append_image_links(output_block: &mut String, images: &[Vec<u8>], 
         let filepath = images_dir.join(&filename);
         match std::fs::write(&filepath, img_bytes) {
             Ok(()) => {
-                let img_url = format!("/api/images/{}/{}", conversation_id, filename);
+                let img_url = format!("/api/images/{conversation_id}/{filename}");
                 let size_kb = img_bytes.len() / 1024;
                 eprintln!("[IMAGES] Saved screenshot {}/{}: {} ({}KB)", i + 1, images.len(), filepath.display(), size_kb);
                 output_block.push_str(&format!("\n![screenshot]({img_url})"));

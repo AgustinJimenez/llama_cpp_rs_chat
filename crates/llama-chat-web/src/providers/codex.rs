@@ -199,7 +199,7 @@ pub async fn generate(
                             // Format as native tool call widget
                             let name = item.name.as_deref().unwrap_or("unknown");
                             let args = item.arguments.as_deref().unwrap_or("{}");
-                            format!("\n<tool_call>{{\"name\": \"{}\", \"arguments\": {}}}</tool_call>\n", name, args)
+                            format!("\n<tool_call>{{\"name\": \"{name}\", \"arguments\": {args}}}</tool_call>\n")
                         }
                         "function_call_output" | "tool_result" => {
                             // Format as native tool response widget
@@ -207,7 +207,7 @@ pub async fn generate(
                                 .or(item.text.as_deref())
                                 .unwrap_or("");
                             let truncated = if output.len() > 500 { &output[..500] } else { output };
-                            format!("\n<tool_response>\n{}\n</tool_response>\n", truncated)
+                            format!("\n<tool_response>\n{truncated}\n</tool_response>\n")
                         }
                         _ => item.text.unwrap_or_default(),
                     };

@@ -50,7 +50,7 @@ impl Database {
         let mut stmt = conn
             .prepare(
                 "SELECT role, content, timestamp, prompt_tok_per_sec, gen_tok_per_sec, gen_eval_ms, gen_tokens, \
-                 prompt_eval_ms, prompt_tokens, sequence_order \
+                 prompt_eval_ms, prompt_tokens, sequence_order, parts \
                  FROM messages WHERE conversation_id = ?1 ORDER BY sequence_order ASC",
             )
             .map_err(db_error("prepare messages"))?;
@@ -69,6 +69,7 @@ impl Database {
                     prompt_tokens: row.get(8)?,
                     compacted: false,
                     sequence_order: row.get(9).unwrap_or(0),
+                    parts: row.get(10).unwrap_or(None),
                 })
             })
             .map_err(db_error("query messages"))?
@@ -151,8 +152,7 @@ impl Database {
         let start_after = if let Some((_, covers_to, message_count, summary_text)) = &latest {
             text.push_str("SYSTEM:\n");
             text.push_str(&format!(
-                "[Conversation summary — {} earlier messages compacted]\n{}",
-                message_count, summary_text
+                "[Conversation summary — {message_count} earlier messages compacted]\n{summary_text}",
             ));
             text.push_str("\n\n");
             *covers_to

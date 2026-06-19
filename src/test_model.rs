@@ -121,7 +121,7 @@ fn main() {
 
     for i in 0..max_tokens {
         // Sample next token
-        let new_token = sampler.sample(&mut ctx, batch.n_tokens() - 1);
+        let new_token = sampler.sample(&ctx, batch.n_tokens() - 1);
 
         // Check for EOS
         if model.is_eog_token(new_token) {
@@ -154,14 +154,14 @@ fn main() {
         n_generated,
         gen_time.as_secs_f32()
     );
-    println!("  Wall-clock tok/s: {:.2}", wall_tps);
+    println!("  Wall-clock tok/s: {wall_tps:.2}");
 
     // Get llama.cpp internal timings (decode-only, excludes Rust overhead)
     let timings = ctx.timings();
     let internal_tps = timings.n_eval() as f64 / timings.t_eval_ms() * 1000.0;
     println!("\n=== llama.cpp Internal Timings ===");
-    println!("{}", timings);
-    println!("  Internal decode-only tok/s: {:.2}", internal_tps);
+    println!("{timings}");
+    println!("  Internal decode-only tok/s: {internal_tps:.2}");
     println!(
         "  Rust overhead: {:.1}% ({:.2} vs {:.2} tok/s)",
         (1.0 - wall_tps as f64 / internal_tps) * 100.0,

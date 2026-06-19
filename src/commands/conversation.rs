@@ -47,7 +47,7 @@ pub async fn get_conversation(
     let mut msg_idx = 0u64;
     while idx < db_messages.len() {
         let m = &db_messages[idx];
-        if m.role == "assistant" && m.content.contains("\"tool_calls\":") && m.content.starts_with("{") {
+        if m.role == "assistant" && m.content.contains("\"tool_calls\":") && m.content.starts_with('{') {
             let mut combined = String::new();
             if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&m.content) {
                 if let Some(text) = parsed.get("content").and_then(|c| c.as_str()) {

@@ -13,6 +13,7 @@ use tokio::time::{timeout, Duration};
 use super::io_tasks::{stdin_writer_task, stdout_reader_task, CrashRecoveryCtx};
 use super::ipc_types::*;
 use super::process_manager::ProcessManager;
+use llama_chat_db::SharedDatabase;
 use llama_chat_types::models::TokenData;
 
 mod types;
@@ -54,11 +55,15 @@ pub struct WorkerBridge {
     /// Crash-recovery context shared with the stdout reader — cleared on intentional unload
     /// so auto-reload doesn't fire when we voluntarily kill the worker.
     recovery_ctx: Arc<TokioMutex<CrashRecoveryCtx>>,
+    /// Database handle, passed to the stdout reader so it can persist crash/recovery
+    /// notices directly (the worker process has its own connection and logs normal
+    /// generation independently; this handle is only used for out-of-band notices).
+    db: SharedDatabase,
 }
 
 impl WorkerBridge {
     /// Create a new WorkerBridge and start IO tasks.
-    pub fn new(process_manager: Arc<ProcessManager>) -> Self {
+    pub fn new(process_manager: Arc<ProcessManager>, db: SharedDatabase) -> Self {
         let stdin_handle = process_manager
             .take_stdin()
             .expect("Worker stdin not available");
@@ -97,6 +102,7 @@ impl WorkerBridge {
             recovery_ctx.clone(),
             auto_recovering.clone(),
             status_message.clone(),
+            db.clone(),
             initial_gen,
         ));
 
@@ -115,7 +121,14 @@ impl WorkerBridge {
             next_id: AtomicU64::new(1),
             process_manager,
             recovery_ctx,
+            db,
         }
+    }
+
+    /// Kill the underlying worker process and set the shutdown flag.
+    /// The stdout reader task will not restart the process after this.
+    pub fn kill(&self) {
+        self.process_manager.kill();
     }
 
     /// Send a command and wait for the response.
@@ -154,6 +167,7 @@ impl WorkerBridge {
         model_path: &str,
         gpu_layers: Option<u32>,
         mmproj_path: Option<String>,
+        agent_id: Option<String>,
     ) -> Result<ModelMeta, String> {
         // If the bridge is auto-recovering from a crash, don't accept external load requests
         // to avoid racing with the recovery thread's own LoadModel command.
@@ -175,6 +189,7 @@ impl WorkerBridge {
                 model_path: model_path.to_string(),
                 gpu_layers,
                 mmproj_path,
+                agent_id: agent_id.clone(),
             }),
         )
         .await
@@ -229,6 +244,8 @@ impl WorkerBridge {
                 };
                 *self.last_model_path.lock().await = Some(meta.model_path.clone());
                 *self.model_meta.lock().await = Some(meta.clone());
+                // Persist agent_id for crash-recovery so auto-reload uses the correct agent config.
+                self.recovery_ctx.lock().await.agent_id = agent_id;
                 Ok(meta)
             }
             WorkerPayload::Error { message } => Err(message),
@@ -337,9 +354,13 @@ impl WorkerBridge {
                 self.loading_progress.clone(),
                 self.process_manager.clone(),
                 self.cmd_tx.clone(),
-                Arc::new(TokioMutex::new(CrashRecoveryCtx::default())),
+                // Reuse the bridge's persistent recovery_ctx (not a fresh default) so
+                // mutations made elsewhere (e.g. force_unload clearing model_path before
+                // a kill) stay visible to whichever reader task is currently live.
+                self.recovery_ctx.clone(),
                 self.auto_recovering.clone(),
                 self.status_message.clone(),
+                self.db.clone(),
                 gen,
             ));
         }
@@ -484,6 +505,7 @@ impl WorkerBridge {
         conversation_id: Option<String>,
         skip_user_logging: bool,
         image_data: Option<Vec<String>>,
+        agent_id: Option<String>,
     ) -> Result<(mpsc::UnboundedReceiver<TokenData>, oneshot::Receiver<GenerationResult>), String>
     {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
@@ -528,6 +550,7 @@ impl WorkerBridge {
                 conversation_id,
                 skip_user_logging,
                 image_data,
+                agent_id,
             },
         };
         let json =
@@ -554,6 +577,46 @@ impl WorkerBridge {
     /// Get current MCP status from the worker.
     pub async fn get_mcp_status(&self) -> Result<WorkerPayload, String> {
         self.send_and_wait(WorkerCommand::GetMcpStatus).await
+    }
+
+    /// Get the qualified tool names of all connected MCP tools.
+    pub async fn get_mcp_tool_names(&self) -> Vec<String> {
+        match self.send_and_wait(WorkerCommand::GetMcpStatus).await {
+            Ok(WorkerPayload::McpStatus { servers }) => {
+                servers.into_iter().flat_map(|s| s.tools).collect()
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// Get all MCP tool definitions with full JSON schemas (for OpenAI function-call tools list).
+    pub async fn get_mcp_tool_definitions(&self) -> Vec<llama_chat_tools::McpToolDefInfo> {
+        match self.send_and_wait(WorkerCommand::GetMcpToolDefinitions).await {
+            Ok(WorkerPayload::McpToolDefinitions { tools }) => {
+                tools.into_iter().map(|t| llama_chat_tools::McpToolDefInfo {
+                    qualified_name: t.qualified_name,
+                    description: t.description,
+                    input_schema: t.input_schema,
+                    server_name: t.server_name,
+                }).collect()
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// Call an MCP tool by qualified name. Blocks the current thread.
+    /// Intended for use inside `spawn_blocking` contexts (remote provider agentic loop).
+    pub async fn call_mcp_tool(&self, name: &str, args: serde_json::Value) -> Result<String, String> {
+        let args_json = serde_json::to_string(&args).map_err(|e| format!("Serialize args: {e}"))?;
+        match self.send_and_wait(WorkerCommand::CallMcpTool {
+            name: name.to_string(),
+            args_json,
+        }).await? {
+            WorkerPayload::McpToolResult { result: Some(r), .. } => Ok(r),
+            WorkerPayload::McpToolResult { error: Some(e), .. } => Err(e),
+            WorkerPayload::Error { message } => Err(message),
+            _ => Err("Unexpected response to CallMcpTool".to_string()),
+        }
     }
 
     /// Get available compute backends from the worker.

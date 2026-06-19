@@ -20,7 +20,7 @@ use crate::providers::{
     set_remote_generating, set_remote_status, CliTokenData,
 };
 use super::db::{
-    provider_log, save_message_now,
+    provider_log, save_message_now, save_message_now_returning_seq,
 };
 
 use serde_json::{json, Value};
@@ -40,6 +40,7 @@ use finalize::{finalize_generation, save_initial_messages, LoopCounters};
 ///
 /// When the model returns tool calls, they are executed locally and the results
 /// are fed back into the conversation for another API round-trip.
+#[allow(clippy::too_many_arguments)]
 pub async fn generate(
     provider_id: &str,
     prompt: &str,
@@ -49,21 +50,25 @@ pub async fn generate(
     conversation_id: Option<&str>,
     db: Option<&llama_chat_db::SharedDatabase>,
     user_params: Option<&serde_json::Value>,
+    image_data: Option<&[String]>,
+    max_turns: Option<u32>,
+    mcp_bridge: Option<llama_chat_worker::worker::worker_bridge::SharedWorkerBridge>,
 ) -> Result<mpsc::UnboundedReceiver<CliTokenData>, String> {
     let (tx, rx) = mpsc::unbounded_channel();
     let model_name = resolve_model(provider_id, model);
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
 
     eprintln!(
-        "[OPENAI_COMPAT] generate() provider={} model={} url={}",
-        provider_id, model_name, url
+        "[OPENAI_COMPAT] generate() provider={provider_id} model={model_name} url={url}"
     );
 
-    // Read max_tool_calls from config (default 2000)
+    // Read max_tool_calls from config (default 2000); user-provided max_turns takes priority
     let config = db.map(|d| d.load_config());
-    let max_iterations = config.as_ref()
-        .map(|c| c.max_tool_calls as usize)
-        .unwrap_or(MAX_AGENTIC_ITERATIONS);
+    let max_iterations = max_turns
+        .map(|t| t as usize)
+        .unwrap_or_else(|| config.as_ref()
+            .map(|c| c.max_tool_calls as usize)
+            .unwrap_or(MAX_AGENTIC_ITERATIONS));
     let loop_limit = config.as_ref()
         .map(|c| c.loop_detection_limit as u32)
         .unwrap_or(15);
@@ -75,6 +80,7 @@ pub async fn generate(
     let conv_id_owned = conversation_id.map(|s| s.to_string());
     let db_owned = db.cloned();
     let user_params_owned = user_params.cloned();
+    let image_data_owned: Vec<String> = image_data.unwrap_or(&[]).to_vec();
 
     // Use ureq in a blocking task for the streaming HTTP request + agentic loop
     tokio::task::spawn_blocking(move || {
@@ -85,8 +91,14 @@ pub async fn generate(
             set_remote_generating(cid, &provider_id_owned);
         }
 
+        // Build MCP proxy if a bridge was provided and MCP tools are available.
+        let mcp_proxy: Option<crate::providers::bridge_mcp_proxy::BridgeMcpProxy> =
+            mcp_bridge.map(crate::providers::bridge_mcp_proxy::BridgeMcpProxy::new_blocking);
+        let mcp_ops: Option<&dyn llama_chat_tools::McpManagerOps> =
+            mcp_proxy.as_ref().map(|p| p as &dyn llama_chat_tools::McpManagerOps);
+
         // Get tool definitions for the agentic loop
-        let tools = get_agentic_tools();
+        let tools = get_agentic_tools(mcp_ops);
         let has_tools = !tools.is_empty();
 
         provider_log(&conv_id_owned, "provider_start",
@@ -130,8 +142,22 @@ pub async fn generate(
             save_initial_messages(db, conv_id, &provider_id_owned, &prompt_owned, get_cloud_system_prompt());
         }
 
-        // Add current user message
-        messages.push(json!({"role": "user", "content": prompt_owned}));
+        // Add current user message (multimodal if images are present)
+        if image_data_owned.is_empty() {
+            messages.push(json!({"role": "user", "content": prompt_owned}));
+        } else {
+            let mut parts: Vec<Value> = vec![json!({"type": "text", "text": prompt_owned})];
+            for b64 in &image_data_owned {
+                // Detect image format from base64 prefix (data URLs) or default to jpeg
+                let url = if b64.starts_with("data:") {
+                    b64.clone()
+                } else {
+                    format!("data:image/jpeg;base64,{b64}")
+                };
+                parts.push(json!({"type": "image_url", "image_url": {"url": url}}));
+            }
+            messages.push(json!({"role": "user", "content": parts}));
+        }
 
         // Track total tokens across all iterations
         let mut counters = LoopCounters {
@@ -205,8 +231,43 @@ pub async fn generate(
                 body["tools"] = json!(tools);
             }
 
-            // Make the API call
-            let result = match stream_sse_response(&url, &api_key_owned, &body, &tx, &counters.actual_model) {
+            // Make the API call — retry on 429 / 5xx with exponential backoff
+            let call_result = {
+                let mut attempt = 0u32;
+                const MAX_RETRIES: u32 = 2; // up to 3 total attempts
+                loop {
+                    match stream_sse_response(&url, &api_key_owned, &body, &tx, &counters.actual_model) {
+                        Ok(r) => break Ok(r),
+                        Err(ref e) if attempt < MAX_RETRIES && is_retryable_http_error(e) => {
+                            let wait_secs = 2u64 << attempt; // 2 s, 4 s
+                            eprintln!(
+                                "[OPENAI_COMPAT] Retryable error (attempt {}/{MAX_RETRIES}): {e}, retrying in {wait_secs}s",
+                                attempt + 1
+                            );
+                            provider_log(
+                                &conv_id_owned,
+                                "provider_retry",
+                                &format!("attempt {}/{MAX_RETRIES}: {e}, waiting {wait_secs}s", attempt + 1),
+                            );
+                            let _ = tx.send(CliTokenData {
+                                token: format!(
+                                    "\n*[Provider error — retrying in {wait_secs}s… attempt {}/{}]*\n",
+                                    attempt + 2,
+                                    MAX_RETRIES + 1
+                                ),
+                                is_done: false, session_id: None, stop_reason: None,
+                                cost_usd: None, duration_ms: None,
+                                model_id: Some(model_name_clone.clone()),
+                                input_tokens: None, output_tokens: None, cached_tokens: None,
+                            });
+                            std::thread::sleep(std::time::Duration::from_secs(wait_secs));
+                            attempt += 1;
+                        }
+                        Err(e) => break Err(e),
+                    }
+                }
+            };
+            let result = match call_result {
                 Ok(r) => r,
                 Err(error_msg) => {
                     provider_log(&conv_id_owned, "provider_error",
@@ -300,7 +361,10 @@ pub async fn generate(
             if result.tool_calls.is_empty() {
                 if !result.content.is_empty() {
                     if let (Some(conv_id), Some(ref db)) = (&conv_id_owned, &db_owned) {
-                        save_message_now(db, conv_id, "assistant", &result.content);
+                        let seq = save_message_now_returning_seq(db, conv_id, "assistant", &result.content);
+                        // Write a single text part for this message
+                        let parts_json = serde_json::json!([{"type": "text", "content": result.content}]).to_string();
+                        let _ = db.update_message_parts(conv_id, seq, &parts_json);
                     }
                 }
                 provider_log(&conv_id_owned, "provider_done",
@@ -330,9 +394,9 @@ pub async fn generate(
                 }
                 if same_tool_count >= loop_limit {
                     provider_log(&conv_id_owned, "provider_error",
-                        &format!("Loop detected: {} called {} times in a row, stopping", current_tool, same_tool_count));
+                        &format!("Loop detected: {current_tool} called {same_tool_count} times in a row, stopping"));
                     let _ = tx.send(CliTokenData {
-                        token: format!("\n\n*Loop detected: tool called {} times in a row. Send a message to continue with a different approach.*", same_tool_count),
+                        token: format!("\n\n*Loop detected: tool called {same_tool_count} times in a row. Send a message to continue with a different approach.*"),
                         is_done: false, session_id: None, stop_reason: None, cost_usd: None,
                         duration_ms: None, model_id: counters.actual_model.clone(), input_tokens: None, output_tokens: None, cached_tokens: None,
                     });
@@ -358,12 +422,16 @@ pub async fn generate(
             }
             messages.push(assistant_msg.clone());
 
-            // Save assistant tool_call message to DB
-            if let (Some(conv_id), Some(ref db)) = (&conv_id_owned, &db_owned) {
-                let mut stored = json!({"tool_calls": assistant_msg.get("tool_calls"), "content": assistant_msg.get("content")});
-                if let Some(rc) = assistant_msg.get("reasoning_content") { stored["reasoning_content"] = rc.clone(); }
-                save_message_now(db, conv_id, "assistant", &stored.to_string());
-            }
+            // Save assistant tool_call message to DB, capture seq for parts update
+            let assistant_seq: Option<(String, i32)> =
+                if let (Some(conv_id), Some(ref db)) = (&conv_id_owned, &db_owned) {
+                    let mut stored = json!({"tool_calls": assistant_msg.get("tool_calls"), "content": assistant_msg.get("content")});
+                    if let Some(rc) = assistant_msg.get("reasoning_content") { stored["reasoning_content"] = rc.clone(); }
+                    let seq = save_message_now_returning_seq(db, conv_id, "assistant", &stored.to_string());
+                    Some((conv_id.clone(), seq))
+                } else {
+                    None
+                };
 
             // Execute tool calls
             let tool_results: Vec<(String, String, String, u64)> = result.tool_calls.iter().map(|tc| {
@@ -375,7 +443,7 @@ pub async fn generate(
                 });
                 eprintln!("[OPENAI_COMPAT] Executing tool: {} args={}", tc.name, &tc.arguments.chars().take(200).collect::<String>());
                 let tool_start = std::time::Instant::now();
-                let result_text = execute_openai_tool(&tc.name, &tc.arguments, db_owned.as_ref());
+                let result_text = execute_openai_tool(&tc.name, &tc.arguments, db_owned.as_ref(), mcp_ops);
                 let tool_duration_ms = tool_start.elapsed().as_millis() as u64;
                 let safe = if result_text.len() > 50_000 {
                     format!("{}\n\n[... truncated at 50KB, total {} bytes]", &result_text[..50_000], result_text.len())
@@ -399,8 +467,27 @@ pub async fn generate(
                     llama_chat_db::event_log::log_event(
                         conv_id,
                         "tool_timing",
-                        &format!("{{\"name\":\"{}\",\"duration_ms\":{}}}", name, duration_ms),
+                        &format!("{{\"name\":\"{name}\",\"duration_ms\":{duration_ms}}}"),
                     );
+                }
+            }
+
+            // Write structured parts onto the assistant message now that we have tool results
+            if let (Some((conv_id, seq)), Some(ref db)) = (&assistant_seq, &db_owned) {
+                let mut parts: Vec<serde_json::Value> = Vec::new();
+                if !result.content.is_empty() {
+                    parts.push(json!({"type": "text", "content": result.content}));
+                }
+                for tc in &result.tool_calls {
+                    parts.push(json!({"type": "tool_call", "content": "", "tool_name": tc.name, "tool_args": tc.arguments}));
+                }
+                for (_, name, truncated, _) in &tool_results {
+                    parts.push(json!({"type": "tool_result", "content": &truncated[..truncated.len().min(4000)], "tool_name": name}));
+                }
+                if !parts.is_empty() {
+                    if let Ok(parts_json) = serde_json::to_string(&parts) {
+                        let _ = db.update_message_parts(conv_id, *seq, &parts_json);
+                    }
                 }
             }
 
@@ -427,6 +514,13 @@ pub async fn generate(
     });
 
     Ok(rx)
+}
+
+/// Returns true for errors that are safe to retry (rate-limit or server errors).
+/// Only matches errors that occur before any streaming starts (i.e. HTTP status errors),
+/// so we never duplicate tokens that were already sent to the frontend.
+fn is_retryable_http_error(msg: &str) -> bool {
+    msg.starts_with("HTTP 429") || (msg.starts_with("HTTP 5") && msg.len() > 7)
 }
 
 /// Map HTTP error codes to user-friendly hints.
