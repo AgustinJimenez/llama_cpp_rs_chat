@@ -249,7 +249,7 @@ pub(crate) fn run_generation_loop(
                         super::sub_checks::EosContinuationResult {
                             is_complete: false,
                             continuation_text: nudge.to_string(),
-                            continuation_tokens: nudge_toks.map(|t| t.into_iter().map(|x| x).collect()).unwrap_or_default(),
+                            continuation_tokens: nudge_toks.map(|t| t.into_iter().collect()).unwrap_or_default(),
                         }
                     } else {
                         super::sub_checks::inline_eos_probe(
