@@ -168,17 +168,47 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
   // Local agent selected — show name with input (disabled until agent worker is ready)
   if (activeAgent) {
     const agentActivating = activatingAgentId === activeAgent.id;
-    const agentStatusVal = agentStatuses[activeAgent.id]?.status;
+    const agentStatusEntry = agentStatuses[activeAgent.id];
+    const agentStatusVal = agentStatusEntry?.status;
+    const agentLoadProgress = agentStatusEntry?.loading_progress;
+    const agentModelLoading = agentStatusVal === 'loading' || agentActivating;
     const agentRunning = agentStatusVal === 'active' || agentStatusVal === 'generating';
     const agentStopped =
-      !agentActivating &&
+      !agentModelLoading &&
       !agentRunning &&
       activeAgent.provider_id === 'local' &&
       !status.loaded &&
       !isLoading;
     let agentContent;
-    if (agentActivating) {
-      agentContent = <Loader2 className="h-6 w-6 animate-spin text-foreground" />;
+    if (agentModelLoading) {
+      const hasProgress =
+        agentLoadProgress != null && agentLoadProgress > 0 && agentLoadProgress <= 100;
+      const isWarmup = agentLoadProgress != null && agentLoadProgress > 100;
+      let loadText = 'Loading model...';
+      if (isWarmup) {
+        loadText = 'Loading system prompt...';
+      } else if (hasProgress) {
+        loadText = `Loading model... ${agentLoadProgress}%`;
+      }
+      const barClass = `h-full rounded-full bg-foreground ${isWarmup ? 'animate-pulse' : 'transition-all duration-300 ease-out'}`;
+      const barWidth = isWarmup ? '100%' : `${agentLoadProgress}%`;
+      const progressBar = (
+        <div className="h-1.5 w-48 overflow-hidden rounded-full bg-foreground/20">
+          <div className={barClass} style={{ width: barWidth }} />
+        </div>
+      );
+      const agentLoadIndicator =
+        hasProgress || isWarmup ? (
+          progressBar
+        ) : (
+          <Loader2 className="h-6 w-6 animate-spin text-foreground" />
+        );
+      agentContent = (
+        <div className="flex flex-col items-center gap-3">
+          {agentLoadIndicator}
+          <p className="text-sm text-foreground">{loadText}</p>
+        </div>
+      );
     } else if (agentStopped) {
       agentContent = (
         <button

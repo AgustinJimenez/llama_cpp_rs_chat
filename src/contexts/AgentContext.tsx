@@ -49,7 +49,8 @@ function writeCachedConversationAgent(conversationId: string, agent: Agent | nul
 }
 
 export type AgentStatus = {
-  status: 'idle' | 'active' | 'generating';
+  status: 'idle' | 'active' | 'generating' | 'loading';
+  loading_progress?: number;
   worker_id?: string;
 };
 

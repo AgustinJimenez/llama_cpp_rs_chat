@@ -413,12 +413,16 @@ pub async fn list_agent_statuses(
         let entry = if agent.provider_id != "local" {
             serde_json::json!({ "status": "active" })
         } else if let Some(worker_id) = pool.get_worker_for_agent(&agent.id) {
-            let is_generating = match pool.get(&worker_id) {
-                Some(bridge) => bridge.is_generating().await,
-                None => false,
+            let (is_generating, is_loading, loading_progress) = match pool.get(&worker_id) {
+                Some(bridge) => {
+                    let loading = bridge.is_loading();
+                    let progress = if loading { Some(bridge.loading_progress()) } else { None };
+                    (bridge.is_generating().await, loading, progress)
+                }
+                None => (false, false, None),
             };
-            let status = if is_generating { "generating" } else { "active" };
-            serde_json::json!({ "status": status, "worker_id": worker_id })
+            let status = if is_generating { "generating" } else if is_loading { "loading" } else { "active" };
+            serde_json::json!({ "status": status, "worker_id": worker_id, "loading_progress": loading_progress })
         } else {
             serde_json::json!({ "status": "idle" })
         };
