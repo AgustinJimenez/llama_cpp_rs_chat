@@ -29,7 +29,7 @@ jobs:
           key: node-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: node-${{ runner.os }}-
 
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - run: npm run typecheck
 
   # ── ESLint ───────────────────────────────────────────────────────────────────
@@ -50,7 +50,7 @@ jobs:
           key: node-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: node-${{ runner.os }}-
 
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       # The full `lint` script also runs react-doctor which can fail on CI
       # because it tries to open a browser. Run ESLint directly instead.
       # Disable i18next/no-literal-string (warn-only, not a code-quality gate)
@@ -209,7 +209,7 @@ jobs:
           key: node-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: node-${{ runner.os }}-
 
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - run: npx playwright install chromium --with-deps
 
       - name: Build frontend
