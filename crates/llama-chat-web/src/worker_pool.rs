@@ -332,10 +332,36 @@ impl WorkerPool {
             }
         }
 
-        let worker_id = self
-            .spawn_worker_with_options(model_path, gpu_layers, mmproj_path, Some(agent_id.to_string()))
-            .await?;
+        // Generate the worker_id here so we can bind agent→worker before load_model
+        // starts. This lets list_agent_statuses report loading_progress via polling
+        // while the (slow) model load is in flight.
+        self.evict_idle_workers_if_memory_tight(model_path).await;
+
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
+        let worker_id = format!("w{}", &suffix[..8]);
+
+        let pm = Arc::new(ProcessManager::spawn(&self.db_path)?);
+        let bridge = Arc::new(WorkerBridge::new(pm, self.db.clone()));
+
+        // Register in pool and bind agent BEFORE loading so polling can observe progress.
+        let entry = WorkerEntry {
+            id: worker_id.clone(),
+            bridge: bridge.clone(),
+            created_at: SystemTime::now(),
+        };
+        self.workers
+            .write()
+            .map_err(|_| "WorkerPool lock poisoned".to_string())?
+            .insert(worker_id.clone(), entry);
         self.bind_agent_worker(agent_id, worker_id.clone())?;
+
+        if let Err(e) = bridge.load_model(model_path, gpu_layers, mmproj_path, Some(agent_id.to_string())).await {
+            bridge.kill();
+            let _ = self.workers.write().map(|mut w| w.remove(&worker_id));
+            let _ = self.unbind_agent_worker(agent_id);
+            return Err(e);
+        }
+
         Ok(worker_id)
     }
 

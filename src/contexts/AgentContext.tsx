@@ -145,19 +145,30 @@ export const AgentProvider = ({ children }: { children: ReactNode }) => {
     setAgentStatuses(statuses);
   }, []);
 
-  const activateAgentCb = useCallback(async (id: string) => {
-    setActivatingAgentId(id);
-    setAgentStatuses((prev) => ({ ...prev, [id]: { status: 'active' } }));
-    try {
-      const result = await activateAgentCmd(id);
-      setAgentStatuses((prev) => ({ ...prev, [id]: result }));
-    } catch (err) {
-      setAgentStatuses((prev) => ({ ...prev, [id]: { status: 'idle' } }));
-      throw err;
-    } finally {
-      setActivatingAgentId((prev) => (prev === id ? null : prev));
-    }
-  }, []);
+  const activateAgentCb = useCallback(
+    async (id: string) => {
+      setActivatingAgentId(id);
+      setAgentStatuses((prev) => ({ ...prev, [id]: { status: 'loading' } }));
+
+      // Poll while the model loads so loading_progress is reflected in the UI
+      const LOAD_POLL_MS = 500;
+      const pollInterval = setInterval(() => {
+        fetchAgentStatusesCb().catch(() => {});
+      }, LOAD_POLL_MS);
+
+      try {
+        const result = await activateAgentCmd(id);
+        setAgentStatuses((prev) => ({ ...prev, [id]: result }));
+      } catch (err) {
+        setAgentStatuses((prev) => ({ ...prev, [id]: { status: 'idle' } }));
+        throw err;
+      } finally {
+        clearInterval(pollInterval);
+        setActivatingAgentId((prev) => (prev === id ? null : prev));
+      }
+    },
+    [fetchAgentStatusesCb],
+  );
 
   const stopAgentCb = useCallback(async (id: string) => {
     await stopAgentCmd(id);
