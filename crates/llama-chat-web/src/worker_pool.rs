@@ -634,7 +634,7 @@ fn total_physical_ram_bytes() -> u64 {
             .and_then(|s| {
                 s.lines()
                     .find_map(|l| l.strip_prefix("MemTotal:"))
-                    .and_then(|rest| rest.trim().split_whitespace().next().map(str::to_owned))
+                    .and_then(|rest| rest.split_whitespace().next().map(str::to_owned))
             })
             .and_then(|kb| kb.parse::<u64>().ok())
             .map(|kb| kb * 1024)
