@@ -428,6 +428,7 @@ fn scan_and_init_vision(
         print_timings: false,
         n_threads: 4,
         media_marker: CString::new("<__media__>").unwrap(),
+        ..MtmdContextParams::default()
     };
 
     match MtmdContext::init_from_file(&mmproj_str, model, &params) {
