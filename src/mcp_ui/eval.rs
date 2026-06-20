@@ -95,9 +95,9 @@ pub async fn eval_js_in(app: &AppHandle, js: &str, target: &str) -> Result<Strin
             .clone()
     } else if target == "browser-panel" || target == "agent-browser" {
         // Legacy single-tab names that were not found in webviews map
-        return Err(format!("Browser panel '{}' not open. Use browser_navigate first.", target));
+        return Err(format!("Browser panel '{target}' not open. Use browser_navigate first."));
     } else {
-        return Err(format!("Webview '{}' not found — use browser_navigate first", target));
+        return Err(format!("Webview '{target}' not found — use browser_navigate first"));
     };
 
     // Use WebView2 ExecuteScript directly — returns result via COM callback.
