@@ -37,6 +37,7 @@ pub fn vlm_ocr_main(args: &[String]) -> std::io::Result<()> {
         print_timings: false,
         n_threads: 4,
         media_marker: CString::new("<__media__>").unwrap(),
+        ..MtmdContextParams::default()
     };
     let vision = MtmdContext::init_from_file(mmproj_path, &model, &mtmd_params)
         .map_err(|e| io_err(format!("Mmproj: {e}")))?;
