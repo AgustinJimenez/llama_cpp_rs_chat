@@ -180,9 +180,10 @@ impl WorkerBridge {
         self.loading_progress.store(0, Ordering::Relaxed);
         *self.loading_model_path.lock().await = Some(model_path.to_string());
 
-        // Timeout: if the worker doesn't respond within 120s, it's likely stuck
+        // Timeout: if the worker doesn't respond within 360s, it's likely stuck
         // due to VRAM overflow (CUDA VMM silently pages to RAM → infinite stall).
-        const LOAD_TIMEOUT_SECS: u64 = 120;
+        // 360s (6 min) allows for CUDA PTX JIT compilation on first run after driver update.
+        const LOAD_TIMEOUT_SECS: u64 = 360;
         let payload = match timeout(
             Duration::from_secs(LOAD_TIMEOUT_SECS),
             self.send_and_wait(WorkerCommand::LoadModel {
@@ -197,7 +198,7 @@ impl WorkerBridge {
             Ok(result) => result,
             Err(_) => {
                 eprintln!(
-                    "[LOAD] Timeout after {LOAD_TIMEOUT_SECS}s — likely VRAM overflow. Killing worker."
+                    "[LOAD] Timeout after {LOAD_TIMEOUT_SECS}s — likely VRAM overflow or CUDA JIT compilation hang. Killing worker."
                 );
                 self.loading.store(false, Ordering::SeqCst);
                 self.loading_progress.store(0, Ordering::Relaxed);

@@ -224,6 +224,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     isModelLoaded,
     isGeneratingElsewhere,
     isCompacting,
+    noAgentSelected,
     disabled,
     estimatedConvTokens,
     modelContextSize,
@@ -314,6 +315,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     isModelLoaded,
     disabledReason,
     isCompacting,
+    noAgentSelected,
   );
 
   return (

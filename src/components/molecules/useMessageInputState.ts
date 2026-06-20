@@ -71,11 +71,15 @@ export function useInputState() {
     currentConversationId != null &&
     status.active_conversation_id !== currentConversationId;
 
+  // For local provider, an agent must be selected before chatting.
+  const noAgentSelected = !isRemoteProvider && activeAgent === null;
+
   // Input is always enabled while generating — messages get queued (local) or backend-queued (remote)
   const disabled =
     isModelBusy ||
     isGeneratingElsewhere ||
     isCompacting ||
+    noAgentSelected ||
     (!status.loaded && !isRemoteProvider && !isLocalAgentReady);
   const estimatedConvTokens = useMemo(() => {
     // Use promptTokens + genTokens from the last assistant message with timing data.
@@ -108,6 +112,7 @@ export function useInputState() {
     isModelLoaded,
     isGeneratingElsewhere,
     isCompacting,
+    noAgentSelected,
     disabled,
     estimatedConvTokens,
     modelContextSize,
@@ -126,6 +131,7 @@ export function getPlaceholder(
   isModelLoaded: boolean,
   disabledReason?: string,
   isCompacting?: boolean,
+  noAgentSelected?: boolean,
 ) {
   if (isCompacting) {
     return 'Compacting conversation…';
@@ -137,6 +143,9 @@ export function getPlaceholder(
   }
   if (isGeneratingElsewhere) {
     return t('chat.placeholderGeneratingElsewhere');
+  }
+  if (noAgentSelected) {
+    return 'Select an agent to start chatting…';
   }
   if (!isModelLoaded) {
     return t('chat.placeholderNoModel');

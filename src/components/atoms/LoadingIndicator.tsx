@@ -1,15 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
 
+const GEN_START_KEY = 'llama_gen_started_at';
+
 export const LoadingIndicator: React.FC = () => {
   const [elapsed, setElapsed] = useState(0);
   const startRef = useRef(0);
 
   useEffect(() => {
-    startRef.current = Date.now();
+    const stored = sessionStorage.getItem(GEN_START_KEY);
+    const start = stored ? Number(stored) : Date.now();
+    if (!stored) sessionStorage.setItem(GEN_START_KEY, String(start));
+    startRef.current = start;
     const interval = setInterval(() => {
       setElapsed(Date.now() - startRef.current);
     }, 100);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      sessionStorage.removeItem(GEN_START_KEY);
+    };
   }, []);
 
   const totalSeconds = elapsed / 1000;

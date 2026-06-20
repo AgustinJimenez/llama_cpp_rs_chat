@@ -1,8 +1,16 @@
+import { useAgentContext } from '../../contexts/AgentContext';
+import { useChatContext } from '../../contexts/ChatContext';
 import { useModelContext } from '../../contexts/ModelContext';
 import { MessageInput } from '../molecules';
 
 export const ChatInputArea = () => {
   const { status, activeProvider } = useModelContext();
+  const { currentConversationId } = useChatContext();
+  const { stagedAgent, conversationAgent } = useAgentContext();
+  const activeAgent = currentConversationId
+    ? conversationAgent
+    : (conversationAgent ?? stagedAgent);
+  if (activeProvider === 'local' && !activeAgent) return null;
   if (!status.loaded && activeProvider === 'local') return null;
 
   return (
