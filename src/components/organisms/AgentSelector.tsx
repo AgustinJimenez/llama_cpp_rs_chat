@@ -36,7 +36,7 @@ import { useModelPathValidation } from '@/hooks/useModelPathValidation';
 import { useVramOptimizer } from '@/hooks/useVramOptimizer';
 import type { Agent, SamplerConfig } from '@/types';
 import { isTauriEnv } from '@/utils/tauri';
-import { getModelHistory, pickFile } from '@/utils/tauriCommands';
+import { recordAppError, getModelHistory, pickFile } from '@/utils/tauriCommands';
 
 const DEFAULT_CONTEXT_SIZE = 32768;
 const DEFAULT_MAX_CONTEXT = 131072;
@@ -594,8 +594,15 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
         toast.success('Agent created');
       }
       setView('list');
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       toast.error(editingAgent ? 'Failed to update agent' : 'Failed to create agent');
+      recordAppError({
+        level: 'error',
+        source: 'AgentSelector.save',
+        message: editingAgent ? 'Failed to update agent' : 'Failed to create agent',
+        details: msg,
+      }).catch(() => {});
     } finally {
       setSaving(false);
     }
@@ -610,8 +617,15 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
     try {
       await deleteAgent(id);
       setConfirmDeleteId(null);
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       toast.error('Failed to delete agent');
+      recordAppError({
+        level: 'error',
+        source: 'AgentSelector.delete',
+        message: 'Failed to delete agent',
+        details: msg,
+      }).catch(() => {});
     } finally {
       setDeletingId(null);
     }

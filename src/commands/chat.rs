@@ -40,14 +40,18 @@ pub async fn generate_stream(
         .await
         .and_then(|m| m.general_name.clone());
     let config = load_config(&db);
-    let system_prompt = match config.system_prompt.as_deref() {
-        Some("__AGENTIC__") => {
+
+    // Priority: 1) agent's custom system_prompt, 2) config's system_prompt
+    let agent_system_prompt = request.agent_id.as_ref().and_then(|aid| {
+        db.get_agent(aid).ok().flatten().and_then(|a| a.system_prompt)
+    });
+    let system_prompt = agent_system_prompt.or_else(|| match config.system_prompt.as_deref() {
+        Some("__AGENTIC__") | None => {
             let tags = get_tool_tags_for_model(general_name.as_deref());
             Some(get_universal_system_prompt_with_tags(&tags))
         }
         Some(custom) => Some(custom.to_string()),
-        None => None,
-    };
+    });
 
     // Create or load conversation logger
     let conversation_logger = if let Some(ref conv_id) = request.conversation_id {

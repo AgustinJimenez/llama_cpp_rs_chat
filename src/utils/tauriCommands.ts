@@ -5,7 +5,7 @@
  */
 const SSE_DATA_PREFIX_LENGTH = 6;
 
-import type { SamplerConfig, ToolCall, ToolTags } from '../types';
+import type { Agent, SamplerConfig, ToolCall, ToolTags } from '../types';
 
 import { isTauriEnv } from './tauri';
 
@@ -694,6 +694,108 @@ export function startHubDownload(
   return controller;
 }
 
+// ─── Agents ───────────────────────────────────────────────────────────
+
+export async function listAgents(): Promise<Agent[]> {
+  if (isTauriEnv()) {
+    return invokeCmd<Agent[]>('list_agents');
+  }
+  return fetchJson<Agent[]>('/api/agents');
+}
+
+export async function createAgent(agent: Record<string, unknown>): Promise<Agent> {
+  if (isTauriEnv()) {
+    return invokeCmd<Agent>('create_agent', { agent });
+  }
+  return fetchJson<Agent>('/api/agents', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(agent),
+  });
+}
+
+export async function updateAgent(id: string, agent: Record<string, unknown>): Promise<Agent> {
+  if (isTauriEnv()) {
+    return invokeCmd<Agent>('update_agent', { id, agent });
+  }
+  return fetchJson<Agent>(`/api/agents/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(agent),
+  });
+}
+
+export async function deleteAgent(id: string): Promise<void> {
+  if (isTauriEnv()) {
+    await invokeCmd('delete_agent', { id });
+    return;
+  }
+  await fetchJson(`/api/agents/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+export async function getConversationAgent(conversationId: string): Promise<Agent | null> {
+  if (isTauriEnv()) {
+    return invokeCmd<Agent | null>('get_conversation_agent', { conversationId });
+  }
+  const body = await fetchJson<{ agent: Agent | null }>(
+    `/api/conversations/${encodeURIComponent(conversationId)}/agent`,
+  );
+  return body.agent;
+}
+
+export async function setConversationAgent(
+  conversationId: string,
+  agentId: string | null,
+): Promise<void> {
+  if (isTauriEnv()) {
+    await invokeCmd('set_conversation_agent', { conversationId, agentId });
+    return;
+  }
+  await fetchJson(`/api/conversations/${encodeURIComponent(conversationId)}/agent`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ agent_id: agentId }),
+  });
+}
+
+export type AgentStatusValue = 'idle' | 'active' | 'generating';
+
+// Agent statuses
+export async function fetchAgentStatuses(): Promise<
+  Record<string, { status: AgentStatusValue; worker_id?: string }>
+> {
+  if (isTauriEnv()) {
+    return invokeCmd<Record<string, { status: AgentStatusValue; worker_id?: string }>>(
+      'list_agent_statuses',
+    );
+  }
+  return fetchJson<Record<string, { status: AgentStatusValue; worker_id?: string }>>(
+    '/api/agents/statuses',
+  );
+}
+
+export async function activateAgent(
+  id: string,
+): Promise<{ status: AgentStatusValue; worker_id?: string }> {
+  if (isTauriEnv()) {
+    return invokeCmd<{ status: AgentStatusValue; worker_id?: string }>('activate_agent', { id });
+  }
+  return fetchJson<{ status: AgentStatusValue; worker_id?: string }>(
+    `/api/agents/${encodeURIComponent(id)}/activate`,
+    {
+      method: 'POST',
+    },
+  );
+}
+
+export async function stopAgent(id: string): Promise<void> {
+  if (isTauriEnv()) {
+    await invokeCmd('stop_agent', { id });
+    return;
+  }
+  await fetchJson(`/api/agents/${encodeURIComponent(id)}/stop`, { method: 'POST' });
+}
+
 // ─── Backends ────────────────────────────────────────────────────────
 
 export interface BackendDeviceInfo {
@@ -739,10 +841,17 @@ export interface BackgroundProcessInfo {
 }
 
 export async function getBackgroundProcesses(): Promise<BackgroundProcessInfo[]> {
+  if (isTauriEnv()) {
+    return invokeCmd<BackgroundProcessInfo[]>('get_background_processes');
+  }
   return fetchJson<BackgroundProcessInfo[]>('/api/system/processes');
 }
 
 export async function killBackgroundProcess(pid: number): Promise<void> {
+  if (isTauriEnv()) {
+    await invokeCmd('kill_background_process', { pid });
+    return;
+  }
   await fetchJson('/api/system/processes/kill', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

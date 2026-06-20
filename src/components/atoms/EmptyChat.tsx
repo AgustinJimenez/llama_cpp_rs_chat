@@ -27,7 +27,8 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
   } = useModelContext();
   const { openAgentSelector } = useUIContext();
   const { currentConversationId } = useChatContext();
-  const { conversationAgent, stagedAgent, activatingAgentId, activateAgent } = useAgentContext();
+  const { conversationAgent, stagedAgent, agentStatuses, activatingAgentId, activateAgent } =
+    useAgentContext();
   // Mirror AgentPicker: for an existing conversation use conversationAgent, otherwise stage.
   const activeAgent = currentConversationId
     ? conversationAgent
@@ -167,8 +168,14 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
   // Local agent selected — show name with input (disabled until agent worker is ready)
   if (activeAgent) {
     const agentActivating = activatingAgentId === activeAgent.id;
+    const agentStatusVal = agentStatuses[activeAgent.id]?.status;
+    const agentRunning = agentStatusVal === 'active' || agentStatusVal === 'generating';
     const agentStopped =
-      !agentActivating && activeAgent.provider_id === 'local' && !status.loaded && !isLoading;
+      !agentActivating &&
+      !agentRunning &&
+      activeAgent.provider_id === 'local' &&
+      !status.loaded &&
+      !isLoading;
     let agentContent;
     if (agentActivating) {
       agentContent = <Loader2 className="h-6 w-6 animate-spin text-foreground" />;

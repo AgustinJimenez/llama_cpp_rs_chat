@@ -309,6 +309,18 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            // Agents
+            commands::agents::list_agents,
+            commands::agents::get_agent,
+            commands::agents::create_agent,
+            commands::agents::update_agent,
+            commands::agents::delete_agent,
+            commands::agents::get_conversation_agent,
+            commands::agents::set_conversation_agent,
+            commands::agents::list_agent_statuses,
+            commands::agents::activate_agent,
+            commands::agents::stop_agent,
+            // Logging
             commands::logging::log_to_file,
             commands::logging::record_app_error,
             commands::logging::get_app_errors,
@@ -364,6 +376,9 @@ fn main() {
             commands::browser_panel::agent_browser_search,
             commands::browser_panel::agent_browser_scroll,
             commands::browser_panel::agent_browser_query,
+            // System
+            commands::system::get_background_processes,
+            commands::system::kill_background_process,
             // Providers
             commands::providers::list_providers,
             commands::providers::list_configured_providers,

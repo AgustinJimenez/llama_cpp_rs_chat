@@ -57,7 +57,7 @@ fn resolve_system_prompt(
 ) -> Option<String> {
     let config = load_config(db);
     match config.system_prompt.as_deref() {
-        Some("__AGENTIC__") => {
+        Some("__AGENTIC__") | None => {
             // Known models use native tags; unknown fall back to saved tag_pairs
             let tags = try_get_tool_tags_for_model(general_name)
                 .or_else(|| config.tag_pairs.as_ref().and_then(|pairs| derive_tool_tags_from_pairs(pairs)))
@@ -65,7 +65,6 @@ fn resolve_system_prompt(
             Some(get_universal_system_prompt_with_tags(&tags))
         }
         Some(custom) => Some(custom.to_string()),
-        None => None,
     }
 }
 
@@ -154,7 +153,11 @@ pub async fn handle_post_chat(
             }
         } else {
             // Create new conversation with resolved system prompt
-            let system_prompt = resolve_system_prompt(&db, general_name.as_deref());
+            // Priority: 1) agent's custom system_prompt, 2) config's system_prompt
+            let agent_system_prompt = chat_request.agent_id.as_ref().and_then(|aid| {
+                db.get_agent(aid).ok().flatten().and_then(|a| a.system_prompt)
+            });
+            let system_prompt = agent_system_prompt.or_else(|| resolve_system_prompt(&db, general_name.as_deref()));
             match ConversationLogger::new(db.clone(), system_prompt.as_deref()) {
                 Ok(logger) => Arc::new(Mutex::new(logger)),
                 Err(e) => {
