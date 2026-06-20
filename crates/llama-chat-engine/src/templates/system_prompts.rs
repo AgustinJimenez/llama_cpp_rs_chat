@@ -85,7 +85,7 @@ If you find CLAUDE.md, .cursorrules, or similar project-meta files in the workin
 
 /// Get a behavioral-only system prompt for Jinja template mode.
 pub fn get_behavioral_system_prompt() -> String {
-    let (os_name, cwd, shell) = env_block();
+    let (os_name, _cwd, shell) = env_block();
     let datetime = current_datetime_string();
     let behavior = core_behavior_block();
 
@@ -97,7 +97,7 @@ pub fn get_behavioral_system_prompt() -> String {
 ## Current Environment
 - Date: {datetime}
 - OS: {os_name}
-- Working Directory: {cwd}
+- Working Directory: unknown — ask the user which directory to work in before doing any file or shell task
 - Shell: {shell}
 "#
     )
@@ -105,14 +105,14 @@ pub fn get_behavioral_system_prompt() -> String {
 
 /// Get the universal system prompt using model-specific tool tags.
 pub fn get_universal_system_prompt_with_tags(tags: &ToolTags) -> String {
-    let (os_name, cwd, shell) = env_block();
+    let (os_name, _cwd, shell) = env_block();
     let datetime = current_datetime_string();
     let behavior = core_behavior_block();
 
     let list_cmd = if os_name == "windows" { "dir" } else { "ls -la" };
 
     if tags.output_open.contains("<|start|>tool") {
-        return get_harmony_system_prompt(&os_name, &cwd, shell, list_cmd);
+        return get_harmony_system_prompt(&os_name, shell, list_cmd);
     }
 
     let exec_open = &tags.exec_open;
@@ -257,14 +257,14 @@ Use `"summary": false` to always inject the raw image (e.g. when pixel-level det
 ## Current Environment
 - Date: {datetime}
 - OS: {os_name}
-- Working Directory: {cwd}
+- Working Directory: unknown — ask the user which directory to work in before doing any file or shell task
 - Shell: {shell}
 "#
     )
 }
 
 /// Generate a system prompt for Harmony models (gpt-oss-20b).
-pub(crate) fn get_harmony_system_prompt(os_name: &str, cwd: &str, shell: &str, list_cmd: &str) -> String {
+pub(crate) fn get_harmony_system_prompt(os_name: &str, shell: &str, list_cmd: &str) -> String {
     let datetime = current_datetime_string();
     let behavior = core_behavior_block();
 
@@ -339,7 +339,7 @@ to=spawn_agent code<|message|>{{"task": "Install Node.js and set up a React proj
 ## Current Environment
 - Date: {datetime}
 - OS: {os_name}
-- Working Directory: {cwd}
+- Working Directory: unknown — ask the user which directory to work in before doing any file or shell task
 - Shell: {shell}
 "#
     )
