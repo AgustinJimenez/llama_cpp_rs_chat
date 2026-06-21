@@ -108,16 +108,18 @@ export const ProviderSelector = ({
     try {
       if (isTauriEnv()) {
         const { invoke } = await import('@tauri-apps/api/core');
-        const configured = await invoke<{ providers?: Provider[] }>('list_configured_providers');
+        const [configured, config] = await Promise.all([
+          invoke<{ providers?: Provider[] }>('list_configured_providers'),
+          invoke<{ provider_api_keys?: string }>('get_config'),
+        ]);
         if (!cancelled.v) {
           setProviders((current) => {
             const merged = new Map(current.map((p) => [p.id, p]));
             for (const p of configured.providers || []) merged.set(p.id, p);
             return Array.from(merged.values());
           });
+          setApiKeyInputs(parseApiKeys(config.provider_api_keys));
         }
-        const config = await invoke<{ provider_api_keys?: string }>('get_config');
-        if (!cancelled.v) setApiKeyInputs(parseApiKeys(config.provider_api_keys));
       } else {
         const [configuredRes, keysRes] = await Promise.all([
           fetch('/api/providers/configured'),
@@ -257,9 +259,9 @@ export const ProviderSelector = ({
 
   const localProvider = providers.find((p) => p.id === 'local');
   const cliProviders = providers.filter((p) => CLI_PROVIDERS.includes(p.id));
+  const searchLower = providerSearch.toLowerCase();
   const openaiProviders = providers
-    .filter((p) => !NON_CLOUD.has(p.id))
-    .filter((p) => p.name.toLowerCase().includes(providerSearch.toLowerCase()))
+    .filter((p) => !NON_CLOUD.has(p.id) && p.name.toLowerCase().includes(searchLower))
     .sort((a, b) => a.name.localeCompare(b.name));
 
   return (

@@ -79,7 +79,7 @@ const ToolCallGroup: React.FC<{ toolCalls: ToolCall[]; isGenerating?: boolean }>
       >
         <Chevron className="size-3 flex-shrink-0" />
         <span className="font-medium">{toolCalls.length} tool calls</span>
-        <span className="text-foreground/40">— {summary}</span>
+        <span className="text-foreground/40">: {summary}</span>
       </button>
       {expandedPanel}
     </div>

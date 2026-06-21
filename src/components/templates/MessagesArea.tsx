@@ -149,7 +149,7 @@ export const MessagesArea = () => {
         data-testid="messages-container"
         onScroll={handleScroll}
       >
-        <div className="mx-auto max-w-3xl px-6 py-6">
+        <div className="mx-auto max-w-3xl p-6">
           <div
             style={{
               height: virtualizer.getTotalSize(),

@@ -40,7 +40,7 @@ export const ConnectionBanner: React.FC = () => {
         <>
           <RefreshCw size={14} className="animate-spin" />
           <span>
-            Server unreachable — retrying{attemptLabel}
+            Server unreachable, retrying{attemptLabel}
             {elapsedLabel}
           </span>
         </>

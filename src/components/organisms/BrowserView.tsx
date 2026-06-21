@@ -373,7 +373,7 @@ export const BrowserView = React.memo(() => {
         <div className="h-0.5 overflow-hidden bg-primary/30">
           <div
             className="h-full animate-pulse bg-primary"
-            style={{ width: '60%', animation: 'loading-bar 1.5s ease-in-out infinite' }}
+            style={{ width: '60%', animation: 'loading-bar 0.8s ease-in-out infinite' }}
           />
         </div>
       )}

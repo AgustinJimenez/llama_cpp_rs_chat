@@ -317,7 +317,7 @@ const ModelCard = ({
         <div className="mt-2 space-y-0.5 border-t pt-2">
           {!!loadingFiles && (
             <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
-              <Loader2 className="size-3 animate-spin" /> Loading file details...
+              <Loader2 className="size-3 animate-spin" /> Loading file details…
             </div>
           )}
           {!loadingFiles &&
@@ -391,7 +391,7 @@ const DownloadRow = ({
   }
 
   return (
-    <div className="relative flex items-center gap-2 overflow-hidden rounded px-2 py-2 transition-colors hover:bg-accent/30">
+    <div className="relative flex items-center gap-2 overflow-hidden rounded p-2 transition-colors hover:bg-accent/30">
       {/* Progress bar background */}
       {!!isDownloading && (
         <div
@@ -756,9 +756,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
                 <span className="truncate font-mono text-xs">{modelsDirectory}</span>
               )}
               {!modelsDirectory && (
-                <span className="text-foreground/60">
-                  Click to set models download directory...
-                </span>
+                <span className="text-foreground/60">Click to set models download directory…</span>
               )}
             </button>
 
@@ -806,7 +804,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
                   {!!isLoading && (
                     <div className="absolute inset-0 z-10 flex items-center justify-center rounded-md bg-background/60">
                       <Loader2 className="mr-2 size-5 animate-spin text-muted-foreground" />
-                      <span className="text-sm text-muted-foreground">Searching...</span>
+                      <span className="text-sm text-muted-foreground">Searching…</span>
                     </div>
                   )}
 

@@ -124,7 +124,7 @@ const MermaidBlock: React.FC<{ code: string }> = ({ code }) => {
   if (!svg) {
     return (
       <div className="my-2 animate-pulse rounded bg-muted p-4 text-sm text-muted-foreground">
-        Rendering diagram...
+        Rendering diagram…
       </div>
     );
   }
@@ -422,10 +422,10 @@ const MarkdownP = ({ children }: { children?: React.ReactNode }) => (
   <p className="my-2 [overflow-wrap:anywhere]">{children}</p>
 );
 const MarkdownH1 = ({ children }: { children?: React.ReactNode }) => (
-  <h1 className="my-3 border-b border-border pb-2 text-2xl font-bold">{children}</h1>
+  <h1 className="my-3 border-b border-border pb-2 text-2xl font-semibold">{children}</h1>
 );
 const MarkdownH2 = ({ children }: { children?: React.ReactNode }) => (
-  <h2 className="my-3 border-b border-border pb-2 text-xl font-bold">{children}</h2>
+  <h2 className="my-3 border-b border-border pb-2 text-xl font-semibold">{children}</h2>
 );
 const MarkdownH3 = ({ children }: { children?: React.ReactNode }) => (
   <h3 className="my-2 text-lg font-semibold">{children}</h3>
@@ -444,7 +444,9 @@ const MarkdownEm = ({ children }: { children?: React.ReactNode }) => (
   <em className="italic">{children}</em>
 );
 const MarkdownBlockquote = ({ children }: { children?: React.ReactNode }) => (
-  <blockquote className="my-2 border-l-4 border-border pl-4 italic">{children}</blockquote>
+  <blockquote className="my-2 border-l-2 border-muted-foreground/30 bg-muted/20 pl-4 italic">
+    {children}
+  </blockquote>
 );
 
 const markdownComponents: Components = {

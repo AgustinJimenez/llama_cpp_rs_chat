@@ -463,7 +463,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                   <CardContent className="pt-4">
                     <div className="flex items-center gap-2">
                       <Loader2 className="size-4 animate-spin" />
-                      <p className="text-sm text-muted-foreground">Reading GGUF metadata...</p>
+                      <p className="text-sm text-muted-foreground">Reading GGUF metadata…</p>
                     </div>
                   </CardContent>
                 </Card>
@@ -512,7 +512,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                           )}
                           {!mmprojPath && (
                             <span className="text-xs text-muted-foreground">
-                              Click to select mmproj .gguf file...
+                              Click to select mmproj .gguf file…
                             </span>
                           )}
                         </button>
@@ -637,7 +637,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
             const buttonContent = isCheckingFile ? (
               <>
                 <Loader2 className="mr-2 size-4 animate-spin" />
-                Reading file...
+                Reading file…
               </>
             ) : (
               'Load Model'

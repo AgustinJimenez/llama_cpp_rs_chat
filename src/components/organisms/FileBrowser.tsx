@@ -134,7 +134,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
               if (loading) {
                 return (
                   <div className="flex items-center justify-center py-8">
-                    <div className="text-sm text-muted-foreground">Loading files...</div>
+                    <div className="text-sm text-muted-foreground">Loading files…</div>
                   </div>
                 );
               }

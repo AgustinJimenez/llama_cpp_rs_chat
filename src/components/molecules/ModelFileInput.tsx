@@ -56,7 +56,7 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
   const pathLabel = modelPath ? (
     <span className="truncate font-mono text-xs">{modelPath}</span>
   ) : (
-    <span className="text-foreground/60">Click to select a .gguf model file...</span>
+    <span className="text-foreground/60">Click to select a .gguf model file…</span>
   );
   const buttonStateClass = isCheckingFile
     ? 'opacity-60'
@@ -95,7 +95,7 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
               data-testid="file-checking"
             >
               <Clock className="size-3" />
-              Checking file...
+              Checking file…
             </span>
           )}
           {!isCheckingFile && fileExists === true && (

@@ -116,7 +116,7 @@ export const SystemUsage = ({ expanded = false }: SystemUsageProps) => {
       return (
         <div className="flex h-32 items-center justify-center gap-2 text-muted-foreground">
           <Loader2 className="size-5 animate-spin" />
-          <span className="text-sm">Loading system usage...</span>
+          <span className="text-sm">Loading system usage…</span>
         </div>
       );
     }

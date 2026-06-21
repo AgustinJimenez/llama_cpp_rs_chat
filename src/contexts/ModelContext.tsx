@@ -98,7 +98,7 @@ export const ModelProvider = ({ children }: { children: ReactNode }) => {
   // Provider params — persisted in localStorage per provider
   const [providerParams, setProviderParams] = useState<ProviderParamsMap>(() => {
     try {
-      const raw = localStorage.getItem('providerParams');
+      const raw = localStorage.getItem('providerParams:v1');
       return raw ? (JSON.parse(raw) as ProviderParamsMap) : {};
     } catch {
       return {};
@@ -153,7 +153,7 @@ export const ModelProvider = ({ children }: { children: ReactNode }) => {
     (providerId: string, params: Record<string, unknown>) => {
       setProviderParams((prev) => {
         const next = { ...prev, [providerId]: params };
-        localStorage.setItem('providerParams', JSON.stringify(next));
+        localStorage.setItem('providerParams:v1', JSON.stringify(next));
         return next;
       });
     },

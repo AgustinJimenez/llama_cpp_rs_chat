@@ -92,8 +92,8 @@ export const ConversationLog = () => {
   const eventsContent =
     events.length === 0 ? (
       <p className="italic text-muted-foreground">
-        No events yet — events appear during generation (stalls, compaction, context limits, Y/N
-        checks)
+        No events yet. Events appear during generation (stalls, compaction, context limits, Y/N
+        checks).
       </p>
     ) : (
       events.map((ev) => (

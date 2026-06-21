@@ -249,7 +249,7 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
             <div className="space-y-1.5">
               <div className="flex items-center justify-center gap-2">
                 <Loader2 className="size-3.5 animate-spin text-primary" />
-                <span className="text-xs text-foreground">Downloading... {installProgress}%</span>
+                <span className="text-xs text-foreground">Downloading… {installProgress}%</span>
               </div>
               <div className="h-1.5 w-full overflow-hidden rounded-full bg-foreground/20">
                 <div

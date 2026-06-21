@@ -1,0 +1,6 @@
+{
+  "ignore": {
+    "files": ["deps/**", "src/web/**", "scripts/**"],
+    "rules": ["react-doctor/no-react19-deprecated-apis"]
+  }
+}

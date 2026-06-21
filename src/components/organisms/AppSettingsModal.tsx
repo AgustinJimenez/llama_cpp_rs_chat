@@ -275,7 +275,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
               </div>
 
               {!!errorsLoading && (
-                <div className="text-sm text-muted-foreground">Loading errors...</div>
+                <div className="text-sm text-muted-foreground">Loading errors…</div>
               )}
               {!errorsLoading && appErrors.length === 0 && (
                 <div className="text-sm text-muted-foreground">No app errors recorded.</div>

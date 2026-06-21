@@ -44,7 +44,7 @@ function truncateCommand(cmd: string, maxLen = 60): string {
 const ProcessOutputPanel = ({ pid, alive }: { pid: number; alive: boolean }) => {
   const [lines, setLines] = useState<string[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const [autoScroll, setAutoScroll] = useState(true);
+  const autoScrollRef = useRef(true);
 
   const fetchOutput = useCallback(async () => {
     try {
@@ -65,15 +65,15 @@ const ProcessOutputPanel = ({ pid, alive }: { pid: number; alive: boolean }) => 
   }, [fetchOutput, alive]);
 
   useEffect(() => {
-    if (autoScroll) {
+    if (autoScrollRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [lines, autoScroll]);
+  }, [lines]);
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_BOTTOM_THRESHOLD_PX;
-    setAutoScroll(atBottom);
+    autoScrollRef.current = atBottom;
   };
 
   if (lines.length === 0) {
@@ -142,7 +142,10 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
   };
 
   const handleKillAll = async () => {
-    const pids = processes.filter((p) => p.alive).map((p) => p.pid);
+    const pids: number[] = [];
+    for (const p of processes) {
+      if (p.alive) pids.push(p.pid);
+    }
     setKilling(new Set(pids));
     try {
       await Promise.all(pids.map((pid) => killBackgroundProcess(pid)));
