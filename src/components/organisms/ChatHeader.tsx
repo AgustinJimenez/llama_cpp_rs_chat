@@ -272,6 +272,10 @@ const AgentPicker = ({ onModelUnload }: { onModelUnload: () => void }) => {
                   e.stopPropagation();
                   await stopAgent(agent.id);
                   await fetchAgentStatuses();
+                  // Deselect if this was the active agent
+                  if (activeAgent?.id === agent.id) {
+                    await handleSelect(null);
+                  }
                 }}
                 onUnloadModel={(e) => {
                   e.stopPropagation();
