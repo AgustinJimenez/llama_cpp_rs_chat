@@ -169,13 +169,13 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
           const isExpanded = expanded.has(proc.pid);
           const expandTitle = isExpanded ? 'Hide output' : 'Show output';
           const expandIcon = isExpanded ? (
-            <ChevronDown className="h-3.5 w-3.5" />
+            <ChevronDown className="size-3.5" />
           ) : (
-            <ChevronRight className="h-3.5 w-3.5" />
+            <ChevronRight className="size-3.5" />
           );
           const statusBadge = proc.alive ? (
             <span className="inline-flex items-center gap-1 text-green-400">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-400" />
+              <span className="size-1.5 animate-pulse rounded-full bg-green-400" />
               alive
             </span>
           ) : (
@@ -188,7 +188,7 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
               className="flex-shrink-0 rounded-md p-1.5 text-foreground transition-colors hover:bg-accent disabled:opacity-50"
               title="Kill process"
             >
-              <X className="h-4 w-4" />
+              <X className="size-4" />
             </button>
           ) : null;
           const outputPanel = isExpanded ? (
@@ -230,7 +230,7 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
           onClick={handleKillAll}
           className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
         >
-          <Trash2 className="h-3.5 w-3.5" />
+          <Trash2 className="size-3.5" />
           Kill All
         </button>
       </div>
@@ -241,7 +241,7 @@ export const BackgroundProcessesModal: React.FC<BackgroundProcessesModalProps> =
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Terminal className="h-5 w-5" />
+            <Terminal className="size-5" />
             Background Processes
           </DialogTitle>
           <DialogDescription className="sr-only">

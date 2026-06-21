@@ -77,7 +77,7 @@ const ToolCallGroup: React.FC<{ toolCalls: ToolCall[]; isGenerating?: boolean }>
         onClick={() => setExpanded((v) => !v)}
         className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-foreground/70 hover:text-foreground/90"
       >
-        <Chevron className="h-3 w-3 flex-shrink-0" />
+        <Chevron className="size-3 flex-shrink-0" />
         <span className="font-medium">{toolCalls.length} tool calls</span>
         <span className="text-foreground/40">— {summary}</span>
       </button>
@@ -423,7 +423,7 @@ const AssistantMessage: React.FC<{
                       key={`seg-tcp-${index}`}
                       className="flex w-full items-center gap-2 rounded bg-muted px-3 py-2 text-xs text-foreground/70"
                     >
-                      <Loader2 className="h-3 w-3 flex-shrink-0 animate-spin" />
+                      <Loader2 className="size-3 flex-shrink-0 animate-spin" />
                       <span className="font-medium">{segment.name ?? 'tool call'}</span>
                       <span className="text-foreground/40">writing arguments…</span>
                     </div>
@@ -456,7 +456,7 @@ const AssistantMessage: React.FC<{
                 className="p-0.5 text-white/30 transition-colors hover:text-white/70"
                 title="Continue generation"
               >
-                <Play className="h-3 w-3" />
+                <Play className="size-3" />
               </button>
             )}
             {!!isLastAssistant && !isGenerating && !!modelReady && !!onRegenerate && (
@@ -465,7 +465,7 @@ const AssistantMessage: React.FC<{
                 className="p-0.5 text-white/30 transition-colors hover:text-white/70"
                 title="Regenerate response"
               >
-                <RefreshCw className="h-3 w-3" />
+                <RefreshCw className="size-3" />
               </button>
             )}
           </div>

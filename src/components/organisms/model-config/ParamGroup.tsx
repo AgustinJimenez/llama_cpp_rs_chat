@@ -27,9 +27,9 @@ export const ParamGroup: React.FC<ParamGroupProps> = ({
 }) => {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const collapseChevron = expanded ? (
-    <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+    <ChevronDown className="size-3.5 text-muted-foreground" />
   ) : (
-    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+    <ChevronRight className="size-3.5 text-muted-foreground" />
   );
   const titleEl = collapsible ? (
     <button

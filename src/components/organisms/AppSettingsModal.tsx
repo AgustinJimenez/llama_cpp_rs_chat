@@ -86,7 +86,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({ isOpen, onCl
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Settings className="h-5 w-5" />
+            <Settings className="size-5" />
             App Settings
           </DialogTitle>
           <DialogDescription className="sr-only">Application settings</DialogDescription>

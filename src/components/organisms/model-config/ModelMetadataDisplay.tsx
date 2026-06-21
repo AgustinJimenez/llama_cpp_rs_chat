@@ -41,7 +41,7 @@ const BasicInfoSection = ({ modelInfo }: { modelInfo: ModelMetadata }) => (
     )}
     {!!modelInfo.has_vision && (
       <p className="flex items-center gap-1.5">
-        <Eye className="h-3.5 w-3.5 text-violet-400" />
+        <Eye className="size-3.5 text-violet-400" />
         <strong>Vision:</strong> <span className="font-medium text-violet-400">Supported</span>
         <span className="text-muted-foreground">
           ({modelInfo.mmproj_files?.length} mmproj file
@@ -146,7 +146,7 @@ const VisionSection = ({ modelInfo }: { modelInfo: ModelMetadata }) => {
   return (
     <div className="space-y-1 border-t pt-2">
       <h4 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
-        <Eye className="h-3.5 w-3.5 text-violet-400" /> Vision Support
+        <Eye className="size-3.5 text-violet-400" /> Vision Support
       </h4>
       <p className="mb-2 text-muted-foreground">
         Multimodal projection (mmproj) companion file detected.

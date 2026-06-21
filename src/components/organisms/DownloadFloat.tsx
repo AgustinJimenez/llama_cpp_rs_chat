@@ -184,7 +184,7 @@ export const DownloadFloat = () => {
         <div className="relative">
           <ArrowDownToLine size={16} className={arrowIconClass} />
           {activeCount > 0 && (
-            <span className="absolute -right-0.5 -top-0.5 h-2 w-2 animate-pulse rounded-full bg-blue-400" />
+            <span className="absolute -right-0.5 -top-0.5 size-2 animate-pulse rounded-full bg-blue-400" />
           )}
         </div>
         <span className="text-xs font-medium text-foreground">{pillLabel}</span>

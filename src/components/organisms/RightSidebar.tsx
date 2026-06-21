@@ -50,7 +50,7 @@ export const RightSidebar = ({ isOpen, onClose }: RightSidebarProps) => {
             className="rounded-lg p-2 transition-colors hover:bg-muted"
             title="Close sidebar"
           >
-            <X className="h-5 w-5" />
+            <X className="size-5" />
           </button>
         </div>
 

@@ -44,7 +44,7 @@ export const BackgroundProcesses = () => {
           onClick={() => setModalOpen(true)}
           className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-green-400 transition-colors hover:bg-green-400/10"
         >
-          <Terminal className="h-3 w-3 animate-pulse" />
+          <Terminal className="size-3 animate-pulse" />
           <span>
             {aliveCount} background process{aliveCount !== 1 && 'es'}
           </span>

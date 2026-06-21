@@ -17,7 +17,7 @@ const TagPairRow: React.FC<{
   <div className="group flex items-center gap-1.5">
     <input
       type="checkbox"
-      className="h-3 w-3 rounded border-border accent-blue-500"
+      className="size-3 rounded border-border accent-blue-500"
       checked={pair.enabled}
       onChange={(e) => onUpdate('enabled', e.target.checked)}
     />
@@ -45,7 +45,7 @@ const TagPairRow: React.FC<{
       title="Delete tag pair"
       onClick={onDelete}
     >
-      <Trash2 className="h-3 w-3" />
+      <Trash2 className="size-3" />
     </button>
   </div>
 );
@@ -133,7 +133,7 @@ export const TagPairsSection: React.FC<TagPairsSectionProps> = ({
             title="Reset to auto-detected tag pairs"
             onClick={() => onTagPairsChange([...detectedTagPairs])}
           >
-            <RotateCcw className="h-3 w-3" /> Reset
+            <RotateCcw className="size-3" /> Reset
           </button>
         )}
       </div>
@@ -172,7 +172,7 @@ export const TagPairsSection: React.FC<TagPairsSectionProps> = ({
           className="flex items-center gap-1 text-[10px] text-blue-400 transition-colors hover:text-blue-300"
           onClick={() => setShowAdd(true)}
         >
-          <Plus className="h-3 w-3" /> Add
+          <Plus className="size-3" /> Add
         </button>
       )}
     </div>

@@ -233,14 +233,14 @@ const ExecutingHeader: React.FC<{
   const elapsedStr = formatElapsed(elapsed);
   const isDesktop = DESKTOP_TOOLS.has(name);
   const execChevron = isExpanded ? (
-    <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 text-foreground" />
+    <ChevronDown className="size-3.5 flex-shrink-0 text-foreground" />
   ) : (
-    <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-foreground" />
+    <ChevronRight className="size-3.5 flex-shrink-0 text-foreground" />
   );
   return (
     <div className="flex w-full items-center gap-2 bg-muted px-3 py-2 transition-colors hover:bg-accent">
       <button onClick={onToggle} className="flex min-w-0 flex-1 items-center gap-2 text-left">
-        <span className="inline-block h-3 w-3 flex-shrink-0 animate-spin rounded-full border-2 border-foreground/50 border-t-transparent" />
+        <span className="inline-block size-3 flex-shrink-0 animate-spin rounded-full border-2 border-foreground/50 border-t-transparent" />
         <span className="whitespace-nowrap text-xs font-medium text-foreground">
           {formatToolName(name)}
           {!!elapsedStr && ` (${elapsedStr})`}
@@ -257,7 +257,7 @@ const ExecutingHeader: React.FC<{
           className="flex flex-shrink-0 items-center gap-1 rounded bg-destructive/20 px-2 py-0.5 text-[10px] font-medium text-destructive transition-colors hover:bg-destructive/40"
           title="Abort desktop automation"
         >
-          <Square className="h-2.5 w-2.5 fill-current" />
+          <Square className="size-2.5 fill-current" />
           Abort
         </button>
       )}
@@ -280,9 +280,9 @@ const CompletedHeader: React.FC<{
     else durationStr = `${(durationMs / 1000).toFixed(1)}s`;
   }
   const completedChevron = isExpanded ? (
-    <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 text-foreground" />
+    <ChevronDown className="size-3.5 flex-shrink-0 text-foreground" />
   ) : (
-    <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-foreground" />
+    <ChevronRight className="size-3.5 flex-shrink-0 text-foreground" />
   );
   const isError = resultStatus === 'error';
   const buttonBgClass = isError ? 'bg-red-500/10 border-l-2 border-red-500' : 'bg-muted';
@@ -295,7 +295,7 @@ const CompletedHeader: React.FC<{
     >
       {!!resultStatus && (
         <span
-          className={`h-2 w-2 flex-shrink-0 rounded-full ${statusDotClass}`}
+          className={`size-2 flex-shrink-0 rounded-full ${statusDotClass}`}
           title={statusTitle}
         />
       )}
@@ -383,9 +383,9 @@ const CompletedOutput: React.FC<{
   isStreaming?: boolean;
 }> = ({ output, isExpanded, onToggle, language, isStreaming }) => {
   const outputChevron = isExpanded ? (
-    <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 text-foreground" />
+    <ChevronDown className="size-3.5 flex-shrink-0 text-foreground" />
   ) : (
-    <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-foreground" />
+    <ChevronRight className="size-3.5 flex-shrink-0 text-foreground" />
   );
   return (
     <>

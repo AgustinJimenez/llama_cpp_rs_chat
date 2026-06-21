@@ -48,7 +48,7 @@ export const TokenBreakdownPopover = ({
         className="inline-flex cursor-pointer items-center gap-1 transition-colors hover:text-blue-400"
         title="Click for context breakdown"
       >
-        <Database className="h-3 w-3" />
+        <Database className="size-3" />
         {formatNumber(tokensUsed)}/{formatNumber(maxTokens)}
       </button>
       {!!open && (
@@ -76,7 +76,7 @@ export const TokenBreakdownPopover = ({
             return (
               <div key={key} className="mb-1 flex items-center gap-2 text-[11px]">
                 <div
-                  className="h-2 w-2 flex-shrink-0 rounded-full"
+                  className="size-2 flex-shrink-0 rounded-full"
                   style={{ backgroundColor: color }}
                 />
                 <span className="flex-1 text-muted-foreground">{label}</span>
@@ -89,7 +89,7 @@ export const TokenBreakdownPopover = ({
           })}
           {/* Free */}
           <div className="mt-1 flex items-center gap-2 border-t border-border pt-1 text-[11px]">
-            <div className="h-2 w-2 flex-shrink-0 rounded-full bg-muted-foreground" />
+            <div className="size-2 flex-shrink-0 rounded-full bg-muted-foreground" />
             <span className="flex-1 text-muted-foreground">Free</span>
             <span className="tabular-nums text-foreground/80">{formatNumber(free)}</span>
             <span className="w-12 text-right tabular-nums text-muted-foreground">{freePct}%</span>

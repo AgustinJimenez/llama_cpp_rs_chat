@@ -110,7 +110,7 @@ export const McpSettingsSection: React.FC = () => {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Server className="h-4 w-4 text-muted-foreground" />
+          <Server className="size-4 text-muted-foreground" />
           <span className="text-sm font-medium text-foreground">MCP Servers</span>
         </div>
         <div className="flex gap-2">
@@ -119,14 +119,14 @@ export const McpSettingsSection: React.FC = () => {
             onClick={handleRefresh}
             disabled={isRefreshing}
           >
-            <RefreshCw className={`h-3 w-3 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`size-3 ${isRefreshing ? 'animate-spin' : ''}`} />
             {refreshLabel}
           </button>
           <button
             className="flat-button flex items-center gap-1 bg-muted px-3 py-1 text-xs"
             onClick={() => setShowAddForm(!showAddForm)}
           >
-            <Plus className="h-3 w-3" />
+            <Plus className="size-3" />
             Add Server
           </button>
         </div>
@@ -243,9 +243,9 @@ export const McpSettingsSection: React.FC = () => {
             : server.transport.url;
 
         const toggleIcon = server.enabled ? (
-          <ToggleRight className="h-4 w-4 text-green-500" />
+          <ToggleRight className="size-4 text-green-500" />
         ) : (
-          <ToggleLeft className="h-4 w-4" />
+          <ToggleLeft className="size-4" />
         );
         const toggleTitle = server.enabled ? 'Disable' : 'Enable';
         const toolCountSuffix = status && status.tool_count !== 1 ? 's' : '';
@@ -287,7 +287,7 @@ export const McpSettingsSection: React.FC = () => {
               onClick={() => handleDelete(server)}
               title="Remove"
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              <Trash2 className="size-3.5" />
             </button>
           </div>
         );

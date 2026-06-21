@@ -122,7 +122,7 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
           />
         </div>
       ) : (
-        <Loader2 className="h-6 w-6 animate-spin text-foreground" />
+        <Loader2 className="size-6 animate-spin text-foreground" />
       );
 
     return (
@@ -136,7 +136,7 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
             className="mt-4 flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-foreground transition-colors hover:bg-muted"
             aria-label="Cancel model loading"
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="size-3.5" />
             Cancel
           </button>
         )}
@@ -170,8 +170,35 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
     const agentStopped =
       !agentActivating && activeAgent.provider_id === 'local' && !status.loaded && !isLoading;
     let agentContent;
-    if (agentActivating) {
-      agentContent = <Loader2 className="h-6 w-6 animate-spin text-foreground" />;
+    if (agentModelLoading) {
+      const hasProgress =
+        agentLoadProgress != null && agentLoadProgress > 0 && agentLoadProgress <= 100;
+      const isWarmup = agentLoadProgress != null && agentLoadProgress > 100;
+      let loadText = 'Loading model...';
+      if (isWarmup) {
+        loadText = 'Loading system prompt...';
+      } else if (hasProgress) {
+        loadText = `Loading model... ${agentLoadProgress}%`;
+      }
+      const barClass = `h-full rounded-full bg-foreground ${isWarmup ? 'animate-pulse' : 'transition-all duration-300 ease-out'}`;
+      const barWidth = isWarmup ? '100%' : `${agentLoadProgress}%`;
+      const progressBar = (
+        <div className="h-1.5 w-48 overflow-hidden rounded-full bg-foreground/20">
+          <div className={barClass} style={{ width: barWidth }} />
+        </div>
+      );
+      const agentLoadIndicator =
+        hasProgress || isWarmup ? (
+          progressBar
+        ) : (
+          <Loader2 className="size-6 animate-spin text-foreground" />
+        );
+      agentContent = (
+        <div className="flex flex-col items-center gap-3">
+          {agentLoadIndicator}
+          <p className="text-sm text-foreground">{loadText}</p>
+        </div>
+      );
     } else if (agentStopped) {
       agentContent = (
         <button
@@ -200,7 +227,7 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
         onClick={openAgentSelector}
         className="flat-card flex cursor-pointer flex-col items-center gap-3 bg-muted/50 px-10 py-8 transition-colors hover:bg-muted"
       >
-        <Bot className="h-8 w-8 text-foreground" />
+        <Bot className="size-8 text-foreground" />
         <span className="text-sm font-medium text-foreground">Select an agent to start</span>
       </button>
       {!!cudaBanner && (
@@ -214,14 +241,14 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
               onClick={handleInstallGpu}
               className="inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
-              <Download className="h-3.5 w-3.5" />
+              <Download className="size-3.5" />
               Install GPU Acceleration
             </button>
           )}
           {installState === 'installing' && (
             <div className="space-y-1.5">
               <div className="flex items-center justify-center gap-2">
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                <Loader2 className="size-3.5 animate-spin text-primary" />
                 <span className="text-xs text-foreground">Downloading... {installProgress}%</span>
               </div>
               <div className="h-1.5 w-full overflow-hidden rounded-full bg-foreground/20">
@@ -234,7 +261,7 @@ export const EmptyChat: React.FC<WelcomeMessageProps> = ({ children }) => {
           )}
           {installState === 'done' && (
             <div className="flex items-center justify-center gap-1.5">
-              <CheckCircle className="h-3.5 w-3.5 text-green-500" />
+              <CheckCircle className="size-3.5 text-green-500" />
               <span className="text-xs text-green-500">
                 Installed! Restart the app to activate.
               </span>

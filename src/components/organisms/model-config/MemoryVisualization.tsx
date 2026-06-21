@@ -345,11 +345,11 @@ export const MemoryLegend: React.FC<{
     return (
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground">
         <div className="flex items-center gap-2">
-          <div className="h-3 w-3 rounded-sm bg-green-600" />
+          <div className="size-3 rounded-sm bg-green-600" />
           <span>Model: {model.toFixed(2)} GB</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="h-3 w-3 rounded-sm bg-orange-500" />
+          <div className="size-3 rounded-sm bg-orange-500" />
           <span>KV Cache: {totalKv.toFixed(2)} GB</span>
         </div>
       </div>
@@ -359,15 +359,15 @@ export const MemoryLegend: React.FC<{
   return (
     <div className="grid grid-cols-3 gap-x-4 gap-y-1 text-xs text-muted-foreground">
       <div className="flex items-center gap-2">
-        <div className="h-3 w-3 rounded-sm bg-green-600" />
+        <div className="size-3 rounded-sm bg-green-600" />
         <span>Model (GPU): {vram.modelGpu.toFixed(2)} GB</span>
       </div>
       <div className="flex items-center gap-2">
-        <div className="h-3 w-3 rounded-sm bg-orange-500" />
+        <div className="size-3 rounded-sm bg-orange-500" />
         <span>KV Cache: {totalKv.toFixed(2)} GB</span>
       </div>
       <div className="flex items-center gap-2">
-        <div className="h-3 w-3 rounded-sm bg-cyan-600" />
+        <div className="size-3 rounded-sm bg-cyan-600" />
         <span>Model (CPU): {ram.modelCpu.toFixed(2)} GB</span>
       </div>
     </div>
@@ -401,7 +401,7 @@ const SliderRow: React.FC<SliderRowProps> = ({
   return (
     <div className="flex items-center gap-3 text-xs text-muted-foreground">
       <div className="flex shrink-0 items-center gap-2">
-        <div className={`h-3 w-3 ${color} rounded-sm`} />
+        <div className={`size-3 ${color} rounded-sm`} />
         <span>{label}</span>
       </div>
       <input
@@ -527,11 +527,11 @@ const MemorySliders: React.FC<MemorySlidersProps> = ({
             </div>
             <div className="mt-0.5 flex gap-3 text-[9px] text-muted-foreground">
               <span>
-                <span className="mr-0.5 inline-block h-1.5 w-1.5 rounded-full bg-indigo-500" />
+                <span className="mr-0.5 inline-block size-1.5 rounded-full bg-indigo-500" />
                 System: {(systemPromptTokens || 0).toLocaleString()}
               </span>
               <span>
-                <span className="mr-0.5 inline-block h-1.5 w-1.5 rounded-full bg-purple-500" />
+                <span className="mr-0.5 inline-block size-1.5 rounded-full bg-purple-500" />
                 Tools: {(toolDefinitionsTokens || 0).toLocaleString()}
               </span>
               <span className="text-muted-foreground">Available: {available.toLocaleString()}</span>
@@ -565,7 +565,7 @@ const MemoryWarnings: React.FC<{ memory: MemoryBreakdown }> = ({ memory }) => {
     <>
       {!!(memory.vram.overcommitted || memory.ram.overcommitted) && (
         <div className="flex items-start gap-2 rounded-md border border-red-600 bg-red-900/20 p-3">
-          <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-600" />
+          <AlertTriangle className="mt-0.5 size-5 flex-shrink-0 text-red-600" />
           <div className="text-sm text-red-600 dark:text-red-400">
             <p className="mb-1 font-semibold">Memory Overcommitted!</p>
             {!!memory.vram.overcommitted && (
@@ -585,7 +585,7 @@ const MemoryWarnings: React.FC<{ memory: MemoryBreakdown }> = ({ memory }) => {
         !memory.ram.overcommitted &&
         vramUtilization > UTILIZATION_HIGH_PCT && (
           <div className="flex items-start gap-2 rounded-md border border-yellow-600 bg-yellow-900/20 p-3">
-            <Info className="mt-0.5 h-5 w-5 flex-shrink-0 text-yellow-600" />
+            <Info className="mt-0.5 size-5 flex-shrink-0 text-yellow-600" />
             <p className="text-xs text-yellow-600 dark:text-yellow-400">
               VRAM usage is high ({vramUtilization.toFixed(1)}%). Consider reducing context size if
               you experience crashes.
@@ -616,7 +616,7 @@ export const MemoryVisualization: React.FC<MemoryVisualizationProps> = ({
   <Card className="border-border bg-card">
     <CardHeader className="pb-3">
       <CardTitle className="flex items-center gap-2 text-base font-medium">
-        <Info className="h-4 w-4" />
+        <Info className="size-4" />
         Memory Usage Estimate
       </CardTitle>
     </CardHeader>

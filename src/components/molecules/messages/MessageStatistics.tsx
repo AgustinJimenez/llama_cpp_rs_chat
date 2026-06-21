@@ -99,13 +99,13 @@ export const MessageStatistics = ({ timings, tokensUsed, maxTokens }: MessageSta
     <div className="flex items-center gap-3 font-mono text-xs text-foreground">
       {!!genTokens && (
         <span className="inline-flex items-center gap-1" title={tokenTitle}>
-          <Hash className="h-3 w-3" />
+          <Hash className="size-3" />
           {tokenLabel}
         </span>
       )}
       {!!genTokPerSec && (
         <span className="inline-flex items-center gap-1" title="Generation speed">
-          <Gauge className="h-3 w-3" />
+          <Gauge className="size-3" />
           {genTokPerSec.toFixed(1)} tok/s
         </span>
       )}
@@ -127,7 +127,7 @@ export const MessageStatistics = ({ timings, tokensUsed, maxTokens }: MessageSta
       )}
       {tokensUsed !== undefined && maxTokens !== undefined && !timings.tokenBreakdown && (
         <span className="inline-flex items-center gap-1" title="Context usage">
-          <Database className="h-3 w-3" />
+          <Database className="size-3" />
           {formatNumber(tokensUsed)}/{formatNumber(maxTokens)}
         </span>
       )}
@@ -139,7 +139,7 @@ export const MessageStatistics = ({ timings, tokensUsed, maxTokens }: MessageSta
             className="inline-flex cursor-pointer items-center gap-1 text-emerald-400 transition-colors hover:text-emerald-300"
             title="Click to manage background processes"
           >
-            <Terminal className="h-3 w-3" />
+            <Terminal className="size-3" />
             {bgProcesses.length} {processLabel}
           </button>
           <BackgroundProcessesModal

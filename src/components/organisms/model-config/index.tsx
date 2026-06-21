@@ -462,7 +462,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                 <Card className="mt-3">
                   <CardContent className="pt-4">
                     <div className="flex items-center gap-2">
-                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <Loader2 className="size-4 animate-spin" />
                       <p className="text-sm text-muted-foreground">Reading GGUF metadata...</p>
                     </div>
                   </CardContent>
@@ -487,9 +487,9 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                           setMmprojPath(modelInfo.mmproj_files[0].path);
                         }
                       }}
-                      className="h-3.5 w-3.5"
+                      className="size-3.5"
                     />
-                    <Eye className="h-4 w-4 text-muted-foreground" />
+                    <Eye className="size-4 text-muted-foreground" />
                     <span className="font-medium">Vision Projector (mmproj)</span>
                   </label>
 
@@ -506,7 +506,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                             mmprojPath ? 'border-green-500/50' : 'border-input'
                           } cursor-pointer transition-colors hover:bg-accent/50`}
                         >
-                          <FolderOpen className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                          <FolderOpen className="size-3.5 flex-shrink-0 text-muted-foreground" />
                           {!!mmprojPath && (
                             <span className="truncate font-mono text-xs">{mmprojPath}</span>
                           )}
@@ -518,7 +518,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                         </button>
                         {!!mmprojPath && (
                           <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 transform">
-                            <CheckCircle className="h-3.5 w-3.5 text-green-500" />
+                            <CheckCircle className="size-3.5 text-green-500" />
                           </div>
                         )}
                       </div>
@@ -563,12 +563,8 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
                   data-testid="config-expand-button"
                 >
                   <CardTitle className="flex items-center gap-2 text-sm text-white">
-                    {!!isConfigExpanded && (
-                      <ChevronDown className="h-5 w-5 stroke-[3] text-white" />
-                    )}
-                    {!isConfigExpanded && (
-                      <ChevronRight className="h-5 w-5 stroke-[3] text-white" />
-                    )}
+                    {!!isConfigExpanded && <ChevronDown className="size-5 stroke-[3] text-white" />}
+                    {!isConfigExpanded && <ChevronRight className="size-5 stroke-[3] text-white" />}
                     Model Configurations
                   </CardTitle>
                 </button>
@@ -640,7 +636,7 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
           {(() => {
             const buttonContent = isCheckingFile ? (
               <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="mr-2 size-4 animate-spin" />
                 Reading file...
               </>
             ) : (

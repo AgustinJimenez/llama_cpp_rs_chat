@@ -21,9 +21,9 @@ export const CompactionSummary: React.FC<{ message: Message; cleanContent: strin
   const [isSaving, setIsSaving] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const expandChevron = expanded ? (
-    <ChevronDown className="h-3 w-3 shrink-0" />
+    <ChevronDown className="size-3 shrink-0" />
   ) : (
-    <ChevronRight className="h-3 w-3 shrink-0" />
+    <ChevronRight className="size-3 shrink-0" />
   );
   const saveLabel = isSaving ? 'Saving\u2026' : 'Save';
 
@@ -86,7 +86,7 @@ export const CompactionSummary: React.FC<{ message: Message; cleanContent: strin
     >
       <div className="w-full max-w-[90%]">
         <div className="group flex w-full items-center gap-2 border-b border-t border-white/10 px-3 py-1.5 text-xs text-white/70 hover:border-white/20">
-          <Archive className="h-3 w-3 shrink-0" />
+          <Archive className="size-3 shrink-0" />
           <button
             onClick={() => setExpanded(!expanded)}
             className="flex-1 truncate text-left transition-colors hover:text-white"
@@ -100,14 +100,14 @@ export const CompactionSummary: React.FC<{ message: Message; cleanContent: strin
                 className="rounded p-1 transition-colors hover:text-white/70"
                 title="Edit summary"
               >
-                <Pencil className="h-3 w-3" />
+                <Pencil className="size-3" />
               </button>
               <button
                 onClick={handleDelete}
                 className="rounded p-1 transition-colors hover:text-red-400"
                 title="Delete summary (reverts compaction)"
               >
-                <Trash2 className="h-3 w-3" />
+                <Trash2 className="size-3" />
               </button>
             </div>
           )}

@@ -234,8 +234,8 @@ const FileRow = ({
         title={downloadTitle}
         aria-label={downloadAriaLabel}
       >
-        {!!isDownloading && <Loader2 className="h-4 w-4 animate-spin" />}
-        {!isDownloading && <ArrowDownToLine className="h-4 w-4" />}
+        {!!isDownloading && <Loader2 className="size-4 animate-spin" />}
+        {!isDownloading && <ArrowDownToLine className="size-4" />}
       </button>
     </div>
   );
@@ -289,10 +289,10 @@ const ModelCard = ({
           <div className="truncate text-sm font-medium">{model.id}</div>
           <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
             <span className="flex items-center gap-1">
-              <Download className="h-3 w-3" /> {formatNumber(model.downloads)}
+              <Download className="size-3" /> {formatNumber(model.downloads)}
             </span>
             <span className="flex items-center gap-1">
-              <Heart className="h-3 w-3" /> {formatNumber(model.likes)}
+              <Heart className="size-3" /> {formatNumber(model.likes)}
             </span>
             <span>{formatFileCount(ggufCount)}</span>
           </div>
@@ -306,10 +306,10 @@ const ModelCard = ({
             className="text-muted-foreground hover:text-foreground"
             aria-label="Open on HuggingFace"
           >
-            <ExternalLink className="h-4 w-4" />
+            <ExternalLink className="size-4" />
           </a>
-          {ggufCount > 0 && !!expanded && <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-          {ggufCount > 0 && !expanded && <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+          {ggufCount > 0 && !!expanded && <ChevronDown className="size-4 text-muted-foreground" />}
+          {ggufCount > 0 && !expanded && <ChevronRight className="size-4 text-muted-foreground" />}
         </div>
       </button>
 
@@ -317,7 +317,7 @@ const ModelCard = ({
         <div className="mt-2 space-y-0.5 border-t pt-2">
           {!!loadingFiles && (
             <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
-              <Loader2 className="h-3 w-3 animate-spin" /> Loading file details...
+              <Loader2 className="size-3 animate-spin" /> Loading file details...
             </div>
           )}
           {!loadingFiles &&
@@ -438,7 +438,7 @@ const DownloadRow = ({
         </div>
         {!!isCompleted && (
           <div className="mt-0.5 flex items-center gap-1">
-            <FolderOpen className="h-3 w-3 shrink-0 text-muted-foreground" />
+            <FolderOpen className="size-3 shrink-0 text-muted-foreground" />
             <span className="truncate text-[11px] text-muted-foreground">{record.dest_path}</span>
           </div>
         )}
@@ -455,7 +455,7 @@ const DownloadRow = ({
                 title="Load this model"
                 aria-label="Load this model"
               >
-                <Play className="h-4 w-4" />
+                <Play className="size-4" />
               </button>
             );
           }
@@ -468,7 +468,7 @@ const DownloadRow = ({
                 title="Pause download"
                 aria-label="Pause download"
               >
-                <Pause className="h-4 w-4" />
+                <Pause className="size-4" />
               </button>
             );
           }
@@ -480,7 +480,7 @@ const DownloadRow = ({
               title="Resume download"
               aria-label="Resume download"
             >
-              <ArrowDownToLine className="h-4 w-4" />
+              <ArrowDownToLine className="size-4" />
             </button>
           );
         })()}
@@ -491,7 +491,7 @@ const DownloadRow = ({
           title="Cancel and delete"
           aria-label="Cancel and delete download"
         >
-          <X className="h-4 w-4" />
+          <X className="size-4" />
         </button>
       </div>
     </div>
@@ -522,7 +522,7 @@ const DownloadsTab = ({
   if (isEmpty) {
     return (
       <div className="py-12 text-center text-sm text-muted-foreground">
-        <ArrowDownToLine className="mx-auto mb-3 h-8 w-8 opacity-40" />
+        <ArrowDownToLine className="mx-auto mb-3 size-8 opacity-40" />
         <p>No downloads yet</p>
         <p className="mt-1 text-xs">Search and download models from the Explore tab</p>
       </div>
@@ -750,8 +750,8 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
                 isPicking ? 'opacity-60' : 'cursor-pointer transition-colors hover:bg-accent/50'
               }`}
             >
-              {!!isPicking && <Loader2 className="h-4 w-4 shrink-0 animate-spin" />}
-              {!isPicking && <FolderOpen className="h-4 w-4 shrink-0 text-foreground" />}
+              {!!isPicking && <Loader2 className="size-4 shrink-0 animate-spin" />}
+              {!isPicking && <FolderOpen className="size-4 shrink-0 text-foreground" />}
               {!!modelsDirectory && (
                 <span className="truncate font-mono text-xs">{modelsDirectory}</span>
               )}
@@ -764,7 +764,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
 
             {!modelsDirectory && (
               <div className="py-12 text-center text-sm text-muted-foreground">
-                <FolderOpen className="mx-auto mb-3 h-8 w-8 opacity-40" />
+                <FolderOpen className="mx-auto mb-3 size-8 opacity-40" />
                 <p>Set a download directory to browse and download models.</p>
               </div>
             )}
@@ -772,7 +772,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
               <>
                 <div className="flex items-center gap-2">
                   <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                     <input
                       value={query}
                       onChange={handleChange}
@@ -784,7 +784,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
                     />
                   </div>
                   <div className="relative shrink-0">
-                    <ArrowUpDown className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <ArrowUpDown className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
                     <select
                       value={sort}
                       onChange={(e) => changeSort(e.target.value as HubSortField, query)}
@@ -805,7 +805,7 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({ isOpen, onClose }) => 
                 >
                   {!!isLoading && (
                     <div className="absolute inset-0 z-10 flex items-center justify-center rounded-md bg-background/60">
-                      <Loader2 className="mr-2 h-5 w-5 animate-spin text-muted-foreground" />
+                      <Loader2 className="mr-2 size-5 animate-spin text-muted-foreground" />
                       <span className="text-sm text-muted-foreground">Searching...</span>
                     </div>
                   )}

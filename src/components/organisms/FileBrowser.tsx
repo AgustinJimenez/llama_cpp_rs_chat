@@ -98,7 +98,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
       <DialogContent className="max-h-[80vh] max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <HardDrive className="h-5 w-5" />
+            <HardDrive className="size-5" />
             {title}
           </DialogTitle>
           <DialogDescription>
@@ -122,7 +122,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                 onClick={goToParent}
                 className="flex items-center gap-2"
               >
-                <ArrowLeft className="h-4 w-4" />
+                <ArrowLeft className="size-4" />
                 Back
               </Button>
             )}
@@ -170,10 +170,10 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                           if (e.key === 'Enter' || e.key === ' ') handleFileClick(file);
                         }}
                       >
-                        {!!file.is_directory && <Folder className="h-4 w-4 text-blue-500" />}
+                        {!!file.is_directory && <Folder className="size-4 text-blue-500" />}
                         {!file.is_directory && (
                           <File
-                            className={`h-4 w-4 ${isSelectable ? 'text-green-500' : 'text-gray-400'}`}
+                            className={`size-4 ${isSelectable ? 'text-green-500' : 'text-gray-400'}`}
                           />
                         )}
                         <div className="min-w-0 flex-1">

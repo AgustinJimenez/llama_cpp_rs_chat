@@ -47,7 +47,7 @@ const Toggle: React.FC<{
       onClick={() => onChange(!checked)}
     >
       <span
-        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-background transition-transform ${
+        className={`inline-block size-3.5 transform rounded-full bg-background transition-transform ${
           checked ? 'translate-x-4' : 'translate-x-0.5'
         }`}
       />
@@ -101,7 +101,7 @@ const KvCacheGroup = ({
           TurboQuant
         </span>
         <span
-          className="inline-flex h-3.5 w-3.5 cursor-help items-center justify-center rounded-full border border-muted-foreground/40 text-[9px] text-muted-foreground"
+          className="inline-flex size-3.5 cursor-help items-center justify-center rounded-full border border-muted-foreground/40 text-[9px] text-muted-foreground"
           title={
             'TurboQuant uses asymmetric K/V types for best quality-per-bit.\n\n' +
             'Recommended configs (memory savings vs F16):\n' +

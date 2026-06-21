@@ -352,7 +352,7 @@ const MainContent = ({
             title="Toggle sidebar"
             aria-label="Toggle sidebar"
           >
-            <Menu className="h-5 w-5" />
+            <Menu className="size-5" />
           </button>
         )}
 
@@ -369,7 +369,7 @@ const MainContent = ({
                     onClick={openAgentSelector}
                     className="flex items-center gap-1.5 rounded-full border border-border/50 px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                   >
-                    <Bot className="h-3 w-3" />
+                    <Bot className="size-3" />
                     {conversationAgent.name}
                   </button>
                 )}
@@ -393,7 +393,7 @@ const MainContent = ({
                       onClick={openAgentSelector}
                       className="flex items-center gap-1.5 rounded-full border border-border/50 px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                     >
-                      <Bot className="h-3 w-3" />
+                      <Bot className="size-3" />
                       {conversationAgent.name}
                     </button>
                   )}

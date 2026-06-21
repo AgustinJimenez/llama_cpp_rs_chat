@@ -90,8 +90,8 @@ function parseApiKeys(raw: unknown): ApiKeyMap {
 }
 
 function providerIcon(providerId: string) {
-  if (providerId === 'local') return <Cpu className="h-4 w-4 flex-shrink-0 text-emerald-400" />;
-  return <Cloud className="h-4 w-4 flex-shrink-0 text-cyan-400" />;
+  if (providerId === 'local') return <Cpu className="size-4 flex-shrink-0 text-emerald-400" />;
+  return <Cloud className="size-4 flex-shrink-0 text-cyan-400" />;
 }
 
 function agentLabel(agent: Agent): string {
@@ -762,17 +762,17 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                 className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 aria-label="Back"
               >
-                <ChevronLeft className="h-4 w-4" />
+                <ChevronLeft className="size-4" />
               </button>
             )}
-            <Bot className="h-4 w-4 text-muted-foreground" />
+            <Bot className="size-4 text-muted-foreground" />
             <h3 className="text-base font-medium text-foreground">{headerTitle}</h3>
           </div>
           <button
             onClick={onClose}
             className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
-            <X className="h-4 w-4" />
+            <X className="size-4" />
           </button>
         </div>
 
@@ -810,7 +810,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                           <div className="flex items-center gap-2">
                             {/* Status dot */}
                             <span
-                              className={`h-2 w-2 flex-shrink-0 rounded-full ${statusDotClass}`}
+                              className={`size-2 flex-shrink-0 rounded-full ${statusDotClass}`}
                             />
                             <span className="truncate text-sm font-medium text-foreground">
                               {agent.name}
@@ -836,7 +836,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                             title="Edit agent"
                             className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                           >
-                            <Pencil className="h-3.5 w-3.5" />
+                            <Pencil className="size-3.5" />
                           </button>
                           <button
                             onClick={() => handleDelete(agent.id)}
@@ -844,7 +844,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                             title={deleteTitle}
                             className={`rounded p-1.5 transition-colors ${isConfirmDelete ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' : 'text-muted-foreground hover:bg-muted hover:text-red-400'}`}
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
+                            <Trash2 className="size-3.5" />
                           </button>
                         </div>
                       </div>
@@ -909,7 +909,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                       className="rounded-md border border-border p-4 text-left transition-colors hover:border-primary/60 hover:bg-muted/50"
                     >
                       <div className="mb-1 flex items-center gap-2">
-                        <Icon className={`h-4 w-4 ${iconClass}`} />
+                        <Icon className={`size-4 ${iconClass}`} />
                         <span className="text-sm font-medium text-foreground">{title}</span>
                       </div>
                       <p className="text-xs leading-snug text-muted-foreground">{desc}</p>
@@ -970,7 +970,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
 
                       {!!isCheckingFile && (
                         <div className="flex items-center gap-2">
-                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <Loader2 className="size-4 animate-spin" />
                           <p className="text-sm text-muted-foreground">Reading GGUF metadata...</p>
                         </div>
                       )}
@@ -991,9 +991,9 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                                   setMmprojPath(modelInfo.mmproj_files[0].path);
                                 }
                               }}
-                              className="h-3.5 w-3.5"
+                              className="size-3.5"
                             />
-                            <Eye className="h-4 w-4 text-muted-foreground" />
+                            <Eye className="size-4 text-muted-foreground" />
                             <span className="font-medium">Vision Projector (mmproj)</span>
                           </label>
                           {!!mmprojEnabled && (
@@ -1007,7 +1007,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                                   }}
                                   className={`flex w-full items-center gap-2 rounded-md border bg-background px-3 py-1.5 pr-8 text-left text-sm ${mmprojPath ? 'border-green-500/50' : 'border-input'} cursor-pointer transition-colors hover:bg-accent/50`}
                                 >
-                                  <FolderOpen className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                                  <FolderOpen className="size-3.5 flex-shrink-0 text-muted-foreground" />
                                   {!!mmprojPath && (
                                     <span className="truncate font-mono text-xs">{mmprojPath}</span>
                                   )}
@@ -1019,7 +1019,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                                 </button>
                                 {!!mmprojPath && (
                                   <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2">
-                                    <CheckCircle className="h-3.5 w-3.5 text-green-500" />
+                                    <CheckCircle className="size-3.5 text-green-500" />
                                   </div>
                                 )}
                               </div>
@@ -1041,10 +1041,10 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                         >
                           <CardTitle className="flex items-center gap-2 text-sm text-white">
                             {!!isConfigExpanded && (
-                              <ChevronDown className="h-5 w-5 stroke-[3] text-white" />
+                              <ChevronDown className="size-5 stroke-[3] text-white" />
                             )}
                             {!isConfigExpanded && (
-                              <ChevronRight className="h-5 w-5 stroke-[3] text-white" />
+                              <ChevronRight className="size-5 stroke-[3] text-white" />
                             )}
                             Model Configurations
                           </CardTitle>
@@ -1202,7 +1202,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                         className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
                       >
                         {savingProvider === providerId && (
-                          <Loader2 className="h-3 w-3 animate-spin" />
+                          <Loader2 className="size-3 animate-spin" />
                         )}
                         Save Provider
                       </button>
@@ -1290,7 +1290,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                 onClick={openCreate}
                 className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
               >
-                <Plus className="h-3.5 w-3.5" /> New Agent
+                <Plus className="size-3.5" /> New Agent
               </button>
             </>
           )}

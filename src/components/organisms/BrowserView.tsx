@@ -338,7 +338,7 @@ export const BrowserView = React.memo(() => {
     contentArea = (
       <div className="flex h-full items-center justify-center text-foreground">
         <div className="text-center">
-          <Globe className="mx-auto mb-3 h-10 w-10 opacity-70" />
+          <Globe className="mx-auto mb-3 size-10 opacity-70" />
           <p className="text-sm">Enter a URL above to start browsing</p>
           <p className="mt-1 text-xs text-muted-foreground">
             {!!TAURI && 'Browser opens inside the app'}
@@ -354,7 +354,7 @@ export const BrowserView = React.memo(() => {
     // Web mode: wry browser window is open separately — show URL + status here
     contentArea = (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-foreground">
-        <Globe className="h-10 w-10 opacity-60" />
+        <Globe className="size-10 opacity-60" />
         <p className="text-sm font-medium">Browser window opened</p>
         <p className="max-w-xs break-all text-center text-xs text-muted-foreground">
           {browserViewUrl}
@@ -390,7 +390,7 @@ export const BrowserView = React.memo(() => {
           disabled={!canGoBack}
           aria-label="Back"
         >
-          <ChevronLeft className="h-4 w-4" />
+          <ChevronLeft className="size-4" />
         </button>
         <button
           onClick={goForward}
@@ -403,9 +403,9 @@ export const BrowserView = React.memo(() => {
           disabled={!canGoForward}
           aria-label="Forward"
         >
-          <ChevronRight className="h-4 w-4" />
+          <ChevronRight className="size-4" />
         </button>
-        <Globe className="ml-1 h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+        <Globe className="ml-1 size-3.5 flex-shrink-0 text-muted-foreground" />
         <input
           type="text"
           value={urlInput}
@@ -420,18 +420,18 @@ export const BrowserView = React.memo(() => {
           title="Navigate"
           disabled={!urlInput.trim()}
         >
-          <ArrowRight className="h-3.5 w-3.5" />
+          <ArrowRight className="size-3.5" />
         </button>
         {!!browserViewUrl && (
           <>
             <button onClick={handleReload} className="btn-icon" title="Reload">
-              <RefreshCw className="h-3.5 w-3.5" />
+              <RefreshCw className="size-3.5" />
             </button>
             {!!TAURI && (
               <>
                 <div className="mx-1 h-4 border-l border-border" />
                 <button onClick={handleZoomOut} className="btn-icon" title="Zoom out">
-                  <ZoomOut className="h-3.5 w-3.5" />
+                  <ZoomOut className="size-3.5" />
                 </button>
                 <button
                   onClick={handleZoomReset}
@@ -441,7 +441,7 @@ export const BrowserView = React.memo(() => {
                   {Math.round(zoomLevel * 100)}%
                 </button>
                 <button onClick={handleZoomIn} className="btn-icon" title="Zoom in">
-                  <ZoomIn className="h-3.5 w-3.5" />
+                  <ZoomIn className="size-3.5" />
                 </button>
                 <div className="mx-1 h-4 border-l border-border" />
                 <button
@@ -452,7 +452,7 @@ export const BrowserView = React.memo(() => {
                   className="btn-icon"
                   title="Find in page (Ctrl+F)"
                 >
-                  <Search className="h-3.5 w-3.5" />
+                  <Search className="size-3.5" />
                 </button>
               </>
             )}
@@ -462,7 +462,7 @@ export const BrowserView = React.memo(() => {
       {/* Find bar (Tauri only) */}
       {!!TAURI && !!showFind && (
         <div className="flex items-center gap-2 border-b border-border bg-muted/50 px-3 py-1.5">
-          <Search className="h-3.5 w-3.5 text-muted-foreground" />
+          <Search className="size-3.5 text-muted-foreground" />
           <input
             ref={findInputRef}
             type="text"
@@ -476,10 +476,10 @@ export const BrowserView = React.memo(() => {
             className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
           />
           <button onClick={handleFind} className="btn-icon text-xs" title="Find next">
-            <ArrowRight className="h-3 w-3" />
+            <ArrowRight className="size-3" />
           </button>
           <button onClick={() => setShowFind(false)} className="btn-icon" title="Close">
-            <X className="h-3 w-3" />
+            <X className="size-3" />
           </button>
         </div>
       )}

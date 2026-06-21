@@ -32,7 +32,7 @@ const LiveTokenCounter = ({
         className={`inline-flex cursor-pointer items-center gap-1 transition-colors hover:text-foreground ${pct > CONTEXT_WARNING_THRESHOLD_PCT ? 'text-yellow-400' : ''}`}
         title="Click for token breakdown"
       >
-        <Database className="h-3 w-3" />
+        <Database className="size-3" />
         {fmt(tokensUsed)}/{fmt(maxTokens)}
       </button>
       {!!showModal && (
@@ -135,7 +135,7 @@ export const LiveStreamingStats = ({
     <div className="flex items-center gap-3 font-mono text-xs text-muted-foreground">
       {!!displayStatus && (
         <span className="inline-flex items-center gap-1 text-cyan-400">
-          <Loader2 className="h-3 w-3 animate-spin" />
+          <Loader2 className="size-3 animate-spin" />
           {displayStatus}
         </span>
       )}
@@ -234,9 +234,9 @@ const CompactButton = ({
   const pct = pctMatch ? pctMatch[1] : null;
 
   const compactIcon = compacting ? (
-    <Loader2 className="h-3 w-3 animate-spin" />
+    <Loader2 className="size-3 animate-spin" />
   ) : (
-    <PackageOpen className="h-3 w-3" />
+    <PackageOpen className="size-3" />
   );
   const compactLabel = compacting
     ? `Compacting${pct ? ` ${pct}%` : '…'} ${fmtElapsed(elapsedSec)}`
@@ -374,7 +374,7 @@ const TokenBreakdownModal = ({
       >
         <div className="mb-3 flex items-center justify-between">
           <span className="flex items-center gap-1.5 font-semibold">
-            <Database className="h-3.5 w-3.5" />
+            <Database className="size-3.5" />
             Context breakdown
           </span>
           <button
@@ -382,7 +382,7 @@ const TokenBreakdownModal = ({
             onClick={onClose}
             className="text-muted-foreground hover:text-foreground"
           >
-            <X className="h-4 w-4" />
+            <X className="size-4" />
           </button>
         </div>
 
@@ -482,7 +482,7 @@ const ContextUsageInfo = ({
         className="flex cursor-pointer items-center gap-1.5 font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
         title="Click for token breakdown"
       >
-        <Database className="h-3 w-3" />
+        <Database className="size-3" />
         <span className={ctxSpanClass}>
           ~{(estimatedConvTokens / 1000).toFixed(1)}K / {(modelContextSize / 1000).toFixed(1)}K
         </span>
@@ -603,7 +603,7 @@ export const StatsBar = ({
             data-testid="stop-button"
             title="Stop generation"
           >
-            <Square className="h-3 w-3 fill-current" />
+            <Square className="size-3 fill-current" />
             Stop
           </button>
         )}

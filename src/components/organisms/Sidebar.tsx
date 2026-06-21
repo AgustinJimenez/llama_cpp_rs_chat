@@ -165,15 +165,9 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
     if (!conversationToDelete) return;
     try {
       if (conversationToDelete.name === '__bulk_delete__') {
-        // Bulk delete all selected conversations
+        // Bulk delete all selected conversations in parallel
         const toDelete = Array.from(selectedConversations);
-        for (const name of toDelete) {
-          try {
-            await deleteConversation(name);
-          } catch {
-            /* ignore */
-          }
-        }
+        await Promise.allSettled(toDelete.map((name) => deleteConversation(name)));
         setConversations((prev) => prev.filter((c) => !selectedConversations.has(c.name)));
         if (currentConversationId && selectedConversations.has(currentConversationId)) {
           onNewChat();
@@ -280,7 +274,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat }) => {
             Explore models
             {downloadActiveCount > 0 && (
               <span className="ml-auto flex items-center gap-1 text-[10px] text-blue-400">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
+                <span className="size-1.5 animate-pulse rounded-full bg-blue-400" />
                 {downloadActiveCount}
               </span>
             )}

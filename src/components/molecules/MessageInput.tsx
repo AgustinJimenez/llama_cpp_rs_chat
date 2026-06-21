@@ -40,10 +40,10 @@ const ImagePreviews = ({
           <button
             type="button"
             onClick={() => onRemove(i)}
-            className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-white transition-colors hover:bg-red-600"
+            className="absolute -right-2 -top-2 flex size-5 items-center justify-center rounded-full bg-red-500 text-white transition-colors hover:bg-red-600"
             title="Remove image"
           >
-            <X className="h-3 w-3" />
+            <X className="size-3" />
           </button>
         </div>
       ))}
@@ -66,7 +66,7 @@ const FilePreviews = ({
           key={file.id}
           className="flex items-center gap-1.5 rounded-lg border border-border bg-muted/60 px-2.5 py-1.5 text-xs"
         >
-          <FileText className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+          <FileText className="size-3.5 flex-shrink-0 text-muted-foreground" />
           <span className="max-w-[150px] truncate font-medium" title={file.name}>
             {file.name}
           </span>
@@ -74,10 +74,10 @@ const FilePreviews = ({
           <button
             type="button"
             onClick={() => onRemove(file.id)}
-            className="ml-0.5 flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-red-500/20 hover:text-red-500"
+            className="ml-0.5 flex size-4 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-red-500/20 hover:text-red-500"
             title="Remove file"
           >
-            <X className="h-3 w-3" />
+            <X className="size-3" />
           </button>
         </div>
       ))}
@@ -88,7 +88,7 @@ const FilePreviews = ({
 const DragOverlay = () => (
   <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary/50 bg-primary/5 backdrop-blur-sm">
     <div className="flex items-center gap-2 text-sm font-medium text-primary">
-      <FileText className="h-5 w-5" />
+      <FileText className="size-5" />
       Drop files here
     </div>
   </div>
@@ -97,7 +97,7 @@ const DragOverlay = () => (
 const ExtractingIndicator = ({ count }: { count: number }) =>
   count > 0 ? (
     <div className="flex items-center gap-2 px-5 pb-1 pt-1 text-xs text-muted-foreground">
-      <Loader2 className="h-3 w-3 animate-spin" />
+      <Loader2 className="size-3 animate-spin" />
       Extracting text from {count} file{count > 1 && 's'}...
     </div>
   ) : null;
@@ -112,7 +112,7 @@ const QueuedMessageIndicator = ({
   const displayContent = content.length > 60 ? `${content.slice(0, 60)}…` : content;
   return (
     <div className="flex items-center gap-2 px-5 pb-1 pt-1 text-xs text-muted-foreground">
-      <Clock className="h-3 w-3 flex-shrink-0" />
+      <Clock className="size-3 flex-shrink-0" />
       <span className="flex-1 truncate">
         Queued: <span className="text-foreground">{displayContent}</span>
       </span>
@@ -123,7 +123,7 @@ const QueuedMessageIndicator = ({
         title="Cancel queued message"
         aria-label="Cancel queued message"
       >
-        <X className="h-3 w-3" />
+        <X className="size-3" />
       </button>
     </div>
   );
@@ -170,7 +170,7 @@ const InputRow = ({
         title="Attach files"
         aria-label="Attach files"
       >
-        <Paperclip className="h-4 w-4" />
+        <Paperclip className="size-4" />
       </button>
       <textarea
         ref={textareaRef}
@@ -189,11 +189,11 @@ const InputRow = ({
       <button
         type="submit"
         disabled={disabled || !hasContent || isExtracting > 0 || queuedMessage}
-        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-colors hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-30"
+        className="flex size-8 flex-shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-colors hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-30"
         data-testid="send-button"
         aria-label="Send message"
       >
-        <ArrowUp className="h-4 w-4" />
+        <ArrowUp className="size-4" />
       </button>
     </div>
   );

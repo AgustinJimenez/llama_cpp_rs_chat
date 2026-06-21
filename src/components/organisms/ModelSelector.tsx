@@ -47,12 +47,12 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
           className={`flex items-center gap-1.5 px-2 text-sm font-medium ${isLoading ? 'disabled:opacity-100' : ''}`}
         >
           {!!isLoading && (
-            <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin text-muted-foreground" />
+            <Loader2 className="size-4 flex-shrink-0 animate-spin text-muted-foreground" />
           )}
           <span className={`max-w-[260px] truncate ${isLoading ? 'text-muted-foreground' : ''}`}>
             {getDisplayText()}
           </span>
-          <ChevronDown className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
+          <ChevronDown className="size-3 flex-shrink-0 text-muted-foreground" />
         </Button>
         {!!showProgressBar && (
           <div className="absolute bottom-0 left-1 right-1 h-0.5 overflow-hidden rounded-full bg-muted">

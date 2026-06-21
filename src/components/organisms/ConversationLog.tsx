@@ -130,7 +130,7 @@ export const ConversationLog = () => {
             onClick={toggleEventLog}
             className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
-            <X className="h-4 w-4" />
+            <X className="size-4" />
           </button>
         </div>
         <div

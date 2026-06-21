@@ -78,8 +78,8 @@ const SectionHeader = ({
     <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground transition-colors group-hover:text-foreground">
       {label}
     </span>
-    {!!open && <ChevronUp className="ml-auto h-3.5 w-3.5 text-muted-foreground" />}
-    {!open && <ChevronDown className="ml-auto h-3.5 w-3.5 text-muted-foreground" />}
+    {!!open && <ChevronUp className="ml-auto size-3.5 text-muted-foreground" />}
+    {!open && <ChevronDown className="ml-auto size-3.5 text-muted-foreground" />}
   </button>
 );
 
@@ -283,7 +283,7 @@ export const ProviderSelector = ({
             onClick={onClose}
             className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
-            <X className="h-4 w-4" />
+            <X className="size-4" />
           </button>
         </div>
 
@@ -298,7 +298,7 @@ export const ProviderSelector = ({
             }`}
           >
             <div className="flex items-start gap-3">
-              <Cpu className="mt-0.5 h-5 w-5 flex-shrink-0 text-emerald-400" />
+              <Cpu className="mt-0.5 size-5 flex-shrink-0 text-emerald-400" />
               <div>
                 <div className="font-medium text-foreground">
                   {localProvider?.name || 'Local Model (llama.cpp)'}
@@ -313,7 +313,7 @@ export const ProviderSelector = ({
           {/* ── CLI Providers ── */}
           <SectionHeader
             label="CLI Providers"
-            icon={<Cloud className="h-3.5 w-3.5 text-cyan-400" />}
+            icon={<Cloud className="size-3.5 text-cyan-400" />}
             isOpen={cliSectionOpen}
             onToggle={() => setCliSectionOpen((v) => !v)}
           />
@@ -327,7 +327,7 @@ export const ProviderSelector = ({
                   title="Re-check CLI availability"
                   className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
                 >
-                  <RefreshCw className={`h-3 w-3 ${refreshingCli ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`size-3 ${refreshingCli ? 'animate-spin' : ''}`} />
                   Refresh
                 </button>
               </div>
@@ -337,10 +337,10 @@ export const ProviderSelector = ({
                   (p) => (
                     <div key={p.name} className="rounded-lg border border-border opacity-60">
                       <div className="flex items-center gap-3 p-4">
-                        <Cloud className="h-5 w-5 flex-shrink-0 text-muted-foreground" />
+                        <Cloud className="size-5 flex-shrink-0 text-muted-foreground" />
                         <div className="flex items-center gap-2">
                           <span className="font-medium text-foreground">{p.name}</span>
-                          <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                          <Loader2 className="size-3 animate-spin text-muted-foreground" />
                         </div>
                       </div>
                     </div>
@@ -372,7 +372,7 @@ export const ProviderSelector = ({
                       <div className="p-4">
                         <div className="flex items-start gap-3">
                           <Cloud
-                            className={`mt-0.5 h-5 w-5 flex-shrink-0 ${provider.available ? 'text-cyan-400' : 'text-muted-foreground'}`}
+                            className={`mt-0.5 size-5 flex-shrink-0 ${provider.available ? 'text-cyan-400' : 'text-muted-foreground'}`}
                           />
                           <div className="flex-1">
                             <div className="flex items-center gap-2">
@@ -435,7 +435,7 @@ export const ProviderSelector = ({
                             disabled={!provider.available || !customModels[provider.id]?.trim()}
                             className="rounded-md border border-border bg-muted p-2 transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-30"
                           >
-                            <PlayCircle className="h-4 w-4 text-emerald-400" />
+                            <PlayCircle className="size-4 text-emerald-400" />
                           </button>
                         </form>
                       </div>
@@ -448,7 +448,7 @@ export const ProviderSelector = ({
           {/* ── OpenAI-Compatible Providers ── */}
           <SectionHeader
             label="OpenAI-Compatible Providers"
-            icon={<Zap className="h-3.5 w-3.5 text-amber-400" />}
+            icon={<Zap className="size-3.5 text-amber-400" />}
             isOpen={openaiSectionOpen}
             onToggle={() => setOpenaiSectionOpen((v) => !v)}
           />
@@ -456,7 +456,7 @@ export const ProviderSelector = ({
           {!!openaiSectionOpen && (
             <div className="space-y-2">
               <div className="relative">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
                 <input
                   type="text"
                   placeholder="Search providers..."
@@ -482,13 +482,13 @@ export const ProviderSelector = ({
                   </span>
                 );
                 const chevronIcon = isExpanded ? (
-                  <ChevronUp className="h-4 w-4" />
+                  <ChevronUp className="size-4" />
                 ) : (
-                  <ChevronDown className="h-4 w-4" />
+                  <ChevronDown className="size-4" />
                 );
                 let saveIcon = null;
-                if (isSaving) saveIcon = <Loader2 className="h-3 w-3 animate-spin" />;
-                else if (justSaved) saveIcon = <Check className="h-3 w-3" />;
+                if (isSaving) saveIcon = <Loader2 className="size-3 animate-spin" />;
+                else if (justSaved) saveIcon = <Check className="size-3" />;
                 const useTitle = provider.available ? `Use ${provider.name}` : 'Set API key first';
                 const saveLabel = justSaved ? 'Saved' : 'Save';
 
@@ -507,7 +507,7 @@ export const ProviderSelector = ({
                         className="flex-1 rounded-tl-lg p-4 text-left transition-colors hover:bg-muted/50"
                       >
                         <div className="flex items-center gap-3">
-                          <Zap className="h-5 w-5 flex-shrink-0 text-amber-400" />
+                          <Zap className="size-5 flex-shrink-0 text-amber-400" />
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
                               <span className="font-medium text-foreground">{provider.name}</span>
@@ -537,7 +537,7 @@ export const ProviderSelector = ({
                               : 'cursor-not-allowed text-muted-foreground/30'
                           }`}
                         >
-                          <PlayCircle className="h-5 w-5" />
+                          <PlayCircle className="size-5" />
                         </button>
                         <button
                           onClick={() => setExpandedProvider(isExpanded ? null : provider.id)}
@@ -641,7 +641,7 @@ export const ProviderSelector = ({
                                 disabled={!customModels[provider.id]?.trim()}
                                 className="rounded-md border border-border bg-muted p-1.5 transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-30"
                               >
-                                <PlayCircle className="h-4 w-4 text-emerald-400" />
+                                <PlayCircle className="size-4 text-emerald-400" />
                               </button>
                             </form>
                           </div>

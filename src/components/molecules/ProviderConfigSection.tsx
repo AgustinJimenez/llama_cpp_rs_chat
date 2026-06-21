@@ -54,7 +54,7 @@ const ParamControl = ({
             className="p-0.5 text-muted-foreground transition-colors hover:text-red-400"
             title="Remove"
           >
-            <X className="h-3 w-3" />
+            <X className="size-3" />
           </button>
         )}
       </div>
@@ -79,7 +79,7 @@ const ParamControl = ({
             className="ml-auto p-0.5 text-muted-foreground transition-colors hover:text-red-400"
             title="Remove"
           >
-            <X className="h-3 w-3" />
+            <X className="size-3" />
           </button>
         )}
       </div>
@@ -111,7 +111,7 @@ const ParamControl = ({
             className="p-0.5 text-muted-foreground transition-colors hover:text-red-400"
             title="Remove"
           >
-            <X className="h-3 w-3" />
+            <X className="size-3" />
           </button>
         )}
       </div>
@@ -136,7 +136,7 @@ const ParamControl = ({
           className="p-0.5 text-muted-foreground transition-colors hover:text-red-400"
           title="Remove"
         >
-          <X className="h-3 w-3" />
+          <X className="size-3" />
         </button>
       )}
     </div>
@@ -240,7 +240,7 @@ export const ProviderConfigSection = ({ providerId }: ProviderConfigSectionProps
             onClick={() => setAddMenuOpen((v) => !v)}
             className="flex items-center gap-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
           >
-            <Plus className="h-3 w-3" />
+            <Plus className="size-3" />
             {t('provider.addParameter')}
           </button>
           {!!addMenuOpen && (

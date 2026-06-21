@@ -39,9 +39,9 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
 }) => {
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const historyChevron = historyExpanded ? (
-    <ChevronDown className="h-3 w-3" />
+    <ChevronDown className="size-3" />
   ) : (
-    <ChevronRight className="h-3 w-3" />
+    <ChevronRight className="size-3" />
   );
 
   let borderClass = 'border-input';
@@ -49,9 +49,9 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
   else if (fileExists === false) borderClass = 'border-red-500';
 
   const fileIcon = isCheckingFile ? (
-    <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin" />
+    <Loader2 className="size-4 flex-shrink-0 animate-spin" />
   ) : (
-    <FolderOpen className="h-4 w-4 flex-shrink-0 text-foreground" />
+    <FolderOpen className="size-4 flex-shrink-0 text-foreground" />
   );
   const pathLabel = modelPath ? (
     <span className="truncate font-mono text-xs">{modelPath}</span>
@@ -77,13 +77,11 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
         </button>
         {modelPath.trim() && (
           <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 transform">
-            {!!isCheckingFile && <Clock className="h-4 w-4 animate-pulse text-muted-foreground" />}
+            {!!isCheckingFile && <Clock className="size-4 animate-pulse text-muted-foreground" />}
             {!isCheckingFile && fileExists === true && (
-              <CheckCircle className="h-4 w-4 text-green-500" />
+              <CheckCircle className="size-4 text-green-500" />
             )}
-            {!isCheckingFile && fileExists === false && (
-              <XCircle className="h-4 w-4 text-red-500" />
-            )}
+            {!isCheckingFile && fileExists === false && <XCircle className="size-4 text-red-500" />}
           </div>
         )}
       </div>
@@ -96,7 +94,7 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
               className="flex items-center gap-1 text-muted-foreground"
               data-testid="file-checking"
             >
-              <Clock className="h-3 w-3" />
+              <Clock className="size-3" />
               Checking file...
             </span>
           )}
@@ -106,14 +104,14 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
               data-testid="file-found-label"
               id="file-found-label"
             >
-              <CheckCircle className="h-3 w-3" />
+              <CheckCircle className="size-3" />
               File found and accessible
             </span>
           )}
           {!isCheckingFile && fileExists === false && !!directoryError && (
             <div className="space-y-2">
               <span className="flex items-center gap-1 text-amber-600">
-                <XCircle className="h-3 w-3" />
+                <XCircle className="size-3" />
                 {directoryError}
               </span>
               {directorySuggestions.length > 0 && (
@@ -141,7 +139,7 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
           )}
           {!isCheckingFile && fileExists === false && !directoryError && (
             <span className="flex items-center gap-1 text-red-600">
-              <XCircle className="h-3 w-3" />
+              <XCircle className="size-3" />
               File not found or inaccessible
             </span>
           )}
@@ -157,7 +155,7 @@ export const ModelFileInput: React.FC<ModelFileInputProps> = ({
             className="flex w-full items-center gap-1.5 bg-muted/50 px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-muted"
           >
             {historyChevron}
-            <Clock className="h-3 w-3" />
+            <Clock className="size-3" />
             Recent models ({modelHistory.length})
           </button>
           {!!historyExpanded &&

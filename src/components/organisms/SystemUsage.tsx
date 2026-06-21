@@ -115,7 +115,7 @@ export const SystemUsage = ({ expanded = false }: SystemUsageProps) => {
     if (!hasData) {
       return (
         <div className="flex h-32 items-center justify-center gap-2 text-muted-foreground">
-          <Loader2 className="h-5 w-5 animate-spin" />
+          <Loader2 className="size-5 animate-spin" />
           <span className="text-sm">Loading system usage...</span>
         </div>
       );
@@ -189,7 +189,7 @@ export const SystemUsage = ({ expanded = false }: SystemUsageProps) => {
   if (!hasData) {
     return (
       <div className="flex items-center gap-2 rounded-xl border border-border bg-muted px-3 py-2 text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
+        <Loader2 className="size-4 animate-spin" />
         <span className="text-xs font-medium">Loading</span>
       </div>
     );

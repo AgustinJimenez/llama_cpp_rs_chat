@@ -56,8 +56,8 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ content, isStreami
         >
           {thinkingLabel}
         </span>
-        {!!isOpen && <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 text-foreground" />}
-        {!isOpen && <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-foreground" />}
+        {!!isOpen && <ChevronDown className="size-3.5 flex-shrink-0 text-foreground" />}
+        {!isOpen && <ChevronRight className="size-3.5 flex-shrink-0 text-foreground" />}
       </button>
       {!!isOpen && (
         <pre
