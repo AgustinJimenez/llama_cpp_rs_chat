@@ -54,6 +54,9 @@ export interface ChatRequest {
   tool_tags?: ToolTags;
   /** When true, this is an auto-continuation request (no user message logged). */
   auto_continue?: boolean;
+  /** When true, client is reconnecting after a dropped connection — server should
+   *  wait for in-progress generation to finish rather than starting a new one. */
+  reconnect?: boolean;
 }
 
 export interface ChatResponse {

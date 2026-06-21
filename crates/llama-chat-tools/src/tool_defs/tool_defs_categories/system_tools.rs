@@ -43,6 +43,24 @@ pub static SYSTEM_TOOLS: &[ToolDef] = &[
         ]),
         required: &["pid"],
     },
+    // ─── check_environment ───
+    ToolDef {
+        name: "check_environment",
+        description: "Detect installed language runtimes and build tools in one call. Returns a table with tool name, version, and path for java, javac, mvn, gradle, node, npm, python, pip, rustc, cargo, go, git, docker, dotnet, php, ruby. Faster than probing each tool individually with execute_command.",
+        params: Params::Simple(&[
+            p("filter", "string", "Only show tools matching this substring (e.g. 'java', 'node'). Omit to show all."),
+        ]),
+        required: &[],
+    },
+    // ─── find_executable ───
+    ToolDef {
+        name: "find_executable",
+        description: "Find an executable by name. Checks PATH first, then probes common installation directories (~/apache-mvn/..., ~/scoop/..., /usr/local/bin/, etc.). Returns the full path if found, or a list of locations searched. Use this instead of `where`/`which` when build tools (mvn, gradle, node, python, java) may not be on PATH.",
+        params: Params::Simple(&[
+            p("name", "string", "Executable name without extension (e.g. 'mvn', 'node', 'python', 'java')"),
+        ]),
+        required: &["name"],
+    },
     // ─── list_background_processes ───
     ToolDef {
         name: "list_background_processes",

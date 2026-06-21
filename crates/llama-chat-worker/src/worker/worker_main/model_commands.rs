@@ -98,9 +98,25 @@ pub fn handle_load_model(
             write_response(ipc_writer, &WorkerResponse::ok(0, WorkerPayload::LoadingProgress { progress: 101 }));
 
             // Pre-evaluate system prompt into KV cache for faster first response.
-            match llama_chat_engine::warmup_system_prompt(llama_state, db, agent_id.as_deref()) {
-                Ok(()) => eprintln!("[WORKER] System prompt warmup complete"),
-                Err(e) => eprintln!("[WORKER] System prompt warmup failed (non-fatal): {e}"),
+            // Run in background thread with 30s timeout to prevent hanging the
+            // main IPC loop if context.decode() stalls (CUDA deadlock, debug build, etc.)
+            let warmup_state = llama_state.clone();
+            let warmup_db = db.clone();
+            let warmup_done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let warmup_done_clone = warmup_done.clone();
+            std::thread::spawn(move || {
+                match llama_chat_engine::warmup_system_prompt(warmup_state, warmup_db.as_ref(), agent_id.as_deref()) {
+                    Ok(()) => eprintln!("[WORKER] System prompt warmup complete"),
+                    Err(e) => eprintln!("[WORKER] System prompt warmup failed (non-fatal): {e}"),
+                }
+                warmup_done_clone.store(true, std::sync::atomic::Ordering::SeqCst);
+            });
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            while !warmup_done.load(std::sync::atomic::Ordering::SeqCst) && std::time::Instant::now() < deadline {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            if !warmup_done.load(std::sync::atomic::Ordering::SeqCst) {
+                eprintln!("[WORKER] System prompt warmup timed out after 30s, continuing without warmup cache");
             }
 
             write_response(ipc_writer, &WorkerResponse::ok(req_id, payload));

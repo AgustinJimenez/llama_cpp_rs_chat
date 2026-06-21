@@ -73,10 +73,10 @@ function runScript(scriptPath, args = [], background = false) {
 
 async function main() {
     try {
-        // Get mode from command line argument (web or desktop)
+        // Get mode from command line argument (web, desktop, or build)
         const mode = process.argv[2] || 'web';
-        if (!['web', 'desktop'].includes(mode)) {
-            throw new Error(`Invalid mode: ${mode}. Use 'web' or 'desktop'`);
+        if (!['web', 'desktop', 'build'].includes(mode)) {
+            throw new Error(`Invalid mode: ${mode}. Use 'web', 'desktop', or 'build'`);
         }
         
         // Extract additional arguments, e.g., --background

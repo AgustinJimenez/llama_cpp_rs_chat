@@ -138,6 +138,8 @@ const VALIDATED_TOOLS: &[&str] = &[
     "git_status",
     "git_diff",
     "git_commit",
+    "find_executable",
+    "check_environment",
     "open_url",
     "send_telegram",
     "check_background_process",

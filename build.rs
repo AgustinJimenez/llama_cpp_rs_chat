@@ -80,17 +80,7 @@ fn write_nsis_installer_hooks() {
 !macro NSIS_HOOK_POSTINSTALL
   SetOutPath "$INSTDIR"
 {file_lines}
-  ; --- GPU info: notify user about optional CUDA acceleration ---
-  IfFileExists "$SYSDIR\nvcuda.dll" 0 gpu_done
-    ; NVIDIA GPU detected — show info about GPU acceleration
-    MessageBox MB_OK|MB_ICONINFORMATION \
-      "NVIDIA GPU detected!$\n$\n\
-      For GPU-accelerated inference, the app needs additional files (~550 MB):$\n$\n\
-      1. CUDA Runtime DLLs — download from the app (Explore Models > Load Model)$\n\
-      2. Or visit: github.com/AgustinJimenez/llama_cpp_rs_chat/releases$\n$\n\
-      Without these, the app runs on CPU (slower but works fine).$\n\
-      The app will guide you through setup on first use."
-  gpu_done:
+  ; GPU acceleration handled at runtime by the app
 
 !macroend
 

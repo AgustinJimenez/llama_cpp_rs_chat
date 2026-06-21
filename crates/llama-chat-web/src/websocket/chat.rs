@@ -131,6 +131,36 @@ pub async fn handle_websocket(
 
                 sys_debug!("[WS_CHAT] User message: {}", chat_request.message);
 
+                // ── Reconnect mode ─────────────────────────────────────────
+                // Client dropped connection mid-stream and is reconnecting.
+                // Don't start a new generation — wait for the in-progress one
+                // to finish, then send a synthetic done so the client reloads.
+                if chat_request.reconnect {
+                    if let Some(conv_id) = chat_request.conversation_id.as_deref() {
+                        // Resolve bridge so we can inspect its state.
+                        if let Ok(bridge) = resolve_bridge_for_request(
+                            &pool, &db,
+                            Some(conv_id),
+                            chat_request.worker_id.as_deref(),
+                            chat_request.agent_id.as_deref(),
+                        ).await {
+                            // Poll until generation finishes (max 10 min).
+                            for _ in 0u16..1200 {
+                                if !bridge.is_generating().await {
+                                    break;
+                                }
+                                tokio::time::sleep(Duration::from_millis(500)).await;
+                            }
+                        }
+                        let done_msg = serde_json::json!({
+                            "type": "done",
+                            "conversation_id": conv_id
+                        });
+                        let _ = ws_sender.send(WsMessage::Text(done_msg.to_string())).await;
+                    }
+                    break;
+                }
+
                 let bridge = match resolve_bridge_for_request(
                     &pool,
                     &db,

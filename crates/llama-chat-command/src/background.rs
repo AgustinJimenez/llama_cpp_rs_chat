@@ -358,6 +358,84 @@ pub fn list_all_background_processes() -> Vec<(u32, String, bool, String)> {
 
 // ── Background execution ─────────────────────────────────────────────────────
 
+/// Extract a port number from a command string if a well-known port flag/pattern is present.
+fn extract_port_from_command(cmd: &str) -> Option<u16> {
+    // Patterns: --port 8080 / --port=8080 / -p 8080 / :8080 / server.port=8080
+    // server.port=8080 (Spring Boot), --port 8080 (many CLIs), :8080 (URL-style)
+    let patterns: &[(&str, bool)] = &[
+        ("--port=", false),
+        ("--port ", true),
+        ("-p ", true),
+        ("server.port=", false),
+        ("PORT=", false),
+    ];
+    for (prefix, space_sep) in patterns {
+        if let Some(pos) = cmd.find(prefix) {
+            let after = &cmd[pos + prefix.len()..];
+            let after = if *space_sep { after.trim_start() } else { after };
+            let digits: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if let Ok(port) = digits.parse::<u16>() {
+                if port > 0 { return Some(port); }
+            }
+        }
+    }
+    // :NNNN pattern (e.g. localhost:8080 or *:8080)
+    let bytes = cmd.as_bytes();
+    for i in 0..bytes.len().saturating_sub(1) {
+        if bytes[i] == b':' && bytes[i + 1].is_ascii_digit() {
+            let after = &cmd[i + 1..];
+            let digits: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if digits.len() >= 2 {
+                if let Ok(port) = digits.parse::<u16>() {
+                    if port >= 1024 { return Some(port); }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Check if a TCP port is already bound. Returns (is_bound, pid_using_port).
+fn check_port_bound(port: u16) -> (bool, Option<u32>) {
+    #[cfg(target_os = "windows")]
+    {
+        let Ok(output) = silent_command("netstat")
+            .args(["-ano", "-p", "TCP"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()
+        else {
+            return (false, None);
+        };
+        let text = String::from_utf8_lossy(&output.stdout);
+        let port_str = format!(":{port} ");
+        for line in text.lines() {
+            if line.contains(&port_str) && (line.contains("LISTENING") || line.contains("ESTABLISHED")) {
+                let pid = line.split_whitespace().last()
+                    .and_then(|s| s.parse::<u32>().ok());
+                return (true, pid);
+            }
+        }
+        (false, None)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let Ok(output) = silent_command("lsof")
+            .args(["-i", &format!(":{port}"), "-t", "-sTCP:LISTEN"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()
+        else {
+            return (false, None);
+        };
+        let text = String::from_utf8_lossy(&output.stdout);
+        let pid = text.trim().lines().next().and_then(|s| s.parse::<u32>().ok());
+        (pid.is_some(), pid)
+    }
+}
+
 /// Execute a command in the background. Captures initial output for `BACKGROUND_CAPTURE_SECS`,
 /// then returns immediately while the process keeps running. A persistent reader thread
 /// continues buffering output so `check_background_process()` can retrieve it later.
@@ -366,6 +444,20 @@ pub fn execute_command_background(
     mut on_line: impl FnMut(&str),
 ) -> String {
     let trimmed = cmd.trim();
+
+    // Port pre-check: if the command targets a specific port, verify it's free before launching.
+    if let Some(port) = extract_port_from_command(trimmed) {
+        let (bound, pid) = check_port_bound(port);
+        if bound {
+            let pid_info = pid.map(|p| format!(", PID {p}")).unwrap_or_default();
+            let suggested = port + 1;
+            return format!(
+                "Port {port} is already in use{pid_info}. \
+                Try a different port (e.g. {suggested}) or kill the existing process first. \
+                Command not started."
+            );
+        }
+    }
 
     // Env vars for unbuffered output
     let env_vars = [

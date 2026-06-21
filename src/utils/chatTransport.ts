@@ -59,6 +59,9 @@ const buildWsUrl = (path: string): string => {
 
 const WS_CONNECT_TIMEOUT_MS = 10000;
 const WS_GENERATION_TIMEOUT_MS = 300000; // No tokens/heartbeat received for 5min → error
+const WS_MAX_RECONNECTS = 4;
+const WS_RECONNECT_BASE_MS = 1000;
+const WS_MAX_BACKOFF_MS = 8000;
 
 type StreamState = {
   isCompleted: boolean;
@@ -175,42 +178,27 @@ function streamViaWebSocket(
   const safeOnError = onError ?? (() => {});
 
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(buildWsUrl('/ws/chat/stream'));
     const state: StreamState = { isCompleted: false, wasAborted: false };
-    let connectTimer: ReturnType<typeof setTimeout> | null = null;
-    let genTimer: ReturnType<typeof setTimeout> | null = null;
     let settled = false;
-
-    const resetGenTimer = () => {
-      if (genTimer) clearTimeout(genTimer);
-      genTimer = setTimeout(() => {
-        if (state.isCompleted || state.wasAborted || settled) return;
-        const errorMessage = 'Generation timeout: no response from model for 30 seconds';
-        safeOnError(errorMessage);
-        settle(new Error(errorMessage));
-      }, WS_GENERATION_TIMEOUT_MS);
-    };
+    let reconnectAttempt = 0;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let currentWs: WebSocket | null = null;
 
     const settle = (error?: Error) => {
       if (settled) return;
       settled = true;
-      if (genTimer) clearTimeout(genTimer);
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       try {
-        ws.close();
+        currentWs?.close();
       } catch {
-        // no-op
+        /* no-op */
       }
-      if (error) {
-        reject(error);
-      } else {
-        resolve();
-      }
+      if (error) reject(error);
+      else resolve();
     };
 
     const markAborted = () => {
       state.wasAborted = true;
-      // Only cancel if generation hasn't already completed — otherwise we'd
-      // cancel the NEXT generation that starts shortly after.
       if (!state.isCompleted) {
         fetch('/api/chat/cancel', { method: 'POST' }).catch(() => {});
       }
@@ -226,81 +214,102 @@ function streamViaWebSocket(
       }
     }
 
-    // Connection timeout guard
-    connectTimer = setTimeout(() => {
-      if (state.wasAborted) return;
-      safeOnError('WebSocket connection timed out');
-      settle(new Error('WebSocket connection timed out'));
-    }, WS_CONNECT_TIMEOUT_MS);
+    const connect = (isReconnect: boolean) => {
+      if (settled || state.wasAborted) return;
 
-    ws.onopen = () => {
-      if (connectTimer) {
-        clearTimeout(connectTimer);
-        connectTimer = null;
-      }
-      if (state.wasAborted) {
-        markAborted();
-        return;
-      }
-      console.log('[WS_STREAM] Connected, sending request'); // eslint-disable-line no-console
-      ws.send(JSON.stringify(request));
-      resetGenTimer();
+      const ws = new WebSocket(buildWsUrl('/ws/chat/stream'));
+      currentWs = ws;
+      let connectTimer: ReturnType<typeof setTimeout> | null = null;
+      let genTimer: ReturnType<typeof setTimeout> | null = null;
+
+      const resetGenTimer = () => {
+        if (genTimer) clearTimeout(genTimer);
+        genTimer = setTimeout(() => {
+          if (state.isCompleted || state.wasAborted || settled) return;
+          const errorMessage = 'Generation timeout: no response from model for 5 minutes';
+          safeOnError(errorMessage);
+          settle(new Error(errorMessage));
+        }, WS_GENERATION_TIMEOUT_MS);
+      };
+
+      // Connection timeout guard
+      connectTimer = setTimeout(() => {
+        if (state.wasAborted || settled) return;
+        safeOnError('WebSocket connection timed out');
+        settle(new Error('WebSocket connection timed out'));
+      }, WS_CONNECT_TIMEOUT_MS);
+
+      ws.onopen = () => {
+        if (connectTimer) {
+          clearTimeout(connectTimer);
+          connectTimer = null;
+        }
+        if (state.wasAborted || settled) {
+          markAborted();
+          return;
+        }
+        console.log(`[WS_STREAM] Connected (reconnect=${isReconnect}), sending request`); // eslint-disable-line no-console
+        ws.send(JSON.stringify(isReconnect ? { ...request, reconnect: true } : request));
+        resetGenTimer();
+      };
+
+      ws.onmessage = (event) => {
+        resetGenTimer();
+        handleStreamMessage(
+          event.data,
+          request,
+          state,
+          {
+            onToken: safeOnToken,
+            onComplete: safeOnComplete,
+            onError: safeOnError,
+            onStatus,
+            onToolTiming,
+          },
+          settle,
+          markAborted,
+        );
+      };
+
+      ws.onerror = () => {
+        if (state.wasAborted || settled) return;
+        // onerror is always followed by onclose — handle there
+      };
+
+      ws.onclose = (event) => {
+        if (connectTimer) {
+          clearTimeout(connectTimer);
+          connectTimer = null;
+        }
+        if (genTimer) {
+          clearTimeout(genTimer);
+          genTimer = null;
+        }
+        if (settled || state.wasAborted || state.isCompleted) return;
+
+        if (event.code !== 1000 && reconnectAttempt < WS_MAX_RECONNECTS) {
+          const delay = Math.min(
+            WS_RECONNECT_BASE_MS * Math.pow(2, reconnectAttempt),
+            WS_MAX_BACKOFF_MS,
+          );
+          reconnectAttempt += 1;
+          console.warn(
+            `[WS_STREAM] Disconnected (code=${event.code}), reconnecting in ${delay}ms (attempt ${reconnectAttempt}/${WS_MAX_RECONNECTS})`,
+          ); // eslint-disable-line no-console
+          reconnectTimer = setTimeout(() => connect(true), delay);
+        } else if (event.code !== 1000) {
+          const errorMessage = `Connection lost after ${WS_MAX_RECONNECTS} reconnect attempts`;
+          console.error(`[WS_STREAM] ${errorMessage}`); // eslint-disable-line no-console
+          safeOnError(errorMessage);
+          settle(new Error(errorMessage));
+        } else {
+          console.log('[WS_STREAM] Closed normally (no completion received)'); // eslint-disable-line no-console
+          settle();
+        }
+      };
     };
 
-    ws.onmessage = (event) => {
-      resetGenTimer();
-      handleStreamMessage(
-        event.data,
-        request,
-        state,
-        {
-          onToken: safeOnToken,
-          onComplete: safeOnComplete,
-          onError: safeOnError,
-          onStatus,
-          onToolTiming,
-        },
-        settle,
-        markAborted,
-      );
-    };
-
-    ws.onerror = () => {
-      if (state.wasAborted) {
-        markAborted();
-        return;
-      }
-      if (!state.isCompleted) {
-        const errorMessage = 'WebSocket connection error';
-        console.error('[WS_STREAM] Connection error');
-        safeOnError(errorMessage);
-        settle(new Error(errorMessage));
-      }
-    };
-
-    ws.onclose = (event) => {
-      if (connectTimer) {
-        clearTimeout(connectTimer);
-        connectTimer = null;
-      }
-      if (genTimer) {
-        clearTimeout(genTimer);
-        genTimer = null;
-      }
-      if (state.wasAborted) {
-        markAborted();
-        return;
-      }
-      if (!state.isCompleted && event.code !== 1000) {
-        const errorMessage = `Connection closed unexpectedly: ${event.reason || 'Unknown reason'}`;
-        console.error(`[WS_STREAM] Closed unexpectedly: code=${event.code} reason=${event.reason}`); // eslint-disable-line no-console
-        safeOnError(errorMessage);
-        settle(new Error(errorMessage));
-      } else if (!state.isCompleted) {
-        console.log('[WS_STREAM] Closed normally (no completion received)'); // eslint-disable-line no-console
-        settle();
-      }
-    };
+    connect(false);
   });
 }
 

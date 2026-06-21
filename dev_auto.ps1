@@ -1,13 +1,13 @@
 # Auto-detection PowerShell script for optimal GPU acceleration on Windows
 # Dynamically detects Windows setup, CUDA, Visual Studio, and runs the best configuration
-# Usage: ./dev_auto.ps1 [web|desktop]
+# Usage: ./dev_auto.ps1 [web|desktop|build]
 
 param(
     [string]$Mode = "web"
 )
 
-if ($Mode -notin @("web", "desktop")) {
-    Write-Host "❌ Invalid mode: $Mode. Use 'web' or 'desktop'" -ForegroundColor Red
+if ($Mode -notin @("web", "desktop", "build")) {
+    Write-Host "❌ Invalid mode: $Mode. Use 'web', 'desktop', or 'build'" -ForegroundColor Red
     exit 1
 }
 
@@ -140,6 +140,8 @@ if ($hasNvidiaGpu -and $hasCuda -and $hasVS) {
     $Features = "cuda,vision"
     if ($Mode -eq "desktop") {
         $ScriptCmd = "tauri:dev:cuda"
+    } elseif ($Mode -eq "build") {
+        $ScriptCmd = "tauri:build:cuda"
     } else {
         $ScriptCmd = "dev:cuda"
     }
@@ -148,6 +150,8 @@ if ($hasNvidiaGpu -and $hasCuda -and $hasVS) {
     $UseCpu = $true
     if ($Mode -eq "desktop") {
         $ScriptCmd = "tauri:dev"
+    } elseif ($Mode -eq "build") {
+        $ScriptCmd = "tauri:build:cpu"
     } else {
         $ScriptCmd = "dev:cpu"
     }
@@ -157,6 +161,8 @@ if ($hasNvidiaGpu -and $hasCuda -and $hasVS) {
     $UseCpu = $true
     if ($Mode -eq "desktop") {
         $ScriptCmd = "tauri:dev"
+    } elseif ($Mode -eq "build") {
+        $ScriptCmd = "tauri:build:cpu"
     } else {
         $ScriptCmd = "dev:cpu"
     }
@@ -184,10 +190,16 @@ if ($UseCuda) {
 }
 
 Write-Host ""
-Write-Host "🚀 Starting development server with optimal configuration..." -ForegroundColor Cyan
+if ($Mode -eq "build") {
+    Write-Host "🏗️  Building desktop app with optimal configuration..." -ForegroundColor Cyan
+} else {
+    Write-Host "🚀 Starting development server with optimal configuration..." -ForegroundColor Cyan
+}
 if ($Mode -eq "desktop") {
     Write-Host "🖥️  Desktop App: Native window will open" -ForegroundColor White
     Write-Host "🔧 Backend: Embedded within desktop app" -ForegroundColor White
+} elseif ($Mode -eq "build") {
+    Write-Host "📦 Output: src-tauri/target/release/bundle/" -ForegroundColor White
 } else {
     Write-Host "🌐 Frontend: http://localhost:14000" -ForegroundColor White
     Write-Host "🔧 Backend API: http://localhost:18080" -ForegroundColor White

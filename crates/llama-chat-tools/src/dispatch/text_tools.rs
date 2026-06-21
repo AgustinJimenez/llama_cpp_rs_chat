@@ -220,6 +220,8 @@ pub(super) fn dispatch_text_tool(
                 }
             }
         }
+        "find_executable" => command_tools::tool_find_executable(args),
+        "check_environment" => command_tools::tool_check_environment(args),
         "git_status" => command_tools::tool_git_status(args),
         "git_diff" => command_tools::tool_git_diff(args),
         "git_commit" => command_tools::tool_git_commit(args),

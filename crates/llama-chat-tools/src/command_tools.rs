@@ -265,6 +265,176 @@ pub fn tool_git_commit(args: &Value) -> String {
     }
 }
 
+/// Find an executable by name: checks PATH first, then common installation directories.
+/// Returns a human-readable result with the resolved path or a list of searched locations.
+pub fn tool_find_executable(args: &Value) -> String {
+    let name = match args.get("name").and_then(|v| v.as_str()) {
+        Some(n) if !n.is_empty() => n,
+        _ => return "Error: 'name' argument is required".to_string(),
+    };
+
+    // 1. Try `where` (Windows) / `which` (Unix) — checks PATH
+    #[cfg(target_os = "windows")]
+    let path_result = silent_command("where").arg(name).stdin(std::process::Stdio::null()).output();
+    #[cfg(not(target_os = "windows"))]
+    let path_result = silent_command("which").arg(name).stdin(std::process::Stdio::null()).output();
+
+    if let Ok(out) = path_result {
+        let found = String::from_utf8_lossy(&out.stdout);
+        let found = found.trim();
+        if out.status.success() && !found.is_empty() {
+            let first = found.lines().next().unwrap_or(found);
+            return format!("Found in PATH: {first}");
+        }
+    }
+
+    // 2. Probe common installation directories
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_default();
+    let local_app = std::env::var("LOCALAPPDATA").unwrap_or_default();
+    let app_data = std::env::var("APPDATA").unwrap_or_default();
+
+    #[cfg(target_os = "windows")]
+    let candidates: Vec<String> = {
+        let exe = format!("{name}.cmd");
+        let exe2 = format!("{name}.exe");
+        let bare = name.to_string();
+        vec![
+            format!(r"{home}\{name}\bin\{exe}"),
+            format!(r"{home}\{name}\bin\{exe2}"),
+            format!(r"{home}\apache-{name}\bin\{exe}"),
+            format!(r"{home}\{name}-*\bin\{exe}"),
+            format!(r"{local_app}\Programs\{name}\{exe2}"),
+            format!(r"{local_app}\Programs\{name}\bin\{exe2}"),
+            format!(r"{app_data}\{name}\bin\{exe}"),
+            format!(r"C:\Program Files\{name}\bin\{exe2}"),
+            format!(r"C:\Program Files (x86)\{name}\bin\{exe2}"),
+            format!(r"C:\{name}\bin\{exe}"),
+            format!(r"{home}\.{name}\bin\{bare}"),
+            format!(r"{home}\scoop\apps\{name}\current\bin\{exe2}"),
+        ]
+    };
+    #[cfg(not(target_os = "windows"))]
+    let candidates: Vec<String> = vec![
+        format!("/usr/local/bin/{name}"),
+        format!("/usr/bin/{name}"),
+        format!("/opt/homebrew/bin/{name}"),
+        format!("{home}/.local/bin/{name}"),
+        format!("{home}/.{name}/bin/{name}"),
+        format!("/opt/{name}/bin/{name}"),
+    ];
+
+    let mut searched = Vec::new();
+    for candidate in &candidates {
+        // Expand simple glob (* at end of directory segment)
+        if candidate.contains('*') {
+            let (prefix, _) = candidate.split_once('*').unwrap_or((candidate, ""));
+            let parent = std::path::Path::new(prefix).parent().unwrap_or(std::path::Path::new(prefix));
+            if let Ok(entries) = std::fs::read_dir(parent) {
+                for entry in entries.filter_map(|e| e.ok()) {
+                    let suffix = candidate.splitn(2, '*').nth(1).unwrap_or("");
+                    let full = entry.path().to_string_lossy().to_string() + suffix;
+                    let p = std::path::Path::new(&full);
+                    if p.exists() {
+                        return format!("Found (common location): {full}");
+                    }
+                    searched.push(full);
+                }
+            }
+            continue;
+        }
+        let p = std::path::Path::new(candidate);
+        if p.exists() {
+            return format!("Found (common location): {candidate}");
+        }
+        searched.push(candidate.clone());
+    }
+
+    format!(
+        "'{name}' not found in PATH or common locations.\nSearched:\n{}",
+        searched.iter().take(8).map(|s| format!("  {s}")).collect::<Vec<_>>().join("\n")
+    )
+}
+
+/// Detect installed language runtimes and build tools in a single call.
+/// Returns a compact table of tool name, detected version, and resolved path.
+pub fn tool_check_environment(args: &Value) -> String {
+    let filter = args.get("filter").and_then(|v| v.as_str()).unwrap_or("");
+
+    // (display_name, binary_names_to_try, version_args)
+    let probes: &[(&str, &[&str], &[&str])] = &[
+        ("java",    &["java"],           &["-version"]),
+        ("javac",   &["javac"],          &["-version"]),
+        ("mvn",     &["mvn", "mvn.cmd"], &["--version"]),
+        ("gradle",  &["gradle"],         &["--version"]),
+        ("node",    &["node"],           &["--version"]),
+        ("npm",     &["npm", "npm.cmd"], &["--version"]),
+        ("python",  &["python", "python3"], &["--version"]),
+        ("pip",     &["pip", "pip3"],    &["--version"]),
+        ("rustc",   &["rustc"],          &["--version"]),
+        ("cargo",   &["cargo"],          &["--version"]),
+        ("go",      &["go"],             &["version"]),
+        ("git",     &["git"],            &["--version"]),
+        ("docker",  &["docker"],         &["--version"]),
+        ("dotnet",  &["dotnet"],         &["--version"]),
+        ("php",     &["php"],            &["--version"]),
+        ("ruby",    &["ruby"],           &["--version"]),
+    ];
+
+    let mut rows: Vec<String> = Vec::new();
+    for (name, binaries, version_args) in probes {
+        if !filter.is_empty() && !name.contains(filter) {
+            continue;
+        }
+        let mut found = false;
+        for bin in *binaries {
+            let Ok(out) = silent_command(bin)
+                .args(*version_args)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .output()
+            else {
+                continue;
+            };
+            // Some tools (java -version) write to stderr
+            let raw = if out.stdout.is_empty() {
+                String::from_utf8_lossy(&out.stderr).to_string()
+            } else {
+                String::from_utf8_lossy(&out.stdout).to_string()
+            };
+            let version = raw.lines().next().unwrap_or("").trim().to_string();
+            if !version.is_empty() {
+                // Resolve the path via where/which
+                #[cfg(target_os = "windows")]
+                let path_out = silent_command("where").arg(bin).stdin(std::process::Stdio::null()).output();
+                #[cfg(not(target_os = "windows"))]
+                let path_out = silent_command("which").arg(bin).stdin(std::process::Stdio::null()).output();
+                let path = path_out.ok()
+                    .and_then(|o| if o.status.success() { Some(String::from_utf8_lossy(&o.stdout).trim().lines().next().map(str::to_string)?) } else { None })
+                    .unwrap_or_else(|| bin.to_string());
+                rows.push(format!("  {name:<10} {version:<40} {path}"));
+                found = true;
+                break;
+            }
+        }
+        if !found && filter.is_empty() {
+            rows.push(format!("  {name:<10} not found"));
+        }
+    }
+
+    if rows.is_empty() {
+        return "No matching runtimes found.".to_string();
+    }
+    format!("Environment ({} tools):\n{:<10} {:<40} {}\n{}\n{}",
+        rows.len(),
+        "Tool", "Version", "Path",
+        "-".repeat(90),
+        rows.join("\n")
+    )
+}
+
 pub fn tool_list_background_processes() -> String {
     let procs = llama_chat_command::background::list_all_background_processes();
     if procs.is_empty() {

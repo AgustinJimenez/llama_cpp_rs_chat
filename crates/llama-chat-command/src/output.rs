@@ -98,6 +98,29 @@ pub fn truncate_command_output(text: &str) -> String {
         let head = lines[..HEAD_LINES].join("\n");
         let tail = lines[lines.len() - TAIL_LINES..].join("\n");
 
+        // Count errors/warnings in the omitted middle for the truncation banner.
+        let mid_errors = lines[omitted_range.clone()]
+            .iter()
+            .filter(|l| {
+                let t = l.trim_start();
+                t.starts_with("error") || t.contains(": error ") || t.starts_with("ERROR ")
+                    || t.starts_with("FAILED") || t.starts_with("panicked at")
+            })
+            .count();
+        let mid_warnings = lines[omitted_range.clone()]
+            .iter()
+            .filter(|l| {
+                let t = l.trim_start();
+                t.starts_with("warning") || t.contains(": warning ")
+            })
+            .count();
+        let diag_hint = match (mid_errors, mid_warnings) {
+            (0, 0) => String::new(),
+            (e, 0) => format!(" — {e} error(s) in omitted lines"),
+            (0, w) => format!(" — {w} warning(s) in omitted lines"),
+            (e, w) => format!(" — {e} error(s), {w} warning(s) in omitted lines"),
+        };
+
         // Collect diagnostic lines from the omitted middle that aren't already in tail.
         let tail_set: std::collections::HashSet<&str> =
             lines[lines.len() - TAIL_LINES..].iter().copied().collect();
@@ -108,26 +131,27 @@ pub fn truncate_command_output(text: &str) -> String {
             .collect();
 
         if mid_diagnostics.is_empty() {
-            format!("{head}\n\n... ({omitted_count} lines omitted) ...\n\n{tail}")
+            format!("{head}\n\n... ({omitted_count} lines omitted{diag_hint}) ...\n\n{tail}")
         } else {
             let diag_block = mid_diagnostics.join("\n");
             let rescued = mid_diagnostics.len();
             // Rescued diagnostics go AFTER tail so Stage 2 char truncation (75% head + 25% tail)
             // never drops them — the tail section ends just before them.
             format!(
-                "{head}\n\n... ({omitted_count} lines omitted) ...\n\n{tail}\n\n[{rescued} diagnostics from omitted section:]\n{diag_block}"
+                "{head}\n\n... ({omitted_count} lines omitted{diag_hint}) ...\n\n{tail}\n\n[{rescued} diagnostics rescued from omitted section:]\n{diag_block}"
             )
         }
     } else {
         text.to_string()
     };
 
-    // Hard character limit
+    // Hard character limit — show total line count so model knows what was cut.
     if result.len() > MAX_COMMAND_OUTPUT_CHARS {
+        let total_lines = text.lines().count();
         let mut end = MAX_COMMAND_OUTPUT_CHARS;
         while end < result.len() && !result.is_char_boundary(end) { end += 1; }
         result.truncate(end);
-        result.push_str("\n... (output truncated)");
+        result.push_str(&format!("\n... (output truncated at {MAX_COMMAND_OUTPUT_CHARS} chars; {total_lines} total lines)"));
     }
 
     result

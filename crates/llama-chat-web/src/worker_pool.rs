@@ -240,6 +240,29 @@ impl WorkerPool {
         }
     }
 
+    /// Kill all workers (default + agent + overflow) and clear all bindings.
+    /// Called on app exit to ensure no child processes leak.
+    /// Sync so it works in Tauri's `RunEvent::Exit` handler.
+    pub fn shutdown_all(&self) {
+        let ids: Vec<WorkerId> = self
+            .workers
+            .read()
+            .ok()
+            .map(|w| w.keys().cloned().collect())
+            .unwrap_or_default();
+        for id in &ids {
+            if let Some(entry) = self.workers.write().ok().and_then(|mut w| w.remove(id)) {
+                entry.bridge.kill();
+            }
+        }
+        if let Ok(mut m) = self.agent_workers.write() {
+            m.clear();
+        }
+        if let Ok(mut m) = self.conversation_workers.write() {
+            m.clear();
+        }
+    }
+
     /// Drop any agent/conversation bindings pointing at `worker_id`, then kill it so it
     /// fully releases memory. Routing respawns + reloads it lazily on next use.
     async fn evict_named_worker(&self, worker_id: &str) {
@@ -303,8 +326,8 @@ impl WorkerPool {
     }
 
     /// Spawn a global worker for an agent and bind it.
-    /// If an existing worker already has this model loaded, bind it instead of spawning
-    /// a duplicate (which would hang trying to double-load the model into VRAM).
+    /// If an existing worker already has (or is currently loading) this model, reuse it
+    /// instead of spawning a duplicate that would double the VRAM cost.
     pub async fn spawn_worker_for_agent(
         &self,
         agent_id: &str,
@@ -319,6 +342,7 @@ impl WorkerPool {
             .to_lowercase();
 
         for entry in self.list_entries() {
+            // Reuse a worker that already has this model loaded.
             if let Some(meta) = entry.bridge.model_status().await {
                 let loaded_name = std::path::Path::new(&meta.model_path)
                     .file_name()
@@ -328,6 +352,30 @@ impl WorkerPool {
                 if loaded_name == canonical {
                     self.bind_agent_worker(agent_id, entry.id.clone())?;
                     return Ok(entry.id);
+                }
+            }
+            // Also reuse a worker that is currently LOADING the same model (race-condition
+            // guard: prevents a duplicate spawn when a prior request is mid-load).
+            if entry.bridge.is_loading() {
+                if let Some(loading_path) = entry.bridge.loading_path().await {
+                    let loading_name = std::path::Path::new(&loading_path)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or(&loading_path)
+                        .to_lowercase();
+                    if loading_name == canonical {
+                        // Poll until the in-progress load completes (max 5 min).
+                        for _ in 0..300 {
+                            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                            if !entry.bridge.is_loading() {
+                                break;
+                            }
+                        }
+                        if entry.bridge.model_status().await.is_some() {
+                            self.bind_agent_worker(agent_id, entry.id.clone())?;
+                            return Ok(entry.id);
+                        }
+                    }
                 }
             }
         }
@@ -485,7 +533,14 @@ pub async fn resolve_bridge_for_conversation(
                                 if !bridge.is_generating().await {
                                     return Ok(bridge);
                                 }
-                                // 2b. Global worker is busy → spawn overflow worker.
+                                // 2b. Global worker is busy → spawn overflow only if it's
+                                // generating for a *different* conversation. If it's already
+                                // handling THIS conversation, just reuse it.
+                                if bridge.active_conversation_id().await.as_deref()
+                                    == Some(conv_id)
+                                {
+                                    return Ok(bridge);
+                                }
                                 match pool
                                     .spawn_worker_for_conversation(
                                         conv_id,

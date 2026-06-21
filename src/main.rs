@@ -392,6 +392,14 @@ fn main() {
             commands::hub::delete_hub_download,
             commands::hub::download_hub_model,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                eprintln!("[TAURI] App exiting — shutting down all workers");
+                if let Some(pool) = app_handle.try_state::<web::worker_pool::WorkerPool>() {
+                    pool.shutdown_all();
+                }
+            }
+        });
 }

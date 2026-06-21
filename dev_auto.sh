@@ -1,15 +1,15 @@
 #!/bin/bash
 # Auto-detection script for optimal GPU acceleration
 # Dynamically detects OS, GPU capabilities, and runs the best configuration
-# Usage: ./dev_auto.sh [web|desktop]
+# Usage: ./dev_auto.sh [web|desktop|build]
 
 set -e
 
 # Get mode from first argument, default to web
 MODE=${1:-web}
 
-if [[ "$MODE" != "web" && "$MODE" != "desktop" ]]; then
-    echo "❌ Invalid mode: $MODE. Use 'web' or 'desktop'"
+if [[ "$MODE" != "web" && "$MODE" != "desktop" && "$MODE" != "build" ]]; then
+    echo "❌ Invalid mode: $MODE. Use 'web', 'desktop', or 'build'"
     exit 1
 fi
 
@@ -83,6 +83,8 @@ case "$OS" in
             FEATURES="metal,vision"
             if [[ "$MODE" == "desktop" ]]; then
                 SCRIPT_CMD="tauri:dev:metal"
+            elif [[ "$MODE" == "build" ]]; then
+                SCRIPT_CMD="tauri:build:metal"
             else
                 SCRIPT_CMD="dev:metal"
             fi
@@ -91,6 +93,8 @@ case "$OS" in
             USE_CPU=true
             if [[ "$MODE" == "desktop" ]]; then
                 SCRIPT_CMD="tauri:dev"
+            elif [[ "$MODE" == "build" ]]; then
+                SCRIPT_CMD="tauri:build:cpu"
             else
                 SCRIPT_CMD="dev:cpu"
             fi
@@ -105,6 +109,8 @@ case "$OS" in
             FEATURES="cuda,vision"
             if [[ "$MODE" == "desktop" ]]; then
                 SCRIPT_CMD="tauri:dev:cuda"
+            elif [[ "$MODE" == "build" ]]; then
+                SCRIPT_CMD="tauri:build:cuda"
             else
                 SCRIPT_CMD="dev:cuda"
             fi
@@ -113,6 +119,8 @@ case "$OS" in
             USE_CPU=true
             if [[ "$MODE" == "desktop" ]]; then
                 SCRIPT_CMD="tauri:dev"
+            elif [[ "$MODE" == "build" ]]; then
+                SCRIPT_CMD="tauri:build:cpu"
             else
                 SCRIPT_CMD="dev:cpu"
             fi
@@ -134,17 +142,21 @@ case "$OS" in
         USE_CPU=true
         if [[ "$MODE" == "desktop" ]]; then
             SCRIPT_CMD="tauri:dev"
+        elif [[ "$MODE" == "build" ]]; then
+            SCRIPT_CMD="tauri:build:cpu"
         else
             SCRIPT_CMD="dev:cpu"
         fi
         echo "🔄 Using CPU mode with vision support"
         ;;
-    
+
     *)
         echo "❓ Unknown OS: $OS"
         USE_CPU=true
         if [[ "$MODE" == "desktop" ]]; then
             SCRIPT_CMD="tauri:dev"
+        elif [[ "$MODE" == "build" ]]; then
+            SCRIPT_CMD="tauri:build:cpu"
         else
             SCRIPT_CMD="dev"
         fi

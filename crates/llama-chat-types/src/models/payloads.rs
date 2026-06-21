@@ -46,6 +46,11 @@ pub struct ChatRequest {
     pub image_data: Option<Vec<String>>,
     #[serde(default)]
     pub auto_continue: bool,
+    /// True when the client is reconnecting after a dropped connection and the
+    /// server should NOT start a new generation — just wait for the in-progress
+    /// one to finish and send a synthetic done event.
+    #[serde(default)]
+    pub reconnect: bool,
 }
 
 #[derive(Serialize)]

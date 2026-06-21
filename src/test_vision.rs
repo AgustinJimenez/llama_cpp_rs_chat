@@ -70,6 +70,8 @@ fn main() {
         print_timings: false,
         n_threads: 4,
         media_marker: CString::new("<__media__>").unwrap(),
+        image_min_tokens: -1,
+        image_max_tokens: -1,
     };
 
     match MtmdContext::init_from_file(mmproj_path, &model, &params) {
