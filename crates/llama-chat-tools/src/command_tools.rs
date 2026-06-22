@@ -292,11 +292,10 @@ pub fn tool_find_executable(args: &Value) -> String {
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
         .unwrap_or_default();
-    let local_app = std::env::var("LOCALAPPDATA").unwrap_or_default();
-    let app_data = std::env::var("APPDATA").unwrap_or_default();
-
     #[cfg(target_os = "windows")]
     let candidates: Vec<String> = {
+        let local_app = std::env::var("LOCALAPPDATA").unwrap_or_default();
+        let app_data = std::env::var("APPDATA").unwrap_or_default();
         let exe = format!("{name}.cmd");
         let exe2 = format!("{name}.exe");
         let bare = name.to_string();

@@ -19,7 +19,7 @@ const short = (s: string | null | undefined, n = SHORT_DEFAULT): string => {
   return s;
 };
 
-const mb = (v: number | undefined): string => (v == null ? '—' : `${v} MB`);
+const mb = (v: number | undefined | null): string => (v == null ? '—' : `${v} MB`);
 
 const gb = (v: number | undefined | null): string => (v == null ? '—' : `${v.toFixed(2)} GB`);
 

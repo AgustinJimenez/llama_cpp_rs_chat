@@ -13,6 +13,7 @@ export type ProviderParamsMap = Record<string, Record<string, unknown>>;
 
 interface ModelStatus {
   loaded: boolean;
+  loading?: boolean;
   loading_progress?: number;
   generating?: boolean;
   active_conversation_id?: string;
@@ -29,6 +30,7 @@ interface ModelStatus {
   context_size?: number;
   supports_thinking?: boolean;
   is_agent_model?: boolean;
+  last_finish_reason?: string | null;
 }
 
 // eslint-disable-next-line @typescript-eslint/ban-types
