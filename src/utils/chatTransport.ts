@@ -1,5 +1,6 @@
 import type { ChatRequest } from '../types';
 
+import { getWsAuthParam } from './remoteAuth';
 import { isTauriEnv, notifyIfUnfocused } from './tauri';
 
 export interface TokenBreakdown {
@@ -54,7 +55,7 @@ export interface ChatTransport {
 
 const buildWsUrl = (path: string): string => {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}${path}`;
+  return `${protocol}//${window.location.host}${path}${getWsAuthParam()}`;
 };
 
 const WS_CONNECT_TIMEOUT_MS = 10000;

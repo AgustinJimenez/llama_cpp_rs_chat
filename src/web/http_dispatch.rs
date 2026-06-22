@@ -25,8 +25,8 @@ pub async fn dispatch(
     let path = req.uri().path().to_string();
 
     // Auth: non-localhost requests must carry a valid Bearer token.
-    // Exempt: health check, static assets, CORS preflight, remote status (to show QR),
-    //         and WebSocket upgrades (token passed in URL hash, validated on connect).
+    // Browsers cannot set custom headers on WebSocket upgrades, so WS endpoints
+    // accept the token via the `?token=<value>` query parameter instead.
     let is_local = peer_addr.ip().is_loopback()
         && req.headers().get("x-forwarded-for").is_none();
     // Paths that never need a token
@@ -37,14 +37,26 @@ pub async fn dispatch(
         || path.ends_with(".ico")
         || path.ends_with(".png")
         || path == "/"
-        || method == Method::OPTIONS
-        || path.starts_with("/ws/"); // WS token handled separately
+        || method == Method::OPTIONS;
 
     if !is_local && !auth_exempt {
         if let Some(token) = db.get_remote_access_token() {
             if !token.is_empty() {
-                let auth_header = req.headers().get("authorization").and_then(|v| v.to_str().ok());
-                if !remote::check_bearer_token(auth_header, &token) {
+                // Accept Bearer token from the Authorization header (REST) or
+                // from ?token=<value> query param (WebSocket — browsers can't set headers).
+                let auth_header = req.headers()
+                    .get("authorization")
+                    .and_then(|v| v.to_str().ok())
+                    .map(|s| s.to_string())
+                    .or_else(|| {
+                        req.uri().query().and_then(|q| {
+                            q.split('&').find_map(|pair| {
+                                let (k, v) = pair.split_once('=')?;
+                                if k == "token" { Some(format!("Bearer {v}")) } else { None }
+                            })
+                        })
+                    });
+                if !remote::check_bearer_token(auth_header.as_deref(), &token) {
                     return Ok(Response::builder()
                         .status(StatusCode::UNAUTHORIZED)
                         .header("www-authenticate", "Bearer")

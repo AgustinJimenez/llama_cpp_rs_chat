@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
+import { getWsAuthParam } from '../utils/remoteAuth';
 import { isTauriEnv } from '../utils/tauri';
 
 import { ConnectionContext } from './connectionState';
@@ -38,7 +39,7 @@ export const ConnectionProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (!mountedRef.current) return;
 
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(`${protocol}//${window.location.host}/ws/status`);
+      const ws = new WebSocket(`${protocol}//${window.location.host}/ws/status${getWsAuthParam()}`);
       wsRef.current = ws;
 
       ws.onopen = () => {

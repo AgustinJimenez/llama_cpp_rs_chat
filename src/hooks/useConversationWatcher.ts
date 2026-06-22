@@ -7,6 +7,7 @@ const MIN_CONTEXT_SIZE_WARNING = 4096;
 import type { Message } from '../types';
 import { parseConversationFile } from '../utils/conversationParser';
 import { processConversationMessages } from '../utils/messageUtils';
+import { getWsAuthParam } from '../utils/remoteAuth';
 import { isTauriEnv } from '../utils/tauri';
 import { getConversation } from '../utils/tauriCommands';
 import { logToastError, logToastWarning } from '../utils/toastLogger';
@@ -306,7 +307,7 @@ export function useConversationWatcher({
     let shouldReconnect = true;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/conversation/watch/${currentConversationId}`;
+    const wsUrl = `${protocol}//${window.location.host}/ws/conversation/watch/${currentConversationId}${getWsAuthParam()}`;
     let ws: WebSocket | null = null;
     const updateOpts = { isStreamingRef, setMessages, setIsLoading, setTokensUsed, setMaxTokens };
 

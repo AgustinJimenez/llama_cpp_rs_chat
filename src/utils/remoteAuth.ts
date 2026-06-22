@@ -31,3 +31,15 @@ export function getAuthHeaders(): Record<string, string> {
   if (!token) return {};
   return { Authorization: `Bearer ${token}` };
 }
+
+/**
+ * Return a query string suffix for WebSocket URLs.
+ * Browsers cannot set custom headers on WS upgrades, so the token is
+ * passed as ?token=<value> instead.
+ * Returns '' when no token is stored (localhost use).
+ */
+export function getWsAuthParam(): string {
+  const token = getRemoteToken();
+  if (!token) return '';
+  return `?token=${encodeURIComponent(token)}`;
+}
