@@ -332,7 +332,7 @@ pub fn tool_find_executable(args: &Value) -> String {
             let parent = std::path::Path::new(prefix).parent().unwrap_or(std::path::Path::new(prefix));
             if let Ok(entries) = std::fs::read_dir(parent) {
                 for entry in entries.filter_map(|e| e.ok()) {
-                    let suffix = candidate.splitn(2, '*').nth(1).unwrap_or("");
+                    let suffix = candidate.split_once('*').map(|x| x.1).unwrap_or("");
                     let full = entry.path().to_string_lossy().to_string() + suffix;
                     let p = std::path::Path::new(&full);
                     if p.exists() {
