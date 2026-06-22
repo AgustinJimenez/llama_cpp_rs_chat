@@ -11,7 +11,8 @@ pub fn start(port: u16, local_ip: &str, hostname: &str) -> Option<ServiceDaemon>
     let daemon = ServiceDaemon::new().ok()?;
 
     let host_fqdn = format!("{hostname}.local.");
-    let properties = [("port", port.to_string().as_str())];
+    let properties: std::collections::HashMap<String, String> =
+        [("port".to_string(), port.to_string())].into_iter().collect();
 
     let info = ServiceInfo::new(
         SERVICE_TYPE,
@@ -19,7 +20,7 @@ pub fn start(port: u16, local_ip: &str, hostname: &str) -> Option<ServiceDaemon>
         &host_fqdn,
         local_ip,
         port,
-        Some(&properties),
+        Some(properties),
     )
     .ok()?;
 

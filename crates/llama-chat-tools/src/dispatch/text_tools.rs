@@ -7,6 +7,27 @@ use crate::search_tools;
 use crate::{DispatchContext, McpManagerOps};
 use super::todo_store;
 
+// RTK compresses output for specific developer tooling only. Applying it to arbitrary
+// commands (mkdir, python, cd, etc.) breaks Windows shell builtins and `&&` chains
+// because RTK doesn't know those commands and its fallback can't find non-exe builtins.
+fn rtk_prefix_for_tool(cmd: &str) -> String {
+    const RTK_COMMANDS: &[&str] = &[
+        "git", "cargo", "npm", "npx", "pnpm", "yarn", "bun",
+        "tsc", "vitest", "playwright", "jest", "pytest",
+        "prettier", "eslint", "biome", "lint",
+        "docker", "kubectl", "gh",
+    ];
+    let has_shell_ops = cmd.contains("&&") || cmd.contains("||")
+        || cmd.contains(" | ") || cmd.contains(';')
+        || cmd.contains('>') || cmd.contains('<');
+    let first = cmd.split_whitespace().next().unwrap_or("");
+    if !has_shell_ops && RTK_COMMANDS.contains(&first) {
+        llama_chat_command::rtk_prefix(cmd)
+    } else {
+        cmd.to_string()
+    }
+}
+
 pub(super) fn dispatch_text_tool(
     name: &str,
     args: &Value,
@@ -30,7 +51,7 @@ pub(super) fn dispatch_text_tool(
             if command.is_empty() {
                 return Some("Error: 'command' argument is required".to_string());
             }
-            let command = llama_chat_command::rtk_prefix(command);
+            let command = rtk_prefix_for_tool(command);
             let is_background = args
                 .get("background")
                 .and_then(|v| v.as_bool())
@@ -52,7 +73,7 @@ pub(super) fn dispatch_text_tool(
             if command.is_empty() {
                 return Some("Error: 'command' argument is required".to_string());
             }
-            let command = llama_chat_command::rtk_prefix(command);
+            let command = rtk_prefix_for_tool(command);
             llama_chat_command::execute_command_pty(&command, None, |_: &str| {})
         }
         "check_background_process" => {

@@ -26,7 +26,7 @@ pub async fn enable(local_ip: Ipv4Addr, local_port: u16) -> Result<RemoteAccess,
 
     // 2. Request port mapping (0 = no expiry)
     let ext_port = gateway
-        .add_any_port(PortMappingProtocol::TCP, local_addr, 0, MAPPING_DESCRIPTION)
+        .add_any_port(PortMappingProtocol::TCP, std::net::SocketAddr::V4(local_addr), 0, MAPPING_DESCRIPTION)
         .await
         .map_err(|e| format!("UPnP port mapping failed: {e}"))?;
 

@@ -297,7 +297,12 @@ pub fn execute_command(cmd: &str) -> String {
                 } else if stdout.is_empty() && stderr.is_empty() && o.status.success() {
                     format!("Command executed successfully (no output){annotation}")
                 } else if stdout.is_empty() && stderr.is_empty() && !o.status.success() {
-                    format!("Command failed with exit code {exit_code} and produced no output. The command may have found no matches or encountered a silent error.{annotation}")
+                    let cd_hint = if cmd.contains("&&") && cmd.trim_start().starts_with("cd ") {
+                        " If using 'cd path && command', use the full path directly instead: e.g. 'python C:/full/path/script.py'."
+                    } else {
+                        ""
+                    };
+                    format!("Command failed with exit code {exit_code} and produced no output.{cd_hint}{annotation}")
                 } else {
                     let combined = format!("{stdout}{stderr}");
                     if combined.trim().is_empty() {

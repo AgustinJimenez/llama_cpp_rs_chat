@@ -1,5 +1,27 @@
 use super::*;
 
+/// Strip trailing EOS/end-of-turn artifacts that some models append verbatim.
+/// Qwen3 appends `[/SELF-CHECK]<|im_end|>`, Llama3 appends `<|eot_id|>`, etc.
+fn strip_trailing_eos_artifacts(s: &str) -> &str {
+    const SUFFIXES: &[&str] = &[
+        "<|im_end|>", "<|endoftext|>", "<|eot_id|>", "</s>", "[/SELF-CHECK]",
+    ];
+    let mut s = s.trim();
+    loop {
+        let mut changed = false;
+        for &suffix in SUFFIXES {
+            if let Some(trimmed) = s.trim_end().strip_suffix(suffix) {
+                s = trimmed.trim_end();
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    s
+}
+
 /// Output from a generation run, including timing metrics.
 pub struct GenerationOutput {
     #[allow(dead_code)]
@@ -53,7 +75,7 @@ pub(super) fn build_generation_output(
     tool_def_token_count: i32,
 ) -> GenerationOutput {
     GenerationOutput {
-        response: gen.response.trim().to_string(),
+        response: strip_trailing_eos_artifacts(&gen.response).to_string(),
         tokens_used: token_pos,
         max_tokens: context_size as i32,
         finish_reason: gen.finish_reason.clone(),
