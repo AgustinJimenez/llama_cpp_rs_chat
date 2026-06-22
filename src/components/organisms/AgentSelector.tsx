@@ -138,6 +138,8 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
     deleteAgent,
     agentStatuses,
     fetchAgentStatuses,
+    activateAgent,
+    setStagedAgent,
   } = useAgentContext();
 
   // ── Navigation ────────────────────────────────────────────────────────────
@@ -851,9 +853,9 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                           </div>
                         </div>
                         <div className="flex flex-shrink-0 items-center gap-1">
-                          {/* Play — select this agent */}
+                          {/* Play — stage + pre-warm this agent */}
                           <button
-                            onClick={() => { void activateAgent(agent.id); onClose(); }}
+                            onClick={() => { setStagedAgent(agent); void activateAgent(agent.id).catch(() => {}); onClose(); }}
                             title={t('agentSelector.active')}
                             className="rounded p-1.5 text-emerald-400 transition-colors hover:bg-emerald-500/10 hover:text-emerald-300"
                           >
