@@ -5,6 +5,8 @@ import {
   Cloud,
   Plus,
   Pencil,
+  Play,
+  MoreHorizontal,
   Trash2,
   X,
   ChevronLeft,
@@ -167,6 +169,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [apiKeyInputs, setApiKeyInputs] = useState<ApiKeyMap>({});
   const [savingProvider, setSavingProvider] = useState<string | null>(null);
@@ -296,6 +299,7 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
       setMmprojPath('');
       setIsConfigExpanded(true);
       setConfirmDeleteId(null);
+      setOpenMenuId(null);
       autoOptimizedForPath.current = '';
     }
   }, [isOpen]);
@@ -847,21 +851,49 @@ export const AgentSelector = ({ isOpen, onClose }: AgentSelectorProps) => {
                           </div>
                         </div>
                         <div className="flex flex-shrink-0 items-center gap-1">
+                          {/* Play — select this agent */}
                           <button
-                            onClick={() => openEdit(agent)}
-                            title={t('agentSelector.editAgent')}
-                            className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                            onClick={() => { void activateAgent(agent.id); onClose(); }}
+                            title={t('agentSelector.active')}
+                            className="rounded p-1.5 text-emerald-400 transition-colors hover:bg-emerald-500/10 hover:text-emerald-300"
                           >
-                            <Pencil className="size-3.5" />
+                            <Play className="size-3.5 fill-current" />
                           </button>
-                          <button
-                            onClick={() => handleDelete(agent.id)}
-                            disabled={deletingId === agent.id}
-                            title={deleteTitle}
-                            className={`rounded p-1.5 transition-colors ${isConfirmDelete ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' : 'text-muted-foreground hover:bg-muted hover:text-red-400'}`}
-                          >
-                            <Trash2 className="size-3.5" />
-                          </button>
+
+                          {/* 3-dot menu — inline toggle to avoid overflow-y-auto clipping on mobile */}
+                          {openMenuId === agent.id && (
+                            <>
+                              <button
+                                onClick={() => { openEdit(agent); setOpenMenuId(null); }}
+                                title={t('agentSelector.editAgent')}
+                                className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                              >
+                                <Pencil className="size-3.5" />
+                              </button>
+                              <button
+                                onClick={() => { void handleDelete(agent.id); setOpenMenuId(null); }}
+                                disabled={deletingId === agent.id}
+                                title={deleteTitle}
+                                className={`rounded p-1.5 transition-colors ${isConfirmDelete ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' : 'text-muted-foreground hover:bg-muted hover:text-red-400'}`}
+                              >
+                                <Trash2 className="size-3.5" />
+                              </button>
+                              <button
+                                onClick={() => setOpenMenuId(null)}
+                                className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted"
+                              >
+                                <X className="size-3.5" />
+                              </button>
+                            </>
+                          )}
+                          {openMenuId !== agent.id && (
+                            <button
+                              onClick={() => setOpenMenuId(agent.id)}
+                              className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                            >
+                              <MoreHorizontal className="size-3.5" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
